@@ -509,37 +509,27 @@ export default function DadosPage() {
             if(!mostrarTodos && contasVisiveis.length===0) return null;
             return(
               <Card key={grupo.grupo}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                   <div style={{width:10,height:10,borderRadius:3,background:grupo.cor}}/>
                   <div style={{fontSize:13,fontWeight:600,color:grupo.cor}}>{grupo.grupo}</div>
                   <div style={{fontSize:10,color:TXD}}>({grupo.contas.filter(c=>custosAtivos[c.id]).length} ativas)</div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr",gap:2}}>
-                  {(mostrarTodos?grupo.contas:contasVisiveis).map(conta=>(
-                    <div key={conta.id} style={{background:custosAtivos[conta.id]?BG3:"transparent",borderRadius:8,padding:custosAtivos[conta.id]?"10px 10px":"6px 10px",marginBottom:4,border:`0.5px solid ${custosAtivos[conta.id]?BD:"transparent"}`}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <input type="checkbox" checked={!!custosAtivos[conta.id]} onChange={e=>{
-                          setCustosAtivos({...custosAtivos,[conta.id]:e.target.checked});
-                          if(!e.target.checked) { const n={...custos}; delete n[conta.id]; setCustos(n); }
-                        }} style={{accentColor:GO,flexShrink:0}}/>
-                        <span style={{fontSize:12,color:custosAtivos[conta.id]?TX:TXD,flex:1,fontWeight:custosAtivos[conta.id]?500:400}}>{conta.nome}</span>
-                        {custosAtivos[conta.id]&&(
-                          <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{fontSize:10,color:TXD}}>R$</span>
-                            <input type="number" value={custos[conta.id]||""} onChange={e=>setCustos({...custos,[conta.id]:e.target.value})}
-                              placeholder="0" style={{background:BG2,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"5px 8px",fontSize:13,width:110,textAlign:"right"}}/>
-                          </div>
-                        )}
+                {(mostrarTodos?grupo.contas:contasVisiveis).map(conta=>(
+                  <div key={conta.id} title={conta.desc||""} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 4px",borderBottom:`0.5px solid ${BD}20`,cursor:"default"}}>
+                    <input type="checkbox" checked={!!custosAtivos[conta.id]} onChange={e=>{
+                      setCustosAtivos({...custosAtivos,[conta.id]:e.target.checked});
+                      if(!e.target.checked) { const n={...custos}; delete n[conta.id]; setCustos(n); }
+                    }} style={{accentColor:GO,width:16,height:16,flexShrink:0}}/>
+                    <span style={{fontSize:12,color:custosAtivos[conta.id]?TX:TXD,flex:1}}>{conta.nome}</span>
+                    {custosAtivos[conta.id]&&(
+                      <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                        <span style={{fontSize:10,color:TXD}}>R$</span>
+                        <input type="number" value={custos[conta.id]||""} onChange={e=>setCustos({...custos,[conta.id]:e.target.value})}
+                          placeholder="0" style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:4,padding:"5px 8px",fontSize:13,width:120,textAlign:"right",fontWeight:600}}/>
                       </div>
-                      {custosAtivos[conta.id]&&conta.desc&&(
-                        <div style={{fontSize:10,color:TXM,marginTop:4,marginLeft:26,lineHeight:1.5,fontStyle:"italic"}}>{conta.desc}</div>
-                      )}
-                      {!custosAtivos[conta.id]&&mostrarTodos&&conta.desc&&(
-                        <div style={{fontSize:9,color:TXD,marginTop:2,marginLeft:26,lineHeight:1.4}}>{conta.desc}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                    )}
+                  </div>
+                ))}
               </Card>
             );
           })}
