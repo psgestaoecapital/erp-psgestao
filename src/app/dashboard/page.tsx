@@ -465,130 +465,161 @@ export default function DashboardPage(){
       <Tit t="Mapa de Custos — Do maior para o menor (clique para abrir)"/>
       <Card p="8px">
         <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:700}}>
             <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
-              {["Grupo de Custo","Jan","Fev","Mar","Total 1T","% do Faturamento"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:h==="Grupo de Custo"?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
+              {["Grupo de Custo","Total 1T","Orçado 1T","Desvio","% Fat.","Análise e Sugestão da IA"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:h==="Grupo de Custo"||h==="Análise e Sugestão da IA"?"left":"right",color:GOL,fontSize:9,letterSpacing:0.3}}>{h}</th>)}
             </tr></thead>
             <tbody>
               {[
-                {id:"cg_prod",g:"Produtos e Insumos",t_n:3138770,j:"1.090.490",f:"519.160",m:"1.529.120",t:"3.138.770",p:"48,3%",cor:R,
+                {id:"cg_prod",g:"Produtos e Insumos",t_n:3138770,t:"3.138.770",orc:"2.974.500",orc_n:2974500,p:"48,3%",cor:R,
+                  ia:"⚠ R$ 164K ACIMA do orçado. Custo dos painéis subiu 5% com câmbio. Renegociar com Risen e Canadian para contrato anual com preço fixo. Avaliar fornecedor nacional (BYD Manaus) para reduzir exposição ao dólar. Meta: voltar para 45% do faturamento.",
                   subs:[
-                    {c:"Painéis solares (Risen, Canadian, JA)",j:"654.290",f:"311.496",m:"917.470",t:"1.883.256"},
-                    {c:"Inversores (Growatt, Fronius)",j:"218.100",f:"103.832",m:"305.824",t:"627.756"},
-                    {c:"Estruturas de fixação",j:"109.050",f:"51.916",m:"152.912",t:"313.878"},
-                    {c:"Cabos, conectores e proteções",j:"76.334",f:"36.341",m:"107.038",t:"219.713"},
-                    {c:"Outros materiais e componentes",j:"32.716",f:"15.575",m:"45.876",t:"94.167"},
+                    {c:"Painéis solares (Risen, Canadian, JA)",t:"1.883.256",orc:"1.780.000"},
+                    {c:"Inversores (Growatt, Fronius)",t:"627.756",orc:"610.000"},
+                    {c:"Estruturas de fixação",t:"313.878",orc:"300.000"},
+                    {c:"Cabos, conectores e proteções",t:"219.713",orc:"204.500"},
+                    {c:"Outros materiais e componentes",t:"94.167",orc:"80.000"},
                   ]},
-                {id:"cg_pess",g:"Pessoas (folha completa)",t_n:825500,j:"274.500",f:"275.200",m:"276.300",t:"825.500",p:"12,7%",cor:Y,
+                {id:"cg_pess",g:"Pessoas (folha completa)",t_n:825500,t:"825.500",orc:"810.000",orc_n:810000,p:"12,7%",cor:Y,
+                  ia:"Ligeiramente acima (+R$ 15,5K) por hora extra em março (projetos de usina). Dentro do aceitável. Atenção: equipe de Usinas (10 pessoas, R$ 68K/mês) ficou ociosa em fevereiro. Considerar contrato flexível para 3 instaladores de usina — fixo nos meses com projeto, dispensados nos meses sem.",
                   subs:[
-                    {c:"Equipe direta dos 6 negócios (38 pessoas)",j:"228.000",f:"228.000",m:"228.000",t:"684.000"},
-                    {c:"Equipe administrativa (8 pessoas)",j:"28.500",f:"29.200",m:"29.800",t:"87.500"},
-                    {c:"Pró-labore dos sócios (3 sócios)",j:"18.000",f:"18.000",m:"18.500",t:"54.500"},
+                    {c:"Equipe direta dos 6 negócios (38 pessoas)",t:"684.000",orc:"660.000"},
+                    {c:"Equipe administrativa (8 pessoas)",t:"87.500",orc:"96.000"},
+                    {c:"Pró-labore dos sócios (3 sócios)",t:"54.500",orc:"54.000"},
                   ]},
-                {id:"cg_enc",g:"Encargos e Benefícios",t_n:54500,j:"17.800",f:"18.200",m:"18.500",t:"54.500",p:"0,8%",cor:TXM,
+                {id:"cg_com",g:"Comissões e Vendas",t_n:355000,t:"355.000",orc:"320.000",orc_n:320000,p:"5,5%",cor:Y,
+                  ia:"⚠ R$ 35K acima do orçado porque o faturamento superou a meta em 9%. Comissão proporcional é esperada. Porém, revisar política: comissão sobre faturamento bruto não incentiva margem. Mudar para comissão sobre margem direta — vendedor passa a buscar projetos mais rentáveis, não apenas maiores.",
                   subs:[
-                    {c:"INSS patronal",j:"8.200",f:"8.400",m:"8.500",t:"25.100"},
-                    {c:"FGTS",j:"4.800",f:"4.900",m:"5.000",t:"14.700"},
-                    {c:"Vale refeição / alimentação",j:"2.800",f:"2.900",m:"3.000",t:"8.700"},
-                    {c:"Plano de saúde",j:"1.200",f:"1.200",m:"1.200",t:"3.600"},
-                    {c:"Vale transporte",j:"800",f:"800",m:"800",t:"2.400"},
+                    {c:"Comissões vendedores (% sobre venda)",t:"245.000",orc:"220.000"},
+                    {c:"Bônus por meta atingida",t:"58.000",orc:"52.000"},
+                    {c:"Premiações e incentivos",t:"52.000",orc:"48.000"},
                   ]},
-                {id:"cg_com",g:"Comissões e Vendas",t_n:355000,j:"120.000",f:"67.000",m:"168.000",t:"355.000",p:"5,5%",cor:Y,
+                {id:"cg_imp",g:"Impostos sobre Vendas",t_n:328420,t:"328.420",orc:"297.450",orc_n:297450,p:"5,1%",cor:Y,
+                  ia:"Proporcional ao faturamento — sem ação corretiva. Porém, avaliar com contabilidade se o regime de Lucro Presumido ainda é o mais vantajoso. Com lucro de 10,2%, o Lucro Real pode gerar economia de R$ 40-80K/ano dependendo da composição dos custos dedutíveis.",
                   subs:[
-                    {c:"Comissões vendedores (% sobre venda)",j:"85.000",f:"42.000",m:"118.000",t:"245.000"},
-                    {c:"Bônus por meta atingida",j:"20.000",f:"10.000",m:"28.000",t:"58.000"},
-                    {c:"Premiações e incentivos",j:"15.000",f:"15.000",m:"22.000",t:"52.000"},
+                    {c:"ISS / ICMS",t:"162.500",orc:"148.000"},
+                    {c:"COFINS",t:"123.425",orc:"112.000"},
+                    {c:"PIS",t:"42.495",orc:"37.450"},
                   ]},
-                {id:"cg_terc",g:"Terceirização e Serviços",t_n:252000,j:"85.000",f:"52.000",m:"115.000",t:"252.000",p:"3,9%",cor:TXM,
+                {id:"cg_log",g:"Frete e Logística",t_n:296215,t:"296.215",orc:"270.000",orc_n:270000,p:"4,6%",cor:Y,
+                  ia:"⚠ R$ 26K acima. Frete da Loja Online (R$ 44K grátis para cliente) é o principal desvio — representa 15% do custo total de frete para gerar apenas 2% do faturamento. Encerrar frete grátis ou descontinuar Loja Online elimina este desvio. Negociar contrato com transportadora regional para entregas locais.",
                   subs:[
-                    {c:"Instaladores terceirizados",j:"52.000",f:"28.000",m:"72.000",t:"152.000"},
-                    {c:"Eletricistas especializados",j:"18.000",f:"12.000",m:"25.000",t:"55.000"},
-                    {c:"Engenharia e projetos externos",j:"15.000",f:"12.000",m:"18.000",t:"45.000"},
+                    {c:"Frete de equipamentos (fornecedor→sede)",t:"154.000",orc:"148.000"},
+                    {c:"Frete de entrega (sede→cliente)",t:"98.215",orc:"92.000"},
+                    {c:"Frete Loja Online (grátis para cliente)",t:"44.000",orc:"30.000"},
                   ]},
-                {id:"cg_log",g:"Frete e Logística",t_n:296215,j:"98.200",f:"62.724",m:"135.291",t:"296.215",p:"4,6%",cor:Y,
+                {id:"cg_terc",g:"Terceirização e Serviços",t_n:252000,t:"252.000",orc:"240.000",orc_n:240000,p:"3,9%",cor:TXM,
+                  ia:"Dentro do esperado (+R$ 12K). Custo aumenta proporcionalmente aos projetos de usina em março. Recomendação: formalizar contrato com 2-3 equipes terceirizadas com preço fechado por projeto — evita surpresas e garante disponibilidade nos meses de pico.",
                   subs:[
-                    {c:"Frete de equipamentos (fornecedor→sede)",j:"52.000",f:"30.000",m:"72.000",t:"154.000"},
-                    {c:"Frete de entrega (sede→cliente)",j:"32.200",f:"22.724",m:"43.291",t:"98.215"},
-                    {c:"Frete Loja Online (grátis para cliente)",j:"14.000",f:"10.000",m:"20.000",t:"44.000"},
+                    {c:"Instaladores terceirizados",t:"152.000",orc:"145.000"},
+                    {c:"Eletricistas especializados",t:"55.000",orc:"52.000"},
+                    {c:"Engenharia e projetos externos",t:"45.000",orc:"43.000"},
                   ]},
-                {id:"cg_mkt",g:"Marketing (direto + institucional)",t_n:229300,j:"75.800",f:"50.000",m:"103.500",t:"229.300",p:"3,5%",cor:TXM,
+                {id:"cg_mkt",g:"Marketing (direto + institucional)",t_n:229300,t:"229.300",orc:"210.000",orc_n:210000,p:"3,5%",cor:TXM,
+                  ia:"R$ 19K acima, mas gerou 9% a mais de faturamento — ROI positivo. Porém, R$ 18K/mês da Loja Online em marketing digital gera prejuízo. Realocar esse valor para: captação de contratos O&M (R$ 10K) e prospecção de projetos comerciais (R$ 8K). Retorno estimado: +R$ 150K/ano.",
                   subs:[
-                    {c:"Marketing direto dos negócios",j:"68.000",f:"42.000",m:"95.000",t:"205.000"},
-                    {c:"Marketing institucional (marca)",j:"7.800",f:"8.000",m:"8.500",t:"24.300"},
+                    {c:"Marketing direto dos negócios",t:"205.000",orc:"190.000"},
+                    {c:"Marketing institucional (marca)",t:"24.300",orc:"20.000"},
                   ]},
-                {id:"cg_imp",g:"Impostos sobre Vendas",t_n:328420,j:"111.420",f:"59.190",m:"157.810",t:"328.420",p:"5,1%",cor:Y,
+                {id:"cg_fin",g:"Financeiro (juros, parcelas, IR)",t_n:61200,t:"61.200",orc:"65.000",orc_n:65000,p:"0,9%",cor:TXM,
+                  ia:"✓ R$ 3,8K ABAIXO do orçado. Juros diminuindo com amortização do Sicoob. Rendimentos de aplicações subindo (R$ 6,4K no tri). Manter estratégia atual: não antecipar BNDES (1,2% a.m. < rendimento aplicação) e acelerar Sicoob que será quitado em 10 meses.",
                   subs:[
-                    {c:"ISS / ICMS",j:"55.660",f:"28.605",m:"78.235",t:"162.500"},
-                    {c:"COFINS",j:"41.190",f:"23.105",m:"59.130",t:"123.425"},
-                    {c:"PIS",j:"14.570",f:"7.480",m:"20.445",t:"42.495"},
+                    {c:"Impostos sobre o lucro (IR/CSLL)",t:"37.000",orc:"38.000"},
+                    {c:"Parcelas de consórcio",t:"18.000",orc:"18.000"},
+                    {c:"Juros de empréstimos",t:"12.600",orc:"14.000"},
+                    {c:"(-) Rendimentos de aplicações",t:"(6.400)",orc:"(5.000)"},
                   ]},
-                {id:"cg_veic",g:"Veículos e Deslocamento",t_n:42100,j:"13.800",f:"14.100",m:"14.200",t:"42.100",p:"0,6%",cor:TXM,
+                {id:"cg_enc",g:"Encargos e Benefícios",t_n:54500,t:"54.500",orc:"55.000",orc_n:55000,p:"0,8%",cor:TXM,
+                  ia:"✓ Dentro do orçado. Recomendação: avaliar plano de saúde coletivo por adesão (economia de 20-30% vs individual). Considerar vale alimentação via cartão flexível (iFood Benefícios) — mesma vantagem fiscal com maior satisfação da equipe.",
                   subs:[
-                    {c:"Combustível (frota 6 veículos)",j:"7.200",f:"7.400",m:"7.500",t:"22.100"},
-                    {c:"Manutenção e revisões",j:"3.800",f:"3.900",m:"3.900",t:"11.600"},
-                    {c:"Seguro dos veículos",j:"2.800",f:"2.800",m:"2.800",t:"8.400"},
+                    {c:"INSS patronal",t:"25.100",orc:"25.000"},
+                    {c:"FGTS",t:"14.700",orc:"15.000"},
+                    {c:"Vale refeição / alimentação",t:"8.700",orc:"9.000"},
+                    {c:"Plano de saúde",t:"3.600",orc:"3.600"},
+                    {c:"Vale transporte",t:"2.400",orc:"2.400"},
                   ]},
-                {id:"cg_ocup",g:"Ocupação (sede e estrutura física)",t_n:39700,j:"13.200",f:"13.300",m:"13.200",t:"39.700",p:"0,6%",cor:TXM,
+                {id:"cg_seg",g:"Seguros, Taxas e Outros",t_n:45100,t:"45.100",orc:"42.000",orc_n:42000,p:"0,7%",cor:TXM,
+                  ia:"Taxas de cartão subiram R$ 1,7K com aumento de vendas no crédito. Negociar taxa com Stone/PagSeguro — acima de R$ 200K/mês de faturamento no cartão, a taxa deve ser 2,5% e não 3,2%. Economia estimada: R$ 14K/ano. Contratar seguro RC profissional (obrigatório para instalações elétricas).",
                   subs:[
-                    {c:"Aluguel da sede",j:"8.500",f:"8.500",m:"8.500",t:"25.500"},
-                    {c:"Energia elétrica",j:"2.800",f:"2.900",m:"2.800",t:"8.500"},
-                    {c:"Internet e telefonia",j:"1.200",f:"1.200",m:"1.200",t:"3.600"},
-                    {c:"Água e limpeza",j:"700",f:"700",m:"700",t:"2.100"},
+                    {c:"Taxas de cartão de crédito/débito",t:"17.700",orc:"15.000"},
+                    {c:"Seguros (empresa + RC profissional)",t:"9.600",orc:"9.600"},
+                    {c:"Perdas e quebras",t:"7.900",orc:"7.400"},
+                    {c:"Outros custos diversos",t:"9.900",orc:"10.000"},
                   ]},
-                {id:"cg_adm",g:"Administrativo e Assessorias",t_n:40500,j:"13.200",f:"13.500",m:"13.800",t:"40.500",p:"0,6%",cor:TXM,
+                {id:"cg_veic",g:"Veículos e Deslocamento",t_n:42100,t:"42.100",orc:"40.000",orc_n:40000,p:"0,6%",cor:TXM,
+                  ia:"Ligeiramente acima (+R$ 2,1K). Combustível é o principal componente. Avaliar roteirização das visitas técnicas de manutenção (agrupar por região/dia) — pode reduzir 15-20% do consumo de combustível. Considerar 1 veículo elétrico para visitas urbanas — economia de R$ 800/mês em combustível.",
                   subs:[
-                    {c:"Contabilidade",j:"4.500",f:"4.500",m:"4.500",t:"13.500"},
-                    {c:"Assessoria jurídica",j:"3.200",f:"3.500",m:"3.800",t:"10.500"},
-                    {c:"Assessoria financeira (PS Gestão)",j:"2.500",f:"2.500",m:"2.500",t:"7.500"},
-                    {c:"Softwares e sistemas (Omie, etc)",j:"3.000",f:"3.000",m:"3.000",t:"9.000"},
+                    {c:"Combustível (frota 6 veículos)",t:"22.100",orc:"21.000"},
+                    {c:"Manutenção e revisões",t:"11.600",orc:"11.000"},
+                    {c:"Seguro dos veículos",t:"8.400",orc:"8.000"},
                   ]},
-                {id:"cg_seg",g:"Seguros, Taxas e Outros",t_n:45100,j:"14.400",f:"14.900",m:"15.800",t:"45.100",p:"0,7%",cor:TXM,
+                {id:"cg_adm",g:"Administrativo e Assessorias",t_n:40500,t:"40.500",orc:"39.000",orc_n:39000,p:"0,6%",cor:TXM,
+                  ia:"✓ Controlado. O investimento em assessoria financeira (PS Gestão R$ 7,5K/tri) gera retorno comprovado: a análise de rateio revelou R$ 520K/ano de oportunidade em repricing. Softwares (Omie R$ 3K/tri) adequados para o porte. Avaliar CRM (Pipedrive ou RD Station CRM) para gestão de propostas — custo R$ 500/mês, retorno estimado +R$ 200K/ano em conversão.",
                   subs:[
-                    {c:"Taxas de cartão de crédito/débito",j:"5.600",f:"5.800",m:"6.300",t:"17.700"},
-                    {c:"Seguros (empresa + RC profissional)",j:"3.200",f:"3.200",m:"3.200",t:"9.600"},
-                    {c:"Perdas e quebras",j:"2.400",f:"2.700",m:"2.800",t:"7.900"},
-                    {c:"Outros custos diversos",j:"3.200",f:"3.200",m:"3.500",t:"9.900"},
+                    {c:"Contabilidade",t:"13.500",orc:"13.500"},
+                    {c:"Assessoria jurídica",t:"10.500",orc:"9.000"},
+                    {c:"Assessoria financeira (PS Gestão)",t:"7.500",orc:"7.500"},
+                    {c:"Softwares e sistemas (Omie, etc)",t:"9.000",orc:"9.000"},
                   ]},
-                {id:"cg_fin",g:"Financeiro (juros, parcelas, IR)",t_n:61200,j:"20.400",f:"19.000",m:"21.800",t:"61.200",p:"0,9%",cor:TXM,
+                {id:"cg_ocup",g:"Ocupação (sede e estrutura física)",t_n:39700,t:"39.700",orc:"39.000",orc_n:39000,p:"0,6%",cor:TXM,
+                  ia:"✓ Custo fixo estável e controlado. Aluguel de R$ 8,5K/mês para sede em Chapecó é adequado. Instalar energia solar na própria sede (5kWp) eliminaria R$ 2,8K/mês de energia — payback de 18 meses e benefício permanente. Seria também vitrine para clientes visitantes.",
                   subs:[
-                    {c:"Impostos sobre o lucro (IR/CSLL)",j:"12.000",f:"11.000",m:"14.000",t:"37.000"},
-                    {c:"Parcelas de consórcio",j:"6.000",f:"6.000",m:"6.000",t:"18.000"},
-                    {c:"Juros de empréstimos",j:"4.200",f:"4.100",m:"4.300",t:"12.600"},
-                    {c:"(-) Rendimentos de aplicações",j:"(1.800)",f:"(2.100)",m:"(2.500)",t:"(6.400)"},
+                    {c:"Aluguel da sede",t:"25.500",orc:"25.500"},
+                    {c:"Energia elétrica",t:"8.500",orc:"8.000"},
+                    {c:"Internet e telefonia",t:"3.600",orc:"3.600"},
+                    {c:"Água e limpeza",t:"2.100",orc:"1.900"},
                   ]},
               ].sort((a,b)=>b.t_n-a.t_n).map((g:any)=>{
                 const aberto=custoAberto[g.id];
+                const desvio=g.t_n-g.orc_n;
+                const desvio_p=((desvio/g.orc_n)*100).toFixed(1);
                 return(<>
-                  <tr key={g.id} onClick={()=>setCustoAberto({...custoAberto,[g.id]:!aberto})} style={{borderBottom:`0.5px solid ${BD}40`,cursor:"pointer"}}>
-                    <td style={{padding:"7px 6px",fontWeight:600,color:TX}}>
+                  <tr key={g.id} onClick={()=>setCustoAberto({...custoAberto,[g.id]:!aberto})} style={{borderBottom:`0.5px solid ${BD}40`,cursor:"pointer",background:aberto?BG3:"transparent"}}>
+                    <td style={{padding:"7px 6px",fontWeight:600,color:TX,minWidth:180}}>
                       <span style={{display:"inline-block",width:16,fontSize:10,color:GO}}>{aberto?"▼":"▶"}</span>
                       {g.g}
                     </td>
-                    <td style={{padding:6,textAlign:"right",color:g.j.includes("(")?G:TXM}}>{g.j}</td>
-                    <td style={{padding:6,textAlign:"right",color:g.f.includes("(")?G:TXM}}>{g.f}</td>
-                    <td style={{padding:6,textAlign:"right",color:g.m.includes("(")?G:TXM}}>{g.m}</td>
-                    <td style={{padding:6,textAlign:"right",fontWeight:700,color:TX}}>{g.t}</td>
+                    <td style={{padding:6,textAlign:"right",fontWeight:600,color:TX}}>{g.t}</td>
+                    <td style={{padding:6,textAlign:"right",color:TXM}}>{g.orc}</td>
+                    <td style={{padding:6,textAlign:"right",fontWeight:600,color:desvio>0?R:G,fontSize:10}}>
+                      {desvio>0?`+${desvio.toLocaleString("pt-BR")}`:desvio<0?desvio.toLocaleString("pt-BR"):"—"}
+                      <span style={{fontSize:8,marginLeft:3}}>({desvio>0?"+":""}{desvio_p}%)</span>
+                    </td>
                     <td style={{padding:6,textAlign:"right",fontWeight:600,color:g.cor}}>{g.p}</td>
+                    <td style={{padding:6,fontSize:9,color:TXD,maxWidth:250,lineHeight:1.3}}>{!aberto&&g.ia.substring(0,60)+"..."}</td>
                   </tr>
-                  {aberto&&[...g.subs].sort((a:any,b:any)=>Math.abs(parseFloat(b.t.replace(/[().]/g,"").replace(",","")))-Math.abs(parseFloat(a.t.replace(/[().]/g,"").replace(",","")))).map((s:any,si:number)=>(
-                    <tr key={`${g.id}-${si}`} style={{background:BG3,borderBottom:`0.5px solid ${BD}20`}}>
-                      <td style={{padding:"4px 6px 4px 28px",fontSize:10,color:TXM}}>{s.c}</td>
-                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:s.j.includes("(")?G+"CC":TXM}}>{s.j}</td>
-                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:s.f.includes("(")?G+"CC":TXM}}>{s.f}</td>
-                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:s.m.includes("(")?G+"CC":TXM}}>{s.m}</td>
-                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>{s.t}</td>
-                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:TXD}}></td>
+                  {aberto&&(<>
+                    <tr key={`${g.id}-ia`} style={{background:g.ia.startsWith("✓")?G+"08":g.ia.startsWith("⚠")?Y+"08":BG3}}>
+                      <td colSpan={6} style={{padding:"10px 14px 10px 28px",fontSize:10,color:TX,lineHeight:1.7,borderBottom:`0.5px solid ${BD}40`,borderLeft:`3px solid ${g.ia.startsWith("✓")?G:g.ia.startsWith("⚠")?Y:GO}`}}>
+                        <span style={{fontWeight:600,color:GOL}}>Análise IA: </span>{g.ia}
+                      </td>
                     </tr>
-                  ))}
+                    {[...g.subs].sort((a:any,b:any)=>Math.abs(parseFloat(b.t.replace(/[().]/g,"").replace(",","")))-Math.abs(parseFloat(a.t.replace(/[().]/g,"").replace(",","")))).map((s:any,si:number)=>{
+                      const sReal=parseFloat(s.t.replace(/[().]/g,"").replace(/,/g,""));
+                      const sOrc=parseFloat(s.orc.replace(/[().]/g,"").replace(/,/g,""));
+                      const sDev=s.t.includes("(")?-(sReal-sOrc):(sReal-sOrc);
+                      return(
+                      <tr key={`${g.id}-${si}`} style={{background:BG3,borderBottom:`0.5px solid ${BD}20`}}>
+                        <td style={{padding:"4px 6px 4px 28px",fontSize:10,color:TXM}}>{s.c}</td>
+                        <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,fontWeight:500,color:s.t.includes("(")?G:TXM}}>{s.t}</td>
+                        <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:TXD}}>{s.orc}</td>
+                        <td style={{padding:"4px 6px",textAlign:"right",fontSize:9,color:sDev>0?R:sDev<0?G:TXD}}>
+                          {sDev!==0?`${sDev>0?"+":""}${sDev.toLocaleString("pt-BR")}`:"—"}
+                        </td>
+                        <td style={{padding:"4px 6px"}}></td>
+                        <td style={{padding:"4px 6px"}}></td>
+                      </tr>);
+                    })}
+                  </>)}
                 </>);
               })}
               <tr style={{background:GO+"18",borderTop:`1px solid ${GO}`}}>
-                <td style={{padding:"8px 6px",fontWeight:700,color:TX,paddingLeft:22}}>TOTAL DE CUSTOS E DESPESAS</td>
-                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>2.010.615</td>
-                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>1.237.474</td>
-                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>2.650.306</td>
+                <td style={{padding:"8px 6px",fontWeight:700,color:TX,paddingLeft:22}}>TOTAL CUSTOS E DESPESAS</td>
                 <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>5.898.395</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:TXM}}>5.601.950</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R,fontSize:10}}>+296.445 (+5,3%)</td>
                 <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>90,7%</td>
+                <td style={{padding:6,fontSize:9,color:GOL}}>Custos subiram 5,3% mas faturamento subiu 9,3% — margem melhorou</td>
               </tr>
             </tbody>
           </table>
