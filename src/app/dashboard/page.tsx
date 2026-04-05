@@ -64,6 +64,7 @@ export default function DashboardPage(){
   const [aba,setAba]=useState("geral");
   const [lnAberta,setLnAberta]=useState<number|null>(null);
   const [subAba,setSubAba]=useState("visao");
+  const [dreAberto,setDreAberto]=useState<Record<string,boolean>>({});
 
   const abas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
   const meses=["Jan","Fev","Mar"];
@@ -375,7 +376,7 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="resultado"&&(<div>
-      <Tit t="Resultado Financeiro Completo"/>
+      <Tit t="Resultado Financeiro — Clique nas linhas para abrir os detalhes"/>
       <Card p="8px">
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
@@ -383,23 +384,95 @@ export default function DashboardPage(){
               {["","Jan","Fev","Mar","Total 1T"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {[{c:"FATURAMENTO BRUTO",j:"2.226.400",f:"1.144.200",m:"3.129.400",t:"6.500.000",d:true,tp:"fat"},
-                {c:"(-) Devoluções + Impostos",j:"(122.040)",f:"(68.940)",m:"(172.375)",t:"(363.355)",d:false,tp:"x"},
-                {c:"= FATURAMENTO LÍQUIDO",j:"2.104.360",f:"1.075.260",m:"2.957.025",t:"6.136.645",d:true,tp:"sub"},
-                {c:"(-) Custos Diretos (6 negócios)",j:"(1.689.690)",f:"(970.884)",m:"(2.270.411)",t:"(4.930.985)",d:false,tp:"x"},
-                {c:"= MARGEM DIRETA",j:"414.670",f:"104.376",m:"686.614",t:"1.205.660",d:true,tp:"mg"},
-                {c:"(-) Custo Estrutura Central",j:"(178.485)",f:"(178.650)",m:"(185.720)",t:"(542.855)",d:false,tp:"x"},
-                {c:"= LUCRO DA OPERAÇÃO",j:"236.185",f:"(74.274)",m:"500.894",t:"662.805",d:true,tp:"lc"},
-                {c:"(-) Desgaste + Juros + IR",j:"(20.400)",f:"(19.000)",m:"(21.800)",t:"(61.200)",d:false,tp:"x"},
-                {c:"= LUCRO FINAL",j:"215.785",f:"(93.274)",m:"479.094",t:"601.605",d:true,tp:"fl"},
-              ].map((r,i)=><tr key={i} style={{background:r.tp==="mg"?G+"10":r.tp==="lc"?GO+"10":r.tp==="fl"?GO+"18":"transparent",borderBottom:`0.5px solid ${BD}40`}}>
-                <td style={{padding:6,fontWeight:r.d?700:400,color:r.d?TX:TXM}}>{r.c}</td>
-                {[r.j,r.f,r.m,r.t].map((v,k)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:r.d?700:400,color:v.includes("(")?R:["mg","lc","fl"].includes(r.tp)?GOL:TX}}>{v}</td>)}
-              </tr>)}
+              {[
+                {id:"fat",c:"FATURAMENTO BRUTO",j:"2.226.400",f:"1.144.200",m:"3.129.400",t:"6.500.000",d:true,tp:"fat",
+                  subs:[
+                    {c:"Venda de Equipamentos",j:"580.000",f:"512.000",m:"672.000",t:"1.764.000"},
+                    {c:"Projetos Residenciais",j:"242.000",f:"198.000",m:"308.000",t:"748.000"},
+                    {c:"Projetos Comerciais",j:"425.000",f:"340.000",m:"595.000",t:"1.360.000"},
+                    {c:"Projetos de Usinas",j:"890.000",f:"0",m:"1.450.000",t:"2.340.000"},
+                    {c:"Manutenção O&M",j:"51.000",f:"53.000",m:"55.000",t:"159.000"},
+                    {c:"Loja Online",j:"38.400",f:"41.200",m:"49.400",t:"129.000"},
+                  ]},
+                {id:"ded",c:"(-) Devoluções + Impostos sobre Vendas",j:"(122.040)",f:"(68.940)",m:"(172.375)",t:"(363.355)",d:false,tp:"x",
+                  subs:[
+                    {c:"Devoluções e abatimentos",j:"(10.620)",f:"(9.750)",m:"(14.565)",t:"(34.935)"},
+                    {c:"ISS / ICMS",j:"(55.660)",f:"(28.605)",m:"(78.235)",t:"(162.500)"},
+                    {c:"PIS",j:"(14.570)",f:"(7.480)",m:"(20.445)",t:"(42.495)"},
+                    {c:"COFINS",j:"(41.190)",f:"(23.105)",m:"(59.130)",t:"(123.425)"},
+                  ]},
+                {id:"liq",c:"= FATURAMENTO LÍQUIDO",j:"2.104.360",f:"1.075.260",m:"2.957.025",t:"6.136.645",d:true,tp:"sub"},
+                {id:"cdir",c:"(-) Custos Diretos dos 6 Negócios",j:"(1.689.690)",f:"(970.884)",m:"(2.270.411)",t:"(4.930.985)",d:false,tp:"x",
+                  subs:[
+                    {c:"Custo dos produtos e insumos (CMV)",j:"(1.090.490)",f:"(519.160)",m:"(1.529.120)",t:"(3.138.770)"},
+                    {c:"Mão de obra direta (6 equipes)",j:"(228.000)",f:"(228.000)",m:"(228.000)",t:"(684.000)"},
+                    {c:"Terceirização",j:"(85.000)",f:"(52.000)",m:"(115.000)",t:"(252.000)"},
+                    {c:"Frete e logística",j:"(98.200)",f:"(62.724)",m:"(135.291)",t:"(296.215)"},
+                    {c:"Marketing direto dos negócios",j:"(68.000)",f:"(42.000)",m:"(95.000)",t:"(205.000)"},
+                    {c:"Comissões de vendas",j:"(120.000)",f:"(67.000)",m:"(168.000)",t:"(355.000)"},
+                  ]},
+                {id:"mg",c:"= MARGEM DIRETA (o que sobra dos negócios)",j:"414.670",f:"104.376",m:"686.614",t:"1.205.660",d:true,tp:"mg"},
+                {id:"estr",c:"(-) Custo da Estrutura Central",j:"(178.485)",f:"(178.650)",m:"(185.720)",t:"(542.855)",d:false,tp:"x",
+                  subs:[
+                    {c:"Salários dos sócios (pró-labore)",j:"(18.000)",f:"(18.000)",m:"(18.000)",t:"(54.000)"},
+                    {c:"Equipe administrativa (8 pessoas)",j:"(28.500)",f:"(29.200)",m:"(29.800)",t:"(87.500)"},
+                    {c:"Encargos e benefícios",j:"(17.800)",f:"(18.200)",m:"(18.500)",t:"(54.500)"},
+                    {c:"Aluguel da sede",j:"(8.500)",f:"(8.500)",m:"(8.500)",t:"(25.500)"},
+                    {c:"Energia, água, internet, telefone",j:"(4.700)",f:"(4.800)",m:"(4.700)",t:"(14.200)"},
+                    {c:"Contabilidade e assessorias",j:"(13.200)",f:"(13.500)",m:"(13.800)",t:"(40.500)"},
+                    {c:"Combustível e manutenção veículos",j:"(13.800)",f:"(14.100)",m:"(14.200)",t:"(42.100)"},
+                    {c:"Marketing institucional",j:"(7.800)",f:"(8.000)",m:"(8.500)",t:"(24.300)"},
+                    {c:"Taxas de cartão",j:"(5.600)",f:"(5.800)",m:"(6.300)",t:"(17.700)"},
+                    {c:"Seguros e outros custos",j:"(8.800)",f:"(9.100)",m:"(9.500)",t:"(27.400)"},
+                    {c:"Desgaste de equipamentos",j:"(5.800)",f:"(6.000)",m:"(6.200)",t:"(18.000)"},
+                    {c:"Sangrias e retiradas extras",j:"(45.985)",f:"(43.450)",m:"(47.720)",t:"(137.155)"},
+                  ]},
+                {id:"lop",c:"= LUCRO DA OPERAÇÃO",j:"236.185",f:"(74.274)",m:"500.894",t:"662.805",d:true,tp:"lc"},
+                {id:"fin",c:"(-) Resultado Financeiro + IR",j:"(20.400)",f:"(19.000)",m:"(21.800)",t:"(61.200)",d:false,tp:"x",
+                  subs:[
+                    {c:"(+) Rendimentos de aplicações",j:"1.800",f:"2.100",m:"2.500",t:"6.400"},
+                    {c:"(-) Juros de empréstimos",j:"(4.200)",f:"(4.100)",m:"(4.300)",t:"(12.600)"},
+                    {c:"(-) Parcelas de consórcio",j:"(6.000)",f:"(6.000)",m:"(6.000)",t:"(18.000)"},
+                    {c:"(-) Impostos sobre o lucro (IR/CSLL)",j:"(12.000)",f:"(11.000)",m:"(14.000)",t:"(37.000)"},
+                  ]},
+                {id:"fl",c:"= LUCRO FINAL",j:"215.785",f:"(93.274)",m:"479.094",t:"601.605",d:true,tp:"fl"},
+              ].map((r:any)=>{
+                const aberto=dreAberto[r.id];
+                const temSub=r.subs&&r.subs.length>0;
+                return(<>
+                  <tr key={r.id} onClick={()=>temSub&&setDreAberto({...dreAberto,[r.id]:!aberto})} style={{background:r.tp==="mg"?G+"10":r.tp==="lc"?GO+"10":r.tp==="fl"?GO+"18":"transparent",borderBottom:`0.5px solid ${BD}40`,cursor:temSub?"pointer":"default"}}>
+                    <td style={{padding:6,fontWeight:r.d?700:400,color:r.d?TX:TXM}}>
+                      {temSub&&<span style={{display:"inline-block",width:16,fontSize:10,color:GO}}>{aberto?"▼":"▶"}</span>}
+                      {!temSub&&<span style={{display:"inline-block",width:16}}/>}
+                      {r.c}
+                    </td>
+                    {[r.j,r.f,r.m,r.t].map((v:string,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:r.d?700:400,color:v.includes("(")?R:["mg","lc","fl"].includes(r.tp)?GOL:TX}}>{v}</td>)}
+                  </tr>
+                  {aberto&&r.subs?.map((s:any,si:number)=>(
+                    <tr key={`${r.id}-${si}`} style={{background:BG3,borderBottom:`0.5px solid ${BD}20`}}>
+                      <td style={{padding:"4px 6px 4px 28px",fontSize:10,color:TXM}}>{s.c}</td>
+                      {[s.j,s.f,s.m,s.t].map((v:string,k:number)=><td key={k} style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:v.includes("(")?R+"CC":TXM}}>{v}</td>)}
+                    </tr>
+                  ))}
+                </>);
+              })}
             </tbody>
           </table>
         </div>
       </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+        <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`0.5px solid ${BD}`}}>
+          <div style={{fontSize:9,color:TXD}}>Faturamento Mínimo / Mês</div>
+          <div style={{fontSize:20,fontWeight:700,color:GOL}}>R$ 978K</div>
+          <div style={{fontSize:9,color:TXM}}>Abaixo disso, dá prejuízo</div>
+        </div>
+        <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`0.5px solid ${BD}`}}>
+          <div style={{fontSize:9,color:TXD}}>Custo Estrutura / Mês</div>
+          <div style={{fontSize:20,fontWeight:700,color:Y}}>R$ 181K</div>
+          <div style={{fontSize:9,color:TXM}}>Sede, ADM, veículos</div>
+        </div>
+      </div>
     </div>)}
 
     {aba==="precos"&&(<div>
