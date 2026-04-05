@@ -59,77 +59,77 @@ MESES.sort((a,b)=>b.value.localeCompare(a.value));
 // Master cost accounts organized by group
 const CONTAS_CUSTO = [
   {grupo:"Pessoas",cor:"#3B82F6",contas:[
-    {id:"prolabore",nome:"Pró-labore dos sócios"},
-    {id:"folha_adm",nome:"Salários administrativos"},
-    {id:"encargos",nome:"Encargos (INSS, FGTS)"},
-    {id:"vr_va",nome:"Vale refeição / alimentação"},
-    {id:"vt",nome:"Vale transporte"},
-    {id:"plano_saude",nome:"Plano de saúde"},
-    {id:"seguro_vida",nome:"Seguro de vida em grupo"},
-    {id:"treinamentos",nome:"Treinamentos e capacitação"},
-    {id:"uniformes_epi",nome:"Uniformes / EPIs"},
-    {id:"ferias_13",nome:"Provisão férias e 13º"},
+    {id:"prolabore",nome:"Pró-labore dos sócios",desc:"Valor mensal fixo retirado pelos sócios como remuneração. Não confundir com lucro distribuído."},
+    {id:"folha_adm",nome:"Salários administrativos",desc:"Soma dos salários brutos da equipe administrativa: recepção, financeiro, RH, compras, gerência — quem NÃO trabalha diretamente na operação."},
+    {id:"encargos",nome:"Encargos (INSS, FGTS)",desc:"INSS patronal + FGTS sobre toda a folha administrativa. Geralmente entre 28% e 36% do salário bruto."},
+    {id:"vr_va",nome:"Vale refeição / alimentação",desc:"Valor mensal pago em cartão alimentação ou refeição para toda a equipe administrativa."},
+    {id:"vt",nome:"Vale transporte",desc:"Custo líquido do VT (valor pago pela empresa menos o desconto de 6% do salário do colaborador)."},
+    {id:"plano_saude",nome:"Plano de saúde",desc:"Valor mensal do plano de saúde empresarial para a equipe administrativa. Inclui dependentes se a empresa pagar."},
+    {id:"seguro_vida",nome:"Seguro de vida em grupo",desc:"Apólice de seguro de vida coletivo contratada pela empresa. Pode ser obrigatório em alguns sindicatos."},
+    {id:"treinamentos",nome:"Treinamentos e capacitação",desc:"Cursos, workshops, palestras e certificações pagos pela empresa para a equipe."},
+    {id:"uniformes_epi",nome:"Uniformes / EPIs",desc:"Compra de uniformes, camisetas, EPIs (equipamentos de proteção individual). Rateie o valor anual por 12."},
+    {id:"ferias_13",nome:"Provisão férias e 13º",desc:"Reserve 1/12 da folha mensal para férias e 1/12 para 13º. Assim o custo fica distribuído durante o ano."},
   ]},
   {grupo:"Ocupação",cor:"#A855F7",contas:[
-    {id:"aluguel",nome:"Aluguel"},
-    {id:"condominio",nome:"Condomínio"},
-    {id:"iptu",nome:"IPTU"},
-    {id:"energia",nome:"Energia elétrica"},
-    {id:"agua",nome:"Água / esgoto"},
-    {id:"manut_predial",nome:"Manutenção predial"},
-    {id:"limpeza",nome:"Limpeza"},
-    {id:"seguranca_monit",nome:"Segurança / monitoramento"},
+    {id:"aluguel",nome:"Aluguel",desc:"Valor mensal do aluguel do imóvel onde a empresa funciona (escritório, loja, galpão). Se for próprio, coloque zero."},
+    {id:"condominio",nome:"Condomínio",desc:"Taxa de condomínio mensal, se o imóvel for em prédio comercial ou condomínio empresarial."},
+    {id:"iptu",nome:"IPTU",desc:"Imposto sobre o imóvel. Se pagar anual, divida por 12 para ter o valor mensal."},
+    {id:"energia",nome:"Energia elétrica",desc:"Conta de luz do mês da sede/loja. Se tiver mais de um ponto, some todos."},
+    {id:"agua",nome:"Água / esgoto",desc:"Conta de água e esgoto mensal do imóvel."},
+    {id:"manut_predial",nome:"Manutenção predial",desc:"Reparos no imóvel: pintura, elétrica, hidráulica, ar condicionado, limpeza de caixa d'água, etc."},
+    {id:"limpeza",nome:"Limpeza",desc:"Serviço de limpeza terceirizado ou material de limpeza. Se tiver funcionário próprio, inclua na folha."},
+    {id:"seguranca_monit",nome:"Segurança / monitoramento",desc:"Empresa de vigilância, alarme monitorado, câmeras, cerca elétrica. Mensalidade do serviço."},
   ]},
   {grupo:"Veículos e Deslocamento",cor:"#14B8A6",contas:[
-    {id:"combustivel",nome:"Combustível"},
-    {id:"manutencao_veic",nome:"Manutenção / revisões veículos"},
-    {id:"seguro_veic",nome:"Seguro veicular"},
-    {id:"ipva_licenc",nome:"IPVA / licenciamento"},
-    {id:"pedagio_estac",nome:"Pedágio / estacionamento"},
-    {id:"leasing_veic",nome:"Leasing / parcelas veículos"},
+    {id:"combustivel",nome:"Combustível",desc:"Gasto mensal com combustível de TODOS os veículos da empresa (não inclua veículos pessoais dos sócios)."},
+    {id:"manutencao_veic",nome:"Manutenção / revisões veículos",desc:"Troca de óleo, pneus, revisões, consertos. Se fizer revisão anual, divida por 12."},
+    {id:"seguro_veic",nome:"Seguro veicular",desc:"Parcela mensal do seguro de cada veículo. Se pagar anual, divida por 12."},
+    {id:"ipva_licenc",nome:"IPVA / licenciamento",desc:"IPVA + licenciamento anual dividido por 12 para ter o custo mensal."},
+    {id:"pedagio_estac",nome:"Pedágio / estacionamento",desc:"Gastos mensais com pedágio em viagens e estacionamento em visitas a clientes."},
+    {id:"leasing_veic",nome:"Leasing / parcelas veículos",desc:"Parcelas de financiamento ou leasing de veículos da empresa."},
   ]},
   {grupo:"Tecnologia e Comunicação",cor:"#F97316",contas:[
-    {id:"internet",nome:"Internet / telefonia"},
-    {id:"softwares",nome:"Softwares e sistemas (ERP, CRM)"},
-    {id:"hospedagem",nome:"Hospedagem / domínio web"},
-    {id:"equip_ti",nome:"Equipamentos de TI"},
-    {id:"suporte_ti",nome:"Suporte técnico"},
+    {id:"internet",nome:"Internet / telefonia",desc:"Plano de internet da empresa + linhas telefônicas fixas e celulares corporativos."},
+    {id:"softwares",nome:"Softwares e sistemas (ERP, CRM)",desc:"Mensalidade do ERP (Omie, ContaAzul, Bling), CRM, e-mail corporativo, antivírus, Office 365, etc."},
+    {id:"hospedagem",nome:"Hospedagem / domínio web",desc:"Hospedagem do site, registro de domínio, certificado SSL, Google Workspace ou similares."},
+    {id:"equip_ti",nome:"Equipamentos de TI",desc:"Compra ou aluguel de computadores, impressoras, servidores, nobreaks. Se comprou, divida a vida útil em meses."},
+    {id:"suporte_ti",nome:"Suporte técnico",desc:"Mensalidade de empresa de TI terceirizada que dá suporte ao dia a dia (rede, backup, e-mail, ERP)."},
   ]},
   {grupo:"Administrativo e Assessorias",cor:"#C6973F",contas:[
-    {id:"contabilidade",nome:"Contabilidade"},
-    {id:"juridico",nome:"Assessoria jurídica"},
-    {id:"financeiro_assess",nome:"Assessoria financeira"},
-    {id:"despachante",nome:"Despachante / cartório"},
-    {id:"material_escrit",nome:"Material de escritório"},
-    {id:"correios",nome:"Correios / entregas"},
+    {id:"contabilidade",nome:"Contabilidade",desc:"Honorários mensais do escritório de contabilidade: balancete, SPED, DCTF, folha, obrigações acessórias."},
+    {id:"juridico",nome:"Assessoria jurídica",desc:"Honorários de advogado ou escritório jurídico: contratos, trabalhista, tributário, societário."},
+    {id:"financeiro_assess",nome:"Assessoria financeira",desc:"Consultoria ou assessoria financeira/empresarial contratada (ex: PS Gestão e Capital)."},
+    {id:"despachante",nome:"Despachante / cartório",desc:"Despachante para documentos de veículos, certidões, registros em cartório, junta comercial."},
+    {id:"material_escrit",nome:"Material de escritório",desc:"Papel, toner, canetas, pastas, grampeadores e materiais de expediente em geral."},
+    {id:"correios",nome:"Correios / entregas",desc:"Envio de correspondências, documentos, contratos. Motoboy ou transportadora para documentos."},
   ]},
   {grupo:"Comercial e Marketing",cor:"#22C55E",contas:[
-    {id:"marketing_inst",nome:"Marketing institucional"},
-    {id:"marketing_digital",nome:"Marketing digital"},
-    {id:"taxas_cartao",nome:"Taxas de cartão de crédito/débito"},
-    {id:"comissoes_banc",nome:"Comissões bancárias"},
-    {id:"brindes",nome:"Brindes / amostras"},
-    {id:"feiras_eventos",nome:"Feiras / eventos"},
-    {id:"viagens_comerc",nome:"Viagens comerciais"},
+    {id:"marketing_inst",nome:"Marketing institucional",desc:"Ações de marca: banners, fachada, uniformes com logo, material gráfico, brindes institucionais."},
+    {id:"marketing_digital",nome:"Marketing digital",desc:"Google Ads, Meta Ads (Facebook/Instagram), agência de marketing, gestão de redes sociais."},
+    {id:"taxas_cartao",nome:"Taxas de cartão de crédito/débito",desc:"Percentual cobrado pela maquininha (Stone, PagSeguro, Cielo) sobre vendas no cartão. Veja o extrato da adquirente."},
+    {id:"comissoes_banc",nome:"Comissões bancárias",desc:"Taxas de boleto, TED, PIX corporativo, manutenção de conta. Veja o extrato bancário mensal."},
+    {id:"brindes",nome:"Brindes / amostras",desc:"Brindes para clientes, amostras de produtos, kits de presentes corporativos."},
+    {id:"feiras_eventos",nome:"Feiras / eventos",desc:"Participação em feiras, exposições, congressos. Inclui estande, inscrição, deslocamento e hospedagem."},
+    {id:"viagens_comerc",nome:"Viagens comerciais",desc:"Passagens, hospedagem e alimentação em viagens de trabalho para visitar clientes ou fornecedores."},
   ]},
   {grupo:"Financeiro",cor:"#EF4444",contas:[
-    {id:"juros_emprest",nome:"Juros de empréstimos"},
-    {id:"parcelas_financ",nome:"Parcelas de financiamento"},
-    {id:"parcelas_consorcio",nome:"Parcelas de consórcio"},
-    {id:"tarifas_banc",nome:"Tarifas bancárias"},
-    {id:"multas_juros",nome:"Multas / juros por atraso"},
+    {id:"juros_emprest",nome:"Juros de empréstimos",desc:"Juros pagos sobre empréstimos bancários (BNDES, capital de giro, cheque especial). Somente os juros, não a amortização."},
+    {id:"parcelas_financ",nome:"Parcelas de financiamento",desc:"Parcelas de financiamento de equipamentos, máquinas ou veículos. Inclui juros + amortização."},
+    {id:"parcelas_consorcio",nome:"Parcelas de consórcio",desc:"Parcelas mensais de consórcio de veículos, imóveis ou equipamentos."},
+    {id:"tarifas_banc",nome:"Tarifas bancárias",desc:"Tarifas de manutenção de conta, pacote de serviços, anuidade de cartão corporativo."},
+    {id:"multas_juros",nome:"Multas / juros por atraso",desc:"Multas e juros pagos por atraso em contas, impostos ou fornecedores. Ideal que seja ZERO."},
   ]},
   {grupo:"Seguros",cor:"#FACC15",contas:[
-    {id:"seguros",nome:"Seguro empresarial"},
-    {id:"seguro_rc",nome:"Seguro RC profissional"},
-    {id:"seguro_estoque",nome:"Seguro de estoque / mercadorias"},
+    {id:"seguros",nome:"Seguro empresarial",desc:"Seguro do imóvel, conteúdo e lucros cessantes. Protege contra incêndio, roubo e desastres naturais."},
+    {id:"seguro_rc",nome:"Seguro RC profissional",desc:"Responsabilidade Civil Profissional — cobre danos causados a terceiros pela atividade da empresa."},
+    {id:"seguro_estoque",nome:"Seguro de estoque / mercadorias",desc:"Seguro sobre mercadorias armazenadas ou em trânsito. Importante para distribuidoras e comércio."},
   ]},
   {grupo:"Outros",cor:"#A8A498",contas:[
-    {id:"depreciacao",nome:"Depreciação de equipamentos"},
-    {id:"perdas_quebras",nome:"Perdas e quebras"},
-    {id:"doacoes",nome:"Doações / patrocínios"},
-    {id:"retiradas_extras",nome:"Retiradas extras dos sócios"},
-    {id:"outros",nome:"Outros custos diversos"},
+    {id:"depreciacao",nome:"Depreciação de equipamentos",desc:"Perda de valor dos equipamentos pelo uso. Divida o valor do bem pela vida útil em meses. Ex: máquina de R$ 60K com vida de 60 meses = R$ 1K/mês."},
+    {id:"perdas_quebras",nome:"Perdas e quebras",desc:"Mercadorias perdidas, danificadas, vencidas ou furtadas no mês. Apure pelo inventário."},
+    {id:"doacoes",nome:"Doações / patrocínios",desc:"Doações para instituições, patrocínios de eventos esportivos ou culturais, apoio a projetos sociais."},
+    {id:"retiradas_extras",nome:"Retiradas extras dos sócios",desc:"Valores retirados pelos sócios ALÉM do pró-labore: uso do cartão da empresa, compras pessoais, sangrias de caixa."},
+    {id:"outros",nome:"Outros custos diversos",desc:"Qualquer custo que não se encaixa nas categorias acima. Detalhe no campo personalizado se for relevante."},
   ]},
 ];
 
@@ -514,22 +514,28 @@ export default function DadosPage() {
                   <div style={{fontSize:13,fontWeight:600,color:grupo.cor}}>{grupo.grupo}</div>
                   <div style={{fontSize:10,color:TXD}}>({grupo.contas.filter(c=>custosAtivos[c.id]).length} ativas)</div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr",gap:2}}>
                   {(mostrarTodos?grupo.contas:contasVisiveis).map(conta=>(
-                    <div key={conta.id} style={{display:"flex",alignItems:"center",gap:8,background:custosAtivos[conta.id]?BG3:"transparent",borderRadius:6,padding:"6px 8px",border:`0.5px solid ${custosAtivos[conta.id]?BD:"transparent"}`}}>
-                      <input type="checkbox" checked={!!custosAtivos[conta.id]} onChange={e=>{
-                        setCustosAtivos({...custosAtivos,[conta.id]:e.target.checked});
-                        if(!e.target.checked) { const n={...custos}; delete n[conta.id]; setCustos(n); }
-                      }} style={{accentColor:GO}}/>
-                      {custosAtivos[conta.id]?(
-                        <div style={{flex:1,display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:11,color:TX,flex:1,minWidth:120}}>{conta.nome}</span>
-                          <span style={{fontSize:10,color:TXD}}>R$</span>
-                          <input type="number" value={custos[conta.id]||""} onChange={e=>setCustos({...custos,[conta.id]:e.target.value})}
-                            placeholder="0" style={{background:BG2,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"4px 8px",fontSize:12,width:100,textAlign:"right"}}/>
-                        </div>
-                      ):(
-                        <span style={{fontSize:11,color:TXD}}>{conta.nome}</span>
+                    <div key={conta.id} style={{background:custosAtivos[conta.id]?BG3:"transparent",borderRadius:8,padding:custosAtivos[conta.id]?"10px 10px":"6px 10px",marginBottom:4,border:`0.5px solid ${custosAtivos[conta.id]?BD:"transparent"}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <input type="checkbox" checked={!!custosAtivos[conta.id]} onChange={e=>{
+                          setCustosAtivos({...custosAtivos,[conta.id]:e.target.checked});
+                          if(!e.target.checked) { const n={...custos}; delete n[conta.id]; setCustos(n); }
+                        }} style={{accentColor:GO,flexShrink:0}}/>
+                        <span style={{fontSize:12,color:custosAtivos[conta.id]?TX:TXD,flex:1,fontWeight:custosAtivos[conta.id]?500:400}}>{conta.nome}</span>
+                        {custosAtivos[conta.id]&&(
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <span style={{fontSize:10,color:TXD}}>R$</span>
+                            <input type="number" value={custos[conta.id]||""} onChange={e=>setCustos({...custos,[conta.id]:e.target.value})}
+                              placeholder="0" style={{background:BG2,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"5px 8px",fontSize:13,width:110,textAlign:"right"}}/>
+                          </div>
+                        )}
+                      </div>
+                      {custosAtivos[conta.id]&&conta.desc&&(
+                        <div style={{fontSize:10,color:TXM,marginTop:4,marginLeft:26,lineHeight:1.5,fontStyle:"italic"}}>{conta.desc}</div>
+                      )}
+                      {!custosAtivos[conta.id]&&mostrarTodos&&conta.desc&&(
+                        <div style={{fontSize:9,color:TXD,marginTop:2,marginLeft:26,lineHeight:1.4}}>{conta.desc}</div>
                       )}
                     </div>
                   ))}
