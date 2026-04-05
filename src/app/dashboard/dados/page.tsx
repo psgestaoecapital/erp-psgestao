@@ -48,12 +48,89 @@ const Toast=({msg,tipo}:{msg:string,tipo:"ok"|"err"})=>(
   <div style={{position:"fixed",top:80,right:20,background:tipo==="ok"?G:R,color:"white",padding:"10px 20px",borderRadius:8,fontSize:12,fontWeight:600,zIndex:999,boxShadow:"0 4px 12px rgba(0,0,0,0.3)"}}>{msg}</div>
 );
 
-// Months for data entry
-const MESES = [
-  {value:"2025-01",label:"Janeiro 2025"},{value:"2025-02",label:"Fevereiro 2025"},{value:"2025-03",label:"Março 2025"},
-  {value:"2025-04",label:"Abril 2025"},{value:"2025-05",label:"Maio 2025"},{value:"2025-06",label:"Junho 2025"},
-  {value:"2025-07",label:"Julho 2025"},{value:"2025-08",label:"Agosto 2025"},{value:"2025-09",label:"Setembro 2025"},
-  {value:"2025-10",label:"Outubro 2025"},{value:"2025-11",label:"Novembro 2025"},{value:"2025-12",label:"Dezembro 2025"},
+// Dynamic months - from Jan 2020 to Dec 2030
+const MESES: {value:string,label:string}[] = [];
+const MESES_NOMES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+for(let y=2025;y>=2020;y--) for(let m=y===2025?12:12;m>=1;m--) MESES.push({value:`${y}-${String(m).padStart(2,"0")}`,label:`${MESES_NOMES[m-1]} ${y}`});
+for(let y=2026;y<=2030;y++) for(let m=1;m<=12;m++) MESES.unshift({value:`${y}-${String(m).padStart(2,"0")}`,label:`${MESES_NOMES[m-1]} ${y}`});
+// Sort descending (most recent first)
+MESES.sort((a,b)=>b.value.localeCompare(a.value));
+
+// Master cost accounts organized by group
+const CONTAS_CUSTO = [
+  {grupo:"Pessoas",cor:"#3B82F6",contas:[
+    {id:"prolabore",nome:"Pró-labore dos sócios"},
+    {id:"folha_adm",nome:"Salários administrativos"},
+    {id:"encargos",nome:"Encargos (INSS, FGTS)"},
+    {id:"vr_va",nome:"Vale refeição / alimentação"},
+    {id:"vt",nome:"Vale transporte"},
+    {id:"plano_saude",nome:"Plano de saúde"},
+    {id:"seguro_vida",nome:"Seguro de vida em grupo"},
+    {id:"treinamentos",nome:"Treinamentos e capacitação"},
+    {id:"uniformes_epi",nome:"Uniformes / EPIs"},
+    {id:"ferias_13",nome:"Provisão férias e 13º"},
+  ]},
+  {grupo:"Ocupação",cor:"#A855F7",contas:[
+    {id:"aluguel",nome:"Aluguel"},
+    {id:"condominio",nome:"Condomínio"},
+    {id:"iptu",nome:"IPTU"},
+    {id:"energia",nome:"Energia elétrica"},
+    {id:"agua",nome:"Água / esgoto"},
+    {id:"manut_predial",nome:"Manutenção predial"},
+    {id:"limpeza",nome:"Limpeza"},
+    {id:"seguranca_monit",nome:"Segurança / monitoramento"},
+  ]},
+  {grupo:"Veículos e Deslocamento",cor:"#14B8A6",contas:[
+    {id:"combustivel",nome:"Combustível"},
+    {id:"manutencao_veic",nome:"Manutenção / revisões veículos"},
+    {id:"seguro_veic",nome:"Seguro veicular"},
+    {id:"ipva_licenc",nome:"IPVA / licenciamento"},
+    {id:"pedagio_estac",nome:"Pedágio / estacionamento"},
+    {id:"leasing_veic",nome:"Leasing / parcelas veículos"},
+  ]},
+  {grupo:"Tecnologia e Comunicação",cor:"#F97316",contas:[
+    {id:"internet",nome:"Internet / telefonia"},
+    {id:"softwares",nome:"Softwares e sistemas (ERP, CRM)"},
+    {id:"hospedagem",nome:"Hospedagem / domínio web"},
+    {id:"equip_ti",nome:"Equipamentos de TI"},
+    {id:"suporte_ti",nome:"Suporte técnico"},
+  ]},
+  {grupo:"Administrativo e Assessorias",cor:"#C6973F",contas:[
+    {id:"contabilidade",nome:"Contabilidade"},
+    {id:"juridico",nome:"Assessoria jurídica"},
+    {id:"financeiro_assess",nome:"Assessoria financeira"},
+    {id:"despachante",nome:"Despachante / cartório"},
+    {id:"material_escrit",nome:"Material de escritório"},
+    {id:"correios",nome:"Correios / entregas"},
+  ]},
+  {grupo:"Comercial e Marketing",cor:"#22C55E",contas:[
+    {id:"marketing_inst",nome:"Marketing institucional"},
+    {id:"marketing_digital",nome:"Marketing digital"},
+    {id:"taxas_cartao",nome:"Taxas de cartão de crédito/débito"},
+    {id:"comissoes_banc",nome:"Comissões bancárias"},
+    {id:"brindes",nome:"Brindes / amostras"},
+    {id:"feiras_eventos",nome:"Feiras / eventos"},
+    {id:"viagens_comerc",nome:"Viagens comerciais"},
+  ]},
+  {grupo:"Financeiro",cor:"#EF4444",contas:[
+    {id:"juros_emprest",nome:"Juros de empréstimos"},
+    {id:"parcelas_financ",nome:"Parcelas de financiamento"},
+    {id:"parcelas_consorcio",nome:"Parcelas de consórcio"},
+    {id:"tarifas_banc",nome:"Tarifas bancárias"},
+    {id:"multas_juros",nome:"Multas / juros por atraso"},
+  ]},
+  {grupo:"Seguros",cor:"#FACC15",contas:[
+    {id:"seguros",nome:"Seguro empresarial"},
+    {id:"seguro_rc",nome:"Seguro RC profissional"},
+    {id:"seguro_estoque",nome:"Seguro de estoque / mercadorias"},
+  ]},
+  {grupo:"Outros",cor:"#A8A498",contas:[
+    {id:"depreciacao",nome:"Depreciação de equipamentos"},
+    {id:"perdas_quebras",nome:"Perdas e quebras"},
+    {id:"doacoes",nome:"Doações / patrocínios"},
+    {id:"retiradas_extras",nome:"Retiradas extras dos sócios"},
+    {id:"outros",nome:"Outros custos diversos"},
+  ]},
 ];
 
 export default function DadosPage() {
@@ -72,12 +149,16 @@ export default function DadosPage() {
   // M2 - Resultado por negócio (array, one per business line)
   const [resultado, setResultado] = useState<any[]>([]);
 
-  // M3 - Custos Estrutura
-  const [estrutura, setEstru] = useState({
-    prolabore:"",folha_adm:"",encargos:"",aluguel:"",energia:"",internet:"",
-    contabilidade:"",juridico:"",combustivel:"",manutencao_veic:"",marketing_inst:"",
-    taxas_cartao:"",seguros:"",depreciacao:"",outros:""
+  // M3 - Custos Estrutura (flexible - key=account_id, value=amount)
+  const [custos, setCustos] = useState<Record<string,string>>({});
+  const [custosAtivos, setCustosAtivos] = useState<Record<string,boolean>>(()=>{
+    // Default active accounts (most common)
+    const defaults: Record<string,boolean> = {};
+    ["prolabore","folha_adm","encargos","vr_va","aluguel","energia","internet","combustivel","contabilidade","marketing_inst","taxas_cartao","seguros","depreciacao","outros"].forEach(id=>defaults[id]=true);
+    return defaults;
   });
+  const [custosCustom, setCustosCustom] = useState<{nome:string,valor:string}[]>([]);
+  const [mostrarTodos, setMostrarTodos] = useState(false);
 
   // Contexto Humano (Bloco 18)
   const [contexto, setContexto] = useState({
@@ -206,26 +287,24 @@ export default function DadosPage() {
     let { data: userProfile } = await supabase.from("users").select("org_id").eq("id", user.id).single();
     const [year, month] = mesSel.split("-").map(Number);
     
-    const payload = {
+    // Build payload from active costs + custom costs
+    const payload: any = {
       org_id: userProfile?.org_id,
       company_id: selectedCompany,
       year, month,
-      prolabore: parseFloat(estrutura.prolabore) || 0,
-      folha_adm: parseFloat(estrutura.folha_adm) || 0,
-      encargos: parseFloat(estrutura.encargos) || 0,
-      aluguel: parseFloat(estrutura.aluguel) || 0,
-      energia: parseFloat(estrutura.energia) || 0,
-      internet: parseFloat(estrutura.internet) || 0,
-      contabilidade: parseFloat(estrutura.contabilidade) || 0,
-      juridico: parseFloat(estrutura.juridico) || 0,
-      combustivel: parseFloat(estrutura.combustivel) || 0,
-      manutencao_veic: parseFloat(estrutura.manutencao_veic) || 0,
-      marketing_inst: parseFloat(estrutura.marketing_inst) || 0,
-      taxas_cartao: parseFloat(estrutura.taxas_cartao) || 0,
-      seguros: parseFloat(estrutura.seguros) || 0,
-      depreciacao: parseFloat(estrutura.depreciacao) || 0,
-      outros: parseFloat(estrutura.outros) || 0,
     };
+    
+    // Add all known cost fields
+    const knownFields = ["prolabore","folha_adm","encargos","aluguel","energia","internet",
+      "contabilidade","juridico","combustivel","manutencao_veic","marketing_inst",
+      "taxas_cartao","seguros","depreciacao","outros"];
+    knownFields.forEach(f => { payload[f] = parseFloat(custos[f]) || 0; });
+    
+    // Store all costs (including non-schema ones) in a JSON field
+    const allCosts: Record<string,number> = {};
+    Object.entries(custos).forEach(([k,v]) => { if(parseFloat(v)) allCosts[k] = parseFloat(v); });
+    custosCustom.forEach(c => { if(c.nome && parseFloat(c.valor)) allCosts["custom_"+c.nome] = parseFloat(c.valor); });
+    payload.cost_details = allCosts;
 
     const { data: existing } = await supabase.from("m3_dre_sede")
       .select("id").eq("company_id",selectedCompany).eq("year",year).eq("month",month).single();
@@ -234,7 +313,7 @@ export default function DadosPage() {
     } else {
       await supabase.from("m3_dre_sede").insert(payload);
     }
-    showToast(`Custos da estrutura de ${MESES.find(m=>m.value===mesSel)?.label} salvos!`,"ok");
+    showToast(`Custos de ${MESES.find(m=>m.value===mesSel)?.label} salvos!`,"ok");
   };
 
   const salvarContexto = async () => {
@@ -415,51 +494,84 @@ export default function DadosPage() {
 
       {/* === CUSTOS ESTRUTURA (M3) === */}
       {aba==="estrutura"&&(
-        <Card title={`Custos da Estrutura Central — ${MESES.find(m=>m.value===mesSel)?.label}`}>
-          <div style={{fontSize:11,color:TXM,marginBottom:14}}>São os custos da sede que serão rateados proporcionalmente entre os negócios. Valores mensais em reais.</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-            <Input label="Pró-labore (sócios)" value={estrutura.prolabore} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,prolabore:v})} placeholder="18000"/>
-            <Input label="Folha ADM (salários)" value={estrutura.folha_adm} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,folha_adm:v})} placeholder="28500"/>
-            <Input label="Encargos e benefícios" value={estrutura.encargos} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,encargos:v})} placeholder="17800"/>
-            <Input label="Aluguel da sede" value={estrutura.aluguel} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,aluguel:v})} placeholder="8500"/>
-            <Input label="Energia / Água" value={estrutura.energia} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,energia:v})} placeholder="4700"/>
-            <Input label="Internet / Telefone" value={estrutura.internet} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,internet:v})} placeholder="1200"/>
-            <Input label="Contabilidade" value={estrutura.contabilidade} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,contabilidade:v})} placeholder="4500"/>
-            <Input label="Assessoria Jurídica" value={estrutura.juridico} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,juridico:v})} placeholder="3200"/>
-            <Input label="Combustível (veículos)" value={estrutura.combustivel} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,combustivel:v})} placeholder="7200"/>
-            <Input label="Manutenção veículos" value={estrutura.manutencao_veic} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,manutencao_veic:v})} placeholder="3800"/>
-            <Input label="Marketing institucional" value={estrutura.marketing_inst} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,marketing_inst:v})} placeholder="7800"/>
-            <Input label="Taxas de cartão" value={estrutura.taxas_cartao} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,taxas_cartao:v})} placeholder="5600"/>
-            <Input label="Seguros" value={estrutura.seguros} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,seguros:v})} placeholder="3200"/>
-            <Input label="Depreciação / Desgaste" value={estrutura.depreciacao} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,depreciacao:v})} placeholder="5800"/>
-            <Input label="Outros custos" value={estrutura.outros} prefix="R$" type="number"
-              onChange={(v:string)=>setEstru({...estrutura,outros:v})} placeholder="3000"/>
-          </div>
+        <div>
+          <Card title={`Custos da Estrutura Central — ${MESES.find(m=>m.value===mesSel)?.label}`}>
+            <div style={{fontSize:11,color:TXM,marginBottom:10}}>São os custos da sede que serão rateados proporcionalmente entre os negócios. Marque os que se aplicam à empresa e preencha os valores mensais.</div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <button onClick={()=>setMostrarTodos(!mostrarTodos)} style={{background:"none",border:`1px solid ${GO}`,color:GO,padding:"6px 14px",borderRadius:6,fontSize:10,cursor:"pointer"}}>
+                {mostrarTodos?"Mostrar só ativos":"Mostrar todas as 50+ contas"}
+              </button>
+            </div>
+          </Card>
 
-          {/* Total preview */}
-          <div style={{background:BG3,borderRadius:8,padding:12,marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontSize:11,color:TXM}}>Total da Estrutura Central no mês:</div>
-            <div style={{fontSize:20,fontWeight:700,color:GOL}}>R$ {Object.values(estrutura).reduce((a,v)=>a+(parseFloat(v)||0),0).toLocaleString("pt-BR")}</div>
-          </div>
+          {CONTAS_CUSTO.map(grupo=>{
+            const contasVisiveis = mostrarTodos ? grupo.contas : grupo.contas.filter(c=>custosAtivos[c.id]);
+            if(!mostrarTodos && contasVisiveis.length===0) return null;
+            return(
+              <Card key={grupo.grupo}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <div style={{width:10,height:10,borderRadius:3,background:grupo.cor}}/>
+                  <div style={{fontSize:13,fontWeight:600,color:grupo.cor}}>{grupo.grupo}</div>
+                  <div style={{fontSize:10,color:TXD}}>({grupo.contas.filter(c=>custosAtivos[c.id]).length} ativas)</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  {(mostrarTodos?grupo.contas:contasVisiveis).map(conta=>(
+                    <div key={conta.id} style={{display:"flex",alignItems:"center",gap:8,background:custosAtivos[conta.id]?BG3:"transparent",borderRadius:6,padding:"6px 8px",border:`0.5px solid ${custosAtivos[conta.id]?BD:"transparent"}`}}>
+                      <input type="checkbox" checked={!!custosAtivos[conta.id]} onChange={e=>{
+                        setCustosAtivos({...custosAtivos,[conta.id]:e.target.checked});
+                        if(!e.target.checked) { const n={...custos}; delete n[conta.id]; setCustos(n); }
+                      }} style={{accentColor:GO}}/>
+                      {custosAtivos[conta.id]?(
+                        <div style={{flex:1,display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:11,color:TX,flex:1,minWidth:120}}>{conta.nome}</span>
+                          <span style={{fontSize:10,color:TXD}}>R$</span>
+                          <input type="number" value={custos[conta.id]||""} onChange={e=>setCustos({...custos,[conta.id]:e.target.value})}
+                            placeholder="0" style={{background:BG2,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"4px 8px",fontSize:12,width:100,textAlign:"right"}}/>
+                        </div>
+                      ):(
+                        <span style={{fontSize:11,color:TXD}}>{conta.nome}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          })}
 
-          <div style={{marginTop:16,display:"flex",justifyContent:"flex-end"}}>
+          {/* Custom accounts */}
+          <Card title="Custos Personalizados">
+            <div style={{fontSize:10,color:TXD,marginBottom:10}}>Adicione custos que não estão na lista acima.</div>
+            {custosCustom.map((c,i)=>(
+              <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                <input type="text" value={c.nome} onChange={e=>{const n=[...custosCustom];n[i].nome=e.target.value;setCustosCustom(n);}}
+                  placeholder="Nome do custo" style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"6px 10px",fontSize:11,flex:1}}/>
+                <span style={{fontSize:10,color:TXD}}>R$</span>
+                <input type="number" value={c.valor} onChange={e=>{const n=[...custosCustom];n[i].valor=e.target.value;setCustosCustom(n);}}
+                  placeholder="0" style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"6px 10px",fontSize:12,width:100,textAlign:"right"}}/>
+                <button onClick={()=>setCustosCustom(custosCustom.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:R,fontSize:14,cursor:"pointer"}}>×</button>
+              </div>
+            ))}
+            <button onClick={()=>setCustosCustom([...custosCustom,{nome:"",valor:""}])} style={{background:"none",border:`1px dashed ${GO}`,color:GO,padding:"6px 14px",borderRadius:6,fontSize:10,cursor:"pointer",marginTop:6}}>+ Adicionar custo personalizado</button>
+          </Card>
+
+          {/* Total */}
+          <Card>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:11,color:TXM}}>Total da Estrutura Central no mês</div>
+                <div style={{fontSize:9,color:TXD,marginTop:2}}>{Object.keys(custos).filter(k=>parseFloat(custos[k])).length + custosCustom.filter(c=>parseFloat(c.valor)).length} contas preenchidas</div>
+              </div>
+              <div style={{fontSize:24,fontWeight:700,color:GOL}}>R$ {(
+                Object.values(custos).reduce((a,v)=>a+(parseFloat(v)||0),0) +
+                custosCustom.reduce((a,c)=>a+(parseFloat(c.valor)||0),0)
+              ).toLocaleString("pt-BR")}</div>
+            </div>
+          </Card>
+
+          <div style={{display:"flex",justifyContent:"flex-end",marginTop:4,marginBottom:20}}>
             <Btn onClick={salvarEstrutura}>◆ Salvar Custos de {MESES.find(m=>m.value===mesSel)?.label}</Btn>
           </div>
-        </Card>
+        </div>
       )}
 
       {/* === PAINEL DE CONTEXTO (Bloco 18) === */}
