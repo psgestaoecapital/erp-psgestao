@@ -160,6 +160,13 @@ export default function DadosPage() {
   const [custosCustom, setCustosCustom] = useState<{nome:string,valor:string}[]>([]);
   const [mostrarTodos, setMostrarTodos] = useState(false);
 
+  // Omie Integration
+  const [omieKey, setOmieKey] = useState("");
+  const [omieSecret, setOmieSecret] = useState("");
+  const [omieStatus, setOmieStatus] = useState<"idle"|"syncing"|"success"|"error">("idle");
+  const [omieResult, setOmieResult] = useState<any>(null);
+  const [omieErp, setOmieErp] = useState("omie");
+
   // Contexto Humano (Bloco 18)
   const [contexto, setContexto] = useState({
     problemas:"",mudancas_mercado:"",decisoes_pendentes:"",oportunidades:"",
@@ -351,6 +358,7 @@ export default function DadosPage() {
     {id:"resultado",nome:"Resultado / Mês"},
     {id:"estrutura",nome:"Custos Estrutura"},
     {id:"contexto",nome:"Painel de Contexto"},
+    {id:"integracoes",nome:"⚡ Integrações"},
   ];
 
   return (
@@ -671,6 +679,167 @@ export default function DadosPage() {
             <Btn onClick={salvarContexto}>◆ Salvar Painel de Contexto</Btn>
           </div>
         </Card>
+      )}
+
+      {/* === INTEGRAÇÕES === */}
+      {aba==="integracoes"&&(
+        <div>
+          <Card title="Conectar ERP — Importar dados automaticamente">
+            <div style={{fontSize:11,color:TXM,marginBottom:14}}>Conecte o sistema de gestão da empresa para importar faturamento, custos, estoque e financeiro automaticamente — sem digitar nada.</div>
+            
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {[
+                {id:"omie",nome:"Omie",status:"Disponível",cor:G},
+                {id:"contaazul",nome:"ContaAzul",status:"Em breve",cor:Y},
+                {id:"bling",nome:"Bling",status:"Em breve",cor:Y},
+                {id:"nenhum",nome:"Sem ERP (manual)",status:"Ativo",cor:TXM},
+              ].map(erp=>(
+                <button key={erp.id} onClick={()=>setOmieErp(erp.id)} style={{
+                  flex:1,padding:"10px 8px",borderRadius:8,textAlign:"center",cursor:erp.id==="omie"||erp.id==="nenhum"?"pointer":"default",
+                  border:`1px solid ${omieErp===erp.id?GO:BD}`,background:omieErp===erp.id?GO+"15":"transparent",opacity:erp.id==="contaazul"||erp.id==="bling"?0.5:1
+                }}>
+                  <div style={{fontSize:13,fontWeight:600,color:omieErp===erp.id?GOL:TX}}>{erp.nome}</div>
+                  <div style={{fontSize:9,color:erp.cor,marginTop:2}}>{erp.status}</div>
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          {omieErp==="omie"&&(
+            <Card title="Configuração do Omie">
+              <div style={{fontSize:11,color:TXM,marginBottom:14}}>
+                Para conectar, acesse o Omie da empresa: <strong style={{color:TX}}>Configurações → Integrações → API → Chaves de API</strong>. 
+                Copie a App Key e o App Secret e cole abaixo.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <Input label="App Key" value={omieKey} onChange={setOmieKey} placeholder="1234567890123"/>
+                <Input label="App Secret" value={omieSecret} onChange={setOmieSecret} placeholder="abc123def456ghi789jkl"/>
+              </div>
+
+              {omieKey&&omieSecret&&(
+                <div style={{marginTop:12}}>
+                  <div style={{fontSize:11,color:TXM,marginBottom:8}}>Dados que serão importados:</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:12}}>
+                    {["Dados da empresa","Categorias financeiras","Produtos cadastrados","Clientes e fornecedores",
+                      "Contas a pagar","Contas a receber","Pedidos de venda faturados","Posição de estoque",
+                      "Resumo financeiro","Contas bancárias"].map((item,i)=>(
+                      <div key={i} style={{fontSize:10,color:TX,padding:"4px 8px",background:BG3,borderRadius:4}}>✓ {item}</div>
+                    ))}
+                  </div>
+
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={async()=>{
+                      setOmieStatus("syncing");
+                      setOmieResult(null);
+                      try {
+                        // Test connection first
+                        const testRes = await fetch("/api/omie", {
+                          method: "POST",
+                          headers: {"Content-Type":"application/json"},
+                          body: JSON.stringify({
+                            app_key: omieKey, app_secret: omieSecret,
+                            endpoint: "geral/empresas/", method: "ListarEmpresas",
+                            params: { pagina: 1, registros_por_pagina: 1 }
+                          })
+                        });
+                        const testData = await testRes.json();
+                        if(testData.faultstring) {
+                          setOmieStatus("error");
+                          setOmieResult({error: testData.faultstring});
+                          return;
+                        }
+                        setOmieResult({test: "Conexão OK!", empresa: testData});
+                        setOmieStatus("success");
+                        showToast("Conexão com Omie estabelecida!","ok");
+                      } catch(e:any) {
+                        setOmieStatus("error");
+                        setOmieResult({error: e.message});
+                      }
+                    }} disabled={omieStatus==="syncing"} style={{
+                      padding:"10px 20px",borderRadius:8,border:`1px solid ${GO}`,
+                      background:"transparent",color:GOL,fontSize:12,fontWeight:600,cursor:"pointer"
+                    }}>
+                      {omieStatus==="syncing"?"Conectando...":"◆ Testar Conexão"}
+                    </button>
+
+                    <button onClick={async()=>{
+                      setOmieStatus("syncing");
+                      setOmieResult(null);
+                      try {
+                        const res = await fetch("/api/omie/sync", {
+                          method: "POST",
+                          headers: {"Content-Type":"application/json"},
+                          body: JSON.stringify({ app_key: omieKey, app_secret: omieSecret, sync_type: "all" })
+                        });
+                        const data = await res.json();
+                        if(data.error) {
+                          setOmieStatus("error");
+                          setOmieResult({error: data.error});
+                          return;
+                        }
+                        setOmieResult(data.data);
+                        setOmieStatus("success");
+                        showToast("Dados importados do Omie com sucesso!","ok");
+                      } catch(e:any) {
+                        setOmieStatus("error");
+                        setOmieResult({error: e.message});
+                      }
+                    }} disabled={omieStatus==="syncing"} style={{
+                      padding:"10px 20px",borderRadius:8,border:"none",
+                      background:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
+                      color:"#0F0F0D",fontSize:12,fontWeight:600,cursor:"pointer"
+                    }}>
+                      {omieStatus==="syncing"?"Importando dados...":"◆ Importar Todos os Dados"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {omieStatus==="error"&&omieResult?.error&&(
+                <div style={{background:R+"15",borderRadius:8,padding:12,marginTop:12,border:`0.5px solid ${R}40`}}>
+                  <div style={{fontSize:11,fontWeight:600,color:R}}>Erro na conexão</div>
+                  <div style={{fontSize:10,color:TX,marginTop:4}}>{omieResult.error}</div>
+                  <div style={{fontSize:9,color:TXM,marginTop:4}}>Verifique se as chaves estão corretas e se a API está habilitada no Omie.</div>
+                </div>
+              )}
+
+              {omieStatus==="success"&&omieResult&&(
+                <div style={{background:G+"15",borderRadius:8,padding:12,marginTop:12,border:`0.5px solid ${G}40`}}>
+                  <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:8}}>✓ Dados importados com sucesso!</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+                    {omieResult.empresa&&<div style={{fontSize:10,color:TX}}>✓ Empresa identificada</div>}
+                    {omieResult.categorias&&<div style={{fontSize:10,color:TX}}>✓ {omieResult.categorias.total_de_registros||"—"} categorias</div>}
+                    {omieResult.produtos&&<div style={{fontSize:10,color:TX}}>✓ {omieResult.produtos.total_de_registros||"—"} produtos</div>}
+                    {omieResult.clientes&&<div style={{fontSize:10,color:TX}}>✓ {omieResult.clientes.total_de_registros||"—"} clientes</div>}
+                    {omieResult.contas_pagar&&<div style={{fontSize:10,color:TX}}>✓ {omieResult.contas_pagar.total_de_registros||"—"} contas a pagar</div>}
+                    {omieResult.contas_receber&&<div style={{fontSize:10,color:TX}}>✓ {omieResult.contas_receber.total_de_registros||"—"} contas a receber</div>}
+                    {omieResult.vendas&&<div style={{fontSize:10,color:TX}}>✓ {omieResult.vendas.total_de_registros||"—"} pedidos faturados</div>}
+                    {omieResult.estoque&&<div style={{fontSize:10,color:TX}}>✓ Posição de estoque carregada</div>}
+                    {omieResult.resumo&&<div style={{fontSize:10,color:TX}}>✓ Resumo financeiro OK</div>}
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {omieErp==="nenhum"&&(
+            <Card>
+              <div style={{textAlign:"center",padding:16}}>
+                <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:8}}>Modo Manual</div>
+                <div style={{fontSize:11,color:TXM,lineHeight:1.7}}>Sem integração com ERP. Use as abas "Resultado / Mês" e "Custos Estrutura" para preencher os dados manualmente, ou importe via planilha.</div>
+              </div>
+            </Card>
+          )}
+
+          {(omieErp==="contaazul"||omieErp==="bling")&&(
+            <Card>
+              <div style={{textAlign:"center",padding:16}}>
+                <div style={{fontSize:14,fontWeight:600,color:Y,marginBottom:8}}>Em desenvolvimento</div>
+                <div style={{fontSize:11,color:TXM,lineHeight:1.7}}>A integração com {omieErp==="contaazul"?"ContaAzul":"Bling"} está em desenvolvimento e será disponibilizada em breve. Por enquanto, use o modo manual ou importe via planilha.</div>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
     </div>
   );
