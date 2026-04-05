@@ -65,6 +65,7 @@ export default function DashboardPage(){
   const [lnAberta,setLnAberta]=useState<number|null>(null);
   const [subAba,setSubAba]=useState("visao");
   const [dreAberto,setDreAberto]=useState<Record<string,boolean>>({});
+  const [custoAberto,setCustoAberto]=useState<Record<string,boolean>>({});
 
   const abas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
   const meses=["Jan","Fev","Mar"];
@@ -456,6 +457,139 @@ export default function DashboardPage(){
                   ))}
                 </>);
               })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Tit t="Mapa de Custos — Do maior para o menor (clique para abrir)"/>
+      <Card p="8px">
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+            <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
+              {["Grupo de Custo","Jan","Fev","Mar","Total 1T","% do Faturamento"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:h==="Grupo de Custo"?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                {id:"cg_prod",g:"Produtos e Insumos",t_n:3138770,j:"1.090.490",f:"519.160",m:"1.529.120",t:"3.138.770",p:"48,3%",cor:R,
+                  subs:[
+                    {c:"Painéis solares (Risen, Canadian, JA)",j:"654.290",f:"311.496",m:"917.470",t:"1.883.256"},
+                    {c:"Inversores (Growatt, Fronius)",j:"218.100",f:"103.832",m:"305.824",t:"627.756"},
+                    {c:"Estruturas de fixação",j:"109.050",f:"51.916",m:"152.912",t:"313.878"},
+                    {c:"Cabos, conectores e proteções",j:"76.334",f:"36.341",m:"107.038",t:"219.713"},
+                    {c:"Outros materiais e componentes",j:"32.716",f:"15.575",m:"45.876",t:"94.167"},
+                  ]},
+                {id:"cg_pess",g:"Pessoas (folha completa)",t_n:825500,j:"274.500",f:"275.200",m:"276.300",t:"825.500",p:"12,7%",cor:Y,
+                  subs:[
+                    {c:"Equipe direta dos 6 negócios (38 pessoas)",j:"228.000",f:"228.000",m:"228.000",t:"684.000"},
+                    {c:"Equipe administrativa (8 pessoas)",j:"28.500",f:"29.200",m:"29.800",t:"87.500"},
+                    {c:"Pró-labore dos sócios (3 sócios)",j:"18.000",f:"18.000",m:"18.500",t:"54.500"},
+                  ]},
+                {id:"cg_enc",g:"Encargos e Benefícios",t_n:54500,j:"17.800",f:"18.200",m:"18.500",t:"54.500",p:"0,8%",cor:TXM,
+                  subs:[
+                    {c:"INSS patronal",j:"8.200",f:"8.400",m:"8.500",t:"25.100"},
+                    {c:"FGTS",j:"4.800",f:"4.900",m:"5.000",t:"14.700"},
+                    {c:"Vale refeição / alimentação",j:"2.800",f:"2.900",m:"3.000",t:"8.700"},
+                    {c:"Plano de saúde",j:"1.200",f:"1.200",m:"1.200",t:"3.600"},
+                    {c:"Vale transporte",j:"800",f:"800",m:"800",t:"2.400"},
+                  ]},
+                {id:"cg_com",g:"Comissões e Vendas",t_n:355000,j:"120.000",f:"67.000",m:"168.000",t:"355.000",p:"5,5%",cor:Y,
+                  subs:[
+                    {c:"Comissões vendedores (% sobre venda)",j:"85.000",f:"42.000",m:"118.000",t:"245.000"},
+                    {c:"Bônus por meta atingida",j:"20.000",f:"10.000",m:"28.000",t:"58.000"},
+                    {c:"Premiações e incentivos",j:"15.000",f:"15.000",m:"22.000",t:"52.000"},
+                  ]},
+                {id:"cg_terc",g:"Terceirização e Serviços",t_n:252000,j:"85.000",f:"52.000",m:"115.000",t:"252.000",p:"3,9%",cor:TXM,
+                  subs:[
+                    {c:"Instaladores terceirizados",j:"52.000",f:"28.000",m:"72.000",t:"152.000"},
+                    {c:"Eletricistas especializados",j:"18.000",f:"12.000",m:"25.000",t:"55.000"},
+                    {c:"Engenharia e projetos externos",j:"15.000",f:"12.000",m:"18.000",t:"45.000"},
+                  ]},
+                {id:"cg_log",g:"Frete e Logística",t_n:296215,j:"98.200",f:"62.724",m:"135.291",t:"296.215",p:"4,6%",cor:Y,
+                  subs:[
+                    {c:"Frete de equipamentos (fornecedor→sede)",j:"52.000",f:"30.000",m:"72.000",t:"154.000"},
+                    {c:"Frete de entrega (sede→cliente)",j:"32.200",f:"22.724",m:"43.291",t:"98.215"},
+                    {c:"Frete Loja Online (grátis para cliente)",j:"14.000",f:"10.000",m:"20.000",t:"44.000"},
+                  ]},
+                {id:"cg_mkt",g:"Marketing (direto + institucional)",t_n:229300,j:"75.800",f:"50.000",m:"103.500",t:"229.300",p:"3,5%",cor:TXM,
+                  subs:[
+                    {c:"Marketing direto dos negócios",j:"68.000",f:"42.000",m:"95.000",t:"205.000"},
+                    {c:"Marketing institucional (marca)",j:"7.800",f:"8.000",m:"8.500",t:"24.300"},
+                  ]},
+                {id:"cg_imp",g:"Impostos sobre Vendas",t_n:328420,j:"111.420",f:"59.190",m:"157.810",t:"328.420",p:"5,1%",cor:Y,
+                  subs:[
+                    {c:"ISS / ICMS",j:"55.660",f:"28.605",m:"78.235",t:"162.500"},
+                    {c:"COFINS",j:"41.190",f:"23.105",m:"59.130",t:"123.425"},
+                    {c:"PIS",j:"14.570",f:"7.480",m:"20.445",t:"42.495"},
+                  ]},
+                {id:"cg_veic",g:"Veículos e Deslocamento",t_n:42100,j:"13.800",f:"14.100",m:"14.200",t:"42.100",p:"0,6%",cor:TXM,
+                  subs:[
+                    {c:"Combustível (frota 6 veículos)",j:"7.200",f:"7.400",m:"7.500",t:"22.100"},
+                    {c:"Manutenção e revisões",j:"3.800",f:"3.900",m:"3.900",t:"11.600"},
+                    {c:"Seguro dos veículos",j:"2.800",f:"2.800",m:"2.800",t:"8.400"},
+                  ]},
+                {id:"cg_ocup",g:"Ocupação (sede e estrutura física)",t_n:39700,j:"13.200",f:"13.300",m:"13.200",t:"39.700",p:"0,6%",cor:TXM,
+                  subs:[
+                    {c:"Aluguel da sede",j:"8.500",f:"8.500",m:"8.500",t:"25.500"},
+                    {c:"Energia elétrica",j:"2.800",f:"2.900",m:"2.800",t:"8.500"},
+                    {c:"Internet e telefonia",j:"1.200",f:"1.200",m:"1.200",t:"3.600"},
+                    {c:"Água e limpeza",j:"700",f:"700",m:"700",t:"2.100"},
+                  ]},
+                {id:"cg_adm",g:"Administrativo e Assessorias",t_n:40500,j:"13.200",f:"13.500",m:"13.800",t:"40.500",p:"0,6%",cor:TXM,
+                  subs:[
+                    {c:"Contabilidade",j:"4.500",f:"4.500",m:"4.500",t:"13.500"},
+                    {c:"Assessoria jurídica",j:"3.200",f:"3.500",m:"3.800",t:"10.500"},
+                    {c:"Assessoria financeira (PS Gestão)",j:"2.500",f:"2.500",m:"2.500",t:"7.500"},
+                    {c:"Softwares e sistemas (Omie, etc)",j:"3.000",f:"3.000",m:"3.000",t:"9.000"},
+                  ]},
+                {id:"cg_seg",g:"Seguros, Taxas e Outros",t_n:45100,j:"14.400",f:"14.900",m:"15.800",t:"45.100",p:"0,7%",cor:TXM,
+                  subs:[
+                    {c:"Taxas de cartão de crédito/débito",j:"5.600",f:"5.800",m:"6.300",t:"17.700"},
+                    {c:"Seguros (empresa + RC profissional)",j:"3.200",f:"3.200",m:"3.200",t:"9.600"},
+                    {c:"Perdas e quebras",j:"2.400",f:"2.700",m:"2.800",t:"7.900"},
+                    {c:"Outros custos diversos",j:"3.200",f:"3.200",m:"3.500",t:"9.900"},
+                  ]},
+                {id:"cg_fin",g:"Financeiro (juros, parcelas, IR)",t_n:61200,j:"20.400",f:"19.000",m:"21.800",t:"61.200",p:"0,9%",cor:TXM,
+                  subs:[
+                    {c:"Impostos sobre o lucro (IR/CSLL)",j:"12.000",f:"11.000",m:"14.000",t:"37.000"},
+                    {c:"Parcelas de consórcio",j:"6.000",f:"6.000",m:"6.000",t:"18.000"},
+                    {c:"Juros de empréstimos",j:"4.200",f:"4.100",m:"4.300",t:"12.600"},
+                    {c:"(-) Rendimentos de aplicações",j:"(1.800)",f:"(2.100)",m:"(2.500)",t:"(6.400)"},
+                  ]},
+              ].sort((a,b)=>b.t_n-a.t_n).map((g:any)=>{
+                const aberto=custoAberto[g.id];
+                return(<>
+                  <tr key={g.id} onClick={()=>setCustoAberto({...custoAberto,[g.id]:!aberto})} style={{borderBottom:`0.5px solid ${BD}40`,cursor:"pointer"}}>
+                    <td style={{padding:"7px 6px",fontWeight:600,color:TX}}>
+                      <span style={{display:"inline-block",width:16,fontSize:10,color:GO}}>{aberto?"▼":"▶"}</span>
+                      {g.g}
+                    </td>
+                    <td style={{padding:6,textAlign:"right",color:g.j.includes("(")?G:TXM}}>{g.j}</td>
+                    <td style={{padding:6,textAlign:"right",color:g.f.includes("(")?G:TXM}}>{g.f}</td>
+                    <td style={{padding:6,textAlign:"right",color:g.m.includes("(")?G:TXM}}>{g.m}</td>
+                    <td style={{padding:6,textAlign:"right",fontWeight:700,color:TX}}>{g.t}</td>
+                    <td style={{padding:6,textAlign:"right",fontWeight:600,color:g.cor}}>{g.p}</td>
+                  </tr>
+                  {aberto&&[...g.subs].sort((a:any,b:any)=>Math.abs(parseFloat(b.t.replace(/[().]/g,"").replace(",","")))-Math.abs(parseFloat(a.t.replace(/[().]/g,"").replace(",","")))).map((s:any,si:number)=>(
+                    <tr key={`${g.id}-${si}`} style={{background:BG3,borderBottom:`0.5px solid ${BD}20`}}>
+                      <td style={{padding:"4px 6px 4px 28px",fontSize:10,color:TXM}}>{s.c}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:s.j.includes("(")?G+"CC":TXM}}>{s.j}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:s.f.includes("(")?G+"CC":TXM}}>{s.f}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:s.m.includes("(")?G+"CC":TXM}}>{s.m}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>{s.t}</td>
+                      <td style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:TXD}}></td>
+                    </tr>
+                  ))}
+                </>);
+              })}
+              <tr style={{background:GO+"18",borderTop:`1px solid ${GO}`}}>
+                <td style={{padding:"8px 6px",fontWeight:700,color:TX,paddingLeft:22}}>TOTAL DE CUSTOS E DESPESAS</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>2.010.615</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>1.237.474</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>2.650.306</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>5.898.395</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:R}}>90,7%</td>
+              </tr>
             </tbody>
           </table>
         </div>
