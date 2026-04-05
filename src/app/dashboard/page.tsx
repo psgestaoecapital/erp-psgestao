@@ -271,11 +271,27 @@ export default function DashboardPage(){
   }
 
   // ===== MAIN DASHBOARD =====
+  const [empresaSel, setEmpresaSel] = useState("consolidado");
+  const grupoEmpresas = [
+    {id:"consolidado",nome:"Grupo Consolidado",cnpj:"Todos os CNPJs",pais:"—",moeda:"BRL"},
+    {id:"cnpj1",nome:empresa.nome,cnpj:"52.341.876/0001-45",pais:"Brasil",moeda:"BRL"},
+  ];
+
   return(<div>
     <div style={{padding:"12px 20px",background:BG2,borderBottom:`1px solid ${BD}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresa.nome}</div><div style={{fontSize:10,color:TXD}}>{empresa.cidade} | {empresa.lns} negócios | {empresa.colab} colaboradores</div></div>
-        <div style={{fontSize:10,color:TXM,background:BG3,padding:"4px 10px",borderRadius:6,border:`0.5px solid ${BD}`}}>{empresa.periodo}</div>
+        <div>
+          <div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresa.nome}</div>
+          <div style={{fontSize:10,color:TXD}}>{empresa.cidade} | {empresa.lns} negócios | {empresa.colab} colaboradores</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {grupoEmpresas.length>1&&(
+            <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}>
+              {grupoEmpresas.map(e=><option key={e.id} value={e.id}>{e.nome}{e.pais!=="—"?` (${e.pais})`:""}</option>)}
+            </select>
+          )}
+          <div style={{fontSize:10,color:TXM,background:BG3,padding:"4px 10px",borderRadius:6,border:`0.5px solid ${BD}`}}>{empresa.periodo}</div>
+        </div>
       </div>
     </div>
 
