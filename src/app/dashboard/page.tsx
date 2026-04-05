@@ -626,6 +626,92 @@ export default function DashboardPage(){
         </div>
       </Card>
 
+      <Tit t="Parecer da Inteligência Artificial — Análise do Período"/>
+      <Card>
+        <div style={{background:GO+"10",borderRadius:10,padding:16,marginBottom:12,borderLeft:`4px solid ${GO}`}}>
+          <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:8}}>◆ DIAGNÓSTICO GERAL DO TRIMESTRE</div>
+          <div style={{fontSize:12,color:TX,lineHeight:1.8}}>
+            A empresa faturou R$ 6,5 milhões no 1º trimestre com custo total de R$ 5,9 milhões (90,7% do faturamento), gerando lucro final de R$ 601.605. Os custos ficaram R$ 296 mil acima do orçado (+5,3%), porém o faturamento superou a meta em 9,3% — o que significa que a empresa gastou mais porque vendeu mais, e a margem líquida melhorou de 8,7% (orçado) para 9,3% (realizado). O resultado é positivo, mas existem ineficiências que se corrigidas podem adicionar R$ 780 mil ao lucro anual.
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{fontSize:12,fontWeight:700,color:R,marginBottom:12}}>🔴 PONTOS CRÍTICOS (ação imediata)</div>
+        {[
+          {t:"Custo de produtos 3 pontos acima do ideal",d:"Os produtos e insumos consomem 48,3% do faturamento — a meta é 45%. A diferença de 3 pontos equivale a R$ 195 mil por trimestre ou R$ 780 mil por ano de lucro perdido. A causa principal é o aumento de 5% no preço dos painéis solares importados (câmbio). Ação: renegociar contrato anual com Risen e Canadian Solar com preço fixo, e testar fornecedor nacional (BYD Manaus).",imp:"Impacto: +R$ 780K/ano",cor:R},
+          {t:"Loja Online destruindo valor em 3 frentes",d:"Consome R$ 44K em frete grátis (15% do custo total de frete para gerar 2% do faturamento), R$ 54K em marketing digital com retorno negativo, e R$ 7,9K em perdas/quebras acima da média. Cada mês que passa, a empresa perde R$ 8K. Ação: encerrar operação em 30 dias e realocar recursos para Manutenção O&M.",imp:"Impacto: +R$ 234K/ano",cor:R},
+          {t:"Política de comissões incentiva volume, não margem",d:"Vendedores ganham comissão sobre faturamento bruto, não sobre margem. Isso significa que um projeto de R$ 500K com 5% de margem gera mais comissão que um de R$ 200K com 25% de margem — mesmo que o segundo dê 2x mais lucro. Ação: migrar comissão para % da margem direta.",imp:"Impacto: +R$ 120K/ano",cor:R},
+        ].map((p,i)=>(
+          <div key={i} style={{background:R+"08",borderRadius:8,padding:14,marginBottom:8,borderLeft:`3px solid ${R}`}}>
+            <div style={{fontSize:12,fontWeight:600,color:R,marginBottom:4}}>{p.t}</div>
+            <div style={{fontSize:11,color:TX,lineHeight:1.7,marginBottom:6}}>{p.d}</div>
+            <div style={{fontSize:11,fontWeight:600,color:G,background:G+"10",display:"inline-block",padding:"2px 10px",borderRadius:4}}>{p.imp}</div>
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <div style={{fontSize:12,fontWeight:700,color:Y,marginBottom:12}}>🟡 PONTOS DE ATENÇÃO (agir em 30-60 dias)</div>
+        {[
+          {t:"Equipe de Usinas ociosa em meses sem projeto",d:"10 profissionais com custo fixo de R$ 68K/mês ficaram sem projeto em fevereiro. A folha continuou mesmo com faturamento zero. Ação: converter 3 instaladores para contrato por projeto (reduz custo fixo em R$ 24K/mês) e nos meses sem usina, realocar equipe técnica para Projetos Comerciais.",imp:"Economia: R$ 72K/ano"},
+          {t:"Taxas de cartão acima do mercado",d:"As taxas de cartão estão em 3,2% do valor — para faturamento acima de R$ 200K/mês no cartão, a taxa negociada deveria ser 2,5%. Ação: renegociar com Stone ou PagSeguro apresentando o volume mensal.",imp:"Economia: R$ 14K/ano"},
+          {t:"Frete poderia ser otimizado com roteirização",d:"Os veículos de manutenção fazem visitas sem agrupamento geográfico. Roteirizar por região e dia pode reduzir 15-20% do consumo de combustível. Ação: implementar roteirização semanal das visitas.",imp:"Economia: R$ 16K/ano"},
+          {t:"Regime tributário pode não ser o mais vantajoso",d:"Com lucro de 10,2%, o Lucro Presumido pode estar custando mais que o Lucro Real. Ação: pedir simulação comparativa ao escritório de contabilidade com dados dos últimos 12 meses.",imp:"Economia potencial: R$ 40-80K/ano"},
+        ].map((p,i)=>(
+          <div key={i} style={{background:Y+"08",borderRadius:8,padding:14,marginBottom:8,borderLeft:`3px solid ${Y}`}}>
+            <div style={{fontSize:12,fontWeight:600,color:Y,marginBottom:4}}>{p.t}</div>
+            <div style={{fontSize:11,color:TX,lineHeight:1.7,marginBottom:6}}>{p.d}</div>
+            <div style={{fontSize:11,fontWeight:600,color:G,background:G+"10",display:"inline-block",padding:"2px 10px",borderRadius:4}}>{p.imp}</div>
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:12}}>🟢 OPORTUNIDADES DE MELHORIA (próximos 90 dias)</div>
+        {[
+          {t:"Triplicar base de contratos de Manutenção (158→500)",d:"Cada contrato novo gera R$ 300/mês com 20,4% de lucro real e custo de aquisição de apenas R$ 350. Contratar +2 técnicos e +1 vendedor dedicado. Investimento: R$ 13K/mês. Retorno: R$ 99K/mês em 12 meses.",imp:"+R$ 1,2M/ano"},
+          {t:"Corrigir tabela de preços com custo real da estrutura",d:"A ficha técnica M16 já calcula o preço sugerido incluindo rateio da sede. Basta adotar esses preços. O markup real médio subiria de 11,2% para 18,5% nos Equipamentos.",imp:"+R$ 520K/ano"},
+          {t:"Instalar energia solar na própria sede",d:"Sistema de 5kWp eliminaria R$ 2,8K/mês de conta de energia. Payback de 18 meses. Além da economia, serve como vitrine para clientes que visitam a empresa.",imp:"+R$ 33K/ano"},
+          {t:"Implementar CRM para gestão de propostas",d:"Hoje as propostas são controladas em planilha. Um CRM (Pipedrive, R$ 500/mês) melhora acompanhamento, acelera fechamento e evita propostas esquecidas. Estimativa de conversão adicional: 2 projetos/mês.",imp:"+R$ 200K/ano"},
+          {t:"Realocar marketing da Loja Online para O&M",d:"Os R$ 18K/mês gastos em marketing digital da Loja Online (com retorno negativo) seriam muito mais produtivos captando contratos de manutenção (R$ 10K) e projetos comerciais (R$ 8K).",imp:"+R$ 150K/ano"},
+        ].map((p,i)=>(
+          <div key={i} style={{background:G+"08",borderRadius:8,padding:14,marginBottom:8,borderLeft:`3px solid ${G}`}}>
+            <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:4}}>{p.t}</div>
+            <div style={{fontSize:11,color:TX,lineHeight:1.7,marginBottom:6}}>{p.d}</div>
+            <div style={{fontSize:11,fontWeight:700,color:G,background:G+"15",display:"inline-block",padding:"2px 10px",borderRadius:4}}>{p.imp}</div>
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <div style={{background:BG3,borderRadius:10,padding:16,border:`1px solid ${GO}40`}}>
+          <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:8}}>◆ RESUMO DO IMPACTO TOTAL</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+            <div style={{background:BG2,borderRadius:8,padding:10,textAlign:"center"}}>
+              <div style={{fontSize:9,color:TXD}}>Pontos Críticos</div>
+              <div style={{fontSize:18,fontWeight:700,color:G}}>+R$ 1,13M</div>
+              <div style={{fontSize:9,color:TXM}}>por ano se corrigidos</div>
+            </div>
+            <div style={{background:BG2,borderRadius:8,padding:10,textAlign:"center"}}>
+              <div style={{fontSize:9,color:TXD}}>Pontos de Atenção</div>
+              <div style={{fontSize:18,fontWeight:700,color:G}}>+R$ 182K</div>
+              <div style={{fontSize:9,color:TXM}}>por ano em economia</div>
+            </div>
+            <div style={{background:BG2,borderRadius:8,padding:10,textAlign:"center"}}>
+              <div style={{fontSize:9,color:TXD}}>Oportunidades</div>
+              <div style={{fontSize:18,fontWeight:700,color:G}}>+R$ 2,1M</div>
+              <div style={{fontSize:9,color:TXM}}>por ano em crescimento</div>
+            </div>
+          </div>
+          <div style={{textAlign:"center",background:GO+"15",borderRadius:8,padding:12}}>
+            <div style={{fontSize:10,color:TXD}}>IMPACTO TOTAL SE TODAS AS AÇÕES FOREM EXECUTADAS</div>
+            <div style={{fontSize:28,fontWeight:800,color:GOL,margin:"4px 0"}}>+R$ 3,4 milhões/ano</div>
+            <div style={{fontSize:11,color:TX}}>Lucro anual passaria de R$ 2,4M para R$ 5,8M — aumento de <strong style={{color:G}}>141%</strong></div>
+          </div>
+        </div>
+      </Card>
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
         <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`0.5px solid ${BD}`}}>
           <div style={{fontSize:9,color:TXD}}>Faturamento Mínimo / Mês</div>
