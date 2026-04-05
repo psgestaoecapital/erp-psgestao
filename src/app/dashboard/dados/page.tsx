@@ -141,7 +141,7 @@ export default function DadosPage() {
   const [mesSel, setMesSel] = useState("2025-01");
 
   // M0 - Empresa
-  const [empresa, setEmpresa] = useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",setor:"",num_colaboradores:"",faturamento_anual:""});
+  const [empresa, setEmpresa] = useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",setor:"",num_colaboradores:"",faturamento_anual:"",pais:"Brasil",moeda:"BRL",regime_tributario:"simples",tipo_empresa:"matriz",id_fiscal_exterior:""});
   
   // Business Lines
   const [linhas, setLinhas] = useState<any[]>([{nome:"",tipo:"comercio",responsavel:""}]);
@@ -181,6 +181,11 @@ export default function DadosPage() {
         setor: data[0].setor || "",
         num_colaboradores: data[0].num_colaboradores?.toString() || "",
         faturamento_anual: data[0].faturamento_anual?.toString() || "",
+        pais: data[0].pais || "Brasil",
+        moeda: data[0].moeda || "BRL",
+        regime_tributario: data[0].regime_tributario || "simples",
+        tipo_empresa: data[0].tipo_empresa || "matriz",
+        id_fiscal_exterior: data[0].id_fiscal_exterior || "",
       });
       loadBusinessLines(data[0].id);
     }
@@ -212,6 +217,11 @@ export default function DadosPage() {
       setor: empresa.setor,
       num_colaboradores: parseInt(empresa.num_colaboradores) || null,
       faturamento_anual: parseFloat(empresa.faturamento_anual) || null,
+      pais: empresa.pais,
+      moeda: empresa.moeda,
+      regime_tributario: empresa.regime_tributario,
+      tipo_empresa: empresa.tipo_empresa,
+      id_fiscal_exterior: empresa.id_fiscal_exterior || null,
     }).eq("id", selectedCompany);
     if(error) { showToast("Erro: "+error.message,"err"); return; }
     showToast("Empresa salva com sucesso!","ok");
@@ -368,7 +378,7 @@ export default function DadosPage() {
                 setSelectedCompany(v);
                 const c = companies.find(c=>c.id===v);
                 if(c) {
-                  setEmpresa({razao_social:c.razao_social||"",nome_fantasia:c.nome_fantasia||"",cnpj:c.cnpj||"",cidade_estado:c.cidade_estado||"",setor:c.setor||"",num_colaboradores:c.num_colaboradores?.toString()||"",faturamento_anual:c.faturamento_anual?.toString()||""});
+                  setEmpresa({razao_social:c.razao_social||"",nome_fantasia:c.nome_fantasia||"",cnpj:c.cnpj||"",cidade_estado:c.cidade_estado||"",setor:c.setor||"",num_colaboradores:c.num_colaboradores?.toString()||"",faturamento_anual:c.faturamento_anual?.toString()||"",pais:c.pais||"Brasil",moeda:c.moeda||"BRL",regime_tributario:c.regime_tributario||"simples",tipo_empresa:c.tipo_empresa||"matriz",id_fiscal_exterior:c.id_fiscal_exterior||""});
                   loadBusinessLines(v);
                 }
               }} options={companies.map(c=>({value:c.id,label:c.nome_fantasia||c.razao_social}))}/>
@@ -396,20 +406,82 @@ export default function DadosPage() {
 
       {/* === EMPRESA (M0) === */}
       {aba==="empresa"&&(
+        <div>
         <Card title="Cadastro da Empresa">
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Input label="Razão Social *" value={empresa.razao_social} onChange={(v:string)=>setEmpresa({...empresa,razao_social:v})} placeholder="Razão social completa"/>
             <Input label="Nome Fantasia" value={empresa.nome_fantasia} onChange={(v:string)=>setEmpresa({...empresa,nome_fantasia:v})} placeholder="Nome fantasia"/>
-            <Input label="CNPJ" value={empresa.cnpj} onChange={(v:string)=>setEmpresa({...empresa,cnpj:v})} placeholder="00.000.000/0001-00"/>
+            <Input label="CNPJ / ID Fiscal" value={empresa.cnpj} onChange={(v:string)=>setEmpresa({...empresa,cnpj:v})} placeholder="00.000.000/0001-00"/>
             <Input label="Cidade / Estado" value={empresa.cidade_estado} onChange={(v:string)=>setEmpresa({...empresa,cidade_estado:v})} placeholder="Chapecó/SC"/>
             <Input label="Setor de Atuação" value={empresa.setor} onChange={(v:string)=>setEmpresa({...empresa,setor:v})} placeholder="Ex: Materiais Elétricos"/>
             <Input label="Nº de Colaboradores" value={empresa.num_colaboradores} onChange={(v:string)=>setEmpresa({...empresa,num_colaboradores:v})} type="number" placeholder="54"/>
-            <Input label="Faturamento Anual Estimado" value={empresa.faturamento_anual} onChange={(v:string)=>setEmpresa({...empresa,faturamento_anual:v})} prefix="R$" type="number" placeholder="26000000"/>
-          </div>
-          <div style={{marginTop:16,display:"flex",justifyContent:"flex-end"}}>
-            <Btn onClick={salvarEmpresa}>◆ Salvar Dados da Empresa</Btn>
+            <Input label="Faturamento Anual Estimado" value={empresa.faturamento_anual} onChange={(v:string)=>setEmpresa({...empresa,faturamento_anual:v})} prefix={empresa.moeda==="BRL"?"R$":empresa.moeda==="USD"?"US$":empresa.moeda==="EUR"?"€":empresa.moeda} type="number" placeholder="26000000"/>
           </div>
         </Card>
+
+        <Card title="País, Moeda e Regime">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+            <Select label="País" value={empresa.pais} onChange={(v:string)=>{
+              const moedas:Record<string,string>={"Brasil":"BRL","Argentina":"ARS","Paraguai":"PYG","Uruguai":"UYU","Chile":"CLP","Colômbia":"COP","Peru":"PEN","México":"MXN","Portugal":"EUR","Espanha":"EUR","Estados Unidos":"USD","Outro":"USD"};
+              setEmpresa({...empresa,pais:v,moeda:moedas[v]||"USD"});
+            }} options={[
+              {value:"Brasil",label:"Brasil"},{value:"Argentina",label:"Argentina"},{value:"Paraguai",label:"Paraguai"},
+              {value:"Uruguai",label:"Uruguai"},{value:"Chile",label:"Chile"},{value:"Colômbia",label:"Colômbia"},
+              {value:"Peru",label:"Peru"},{value:"México",label:"México"},{value:"Portugal",label:"Portugal"},
+              {value:"Espanha",label:"Espanha"},{value:"Estados Unidos",label:"Estados Unidos"},{value:"Outro",label:"Outro"},
+            ]}/>
+            <Select label="Moeda" value={empresa.moeda} onChange={(v:string)=>setEmpresa({...empresa,moeda:v})} options={[
+              {value:"BRL",label:"BRL — Real Brasileiro"},{value:"ARS",label:"ARS — Peso Argentino"},
+              {value:"USD",label:"USD — Dólar Americano"},{value:"EUR",label:"EUR — Euro"},
+              {value:"PYG",label:"PYG — Guarani"},{value:"UYU",label:"UYU — Peso Uruguaio"},
+              {value:"CLP",label:"CLP — Peso Chileno"},{value:"COP",label:"COP — Peso Colombiano"},
+              {value:"PEN",label:"PEN — Sol Peruano"},{value:"MXN",label:"MXN — Peso Mexicano"},
+            ]}/>
+            <Select label="Tipo de Empresa" value={empresa.tipo_empresa} onChange={(v:string)=>setEmpresa({...empresa,tipo_empresa:v})} options={[
+              {value:"matriz",label:"Matriz"},{value:"filial",label:"Filial"},{value:"holding",label:"Holding"},
+              {value:"servicos",label:"Empresa de Serviços"},{value:"comercio",label:"Empresa de Comércio"},
+              {value:"industria",label:"Indústria"},{value:"exterior",label:"Operação no Exterior"},
+            ]}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+            <Select label="Regime Tributário" value={empresa.regime_tributario} onChange={(v:string)=>setEmpresa({...empresa,regime_tributario:v})} options={[
+              {value:"simples",label:"Simples Nacional"},{value:"presumido",label:"Lucro Presumido"},
+              {value:"real",label:"Lucro Real"},{value:"mei",label:"MEI"},
+              {value:"exterior",label:"Regime do país de origem"},
+            ]}/>
+            {empresa.pais!=="Brasil"&&(
+              <Input label="ID Fiscal do Exterior (CUIT, RUT, NIF, etc.)" value={empresa.id_fiscal_exterior} onChange={(v:string)=>setEmpresa({...empresa,id_fiscal_exterior:v})} placeholder="Ex: 30-12345678-9"/>
+            )}
+          </div>
+          {empresa.pais!=="Brasil"&&(
+            <div style={{background:Y+"15",borderRadius:8,padding:10,marginTop:10,border:`0.5px solid ${Y}40`}}>
+              <div style={{fontSize:11,color:TX}}>
+                <strong style={{color:Y}}>Empresa no exterior:</strong> Os valores serão cadastrados em {empresa.moeda} e convertidos para BRL na consolidação do grupo usando a taxa de câmbio do período.
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {companies.length>1&&(
+          <Card title={`Visão do Grupo — ${companies.length} empresas cadastradas`}>
+            <div style={{fontSize:11,color:TXM,marginBottom:10}}>Todas as empresas do grupo. O dashboard consolida automaticamente.</div>
+            {companies.map((c,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`0.5px solid ${BD}20`}}>
+                <div style={{width:8,height:8,borderRadius:4,background:c.id===selectedCompany?GO:BD}}/>
+                <div style={{flex:1}}>
+                  <span style={{fontSize:12,color:c.id===selectedCompany?GOL:TX,fontWeight:c.id===selectedCompany?600:400}}>{c.nome_fantasia||c.razao_social}</span>
+                  <span style={{fontSize:9,color:TXD,marginLeft:8}}>{c.cnpj||"Sem CNPJ"} | {c.pais||"Brasil"} | {c.moeda||"BRL"}</span>
+                </div>
+                <span style={{fontSize:9,color:TXD,background:BG3,padding:"2px 8px",borderRadius:4}}>{c.tipo_empresa||"matriz"}</span>
+              </div>
+            ))}
+          </Card>
+        )}
+
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <Btn onClick={salvarEmpresa}>◆ Salvar Dados da Empresa</Btn>
+          </div>
+        </div>
       )}
 
       {/* === LINHAS DE NEGÓCIO === */}
