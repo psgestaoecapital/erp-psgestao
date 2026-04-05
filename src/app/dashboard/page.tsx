@@ -448,7 +448,7 @@ export default function DashboardPage(){
                     </td>
                     {[r.j,r.f,r.m,r.t].map((v:string,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:r.d?700:400,color:v.includes("(")?R:["mg","lc","fl"].includes(r.tp)?GOL:TX}}>{v}</td>)}
                   </tr>
-                  {aberto&&r.subs?.map((s:any,si:number)=>(
+                  {aberto&&[...r.subs].sort((a:any,b:any)=>Math.abs(parseFloat(b.t.replace(/[().]/g,"").replace(",","")))-Math.abs(parseFloat(a.t.replace(/[().]/g,"").replace(",","")))).map((s:any,si:number)=>(
                     <tr key={`${r.id}-${si}`} style={{background:BG3,borderBottom:`0.5px solid ${BD}20`}}>
                       <td style={{padding:"4px 6px 4px 28px",fontSize:10,color:TXM}}>{s.c}</td>
                       {[s.j,s.f,s.m,s.t].map((v:string,k:number)=><td key={k} style={{padding:"4px 6px",textAlign:"right",fontSize:10,color:v.includes("(")?R+"CC":TXM}}>{v}</td>)}
