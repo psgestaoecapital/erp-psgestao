@@ -55,6 +55,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <a href="/dashboard/dados" style={{ fontSize: 11, color: "#E8C872", textDecoration: "none", padding: "6px 12px", borderRadius: 6, border: "0.5px solid #C6973F", background: "#C6973F15" }}>Entrada de Dados</a>
           <a href="/dashboard/admin" style={{ fontSize: 11, color: "#C6973F", textDecoration: "none", padding: "6px 12px", borderRadius: 6, border: "0.5px solid #C6973F40" }}>Administrador</a>
           <span style={{ fontSize: 11, color: "#A8A498" }}>{user?.email}</span>
           <button onClick={handleLogout} style={{
