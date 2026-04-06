@@ -492,11 +492,11 @@ export default function DashboardPage(){
             <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no Omie" ok={true}/>
           </div>
 
-          {realData.resumo_mensal&&realData.resumo_mensal.length>0&&(
+          {realData.chart_mensal&&realData.chart_mensal.length>0&&(
             <Card>
               <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas — Dados Reais do Omie (R$)</div>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={realData.resumo_mensal.slice(-12)}>
+                <BarChart data={realData.chart_mensal}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
                   <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
@@ -1144,6 +1144,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v2.7 — processamento local</div>
     </div>
   </div>);
 }
