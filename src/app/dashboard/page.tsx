@@ -335,12 +335,15 @@ export default function DashboardPage(){
     const rec = realData.raw_rec || {};
     const desp = realData.raw_desp || {};
     const allM = [...new Set([...Object.keys(rec),...Object.keys(desp)])].sort().slice(-12);
-    return allM.map(m=>({
-      mes: fmtMesLabel(m),
-      receitas: rec[m]||0,
-      despesas: desp[m]||0,
-      resultado: (rec[m]||0)-(desp[m]||0),
-    }));
+    return allM.map(m=>{
+      const label = fmtMesLabel(m);
+      return {
+        mes: m, mesLabel: label,
+        receitas: rec[m]||0,
+        despesas: desp[m]||0,
+        resultado: (rec[m]||0)-(desp[m]||0),
+      };
+    });
   })();
 
   return(<div>
@@ -384,7 +387,7 @@ export default function DashboardPage(){
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={realData.chart_mensal||chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
-                  <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
+                  <XAxis dataKey="mesLabel" tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
                   <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
                   <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
@@ -486,7 +489,7 @@ export default function DashboardPage(){
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={realData.chart_mensal||chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
-              <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
+              <XAxis dataKey="mesLabel" tick={{fontSize:10,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
               <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
               <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={14}/>
@@ -567,7 +570,7 @@ export default function DashboardPage(){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
               <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
                 {["",
-                  ...realData.dre_mensal.slice(-6).map((d:any)=>d.mes),
+                  ...realData.dre_mensal.slice(-6).map((d:any)=>d.mesLabel||d.mes),
                   "Total"
                 ].map((h:string)=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
               </tr></thead>
@@ -1021,7 +1024,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.0 — paginação completa</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.1 — plano + alertas</div>
     </div>
   </div>);
 }

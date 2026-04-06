@@ -167,6 +167,14 @@ export default function DadosPage() {
   const [omieResult, setOmieResult] = useState<any>(null);
   const [omieErp, setOmieErp] = useState("omie");
 
+  // Plano de Ação
+  const [acoes, setAcoes] = useState<any[]>([]);
+  const [novaAcao, setNovaAcao] = useState({acao:"",responsavel:"",prazo:"",prioridade:"media",categoria:"operacional",impacto_esperado:"",observacoes:""});
+  const [loadingAcoes, setLoadingAcoes] = useState(false);
+
+  // Data Alerts
+  const [alertas, setAlertas] = useState<any[]>([]);
+
   // Contexto Humano (Bloco 18)
   const [contexto, setContexto] = useState({
     problemas:"",mudancas_mercado:"",decisoes_pendentes:"",oportunidades:"",
@@ -207,6 +215,73 @@ export default function DadosPage() {
       setLinhas([{nome:"",tipo:"comercio",responsavel:""}]);
       setResultado([]);
     }
+    // Load plano de ação
+    const { data: acoesData } = await supabase.from("plano_acao").select("*").eq("company_id", compId).order("created_at",{ascending:false});
+    setAcoes(acoesData || []);
+    // Generate data alerts
+    generateAlerts(compId);
+  };
+
+  const generateAlerts = async (compId: string) => {
+    const alerts: any[] = [];
+    // Check Omie imports
+    const { data: imports } = await supabase.from("omie_imports").select("import_type,import_data,record_count").eq("company_id", compId);
+    if(!imports || imports.length === 0) {
+      alerts.push({tipo:"sem_dados",severidade:"critico",mensagem:"Nenhum dado importado do Omie",detalhe:"Esta empresa não tem dados financeiros. Conecte o Omie na aba Integrações.",sugestao:"Vá em ⚡ Integrações → Omie → Importar Dados"});
+    } else {
+      // Check for empréstimos classificados como receita
+      const recImports = imports.filter(i=>i.import_type==="contas_receber");
+      for(const cr of recImports){
+        const regs = cr.import_data?.conta_receber_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        let emprestimosComoReceita = 0;
+        for(const r of regs){
+          const cat = r.codigo_categoria || "";
+          // Categories starting with 2. or 4. shouldn't be in contas_receber
+          if(cat.startsWith("2.") || cat.startsWith("4.") || cat.startsWith("5.")) {
+            emprestimosComoReceita += Number(r.valor_documento) || 0;
+          }
+        }
+        if(emprestimosComoReceita > 0) {
+          alerts.push({tipo:"classificacao",severidade:"atencao",mensagem:`R$ ${(emprestimosComoReceita/1000).toFixed(1)}K em contas a receber podem não ser receita operacional`,detalhe:"Empréstimos bancários, aportes de capital e transferências internas aparecem como receita mas não são faturamento real.",sugestao:"Revise as categorias no Omie: categorias que começam com 2.xx, 4.xx ou 5.xx não devem estar em Contas a Receber"});
+        }
+      }
+
+      // Check for future-dated entries
+      const cpImports = imports.filter(i=>i.import_type==="contas_pagar");
+      let futureCount = 0;
+      const now = new Date();
+      for(const cp of cpImports){
+        const regs = cp.import_data?.conta_pagar_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const dt = r.data_vencimento || "";
+          if(dt){
+            const parts = dt.split("/");
+            if(parts.length===3){
+              const year = parseInt(parts[2]);
+              if(year > now.getFullYear()+1) futureCount++;
+            }
+          }
+        }
+      }
+      if(futureCount > 0) {
+        alerts.push({tipo:"datas_futuras",severidade:"info",mensagem:`${futureCount} registros com vencimento após ${now.getFullYear()+1}`,detalhe:"Parcelas de financiamentos e contratos de longo prazo. Estes valores são excluídos dos gráficos mensais para não distorcer a análise.",sugestao:"Verifique se são parcelas reais ou erros de cadastro no Omie"});
+      }
+
+      // Check for missing months
+      const cpMonths = new Set<string>();
+      for(const cp of cpImports){
+        const regs = cp.import_data?.conta_pagar_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const dt = r.data_emissao || "";
+          const parts = dt.split("/");
+          if(parts.length===3) cpMonths.add(`${parts[2]}-${parts[1]}`);
+        }
+      }
+    }
+    setAlertas(alerts);
   };
 
   const showToast = (msg:string,tipo:"ok"|"err") => {
@@ -358,6 +433,7 @@ export default function DadosPage() {
     {id:"resultado",nome:"Resultado / Mês"},
     {id:"estrutura",nome:"Custos Estrutura"},
     {id:"contexto",nome:"Painel de Contexto"},
+    {id:"plano",nome:"Plano de Ação"},
     {id:"integracoes",nome:"⚡ Integrações"},
   ];
 
@@ -398,6 +474,30 @@ export default function DadosPage() {
             )}
           </div>
         </Card>
+      )}
+
+      {/* Data Alerts */}
+      {alertas.length>0&&(
+        <div style={{marginBottom:10}}>
+          {alertas.map((a,i)=>(
+            <div key={i} style={{
+              background:a.severidade==="critico"?R+"15":a.severidade==="atencao"?Y+"12":B+"10",
+              borderRadius:8,padding:"10px 14px",marginBottom:6,
+              borderLeft:`4px solid ${a.severidade==="critico"?R:a.severidade==="atencao"?Y:B}`,
+              border:`0.5px solid ${a.severidade==="critico"?R+"40":a.severidade==="atencao"?Y+"30":B+"30"}`
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:a.severidade==="critico"?R:a.severidade==="atencao"?Y:B}}>
+                    {a.severidade==="critico"?"⚠ Crítico":a.severidade==="atencao"?"⚡ Atenção":"ℹ Informação"}: {a.mensagem}
+                  </div>
+                  {a.detalhe&&<div style={{fontSize:10,color:TXM,marginTop:4}}>{a.detalhe}</div>}
+                  {a.sugestao&&<div style={{fontSize:10,color:GO,marginTop:4,fontWeight:500}}>💡 {a.sugestao}</div>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Tabs */}
@@ -679,6 +779,117 @@ export default function DadosPage() {
             <Btn onClick={salvarContexto}>◆ Salvar Painel de Contexto</Btn>
           </div>
         </Card>
+      )}
+
+      {/* === PLANO DE AÇÃO === */}
+      {aba==="plano"&&(
+        <div>
+          <Card title="Plano de Ação da Empresa">
+            <div style={{fontSize:11,color:TXM,marginBottom:14}}>
+              Registre as ações que a empresa está implementando. A IA vai cruzar essas ações com os dados financeiros para acompanhar a execução e cobrar resultados.
+            </div>
+
+            {/* Lista de ações existentes */}
+            {acoes.map((a,i)=>(
+              <div key={a.id||i} style={{background:BG3,borderRadius:8,padding:12,marginBottom:8,borderLeft:`4px solid ${a.status==="concluida"?G:a.status==="em_andamento"?Y:a.prioridade==="alta"?R:GO}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:TX}}>{a.acao}</div>
+                    <div style={{fontSize:10,color:TXM,marginTop:4}}>
+                      {a.responsavel&&<span>Responsável: {a.responsavel} | </span>}
+                      {a.prazo&&<span>Prazo: {new Date(a.prazo).toLocaleDateString("pt-BR")} | </span>}
+                      <span style={{color:a.prioridade==="alta"?R:a.prioridade==="media"?Y:G}}>Prioridade: {a.prioridade}</span>
+                      {a.categoria&&<span> | {a.categoria}</span>}
+                    </div>
+                    {a.impacto_esperado&&<div style={{fontSize:10,color:GOL,marginTop:4}}>Impacto esperado: {a.impacto_esperado}</div>}
+                    {a.observacoes&&<div style={{fontSize:10,color:TXD,marginTop:2}}>{a.observacoes}</div>}
+                  </div>
+                  <div style={{display:"flex",gap:4,flexShrink:0}}>
+                    <select value={a.status} onChange={async(e)=>{
+                      const newStatus=e.target.value;
+                      await supabase.from("plano_acao").update({status:newStatus,updated_at:new Date().toISOString()}).eq("id",a.id);
+                      setAcoes(acoes.map(x=>x.id===a.id?{...x,status:newStatus}:x));
+                      showToast("Status atualizado!","ok");
+                    }} style={{background:BG2,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"3px 6px",fontSize:10}}>
+                      <option value="pendente">Pendente</option>
+                      <option value="em_andamento">Em andamento</option>
+                      <option value="concluida">Concluída</option>
+                      <option value="cancelada">Cancelada</option>
+                    </select>
+                    <button onClick={async()=>{
+                      await supabase.from("plano_acao").delete().eq("id",a.id);
+                      setAcoes(acoes.filter(x=>x.id!==a.id));
+                      showToast("Ação removida","ok");
+                    }} style={{background:"none",border:"none",color:R,fontSize:14,cursor:"pointer"}}>×</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {acoes.length===0&&(
+              <div style={{textAlign:"center",padding:20,color:TXD,fontSize:11}}>Nenhuma ação cadastrada. Adicione ações que a empresa está implementando.</div>
+            )}
+          </Card>
+
+          {/* Formulário nova ação */}
+          <Card title="Adicionar Nova Ação">
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div style={{gridColumn:"1/3"}}>
+                <Input label="Descrição da ação *" value={novaAcao.acao} onChange={(v:string)=>setNovaAcao({...novaAcao,acao:v})} placeholder="Ex: Renegociar contrato com fornecedor X para reduzir custo em 15%"/>
+              </div>
+              <Input label="Responsável" value={novaAcao.responsavel} onChange={(v:string)=>setNovaAcao({...novaAcao,responsavel:v})} placeholder="Nome do responsável"/>
+              <Input label="Prazo" value={novaAcao.prazo} onChange={(v:string)=>setNovaAcao({...novaAcao,prazo:v})} type="date"/>
+              <Select label="Prioridade" value={novaAcao.prioridade} onChange={(v:string)=>setNovaAcao({...novaAcao,prioridade:v})} options={[
+                {value:"alta",label:"Alta — Urgente"},
+                {value:"media",label:"Média — Importante"},
+                {value:"baixa",label:"Baixa — Desejável"},
+              ]}/>
+              <Select label="Categoria" value={novaAcao.categoria} onChange={(v:string)=>setNovaAcao({...novaAcao,categoria:v})} options={[
+                {value:"financeiro",label:"Financeiro — Custos, caixa, dívidas"},
+                {value:"comercial",label:"Comercial — Vendas, clientes, preços"},
+                {value:"operacional",label:"Operacional — Processos, eficiência"},
+                {value:"pessoas",label:"Pessoas — Equipe, treinamento"},
+                {value:"estrategico",label:"Estratégico — Novos negócios, expansão"},
+              ]}/>
+              <div style={{gridColumn:"1/3"}}>
+                <Input label="Impacto esperado" value={novaAcao.impacto_esperado} onChange={(v:string)=>setNovaAcao({...novaAcao,impacto_esperado:v})} placeholder="Ex: Redução de R$ 15K/mês nos custos de matéria-prima"/>
+              </div>
+              <div style={{gridColumn:"1/3"}}>
+                <Input label="Observações" value={novaAcao.observacoes} onChange={(v:string)=>setNovaAcao({...novaAcao,observacoes:v})} placeholder="Detalhes, contexto, riscos..."/>
+              </div>
+            </div>
+            <div style={{marginTop:12,display:"flex",justifyContent:"flex-end"}}>
+              <Btn onClick={async()=>{
+                if(!novaAcao.acao||!selectedCompany) { showToast("Preencha a descrição da ação","err"); return; }
+                const { data: { user } } = await supabase.auth.getUser();
+                if(!user) return;
+                const { data: profile } = await supabase.from("users").select("org_id").eq("id",user.id).single();
+                const { data, error } = await supabase.from("plano_acao").insert({
+                  org_id: profile?.org_id,
+                  company_id: selectedCompany,
+                  ...novaAcao,
+                  prazo: novaAcao.prazo||null,
+                }).select().single();
+                if(error) { showToast("Erro ao salvar: "+error.message,"err"); return; }
+                setAcoes([...acoes, data]);
+                setNovaAcao({acao:"",responsavel:"",prazo:"",prioridade:"media",categoria:"operacional",impacto_esperado:"",observacoes:""});
+                showToast("Ação adicionada ao plano!","ok");
+              }}>◆ Adicionar Ação</Btn>
+            </div>
+          </Card>
+
+          {/* Resumo */}
+          {acoes.length>0&&(
+            <Card>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+                <div><div style={{fontSize:18,fontWeight:700,color:TX}}>{acoes.length}</div><div style={{fontSize:9,color:TXD}}>Total de ações</div></div>
+                <div><div style={{fontSize:18,fontWeight:700,color:Y}}>{acoes.filter(a=>a.status==="em_andamento").length}</div><div style={{fontSize:9,color:TXD}}>Em andamento</div></div>
+                <div><div style={{fontSize:18,fontWeight:700,color:G}}>{acoes.filter(a=>a.status==="concluida").length}</div><div style={{fontSize:9,color:TXD}}>Concluídas</div></div>
+                <div><div style={{fontSize:18,fontWeight:700,color:R}}>{acoes.filter(a=>a.prazo&&new Date(a.prazo)<new Date()&&a.status!=="concluida").length}</div><div style={{fontSize:9,color:TXD}}>Atrasadas</div></div>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* === INTEGRAÇÕES === */}
