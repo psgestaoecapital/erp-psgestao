@@ -439,7 +439,8 @@ export default function DashboardPage(){
         margem:totalRec>0?((totalRec-totalDesp)/totalRec*100).toFixed(1):"0",
         total_clientes:totalCli,
         num_empresas:new Set(imports.map(i=>i.company_id)).size,
-        dre_mensal:dreMensal, chart_mensal:chart,
+        dre_mensal:dreMensal,
+        raw_rec:recPorMes, raw_desp:despPorMes,
         top_custos:topCustos, top_receitas:topReceitas,
         grupos_custo:Object.values(gruposCusto).sort((a,b)=>b.total-a.total),
         debug:{
@@ -478,6 +479,20 @@ export default function DashboardPage(){
     ? {nome:dbCompanies.length>0?(dbCompanies[0].nome_fantasia||dbCompanies[0].razao_social):empresa.nome,cidade:dbCompanies.length>0?(dbCompanies[0].cidade_estado||empresa.cidade):empresa.cidade,lns:empresa.lns,colab:dbCompanies.length>0?(dbCompanies[0].num_colaboradores||empresa.colab):empresa.colab}
     : {nome:dbCompanies.find(c=>c.id===empresaSel)?.nome_fantasia||dbCompanies.find(c=>c.id===empresaSel)?.razao_social||empresa.nome,cidade:dbCompanies.find(c=>c.id===empresaSel)?.cidade_estado||empresa.cidade,lns:empresa.lns,colab:dbCompanies.find(c=>c.id===empresaSel)?.num_colaboradores||empresa.colab};
 
+  // Build chart data from raw monthly data (computed in render to avoid stale state)
+  const chartData = (()=>{
+    if(!realData?.raw_rec && !realData?.raw_desp) return [];
+    const rec = realData.raw_rec || {};
+    const desp = realData.raw_desp || {};
+    const allM = [...new Set([...Object.keys(rec),...Object.keys(desp)])].sort().slice(-12);
+    return allM.map(m=>({
+      mes: fmtMesLabel(m),
+      receitas: rec[m]||0,
+      despesas: desp[m]||0,
+      resultado: (rec[m]||0)-(desp[m]||0),
+    }));
+  })();
+
   return(<div>
     <div style={{padding:"12px 20px",background:BG2,borderBottom:`1px solid ${BD}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -513,11 +528,11 @@ export default function DashboardPage(){
             <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no Omie" ok={true}/>
           </div>
 
-          {realData.chart_mensal&&realData.chart_mensal.length>0&&(
+          {chartData&&chartData.length>0&&(
             <Card>
               <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas — Dados Reais do Omie (R$)</div>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={realData.chart_mensal}>
+                <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
                   <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
@@ -632,7 +647,7 @@ export default function DashboardPage(){
               }
               return `null(parts=${p.length})`;
             };
-            return `chart[0-2]: ${JSON.stringify(realData.chart_mensal?.slice(0,3))}
+            return `chart[0-2]: ${JSON.stringify(chartData?.slice(0,3))}
 parseDt("25/04/2025") = ${testDt("25/04/2025")}
 parseDt("05/01/2026") = ${testDt("05/01/2026")}
 imports: ${realData.debug?.import_count} rows, types: ${JSON.stringify(realData.debug?.import_types)}
@@ -644,7 +659,7 @@ meses_rec: ${JSON.stringify(realData.debug?.meses_receitas)}`;
         </div>
         <Card>
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={realData.chart_mensal}>
+            <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
               <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
