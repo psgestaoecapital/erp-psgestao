@@ -39,13 +39,17 @@ function classifyCat(cod: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { company_ids } = await req.json();
+    const { company_ids, periodo_inicio, periodo_fim } = await req.json();
     const supabase = createClient(supabaseUrl, supabaseKey);
     let query = supabase.from("omie_imports").select("*");
     if (company_ids?.length > 0) query = query.in("company_id", company_ids);
     const { data: imports, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!imports?.length) return NextResponse.json({ error: "Sem dados" }, { status: 404 });
+
+    // Period filter (YYYY-MM format)
+    const pInicio = periodo_inicio || "2020-01";
+    const pFim = periodo_fim || "2030-12";
 
     // Category name map - handle multiple Omie field name formats
     const catMap: Record<string, string> = {};
@@ -75,6 +79,7 @@ export async function POST(req: NextRequest) {
         const cat = r.codigo_categoria || "sem_cat";
         const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
         const ma = parseMesAno(dt);
+        if (ma && (ma < pInicio || ma > pFim)) continue; // Period filter
         const tipo = classifyCat(cat);
 
         totalDesp += v;
@@ -104,6 +109,7 @@ export async function POST(req: NextRequest) {
         const cat = r.codigo_categoria || "sem_cat";
         const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
         const ma = parseMesAno(dt);
+        if (ma && (ma < pInicio || ma > pFim)) continue; // Period filter
         const nome = catMap[cat] || cat;
         
         // Classify: operational revenue vs non-operational

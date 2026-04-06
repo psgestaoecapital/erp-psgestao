@@ -289,6 +289,14 @@ export default function DashboardPage(){
 
   // ===== MAIN DASHBOARD =====
   const [empresaSel, setEmpresaSel] = useState("consolidado");
+  const [periodoInicio, setPeriodoInicio] = useState(()=>{
+    const d=new Date(); d.setMonth(d.getMonth()-5);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  });
+  const [periodoFim, setPeriodoFim] = useState(()=>{
+    const d=new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  });
   const [dbCompanies, setDbCompanies] = useState<any[]>([]);
   const [loadingDb, setLoadingDb] = useState(true);
   const [omieData, setOmieData] = useState<any[]>([]);
@@ -313,12 +321,12 @@ export default function DashboardPage(){
     fetch(`/api/omie/process?t=${Date.now()}`, {
       method: "POST",
       headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
-      body: JSON.stringify({ company_ids: compIds })
+      body: JSON.stringify({ company_ids: compIds, periodo_inicio: periodoInicio, periodo_fim: periodoFim })
     }).then(r=>r.json()).then(d=>{
       if(d.success) setRealData(d.data);
       setLoadingReal(false);
     }).catch(()=>setLoadingReal(false));
-  }, [empresaSel, dbCompanies, omieData]);
+  }, [empresaSel, dbCompanies, omieData, periodoInicio, periodoFim]);
 
   const grupoEmpresas = [
     {id:"consolidado",nome:dbCompanies.length>1?"Grupo Consolidado":"Empresa",cnpj:"Todos",pais:"—"},
@@ -359,7 +367,11 @@ export default function DashboardPage(){
               {grupoEmpresas.map(e=><option key={e.id} value={e.id}>{e.nome}{e.pais!=="—"?` (${e.pais})`:""}</option>)}
             </select>
           )}
-          <div style={{fontSize:10,color:TXM,background:BG3,padding:"4px 10px",borderRadius:6,border:`0.5px solid ${BD}`}}>{empresa.periodo}</div>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <input type="month" value={periodoInicio} onChange={e=>setPeriodoInicio(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}/>
+            <span style={{fontSize:10,color:TXD}}>a</span>
+            <input type="month" value={periodoFim} onChange={e=>setPeriodoFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}/>
+          </div>
         </div>
       </div>
     </div>
@@ -1076,7 +1088,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.6 — sem demo no geral</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.7 — filtro período</div>
     </div>
   </div>);
 }
