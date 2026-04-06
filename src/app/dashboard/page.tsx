@@ -904,20 +904,31 @@ export default function DashboardPage(){
                         {total===0?"—":total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
                       </td>
                     </tr>
-                    {isOpen&&grupo&&grupo.contas.slice(0,12).map((c:any,ci:number)=>(
+                    {isOpen&&grupo&&grupo.contas.slice(0,12).map((c:any,ci:number)=>{
+                      const meses = realData.dre_mensal.slice(-6).map((d:any)=>d.mes);
+                      const subTotal = c.valor;
+                      return(
                       <tr key={`sub-${ci}`} style={{background:BG3+"50"}}>
                         <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
-                        {vals.map((_:any,k:number)=><td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:TXD}}>—</td>)}
-                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>R$ {(c.valor/1000).toFixed(1)}K</td>
-                      </tr>
-                    ))}
-                    {isOpen&&recCats&&recCats.slice(0,10).map((c:any,ci:number)=>(
+                        {meses.map((m:string,k:number)=>{
+                          const mv = c.meses?.[m]||0;
+                          return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:TXM}}>{mv===0?"—":`${(mv/1000).toFixed(0)}K`}</td>;
+                        })}
+                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>R$ {(subTotal/1000).toFixed(1)}K</td>
+                      </tr>);
+                    })}
+                    {isOpen&&recCats&&recCats.slice(0,10).map((c:any,ci:number)=>{
+                      const meses = realData.dre_mensal.slice(-6).map((d:any)=>d.mes);
+                      return(
                       <tr key={`sub-${ci}`} style={{background:BG3+"50"}}>
                         <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
-                        {vals.map((_:any,k:number)=><td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:TXD}}>—</td>)}
+                        {meses.map((m:string,k:number)=>{
+                          const mv = c.meses?.[m]||0;
+                          return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:G}}>{mv===0?"—":`${(mv/1000).toFixed(0)}K`}</td>;
+                        })}
                         <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:G}}>R$ {(c.valor/1000).toFixed(1)}K</td>
-                      </tr>
-                    ))}
+                      </tr>);
+                    })}
                   </React.Fragment>);
                 })}
               </tbody>
@@ -1480,7 +1491,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.0 — PS batizado</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.2 — DRE mensal</div>
     </div>
   </div>);
 }

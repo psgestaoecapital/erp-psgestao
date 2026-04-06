@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     // === PROCESS CONTAS A PAGAR (DESPESAS) ===
-    const despPorCat: Record<string, { nome: string; valor: number; tipo: string }> = {};
+    const despPorCat: Record<string, { nome: string; valor: number; tipo: string; meses: Record<string,number> }> = {};
     const despPorMes: Record<string, Record<string, number>> = {};
     let totalDesp = 0;
 
@@ -83,9 +83,10 @@ export async function POST(req: NextRequest) {
         const tipo = classifyCat(cat);
 
         totalDesp += v;
-        if (!despPorCat[cat]) despPorCat[cat] = { nome: catMap[cat] || cat, valor: 0, tipo };
+        if (!despPorCat[cat]) despPorCat[cat] = { nome: catMap[cat] || cat, valor: 0, tipo, meses: {} };
         despPorCat[cat].valor += v;
         if (ma) {
+          despPorCat[cat].meses[ma] = (despPorCat[cat].meses[ma] || 0) + v;
           if (!despPorMes[ma]) despPorMes[ma] = {};
           despPorMes[ma][tipo] = (despPorMes[ma][tipo] || 0) + v;
           despPorMes[ma]["_total"] = (despPorMes[ma]["_total"] || 0) + v;
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     // === PROCESS CONTAS A RECEBER (RECEITAS) ===
     const recPorMes: Record<string, number> = {};
-    const recPorCat: Record<string, { nome: string; valor: number; operacional: boolean }> = {};
+    const recPorCat: Record<string, { nome: string; valor: number; operacional: boolean; meses: Record<string,number> }> = {};
     let totalRec = 0;
     let totalRecOperacional = 0;
     let totalEmprestimos = 0;
@@ -125,9 +126,12 @@ export async function POST(req: NextRequest) {
           totalRecOperacional += v;
         }
         
-        if (!recPorCat[cat]) recPorCat[cat] = { nome, valor: 0, operacional: !isEmprestimo };
+        if (!recPorCat[cat]) recPorCat[cat] = { nome, valor: 0, operacional: !isEmprestimo, meses: {} };
         recPorCat[cat].valor += v;
-        if (ma) recPorMes[ma] = (recPorMes[ma] || 0) + v;
+        if (ma) {
+          recPorCat[cat].meses[ma] = (recPorCat[cat].meses[ma] || 0) + v;
+          recPorMes[ma] = (recPorMes[ma] || 0) + v;
+        }
       }
     }
 
@@ -176,7 +180,7 @@ export async function POST(req: NextRequest) {
                info.tipo === "financeiro" ? "Resultado Financeiro" : "Outros";
       if (!gruposCusto[g]) gruposCusto[g] = { nome: g, total: 0, contas: [] };
       gruposCusto[g].total += info.valor;
-      gruposCusto[g].contas.push({ nome: info.nome, valor: info.valor });
+      gruposCusto[g].contas.push({ nome: info.nome, valor: info.valor, meses: info.meses });
     }
     for (const g of Object.values(gruposCusto)) g.contas.sort((a: any, b: any) => b.valor - a.valor);
 
