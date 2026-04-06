@@ -371,6 +371,24 @@ export default function DashboardPage(){
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>
 
     {aba==="geral"&&(<div>
+      {/* Data Quality Alerts */}
+      {realData&&(()=>{
+        const alerts: {sev:string,msg:string,det:string}[] = [];
+        if(realData.resultado_periodo<0) alerts.push({sev:"critico",msg:`Resultado negativo: R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`,det:"A empresa está gastando mais do que fatura. Ação imediata necessária."});
+        if(realData.top_receitas?.some((r:any)=>r.nome?.toLowerCase().includes("empréstimo")||r.nome?.toLowerCase().includes("financiamento")||r.nome?.toLowerCase().includes("aporte")))
+          alerts.push({sev:"atencao",msg:"Empréstimos/financiamentos estão sendo contados como receita",det:"Isso infla o faturamento real. Reclassifique no Omie: Categorias → mova empréstimos para 4.xx ou 5.xx"});
+        return alerts.length>0?(
+          <div style={{marginBottom:12}}>
+            {alerts.map((a,i)=>(
+              <div key={i} style={{background:a.sev==="critico"?"#EF444415":"#FACC1512",borderRadius:8,padding:"10px 14px",marginBottom:6,borderLeft:`4px solid ${a.sev==="critico"?"#EF4444":"#FACC15"}`}}>
+                <div style={{fontSize:12,fontWeight:600,color:a.sev==="critico"?"#EF4444":"#FACC15"}}>{a.sev==="critico"?"⚠":"⚡"} {a.msg}</div>
+                <div style={{fontSize:10,color:"#A8A498",marginTop:3}}>{a.det}</div>
+              </div>
+            ))}
+          </div>
+        ):null;
+      })()}
+
       {/* Real data from Omie */}
       {realData&&(
         <div>
@@ -1024,7 +1042,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.1 — plano + alertas</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.2 — alertas dashboard</div>
     </div>
   </div>);
 }
