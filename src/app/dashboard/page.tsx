@@ -419,10 +419,34 @@ export default function DashboardPage(){
   const [loadingReal, setLoadingReal] = useState(false);
 
   useEffect(() => {
-    supabase.from("companies").select("*").order("created_at").then(({data}) => {
-      if(data && data.length > 0) setDbCompanies(data);
+    // Load companies user has access to (via user_companies junction table)
+    const loadCompanies = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoadingDb(false); return; }
+      
+      // Try user_companies first (multi-company access)
+      const { data: uc } = await supabase.from("user_companies").select("company_id, role, companies(*)").eq("user_id", user.id);
+      
+      if (uc && uc.length > 0) {
+        // User has explicit company assignments
+        const comps = uc.map((u: any) => u.companies).filter(Boolean);
+        if (comps.length > 0) { setDbCompanies(comps); setLoadingDb(false); return; }
+      }
+      
+      // Fallback: load all companies from user's org (backward compatible)
+      const { data: up } = await supabase.from("users").select("org_id, role").eq("id", user.id).single();
+      if (up?.role === "admin" || !up?.org_id) {
+        // Admin sees all companies
+        const { data } = await supabase.from("companies").select("*").order("created_at");
+        if (data && data.length > 0) setDbCompanies(data);
+      } else {
+        // Regular user: companies from their org
+        const { data } = await supabase.from("companies").select("*").eq("org_id", up.org_id).order("created_at");
+        if (data && data.length > 0) setDbCompanies(data);
+      }
       setLoadingDb(false);
-    });
+    };
+    loadCompanies();
     supabase.from("omie_imports").select("company_id,import_type,record_count,imported_at").then(({data}) => {
       if(data) setOmieData(data);
     });
@@ -1491,7 +1515,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.3 — Conectores BPO</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.4 — Multi-empresa</div>
     </div>
   </div>);
 }

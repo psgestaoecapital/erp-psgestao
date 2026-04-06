@@ -31,6 +31,8 @@ export default function AdminPage(){
   const [copied,setCopied]=useState(false);
   const [newEmp,setNewEmp]=useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:""});
   const [msg,setMsg]=useState("");
+  const [userComps,setUserComps]=useState<any[]>([]);
+  const [editingUser,setEditingUser]=useState<string|null>(null);
 
   useEffect(()=>{loadData();},[]);
   const loadData=async()=>{
@@ -40,6 +42,34 @@ export default function AdminPage(){
     if(inv)setConvites(inv);
     const{data:usr}=await supabase.from("users").select("*").order("created_at",{ascending:false});
     if(usr)setUsuarios(usr);
+    const{data:uc}=await supabase.from("user_companies").select("*");
+    if(uc)setUserComps(uc);
+  };
+
+  const getUserCompIds=(uid:string)=>userComps.filter(uc=>uc.user_id===uid).map(uc=>uc.company_id);
+  
+  const toggleUserCompany=async(uid:string,compId:string)=>{
+    const exists=userComps.find(uc=>uc.user_id===uid&&uc.company_id===compId);
+    if(exists){
+      await supabase.from("user_companies").delete().eq("user_id",uid).eq("company_id",compId);
+      setUserComps(userComps.filter(uc=>!(uc.user_id===uid&&uc.company_id===compId)));
+    }else{
+      const role=usuarios.find(u=>u.id===uid)?.role||"visualizador";
+      const{data}=await supabase.from("user_companies").insert({user_id:uid,company_id:compId,role}).select().single();
+      if(data)setUserComps([...userComps,data]);
+    }
+    setMsg(exists?"Empresa removida do usuário":"Empresa vinculada ao usuário!");
+  };
+
+  const vincularTodas=async(uid:string)=>{
+    const role=usuarios.find(u=>u.id===uid)?.role||"visualizador";
+    const existing=getUserCompIds(uid);
+    const toAdd=empresas.filter(e=>!existing.includes(e.id));
+    for(const e of toAdd){
+      const{data}=await supabase.from("user_companies").insert({user_id:uid,company_id:e.id,role}).select().single();
+      if(data)setUserComps(prev=>[...prev,data]);
+    }
+    setMsg(`Todas as ${empresas.length} empresas vinculadas!`);
   };
 
   const criarEmpresa=async(e:React.FormEvent)=>{
@@ -128,7 +158,10 @@ export default function AdminPage(){
     {/* USUÁRIOS */}
     {tab==="usuarios"&&(<div>
       <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>{usuarios.length} usuários</div>
-      {usuarios.map(u=>(
+      {usuarios.map(u=>{
+        const uComps=getUserCompIds(u.id);
+        const isEditing=editingUser===u.id;
+        return(
         <div key={u.id} style={{background:BG2,borderRadius:10,padding:"12px 16px",marginBottom:8,border:`1px solid ${BD}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -138,13 +171,49 @@ export default function AdminPage(){
               <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{u.full_name||u.email||"Sem nome"}</div>
               <div style={{fontSize:10,color:TXD}}>{u.email||""}</div></div>
             </div>
-            <select value={u.role||"visualizador"} onChange={e=>atualizarRole(u.id,e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:getRC(u.role),borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-              {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
-            </select>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <select value={u.role||"visualizador"} onChange={e=>atualizarRole(u.id,e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:getRC(u.role),borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
+              </select>
+            </div>
           </div>
           <div style={{fontSize:9,color:TXD,marginTop:6}}>{ROLES.find(r=>r.role===u.role)?.desc}</div>
-        </div>
-      ))}
+          
+          {/* Company assignments */}
+          <div style={{marginTop:8,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,color:TXD}}>Empresas:</span>
+            {uComps.length===0&&<span style={{fontSize:10,color:Y,fontStyle:"italic"}}>Nenhuma empresa vinculada (vê todas por fallback)</span>}
+            {uComps.map(cid=>{
+              const emp=empresas.find(e=>e.id===cid);
+              return emp?<span key={cid} style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`}}>{emp.nome_fantasia||emp.razao_social}</span>:null;
+            })}
+            <button onClick={()=>setEditingUser(isEditing?null:u.id)} style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:GO+"20",color:GO,border:`1px solid ${GO}30`,cursor:"pointer"}}>{isEditing?"Fechar":"Gerenciar"}</button>
+          </div>
+
+          {/* Expanded company toggle */}
+          {isEditing&&(
+            <div style={{marginTop:8,background:BG3,borderRadius:8,padding:10,borderLeft:`3px solid ${GO}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:10,fontWeight:600,color:GO}}>Selecione as empresas que este usuário pode acessar:</span>
+                <button onClick={()=>vincularTodas(u.id)} style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`,cursor:"pointer"}}>Vincular todas</button>
+              </div>
+              {empresas.map(emp=>{
+                const linked=uComps.includes(emp.id);
+                return(
+                  <div key={emp.id} onClick={()=>toggleUserCompany(u.id,emp.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",marginBottom:2,borderRadius:6,cursor:"pointer",background:linked?G+"10":"transparent",border:`1px solid ${linked?G+"30":BD+"40"}`}}
+                    onMouseEnter={e=>(e.currentTarget.style.background=linked?G+"18":BG2)} onMouseLeave={e=>(e.currentTarget.style.background=linked?G+"10":"transparent")}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:14,color:linked?G:TXD}}>{linked?"✓":"○"}</span>
+                      <span style={{fontSize:11,color:linked?TX:TXM}}>{emp.nome_fantasia||emp.razao_social}</span>
+                    </div>
+                    <span style={{fontSize:9,color:TXD}}>{emp.cnpj||""}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>);
+      })}
     </div>)}
 
     {/* CONVITES */}
