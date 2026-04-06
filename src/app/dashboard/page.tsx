@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0F0F0D",BG2="#1C1B18",BG3="#2A2822",
@@ -272,17 +273,31 @@ export default function DashboardPage(){
 
   // ===== MAIN DASHBOARD =====
   const [empresaSel, setEmpresaSel] = useState("consolidado");
+  const [dbCompanies, setDbCompanies] = useState<any[]>([]);
+  const [loadingDb, setLoadingDb] = useState(true);
+
+  useEffect(() => {
+    supabase.from("companies").select("*").order("created_at").then(({data}) => {
+      if(data && data.length > 0) setDbCompanies(data);
+      setLoadingDb(false);
+    });
+  }, []);
+
   const grupoEmpresas = [
-    {id:"consolidado",nome:"Grupo Consolidado",cnpj:"Todos os CNPJs",pais:"—",moeda:"BRL"},
-    {id:"cnpj1",nome:empresa.nome,cnpj:"52.341.876/0001-45",pais:"Brasil",moeda:"BRL"},
+    {id:"consolidado",nome:dbCompanies.length>1?"Grupo Consolidado":"Empresa",cnpj:"Todos",pais:"—"},
+    ...dbCompanies.map(c=>({id:c.id,nome:c.nome_fantasia||c.razao_social,cnpj:c.cnpj||"",pais:c.pais||"Brasil"}))
   ];
+
+  const empresaAtiva = empresaSel==="consolidado" 
+    ? {nome:dbCompanies.length>0?(dbCompanies[0].nome_fantasia||dbCompanies[0].razao_social):empresa.nome,cidade:dbCompanies.length>0?(dbCompanies[0].cidade_estado||empresa.cidade):empresa.cidade,lns:empresa.lns,colab:dbCompanies.length>0?(dbCompanies[0].num_colaboradores||empresa.colab):empresa.colab}
+    : {nome:dbCompanies.find(c=>c.id===empresaSel)?.nome_fantasia||dbCompanies.find(c=>c.id===empresaSel)?.razao_social||empresa.nome,cidade:dbCompanies.find(c=>c.id===empresaSel)?.cidade_estado||empresa.cidade,lns:empresa.lns,colab:dbCompanies.find(c=>c.id===empresaSel)?.num_colaboradores||empresa.colab};
 
   return(<div>
     <div style={{padding:"12px 20px",background:BG2,borderBottom:`1px solid ${BD}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresa.nome}</div>
-          <div style={{fontSize:10,color:TXD}}>{empresa.cidade} | {empresa.lns} negócios | {empresa.colab} colaboradores</div>
+          <div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresaSel==="consolidado"&&dbCompanies.length>1?"GRUPO: ":""}{empresaAtiva.nome}</div>
+          <div style={{fontSize:10,color:TXD}}>{empresaAtiva.cidade}{empresaAtiva.colab?` | ${empresaAtiva.colab} colaboradores`:""}{dbCompanies.length>1?` | ${dbCompanies.length} empresas no grupo`:""}</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {grupoEmpresas.length>1&&(
