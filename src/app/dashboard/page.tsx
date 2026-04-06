@@ -495,11 +495,11 @@ export default function DashboardPage(){
     {aba==="financeiro"&&(<div>
       {realData&&(<>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
-          <KPI r="Receitas Totais" v={`R$ ${(realData.total_receitas/1000).toFixed(0)}K`} d="Contas a receber do período" ok={true}/>
+          <KPI r="Receita Operacional" v={`R$ ${((realData.total_rec_operacional||realData.total_receitas)/1000).toFixed(0)}K`} d="Faturamento real (sem empréstimos)" ok={true}/>
           <KPI r="Despesas Totais" v={`R$ ${(realData.total_despesas/1000).toFixed(0)}K`} d="Contas a pagar do período" ok={null}/>
-          <KPI r="Resultado" v={`R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+          <KPI r="Resultado Operacional" v={`R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+          <KPI r="Empréstimos Recebidos" v={`R$ ${((realData.total_emprestimos||0)/1000).toFixed(0)}K`} d="Financiamentos, aportes, transferências" ok={null}/>
           <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do Omie" ok={true}/>
-          <KPI r="Gasto Diário Médio" v={`R$ ${(realData.total_despesas/realData.dre_mensal.length/30).toFixed(0)}`} d="Despesas ÷ dias" ok={null}/>
           <KPI r="Empresas no Grupo" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
         <Tit t="Receitas × Despesas × Resultado — Mês a Mês"/>
@@ -522,16 +522,30 @@ export default function DashboardPage(){
           </div>
         </Card>
 
-        {realData.top_receitas&&realData.top_receitas.length>0&&(<>
-          <Tit t="Maiores Fontes de Receita"/>
+        {realData.top_receitas_operacionais&&realData.top_receitas_operacionais.length>0&&(<>
+          <Tit t="Receitas Operacionais (Faturamento Real)"/>
           <Card>
-            {realData.top_receitas.map((r:any,i:number)=>(
+            {realData.top_receitas_operacionais.map((r:any,i:number)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
                 <div style={{width:24,height:24,borderRadius:6,background:G+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:G}}>{i+1}</div>
                 <div style={{flex:1,fontSize:11,color:TX}}>{r.nome}</div>
                 <div style={{fontSize:13,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(1)}K</div>
               </div>
             ))}
+          </Card>
+        </>)}
+
+        {realData.top_emprestimos&&realData.top_emprestimos.length>0&&(<>
+          <Tit t="Empréstimos e Financiamentos (Não é faturamento)"/>
+          <Card>
+            {realData.top_emprestimos.map((r:any,i:number)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
+                <div style={{width:24,height:24,borderRadius:6,background:Y+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:Y}}>{i+1}</div>
+                <div style={{flex:1,fontSize:11,color:TXM}}>{r.nome}</div>
+                <div style={{fontSize:13,fontWeight:700,color:Y}}>R$ {(r.valor/1000).toFixed(1)}K</div>
+              </div>
+            ))}
+            <div style={{fontSize:9,color:Y,marginTop:8,padding:"6px 8px",background:Y+"10",borderRadius:4}}>⚡ Estes valores NÃO são contabilizados como receita operacional nos KPIs acima</div>
           </Card>
         </>)}
 
@@ -1042,7 +1056,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.3 — fix nomes categorias</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.5 — receita vs empréstimos</div>
     </div>
   </div>);
 }

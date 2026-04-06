@@ -90,8 +90,10 @@ export async function POST(req: NextRequest) {
 
     // === PROCESS CONTAS A RECEBER (RECEITAS) ===
     const recPorMes: Record<string, number> = {};
-    const recPorCat: Record<string, { nome: string; valor: number }> = {};
+    const recPorCat: Record<string, { nome: string; valor: number; operacional: boolean }> = {};
     let totalRec = 0;
+    let totalRecOperacional = 0;
+    let totalEmprestimos = 0;
 
     for (const cr of imports.filter((i: any) => i.import_type === "contas_receber")) {
       const regs = cr.import_data?.conta_receber_cadastro || [];
@@ -102,9 +104,22 @@ export async function POST(req: NextRequest) {
         const cat = r.codigo_categoria || "sem_cat";
         const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
         const ma = parseMesAno(dt);
+        const nome = catMap[cat] || cat;
+        
+        // Classify: operational revenue vs non-operational
+        const isOperacional = cat.startsWith("1.") && !nome.toLowerCase().includes("empréstimo") && !nome.toLowerCase().includes("financiamento") && !nome.toLowerCase().includes("aporte");
+        const isEmprestimo = cat.startsWith("4.") || cat.startsWith("5.") || cat.startsWith("0.") || 
+          nome.toLowerCase().includes("empréstimo") || nome.toLowerCase().includes("financiamento") || 
+          nome.toLowerCase().includes("aporte") || nome.toLowerCase().includes("transferência");
 
         totalRec += v;
-        if (!recPorCat[cat]) recPorCat[cat] = { nome: catMap[cat] || cat, valor: 0 };
+        if (isEmprestimo) {
+          totalEmprestimos += v;
+        } else {
+          totalRecOperacional += v;
+        }
+        
+        if (!recPorCat[cat]) recPorCat[cat] = { nome, valor: 0, operacional: !isEmprestimo };
         recPorCat[cat].valor += v;
         if (ma) recPorMes[ma] = (recPorMes[ma] || 0) + v;
       }
@@ -181,12 +196,17 @@ export async function POST(req: NextRequest) {
 
     const response = NextResponse.json({ success: true, data: {
       total_receitas: totalRec, total_despesas: totalDesp,
-      resultado_periodo: totalRec - totalDesp,
-      margem: totalRec > 0 ? ((totalRec - totalDesp) / totalRec * 100).toFixed(1) : "0",
+      total_rec_operacional: totalRecOperacional,
+      total_emprestimos: totalEmprestimos,
+      resultado_periodo: totalRecOperacional - totalDesp,
+      margem: totalRecOperacional > 0 ? ((totalRecOperacional - totalDesp) / totalRecOperacional * 100).toFixed(1) : "0",
       total_clientes: totalCli,
       num_empresas: new Set(imports.map((i: any) => i.company_id)).size,
       dre_mensal: dreMensal, chart_mensal: chartMensal,
-      top_custos: topCustos, top_receitas: topReceitas,
+      top_custos: topCustos,
+      top_receitas: topReceitas,
+      top_receitas_operacionais: Object.values(recPorCat).filter((r:any)=>r.operacional).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
+      top_emprestimos: Object.values(recPorCat).filter((r:any)=>!r.operacional).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
       grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
       debug,
     }});
