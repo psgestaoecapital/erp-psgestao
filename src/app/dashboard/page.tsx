@@ -305,19 +305,147 @@ export default function DashboardPage(){
     });
   }, []);
 
-  // Load processed real data when company selection changes
+  // Process data CLIENT-SIDE (avoids server cache issues)
   useEffect(() => {
     if(dbCompanies.length === 0 || omieData.length === 0) return;
     setLoadingReal(true);
     const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
-    fetch("/api/omie/process", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ company_ids: compIds })
-    }).then(r=>r.json()).then(d=>{
-      if(d.success) setRealData(d.data);
+
+    // Load FULL import data for selected companies
+    supabase.from("omie_imports").select("*").in("company_id", compIds).then(({data: imports}) => {
+      if(!imports || imports.length === 0) { setLoadingReal(false); return; }
+
+      const catMap: Record<string,string> = {};
+      for(const cat of imports.filter(i=>i.import_type==="categorias")){
+        const regs = cat.import_data?.categoria_cadastro || [];
+        if(Array.isArray(regs)) for(const c of regs) catMap[c.codigo||""] = c.descricao||"";
+      }
+
+      const parseDt = (dt:string):string|null => {
+        if(!dt||typeof dt!=="string") return null;
+        const p=dt.split("/");
+        if(p.length===3){
+          const mes=parseInt(p[1]);
+          let ano=parseInt(p[2]);
+          if(p[2].length===2) ano=2000+ano;
+          if(ano>=2020&&ano<=2030&&mes>=1&&mes<=12) return `${ano}-${String(mes).padStart(2,"0")}`;
+        }
+        return null;
+      };
+
+      const classifyCat = (cod:string):string => {
+        if(!cod) return "outros";
+        if(cod.startsWith("1.")) return "receita";
+        if(cod.startsWith("3.")) return "deducao";
+        if(cod.startsWith("2.01")||cod.startsWith("2.02")||cod.startsWith("2.03")) return "custo_direto";
+        if(cod.startsWith("2.")) return "despesa_adm";
+        if(cod.startsWith("4.")||cod.startsWith("5.")) return "financeiro";
+        return "outros";
+      };
+
+      // Process contas a pagar
+      const despPorCat: Record<string,{nome:string,valor:number,tipo:string}> = {};
+      const despPorMes: Record<string,number> = {};
+      let totalDesp = 0;
+
+      for(const cp of imports.filter(i=>i.import_type==="contas_pagar")){
+        const regs = cp.import_data?.conta_pagar_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const v = Number(r.valor_documento)||0;
+          if(v<=0) continue;
+          const cat = r.codigo_categoria||"sem_cat";
+          const dt = r.data_emissao||r.data_vencimento||r.data_previsao||"";
+          const ma = parseDt(dt);
+          const tipo = classifyCat(cat);
+          totalDesp += v;
+          if(!despPorCat[cat]) despPorCat[cat]={nome:catMap[cat]||cat,valor:0,tipo};
+          despPorCat[cat].valor += v;
+          if(ma) despPorMes[ma] = (despPorMes[ma]||0) + v;
+        }
+      }
+
+      // Process contas a receber
+      const recPorMes: Record<string,number> = {};
+      const recPorCat: Record<string,{nome:string,valor:number}> = {};
+      let totalRec = 0;
+
+      for(const cr of imports.filter(i=>i.import_type==="contas_receber")){
+        const regs = cr.import_data?.conta_receber_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const v = Number(r.valor_documento)||0;
+          if(v<=0) continue;
+          const cat = r.codigo_categoria||"sem_cat";
+          const dt = r.data_emissao||r.data_vencimento||r.data_previsao||"";
+          const ma = parseDt(dt);
+          totalRec += v;
+          if(!recPorCat[cat]) recPorCat[cat]={nome:catMap[cat]||cat,valor:0};
+          recPorCat[cat].valor += v;
+          if(ma) recPorMes[ma] = (recPorMes[ma]||0) + v;
+        }
+      }
+
+      // Build monthly chart
+      const allM = [...new Set([...Object.keys(recPorMes),...Object.keys(despPorMes)])].sort();
+      const chart = allM.slice(-12).map(m=>({
+        mes: fmtMesLabel(m),
+        receitas: recPorMes[m]||0,
+        despesas: despPorMes[m]||0,
+        resultado: (recPorMes[m]||0) - (despPorMes[m]||0),
+      }));
+
+      // Top custos & receitas
+      const topCustos = Object.values(despPorCat).sort((a,b)=>b.valor-a.valor).slice(0,20);
+      const topReceitas = Object.values(recPorCat).sort((a,b)=>b.valor-a.valor).slice(0,10);
+
+      // Cost groups
+      const gruposCusto: Record<string,{nome:string,total:number,contas:any[]}> = {};
+      for(const info of Object.values(despPorCat)){
+        const g = info.tipo==="custo_direto"?"Custos Diretos":info.tipo==="despesa_adm"?"Despesas Administrativas":info.tipo==="deducao"?"Deduções e Impostos":info.tipo==="financeiro"?"Resultado Financeiro":"Outros";
+        if(!gruposCusto[g]) gruposCusto[g]={nome:g,total:0,contas:[]};
+        gruposCusto[g].total += info.valor;
+        gruposCusto[g].contas.push({nome:info.nome,valor:info.valor});
+      }
+      for(const g of Object.values(gruposCusto)) g.contas.sort((a:any,b:any)=>b.valor-a.valor);
+
+      // DRE mensal
+      const despPorMesTipo: Record<string,Record<string,number>> = {};
+      for(const cp of imports.filter(i=>i.import_type==="contas_pagar")){
+        const regs = cp.import_data?.conta_pagar_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const v=Number(r.valor_documento)||0; if(v<=0) continue;
+          const cat=r.codigo_categoria||"sem_cat";
+          const dt=r.data_emissao||r.data_vencimento||"";
+          const ma=parseDt(dt); const tipo=classifyCat(cat);
+          if(ma){ if(!despPorMesTipo[ma]) despPorMesTipo[ma]={}; despPorMesTipo[ma][tipo]=(despPorMesTipo[ma][tipo]||0)+v; }
+        }
+      }
+
+      const dreMensal = allM.map(m=>{
+        const d=despPorMesTipo[m]||{};
+        const rec=recPorMes[m]||0;
+        const cd=d.custo_direto||0,da=d.despesa_adm||0,dd=d.deducao||0,df=d.financeiro||0,dout=d.outros||0;
+        return {mes:fmtMesLabel(m),receita:rec,deducoes:dd,custos_diretos:cd,despesas_adm:da,financeiro:df,outros:dout,margem:rec-cd-dd,lucro_op:rec-cd-dd-da,lucro_final:rec-cd-dd-da-df-dout};
+      });
+
+      let totalCli=0;
+      for(const cl of imports.filter(i=>i.import_type==="clientes")) totalCli+=cl.record_count||0;
+
+      setRealData({
+        total_receitas:totalRec, total_despesas:totalDesp,
+        resultado_periodo:totalRec-totalDesp,
+        margem:totalRec>0?((totalRec-totalDesp)/totalRec*100).toFixed(1):"0",
+        total_clientes:totalCli,
+        num_empresas:new Set(imports.map(i=>i.company_id)).size,
+        dre_mensal:dreMensal, chart_mensal:chart,
+        top_custos:topCustos, top_receitas:topReceitas,
+        grupos_custo:Object.values(gruposCusto).sort((a,b)=>b.total-a.total),
+        debug:{meses_despesas:Object.keys(despPorMes).sort().slice(0,5),meses_receitas:Object.keys(recPorMes).sort().slice(0,5),registros_pagar:totalDesp>0?Object.keys(despPorMes).length:0,registros_receber:totalRec>0?Object.keys(recPorMes).length:0},
+      });
       setLoadingReal(false);
-    }).catch(()=>setLoadingReal(false));
+    });
   }, [empresaSel, dbCompanies, omieData]);
 
   const grupoEmpresas = [
@@ -370,7 +498,7 @@ export default function DashboardPage(){
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={realData.resumo_mensal.slice(-12)}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
-                  <XAxis dataKey="mes" tickFormatter={fmtMesLabel} tick={{fontSize:10,fill:'#D4D0C8'}}/>
+                  <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
                   <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
                   <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
@@ -472,7 +600,7 @@ export default function DashboardPage(){
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={realData.chart_mensal}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
-              <XAxis dataKey="mes" tickFormatter={fmtMesLabel} tick={{fontSize:10,fill:'#D4D0C8'}}/>
+              <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
               <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
               <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={14}/>
@@ -562,7 +690,7 @@ export default function DashboardPage(){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
               <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
                 {["",
-                  ...realData.dre_mensal.slice(-6).map((d:any)=>fmtMesLabel(d.mes)),
+                  ...realData.dre_mensal.slice(-6).map((d:any)=>d.mes),
                   "Total"
                 ].map((h:string)=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
               </tr></thead>
