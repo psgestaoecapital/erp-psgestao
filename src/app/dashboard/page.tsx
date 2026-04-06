@@ -3,9 +3,9 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
-const GO="#C6973F",GOL="#E8C872",BG="#0F0F0D",BG2="#1C1B18",BG3="#2A2822",
+const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#1E1D19",BG3="#2D2B24",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",P="#A855F7",T="#14B8A6",
-    BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#6B6960";
+    BD="#4A473B",TX="#EDE9E0",TXM="#B8B3A8",TXD="#8C877C";
 
 const tt={background:'#FFFFFF',border:'2px solid #C6973F',borderRadius:12,fontSize:12,color:'#1A1A18',padding:'12px 16px',boxShadow:'0 6px 20px rgba(0,0,0,0.4)',lineHeight:1.8};
 const tl={color:'#1A1A18',fontWeight:700,fontSize:13,marginBottom:4};const ti={color:'#333',fontSize:11,fontWeight:500};
@@ -27,51 +27,51 @@ const fmtMesLabel=(k:string)=>{
 
 // Drill-down panel
 const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
-  if(loading) return <div style={{padding:12,textAlign:"center",fontSize:11,color:"#A8A498"}}>Carregando detalhes...</div>;
+  if(loading) return <div style={{padding:12,textAlign:"center",fontSize:11,color:TXM}}>Carregando detalhes...</div>;
   if(!data) return null;
   return(
-    <div style={{background:"#1C1B18",borderRadius:8,padding:12,marginTop:8,border:"0.5px solid #3D3A30"}}>
+    <div style={{background:BG3,borderRadius:8,padding:12,marginTop:8,border:"0.5px solid #3D3A30"}}>
       <div style={{display:"flex",gap:12,marginBottom:10}}>
-        <div style={{background:"#2A2822",borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:"#E8C872"}}>R$ {(data.total/1000).toFixed(0)}K</div>
-          <div style={{fontSize:8,color:"#6B6960"}}>Total</div>
+        <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:GOL}}>R$ {(data.total/1000).toFixed(0)}K</div>
+          <div style={{fontSize:8,color:TXD}}>Total</div>
         </div>
-        <div style={{background:"#2A2822",borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:"#E8E5DC"}}>{data.count}</div>
-          <div style={{fontSize:8,color:"#6B6960"}}>Lançamentos</div>
+        <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:TX}}>{data.count}</div>
+          <div style={{fontSize:8,color:TXD}}>Lançamentos</div>
         </div>
         {Object.entries(data.por_status||{}).map(([s,v]:any)=>(
-          <div key={s} style={{background:"#2A2822",borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-            <div style={{fontSize:14,fontWeight:700,color:s==="PAGO"||s==="RECEBIDO"?"#22C55E":s==="ATRASADO"?"#EF4444":"#A8A498"}}>{v.count}</div>
-            <div style={{fontSize:8,color:"#6B6960"}}>{s}</div>
+          <div key={s} style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:700,color:s==="PAGO"||s==="RECEBIDO"?G:s==="ATRASADO"?R:TXM}}>{v.count}</div>
+            <div style={{fontSize:8,color:TXD}}>{s}</div>
           </div>
         ))}
       </div>
       <div style={{maxHeight:250,overflowY:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
           <thead><tr style={{borderBottom:"1px solid #3D3A30"}}>
-            <th style={{padding:4,textAlign:"left",color:"#C6973F",fontSize:9}}>Data</th>
-            <th style={{padding:4,textAlign:"left",color:"#C6973F",fontSize:9}}>Documento</th>
-            <th style={{padding:4,textAlign:"left",color:"#C6973F",fontSize:9}}>Status</th>
-            <th style={{padding:4,textAlign:"right",color:"#C6973F",fontSize:9}}>Valor</th>
+            <th style={{padding:4,textAlign:"left",color:GO,fontSize:9}}>Data</th>
+            <th style={{padding:4,textAlign:"left",color:GO,fontSize:9}}>Documento</th>
+            <th style={{padding:4,textAlign:"left",color:GO,fontSize:9}}>Status</th>
+            <th style={{padding:4,textAlign:"right",color:GO,fontSize:9}}>Valor</th>
           </tr></thead>
           <tbody>
             {data.transacoes?.map((t:any,i:number)=>(
               <tr key={i} style={{borderBottom:"0.5px solid #3D3A3020"}}>
-                <td style={{padding:4,color:"#A8A498"}}>{t.data}</td>
-                <td style={{padding:4,color:"#E8E5DC"}}>{t.documento||t.parcela||"—"}</td>
+                <td style={{padding:4,color:TXM}}>{t.data}</td>
+                <td style={{padding:4,color:TX}}>{t.documento||t.parcela||"—"}</td>
                 <td style={{padding:4}}>
                   <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,
                     background:t.status==="PAGO"||t.status==="RECEBIDO"?"#22C55E20":t.status==="ATRASADO"?"#EF444420":"#A8A49810",
-                    color:t.status==="PAGO"||t.status==="RECEBIDO"?"#22C55E":t.status==="ATRASADO"?"#EF4444":"#A8A498"
+                    color:t.status==="PAGO"||t.status==="RECEBIDO"?G:t.status==="ATRASADO"?R:TXM
                   }}>{t.status||"—"}</span>
                 </td>
-                <td style={{padding:4,textAlign:"right",fontWeight:600,color:"#E8E5DC"}}>R$ {t.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})}</td>
+                <td style={{padding:4,textAlign:"right",fontWeight:600,color:TX}}>R$ {t.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {data.count>50&&<div style={{fontSize:9,color:"#6B6960",textAlign:"center",marginTop:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
+        {data.count>50&&<div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
       </div>
     </div>
   );
@@ -117,8 +117,8 @@ const rev=[{m:"Jan/25",fat:2226,marg:415,estr:179,lucro:236},{m:"Fev/25",fat:114
 const caixa=[{m:"Jan",disp:510,div:700,saldo:-190},{m:"Fev",disp:545,div:665,saldo:-120},{m:"Mar",disp:702,div:630,saldo:72}];
 
 const KPI=({r,v,d,ok}:any)=>(
-  <div style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${ok?GO:ok===false?R:BD}`}}>
-    <div style={{fontSize:9,color:TXD,letterSpacing:0.4,textTransform:"uppercase"}}>{r}</div>
+  <div style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${ok?GO:ok===false?R:BD}`,border:`1px solid ${BD}`,boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}>
+    <div style={{fontSize:9,color:TXM,letterSpacing:0.4,textTransform:"uppercase"}}>{r}</div>
     <div style={{fontSize:17,fontWeight:700,color:ok?GOL:ok===false?R:TX,marginTop:3}}>{v}</div>
     <div style={{fontSize:9,color:ok?G:ok===false?R:TXM,marginTop:2}}>{d}</div>
   </div>
@@ -126,7 +126,7 @@ const KPI=({r,v,d,ok}:any)=>(
 
 const Tit=({t}:{t:string})=>(<div style={{display:"flex",alignItems:"center",gap:8,margin:"16px 0 10px"}}><div style={{width:3,height:16,background:GO,borderRadius:2}}/><span style={{fontSize:14,fontWeight:700}}>{t}</span></div>);
 
-const Card=({children,p="14px 16px"}:{children:React.ReactNode,p?:string})=>(<div style={{background:BG2,borderRadius:12,padding:p,marginBottom:10,border:`0.5px solid ${BD}`}}>{children}</div>);
+const Card=({children,p="14px 16px",title}:{children:React.ReactNode,p?:string,title?:string})=>(<div style={{background:BG2,borderRadius:12,padding:p,marginBottom:10,border:`1px solid ${BD}`,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>{title&&<div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>{title}</div>}{children}</div>);
 
 export default function DashboardPage(){
   const [aba,setAba]=useState("geral");
@@ -231,7 +231,7 @@ export default function DashboardPage(){
         </Card>
 
         {ln.produtos.map((p:any,i:number)=>(
-          <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:6,border:`0.5px solid ${BD}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:6,border:`1px solid ${BD}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{width:28,height:28,borderRadius:6,background:p.m>50?G+"20":p.m>30?GO+"20":Y+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:p.m>50?G:p.m>30?GO:Y}}>{i+1}</div>
               <div>
@@ -507,9 +507,9 @@ export default function DashboardPage(){
         return alerts.length>0?(
           <div style={{marginBottom:12}}>
             {alerts.map((a,i)=>(
-              <div key={i} style={{background:a.sev==="critico"?"#EF444415":"#FACC1512",borderRadius:8,padding:"10px 14px",marginBottom:6,borderLeft:`4px solid ${a.sev==="critico"?"#EF4444":"#FACC15"}`}}>
-                <div style={{fontSize:12,fontWeight:600,color:a.sev==="critico"?"#EF4444":"#FACC15"}}>{a.sev==="critico"?"⚠":"⚡"} {a.msg}</div>
-                <div style={{fontSize:10,color:"#A8A498",marginTop:3}}>{a.det}</div>
+              <div key={i} style={{background:a.sev==="critico"?"#EF444415":"#FACC1512",borderRadius:8,padding:"10px 14px",marginBottom:6,borderLeft:`4px solid ${a.sev==="critico"?R:Y}`}}>
+                <div style={{fontSize:12,fontWeight:600,color:a.sev==="critico"?R:Y}}>{a.sev==="critico"?"⚠":"⚡"} {a.msg}</div>
+                <div style={{fontSize:10,color:TXM,marginTop:3}}>{a.det}</div>
               </div>
             ))}
           </div>
@@ -605,7 +605,7 @@ export default function DashboardPage(){
       {!realData&&(<>
       <Tit t="Seus 6 Negócios — Clique para ver os detalhes"/>
       {negocios.map(n=>(
-        <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer",transition:"all 0.2s"}}>
+        <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`1px solid ${BD}`,cursor:"pointer",transition:"all 0.2s"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:9,color:TXD}}>{n.tipo} | {n.hc} pessoas | {n.clientes} clientes</div></div>
@@ -630,7 +630,7 @@ export default function DashboardPage(){
         <Tit t={`Linhas de Receita — Clique para ver detalhes`}/>
         {realData.top_receitas_operacionais.slice(0,8).map((r:any,i:number)=>(
           <div key={i}>
-            <div onClick={()=>loadDrill(r.cod,"receita",`rec-${i}`)} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${[GO,G,B,P,T,GOL,R,Y][i%8]}`,border:`0.5px solid ${BD}`,cursor:"pointer",transition:"background 0.2s"}}
+            <div onClick={()=>loadDrill(r.cod,"receita",`rec-${i}`)} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${[GO,G,B,P,T,GOL,R,Y][i%8]}`,border:`1px solid ${BD}`,cursor:"pointer",transition:"background 0.2s"}}
               onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background=BG2)}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
@@ -808,7 +808,7 @@ export default function DashboardPage(){
         {realData.top_emprestimos&&realData.top_emprestimos.length>0&&(<>
           <Tit t="Entradas Não-Operacionais (Empréstimos, Transferências)"/>
           {realData.top_emprestimos.map((r:any,i:number)=>(
-            <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,borderLeft:`3px solid ${Y}`,border:`0.5px solid ${BD}`}}>
+            <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,borderLeft:`3px solid ${Y}`,border:`1px solid ${BD}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{fontSize:12,color:TXM}}>{r.nome}</div>
                 <div style={{fontSize:14,fontWeight:700,color:Y}}>R$ {(r.valor/1000).toFixed(0)}K</div>
@@ -822,7 +822,7 @@ export default function DashboardPage(){
           {realData.grupos_custo.map((g:any,i:number)=>{
             const pct = realData.total_despesas>0?((g.total/realData.total_despesas)*100):0;
             return(
-              <div key={i} style={{background:BG2,borderRadius:8,padding:"12px 14px",marginBottom:6,border:`0.5px solid ${BD}`}}>
+              <div key={i} style={{background:BG2,borderRadius:8,padding:"12px 14px",marginBottom:6,border:`1px solid ${BD}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <div style={{fontSize:13,fontWeight:600,color:TX}}>{g.nome}</div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -840,7 +840,7 @@ export default function DashboardPage(){
       </>):(<>
         <Tit t="Clique em qualquer negócio para explorar em detalhe"/>
         {negocios.map(n=>(
-          <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer"}}>
+          <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`1px solid ${BD}`,cursor:"pointer"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div><div style={{fontSize:14,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:10,color:TXD}}>{n.tipo} | {n.produtos.length} produtos | {n.hc} pessoas</div></div>
               <span style={{color:GO,fontSize:20}}>›</span>
@@ -1317,12 +1317,12 @@ export default function DashboardPage(){
       </Card>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
-        <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`0.5px solid ${BD}`}}>
+        <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`1px solid ${BD}`}}>
           <div style={{fontSize:9,color:TXD}}>Faturamento Mínimo / Mês</div>
           <div style={{fontSize:20,fontWeight:700,color:GOL}}>R$ 978K</div>
           <div style={{fontSize:9,color:TXM}}>Abaixo disso, dá prejuízo</div>
         </div>
-        <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`0.5px solid ${BD}`}}>
+        <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`1px solid ${BD}`}}>
           <div style={{fontSize:9,color:TXD}}>Custo Estrutura / Mês</div>
           <div style={{fontSize:20,fontWeight:700,color:Y}}>R$ 181K</div>
           <div style={{fontSize:9,color:TXM}}>Sede, ADM, veículos</div>
@@ -1392,7 +1392,7 @@ export default function DashboardPage(){
       </>):(<>
         <Tit t="Clique em um negócio para ver seus produtos e preços"/>
         {negocios.map(n=>(
-          <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("produtos");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("produtos");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${n.cor}`,border:`1px solid ${BD}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:9,color:TXD}}>{n.produtos.length} produtos cadastrados</div></div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <div style={{textAlign:"right"}}><div style={{fontSize:14,fontWeight:700,color:n.produtos[0].m>50?G:GO}}>{n.produtos[0].m}%</div><div style={{fontSize:8,color:TXD}}>melhor margem</div></div>
@@ -1446,7 +1446,7 @@ export default function DashboardPage(){
           setReportLoading(false);
         }} disabled={reportLoading||!realData} style={{
           width:"100%",padding:16,border:"none",borderRadius:10,
-          background:reportLoading?"#3D3A30":`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
+          background:reportLoading?BD:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
           color:reportLoading?TXM:BG,fontSize:15,fontWeight:700,cursor:reportLoading?"wait":"pointer"
         }}>
           {reportLoading?"◆ Gerando relatório com IA... aguarde":"◆ Gerar Relatório Executivo"}
@@ -1482,7 +1482,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.5 — Fale com a IA</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.6 — visual melhorado</div>
     </div>
   </div>);
 }
