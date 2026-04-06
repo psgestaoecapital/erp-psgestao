@@ -276,17 +276,33 @@ export default function DashboardPage(){
   const [dbCompanies, setDbCompanies] = useState<any[]>([]);
   const [loadingDb, setLoadingDb] = useState(true);
   const [omieData, setOmieData] = useState<any[]>([]);
+  const [realData, setRealData] = useState<any>(null);
+  const [loadingReal, setLoadingReal] = useState(false);
 
   useEffect(() => {
     supabase.from("companies").select("*").order("created_at").then(({data}) => {
       if(data && data.length > 0) setDbCompanies(data);
       setLoadingDb(false);
     });
-    // Load Omie imported data
-    supabase.from("omie_imports").select("*").then(({data}) => {
+    supabase.from("omie_imports").select("company_id,import_type,record_count,imported_at").then(({data}) => {
       if(data) setOmieData(data);
     });
   }, []);
+
+  // Load processed real data when company selection changes
+  useEffect(() => {
+    if(dbCompanies.length === 0 || omieData.length === 0) return;
+    setLoadingReal(true);
+    const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
+    fetch("/api/omie/process", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ company_ids: compIds })
+    }).then(r=>r.json()).then(d=>{
+      if(d.success) setRealData(d.data);
+      setLoadingReal(false);
+    }).catch(()=>setLoadingReal(false));
+  }, [empresaSel, dbCompanies, omieData]);
 
   const grupoEmpresas = [
     {id:"consolidado",nome:dbCompanies.length>1?"Grupo Consolidado":"Empresa",cnpj:"Todos",pais:"—"},
@@ -323,44 +339,57 @@ export default function DashboardPage(){
 
     {aba==="geral"&&(<div>
       {/* Real data from Omie */}
-      {omieData.length>0&&(
-        <Card>
-          <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:10}}>✓ DADOS REAIS IMPORTADOS DO OMIE</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:8}}>
-            {(()=>{
-              const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
-              const filtered = omieData.filter(d=>compIds.includes(d.company_id));
-              const cp = filtered.filter(d=>d.import_type==="contas_pagar");
-              const cr = filtered.filter(d=>d.import_type==="contas_receber");
-              const cl = filtered.filter(d=>d.import_type==="clientes");
-              const pr = filtered.filter(d=>d.import_type==="produtos");
-              const es = filtered.filter(d=>d.import_type==="estoque");
-              const totalCP = cp.reduce((a,d)=>a+(d.record_count||0),0);
-              const totalCR = cr.reduce((a,d)=>a+(d.record_count||0),0);
-              const totalCL = cl.reduce((a,d)=>a+(d.record_count||0),0);
-              const totalPR = pr.reduce((a,d)=>a+(d.record_count||0),0);
-              const numEmpresas = new Set(filtered.map(d=>d.company_id)).size;
-              return [
-                {r:"Empresas Conectadas",v:`${numEmpresas}`,d:"CNPJs com dados do Omie",ok:true},
-                {r:"Clientes Cadastrados",v:totalCL.toLocaleString("pt-BR"),d:"Importados do Omie",ok:true},
-                {r:"Contas a Pagar",v:totalCP.toLocaleString("pt-BR"),d:"Títulos no financeiro",ok:null},
-                {r:"Contas a Receber",v:totalCR.toLocaleString("pt-BR"),d:"Títulos no financeiro",ok:null},
-                {r:"Produtos",v:totalPR.toLocaleString("pt-BR"),d:"No cadastro",ok:null},
-                {r:"Estoque",v:es.length>0?"Carregado":"—",d:es.length>0?"Posição atualizada":"Sem dados",ok:es.length>0},
-              ].map((k,i)=><KPI key={i} {...k}/>);
-            })()}
+      {realData&&(
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
+            <KPI r="Receitas (Contas a Receber)" v={`R$ ${(realData.total_receitas/1000).toFixed(0)}K`} d={`${realData.num_empresas} empresas consolidadas`} ok={true}/>
+            <KPI r="Despesas (Contas a Pagar)" v={`R$ ${(realData.total_despesas/1000).toFixed(0)}K`} d={`Total do período`} ok={null}/>
+            <KPI r="Resultado do Período" v={`R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+            <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no Omie" ok={true}/>
           </div>
-          <div style={{fontSize:9,color:TXD,marginTop:8,textAlign:"right"}}>Última sincronização: {omieData.length>0?new Date(omieData[omieData.length-1].imported_at).toLocaleString("pt-BR"):""}</div>
-        </Card>
-      )}
 
-      {omieData.length>0&&(
-        <div style={{background:Y+"10",borderRadius:8,padding:"8px 14px",marginBottom:10,border:`0.5px solid ${Y}40`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontSize:11,color:Y}}>⚠ As análises abaixo usam dados demonstrativos. Na próxima atualização, serão substituídas pelos dados reais do Omie importados acima.</div>
-          <a href="/dashboard/dados" style={{fontSize:10,color:GO,textDecoration:"none",padding:"4px 10px",borderRadius:4,border:`0.5px solid ${GO}`,whiteSpace:"nowrap"}}>Gerenciar dados →</a>
+          {realData.resumo_mensal&&realData.resumo_mensal.length>0&&(
+            <Card>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas — Dados Reais do Omie (R$)</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={realData.resumo_mensal.slice(-12)}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
+                  <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
+                  <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
+                  <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2})}`]}/>
+                  <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
+                  <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.7} radius={[4,4,0,0]} barSize={16}/>
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:6}}>
+                <span style={{fontSize:10,color:G}}>● Receitas</span>
+                <span style={{fontSize:10,color:R}}>● Despesas</span>
+              </div>
+            </Card>
+          )}
+
+          {realData.top_custos&&realData.top_custos.length>0&&(
+            <Card>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Dados Reais do Omie (Top 10)</div>
+              {realData.top_custos.slice(0,10).map((c:any,i:number)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
+                  <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
+                  <div style={{flex:1,fontSize:11,color:TX}}>{c.categoria}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>R$ {(c.valor/1000).toFixed(1)}K</div>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          <div style={{fontSize:9,color:TXD,textAlign:"right",marginBottom:10}}>Fonte: Omie API | Última sincronização: {omieData.length>0?new Date(Math.max(...omieData.map(d=>new Date(d.imported_at).getTime()))).toLocaleString("pt-BR"):""}</div>
         </div>
       )}
 
+      {loadingReal&&!realData&&(
+        <Card><div style={{textAlign:"center",padding:20,color:TXM,fontSize:12}}>Processando dados do Omie...</div></Card>
+      )}
+
+      {!realData&&!loadingReal&&omieData.length===0&&(<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
         <KPI r="Faturamento 1T" v="R$ 6,5M" d="▲ 9% acima da meta" ok={true}/>
         <KPI r="Lucro da Operação" v="R$ 663K" d="10,2% do faturamento" ok={true}/>
@@ -387,6 +416,7 @@ export default function DashboardPage(){
           </AreaChart>
         </ResponsiveContainer>
       </Card>
+      </>)}
 
       <Tit t="Seus 6 Negócios — Clique para ver os detalhes"/>
       {negocios.map(n=>(
