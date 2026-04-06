@@ -1306,8 +1306,6 @@ export default function DashboardPage(){
           setReportText("");
           try {
             const compIds = empresaSel==="consolidado"?dbCompanies.map(c=>c.id):[empresaSel];
-            // Load plano de ação
-            const {data:acoes} = await supabase.from("plano_acao").select("*").in("company_id",compIds);
             const res = await fetch("/api/report",{
               method:"POST",
               headers:{"Content-Type":"application/json"},
@@ -1315,15 +1313,13 @@ export default function DashboardPage(){
                 company_ids:compIds,
                 periodo_inicio:periodoInicio,
                 periodo_fim:periodoFim,
-                financial_data:realData,
-                plano_acao:acoes||[],
-                contexto_humano:null,
+                empresa_nome:empresaAtiva.nome,
               })
             });
             const d = await res.json();
             if(d.success) {
-              setReportText(d.data.report);
-              setReportSource(d.data.source);
+              setReportText(d.report);
+              setReportSource("claude");
             } else {
               setReportText("Erro ao gerar relatório: "+(d.error||"desconhecido"));
             }
@@ -1348,8 +1344,14 @@ export default function DashboardPage(){
             <button onClick={()=>{navigator.clipboard.writeText(reportText);showToast2("Relatório copiado!")}} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:10,cursor:"pointer"}}>Copiar</button>
           </div>
           <div style={{fontSize:12,color:TX,lineHeight:1.8,whiteSpace:"pre-wrap"}} dangerouslySetInnerHTML={{__html:reportText
-            .replace(/## (\d+\..+)/g,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:20px 0 8px">$1</h3>')
+            .replace(/^# (.+)/gm,'<h2 style="color:#E8C872;font-size:16px;font-weight:800;margin:16px 0 8px">$1</h2>')
+            .replace(/^## (\d+\..+)/gm,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:20px 0 8px">$1</h3>')
+            .replace(/^## (.+)/gm,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:20px 0 8px">$1</h3>')
+            .replace(/^---$/gm,'<hr style="border:none;border-top:1px solid #3D3A30;margin:16px 0"/>')
             .replace(/\*\*(.+?)\*\*/g,'<strong style="color:#E8E5DC">$1</strong>')
+            .replace(/^⚠/gm,'<span style="color:#EF4444">⚠</span>')
+            .replace(/^⚡/gm,'<span style="color:#FACC15">⚡</span>')
+            .replace(/^💡/gm,'<span style="color:#22C55E">💡</span>')
             .replace(/^- /gm,'• ')
           }}/>
         </Card>

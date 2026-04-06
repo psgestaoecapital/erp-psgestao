@@ -2,172 +2,141 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export async function POST(req: NextRequest) {
   try {
-    const { company_ids, periodo_inicio, periodo_fim, dados_financeiros } = await req.json();
+    const { company_ids, periodo_inicio, periodo_fim, empresa_nome } = await req.json();
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada. Adicione nas Environment Variables do Vercel." }, { status: 500 });
+    }
+
+    // 1. Get financial data from process API
+    const processRes = await fetch(`${req.nextUrl.origin}/api/omie/process`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company_ids, periodo_inicio, periodo_fim }),
+    });
+    const processData = await processRes.json();
+    if (!processData.success) {
+      return NextResponse.json({ error: "Erro ao carregar dados financeiros" }, { status: 500 });
+    }
+    const d = processData.data;
+
+    // 2. Get plano de ação
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    const { data: acoes } = await supabase.from("plano_acao")
+      .select("*")
+      .in("company_id", company_ids || [])
+      .order("created_at", { ascending: false });
 
-    // Load plano de ação
-    let planoAcao: any[] = [];
-    if (company_ids?.length > 0) {
-      const { data } = await supabase.from("plano_acao").select("*").in("company_id", company_ids).order("created_at", { ascending: false });
-      planoAcao = data || [];
-    }
+    // 3. Get contexto humano
+    const { data: contextoData } = await supabase.from("reports")
+      .select("report_data")
+      .in("company_id", company_ids || [])
+      .eq("report_type", "contexto_humano")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const contexto = contextoData?.[0]?.report_data || {};
 
-    // Load company info
-    let empresas: any[] = [];
-    if (company_ids?.length > 0) {
-      const { data } = await supabase.from("companies").select("*").in("id", company_ids);
-      empresas = data || [];
-    }
+    // 4. Build prompt
+    const prompt = `Você é um consultor sênior de gestão empresarial com 26 anos de experiência, especialista em PMEs brasileiras. Analise os dados financeiros reais desta empresa e gere um relatório executivo completo.
 
-    const d = dados_financeiros;
-    const nomeGrupo = empresas.length > 0 ? (empresas[0].nome_fantasia || empresas[0].razao_social) : "Empresa";
-
-    // Build the prompt
-    const prompt = `Você é um consultor financeiro sênior da PS Gestão e Capital, especializado em análise de PMEs brasileiras. Analise os dados financeiros abaixo e gere um relatório executivo completo.
-
-EMPRESA: ${nomeGrupo} (${empresas.length} CNPJ${empresas.length>1?"s":""})
+EMPRESA: ${empresa_nome || "Grupo Empresarial"}
 PERÍODO: ${periodo_inicio} a ${periodo_fim}
 
-DADOS FINANCEIROS:
-- Receita Operacional: R$ ${((d.total_rec_operacional||d.total_receitas||0)/1000).toFixed(0)}K
-- Despesas Totais: R$ ${((d.total_despesas||0)/1000).toFixed(0)}K
-- Resultado: R$ ${((d.resultado_periodo||0)/1000).toFixed(0)}K (Margem: ${d.margem||0}%)
-- Empréstimos Recebidos: R$ ${((d.total_emprestimos||0)/1000).toFixed(0)}K
-- Clientes cadastrados: ${d.total_clientes||0}
-- Empresas no grupo: ${d.num_empresas||1}
+=== DADOS FINANCEIROS REAIS (do sistema Omie) ===
+Receita Operacional Total: R$ ${((d.total_rec_operacional || d.total_receitas) / 1000).toFixed(0)}K
+Empréstimos/Financiamentos Recebidos: R$ ${((d.total_emprestimos || 0) / 1000).toFixed(0)}K
+Despesas Totais: R$ ${(d.total_despesas / 1000).toFixed(0)}K
+Resultado Operacional: R$ ${(d.resultado_periodo / 1000).toFixed(0)}K
+Margem: ${d.margem}%
+Clientes cadastrados: ${d.total_clientes}
+Empresas no grupo: ${d.num_empresas}
 
-MAIORES CUSTOS:
-${(d.top_custos||[]).slice(0,10).map((c:any,i:number)=>`${i+1}. ${c.nome}: R$ ${(c.valor/1000).toFixed(0)}K`).join("\n")}
+=== TOP 10 RECEITAS OPERACIONAIS ===
+${(d.top_receitas_operacionais || []).map((r: any, i: number) => `${i + 1}. ${r.nome}: R$ ${(r.valor / 1000).toFixed(0)}K`).join("\n")}
 
-MAIORES RECEITAS OPERACIONAIS:
-${(d.top_receitas_operacionais||[]).slice(0,10).map((r:any,i:number)=>`${i+1}. ${r.nome}: R$ ${(r.valor/1000).toFixed(0)}K`).join("\n")}
+=== TOP 10 EMPRÉSTIMOS/FINANCIAMENTOS ===
+${(d.top_emprestimos || []).map((r: any, i: number) => `${i + 1}. ${r.nome}: R$ ${(r.valor / 1000).toFixed(0)}K`).join("\n") || "Nenhum"}
 
-PLANO DE AÇÃO ATUAL (${planoAcao.length} ações):
-${planoAcao.length>0?planoAcao.map(a=>`- ${a.acao} (${a.status}, prazo: ${a.prazo||"sem prazo"}, prioridade: ${a.prioridade})`).join("\n"):"Nenhuma ação cadastrada."}
+=== TOP 10 MAIORES CUSTOS ===
+${(d.top_custos || []).slice(0, 10).map((c: any, i: number) => `${i + 1}. ${c.nome}: R$ ${(c.valor / 1000).toFixed(0)}K`).join("\n")}
 
-Gere um relatório com as seguintes seções:
-1. DIAGNÓSTICO GERAL (2-3 parágrafos): visão geral da saúde financeira
-2. PONTOS CRÍTICOS (3-5 itens): problemas que precisam de ação imediata
-3. PONTOS DE ATENÇÃO (3-5 itens): riscos que precisam ser monitorados
-4. OPORTUNIDADES (3-5 itens): onde a empresa pode melhorar
-5. ANÁLISE DO PLANO DE AÇÃO: avalie as ações em andamento, sugira novas
-6. PROJEÇÃO: cenário otimista e pessimista para os próximos 6 meses
-7. RECOMENDAÇÕES IMEDIATAS: 3 ações prioritárias para esta semana
+=== GRUPOS DE CUSTO ===
+${(d.grupos_custo || []).map((g: any) => `${g.nome}: R$ ${(g.total / 1000).toFixed(0)}K`).join("\n")}
 
-Seja direto, use números reais, e fale como um consultor experiente falaria com o dono da empresa. Use linguagem acessível, sem jargão técnico excessivo.`;
+=== DRE MENSAL (últimos meses) ===
+${(d.dre_mensal || []).slice(-6).map((m: any) => `${m.mesLabel}: Receita R$${(m.receita / 1000).toFixed(0)}K | Custos R$${(m.custos_diretos / 1000).toFixed(0)}K | Desp.Adm R$${(m.despesas_adm / 1000).toFixed(0)}K | Resultado R$${(m.lucro_final / 1000).toFixed(0)}K`).join("\n")}
 
-    let report = "";
+=== PLANO DE AÇÃO EM EXECUÇÃO ===
+${acoes && acoes.length > 0 ? acoes.map((a: any) => `- [${a.status}] ${a.acao} (Resp: ${a.responsavel || "N/D"}, Prazo: ${a.prazo || "N/D"}, Prioridade: ${a.prioridade})`).join("\n") : "Nenhuma ação cadastrada"}
 
-    if (anthropicKey) {
-      // Real Claude API call
-      try {
-        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": anthropicKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 4000,
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-        const claudeData = await claudeRes.json();
-        report = claudeData.content?.[0]?.text || "Erro ao gerar relatório";
-      } catch (e: any) {
-        report = "Erro na API Claude: " + e.message;
-      }
-    } else {
-      // Generate report without AI (data-driven)
-      const resultado = d.resultado_periodo || 0;
-      const isNegativo = resultado < 0;
-      const margem = parseFloat(d.margem || "0");
-      const topCusto = d.top_custos?.[0];
-      const topReceita = d.top_receitas_operacionais?.[0];
+=== CONTEXTO DO EMPRESÁRIO ===
+${contexto.problemas ? "Problemas: " + contexto.problemas : ""}
+${contexto.mudancas ? "Mudanças: " + contexto.mudancas : ""}
+${contexto.decisoes ? "Decisões pendentes: " + contexto.decisoes : ""}
+${contexto.oportunidades ? "Oportunidades: " + contexto.oportunidades : ""}
+${contexto.metas ? "Metas: " + contexto.metas : ""}
 
-      report = `# RELATÓRIO EXECUTIVO — ${nomeGrupo}
-## Período: ${periodo_inicio} a ${periodo_fim}
+=== GERE O RELATÓRIO COM ESTAS SEÇÕES ===
 
----
+1. **RESUMO EXECUTIVO** (3-4 parágrafos): Visão geral da situação financeira, principais indicadores, tendência.
 
-## 1. DIAGNÓSTICO GERAL
+2. **PONTOS CRÍTICOS** (⚠): Liste os problemas URGENTES que precisam de ação imediata. Seja direto e específico com números.
 
-${isNegativo
-  ? `A empresa apresenta resultado **NEGATIVO** de R$ ${Math.abs(resultado/1000).toFixed(0)}K no período analisado, com margem de ${margem}%. As despesas totais (R$ ${(d.total_despesas/1000).toFixed(0)}K) superam a receita operacional (R$ ${((d.total_rec_operacional||d.total_receitas)/1000).toFixed(0)}K) em R$ ${Math.abs(resultado/1000).toFixed(0)}K.`
-  : `A empresa apresenta resultado **POSITIVO** de R$ ${(resultado/1000).toFixed(0)}K no período, com margem de ${margem}%. A receita operacional (R$ ${((d.total_rec_operacional||d.total_receitas)/1000).toFixed(0)}K) supera as despesas (R$ ${(d.total_despesas/1000).toFixed(0)}K).`}
+3. **PONTOS DE ATENÇÃO** (⚡): Problemas que não são urgentes mas precisam monitoramento.
 
-${d.total_emprestimos > 0 ? `\n**Atenção:** A empresa recebeu R$ ${(d.total_emprestimos/1000).toFixed(0)}K em empréstimos/financiamentos no período. Isso indica dependência de capital de terceiros para manter as operações.` : ""}
+4. **OPORTUNIDADES** (✦): Oportunidades identificadas nos dados para melhorar resultados.
 
-O grupo opera com ${d.num_empresas} CNPJ${d.num_empresas>1?"s":""} e ${d.total_clientes} clientes cadastrados.
+5. **ANÁLISE DE DESPESAS**: Quais custos são excessivos? Onde há oportunidade de redução? Seja específico.
 
----
+6. **ANÁLISE DE RECEITAS**: Quais linhas de receita são as mais fortes? Quais estão fracas? Concentração de receita é um risco?
 
-## 2. PONTOS CRÍTICOS
+7. **RECOMENDAÇÕES ESTRATÉGICAS**: 5-7 ações concretas com prazo e impacto estimado.
 
-${isNegativo ? `⚠ **Resultado negativo:** A empresa gasta mais do que fatura. Cada mês no negativo consome o patrimônio.` : ""}
-${topCusto ? `⚠ **Maior custo:** "${topCusto.nome}" representa R$ ${(topCusto.valor/1000).toFixed(0)}K — avaliar se há espaço para redução.` : ""}
-${d.total_emprestimos > d.total_rec_operacional*0.2 ? `⚠ **Dependência de empréstimos:** R$ ${(d.total_emprestimos/1000).toFixed(0)}K em financiamentos — a empresa não se sustenta com a operação.` : ""}
-${(d.top_custos||[]).length > 5 ? `⚠ **Custos pulverizados:** ${(d.top_custos||[]).length} categorias de custo identificadas — dificulta o controle e a redução.` : ""}
+8. **CARTA AO SÓCIO**: Uma carta pessoal e direta ao empresário, como um conselheiro de confiança. Fale a verdade com respeito. Se a empresa está em dificuldade, diga claramente. Se está indo bem, reconheça. Termine com motivação e próximos passos concretos.
 
----
+Use linguagem profissional mas acessível. Cite números específicos dos dados. Seja DIRETO e HONESTO — o empresário precisa da verdade, não de amenidades.`;
 
-## 3. PONTOS DE ATENÇÃO
+    // 5. Call Claude API
+    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4000,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
 
-${(d.top_custos||[]).slice(0,3).map((c:any)=>`⚡ **${c.nome}:** R$ ${(c.valor/1000).toFixed(0)}K — monitorar tendência mensal.`).join("\n")}
-${d.total_clientes > 1000 ? `⚡ **Base de clientes grande (${d.total_clientes}):** verificar concentração de receita — se poucos clientes representam a maior parte do faturamento, há risco.` : ""}
+    const claudeData = await claudeRes.json();
 
----
-
-## 4. OPORTUNIDADES
-
-${topReceita ? `💡 **${topReceita.nome}** é a maior fonte de receita (R$ ${(topReceita.valor/1000).toFixed(0)}K). Investir em crescimento desta linha.` : ""}
-${(d.top_receitas_operacionais||[]).length > 3 ? `💡 **Diversificação:** ${(d.top_receitas_operacionais||[]).length} fontes de receita identificadas. Avaliar quais têm maior margem e focar nelas.` : ""}
-💡 **Renegociação de custos:** Os 3 maiores custos somam R$ ${((d.top_custos||[]).slice(0,3).reduce((a:number,c:any)=>a+c.valor,0)/1000).toFixed(0)}K. Uma redução de 10% geraria economia de R$ ${((d.top_custos||[]).slice(0,3).reduce((a:number,c:any)=>a+c.valor,0)/10000).toFixed(0)}K.
-
----
-
-## 5. ANÁLISE DO PLANO DE AÇÃO
-
-${planoAcao.length > 0
-  ? `O plano atual tem ${planoAcao.length} ações cadastradas:\n${planoAcao.map(a=>`- **${a.acao}** — Status: ${a.status}${a.prazo?`, Prazo: ${new Date(a.prazo).toLocaleDateString("pt-BR")}`:""} (${a.prioridade})`).join("\n")}\n\n${planoAcao.filter(a=>a.status==="pendente").length > 0 ? `⚠ Há ${planoAcao.filter(a=>a.status==="pendente").length} ações pendentes que precisam ser iniciadas.` : "✓ Todas as ações estão em andamento ou concluídas."}`
-  : "⚠ **Nenhuma ação cadastrada.** É fundamental criar um plano de ação com ações concretas, prazos e responsáveis para reverter o cenário atual. Acesse a aba Plano de Ação na Entrada de Dados."}
-
----
-
-## 6. PROJEÇÃO (6 MESES)
-
-**Cenário otimista (redução de 15% nos custos + crescimento de 10% na receita):**
-- Receita projetada: R$ ${(((d.total_rec_operacional||d.total_receitas)*1.1)/1000).toFixed(0)}K
-- Despesas projetadas: R$ ${((d.total_despesas*0.85)/1000).toFixed(0)}K
-- Resultado projetado: R$ ${((((d.total_rec_operacional||d.total_receitas)*1.1)-(d.total_despesas*0.85))/1000).toFixed(0)}K
-
-**Cenário pessimista (custos mantidos + queda de 10% na receita):**
-- Receita projetada: R$ ${(((d.total_rec_operacional||d.total_receitas)*0.9)/1000).toFixed(0)}K
-- Despesas projetadas: R$ ${((d.total_despesas)/1000).toFixed(0)}K
-- Resultado projetado: R$ ${((((d.total_rec_operacional||d.total_receitas)*0.9)-d.total_despesas)/1000).toFixed(0)}K
-
----
-
-## 7. RECOMENDAÇÕES IMEDIATAS
-
-1. **Esta semana:** Revisar os 3 maiores custos e identificar pelo menos 1 oportunidade de redução imediata.
-2. **Nos próximos 15 dias:** ${isNegativo ? "Elaborar plano de emergência para reduzir despesas em pelo menos 20%." : "Definir meta de crescimento para a principal linha de receita."}
-3. **Nos próximos 30 dias:** ${planoAcao.length === 0 ? "Criar plano de ação com no mínimo 5 ações concretas com responsáveis e prazos." : "Revisar o plano de ação e atualizar o status de todas as ações."}
-
----
-*Relatório gerado pelo PS Gestão e Capital — ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR")}*
-${!anthropicKey ? "\n*Para análises mais profundas com IA, adicione a chave da API Claude nas configurações do Vercel (ANTHROPIC_API_KEY).*" : ""}`;
+    if (claudeData.error) {
+      return NextResponse.json({ error: `Erro Claude API: ${claudeData.error.message}` }, { status: 500 });
     }
 
-    const response = NextResponse.json({ success: true, report, ai: !!anthropicKey });
+    const reportText = claudeData.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar relatório";
+
+    // 6. Parse sections
+    const sections = reportText.split(/\n(?=\d+\.\s\*\*)/);
+
+    const response = NextResponse.json({
+      success: true,
+      report: reportText,
+      sections: sections,
+      generated_at: new Date().toISOString(),
+      model: "claude-sonnet-4",
+    });
     response.headers.set("Cache-Control", "no-store");
     return response;
   } catch (error: any) {
