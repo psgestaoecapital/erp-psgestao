@@ -386,15 +386,20 @@ export default function DashboardPage(){
         }
       }
 
-      // Build monthly chart
+      // Build monthly chart - INLINE formatting, no external function
       const allM = [...new Set([...Object.keys(recPorMes),...Object.keys(despPorMes)])].sort();
-      const chart = allM.slice(-12).map(m=>({
-        mes: fmtMesLabel(m),
-        receitas: recPorMes[m]||0,
-        despesas: despPorMes[m]||0,
-        resultado: (recPorMes[m]||0) - (despPorMes[m]||0),
-      }));
-      const chartStr = JSON.stringify(chart.slice(0,3));
+      const mesNomes=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+      const chart = allM.slice(-12).map(m=>{
+        const parts=m.split("-");
+        const label=parts.length===2?`${mesNomes[parseInt(parts[1])-1]}/${parts[0].slice(2)}`:m;
+        return {
+          mes: label,
+          receitas: recPorMes[m]||0,
+          despesas: despPorMes[m]||0,
+          resultado: (recPorMes[m]||0) - (despPorMes[m]||0),
+        };
+      });
+      const chartStr = JSON.stringify({allM:allM.slice(0,5),chart:chart.slice(0,3)});
 
       // Top custos & receitas
       const topCustos = Object.values(despPorCat).sort((a,b)=>b.valor-a.valor).slice(0,20);
@@ -448,6 +453,8 @@ export default function DashboardPage(){
         debug:{
           meses_despesas:Object.keys(despPorMes).sort().slice(0,5),
           meses_receitas:Object.keys(recPorMes).sort().slice(0,5),
+          rec_values: Object.entries(recPorMes).slice(0,3).map(([k,v])=>`${k}=${v}`),
+          desp_values: Object.entries(despPorMes).slice(0,3).map(([k,v])=>`${k}=${v}`),
           registros_pagar:Object.keys(despPorMes).length,
           registros_receber:Object.keys(recPorMes).length,
           sample_pagar: (()=>{
@@ -649,10 +656,9 @@ export default function DashboardPage(){
               }
               return `null(parts=${p.length})`;
             };
-            return `STORED in useEffect: ${realData.chart_str}
-COMPUTED in render: ${JSON.stringify(chartData?.slice(0,3))}
-raw_rec keys: ${JSON.stringify(Object.keys(realData.raw_rec||{}).sort().slice(0,5))}
-raw_desp keys: ${JSON.stringify(Object.keys(realData.raw_desp||{}).sort().slice(0,5))}`;
+            return `STORED: ${realData.chart_str}
+raw_rec: ${JSON.stringify(realData.debug?.rec_values)}
+raw_desp: ${JSON.stringify(realData.debug?.desp_values)}`;
           })()}
         </div>
         <Card>
@@ -1203,7 +1209,7 @@ raw_desp keys: ${JSON.stringify(Object.keys(realData.raw_desp||{}).sort().slice(
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v3.1 — processamento local</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v3.2 — inline format</div>
     </div>
   </div>);
 }
