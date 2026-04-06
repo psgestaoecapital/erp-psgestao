@@ -511,6 +511,10 @@ export default function DashboardPage(){
             <span style={{fontSize:10,color:TXD}}>a</span>
             <input type="month" value={periodoFim} onChange={e=>setPeriodoFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}/>
           </div>
+          <div style={{display:"flex",gap:4,marginLeft:8}}>
+            <a href="/dashboard/bpo" style={{padding:"4px 10px",borderRadius:6,fontSize:9,border:`1px solid ${G}`,color:G,textDecoration:"none",fontWeight:600}}>📊 BPO</a>
+            <a href="/dashboard/admin" style={{padding:"4px 10px",borderRadius:6,fontSize:9,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️ Admin</a>
+          </div>
         </div>
       </div>
     </div>
@@ -1515,7 +1519,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.4 — Multi-empresa</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v7.0 — BPO Inteligente</div>
     </div>
   </div>);
 }
