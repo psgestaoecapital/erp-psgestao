@@ -778,8 +778,38 @@ export default function DadosPage() {
                           return;
                         }
                         setOmieResult(data.data);
+                        
+                        // Save imported data to Supabase
+                        if(selectedCompany && data.data) {
+                          // Delete old imports for this company
+                          await supabase.from("omie_imports").delete().eq("company_id", selectedCompany);
+                          
+                          // Save each data type
+                          const imports = [];
+                          if(data.data.categorias) imports.push({company_id:selectedCompany,import_type:"categorias",import_data:data.data.categorias,record_count:data.data.categorias.total_de_registros||0});
+                          if(data.data.clientes) imports.push({company_id:selectedCompany,import_type:"clientes",import_data:data.data.clientes,record_count:data.data.clientes.total_de_registros||0});
+                          if(data.data.produtos) imports.push({company_id:selectedCompany,import_type:"produtos",import_data:data.data.produtos,record_count:data.data.produtos.total_de_registros||0});
+                          if(data.data.contas_pagar) imports.push({company_id:selectedCompany,import_type:"contas_pagar",import_data:data.data.contas_pagar,record_count:data.data.contas_pagar.total_de_registros||0});
+                          if(data.data.contas_receber) imports.push({company_id:selectedCompany,import_type:"contas_receber",import_data:data.data.contas_receber,record_count:data.data.contas_receber.total_de_registros||0});
+                          if(data.data.vendas) imports.push({company_id:selectedCompany,import_type:"vendas",import_data:data.data.vendas,record_count:data.data.vendas.total_de_registros||0});
+                          if(data.data.estoque) imports.push({company_id:selectedCompany,import_type:"estoque",import_data:data.data.estoque,record_count:0});
+                          if(data.data.resumo) imports.push({company_id:selectedCompany,import_type:"resumo",import_data:data.data.resumo,record_count:0});
+                          if(data.data.empresa) imports.push({company_id:selectedCompany,import_type:"empresa",import_data:data.data.empresa,record_count:0});
+                          
+                          if(imports.length > 0) {
+                            await supabase.from("omie_imports").insert(imports);
+                          }
+                          
+                          // Save Omie credentials to company
+                          await supabase.from("companies").update({
+                            omie_app_key: omieKey,
+                            omie_app_secret: omieSecret,
+                            last_omie_sync: new Date().toISOString(),
+                          }).eq("id", selectedCompany);
+                        }
+                        
                         setOmieStatus("success");
-                        showToast("Dados importados do Omie com sucesso!","ok");
+                        showToast("Dados importados e salvos no banco!","ok");
                       } catch(e:any) {
                         setOmieStatus("error");
                         setOmieResult({error: e.message});

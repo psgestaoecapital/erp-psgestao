@@ -275,11 +275,16 @@ export default function DashboardPage(){
   const [empresaSel, setEmpresaSel] = useState("consolidado");
   const [dbCompanies, setDbCompanies] = useState<any[]>([]);
   const [loadingDb, setLoadingDb] = useState(true);
+  const [omieData, setOmieData] = useState<any[]>([]);
 
   useEffect(() => {
     supabase.from("companies").select("*").order("created_at").then(({data}) => {
       if(data && data.length > 0) setDbCompanies(data);
       setLoadingDb(false);
+    });
+    // Load Omie imported data
+    supabase.from("omie_imports").select("*").then(({data}) => {
+      if(data) setOmieData(data);
     });
   }, []);
 
@@ -317,6 +322,38 @@ export default function DashboardPage(){
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>
 
     {aba==="geral"&&(<div>
+      {/* Real data from Omie */}
+      {omieData.length>0&&(
+        <Card>
+          <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:10}}>✓ DADOS REAIS IMPORTADOS DO OMIE</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:8}}>
+            {(()=>{
+              const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
+              const filtered = omieData.filter(d=>compIds.includes(d.company_id));
+              const cp = filtered.filter(d=>d.import_type==="contas_pagar");
+              const cr = filtered.filter(d=>d.import_type==="contas_receber");
+              const cl = filtered.filter(d=>d.import_type==="clientes");
+              const pr = filtered.filter(d=>d.import_type==="produtos");
+              const es = filtered.filter(d=>d.import_type==="estoque");
+              const totalCP = cp.reduce((a,d)=>a+(d.record_count||0),0);
+              const totalCR = cr.reduce((a,d)=>a+(d.record_count||0),0);
+              const totalCL = cl.reduce((a,d)=>a+(d.record_count||0),0);
+              const totalPR = pr.reduce((a,d)=>a+(d.record_count||0),0);
+              const numEmpresas = new Set(filtered.map(d=>d.company_id)).size;
+              return [
+                {r:"Empresas Conectadas",v:`${numEmpresas}`,d:"CNPJs com dados do Omie",ok:true},
+                {r:"Clientes Cadastrados",v:totalCL.toLocaleString("pt-BR"),d:"Importados do Omie",ok:true},
+                {r:"Contas a Pagar",v:totalCP.toLocaleString("pt-BR"),d:"Títulos no financeiro",ok:null},
+                {r:"Contas a Receber",v:totalCR.toLocaleString("pt-BR"),d:"Títulos no financeiro",ok:null},
+                {r:"Produtos",v:totalPR.toLocaleString("pt-BR"),d:"No cadastro",ok:null},
+                {r:"Estoque",v:es.length>0?"Carregado":"—",d:es.length>0?"Posição atualizada":"Sem dados",ok:es.length>0},
+              ].map((k,i)=><KPI key={i} {...k}/>);
+            })()}
+          </div>
+          <div style={{fontSize:9,color:TXD,marginTop:8,textAlign:"right"}}>Última sincronização: {omieData.length>0?new Date(omieData[omieData.length-1].imported_at).toLocaleString("pt-BR"):""}</div>
+        </Card>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
         <KPI r="Faturamento 1T" v="R$ 6,5M" d="▲ 9% acima da meta" ok={true}/>
         <KPI r="Lucro da Operação" v="R$ 663K" d="10,2% do faturamento" ok={true}/>
