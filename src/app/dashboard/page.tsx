@@ -69,7 +69,7 @@ export default function DashboardPage(){
   const [custoAberto,setCustoAberto]=useState<Record<string,boolean>>({});
 
   const abas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
-  const abasDemo = ["negocios","resultado","financeiro","precos"];
+  const abasDemo = ["negocios","precos"];
   const meses=["Jan","Fev","Mar"];
 
   // If a business line is open, show its detail view
@@ -443,6 +443,52 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="financeiro"&&(<div>
+      {realData&&(<>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
+          <KPI r="Receitas Totais" v={`R$ ${(realData.total_receitas/1000).toFixed(0)}K`} d="Contas a receber do período" ok={true}/>
+          <KPI r="Despesas Totais" v={`R$ ${(realData.total_despesas/1000).toFixed(0)}K`} d="Contas a pagar do período" ok={null}/>
+          <KPI r="Resultado" v={`R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+          <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do Omie" ok={true}/>
+          <KPI r="Gasto Diário Médio" v={`R$ ${(realData.total_despesas/realData.dre_mensal.length/30).toFixed(0)}`} d="Despesas ÷ dias" ok={null}/>
+          <KPI r="Empresas no Grupo" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
+        </div>
+        <Tit t="Receitas × Despesas × Resultado — Mês a Mês"/>
+        <Card>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={realData.chart_mensal}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
+              <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
+              <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
+              <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2})}`]}/>
+              <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={14}/>
+              <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.6} radius={[4,4,0,0]} barSize={14}/>
+              <Line type="monotone" dataKey="resultado" name="Resultado" stroke={GOL} strokeWidth={2.5} dot={{r:4,fill:GOL}}/>
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:6}}>
+            <span style={{fontSize:10,color:G}}>● Receitas</span>
+            <span style={{fontSize:10,color:R}}>● Despesas</span>
+            <span style={{fontSize:10,color:GOL}}>— Resultado</span>
+          </div>
+        </Card>
+
+        {realData.top_receitas&&realData.top_receitas.length>0&&(<>
+          <Tit t="Maiores Fontes de Receita"/>
+          <Card>
+            {realData.top_receitas.map((r:any,i:number)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
+                <div style={{width:24,height:24,borderRadius:6,background:G+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:G}}>{i+1}</div>
+                <div style={{flex:1,fontSize:11,color:TX}}>{r.nome}</div>
+                <div style={{fontSize:13,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(1)}K</div>
+              </div>
+            ))}
+          </Card>
+        </>)}
+
+        <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais</div>
+      </>)}
+
+      {!realData&&(<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
         <KPI r="Capacidade Pagar Contas" v="2,73x" d="Excelente (>1,5)" ok={true}/>
         <KPI r="Dívida vs Patrimônio" v="37,1%" d="Controlado (<50%)" ok={true}/>
@@ -468,6 +514,7 @@ export default function DashboardPage(){
           <div style={{fontSize:11,fontWeight:600,color:G}}>✓ Março: caixa superou dívidas pela primeira vez</div>
         </div>
       </Card>
+      </>)}
     </div>)}
 
     {aba==="negocios"&&(<div>
@@ -483,6 +530,89 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="resultado"&&(<div>
+      {/* REAL DATA FROM OMIE */}
+      {realData&&realData.dre_mensal&&realData.dre_mensal.length>0&&(<>
+        <Tit t="Resultado Financeiro — Dados Reais do Omie"/>
+        <Card p="8px">
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+              <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
+                {["",
+                  ...realData.dre_mensal.slice(-6).map((d:any)=>d.mes),
+                  "Total"
+                ].map((h:string)=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {[
+                  {c:"RECEITA BRUTA",key:"receita",d:true,tp:"fat"},
+                  {c:"(-) Deduções e Impostos",key:"deducoes",d:false,tp:"x"},
+                  {c:"(-) Custos Diretos",key:"custos_diretos",d:false,tp:"x"},
+                  {c:"= MARGEM BRUTA",key:"margem",d:true,tp:"mg"},
+                  {c:"(-) Despesas Administrativas",key:"despesas_adm",d:false,tp:"x"},
+                  {c:"= LUCRO OPERACIONAL",key:"lucro_op",d:true,tp:"lc"},
+                  {c:"(-) Resultado Financeiro",key:"financeiro",d:false,tp:"x"},
+                  {c:"(-) Outros",key:"outros",d:false,tp:"x"},
+                  {c:"= LUCRO FINAL",key:"lucro_final",d:true,tp:"fl"},
+                ].map((row:any,i:number)=>{
+                  const vals = realData.dre_mensal.slice(-6).map((d:any)=>d[row.key]||0);
+                  const total = vals.reduce((a:number,v:number)=>a+v,0);
+                  return(<tr key={i} style={{background:row.tp==="mg"?G+"10":row.tp==="lc"?GO+"10":row.tp==="fl"?GO+"18":"transparent",borderBottom:`0.5px solid ${BD}40`}}>
+                    <td style={{padding:6,fontWeight:row.d?700:400,color:row.d?TX:TXM,minWidth:160}}>{row.c}</td>
+                    {vals.map((v:number,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:row.d?700:400,color:v<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX,fontSize:10}}>
+                      {v<0?`(${Math.abs(v/1000).toFixed(0)}K)`:`${(v/1000).toFixed(0)}K`}
+                    </td>)}
+                    <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
+                      {total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
+                    </td>
+                  </tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* Real cost map */}
+        {realData.grupos_custo&&realData.grupos_custo.length>0&&(<>
+          <Tit t="Mapa de Custos — Dados Reais do Omie (do maior para o menor)"/>
+          {realData.grupos_custo.map((g:any,gi:number)=>(
+            <Card key={gi}>
+              <div onClick={()=>setCustoAberto({...custoAberto,["rg"+gi]:!custoAberto["rg"+gi]})} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:10,color:GO}}>{custoAberto["rg"+gi]?"▼":"▶"}</span>
+                  <span style={{fontSize:13,fontWeight:600,color:TX}}>{g.nome}</span>
+                  <span style={{fontSize:10,color:TXD}}>({g.contas.length} contas)</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:15,fontWeight:700,color:gi<2?R:gi<4?Y:TX}}>R$ {(g.total/1000).toFixed(1)}K</span>
+                  <span style={{fontSize:10,color:TXD}}>{realData.total_despesas>0?((g.total/realData.total_despesas)*100).toFixed(1):"0"}%</span>
+                </div>
+              </div>
+              {custoAberto["rg"+gi]&&(
+                <div style={{marginTop:8}}>
+                  {g.contas.slice(0,15).map((c:any,ci:number)=>(
+                    <div key={ci} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0 4px 20px",borderBottom:`0.5px solid ${BD}20`}}>
+                      <span style={{fontSize:10,color:TXM}}>{c.nome}</span>
+                      <span style={{fontSize:11,fontWeight:600,color:TX}}>R$ {(c.valor/1000).toFixed(1)}K</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+
+          <Card>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontWeight:700,color:TX}}>TOTAL DE CUSTOS E DESPESAS</span>
+              <span style={{fontSize:18,fontWeight:700,color:R}}>R$ {(realData.total_despesas/1000).toFixed(0)}K</span>
+            </div>
+          </Card>
+        </>)}
+
+        <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais processados</div>
+      </>)}
+
+      {/* DEMO DATA - only show when no real data */}
+      {(!realData||!realData.dre_mensal||realData.dre_mensal.length===0)&&(<>
       <Tit t="Resultado Financeiro — Clique nas linhas para abrir os detalhes"/>
       <Card p="8px">
         <div style={{overflowX:"auto"}}>
@@ -830,6 +960,7 @@ export default function DashboardPage(){
           <div style={{fontSize:9,color:TXM}}>Sede, ADM, veículos</div>
         </div>
       </div>
+      </>)}
     </div>)}
 
     {aba==="precos"&&(<div>
