@@ -8,6 +8,7 @@ function ConviteForm() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -36,8 +37,10 @@ function ConviteForm() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError("");
+    if (password !== password2) { setError("As senhas não coincidem. Digite novamente."); return; }
+    if (password.length < 6) { setError("A senha deve ter no mínimo 6 caracteres."); return; }
+    setLoading(true);
 
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError) { setError(authError.message); setLoading(false); return; }
@@ -148,10 +151,22 @@ function ConviteForm() {
                 style={{ background: invite?.email ? "#1C1B18" : "#2A2822", border: "1px solid #3D3A30", color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
             </div>
 
-            <div style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Crie uma senha (mínimo 6 caracteres)</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6}
                 style={{ background: "#2A2822", border: "1px solid #3D3A30", color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Confirme sua senha</label>
+              <input type="password" value={password2} onChange={e => setPassword2(e.target.value)} placeholder="••••••••" required minLength={6}
+                style={{ background: "#2A2822", border: `1px solid ${password2 && password !== password2 ? "#EF4444" : "#3D3A30"}`, color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
+              {password2 && password !== password2 && (
+                <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>As senhas não coincidem</div>
+              )}
+              {password2 && password === password2 && password.length >= 6 && (
+                <div style={{ fontSize: 10, color: "#22C55E", marginTop: 4 }}>✓ Senhas coincidem</div>
+              )}
             </div>
 
             {error && (

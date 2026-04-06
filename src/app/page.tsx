@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
@@ -25,6 +26,11 @@ export default function LoginPage() {
       setResetSent(true);
       setLoading(false);
       return;
+    }
+
+    if (mode === "signup") {
+      if (password !== password2) { setError("As senhas não coincidem. Digite novamente."); setLoading(false); return; }
+      if (password.length < 6) { setError("A senha deve ter no mínimo 6 caracteres."); setLoading(false); return; }
     }
 
     if (mode === "login") {
@@ -94,6 +100,21 @@ export default function LoginPage() {
                 </div>
               )}
 
+              {mode === "signup" && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Confirme sua senha</label>
+                  <input type="password" value={password2} onChange={e => setPassword2(e.target.value)}
+                    placeholder="••••••••" required minLength={6}
+                    style={{ borderColor: password2 && password !== password2 ? "#EF4444" : undefined }} />
+                  {password2 && password !== password2 && (
+                    <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>As senhas não coincidem</div>
+                  )}
+                  {password2 && password === password2 && password.length >= 6 && (
+                    <div style={{ fontSize: 10, color: "#22C55E", marginTop: 4 }}>✓ Senhas coincidem</div>
+                  )}
+                </div>
+              )}
+
               {mode === "login" && (
                 <div style={{ textAlign: "right", marginBottom: 16 }}>
                   <button type="button" onClick={() => { setMode("reset"); setError(""); }}
@@ -103,7 +124,7 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {mode !== "login" && mode !== "reset" && <div style={{ marginBottom: 24 }} />}
+              {mode !== "login" && mode !== "reset" && <div style={{ marginBottom: 12 }} />}
 
               {error && (
                 <div style={{ background: "#EF444420", border: "1px solid #EF444440", borderRadius: 8,
