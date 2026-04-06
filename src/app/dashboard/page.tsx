@@ -1305,12 +1305,11 @@ export default function DashboardPage(){
           setReportLoading(true);
           setReportText("");
           try {
-            const compIds = empresaSel==="consolidado"?dbCompanies.map(c=>c.id):[empresaSel];
             const res = await fetch("/api/report",{
               method:"POST",
               headers:{"Content-Type":"application/json"},
               body:JSON.stringify({
-                company_ids:compIds,
+                financial_data:realData,
                 periodo_inicio:periodoInicio,
                 periodo_fim:periodoFim,
                 empresa_nome:empresaAtiva.nome,
@@ -1363,7 +1362,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.2 — relatório IA</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.3 — relatório otimizado</div>
     </div>
   </div>);
 }
