@@ -126,6 +126,7 @@ export default function BPOPage(){
       </div>
       <div style={{display:"flex",gap:8}}>
         <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
+        <a href="/dashboard/bpo/rotinas" style={{padding:"8px 16px",border:`1px solid ${PU}`,borderRadius:8,color:PU,fontSize:11,textDecoration:"none",fontWeight:600}}>🤖 Rotinas &amp; Automação</a>
         <a href="/dashboard/bpo/rotinas" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none",fontWeight:600}}>⚡ Rotinas</a>
         <button onClick={loadBPOData} style={{padding:"8px 16px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>
           ↻ Atualizar
