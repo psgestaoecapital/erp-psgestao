@@ -884,7 +884,7 @@ export default function DashboardPage(){
                   {id:"out",c:"(-) Outros",key:"outros",d:false,tp:"x",grupo:"Outros"},
                   {id:"fl",c:"= LUCRO FINAL",key:"lucro_final",d:true,tp:"fl",grupo:null},
                 ].map((row:any,i:number)=>{
-                  const vals = realData.dre_mensal.slice(-6).map((d:any)=>d[row.key]||0);
+                  const vals = realData.dre_mensal.slice(-6).map((d:any)=>Number(d[row.key])||0);
                   const total = vals.reduce((a:number,v:number)=>a+v,0);
                   const isOpen = custoAberto["dre_"+row.id];
                   const grupo = row.grupo ? realData.grupos_custo?.find((g:any)=>g.nome===row.grupo) : null;
@@ -897,11 +897,11 @@ export default function DashboardPage(){
                         {hasExpand&&<span style={{fontSize:9,color:GO,marginRight:4}}>{isOpen?"▼":"▶"}</span>}
                         {row.c}
                       </td>
-                      {vals.map((v:number,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:row.d?700:400,color:v<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX,fontSize:10}}>
-                        {v<0?`(${Math.abs(v/1000).toFixed(0)}K)`:`${(v/1000).toFixed(0)}K`}
+                      {vals.map((v:number,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:row.d?700:400,color:v<0?R:v===0?TXD:["mg","lc","fl"].includes(row.tp)?GOL:TX,fontSize:10}}>
+                        {v===0?"—":v<0?`(${Math.abs(v/1000).toFixed(0)}K)`:`${(v/1000).toFixed(0)}K`}
                       </td>)}
-                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
-                        {total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
+                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:total===0?TXD:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
+                        {total===0?"—":total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
                       </td>
                     </tr>
                     {isOpen&&grupo&&grupo.contas.slice(0,12).map((c:any,ci:number)=>(
@@ -1480,7 +1480,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.6 — visual melhorado</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.8 — DRE sem 0K</div>
     </div>
   </div>);
 }
