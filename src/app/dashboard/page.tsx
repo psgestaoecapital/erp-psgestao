@@ -354,6 +354,13 @@ export default function DashboardPage(){
         </Card>
       )}
 
+      {omieData.length>0&&(
+        <div style={{background:Y+"10",borderRadius:8,padding:"8px 14px",marginBottom:10,border:`0.5px solid ${Y}40`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:11,color:Y}}>⚠ As análises abaixo usam dados demonstrativos. Na próxima atualização, serão substituídas pelos dados reais do Omie importados acima.</div>
+          <a href="/dashboard/dados" style={{fontSize:10,color:GO,textDecoration:"none",padding:"4px 10px",borderRadius:4,border:`0.5px solid ${GO}`,whiteSpace:"nowrap"}}>Gerenciar dados →</a>
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
         <KPI r="Faturamento 1T" v="R$ 6,5M" d="▲ 9% acima da meta" ok={true}/>
         <KPI r="Lucro da Operação" v="R$ 663K" d="10,2% do faturamento" ok={true}/>
