@@ -1491,7 +1491,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.2 — DRE mensal</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.3 — Conectores BPO</div>
     </div>
   </div>);
 }
