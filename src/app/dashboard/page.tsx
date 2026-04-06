@@ -469,6 +469,7 @@ export default function DashboardPage(){
       </Card>
       </>)}
 
+      {!realData&&(<>
       <Tit t="Seus 6 Negócios — Clique para ver os detalhes"/>
       {negocios.map(n=>(
         <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer",transition:"all 0.2s"}}>
@@ -490,6 +491,25 @@ export default function DashboardPage(){
           </div>
         </div>
       ))}
+      </>)}
+
+      {realData&&realData.top_receitas_operacionais&&(<>
+        <Tit t={`Linhas de Receita — ${realData.top_receitas_operacionais.length} categorias identificadas`}/>
+        {realData.top_receitas_operacionais.slice(0,8).map((r:any,i:number)=>(
+          <div key={i} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${[GO,G,B,P,T,GOL,R,Y][i%8]}`,border:`0.5px solid ${BD}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:TX}}>{r.nome}</div>
+                <div style={{fontSize:9,color:TXD}}>Categoria Omie | Receita operacional</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:16,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+                <div style={{fontSize:9,color:TXD}}>{realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100).toFixed(1):"0"}% do total</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </>)}
     </div>)}
 
     {aba==="financeiro"&&(<div>
@@ -1056,7 +1076,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.5 — receita vs empréstimos</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.6 — sem demo no geral</div>
     </div>
   </div>);
 }
