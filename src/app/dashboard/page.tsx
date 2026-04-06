@@ -355,6 +355,40 @@ export default function DashboardPage(){
   const [drillData, setDrillData] = useState<any>(null);
   const [drillLoading, setDrillLoading] = useState(false);
 
+  // Contexto do Empresário + Análise IA
+  const [contextoTexto, setContextoTexto] = useState("");
+  const [iaAnalise, setIaAnalise] = useState("");
+  const [iaLoading, setIaLoading] = useState(false);
+
+  const analisarComIA = async () => {
+    if (!contextoTexto.trim() || !realData) return;
+    setIaLoading(true);
+    setIaAnalise("");
+    try {
+      const res = await fetch("/api/report/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contexto: contextoTexto,
+          financial_summary: {
+            receita_operacional: `R$ ${((realData.total_rec_operacional||realData.total_receitas||0)/1000).toFixed(0)}K`,
+            despesas: `R$ ${((realData.total_despesas||0)/1000).toFixed(0)}K`,
+            resultado: `R$ ${((realData.resultado_periodo||0)/1000).toFixed(0)}K`,
+            margem: `${realData.margem||0}%`,
+            emprestimos: `R$ ${((realData.total_emprestimos||0)/1000).toFixed(0)}K`,
+            top_custos: (realData.top_custos||[]).slice(0,5).map((c:any)=>`${c.nome}: R$ ${(c.valor/1000).toFixed(0)}K`),
+            top_receitas: (realData.top_receitas_operacionais||[]).slice(0,5).map((r:any)=>`${r.nome}: R$ ${(r.valor/1000).toFixed(0)}K`),
+          },
+          empresa_nome: empresaAtiva.nome,
+        })
+      });
+      const d = await res.json();
+      if (d.success) { setIaAnalise(d.analysis); }
+      else { setIaAnalise("Erro: " + (d.error || "Não foi possível gerar análise. Verifique a chave da API.")); }
+    } catch (e: any) { setIaAnalise("Erro: " + e.message); }
+    setIaLoading(false);
+  };
+
   // Report state
   const [reportText, setReportText] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
@@ -613,6 +647,45 @@ export default function DashboardPage(){
           </div>
         ))}
       </>)}
+
+      {/* === FALE COM A IA === */}
+      {realData&&(
+        <div style={{marginTop:8}}>
+          <Tit t="💬 Fale com a IA — Descreva sua situação"/>
+          <Card>
+            <div style={{fontSize:11,color:TXM,marginBottom:10}}>
+              Digite o que está acontecendo na empresa, dúvidas, decisões que precisa tomar. A IA vai cruzar com seus dados financeiros reais e dar uma análise personalizada.
+            </div>
+            <textarea
+              value={contextoTexto}
+              onChange={e=>setContextoTexto(e.target.value)}
+              placeholder={"Exemplos:\n• Estou pensando em demitir 3 pessoas para reduzir custos\n• Quero abrir uma filial em Chapecó, vale a pena?\n• O fornecedor X aumentou 20%, devo trocar?\n• Preciso de financiamento de R$ 500K, consigo pagar?"}
+              style={{width:"100%",minHeight:100,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:12,fontSize:12,fontFamily:"Calibri, sans-serif",resize:"vertical",outline:"none",lineHeight:1.6}}
+            />
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+              <div style={{fontSize:9,color:TXD}}>{contextoTexto.length>0?`${contextoTexto.length} caracteres`:"A IA analisa seu contexto + dados financeiros reais"}</div>
+              <button onClick={analisarComIA} disabled={iaLoading||!contextoTexto.trim()} style={{padding:"10px 24px",border:"none",borderRadius:8,background:iaLoading?BD:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,color:iaLoading?TXM:BG,fontSize:13,fontWeight:700,cursor:iaLoading?"wait":"pointer"}}>
+                {iaLoading?"◆ Analisando...":"◆ Analisar com IA"}
+              </button>
+            </div>
+          </Card>
+          {iaAnalise&&(
+            <Card>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700,color:GOL}}>Análise da IA — PS Gestão</div>
+                <button onClick={()=>navigator.clipboard.writeText(iaAnalise)} style={{padding:"4px 12px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:9,cursor:"pointer"}}>Copiar</button>
+              </div>
+              <div style={{fontSize:12,color:TX,lineHeight:1.8,whiteSpace:"pre-wrap"}} dangerouslySetInnerHTML={{__html:iaAnalise
+                .replace(/\*\*(.+?)\*\*/g,`<strong style="color:${GOL}">$1</strong>`)
+                .replace(/^⚠/gm,`<span style="color:${R}">⚠</span>`)
+                .replace(/^⚡/gm,`<span style="color:${Y}">⚡</span>`)
+                .replace(/^✦/gm,`<span style="color:${G}">✦</span>`)
+                .replace(/^- /gm,'• ')
+              }}/>
+            </Card>
+          )}
+        </div>
+      )}
     </div>)}
 
     {aba==="financeiro"&&(<div>
@@ -1409,7 +1482,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.4 — DRE expandível</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.5 — Fale com a IA</div>
     </div>
   </div>);
 }
