@@ -25,6 +25,58 @@ const fmtMesLabel=(k:string)=>{
   return `${n[parseInt(m)-1]}/${a.slice(2)}`;
 };
 
+// Drill-down panel
+const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
+  if(loading) return <div style={{padding:12,textAlign:"center",fontSize:11,color:"#A8A498"}}>Carregando detalhes...</div>;
+  if(!data) return null;
+  return(
+    <div style={{background:"#1C1B18",borderRadius:8,padding:12,marginTop:8,border:"0.5px solid #3D3A30"}}>
+      <div style={{display:"flex",gap:12,marginBottom:10}}>
+        <div style={{background:"#2A2822",borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#E8C872"}}>R$ {(data.total/1000).toFixed(0)}K</div>
+          <div style={{fontSize:8,color:"#6B6960"}}>Total</div>
+        </div>
+        <div style={{background:"#2A2822",borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#E8E5DC"}}>{data.count}</div>
+          <div style={{fontSize:8,color:"#6B6960"}}>Lançamentos</div>
+        </div>
+        {Object.entries(data.por_status||{}).map(([s,v]:any)=>(
+          <div key={s} style={{background:"#2A2822",borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:700,color:s==="PAGO"||s==="RECEBIDO"?"#22C55E":s==="ATRASADO"?"#EF4444":"#A8A498"}}>{v.count}</div>
+            <div style={{fontSize:8,color:"#6B6960"}}>{s}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{maxHeight:250,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+          <thead><tr style={{borderBottom:"1px solid #3D3A30"}}>
+            <th style={{padding:4,textAlign:"left",color:"#C6973F",fontSize:9}}>Data</th>
+            <th style={{padding:4,textAlign:"left",color:"#C6973F",fontSize:9}}>Documento</th>
+            <th style={{padding:4,textAlign:"left",color:"#C6973F",fontSize:9}}>Status</th>
+            <th style={{padding:4,textAlign:"right",color:"#C6973F",fontSize:9}}>Valor</th>
+          </tr></thead>
+          <tbody>
+            {data.transacoes?.map((t:any,i:number)=>(
+              <tr key={i} style={{borderBottom:"0.5px solid #3D3A3020"}}>
+                <td style={{padding:4,color:"#A8A498"}}>{t.data}</td>
+                <td style={{padding:4,color:"#E8E5DC"}}>{t.documento||t.parcela||"—"}</td>
+                <td style={{padding:4}}>
+                  <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,
+                    background:t.status==="PAGO"||t.status==="RECEBIDO"?"#22C55E20":t.status==="ATRASADO"?"#EF444420":"#A8A49810",
+                    color:t.status==="PAGO"||t.status==="RECEBIDO"?"#22C55E":t.status==="ATRASADO"?"#EF4444":"#A8A498"
+                  }}>{t.status||"—"}</span>
+                </td>
+                <td style={{padding:4,textAlign:"right",fontWeight:600,color:"#E8E5DC"}}>R$ {t.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.count>50&&<div style={{fontSize:9,color:"#6B6960",textAlign:"center",marginTop:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
+      </div>
+    </div>
+  );
+};
+
 const empresa={nome:"SOLAR OESTE ENERGIA",cidade:"Chapecó/SC",periodo:"Jan-Mar 2025",lns:6,colab:54};
 
 const negocios:any[]=[
@@ -297,6 +349,29 @@ export default function DashboardPage(){
     const d=new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
   });
+
+  // Drill-down state
+  const [drillOpen, setDrillOpen] = useState<string|null>(null);
+  const [drillData, setDrillData] = useState<any>(null);
+  const [drillLoading, setDrillLoading] = useState(false);
+
+  const loadDrill = async (categoria: string, tipo: "receita"|"despesa", key: string) => {
+    if (drillOpen === key) { setDrillOpen(null); setDrillData(null); return; } // Toggle close
+    setDrillOpen(key);
+    setDrillLoading(true);
+    setDrillData(null);
+    const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
+    try {
+      const res = await fetch(`/api/omie/detail?t=${Date.now()}`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ company_ids: compIds, categoria, tipo, periodo_inicio: periodoInicio, periodo_fim: periodoFim })
+      });
+      const d = await res.json();
+      if (d.success) setDrillData(d.data);
+    } catch(e) {}
+    setDrillLoading(false);
+  };
   const [dbCompanies, setDbCompanies] = useState<any[]>([]);
   const [loadingDb, setLoadingDb] = useState(true);
   const [omieData, setOmieData] = useState<any[]>([]);
@@ -435,12 +510,16 @@ export default function DashboardPage(){
 
           {realData.top_custos&&realData.top_custos.length>0&&(
             <Card>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Dados Reais do Omie (Top 10)</div>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Clique para ver detalhes</div>
               {realData.top_custos.slice(0,10).map((c:any,i:number)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
-                  <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
-                  <div style={{flex:1,fontSize:11,color:TX}}>{c.nome}</div>
-                  <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>R$ {(c.valor/1000).toFixed(1)}K</div>
+                <div key={i}>
+                  <div onClick={()=>loadDrill(c.cod,"despesa",`custo-${i}`)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`,cursor:"pointer",transition:"background 0.2s"}}
+                    onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                    <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
+                    <div style={{flex:1,fontSize:11,color:TX}}>{c.nome} <span style={{fontSize:9,color:TXD}}>{drillOpen===`custo-${i}`?"▼":"▶"}</span></div>
+                    <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>R$ {(c.valor/1000).toFixed(1)}K</div>
+                  </div>
+                  {drillOpen===`custo-${i}`&&<DrillPanel data={drillData} loading={drillLoading}/>}
                 </div>
               ))}
             </Card>
@@ -508,19 +587,23 @@ export default function DashboardPage(){
       </>)}
 
       {realData&&realData.top_receitas_operacionais&&(<>
-        <Tit t={`Linhas de Receita — ${realData.top_receitas_operacionais.length} categorias identificadas`}/>
+        <Tit t={`Linhas de Receita — Clique para ver detalhes`}/>
         {realData.top_receitas_operacionais.slice(0,8).map((r:any,i:number)=>(
-          <div key={i} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${[GO,G,B,P,T,GOL,R,Y][i%8]}`,border:`0.5px solid ${BD}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:TX}}>{r.nome}</div>
-                <div style={{fontSize:9,color:TXD}}>Categoria Omie | Receita operacional</div>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:16,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</div>
-                <div style={{fontSize:9,color:TXD}}>{realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100).toFixed(1):"0"}% do total</div>
+          <div key={i}>
+            <div onClick={()=>loadDrill(r.cod,"receita",`rec-${i}`)} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${[GO,G,B,P,T,GOL,R,Y][i%8]}`,border:`0.5px solid ${BD}`,cursor:"pointer",transition:"background 0.2s"}}
+              onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background=BG2)}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:TX}}>{r.nome} <span style={{fontSize:9,color:TXD}}>{drillOpen===`rec-${i}`?"▼":"▶"}</span></div>
+                  <div style={{fontSize:9,color:TXD}}>Categoria Omie | Clique para ver lançamentos</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:16,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+                  <div style={{fontSize:9,color:TXD}}>{realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100).toFixed(1):"0"}% do total</div>
+                </div>
               </div>
             </div>
+            {drillOpen===`rec-${i}`&&<div style={{marginBottom:6}}><DrillPanel data={drillData} loading={drillLoading}/></div>}
           </div>
         ))}
       </>)}
@@ -1210,7 +1293,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.0 — 100% dados reais</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.1 — drill-down</div>
     </div>
   </div>);
 }

@@ -164,8 +164,8 @@ export async function POST(req: NextRequest) {
     }));
 
     // === TOP CUSTOS & RECEITAS ===
-    const topCustos = Object.values(despPorCat).sort((a, b) => b.valor - a.valor).slice(0, 20);
-    const topReceitas = Object.values(recPorCat).sort((a, b) => b.valor - a.valor).slice(0, 10);
+    const topCustos = Object.entries(despPorCat).map(([cod,v])=>({...v,cod})).sort((a, b) => b.valor - a.valor).slice(0, 20);
+    const topReceitas = Object.entries(recPorCat).map(([cod,v])=>({...v,cod})).sort((a, b) => b.valor - a.valor).slice(0, 10);
 
     // === COST GROUPS (Mapa de Custos) ===
     const gruposCusto: Record<string, { nome: string; total: number; contas: any[] }> = {};
@@ -211,8 +211,8 @@ export async function POST(req: NextRequest) {
       dre_mensal: dreMensal, chart_mensal: chartMensal,
       top_custos: topCustos,
       top_receitas: topReceitas,
-      top_receitas_operacionais: Object.values(recPorCat).filter((r:any)=>r.operacional).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
-      top_emprestimos: Object.values(recPorCat).filter((r:any)=>!r.operacional).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
+      top_receitas_operacionais: Object.entries(recPorCat).filter(([,r]:any)=>r.operacional).map(([cod,v])=>({...v,cod})).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
+      top_emprestimos: Object.entries(recPorCat).filter(([,r]:any)=>!r.operacional).map(([cod,v])=>({...v,cod})).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
       grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
       debug,
     }});
