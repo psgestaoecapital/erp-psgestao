@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
@@ -780,7 +780,18 @@ export default function DashboardPage(){
     {aba==="resultado"&&(<div>
       {/* REAL DATA FROM OMIE */}
       {realData&&realData.dre_mensal&&realData.dre_mensal.length>0&&(<>
-        <Tit t="Resultado Financeiro — Dados Reais do Omie"/>
+        <Tit t="Resultado Financeiro — Clique nas linhas para abrir detalhes"/>
+
+        {/* Summary KPIs */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:8,marginBottom:14}}>
+          {[
+            {r:"Receita Período",v:`R$ ${((realData.total_rec_operacional||realData.total_receitas||0)/1000).toFixed(0)}K`,ok:true},
+            {r:"Despesas Período",v:`R$ ${((realData.total_despesas||0)/1000).toFixed(0)}K`,ok:null},
+            {r:"Resultado",v:`R$ ${((realData.resultado_periodo||0)/1000).toFixed(0)}K`,ok:(realData.resultado_periodo||0)>0},
+            {r:"Margem",v:`${realData.margem||0}%`,ok:Number(realData.margem||0)>0},
+          ].map((k,i)=><KPI key={i} r={k.r} v={k.v} d="" ok={k.ok}/>)}
+        </div>
+
         <Card p="8px">
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
@@ -792,36 +803,60 @@ export default function DashboardPage(){
               </tr></thead>
               <tbody>
                 {[
-                  {c:"RECEITA BRUTA",key:"receita",d:true,tp:"fat"},
-                  {c:"(-) Deduções e Impostos",key:"deducoes",d:false,tp:"x"},
-                  {c:"(-) Custos Diretos",key:"custos_diretos",d:false,tp:"x"},
-                  {c:"= MARGEM BRUTA",key:"margem",d:true,tp:"mg"},
-                  {c:"(-) Despesas Administrativas",key:"despesas_adm",d:false,tp:"x"},
-                  {c:"= LUCRO OPERACIONAL",key:"lucro_op",d:true,tp:"lc"},
-                  {c:"(-) Resultado Financeiro",key:"financeiro",d:false,tp:"x"},
-                  {c:"(-) Outros",key:"outros",d:false,tp:"x"},
-                  {c:"= LUCRO FINAL",key:"lucro_final",d:true,tp:"fl"},
+                  {id:"fat",c:"RECEITA BRUTA",key:"receita",d:true,tp:"fat",grupo:null},
+                  {id:"ded",c:"(-) Deduções e Impostos",key:"deducoes",d:false,tp:"x",grupo:"Deduções e Impostos"},
+                  {id:"cdir",c:"(-) Custos Diretos",key:"custos_diretos",d:false,tp:"x",grupo:"Custos Diretos"},
+                  {id:"mg",c:"= MARGEM BRUTA",key:"margem",d:true,tp:"mg",grupo:null},
+                  {id:"dadm",c:"(-) Despesas Administrativas",key:"despesas_adm",d:false,tp:"x",grupo:"Despesas Administrativas"},
+                  {id:"lop",c:"= LUCRO OPERACIONAL",key:"lucro_op",d:true,tp:"lc",grupo:null},
+                  {id:"fin",c:"(-) Resultado Financeiro",key:"financeiro",d:false,tp:"x",grupo:"Resultado Financeiro"},
+                  {id:"out",c:"(-) Outros",key:"outros",d:false,tp:"x",grupo:"Outros"},
+                  {id:"fl",c:"= LUCRO FINAL",key:"lucro_final",d:true,tp:"fl",grupo:null},
                 ].map((row:any,i:number)=>{
                   const vals = realData.dre_mensal.slice(-6).map((d:any)=>d[row.key]||0);
                   const total = vals.reduce((a:number,v:number)=>a+v,0);
-                  return(<tr key={i} style={{background:row.tp==="mg"?G+"10":row.tp==="lc"?GO+"10":row.tp==="fl"?GO+"18":"transparent",borderBottom:`0.5px solid ${BD}40`}}>
-                    <td style={{padding:6,fontWeight:row.d?700:400,color:row.d?TX:TXM,minWidth:160}}>{row.c}</td>
-                    {vals.map((v:number,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:row.d?700:400,color:v<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX,fontSize:10}}>
-                      {v<0?`(${Math.abs(v/1000).toFixed(0)}K)`:`${(v/1000).toFixed(0)}K`}
-                    </td>)}
-                    <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
-                      {total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
-                    </td>
-                  </tr>);
+                  const isOpen = custoAberto["dre_"+row.id];
+                  const grupo = row.grupo ? realData.grupos_custo?.find((g:any)=>g.nome===row.grupo) : null;
+                  const recCats = row.id==="fat" ? realData.top_receitas_operacionais : null;
+                  const hasExpand = grupo || recCats;
+                  return(<React.Fragment key={`dre-${i}`}>
+                    <tr onClick={hasExpand?()=>setCustoAberto({...custoAberto,["dre_"+row.id]:!isOpen}):undefined}
+                      style={{background:row.tp==="mg"?G+"10":row.tp==="lc"?GO+"10":row.tp==="fl"?GO+"18":"transparent",borderBottom:`0.5px solid ${BD}40`,cursor:hasExpand?"pointer":"default"}}>
+                      <td style={{padding:6,fontWeight:row.d?700:400,color:row.d?TX:TXM,minWidth:180}}>
+                        {hasExpand&&<span style={{fontSize:9,color:GO,marginRight:4}}>{isOpen?"▼":"▶"}</span>}
+                        {row.c}
+                      </td>
+                      {vals.map((v:number,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:row.d?700:400,color:v<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX,fontSize:10}}>
+                        {v<0?`(${Math.abs(v/1000).toFixed(0)}K)`:`${(v/1000).toFixed(0)}K`}
+                      </td>)}
+                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
+                        {total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
+                      </td>
+                    </tr>
+                    {isOpen&&grupo&&grupo.contas.slice(0,12).map((c:any,ci:number)=>(
+                      <tr key={`sub-${ci}`} style={{background:BG3+"50"}}>
+                        <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
+                        {vals.map((_:any,k:number)=><td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:TXD}}>—</td>)}
+                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>R$ {(c.valor/1000).toFixed(1)}K</td>
+                      </tr>
+                    ))}
+                    {isOpen&&recCats&&recCats.slice(0,10).map((c:any,ci:number)=>(
+                      <tr key={`sub-${ci}`} style={{background:BG3+"50"}}>
+                        <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
+                        {vals.map((_:any,k:number)=><td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:TXD}}>—</td>)}
+                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:G}}>R$ {(c.valor/1000).toFixed(1)}K</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>);
                 })}
               </tbody>
             </table>
           </div>
         </Card>
 
-        {/* Real cost map */}
+        {/* Mapa de Custos expandível com drill-down */}
         {realData.grupos_custo&&realData.grupos_custo.length>0&&(<>
-          <Tit t="Mapa de Custos — Dados Reais do Omie (do maior para o menor)"/>
+          <Tit t="Mapa de Custos — Clique para expandir cada grupo"/>
           {realData.grupos_custo.map((g:any,gi:number)=>(
             <Card key={gi}>
               <div onClick={()=>setCustoAberto({...custoAberto,["rg"+gi]:!custoAberto["rg"+gi]})} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
@@ -831,6 +866,9 @@ export default function DashboardPage(){
                   <span style={{fontSize:10,color:TXD}}>({g.contas.length} contas)</span>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:80,height:6,background:BG3,borderRadius:3,overflow:"hidden"}}>
+                    <div style={{width:`${Math.min((g.total/realData.total_despesas)*100,100)}%`,height:"100%",background:gi<2?R:gi<4?Y:GO,borderRadius:3}}/>
+                  </div>
                   <span style={{fontSize:15,fontWeight:700,color:gi<2?R:gi<4?Y:TX}}>R$ {(g.total/1000).toFixed(1)}K</span>
                   <span style={{fontSize:10,color:TXD}}>{realData.total_despesas>0?((g.total/realData.total_despesas)*100).toFixed(1):"0"}%</span>
                 </div>
@@ -838,9 +876,18 @@ export default function DashboardPage(){
               {custoAberto["rg"+gi]&&(
                 <div style={{marginTop:8}}>
                   {g.contas.slice(0,15).map((c:any,ci:number)=>(
-                    <div key={ci} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0 4px 20px",borderBottom:`0.5px solid ${BD}20`}}>
-                      <span style={{fontSize:10,color:TXM}}>{c.nome}</span>
-                      <span style={{fontSize:11,fontWeight:600,color:TX}}>R$ {(c.valor/1000).toFixed(1)}K</span>
+                    <div key={ci}>
+                      <div onClick={()=>loadDrill(c.cod||"","despesa",`mc-${gi}-${ci}`)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0 5px 20px",borderBottom:`0.5px solid ${BD}20`,cursor:"pointer"}}
+                        onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                        <span style={{fontSize:10,color:TXM}}>{c.nome} <span style={{fontSize:8,color:TXD}}>{drillOpen===`mc-${gi}-${ci}`?"▼":"▶"}</span></span>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{width:60,height:4,background:BG3,borderRadius:2,overflow:"hidden"}}>
+                            <div style={{width:`${Math.min((c.valor/g.total)*100,100)}%`,height:"100%",background:gi<2?R:gi<4?Y:GO,borderRadius:2,opacity:0.7}}/>
+                          </div>
+                          <span style={{fontSize:11,fontWeight:600,color:TX,minWidth:60,textAlign:"right"}}>R$ {(c.valor/1000).toFixed(1)}K</span>
+                        </div>
+                      </div>
+                      {drillOpen===`mc-${gi}-${ci}`&&<DrillPanel data={drillData} loading={drillLoading}/>}
                     </div>
                   ))}
                 </div>
@@ -1362,7 +1409,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.3 — relatório otimizado</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.4 — DRE expandível</div>
     </div>
   </div>);
 }
