@@ -355,6 +355,12 @@ export default function DashboardPage(){
   const [drillData, setDrillData] = useState<any>(null);
   const [drillLoading, setDrillLoading] = useState(false);
 
+  // Report state
+  const [reportText, setReportText] = useState("");
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSource, setReportSource] = useState("");
+  const showToast2 = (msg:string) => { /* simple alert */ alert(msg); };
+
   const loadDrill = async (categoria: string, tipo: "receita"|"despesa", key: string) => {
     if (drillOpen === key) { setDrillOpen(null); setDrillData(null); return; } // Toggle close
     setDrillOpen(key);
@@ -1278,14 +1284,76 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="relatorio"&&(<div>
-      <Tit t="Gerar Relatório Completo"/>
+      <Tit t="Gerar Relatório com Inteligência Artificial"/>
       <Card>
-        <div style={{fontSize:11,color:TXD,marginBottom:8}}>Período</div>
-        <select style={{marginBottom:12,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"10px 14px",fontSize:14,width:"100%"}}><option>Janeiro a Março de 2025</option></select>
-        <div style={{fontSize:11,color:TXD,marginBottom:8}}>Tipo</div>
-        <select style={{marginBottom:16,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"10px 14px",fontSize:14,width:"100%"}}><option>Completo — 20 análises + gráficos</option><option>Resumido — 5 análises</option></select>
-        <button style={{width:"100%",padding:14,border:"none",borderRadius:10,background:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,color:BG,fontSize:15,fontWeight:700}}>◆ Gerar Relatório</button>
+        <div style={{fontSize:11,color:TXM,marginBottom:12}}>O relatório é gerado automaticamente pela IA analisando todos os dados financeiros reais do período selecionado, o plano de ação em andamento e o contexto do empresário.</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+          <div>
+            <div style={{fontSize:10,color:TXD,marginBottom:4}}>Período</div>
+            <div style={{fontSize:13,fontWeight:600,color:GOL}}>{fmtMesLabel(periodoInicio)} a {fmtMesLabel(periodoFim)}</div>
+            <div style={{fontSize:9,color:TXD,marginTop:2}}>Mesmo período selecionado no header</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:TXD,marginBottom:4}}>Dados disponíveis</div>
+            <div style={{fontSize:11,color:TX}}>
+              {realData?`R$ ${((realData.total_rec_operacional||0)/1000).toFixed(0)}K receitas | R$ ${(realData.total_despesas/1000).toFixed(0)}K despesas`:"Carregando..."}
+            </div>
+          </div>
+        </div>
+        <button onClick={async()=>{
+          if(!realData) return;
+          setReportLoading(true);
+          setReportText("");
+          try {
+            const compIds = empresaSel==="consolidado"?dbCompanies.map(c=>c.id):[empresaSel];
+            // Load plano de ação
+            const {data:acoes} = await supabase.from("plano_acao").select("*").in("company_id",compIds);
+            const res = await fetch("/api/report",{
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({
+                company_ids:compIds,
+                periodo_inicio:periodoInicio,
+                periodo_fim:periodoFim,
+                financial_data:realData,
+                plano_acao:acoes||[],
+                contexto_humano:null,
+              })
+            });
+            const d = await res.json();
+            if(d.success) {
+              setReportText(d.data.report);
+              setReportSource(d.data.source);
+            } else {
+              setReportText("Erro ao gerar relatório: "+(d.error||"desconhecido"));
+            }
+          } catch(e:any) { setReportText("Erro: "+e.message); }
+          setReportLoading(false);
+        }} disabled={reportLoading||!realData} style={{
+          width:"100%",padding:16,border:"none",borderRadius:10,
+          background:reportLoading?"#3D3A30":`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
+          color:reportLoading?TXM:BG,fontSize:15,fontWeight:700,cursor:reportLoading?"wait":"pointer"
+        }}>
+          {reportLoading?"◆ Gerando relatório com IA... aguarde":"◆ Gerar Relatório Executivo"}
+        </button>
       </Card>
+
+      {reportText&&(
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:GOL}}>Relatório Executivo — PS Gestão e Capital</div>
+              <div style={{fontSize:10,color:TXD}}>{fmtMesLabel(periodoInicio)} a {fmtMesLabel(periodoFim)} | Gerado por {reportSource==="claude"?"Claude AI":"análise local"}</div>
+            </div>
+            <button onClick={()=>{navigator.clipboard.writeText(reportText);showToast2("Relatório copiado!")}} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:10,cursor:"pointer"}}>Copiar</button>
+          </div>
+          <div style={{fontSize:12,color:TX,lineHeight:1.8,whiteSpace:"pre-wrap"}} dangerouslySetInnerHTML={{__html:reportText
+            .replace(/## (\d+\..+)/g,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:20px 0 8px">$1</h3>')
+            .replace(/\*\*(.+?)\*\*/g,'<strong style="color:#E8E5DC">$1</strong>')
+            .replace(/^- /gm,'• ')
+          }}/>
+        </Card>
+      )}
     </div>)}
 
     </div>
@@ -1293,7 +1361,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.1 — drill-down</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.2 — relatório IA</div>
     </div>
   </div>);
 }
