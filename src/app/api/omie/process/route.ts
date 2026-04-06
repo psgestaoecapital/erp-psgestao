@@ -47,11 +47,17 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!imports?.length) return NextResponse.json({ error: "Sem dados" }, { status: 404 });
 
-    // Category name map
+    // Category name map - handle multiple Omie field name formats
     const catMap: Record<string, string> = {};
     for (const cat of imports.filter((i: any) => i.import_type === "categorias")) {
       const regs = cat.import_data?.categoria_cadastro || [];
-      if (Array.isArray(regs)) for (const c of regs) catMap[c.codigo || ""] = c.descricao || "";
+      if (Array.isArray(regs)) {
+        for (const c of regs) {
+          const cod = c.codigo || c.cCodigo || c.cCodCateg || "";
+          const desc = c.descricao || c.cDescricao || c.cDescrCateg || "";
+          if (cod) catMap[cod] = desc || cod;
+        }
+      }
     }
 
     // === PROCESS CONTAS A PAGAR (DESPESAS) ===
@@ -158,15 +164,19 @@ export async function POST(req: NextRequest) {
     for (const cl of imports.filter((i: any) => i.import_type === "clientes")) totalCli += cl.record_count || 0;
 
     // Debug info
+    const catSample = imports.filter((i:any)=>i.import_type==="categorias")[0]?.import_data?.categoria_cadastro?.[0] || null;
     const debug = {
-      meses_despesas: Object.keys(despPorMes).sort().slice(0,5),
-      meses_receitas: Object.keys(recPorMes).sort().slice(0,5),
+      meses_despesas: Object.keys(despPorMes).sort(),
+      meses_receitas: Object.keys(recPorMes).sort(),
       registros_pagar: imports.filter((i:any)=>i.import_type==="contas_pagar").reduce((a:number,c:any)=>{
         const r = c.import_data?.conta_pagar_cadastro; return a + (Array.isArray(r)?r.length:0);
       },0),
       registros_receber: imports.filter((i:any)=>i.import_type==="contas_receber").reduce((a:number,c:any)=>{
         const r = c.import_data?.conta_receber_cadastro; return a + (Array.isArray(r)?r.length:0);
       },0),
+      cat_map_size: Object.keys(catMap).length,
+      cat_sample: catSample ? JSON.stringify(Object.keys(catSample).slice(0,5)) : "nenhum",
+      cat_first_entry: Object.entries(catMap).slice(0,2).map(([k,v])=>`${k}=${v}`),
     };
 
     const response = NextResponse.json({ success: true, data: {
