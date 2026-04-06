@@ -596,6 +596,9 @@ export default function DashboardPage(){
           <KPI r="Empresas no Grupo" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
         <Tit t="Receitas × Despesas × Resultado — Mês a Mês"/>
+        <div style={{fontSize:9,color:Y,background:BG3,padding:8,borderRadius:6,marginBottom:8,overflowX:"auto",whiteSpace:"pre"}}>
+          DEBUG chart_mensal: {JSON.stringify(realData.chart_mensal?.slice(0,3),null,0)}
+        </div>
         <Card>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={realData.chart_mensal}>
