@@ -3,9 +3,9 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
-const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#1E1D19",BG3="#2D2B24",
+const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",P="#A855F7",T="#14B8A6",
-    BD="#4A473B",TX="#EDE9E0",TXM="#B8B3A8",TXD="#8C877C";
+    BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#A09B90";
 
 const tt={background:'#FFFFFF',border:'2px solid #C6973F',borderRadius:12,fontSize:12,color:'#1A1A18',padding:'12px 16px',boxShadow:'0 6px 20px rgba(0,0,0,0.4)',lineHeight:1.8};
 const tl={color:'#1A1A18',fontWeight:700,fontSize:13,marginBottom:4};const ti={color:'#333',fontSize:11,fontWeight:500};
