@@ -495,6 +495,15 @@ export default function DashboardPage(){
         </>)}
 
         <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais</div>
+        {realData?.debug&&(
+          <div style={{background:BG3,borderRadius:8,padding:10,marginBottom:10,border:`0.5px solid ${BD}`}}>
+            <div style={{fontSize:10,fontWeight:600,color:Y,marginBottom:4}}>Diagnóstico (temporário)</div>
+            <div style={{fontSize:9,color:TXM}}>Registros pagar processados: {realData.debug.registros_pagar}</div>
+            <div style={{fontSize:9,color:TXM}}>Registros receber processados: {realData.debug.registros_receber}</div>
+            <div style={{fontSize:9,color:TXM}}>Meses com despesas: {realData.debug.meses_despesas?.join(", ")||"nenhum"}</div>
+            <div style={{fontSize:9,color:TXM}}>Meses com receitas: {realData.debug.meses_receitas?.join(", ")||"nenhum"}</div>
+          </div>
+        )}
       </>)}
 
       {!realData&&(<>

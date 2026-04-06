@@ -4,44 +4,35 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-function classifyCategory(codigo: string): string {
-  if (!codigo) return "outros";
-  if (codigo.startsWith("1.")) return "receita";
-  if (codigo.startsWith("3.")) return "deducao";
-  if (codigo.startsWith("2.01") || codigo.startsWith("2.02") || codigo.startsWith("2.03")) return "custo_direto";
-  if (codigo.startsWith("2.")) return "despesa_adm";
-  if (codigo.startsWith("4.") || codigo.startsWith("5.")) return "financeiro";
-  return "outros";
-}
-
 function parseMesAno(dt: string): string | null {
-  if (!dt) return null;
-  // Try DD/MM/YYYY format
+  if (!dt || typeof dt !== "string") return null;
+  // DD/MM/YYYY format (Omie standard)
   const p = dt.split("/");
   if (p.length === 3) {
-    let dia = p[0], mes = p[1], ano = p[2];
-    // If year is 2-digit, expand it
-    if (ano.length === 2) ano = "20" + ano;
-    const y = parseInt(ano), m = parseInt(mes);
-    if (y >= 2020 && y <= 2030 && m >= 1 && m <= 12) {
-      return `${ano}-${mes.padStart(2,"0")}`;
-    }
-  }
-  // Try YYYY-MM-DD format
-  const p2 = dt.split("-");
-  if (p2.length === 3) {
-    const y = parseInt(p2[0]), m = parseInt(p2[1]);
-    if (y >= 2020 && y <= 2030 && m >= 1 && m <= 12) {
-      return `${p2[0]}-${p2[1].padStart(2,"0")}`;
+    const mes = parseInt(p[1]);
+    let ano = parseInt(p[2]);
+    if (p[2].length === 2) ano = 2000 + ano;
+    if (ano >= 2020 && ano <= 2030 && mes >= 1 && mes <= 12) {
+      return `${ano}-${String(mes).padStart(2,"0")}`;
     }
   }
   return null;
 }
 
-function formatMesAno(key: string): string {
-  const [ano, mes] = key.split("-");
-  const nomes = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-  return `${nomes[parseInt(mes)-1]}/${ano.slice(2)}`;
+function fmtMes(key: string): string {
+  const [a,m] = key.split("-");
+  const n = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return `${n[parseInt(m)-1]}/${a.slice(2)}`;
+}
+
+function classifyCat(cod: string): string {
+  if (!cod) return "outros";
+  if (cod.startsWith("1.")) return "receita";
+  if (cod.startsWith("3.")) return "deducao";
+  if (cod.startsWith("2.01") || cod.startsWith("2.02") || cod.startsWith("2.03")) return "custo_direto";
+  if (cod.startsWith("2.")) return "despesa_adm";
+  if (cod.startsWith("4.") || cod.startsWith("5.")) return "financeiro";
+  return "outros";
 }
 
 export async function POST(req: NextRequest) {
@@ -54,12 +45,14 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!imports?.length) return NextResponse.json({ error: "Sem dados" }, { status: 404 });
 
+    // Category name map
     const catMap: Record<string, string> = {};
     for (const cat of imports.filter((i: any) => i.import_type === "categorias")) {
       const regs = cat.import_data?.categoria_cadastro || [];
       if (Array.isArray(regs)) for (const c of regs) catMap[c.codigo || ""] = c.descricao || "";
     }
 
+    // === PROCESS CONTAS A PAGAR (DESPESAS) ===
     const despPorCat: Record<string, { nome: string; valor: number; tipo: string }> = {};
     const despPorMes: Record<string, Record<string, number>> = {};
     let totalDesp = 0;
@@ -68,19 +61,26 @@ export async function POST(req: NextRequest) {
       const regs = cp.import_data?.conta_pagar_cadastro || [];
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
-        const v = parseFloat(r.valor_documento || r.nValor || 0);
+        // Omie fields: valor_documento (number), data_emissao (DD/MM/YYYY), codigo_categoria (string)
+        const v = Number(r.valor_documento) || 0;
         if (v <= 0) continue;
-        const cat = r.codigo_categoria || r.cCodCateg || "sem_cat";
-        const dt = r.data_emissao || r.dDtEmissao || r.data_vencimento || r.dDtVenc || "";
+        const cat = r.codigo_categoria || "sem_cat";
+        const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
         const ma = parseMesAno(dt);
-        const tipo = classifyCategory(cat);
+        const tipo = classifyCat(cat);
+
         totalDesp += v;
         if (!despPorCat[cat]) despPorCat[cat] = { nome: catMap[cat] || cat, valor: 0, tipo };
         despPorCat[cat].valor += v;
-        if (ma) { if (!despPorMes[ma]) despPorMes[ma] = {}; despPorMes[ma][tipo] = (despPorMes[ma][tipo] || 0) + v; }
+        if (ma) {
+          if (!despPorMes[ma]) despPorMes[ma] = {};
+          despPorMes[ma][tipo] = (despPorMes[ma][tipo] || 0) + v;
+          despPorMes[ma]["_total"] = (despPorMes[ma]["_total"] || 0) + v;
+        }
       }
     }
 
+    // === PROCESS CONTAS A RECEBER (RECEITAS) ===
     const recPorMes: Record<string, number> = {};
     const recPorCat: Record<string, { nome: string; valor: number }> = {};
     let totalRec = 0;
@@ -89,11 +89,12 @@ export async function POST(req: NextRequest) {
       const regs = cr.import_data?.conta_receber_cadastro || [];
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
-        const v = parseFloat(r.valor_documento || r.nValor || 0);
+        const v = Number(r.valor_documento) || 0;
         if (v <= 0) continue;
-        const cat = r.codigo_categoria || r.cCodCateg || "sem_cat";
-        const dt = r.data_emissao || r.dDtEmissao || r.data_vencimento || r.dDtVenc || "";
+        const cat = r.codigo_categoria || "sem_cat";
+        const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
         const ma = parseMesAno(dt);
+
         totalRec += v;
         if (!recPorCat[cat]) recPorCat[cat] = { nome: catMap[cat] || cat, valor: 0 };
         recPorCat[cat].valor += v;
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // === BUILD DRE MENSAL ===
     const allM = [...new Set([...Object.keys(recPorMes), ...Object.keys(despPorMes)])].sort();
 
     const dreMensal = allM.map(m => {
@@ -111,29 +113,54 @@ export async function POST(req: NextRequest) {
       const dd = d.deducao || 0;
       const df = d.financeiro || 0;
       const dout = d.outros || 0;
-      return { mes: formatMesAno(m), receita: rec, deducoes: dd, custos_diretos: cd, despesas_adm: da, financeiro: df, outros: dout, margem: rec - cd - dd, lucro_op: rec - cd - dd - da, lucro_final: rec - cd - dd - da - df - dout };
+      return {
+        mes: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd,
+        despesas_adm: da, financeiro: df, outros: dout,
+        margem: rec - cd - dd, lucro_op: rec - cd - dd - da,
+        lucro_final: rec - cd - dd - da - df - dout
+      };
     });
 
+    // === CHART DATA (last 12 months) ===
     const chartMensal = allM.slice(-12).map(m => ({
-      mes: formatMesAno(m), receitas: recPorMes[m] || 0,
-      despesas: Object.values(despPorMes[m] || {}).reduce((a, v) => a + v, 0),
-      resultado: (recPorMes[m] || 0) - Object.values(despPorMes[m] || {}).reduce((a, v) => a + v, 0),
+      mes: fmtMes(m),
+      receitas: recPorMes[m] || 0,
+      despesas: despPorMes[m]?.["_total"] || 0,
+      resultado: (recPorMes[m] || 0) - (despPorMes[m]?.["_total"] || 0),
     }));
 
+    // === TOP CUSTOS & RECEITAS ===
     const topCustos = Object.values(despPorCat).sort((a, b) => b.valor - a.valor).slice(0, 20);
     const topReceitas = Object.values(recPorCat).sort((a, b) => b.valor - a.valor).slice(0, 10);
 
+    // === COST GROUPS (Mapa de Custos) ===
     const gruposCusto: Record<string, { nome: string; total: number; contas: any[] }> = {};
     for (const info of Object.values(despPorCat)) {
-      const g = info.tipo === "custo_direto" ? "Custos Diretos" : info.tipo === "despesa_adm" ? "Despesas Administrativas" : info.tipo === "deducao" ? "Deduções e Impostos" : info.tipo === "financeiro" ? "Resultado Financeiro" : "Outros";
+      const g = info.tipo === "custo_direto" ? "Custos Diretos" :
+               info.tipo === "despesa_adm" ? "Despesas Administrativas" :
+               info.tipo === "deducao" ? "Deduções e Impostos" :
+               info.tipo === "financeiro" ? "Resultado Financeiro" : "Outros";
       if (!gruposCusto[g]) gruposCusto[g] = { nome: g, total: 0, contas: [] };
       gruposCusto[g].total += info.valor;
       gruposCusto[g].contas.push({ nome: info.nome, valor: info.valor });
     }
     for (const g of Object.values(gruposCusto)) g.contas.sort((a: any, b: any) => b.valor - a.valor);
 
+    // Client count
     let totalCli = 0;
     for (const cl of imports.filter((i: any) => i.import_type === "clientes")) totalCli += cl.record_count || 0;
+
+    // Debug info
+    const debug = {
+      meses_despesas: Object.keys(despPorMes).sort().slice(0,5),
+      meses_receitas: Object.keys(recPorMes).sort().slice(0,5),
+      registros_pagar: imports.filter((i:any)=>i.import_type==="contas_pagar").reduce((a:number,c:any)=>{
+        const r = c.import_data?.conta_pagar_cadastro; return a + (Array.isArray(r)?r.length:0);
+      },0),
+      registros_receber: imports.filter((i:any)=>i.import_type==="contas_receber").reduce((a:number,c:any)=>{
+        const r = c.import_data?.conta_receber_cadastro; return a + (Array.isArray(r)?r.length:0);
+      },0),
+    };
 
     return NextResponse.json({ success: true, data: {
       total_receitas: totalRec, total_despesas: totalDesp,
@@ -144,6 +171,7 @@ export async function POST(req: NextRequest) {
       dre_mensal: dreMensal, chart_mensal: chartMensal,
       top_custos: topCustos, top_receitas: topReceitas,
       grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
+      debug,
     }});
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
