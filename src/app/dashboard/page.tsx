@@ -442,7 +442,28 @@ export default function DashboardPage(){
         dre_mensal:dreMensal, chart_mensal:chart,
         top_custos:topCustos, top_receitas:topReceitas,
         grupos_custo:Object.values(gruposCusto).sort((a,b)=>b.total-a.total),
-        debug:{meses_despesas:Object.keys(despPorMes).sort().slice(0,5),meses_receitas:Object.keys(recPorMes).sort().slice(0,5),registros_pagar:totalDesp>0?Object.keys(despPorMes).length:0,registros_receber:totalRec>0?Object.keys(recPorMes).length:0},
+        debug:{
+          meses_despesas:Object.keys(despPorMes).sort().slice(0,5),
+          meses_receitas:Object.keys(recPorMes).sort().slice(0,5),
+          registros_pagar:Object.keys(despPorMes).length,
+          registros_receber:Object.keys(recPorMes).length,
+          sample_pagar: (()=>{
+            for(const cp of imports.filter(i=>i.import_type==="contas_pagar")){
+              const regs=cp.import_data?.conta_pagar_cadastro||[];
+              if(Array.isArray(regs)&&regs.length>0) return {dt:regs[0].data_emissao,val:regs[0].valor_documento,cat:regs[0].codigo_categoria};
+            }
+            return "nenhum";
+          })(),
+          sample_receber: (()=>{
+            for(const cr of imports.filter(i=>i.import_type==="contas_receber")){
+              const regs=cr.import_data?.conta_receber_cadastro||[];
+              if(Array.isArray(regs)&&regs.length>0) return {dt:regs[0].data_emissao,val:regs[0].valor_documento,cat:regs[0].codigo_categoria};
+            }
+            return "nenhum";
+          })(),
+          import_count: imports.length,
+          import_types: imports.map(i=>i.import_type),
+        },
       });
       setLoadingReal(false);
     });
@@ -596,8 +617,30 @@ export default function DashboardPage(){
           <KPI r="Empresas no Grupo" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
         <Tit t="Receitas × Despesas × Resultado — Mês a Mês"/>
-        <div style={{fontSize:9,color:Y,background:BG3,padding:8,borderRadius:6,marginBottom:8,overflowX:"auto",whiteSpace:"pre"}}>
-          DEBUG chart_mensal: {JSON.stringify(realData.chart_mensal?.slice(0,3),null,0)}
+        <div style={{fontSize:9,color:Y,background:BG3,padding:8,borderRadius:6,marginBottom:8,overflowX:"auto",whiteSpace:"pre",maxHeight:120,overflow:"auto"}}>
+          {(()=>{
+            // Direct test of parseDt
+            const testDt = (dt:string) => {
+              if(!dt||typeof dt!=="string") return "null(empty)";
+              const p=dt.split("/");
+              if(p.length===3){
+                const mes=parseInt(p[1]);
+                let ano=parseInt(p[2]);
+                if(p[2].length===2) ano=2000+ano;
+                if(ano>=2020&&ano<=2030&&mes>=1&&mes<=12) return `${ano}-${String(mes).padStart(2,"0")}`;
+                return `null(y=${ano},m=${mes})`;
+              }
+              return `null(parts=${p.length})`;
+            };
+            return `chart[0-2]: ${JSON.stringify(realData.chart_mensal?.slice(0,3))}
+parseDt("25/04/2025") = ${testDt("25/04/2025")}
+parseDt("05/01/2026") = ${testDt("05/01/2026")}
+imports: ${realData.debug?.import_count} rows, types: ${JSON.stringify(realData.debug?.import_types)}
+sample_pagar: ${JSON.stringify(realData.debug?.sample_pagar)}
+sample_receber: ${JSON.stringify(realData.debug?.sample_receber)}
+meses_desp: ${JSON.stringify(realData.debug?.meses_despesas)}
+meses_rec: ${JSON.stringify(realData.debug?.meses_receitas)}`;
+          })()}
         </div>
         <Card>
           <ResponsiveContainer width="100%" height={250}>
