@@ -305,178 +305,19 @@ export default function DashboardPage(){
     });
   }, []);
 
-  // Process data CLIENT-SIDE (avoids server cache issues)
+  // Load processed data from SERVER API (cache-busted)
   useEffect(() => {
     if(dbCompanies.length === 0 || omieData.length === 0) return;
     setLoadingReal(true);
     const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
-
-    // Load FULL import data for selected companies
-    supabase.from("omie_imports").select("*").in("company_id", compIds).then(({data: imports}) => {
-      if(!imports || imports.length === 0) { setLoadingReal(false); return; }
-
-      const catMap: Record<string,string> = {};
-      for(const cat of imports.filter(i=>i.import_type==="categorias")){
-        const regs = cat.import_data?.categoria_cadastro || [];
-        if(Array.isArray(regs)) for(const c of regs) catMap[c.codigo||""] = c.descricao||"";
-      }
-
-      const parseDt = (dt:string):string|null => {
-        if(!dt||typeof dt!=="string") return null;
-        const p=dt.split("/");
-        if(p.length===3){
-          const mes=parseInt(p[1]);
-          let ano=parseInt(p[2]);
-          if(p[2].length===2) ano=2000+ano;
-          if(ano>=2020&&ano<=2030&&mes>=1&&mes<=12) return `${ano}-${String(mes).padStart(2,"0")}`;
-        }
-        return null;
-      };
-
-      const classifyCat = (cod:string):string => {
-        if(!cod) return "outros";
-        if(cod.startsWith("1.")) return "receita";
-        if(cod.startsWith("3.")) return "deducao";
-        if(cod.startsWith("2.01")||cod.startsWith("2.02")||cod.startsWith("2.03")) return "custo_direto";
-        if(cod.startsWith("2.")) return "despesa_adm";
-        if(cod.startsWith("4.")||cod.startsWith("5.")) return "financeiro";
-        return "outros";
-      };
-
-      // Process contas a pagar
-      const despPorCat: Record<string,{nome:string,valor:number,tipo:string}> = {};
-      const despPorMes: Record<string,number> = {};
-      let totalDesp = 0;
-
-      for(const cp of imports.filter(i=>i.import_type==="contas_pagar")){
-        const regs = cp.import_data?.conta_pagar_cadastro || [];
-        if(!Array.isArray(regs)) continue;
-        for(const r of regs){
-          const v = Number(r.valor_documento)||0;
-          if(v<=0) continue;
-          const cat = r.codigo_categoria||"sem_cat";
-          const dt = r.data_emissao||r.data_vencimento||r.data_previsao||"";
-          const ma = parseDt(dt);
-          const tipo = classifyCat(cat);
-          totalDesp += v;
-          if(!despPorCat[cat]) despPorCat[cat]={nome:catMap[cat]||cat,valor:0,tipo};
-          despPorCat[cat].valor += v;
-          if(ma) despPorMes[ma] = (despPorMes[ma]||0) + v;
-        }
-      }
-
-      // Process contas a receber
-      const recPorMes: Record<string,number> = {};
-      const recPorCat: Record<string,{nome:string,valor:number}> = {};
-      let totalRec = 0;
-
-      for(const cr of imports.filter(i=>i.import_type==="contas_receber")){
-        const regs = cr.import_data?.conta_receber_cadastro || [];
-        if(!Array.isArray(regs)) continue;
-        for(const r of regs){
-          const v = Number(r.valor_documento)||0;
-          if(v<=0) continue;
-          const cat = r.codigo_categoria||"sem_cat";
-          const dt = r.data_emissao||r.data_vencimento||r.data_previsao||"";
-          const ma = parseDt(dt);
-          totalRec += v;
-          if(!recPorCat[cat]) recPorCat[cat]={nome:catMap[cat]||cat,valor:0};
-          recPorCat[cat].valor += v;
-          if(ma) recPorMes[ma] = (recPorMes[ma]||0) + v;
-        }
-      }
-
-      // Build monthly chart - INLINE formatting, no external function
-      const allM = [...new Set([...Object.keys(recPorMes),...Object.keys(despPorMes)])].sort();
-      const mesNomes=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-      const chart = allM.slice(-12).map(m=>{
-        const parts=m.split("-");
-        const label=parts.length===2?`${mesNomes[parseInt(parts[1])-1]}/${parts[0].slice(2)}`:m;
-        return {
-          mes: label,
-          receitas: recPorMes[m]||0,
-          despesas: despPorMes[m]||0,
-          resultado: (recPorMes[m]||0) - (despPorMes[m]||0),
-        };
-      });
-      const chartStr = JSON.stringify({allM:allM.slice(0,5),chart:chart.slice(0,3)});
-
-      // Top custos & receitas
-      const topCustos = Object.values(despPorCat).sort((a,b)=>b.valor-a.valor).slice(0,20);
-      const topReceitas = Object.values(recPorCat).sort((a,b)=>b.valor-a.valor).slice(0,10);
-
-      // Cost groups
-      const gruposCusto: Record<string,{nome:string,total:number,contas:any[]}> = {};
-      for(const info of Object.values(despPorCat)){
-        const g = info.tipo==="custo_direto"?"Custos Diretos":info.tipo==="despesa_adm"?"Despesas Administrativas":info.tipo==="deducao"?"Deduções e Impostos":info.tipo==="financeiro"?"Resultado Financeiro":"Outros";
-        if(!gruposCusto[g]) gruposCusto[g]={nome:g,total:0,contas:[]};
-        gruposCusto[g].total += info.valor;
-        gruposCusto[g].contas.push({nome:info.nome,valor:info.valor});
-      }
-      for(const g of Object.values(gruposCusto)) g.contas.sort((a:any,b:any)=>b.valor-a.valor);
-
-      // DRE mensal
-      const despPorMesTipo: Record<string,Record<string,number>> = {};
-      for(const cp of imports.filter(i=>i.import_type==="contas_pagar")){
-        const regs = cp.import_data?.conta_pagar_cadastro || [];
-        if(!Array.isArray(regs)) continue;
-        for(const r of regs){
-          const v=Number(r.valor_documento)||0; if(v<=0) continue;
-          const cat=r.codigo_categoria||"sem_cat";
-          const dt=r.data_emissao||r.data_vencimento||"";
-          const ma=parseDt(dt); const tipo=classifyCat(cat);
-          if(ma){ if(!despPorMesTipo[ma]) despPorMesTipo[ma]={}; despPorMesTipo[ma][tipo]=(despPorMesTipo[ma][tipo]||0)+v; }
-        }
-      }
-
-      const dreMensal = allM.map(m=>{
-        const d=despPorMesTipo[m]||{};
-        const rec=recPorMes[m]||0;
-        const cd=d.custo_direto||0,da=d.despesa_adm||0,dd=d.deducao||0,df=d.financeiro||0,dout=d.outros||0;
-        return {mes:fmtMesLabel(m),receita:rec,deducoes:dd,custos_diretos:cd,despesas_adm:da,financeiro:df,outros:dout,margem:rec-cd-dd,lucro_op:rec-cd-dd-da,lucro_final:rec-cd-dd-da-df-dout};
-      });
-
-      let totalCli=0;
-      for(const cl of imports.filter(i=>i.import_type==="clientes")) totalCli+=cl.record_count||0;
-
-      setRealData({
-        total_receitas:totalRec, total_despesas:totalDesp,
-        resultado_periodo:totalRec-totalDesp,
-        margem:totalRec>0?((totalRec-totalDesp)/totalRec*100).toFixed(1):"0",
-        total_clientes:totalCli,
-        num_empresas:new Set(imports.map(i=>i.company_id)).size,
-        dre_mensal:dreMensal,
-        raw_rec:recPorMes, raw_desp:despPorMes,
-        chart_mensal:chart, chart_str:chartStr,
-        top_custos:topCustos, top_receitas:topReceitas,
-        grupos_custo:Object.values(gruposCusto).sort((a,b)=>b.total-a.total),
-        debug:{
-          meses_despesas:Object.keys(despPorMes).sort().slice(0,5),
-          meses_receitas:Object.keys(recPorMes).sort().slice(0,5),
-          rec_values: Object.entries(recPorMes).slice(0,3).map(([k,v])=>`${k}=${v}`),
-          desp_values: Object.entries(despPorMes).slice(0,3).map(([k,v])=>`${k}=${v}`),
-          registros_pagar:Object.keys(despPorMes).length,
-          registros_receber:Object.keys(recPorMes).length,
-          sample_pagar: (()=>{
-            for(const cp of imports.filter(i=>i.import_type==="contas_pagar")){
-              const regs=cp.import_data?.conta_pagar_cadastro||[];
-              if(Array.isArray(regs)&&regs.length>0) return {dt:regs[0].data_emissao,val:regs[0].valor_documento,cat:regs[0].codigo_categoria};
-            }
-            return "nenhum";
-          })(),
-          sample_receber: (()=>{
-            for(const cr of imports.filter(i=>i.import_type==="contas_receber")){
-              const regs=cr.import_data?.conta_receber_cadastro||[];
-              if(Array.isArray(regs)&&regs.length>0) return {dt:regs[0].data_emissao,val:regs[0].valor_documento,cat:regs[0].codigo_categoria};
-            }
-            return "nenhum";
-          })(),
-          import_count: imports.length,
-          import_types: imports.map(i=>i.import_type),
-        },
-      });
+    fetch(`/api/omie/process?t=${Date.now()}`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
+      body: JSON.stringify({ company_ids: compIds })
+    }).then(r=>r.json()).then(d=>{
+      if(d.success) setRealData(d.data);
       setLoadingReal(false);
-    });
+    }).catch(()=>setLoadingReal(false));
   }, [empresaSel, dbCompanies, omieData]);
 
   const grupoEmpresas = [
@@ -656,9 +497,8 @@ export default function DashboardPage(){
               }
               return `null(parts=${p.length})`;
             };
-            return `STORED: ${realData.chart_str}
-raw_rec: ${JSON.stringify(realData.debug?.rec_values)}
-raw_desp: ${JSON.stringify(realData.debug?.desp_values)}`;
+            return `API chart[0-2]: ${JSON.stringify(realData.chart_mensal?.slice(0,3))}
+API debug: ${JSON.stringify(realData.debug)}`;
           })()}
         </div>
         <Card>
@@ -1209,7 +1049,7 @@ raw_desp: ${JSON.stringify(realData.debug?.desp_values)}`;
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v3.2 — inline format</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v3.3 — server API</div>
     </div>
   </div>);
 }

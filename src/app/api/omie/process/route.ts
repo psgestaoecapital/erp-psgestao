@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+export const dynamic = 'force-dynamic';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
@@ -162,7 +164,7 @@ export async function POST(req: NextRequest) {
       },0),
     };
 
-    return NextResponse.json({ success: true, data: {
+    const response = NextResponse.json({ success: true, data: {
       total_receitas: totalRec, total_despesas: totalDesp,
       resultado_periodo: totalRec - totalDesp,
       margem: totalRec > 0 ? ((totalRec - totalDesp) / totalRec * 100).toFixed(1) : "0",
@@ -173,6 +175,8 @@ export async function POST(req: NextRequest) {
       grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
       debug,
     }});
+    response.headers.set("Cache-Control","no-store, no-cache, must-revalidate");
+    return response;
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
