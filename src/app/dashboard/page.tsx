@@ -69,6 +69,7 @@ export default function DashboardPage(){
   const [custoAberto,setCustoAberto]=useState<Record<string,boolean>>({});
 
   const abas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
+  const abasDemo = ["negocios","resultado","financeiro","precos"];
   const meses=["Jan","Fev","Mar"];
 
   // If a business line is open, show its detail view
@@ -332,7 +333,7 @@ export default function DashboardPage(){
     </div>
 
     <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`}}>
-      {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"7px 14px",borderRadius:20,fontSize:11,whiteSpace:"nowrap",border:`0.5px solid ${aba===a.id?GO:BD}`,background:aba===a.id?GO+"18":"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400}}>{a.nome}</button>))}
+      {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"7px 14px",borderRadius:20,fontSize:11,whiteSpace:"nowrap",border:`0.5px solid ${aba===a.id?GO:BD}`,background:aba===a.id?GO+"18":"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
     </div>
 
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>
