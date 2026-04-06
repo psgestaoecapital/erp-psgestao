@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       const df = d.financeiro || 0;
       const dout = d.outros || 0;
       return {
-        mes: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd,
+        mes: m, mesLabel: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd,
         despesas_adm: da, financeiro: df, outros: dout,
         margem: rec - cd - dd, lucro_op: rec - cd - dd - da,
         lucro_final: rec - cd - dd - da - df - dout
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
 
     // === CHART DATA (last 12 months) ===
     const chartMensal = allM.slice(-12).map(m => ({
-      mes: fmtMes(m),
+      mes: m, mesLabel: fmtMes(m),
       receitas: recPorMes[m] || 0,
       despesas: despPorMes[m]?.["_total"] || 0,
       resultado: (recPorMes[m] || 0) - (despPorMes[m]?.["_total"] || 0),

@@ -18,6 +18,12 @@ const fmtBRL=(v:any)=>{
 };
 const fmtTooltip=(v:any,name:any)=>[fmtBRL(v),name];
 const fmtTooltipPct=(v:any,name:any)=>[`${v}%`,name];
+const fmtMesLabel=(k:string)=>{
+  if(!k||!k.includes("-")) return k;
+  const [a,m]=k.split("-");
+  const n=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return `${n[parseInt(m)-1]}/${a.slice(2)}`;
+};
 
 const empresa={nome:"SOLAR OESTE ENERGIA",cidade:"Chapecó/SC",periodo:"Jan-Mar 2025",lns:6,colab:54};
 
@@ -364,7 +370,7 @@ export default function DashboardPage(){
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={realData.resumo_mensal.slice(-12)}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
-                  <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
+                  <XAxis dataKey="mes" tickFormatter={fmtMesLabel} tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
                   <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
                   <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
@@ -466,7 +472,7 @@ export default function DashboardPage(){
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={realData.chart_mensal}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
-              <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
+              <XAxis dataKey="mes" tickFormatter={fmtMesLabel} tick={{fontSize:10,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
               <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
               <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={14}/>
@@ -556,7 +562,7 @@ export default function DashboardPage(){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
               <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
                 {["",
-                  ...realData.dre_mensal.slice(-6).map((d:any)=>d.mes),
+                  ...realData.dre_mensal.slice(-6).map((d:any)=>fmtMesLabel(d.mes)),
                   "Total"
                 ].map((h:string)=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
               </tr></thead>
