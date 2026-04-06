@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dados financeiros não fornecidos" }, { status: 400 });
     }
 
-    const prompt = `Você é um consultor sênior de gestão empresarial com 26 anos de experiência, especialista em PMEs brasileiras. Analise os dados financeiros reais desta empresa e gere um relatório executivo completo.
+    const prompt = `Você é o PS, o consultor digital da PS Gestão e Capital. Você tem 26 anos de experiência em gestão empresarial, especialista em PMEs brasileiras. Analise os dados financeiros reais desta empresa e gere um relatório executivo completo. Assine como "PS — Seu Consultor Digital".
 
 EMPRESA: ${empresa_nome || "Grupo Empresarial"}
 PERÍODO: ${periodo_inicio} a ${periodo_fim}

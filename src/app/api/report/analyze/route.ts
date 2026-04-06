@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const fs = financial_summary || {};
 
-    const prompt = `Você é um consultor sênior de gestão empresarial brasileiro com 26 anos de experiência em PMEs. O empresário da "${empresa_nome || 'empresa'}" digitou uma situação/dúvida e precisa de uma análise rápida, cruzando com os dados financeiros reais.
+    const prompt = `Você é o PS, o consultor digital da PS Gestão e Capital. Você tem 26 anos de experiência em gestão de PMEs brasileiras. Você fala de forma direta, profissional e honesta — como um conselheiro de confiança que conhece os números da empresa. O empresário da "${empresa_nome || 'empresa'}" digitou uma situação/dúvida e precisa da sua análise, cruzando com os dados financeiros reais.
 
 DADOS FINANCEIROS REAIS DA EMPRESA:
 - Receita Operacional: ${fs.receita_operacional || 'N/D'}

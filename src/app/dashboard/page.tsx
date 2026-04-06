@@ -144,7 +144,7 @@ export default function DashboardPage(){
     const ln=negocios.find(n=>n.id===lnAberta)!;
     const fatData=meses.map((m,i)=>({m,fat:ln.fat[i],mc:ln.mc[i],lucro:ln.lucro_r[i]}));
     const subAbas=[{id:"visao",nome:"Visão Geral"},{id:"produtos",nome:"Produtos"},{id:"custos",nome:"Estrutura de Custos"},
-      ...(ln.contratos?[{id:"contratos",nome:"Contratos"}]:[]),{id:"analise",nome:"Análise IA"}];
+      ...(ln.contratos?[{id:"contratos",nome:"Contratos"}]:[]),{id:"analise",nome:"Análise PS"}];
 
     return(<div>
       {/* Back button + LN header */}
@@ -355,7 +355,7 @@ export default function DashboardPage(){
   const [drillData, setDrillData] = useState<any>(null);
   const [drillLoading, setDrillLoading] = useState(false);
 
-  // Contexto do Empresário + Análise IA
+  // Contexto do Empresário + Análise PS
   const [contextoTexto, setContextoTexto] = useState("");
   const [iaAnalise, setIaAnalise] = useState("");
   const [iaLoading, setIaLoading] = useState(false);
@@ -651,10 +651,10 @@ export default function DashboardPage(){
       {/* === FALE COM A IA === */}
       {realData&&(
         <div style={{marginTop:8}}>
-          <Tit t="💬 Fale com a IA — Descreva sua situação"/>
+          <Tit t="💬 💬 Fale com o PS — Descreva sua situação"/>
           <Card>
             <div style={{fontSize:11,color:TXM,marginBottom:10}}>
-              Digite o que está acontecendo na empresa, dúvidas, decisões que precisa tomar. A IA vai cruzar com seus dados financeiros reais e dar uma análise personalizada.
+              Digite o que está acontecendo na empresa, dúvidas, decisões que precisa tomar. O PS vai cruzar com seus dados financeiros reais e dar uma análise personalizada.
             </div>
             <textarea
               value={contextoTexto}
@@ -663,16 +663,16 @@ export default function DashboardPage(){
               style={{width:"100%",minHeight:100,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:12,fontSize:12,fontFamily:"Calibri, sans-serif",resize:"vertical",outline:"none",lineHeight:1.6}}
             />
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
-              <div style={{fontSize:9,color:TXD}}>{contextoTexto.length>0?`${contextoTexto.length} caracteres`:"A IA analisa seu contexto + dados financeiros reais"}</div>
+              <div style={{fontSize:9,color:TXD}}>{contextoTexto.length>0?`${contextoTexto.length} caracteres`:"O PS analisa seu contexto + dados financeiros reais"}</div>
               <button onClick={analisarComIA} disabled={iaLoading||!contextoTexto.trim()} style={{padding:"10px 24px",border:"none",borderRadius:8,background:iaLoading?BD:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,color:iaLoading?TXM:BG,fontSize:13,fontWeight:700,cursor:iaLoading?"wait":"pointer"}}>
-                {iaLoading?"◆ Analisando...":"◆ Analisar com IA"}
+                {iaLoading?"◆ PS analisando...":"◆ Consultar o PS"}
               </button>
             </div>
           </Card>
           {iaAnalise&&(
             <Card>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,color:GOL}}>Análise da IA — PS Gestão</div>
+                <div style={{fontSize:13,fontWeight:700,color:GOL}}>Análise do PS — Seu Consultor Digital</div>
                 <button onClick={()=>navigator.clipboard.writeText(iaAnalise)} style={{padding:"4px 12px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:9,cursor:"pointer"}}>Copiar</button>
               </div>
               <div style={{fontSize:12,color:TX,lineHeight:1.8,whiteSpace:"pre-wrap"}} dangerouslySetInnerHTML={{__html:iaAnalise
@@ -1193,7 +1193,7 @@ export default function DashboardPage(){
                   {aberto&&(<>
                     <tr key={`${g.id}-ia`} style={{background:g.ia.startsWith("✓")?G+"08":g.ia.startsWith("⚠")?Y+"08":BG3}}>
                       <td colSpan={6} style={{padding:"10px 14px 10px 28px",fontSize:10,color:TX,lineHeight:1.7,borderBottom:`0.5px solid ${BD}40`,borderLeft:`3px solid ${g.ia.startsWith("✓")?G:g.ia.startsWith("⚠")?Y:GO}`}}>
-                        <span style={{fontWeight:600,color:GOL}}>Análise IA: </span>{g.ia}
+                        <span style={{fontWeight:600,color:GOL}}>Análise PS: </span>{g.ia}
                       </td>
                     </tr>
                     {[...g.subs].sort((a:any,b:any)=>Math.abs(parseFloat(b.t.replace(/[().]/g,"").replace(",","")))-Math.abs(parseFloat(a.t.replace(/[().]/g,"").replace(",","")))).map((s:any,si:number)=>{
@@ -1228,7 +1228,7 @@ export default function DashboardPage(){
         </div>
       </Card>
 
-      <Tit t="Parecer da Inteligência Artificial — Análise do Período"/>
+      <Tit t="Parecer do PS — Análise do Período"/>
       <Card>
         <div style={{background:GO+"10",borderRadius:10,padding:16,marginBottom:12,borderLeft:`4px solid ${GO}`}}>
           <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:8}}>◆ DIAGNÓSTICO GERAL DO TRIMESTRE</div>
@@ -1402,7 +1402,7 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="relatorio"&&(<div>
-      <Tit t="Gerar Relatório com Inteligência Artificial"/>
+      <Tit t="Gerar Relatório com o PS"/>
       <Card>
         <div style={{fontSize:11,color:TXM,marginBottom:12}}>O relatório é gerado automaticamente pela IA analisando todos os dados financeiros reais do período selecionado, o plano de ação em andamento e o contexto do empresário.</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
@@ -1447,7 +1447,7 @@ export default function DashboardPage(){
           background:reportLoading?BD:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
           color:reportLoading?TXM:BG,fontSize:15,fontWeight:700,cursor:reportLoading?"wait":"pointer"
         }}>
-          {reportLoading?"◆ Gerando relatório com IA... aguarde":"◆ Gerar Relatório Executivo"}
+          {reportLoading?"◆ PS gerando relatório... aguarde":"◆ PS, gere meu Relatório"}
         </button>
       </Card>
 
@@ -1456,7 +1456,7 @@ export default function DashboardPage(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div>
               <div style={{fontSize:14,fontWeight:700,color:GOL}}>Relatório Executivo — PS Gestão e Capital</div>
-              <div style={{fontSize:10,color:TXD}}>{fmtMesLabel(periodoInicio)} a {fmtMesLabel(periodoFim)} | Gerado por {reportSource==="claude"?"Claude AI":"análise local"}</div>
+              <div style={{fontSize:10,color:TXD}}>{fmtMesLabel(periodoInicio)} a {fmtMesLabel(periodoFim)} | Gerado pelo PS</div>
             </div>
             <button onClick={()=>{navigator.clipboard.writeText(reportText);showToast2("Relatório copiado!")}} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:10,cursor:"pointer"}}>Copiar</button>
           </div>
@@ -1480,7 +1480,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.8 — DRE sem 0K</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v6.0 — PS batizado</div>
     </div>
   </div>);
 }
