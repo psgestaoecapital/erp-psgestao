@@ -16,13 +16,23 @@ function classifyCategory(codigo: string): string {
 
 function parseMesAno(dt: string): string | null {
   if (!dt) return null;
+  // Try DD/MM/YYYY format
   const p = dt.split("/");
   if (p.length === 3) {
-    const dia = p[0], mes = p[1].padStart(2,"0"), ano = p[2];
-    // Validate: year should be 2020-2030, month 01-12
+    let dia = p[0], mes = p[1], ano = p[2];
+    // If year is 2-digit, expand it
+    if (ano.length === 2) ano = "20" + ano;
     const y = parseInt(ano), m = parseInt(mes);
     if (y >= 2020 && y <= 2030 && m >= 1 && m <= 12) {
-      return `${ano}-${mes}`; // YYYY-MM for proper sorting
+      return `${ano}-${mes.padStart(2,"0")}`;
+    }
+  }
+  // Try YYYY-MM-DD format
+  const p2 = dt.split("-");
+  if (p2.length === 3) {
+    const y = parseInt(p2[0]), m = parseInt(p2[1]);
+    if (y >= 2020 && y <= 2030 && m >= 1 && m <= 12) {
+      return `${p2[0]}-${p2[1].padStart(2,"0")}`;
     }
   }
   return null;
