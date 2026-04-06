@@ -857,12 +857,10 @@ export default function DashboardPage(){
 
         {/* Summary KPIs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:8,marginBottom:14}}>
-          {[
-            {r:"Receita Período",v:`R$ ${((realData.total_rec_operacional||realData.total_receitas||0)/1000).toFixed(0)}K`,ok:true},
-            {r:"Despesas Período",v:`R$ ${((realData.total_despesas||0)/1000).toFixed(0)}K`,ok:null},
-            {r:"Resultado",v:`R$ ${((realData.resultado_periodo||0)/1000).toFixed(0)}K`,ok:(realData.resultado_periodo||0)>0},
-            {r:"Margem",v:`${realData.margem||0}%`,ok:Number(realData.margem||0)>0},
-          ].map((k,i)=><KPI key={i} r={k.r} v={k.v} d="" ok={k.ok}/>)}
+          <KPI r="Receita Período" v={`R$ ${((realData.total_rec_operacional||realData.total_receitas||0)/1000).toFixed(0)}K`} d="Faturamento operacional" ok={true}/>
+          <KPI r="Despesas Período" v={`R$ ${((realData.total_despesas||0)/1000).toFixed(0)}K`} d="Contas a pagar" ok={null}/>
+          <KPI r="Resultado" v={`R$ ${((realData.resultado_periodo||0)/1000).toFixed(0)}K`} d={`Margem ${realData.margem||0}%`} ok={(realData.resultado_periodo||0)>0}/>
+          <KPI r="Margem" v={`${realData.margem||0}%`} d={Number(realData.margem||0)>0?"Positiva":"Negativa"} ok={Number(realData.margem||0)>0}/>
         </div>
 
         <Card p="8px">
