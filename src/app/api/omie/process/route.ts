@@ -17,7 +17,21 @@ function classifyCategory(codigo: string): string {
 function parseMesAno(dt: string): string | null {
   if (!dt) return null;
   const p = dt.split("/");
-  return p.length === 3 ? p[1]+"/"+p[2] : null;
+  if (p.length === 3) {
+    const dia = p[0], mes = p[1].padStart(2,"0"), ano = p[2];
+    // Validate: year should be 2020-2030, month 01-12
+    const y = parseInt(ano), m = parseInt(mes);
+    if (y >= 2020 && y <= 2030 && m >= 1 && m <= 12) {
+      return `${ano}-${mes}`; // YYYY-MM for proper sorting
+    }
+  }
+  return null;
+}
+
+function formatMesAno(key: string): string {
+  const [ano, mes] = key.split("-");
+  const nomes = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return `${nomes[parseInt(mes)-1]}/${ano.slice(2)}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -87,11 +101,11 @@ export async function POST(req: NextRequest) {
       const dd = d.deducao || 0;
       const df = d.financeiro || 0;
       const dout = d.outros || 0;
-      return { mes: m, receita: rec, deducoes: dd, custos_diretos: cd, despesas_adm: da, financeiro: df, outros: dout, margem: rec - cd - dd, lucro_op: rec - cd - dd - da, lucro_final: rec - cd - dd - da - df - dout };
+      return { mes: formatMesAno(m), receita: rec, deducoes: dd, custos_diretos: cd, despesas_adm: da, financeiro: df, outros: dout, margem: rec - cd - dd, lucro_op: rec - cd - dd - da, lucro_final: rec - cd - dd - da - df - dout };
     });
 
     const chartMensal = allM.slice(-12).map(m => ({
-      mes: m, receitas: recPorMes[m] || 0,
+      mes: formatMesAno(m), receitas: recPorMes[m] || 0,
       despesas: Object.values(despPorMes[m] || {}).reduce((a, v) => a + v, 0),
       resultado: (recPorMes[m] || 0) - Object.values(despPorMes[m] || {}).reduce((a, v) => a + v, 0),
     }));

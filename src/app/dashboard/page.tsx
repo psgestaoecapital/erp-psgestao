@@ -7,8 +7,15 @@ const GO="#C6973F",GOL="#E8C872",BG="#0F0F0D",BG2="#1C1B18",BG3="#2A2822",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",P="#A855F7",T="#14B8A6",
     BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#6B6960";
 
-const tt={background:'#FFFFFF',border:'2px solid #C6973F',borderRadius:10,fontSize:12,color:'#1A1A18',padding:'10px 14px',boxShadow:'0 4px 12px rgba(0,0,0,0.3)'};
-const tl={color:'#1A1A18',fontWeight:600};const ti={color:'#1A1A18'};
+const tt={background:'#FFFFFF',border:'2px solid #C6973F',borderRadius:12,fontSize:12,color:'#1A1A18',padding:'12px 16px',boxShadow:'0 6px 20px rgba(0,0,0,0.4)',lineHeight:1.8};
+const tl={color:'#1A1A18',fontWeight:700,fontSize:13,marginBottom:4};const ti={color:'#333',fontSize:11,fontWeight:500};
+
+const fmtBRL=(v:any)=>{
+  const n=Number(v);
+  if(Math.abs(n)>=1000000) return `R$ ${(n/1000000).toFixed(2)}M`;
+  if(Math.abs(n)>=1000) return `R$ ${(n/1000).toFixed(1)}K`;
+  return `R$ ${n.toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
+};
 
 const empresa={nome:"SOLAR OESTE ENERGIA",cidade:"Chapecó/SC",periodo:"Jan-Mar 2025",lns:6,colab:54};
 
@@ -122,7 +129,7 @@ export default function DashboardPage(){
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
               <XAxis dataKey="m" tick={{fontSize:11,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:10,fill:'#D4D0C8'}}/>
-              <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${v}K`]}/>
+              <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[fmtBRL(v)]}/>
               <Bar dataKey="fat" name="Faturamento" fill={ln.cor} radius={[4,4,0,0]} barSize={18}/>
               <Bar dataKey="mc" name="Margem Direta" fill={G} radius={[4,4,0,0]} barSize={18}/>
               <Bar dataKey="lucro" name="Lucro Real" radius={[4,4,0,0]} barSize={18}>
@@ -357,7 +364,7 @@ export default function DashboardPage(){
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
                   <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
-                  <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2})}`]}/>
+                  <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[fmtBRL(v)]}/>
                   <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
                   <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.7} radius={[4,4,0,0]} barSize={16}/>
                 </BarChart>
@@ -410,7 +417,7 @@ export default function DashboardPage(){
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
             <XAxis dataKey="m" tick={{fontSize:11,fill:'#D4D0C8'}}/>
             <YAxis tick={{fontSize:10,fill:'#D4D0C8'}}/>
-            <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${v}K`]}/>
+            <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[fmtBRL(v)]}/>
             <Area type="monotone" dataKey="fat" stroke={GO} fill="url(#gF)" strokeWidth={2} name="Faturamento"/>
             <Line type="monotone" dataKey="lucro" stroke={G} strokeWidth={2.5} dot={{r:5,fill:G}} name="Lucro"/>
             <Line type="monotone" dataKey="estr" stroke={R} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Custo Estrutura"/>
@@ -459,7 +466,7 @@ export default function DashboardPage(){
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
               <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
-              <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2})}`]}/>
+              <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[fmtBRL(v)]}/>
               <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={14}/>
               <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.6} radius={[4,4,0,0]} barSize={14}/>
               <Line type="monotone" dataKey="resultado" name="Resultado" stroke={GOL} strokeWidth={2.5} dot={{r:4,fill:GOL}}/>
@@ -504,7 +511,7 @@ export default function DashboardPage(){
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
             <XAxis dataKey="m" tick={{fontSize:11,fill:'#D4D0C8'}}/>
             <YAxis tick={{fontSize:10,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`R$${v}`} domain={[-200,750]}/>
-            <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[`R$ ${v}K`]}/>
+            <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={(v:any)=>[fmtBRL(v)]}/>
             <Line type="monotone" dataKey="disp" stroke={G} strokeWidth={2.5} dot={{r:5,fill:G}} name="Disponível"/>
             <Line type="monotone" dataKey="div" stroke={R} strokeWidth={2} dot={{r:4,fill:R}} name="Dívidas"/>
             <Line type="monotone" dataKey="saldo" stroke={GOL} strokeWidth={2.5} strokeDasharray="5 5" dot={{r:5,fill:GOL}} name="Saldo"/>
