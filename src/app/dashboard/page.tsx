@@ -425,7 +425,7 @@ export default function DashboardPage(){
               {realData.top_custos.slice(0,10).map((c:any,i:number)=>(
                 <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
                   <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
-                  <div style={{flex:1,fontSize:11,color:TX}}>{c.categoria}</div>
+                  <div style={{flex:1,fontSize:11,color:TX}}>{c.nome}</div>
                   <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>R$ {(c.valor/1000).toFixed(1)}K</div>
                 </div>
               ))}
