@@ -84,7 +84,7 @@ export default function DashboardPage(){
   const [custoAberto,setCustoAberto]=useState<Record<string,boolean>>({});
 
   const abas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
-  const abasDemo = ["negocios","precos"];
+  const abasDemo: string[] = [];
   const meses=["Jan","Fev","Mar"];
 
   // If a business line is open, show its detail view
@@ -616,15 +616,76 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="negocios"&&(<div>
-      <Tit t="Clique em qualquer negócio para explorar em detalhe"/>
-      {negocios.map(n=>(
-        <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div><div style={{fontSize:14,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:10,color:TXD}}>{n.tipo} | {n.produtos.length} produtos | {n.hc} pessoas</div></div>
-            <span style={{color:GO,fontSize:20}}>›</span>
+      {realData&&realData.top_receitas_operacionais&&realData.top_receitas_operacionais.length>0?(<>
+        <Tit t={`${realData.top_receitas_operacionais.length} Linhas de Receita Identificadas — Dados Reais do Omie`}/>
+        {realData.top_receitas_operacionais.map((r:any,i:number)=>{
+          const pct = realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100):0;
+          const cores = [GO,G,B,P,T,GOL,"#F97316","#EC4899"];
+          return(
+            <Card key={i}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:4,height:40,borderRadius:2,background:cores[i%8]}}/>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:600,color:TX}}>{r.nome}</div>
+                    <div style={{fontSize:10,color:TXD}}>Categoria Omie | Receita operacional</div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:20,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+                  <div style={{fontSize:10,color:TXD}}>{pct.toFixed(1)}% do faturamento</div>
+                </div>
+              </div>
+              <div style={{background:BG3,borderRadius:6,height:8,overflow:"hidden"}}>
+                <div style={{background:cores[i%8],height:"100%",borderRadius:6,width:`${Math.min(pct,100)}%`}}/>
+              </div>
+            </Card>
+          );
+        })}
+
+        {realData.top_emprestimos&&realData.top_emprestimos.length>0&&(<>
+          <Tit t="Entradas Não-Operacionais (Empréstimos, Transferências)"/>
+          {realData.top_emprestimos.map((r:any,i:number)=>(
+            <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,borderLeft:`3px solid ${Y}`,border:`0.5px solid ${BD}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:12,color:TXM}}>{r.nome}</div>
+                <div style={{fontSize:14,fontWeight:700,color:Y}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+              </div>
+            </div>
+          ))}
+        </>)}
+
+        {realData.grupos_custo&&realData.grupos_custo.length>0&&(<>
+          <Tit t="Estrutura de Custos por Grupo"/>
+          {realData.grupos_custo.map((g:any,i:number)=>{
+            const pct = realData.total_despesas>0?((g.total/realData.total_despesas)*100):0;
+            return(
+              <div key={i} style={{background:BG2,borderRadius:8,padding:"12px 14px",marginBottom:6,border:`0.5px solid ${BD}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{fontSize:13,fontWeight:600,color:TX}}>{g.nome}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:10,color:TXD}}>{pct.toFixed(1)}%</span>
+                    <span style={{fontSize:15,fontWeight:700,color:i<2?R:TX}}>R$ {(g.total/1000).toFixed(0)}K</span>
+                  </div>
+                </div>
+                <div style={{background:BG3,borderRadius:4,height:6,overflow:"hidden"}}>
+                  <div style={{background:i<2?R:i<4?Y:GO,height:"100%",borderRadius:4,width:`${Math.min(pct,100)}%`,opacity:0.7}}/>
+                </div>
+              </div>
+            );
+          })}
+        </>)}
+      </>):(<>
+        <Tit t="Clique em qualquer negócio para explorar em detalhe"/>
+        {negocios.map(n=>(
+          <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div><div style={{fontSize:14,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:10,color:TXD}}>{n.tipo} | {n.produtos.length} produtos | {n.hc} pessoas</div></div>
+              <span style={{color:GO,fontSize:20}}>›</span>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </>)}
     </div>)}
 
     {aba==="resultado"&&(<div>
@@ -1062,16 +1123,75 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="precos"&&(<div>
-      <Tit t="Clique em um negócio para ver seus produtos e preços"/>
-      {negocios.map(n=>(
-        <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("produtos");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:9,color:TXD}}>{n.produtos.length} produtos cadastrados</div></div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{textAlign:"right"}}><div style={{fontSize:14,fontWeight:700,color:n.produtos[0].m>50?G:GO}}>{n.produtos[0].m}%</div><div style={{fontSize:8,color:TXD}}>melhor margem</div></div>
-            <span style={{color:GO,fontSize:16}}>›</span>
+      {realData&&realData.top_receitas_operacionais?(<>
+        <Tit t="Análise de Receitas por Categoria"/>
+        <Card>
+          <div style={{fontSize:11,color:TXM,marginBottom:12}}>Receita por categoria do Omie ordenada por valor. Para análise de preços unitários, cadastre os produtos na aba Entrada de Dados → Linhas de Negócio.</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:400}}>
+              <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
+                <th style={{padding:6,textAlign:"left",color:GOL,fontSize:10}}>Categoria</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Receita Total</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>% do Total</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Participação</th>
+              </tr></thead>
+              <tbody>
+                {realData.top_receitas_operacionais.map((r:any,i:number)=>{
+                  const pct=realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100):0;
+                  return(
+                    <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
+                      <td style={{padding:6,color:TX,fontWeight:500}}>{r.nome}</td>
+                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</td>
+                      <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
+                      <td style={{padding:6,width:120}}>
+                        <div style={{background:BG3,borderRadius:4,height:8,overflow:"hidden"}}>
+                          <div style={{background:G,height:"100%",borderRadius:4,width:`${Math.min(pct,100)}%`,opacity:0.7}}/>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
-      ))}
+        </Card>
+
+        {realData.top_custos&&realData.top_custos.length>0&&(
+          <Card>
+            <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Para análise de margem</div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
+                <th style={{padding:6,textAlign:"left",color:GOL,fontSize:10}}>Categoria de Custo</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Valor Total</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>% dos Custos</th>
+              </tr></thead>
+              <tbody>
+                {realData.top_custos.slice(0,10).map((c:any,i:number)=>{
+                  const pct=realData.total_despesas>0?((c.valor/realData.total_despesas)*100):0;
+                  return(
+                    <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
+                      <td style={{padding:6,color:TX}}>{c.nome}</td>
+                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:i<3?R:TX}}>R$ {(c.valor/1000).toFixed(0)}K</td>
+                      <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        )}
+      </>):(<>
+        <Tit t="Clique em um negócio para ver seus produtos e preços"/>
+        {negocios.map(n=>(
+          <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("produtos");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${n.cor}`,border:`0.5px solid ${BD}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:9,color:TXD}}>{n.produtos.length} produtos cadastrados</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{textAlign:"right"}}><div style={{fontSize:14,fontWeight:700,color:n.produtos[0].m>50?G:GO}}>{n.produtos[0].m}%</div><div style={{fontSize:8,color:TXD}}>melhor margem</div></div>
+              <span style={{color:GO,fontSize:16}}>›</span>
+            </div>
+          </div>
+        ))}
+      </>)}
     </div>)}
 
     {aba==="relatorio"&&(<div>
@@ -1090,7 +1210,7 @@ export default function DashboardPage(){
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.7 — filtro período</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v5.0 — 100% dados reais</div>
     </div>
   </div>);
 }
