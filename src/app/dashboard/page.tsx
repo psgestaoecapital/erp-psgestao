@@ -394,6 +394,7 @@ export default function DashboardPage(){
         despesas: despPorMes[m]||0,
         resultado: (recPorMes[m]||0) - (despPorMes[m]||0),
       }));
+      const chartStr = JSON.stringify(chart.slice(0,3));
 
       // Top custos & receitas
       const topCustos = Object.values(despPorCat).sort((a,b)=>b.valor-a.valor).slice(0,20);
@@ -441,6 +442,7 @@ export default function DashboardPage(){
         num_empresas:new Set(imports.map(i=>i.company_id)).size,
         dre_mensal:dreMensal,
         raw_rec:recPorMes, raw_desp:despPorMes,
+        chart_mensal:chart, chart_str:chartStr,
         top_custos:topCustos, top_receitas:topReceitas,
         grupos_custo:Object.values(gruposCusto).sort((a,b)=>b.total-a.total),
         debug:{
@@ -528,11 +530,11 @@ export default function DashboardPage(){
             <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no Omie" ok={true}/>
           </div>
 
-          {chartData&&chartData.length>0&&(
+          {(realData.chart_mensal||chartData)&&(realData.chart_mensal||chartData).length>0&&(
             <Card>
               <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas — Dados Reais do Omie (R$)</div>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData}>
+                <BarChart data={realData.chart_mensal||chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
                   <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
                   <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
@@ -647,19 +649,15 @@ export default function DashboardPage(){
               }
               return `null(parts=${p.length})`;
             };
-            return `chart[0-2]: ${JSON.stringify(chartData?.slice(0,3))}
-parseDt("25/04/2025") = ${testDt("25/04/2025")}
-parseDt("05/01/2026") = ${testDt("05/01/2026")}
-imports: ${realData.debug?.import_count} rows, types: ${JSON.stringify(realData.debug?.import_types)}
-sample_pagar: ${JSON.stringify(realData.debug?.sample_pagar)}
-sample_receber: ${JSON.stringify(realData.debug?.sample_receber)}
-meses_desp: ${JSON.stringify(realData.debug?.meses_despesas)}
-meses_rec: ${JSON.stringify(realData.debug?.meses_receitas)}`;
+            return `STORED in useEffect: ${realData.chart_str}
+COMPUTED in render: ${JSON.stringify(chartData?.slice(0,3))}
+raw_rec keys: ${JSON.stringify(Object.keys(realData.raw_rec||{}).sort().slice(0,5))}
+raw_desp keys: ${JSON.stringify(Object.keys(realData.raw_desp||{}).sort().slice(0,5))}`;
           })()}
         </div>
         <Card>
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={chartData}>
+            <BarChart data={realData.chart_mensal||chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
               <XAxis dataKey="mes" tick={{fontSize:10,fill:'#D4D0C8'}}/>
               <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
@@ -1205,7 +1203,7 @@ meses_rec: ${JSON.stringify(realData.debug?.meses_receitas)}`;
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v2.7 — processamento local</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v3.1 — processamento local</div>
     </div>
   </div>);
 }
