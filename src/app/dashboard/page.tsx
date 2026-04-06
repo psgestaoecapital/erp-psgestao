@@ -413,8 +413,8 @@ export default function DashboardPage(){
 
           {(realData.chart_mensal||chartData)&&(realData.chart_mensal||chartData).length>0&&(
             <Card>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas — Dados Reais do Omie (R$)</div>
-              <ResponsiveContainer width="100%" height={220}>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas × Resultado — Dados Reais do Omie (R$)</div>
+              <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={realData.chart_mensal||chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
                   <XAxis dataKey="mesLabel" tick={{fontSize:10,fill:'#D4D0C8'}}/>
@@ -422,11 +422,13 @@ export default function DashboardPage(){
                   <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
                   <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
                   <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.7} radius={[4,4,0,0]} barSize={16}/>
+                  <Bar dataKey="resultado" name="Resultado" fill={GOL} radius={[4,4,0,0]} barSize={10} opacity={0.9}/>
                 </BarChart>
               </ResponsiveContainer>
               <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:6}}>
                 <span style={{fontSize:10,color:G}}>● Receitas</span>
                 <span style={{fontSize:10,color:R}}>● Despesas</span>
+                <span style={{fontSize:10,color:GOL}}>● Resultado</span>
               </div>
             </Card>
           )}
