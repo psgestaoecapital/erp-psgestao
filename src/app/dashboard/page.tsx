@@ -482,25 +482,6 @@ export default function DashboardPage(){
           <KPI r="Empresas no Grupo" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
         <Tit t="Receitas × Despesas × Resultado — Mês a Mês"/>
-        <div style={{fontSize:9,color:Y,background:BG3,padding:8,borderRadius:6,marginBottom:8,overflowX:"auto",whiteSpace:"pre",maxHeight:120,overflow:"auto"}}>
-          {(()=>{
-            // Direct test of parseDt
-            const testDt = (dt:string) => {
-              if(!dt||typeof dt!=="string") return "null(empty)";
-              const p=dt.split("/");
-              if(p.length===3){
-                const mes=parseInt(p[1]);
-                let ano=parseInt(p[2]);
-                if(p[2].length===2) ano=2000+ano;
-                if(ano>=2020&&ano<=2030&&mes>=1&&mes<=12) return `${ano}-${String(mes).padStart(2,"0")}`;
-                return `null(y=${ano},m=${mes})`;
-              }
-              return `null(parts=${p.length})`;
-            };
-            return `API chart[0-2]: ${JSON.stringify(realData.chart_mensal?.slice(0,3))}
-API debug: ${JSON.stringify(realData.debug)}`;
-          })()}
-        </div>
         <Card>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={realData.chart_mensal||chartData}>
@@ -534,15 +515,6 @@ API debug: ${JSON.stringify(realData.debug)}`;
         </>)}
 
         <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais</div>
-        {realData?.debug&&(
-          <div style={{background:BG3,borderRadius:8,padding:10,marginBottom:10,border:`0.5px solid ${BD}`}}>
-            <div style={{fontSize:10,fontWeight:600,color:Y,marginBottom:4}}>Diagnóstico (temporário)</div>
-            <div style={{fontSize:9,color:TXM}}>Registros pagar processados: {realData.debug.registros_pagar}</div>
-            <div style={{fontSize:9,color:TXM}}>Registros receber processados: {realData.debug.registros_receber}</div>
-            <div style={{fontSize:9,color:TXM}}>Meses com despesas: {realData.debug.meses_despesas?.join(", ")||"nenhum"}</div>
-            <div style={{fontSize:9,color:TXM}}>Meses com receitas: {realData.debug.meses_receitas?.join(", ")||"nenhum"}</div>
-          </div>
-        )}
       </>)}
 
       {!realData&&(<>
@@ -1049,7 +1021,7 @@ API debug: ${JSON.stringify(realData.debug)}`;
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
       <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v3.4 — datas filtradas</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v4.0 — paginação completa</div>
     </div>
   </div>);
 }
