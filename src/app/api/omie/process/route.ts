@@ -106,8 +106,13 @@ export async function POST(req: NextRequest) {
 
     // === BUILD DRE MENSAL ===
     const allM = [...new Set([...Object.keys(recPorMes), ...Object.keys(despPorMes)])].sort();
+    
+    // Filter: only months up to current month (exclude future dates)
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const pastM = allM.filter(m => m <= currentMonth);
 
-    const dreMensal = allM.map(m => {
+    const dreMensal = pastM.map(m => {
       const d = despPorMes[m] || {};
       const rec = recPorMes[m] || 0;
       const cd = d.custo_direto || 0;
@@ -124,7 +129,7 @@ export async function POST(req: NextRequest) {
     });
 
     // === CHART DATA (last 12 months) ===
-    const chartMensal = allM.slice(-12).map(m => ({
+    const chartMensal = pastM.slice(-12).map(m => ({
       mes: m, mesLabel: fmtMes(m),
       receitas: recPorMes[m] || 0,
       despesas: despPorMes[m]?.["_total"] || 0,
