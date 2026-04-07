@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 import AnaliseIAFlags from "./components/AnaliseIAFlags";
 import BalancoPatrimonial from "./components/BalancoPatrimonial";
+import IndicadoresFinanceiros from "./components/IndicadoresFinanceiros";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",T="#2DD4BF",
@@ -140,17 +141,17 @@ export default function DashboardPage(){
 
   // RBAC: Role → abas permitidas
   const ROLE_TABS:Record<string,string[]>={
-    admin:["geral","negocios","resultado","balanco","financeiro","precos","relatorio"],
-    socio:["geral","negocios","resultado","balanco","financeiro","precos","relatorio"],
-    financeiro:["geral","resultado","balanco","financeiro","precos"],
+    admin:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    socio:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    financeiro:["geral","resultado","balanco","indicadores","financeiro","precos"],
     comercial:["geral","negocios","precos"],
     operacional:["geral","negocios"],
-    consultor:["geral","negocios","resultado","balanco","financeiro","precos","relatorio"],
+    consultor:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
     visualizador:["geral"],
   };
   const ROLE_NAMES:Record<string,string>={admin:"Administrador",socio:"Sócio/CEO",financeiro:"Financeiro",comercial:"Comercial",operacional:"Operador",consultor:"Consultor",visualizador:"Visualizador"};
 
-  const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço Patrimonial"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
+  const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço"},{id:"indicadores",nome:"Indicadores"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
   const allowedTabs=ROLE_TABS[userRole]||ROLE_TABS.admin;
   const abas=todasAbas.filter(a=>allowedTabs.includes(a.id));
   const abasDemo: string[] = [];
@@ -1520,6 +1521,11 @@ export default function DashboardPage(){
     {aba==="balanco"&&(<div>
       <Tit t="Balanço Patrimonial"/>
       <BalancoPatrimonial empresaId={empresaSel==="consolidado"?(dbCompanies[0]?.id||""):empresaSel.startsWith("group_")?(dbCompanies.find(c=>c.group_id===empresaSel.replace("group_",""))?.id||""):empresaSel} periodoFim={efPeriodoFim}/>
+    </div>)}
+
+    {aba==="indicadores"&&(<div>
+      <Tit t="Indicadores Fundamentalistas"/>
+      <IndicadoresFinanceiros realData={realData} empresaId={empresaSel==="consolidado"?(dbCompanies[0]?.id||""):empresaSel.startsWith("group_")?(dbCompanies.find(c=>c.group_id===empresaSel.replace("group_",""))?.id||""):empresaSel}/>
     </div>)}
 
     {aba==="precos"&&(<div>
