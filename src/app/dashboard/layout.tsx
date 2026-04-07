@@ -126,6 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <a href="/dashboard/rateio" style={{ fontSize: 10, color: "#FBBF24", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #FBBF2430", background: "#FBBF2408", fontWeight: 600 }}>📋 Rateio</a>
           <a href="/dashboard/viabilidade" style={{ fontSize: 10, color: "#A78BFA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #A78BFA30", background: "#A78BFA08", fontWeight: 600 }}>📐 Viabilidade</a>
           <a href="/dashboard/tutorial" style={{ fontSize: 10, color: "#2DD4BF", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2DD4BF30", background: "#2DD4BF08", fontWeight: 600 }}>📚 Ajuda</a>
+          <a href="/dashboard/sugestoes" style={{ fontSize: 10, color: "#F0ECE3", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822", background: "transparent" }}>💡</a>
           <a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
           <span style={{ fontSize: 10, color: "#6B6960", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>

@@ -306,7 +306,7 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
                           <span style={{display:"inline-block",padding:"1px 6px",borderRadius:4,background:`${cat.cor}15`,color:cat.cor,fontSize:10,fontWeight:700,marginRight:6,border:`1px solid ${cat.cor}25`}}>{ind.sigla}</span>
                           {ind.nome}
                         </div>
-                        <div style={{fontSize:10,color:TXM,lineHeight:1.5}}>{ind.explicacao}</div>
+                        <div style={{fontSize:10,color:"#D0CCC3",lineHeight:1.5}}>{ind.explicacao}</div>
                       </div>
 
                       {/* Value */}
@@ -345,7 +345,7 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
             <div style={{width:30,height:30,borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:BG,boxShadow:"0 4px 12px rgba(198,151,63,0.3)"}}>PS</div>
             <div>
               <span style={{fontSize:13,fontWeight:600,color:GOL}}>Diagnóstico do Consultor Digital</span>
-              <div style={{fontSize:9,color:TXD}}>Baseado nos {allInds.length} indicadores analisados</div>
+              <div style={{fontSize:9,color:TXM}}>Baseado nos {allInds.length} indicadores analisados</div>
             </div>
           </div>
           {categorias.map(cat=>cat.indicadores.filter(i=>i.status==="critico")).flat().map((ind,i)=>(
@@ -357,16 +357,16 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
           {categorias.map(cat=>cat.indicadores.filter(i=>i.status==="atencao")).flat().slice(0,3).map((ind,i)=>(
             <div key={`a${i}`} style={{padding:"10px 14px",borderRadius:10,background:Y+"10",border:`1px solid ${Y}25`,marginBottom:6,fontSize:12,color:TX,display:"flex",gap:10,alignItems:"flex-start"}}>
               <span style={{fontSize:14,flexShrink:0}}>⚠️</span>
-              <div><strong style={{color:Y}}>{ind.sigla} = {ind.valor}</strong> <span style={{color:TXM}}>— Próximo do limite ({ind.ref}). Monitorar tendência.</span></div>
+              <div><strong style={{color:Y}}>{ind.sigla} = {ind.valor}</strong> <span style={{color:"#D0CCC3"}}>— Próximo do limite ({ind.ref}). Monitorar tendência.</span></div>
             </div>
           ))}
           {totalBom>allInds.length*0.6&&(
             <div style={{padding:"10px 14px",borderRadius:10,background:G+"10",border:`1px solid ${G}25`,fontSize:12,color:TX,display:"flex",gap:10,alignItems:"flex-start"}}>
               <span style={{fontSize:14,flexShrink:0}}>✅</span>
-              <div><strong style={{color:G}}>{totalBom} de {allInds.length} indicadores saudáveis.</strong> <span style={{color:TXM}}>Empresa bem posicionada. Preencha o Balanço Patrimonial para indicadores ainda mais precisos.</span></div>
+              <div><strong style={{color:G}}>{totalBom} de {allInds.length} indicadores saudáveis.</strong> <span style={{color:"#D0CCC3"}}>Empresa bem posicionada. Preencha o Balanço Patrimonial para indicadores ainda mais precisos.</span></div>
             </div>
           )}
-          <div style={{fontSize:9,color:TXD,marginTop:10,padding:"6px 10px",borderRadius:6,background:"rgba(0,0,0,0.2)"}}>
+          <div style={{fontSize:9,color:TXM,marginTop:10,padding:"6px 10px",borderRadius:6,background:"rgba(0,0,0,0.2)"}}>
             * ROE, ROA e ROIC são anualizados (mensal × 12). Para máxima precisão, preencha Balanço Patrimonial e Financiamentos.
           </div>
         </div>
