@@ -211,24 +211,39 @@ export default function DadosPage() {
   useEffect(()=>{ loadCompanies(); }, []);
 
   const loadCompanies = async () => {
-    const [{ data },{ data: grps }] = await Promise.all([
-      supabase.from("companies").select("*").order("created_at",{ascending:false}),
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
+    const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
+    const [{ data: grps }] = await Promise.all([
       supabase.from("company_groups").select("*").order("nome"),
     ]);
-    if(data && data.length > 0) {
-      setCompanies(data);
-      setGroups(grps||[]);
-      // Read saved selection from localStorage
-      const saved = typeof window!=="undefined" ? localStorage.getItem("ps_empresa_sel") : "";
-      let targetComp = data[0];
-      if(saved) {
-        if(saved.startsWith("group_")) {
-          const gid = saved.replace("group_","");
-          const match = data.find(c => c.group_id === gid);
-          if(match) targetComp = match;
-        } else if(saved !== "consolidado") {
-          const match = data.find(c => c.id === saved);
-          if(match) targetComp = match;
+    setGroups(grps || []);
+
+    let companyData: any[] = [];
+
+    if (up?.role === "admin") {
+      // Admin sees all
+      const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
+      companyData = data || [];
+    } else {
+      // Other roles: only user_companies
+      const { data: uc } = await supabase.from("user_companies").select("companies(*)").eq("user_id", user.id);
+      if (uc) companyData = uc.map((u: any) => u.companies).filter(Boolean);
+    }
+
+    if (companyData.length > 0) {
+      setCompanies(companyData);
+      const saved = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : "";
+      let targetComp = companyData[0];
+      if (saved) {
+        if (saved.startsWith("group_")) {
+          const gid = saved.replace("group_", "");
+          const match = companyData.find(c => c.group_id === gid);
+          if (match) targetComp = match;
+        } else if (saved !== "consolidado") {
+          const match = companyData.find(c => c.id === saved);
+          if (match) targetComp = match;
         }
       }
       setSelectedCompany(targetComp.id);

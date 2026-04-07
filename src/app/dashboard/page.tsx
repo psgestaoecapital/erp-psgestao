@@ -502,24 +502,31 @@ export default function DashboardPage(){
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoadingDb(false); return; }
       
+      // Load user role
+      const { data: up } = await supabase.from("users").select("org_id, role").eq("id", user.id).single();
+      if (up?.role) setUserRole(up.role);
+
       // Load groups
       const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
       if (grps) setDbGroups(grps);
 
-      // Try user_companies first (multi-company access)
+      // ADMIN: sees all companies
+      if (up?.role === "admin") {
+        const { data } = await supabase.from("companies").select("*").order("created_at");
+        if (data && data.length > 0) setDbCompanies(data);
+        setLoadingDb(false);
+        return;
+      }
+
+      // ALL OTHER ROLES: ONLY see companies from user_companies (SECURITY)
       const { data: uc } = await supabase.from("user_companies").select("company_id, role, companies(*)").eq("user_id", user.id);
       
       if (uc && uc.length > 0) {
-        // User has explicit company assignments
         const comps = uc.map((u: any) => u.companies).filter(Boolean);
         if (comps.length > 0) { setDbCompanies(comps); setLoadingDb(false); return; }
       }
-      
-      // Fallback: load all companies from user's org (backward compatible)
-      const { data: up } = await supabase.from("users").select("org_id, role").eq("id", user.id).single();
-      if (up?.role) setUserRole(up.role);
 
-      // Operador: só vê empresas atribuídas via operator_clients
+      // Operador: fallback via operator_clients
       if (up?.role === "operacional") {
         const { data: opCli } = await supabase.from("operator_clients").select("company_id").eq("user_id", user.id);
         if (opCli && opCli.length > 0) {
@@ -527,19 +534,9 @@ export default function DashboardPage(){
           const { data } = await supabase.from("companies").select("*").in("id", compIds).order("created_at");
           if (data && data.length > 0) setDbCompanies(data);
         }
-        setLoadingDb(false);
-        return;
       }
 
-      if (up?.role === "admin" || !up?.org_id) {
-        // Admin sees all companies
-        const { data } = await supabase.from("companies").select("*").order("created_at");
-        if (data && data.length > 0) setDbCompanies(data);
-      } else {
-        // Regular user: companies from their org
-        const { data } = await supabase.from("companies").select("*").eq("org_id", up.org_id).order("created_at");
-        if (data && data.length > 0) setDbCompanies(data);
-      }
+      // No companies found — user needs to be assigned by admin
       setLoadingDb(false);
     };
     loadCompanies();
