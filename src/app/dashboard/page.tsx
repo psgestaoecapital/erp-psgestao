@@ -791,27 +791,18 @@ export default function DashboardPage(){
       </>)}
 
       {!realData&&(<>
-      <Tit t="Seus 6 Negócios — Clique para ver os detalhes"/>
-      {negocios.map(n=>(
-        <div key={n.id} onClick={()=>{setLnAberta(n.id);setSubAba("visao");}} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:8,borderLeft:`4px solid ${n.cor}`,border:`1px solid ${BD}`,cursor:"pointer",transition:"all 0.2s"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{n.nome}</div><div style={{fontSize:9,color:TXD}}>{n.tipo} | {n.hc} pessoas | {n.clientes} clientes</div></div>
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:600,background:n.lucro_r[2]>=0?GO+"20":R+"20",color:n.lucro_r[2]>=0?GO:R}}>{n.saude}</span>
-              <span style={{color:GO,fontSize:16}}>›</span>
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
-            {[["Faturou",`${fmtBRL((n.fat[0]+n.fat[1]+n.fat[2])*1000)}`,TX],["Margem",`${n.mc_p[2]}%`,n.mc[2]>=0?G:R],["Lucro Real",`${fmtBRL((n.lucro_r[0]+n.lucro_r[1]+n.lucro_r[2])*1000)}`,n.lucro_r[2]>=0?GO:R],["Lucro %",`${n.lucro_p[2]}%`,n.lucro_r[2]>=0?GO:R]].map(([lb,vl,cl])=>(
-              <div key={lb as string} style={{textAlign:"center",background:BG3,borderRadius:6,padding:"5px 4px"}}>
-                <div style={{fontSize:8,color:TXD}}>{lb}</div><div style={{fontSize:12,fontWeight:700,color:cl as string}}>{vl}</div>
-              </div>
-            ))}
-          </div>
+      <div style={{textAlign:"center",padding:"40px 20px"}}>
+        <img src="/images/logo-login.png" alt="PS Gestão e Capital" style={{width:160,height:"auto",margin:"0 auto 20px",display:"block",filter:"drop-shadow(0 4px 16px rgba(197,165,90,0.2))",opacity:0.8}}/>
+        <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:8}}>Conecte seus dados para começar</div>
+        <div style={{fontSize:12,color:TXM,lineHeight:1.6,maxWidth:400,margin:"0 auto 20px"}}>
+          Importe dados do Omie ou ContaAzul para ver o dashboard com dados reais.
+          Enquanto isso, explore as abas e conheça as funcionalidades.
         </div>
-      ))}
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+          <a href="/dashboard/dados" style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:700,textDecoration:"none"}}>📊 Conectar ERP</a>
+          <a href="/dashboard/tutorial" style={{padding:"10px 20px",borderRadius:10,border:`1px solid ${BD}`,color:TXM,fontSize:12,textDecoration:"none"}}>📚 Ver Tutoriais</a>
+        </div>
+      </div>
       </>)}
 
       {realData&&realData.top_receitas_operacionais&&(<>
