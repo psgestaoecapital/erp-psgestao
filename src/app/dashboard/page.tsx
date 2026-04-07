@@ -611,7 +611,7 @@ export default function DashboardPage(){
   })();
 
   return(<div>
-    <div style={{padding:"10px 16px",background:"linear-gradient(180deg, #161614 0%, #0C0C0A 100%)",borderBottom:`1px solid #2A2822`}}>
+    <div style={{padding:"10px 16px",background:"linear-gradient(180deg, #161614 0%, #0C0C0A 100%)",borderBottom:`1px solid #2A2822`,position:"sticky",top:0,zIndex:100}}>
       {/* Row 1: Company name + empresa selector */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -671,7 +671,7 @@ export default function DashboardPage(){
       </div>
     </div>
 
-    <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`}}>
+    <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`,position:"sticky",top:82,zIndex:99,background:BG}}>
       {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"8px 18px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",border:aba===a.id?`1px solid ${GO}50`:`1px solid transparent`,background:aba===a.id?`linear-gradient(135deg, ${GO}18, ${GO}08)`:"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,letterSpacing:0.3,transition:"all 0.2s",position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
     </div>
 
