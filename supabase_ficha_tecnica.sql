@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS fichas_tecnicas (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   company_id UUID NOT NULL,
+  codigo TEXT DEFAULT '',
   nome TEXT NOT NULL,
   categoria TEXT DEFAULT 'parede',
   descricao TEXT DEFAULT '',
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS ficha_itens (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   ficha_id UUID NOT NULL REFERENCES fichas_tecnicas(id) ON DELETE CASCADE,
   ordem INT DEFAULT 0,
+  codigo TEXT DEFAULT '',
   nome TEXT NOT NULL,
   unidade TEXT DEFAULT 'un',
   quantidade NUMERIC DEFAULT 0,

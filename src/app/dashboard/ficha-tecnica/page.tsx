@@ -85,6 +85,7 @@ export default function FichaTecnicaPage(){
   const [msg,setMsg]=useState("");
   const [showNew,setShowNew]=useState(false);
   const [showTemplate,setShowTemplate]=useState(false);
+  const [seeding,setSeeding]=useState(false);
   const [newNome,setNewNome]=useState("");
   const [newCat,setNewCat]=useState("parede");
   const [newMO,setNewMO]=useState("35");
@@ -169,6 +170,17 @@ export default function FichaTecnicaPage(){
     loadFichas();
   };
 
+  const seedDatabase=async()=>{
+    setSeeding(true);
+    try{
+      const res=await fetch("/api/ficha-tecnica/seed",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:selComp})});
+      const d=await res.json();
+      if(d.success){setMsg(`✅ ${d.fichas_criadas} fichas + ${d.itens_criados} itens criados! (${d.total_materiais} materiais base)`);loadFichas();}
+      else setMsg(`❌ ${d.error}`);
+    }catch(e:any){setMsg(`❌ ${e.message}`);}
+    setSeeding(false);setTimeout(()=>setMsg(""),5000);
+  };
+
   const deleteFicha=async()=>{
     if(!selFicha||!confirm("Excluir esta ficha e todos os itens?"))return;
     await supabase.from("fichas_tecnicas").delete().eq("id",selFicha);
@@ -211,9 +223,12 @@ export default function FichaTecnicaPage(){
       <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:14}}>
         {/* Left: fichas list */}
         <div>
-          <div style={{display:"flex",gap:4,marginBottom:8}}>
-            <button onClick={()=>setShowTemplate(true)} style={{flex:1,padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>📋 Template</button>
-            <button onClick={()=>setShowNew(true)} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:11,cursor:"pointer"}}>+ Nova</button>
+          <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+            <button onClick={()=>setShowTemplate(true)} style={{flex:1,padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:10,fontWeight:700,border:"none",cursor:"pointer"}}>📋 Template</button>
+            <button onClick={()=>setShowNew(true)} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:10,cursor:"pointer"}}>+ Nova</button>
+            <button onClick={seedDatabase} disabled={seeding} style={{width:"100%",padding:"8px",borderRadius:8,background:seeding?BD:G+"15",border:`1px solid ${G}30`,color:seeding?TXD:G,fontSize:10,fontWeight:600,cursor:seeding?"wait":"pointer",marginTop:2}}>
+              {seeding?"⏳ Criando 50 fichas...":"🚀 Carregar 50 Fichas + 35 Materiais"}
+            </button>
           </div>
 
           {/* Template modal */}
@@ -260,7 +275,7 @@ export default function FichaTecnicaPage(){
                 borderLeft:`4px solid ${f.categoria==="parede"?GO:f.categoria==="forro"?B:f.categoria==="revestimento"?G:P}`,
               }}>
                 <div style={{fontSize:12,fontWeight:isSel?600:400,color:isSel?GOL:TX}}>{f.nome}</div>
-                <div style={{fontSize:9,color:TXD,marginTop:2}}>{f.categoria} | {f.unidade}</div>
+                <div style={{fontSize:9,color:TXD,marginTop:2}}><span style={{color:isSel?GO:TXM,fontFamily:"monospace"}}>{(f as any).codigo||""}</span> | {f.categoria}</div>
               </div>
             );
           })}
@@ -330,6 +345,7 @@ export default function FichaTecnicaPage(){
                     <thead style={{position:"sticky",top:0,background:BG2,zIndex:1}}>
                       <tr style={{borderBottom:`1px solid ${BD}`}}>
                         <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:30}}>#</th>
+                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:90}}>CÓDIGO</th>
                         <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>MATERIAL / INSUMO</th>
                         <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>UN</th>
                         <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>QTD/m²</th>
@@ -342,6 +358,7 @@ export default function FichaTecnicaPage(){
                       {itens.map((item,i)=>(
                         <tr key={item.id} style={{borderBottom:`0.5px solid ${BD}30`}}>
                           <td style={{padding:"6px 8px",color:TXD,fontSize:10}}>{i+1}</td>
+                          <td style={{padding:"6px 8px",color:B,fontSize:10,fontFamily:"monospace"}}>{(item as any).codigo||"—"}</td>
                           <td style={{padding:"6px 8px",color:TX,fontSize:12,fontWeight:500}}>{item.nome}</td>
                           <td style={{padding:"6px 8px",textAlign:"center",color:TXM}}>{item.unidade}</td>
                           <td style={{padding:"6px 8px",textAlign:"right"}}>
@@ -359,6 +376,7 @@ export default function FichaTecnicaPage(){
                       {/* Add new item row */}
                       <tr style={{background:BG3}}>
                         <td style={{padding:"6px 8px",color:G}}>+</td>
+                        <td style={{padding:"6px 8px"}}><input value={editItem?.obs||""} onChange={e=>setEditItem({...editItem,obs:e.target.value})} placeholder="Código" style={{...inp,fontSize:10,width:80}}/></td>
                         <td style={{padding:"6px 8px"}}><input value={editItem?.nome||""} onChange={e=>setEditItem({...editItem,nome:e.target.value})} placeholder="Nome do material" style={{...inp,fontSize:11}}/></td>
                         <td style={{padding:"6px 8px"}}><select value={editItem?.unidade||"un"} onChange={e=>setEditItem({...editItem,unidade:e.target.value})} style={{...inp,width:60,fontSize:10}}>{UNIDADES.map(u=><option key={u}>{u}</option>)}</select></td>
                         <td style={{padding:"6px 8px"}}><input value={editItem?.quantidade||""} onChange={e=>setEditItem({...editItem,quantidade:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0" style={{...inpSm,width:70}}/></td>
@@ -367,7 +385,7 @@ export default function FichaTecnicaPage(){
                       </tr>
                       {/* Total row */}
                       <tr style={{borderTop:`2px solid ${BD}`,background:"#1a1510"}}>
-                        <td colSpan={5} style={{padding:"10px 8px",fontWeight:700,color:GOL,fontSize:12}}>SUBTOTAL MATERIAIS</td>
+                        <td colSpan={6} style={{padding:"10px 8px",fontWeight:700,color:GOL,fontSize:12}}>SUBTOTAL MATERIAIS</td>
                         <td style={{padding:"10px 8px",textAlign:"right",fontWeight:700,color:GOL,fontSize:14}}>R$ {fmtR(subtotalMat)}</td>
                         <td/>
                       </tr>
