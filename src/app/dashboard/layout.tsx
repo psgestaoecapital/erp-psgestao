@@ -75,14 +75,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   if (loading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0F0F0D" }}>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ width: 48, height: 48, borderRadius: 12, margin: "0 auto 12px",
-          background: "linear-gradient(135deg, #C6973F 0%, #E8C872 100%)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, fontWeight: 800, color: "#0F0F0D" }}>PS</div>
-        <div style={{ color: "#A8A498", fontSize: 13 }}>Carregando...</div>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0F0F0D", flexDirection: "column" }}>
+      <style>{`
+        @keyframes logoPulse {
+          0%, 100% { transform: scale(1); opacity: 0.85; filter: drop-shadow(0 0 8px rgba(197,165,90,0.15)); }
+          50% { transform: scale(1.06); opacity: 1; filter: drop-shadow(0 0 24px rgba(197,165,90,0.4)); }
+        }
+        @keyframes dotPulse {
+          0%, 80%, 100% { opacity: 0.2; }
+          40% { opacity: 1; }
+        }
+      `}</style>
+      <img src="/images/logo-login.png" alt="PS Gestão e Capital" style={{
+        width: 180, height: "auto", animation: "logoPulse 2s ease-in-out infinite",
+      }}/>
+      <div style={{ display: "flex", gap: 6, marginTop: 24 }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "linear-gradient(135deg, #C6973F, #E8C872)",
+            animation: `dotPulse 1.4s ease-in-out ${i * 0.2}s infinite`,
+          }}/>
+        ))}
       </div>
+      <div style={{ color: "#6B6960", fontSize: 11, marginTop: 16, letterSpacing: 2, textTransform: "uppercase" }}>Carregando sistema</div>
     </div>
   );
 
