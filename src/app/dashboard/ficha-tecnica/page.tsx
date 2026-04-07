@@ -106,6 +106,53 @@ export default function FichaTecnicaPage(){
   const [newMarkup,setNewMarkup]=useState("30");
   // Item editing
   const [editItem,setEditItem]=useState<Partial<FichaItem>|null>(null);
+  const [prodSearch,setProdSearch]=useState("");
+  const [prodResults,setProdResults]=useState<any[]>([]);
+  const [showProdSearch,setShowProdSearch]=useState(false);
+  const [loadingProds,setLoadingProds]=useState(false);
+
+  const searchProdutos=async(term:string)=>{
+    setProdSearch(term);
+    if(term.length<2)return;
+    setLoadingProds(true);
+    try{
+      const res=await fetch("/api/ficha-tecnica/produtos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId,busca:term})});
+      const d=await res.json();
+      if(d.success)setProdResults(d.produtos);
+    }catch{}
+    setLoadingProds(false);
+  };
+
+  const selectProduto=(p:any)=>{
+    setEditItem({nome:p.descricao,unidade:p.unidade||"un",preco_unitario:p.preco_custo||p.valor_unitario||0,obs:p.codigo||p.codigo_omie||""});
+    setShowProdSearch(false);setProdSearch("");setProdResults([]);
+  };
+
+  const atualizarPrecosOmie=async()=>{
+    if(!resolvedCompId||itens.length===0)return;
+    setMsg("🔄 Buscando preços no Omie...");
+    const res=await fetch("/api/ficha-tecnica/produtos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId,busca:""})});
+    const d=await res.json();
+    if(!d.success){setMsg("❌ Erro ao buscar produtos");return;}
+    let updated=0;
+    for(const item of itens){
+      const match=d.produtos.find((p:any)=>
+        p.descricao.toLowerCase().includes(item.nome.toLowerCase().slice(0,15))||
+        item.nome.toLowerCase().includes(p.descricao.toLowerCase().slice(0,15))||
+        (item.obs&&p.codigo&&item.obs===p.codigo)
+      );
+      if(match&&(match.preco_custo||match.valor_unitario)){
+        const newPrice=match.preco_custo||match.valor_unitario;
+        if(Math.abs(newPrice-item.preco_unitario)>0.01){
+          await supabase.from("ficha_itens").update({preco_unitario:newPrice}).eq("id",item.id);
+          updated++;
+        }
+      }
+    }
+    loadItens();
+    setMsg(updated>0?`✅ ${updated} preços atualizados do Omie!`:"ℹ️ Nenhum preço diferente encontrado.");
+    setTimeout(()=>setMsg(""),4000);
+  };
 
   useEffect(()=>{loadCompanies();},[]);
   useEffect(()=>{if(selComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selComp);},[resolvedCompId]);
@@ -330,10 +377,36 @@ export default function FichaTecnicaPage(){
             <div>
               {/* Header with params */}
               <div style={{background:BG2,borderRadius:12,padding:14,border:`1px solid ${BD}`,marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <div style={{fontSize:16,fontWeight:700,color:GOL}}>{fichaAtual.nome}</div>
-                  <button onClick={deleteFicha} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${R}30`,background:"transparent",color:R,fontSize:10,cursor:"pointer"}}>🗑 Excluir</button>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={atualizarPrecosOmie} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${B}30`,background:B+"10",color:B,fontSize:10,cursor:"pointer",fontWeight:500}}>🔄 Preços Omie</button>
+                    <button onClick={()=>setShowProdSearch(!showProdSearch)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${G}30`,background:G+"10",color:G,fontSize:10,cursor:"pointer",fontWeight:500}}>🔍 Buscar Produto</button>
+                    <button onClick={deleteFicha} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${R}30`,background:"transparent",color:R,fontSize:10,cursor:"pointer"}}>🗑</button>
+                  </div>
                 </div>
+
+                {/* Product search panel */}
+                {showProdSearch&&(
+                  <div style={{background:BG3,borderRadius:10,padding:12,border:`1px solid ${G}30`,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:6}}>🔍 Buscar Produto no Omie (por nome ou código)</div>
+                    <input value={prodSearch} onChange={e=>searchProdutos(e.target.value)} placeholder="Digite nome ou código do produto..." style={{...inp,marginBottom:6}}/>
+                    {loadingProds&&<div style={{fontSize:10,color:TXM}}>Buscando...</div>}
+                    <div style={{maxHeight:200,overflowY:"auto"}}>
+                      {prodResults.map((p,i)=>(
+                        <div key={i} onClick={()=>selectProduto(p)} style={{padding:"6px 10px",borderRadius:6,marginBottom:2,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${BD}`}}
+                          onMouseEnter={e=>e.currentTarget.style.background=BG2} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                          <div>
+                            <div style={{fontSize:11,color:TX,fontWeight:500}}>{p.descricao}</div>
+                            <div style={{fontSize:9,color:TXD}}>Cód: {p.codigo||p.codigo_omie} | {p.unidade} | NCM: {p.ncm} | Estoque: {p.estoque}</div>
+                          </div>
+                          <div style={{fontSize:12,fontWeight:600,color:G,whiteSpace:"nowrap"}}>R$ {fmtR(p.preco_custo||p.valor_unitario)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {prodResults.length===0&&prodSearch.length>=2&&!loadingProds&&<div style={{fontSize:10,color:TXD}}>Nenhum produto encontrado. Importe produtos do Omie primeiro (Dados → Sincronizar).</div>}
+                  </div>
+                )}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                   <div>
                     <div style={{fontSize:9,color:TXM,marginBottom:2}}>MO Direta (R$/m²)</div>
