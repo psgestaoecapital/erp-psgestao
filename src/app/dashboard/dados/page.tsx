@@ -160,12 +160,13 @@ export default function DadosPage() {
   const [custosCustom, setCustosCustom] = useState<{nome:string,valor:string}[]>([]);
   const [mostrarTodos, setMostrarTodos] = useState(false);
 
-  // Omie Integration
+  // Omie / ContaAzul Integration
   const [omieKey, setOmieKey] = useState("");
   const [omieSecret, setOmieSecret] = useState("");
   const [omieStatus, setOmieStatus] = useState<"idle"|"syncing"|"success"|"error">("idle");
   const [omieResult, setOmieResult] = useState<any>(null);
   const [omieErp, setOmieErp] = useState("omie");
+  const [caToken, setCaToken] = useState("");
 
   // Plano de Ação
   const [acoes, setAcoes] = useState<any[]>([]);
@@ -901,13 +902,13 @@ export default function DadosPage() {
             <div style={{display:"flex",gap:8,marginBottom:16}}>
               {[
                 {id:"omie",nome:"Omie",status:"Disponível",cor:G},
-                {id:"contaazul",nome:"ContaAzul",status:"Em breve",cor:Y},
+                {id:"contaazul",nome:"ContaAzul",status:"Disponível",cor:G},
                 {id:"bling",nome:"Bling",status:"Em breve",cor:Y},
                 {id:"nenhum",nome:"Sem ERP (manual)",status:"Ativo",cor:TXM},
               ].map(erp=>(
-                <button key={erp.id} onClick={()=>setOmieErp(erp.id)} style={{
-                  flex:1,padding:"10px 8px",borderRadius:8,textAlign:"center",cursor:erp.id==="omie"||erp.id==="nenhum"?"pointer":"default",
-                  border:`1px solid ${omieErp===erp.id?GO:BD}`,background:omieErp===erp.id?GO+"15":"transparent",opacity:erp.id==="contaazul"||erp.id==="bling"?0.5:1
+                <button key={erp.id} onClick={()=>erp.id!=="bling"&&setOmieErp(erp.id)} style={{
+                  flex:1,padding:"10px 8px",borderRadius:8,textAlign:"center",cursor:erp.id==="bling"?"default":"pointer",
+                  border:`1px solid ${omieErp===erp.id?GO:BD}`,background:omieErp===erp.id?GO+"15":"transparent",opacity:erp.id==="bling"?0.5:1
                 }}>
                   <div style={{fontSize:13,fontWeight:600,color:omieErp===erp.id?GOL:TX}}>{erp.nome}</div>
                   <div style={{fontSize:9,color:erp.cor,marginTop:2}}>{erp.status}</div>
@@ -1072,11 +1073,113 @@ export default function DadosPage() {
             </Card>
           )}
 
-          {(omieErp==="contaazul"||omieErp==="bling")&&(
+          {omieErp==="contaazul"&&(
+            <Card title="Configuração do ContaAzul">
+              <div style={{fontSize:11,color:TXM,marginBottom:14,lineHeight:1.7}}>
+                Para conectar, acesse o ContaAzul: <strong style={{color:TX}}>Configurações → Integrações → Gerar Token de API</strong>. 
+                Copie o token e cole abaixo. Se não encontrar, acesse <a href="https://developers.contaazul.com" target="_blank" style={{color:GOL}}>developers.contaazul.com</a>.
+              </div>
+              <div style={{marginBottom:12}}>
+                <Input label="Token de Acesso (Bearer)" value={caToken} onChange={setCaToken} placeholder="Seu token do ContaAzul"/>
+              </div>
+
+              {caToken&&(
+                <div>
+                  <div style={{fontSize:11,color:TXD,marginBottom:8}}>Dados que serão importados:</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:6,marginBottom:14}}>
+                    {[
+                      {nome:"Contas a Receber",icon:"📥",cor:G},
+                      {nome:"Contas a Pagar",icon:"📤",cor:R},
+                      {nome:"Clientes",icon:"👥",cor:"#60A5FA"},
+                      {nome:"Vendas",icon:"🛒",cor:GOL},
+                      {nome:"Categorias",icon:"📁",cor:"#A78BFA"},
+                    ].map(d=>(
+                      <div key={d.nome} style={{padding:"8px 10px",borderRadius:8,background:BG3,border:`1px solid ${BD}`,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:14}}>{d.icon}</span>
+                        <span style={{fontSize:10,color:d.cor,fontWeight:500}}>{d.nome}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button onClick={async()=>{
+                    setOmieStatus("syncing");setOmieResult(null);
+                    try{
+                      // Test connection
+                      const test=await fetch("/api/contaazul/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:caToken,sync_type:"test"})});
+                      const testR=await test.json();
+                      if(!testR.success){setOmieStatus("error");setOmieResult({error:testR.error||"Falha na autenticação"});return;}
+
+                      // Sync all data
+                      const sync=await fetch("/api/contaazul/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:caToken,sync_type:"all"})});
+                      const syncR=await sync.json();
+                      if(syncR.success){
+                        const d=syncR.data;
+                        // Save to Supabase (same omie_imports table, different source)
+                        const compId=selectedCompany;
+                        if(d.contas_receber?.registros?.length>0){
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"contas_receber",source:"contaazul",import_data:{conta_receber_cadastro:d.contas_receber.registros},record_count:d.contas_receber.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                        }
+                        if(d.contas_pagar?.registros?.length>0){
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"contas_pagar",source:"contaazul",import_data:{conta_pagar_cadastro:d.contas_pagar.registros},record_count:d.contas_pagar.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                        }
+                        if(d.clientes?.registros?.length>0){
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"clientes",source:"contaazul",import_data:{clientes_cadastro:d.clientes.registros},record_count:d.clientes.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                        }
+                        if(d.categorias?.registros?.length>0){
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"categorias",source:"contaazul",import_data:{categoria_cadastro:d.categorias.registros},record_count:d.categorias.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                        }
+                        setOmieStatus("success");
+                        setOmieResult({
+                          contas_receber:d.contas_receber?.total||0,
+                          contas_pagar:d.contas_pagar?.total||0,
+                          clientes:d.clientes?.total||0,
+                          vendas:d.vendas?.total||0,
+                          categorias:d.categorias?.total||0,
+                          empresa:testR.company?.name||"",
+                        });
+                      }else{setOmieStatus("error");setOmieResult({error:syncR.error});}
+                    }catch(e:any){setOmieStatus("error");setOmieResult({error:e.message});}
+                  }} disabled={omieStatus==="syncing"} style={{
+                    width:"100%",padding:"14px",borderRadius:10,border:"none",fontSize:13,fontWeight:700,
+                    background:omieStatus==="syncing"?"#3D3A30":`linear-gradient(135deg,#0EA5E9,#38BDF8)`,
+                    color:omieStatus==="syncing"?"#A8A498":"#0C0C0A",cursor:omieStatus==="syncing"?"default":"pointer",
+                  }}>
+                    {omieStatus==="syncing"?"Importando dados do ContaAzul...":"◆ Importar Dados do ContaAzul"}
+                  </button>
+
+                  {omieStatus==="success"&&omieResult&&(
+                    <div style={{marginTop:12,padding:14,borderRadius:10,background:G+"10",border:`1px solid ${G}30`}}>
+                      <div style={{fontSize:13,fontWeight:600,color:G,marginBottom:8}}>✅ Importação concluída! {omieResult.empresa&&`(${omieResult.empresa})`}</div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:6}}>
+                        {[
+                          {l:"Contas a Receber",v:omieResult.contas_receber},
+                          {l:"Contas a Pagar",v:omieResult.contas_pagar},
+                          {l:"Clientes",v:omieResult.clientes},
+                          {l:"Vendas",v:omieResult.vendas},
+                          {l:"Categorias",v:omieResult.categorias},
+                        ].map(x=>(<div key={x.l} style={{textAlign:"center",padding:6,borderRadius:6,background:BG3}}>
+                          <div style={{fontSize:16,fontWeight:700,color:G}}>{x.v}</div>
+                          <div style={{fontSize:9,color:TXD}}>{x.l}</div>
+                        </div>))}
+                      </div>
+                    </div>
+                  )}
+                  {omieStatus==="error"&&omieResult&&(
+                    <div style={{marginTop:12,padding:14,borderRadius:10,background:R+"10",border:`1px solid ${R}30`}}>
+                      <div style={{fontSize:13,fontWeight:600,color:R}}>❌ Erro na importação</div>
+                      <div style={{fontSize:11,color:TXM,marginTop:4}}>{omieResult.error}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {omieErp==="bling"&&(
             <Card>
               <div style={{textAlign:"center",padding:16}}>
                 <div style={{fontSize:14,fontWeight:600,color:Y,marginBottom:8}}>Em desenvolvimento</div>
-                <div style={{fontSize:11,color:TXM,lineHeight:1.7}}>A integração com {omieErp==="contaazul"?"ContaAzul":"Bling"} está em desenvolvimento e será disponibilizada em breve. Por enquanto, use o modo manual ou importe via planilha.</div>
+                <div style={{fontSize:11,color:TXM,lineHeight:1.7}}>A integração com Bling está em desenvolvimento e será disponibilizada em breve. Por enquanto, use o modo manual ou importe via planilha.</div>
               </div>
             </Card>
           )}
