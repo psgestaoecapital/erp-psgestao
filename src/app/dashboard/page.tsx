@@ -414,6 +414,7 @@ export default function DashboardPage(){
     setDrillLoading(false);
   };
   const [dbCompanies, setDbCompanies] = useState<any[]>([]);
+  const [dbGroups, setDbGroups] = useState<any[]>([]);
   const [loadingDb, setLoadingDb] = useState(true);
   const [omieData, setOmieData] = useState<any[]>([]);
   const [realData, setRealData] = useState<any>(null);
@@ -425,6 +426,10 @@ export default function DashboardPage(){
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoadingDb(false); return; }
       
+      // Load groups
+      const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
+      if (grps) setDbGroups(grps);
+
       // Try user_companies first (multi-company access)
       const { data: uc } = await supabase.from("user_companies").select("company_id, role, companies(*)").eq("user_id", user.id);
       
@@ -469,9 +474,16 @@ export default function DashboardPage(){
   }, [empresaSel, dbCompanies, omieData, periodoInicio, periodoFim]);
 
   const grupoEmpresas = [
-    {id:"consolidado",nome:dbCompanies.length>1?"Grupo Consolidado":"Empresa",cnpj:"Todos",pais:"—"},
-    ...dbCompanies.map(c=>({id:c.id,nome:c.nome_fantasia||c.razao_social,cnpj:c.cnpj||"",pais:c.pais||"Brasil"}))
+    {id:"consolidado",nome:dbCompanies.length>1?"Todas as Empresas":"Empresa",cnpj:"Todos",pais:"—",group_id:null},
+    ...dbCompanies.map(c=>({id:c.id,nome:c.nome_fantasia||c.razao_social,cnpj:c.cnpj||"",pais:c.pais||"Brasil",group_id:c.group_id||null}))
   ];
+
+  // Empresas organizadas por grupo para o select
+  const gruposComEmpresas = dbGroups.map(g=>({
+    ...g,
+    empresas: dbCompanies.filter(c=>c.group_id===g.id)
+  })).filter(g=>g.empresas.length>0);
+  const empresasSemGrupo = dbCompanies.filter(c=>!c.group_id || !dbGroups.find((g: any)=>g.id===c.group_id));
 
   const empresaAtiva = empresaSel==="consolidado" 
     ? {nome:dbCompanies.length>0?(dbCompanies[0].nome_fantasia||dbCompanies[0].razao_social):empresa.nome,cidade:dbCompanies.length>0?(dbCompanies[0].cidade_estado||empresa.cidade):empresa.cidade,lns:empresa.lns,colab:dbCompanies.length>0?(dbCompanies[0].num_colaboradores||empresa.colab):empresa.colab}
@@ -504,7 +516,17 @@ export default function DashboardPage(){
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {grupoEmpresas.length>1&&(
             <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}>
-              {grupoEmpresas.map(e=><option key={e.id} value={e.id}>{e.nome}{e.pais!=="—"?` (${e.pais})`:""}</option>)}
+              <option value="consolidado">📊 Todas as Empresas ({dbCompanies.length})</option>
+              {gruposComEmpresas.map(g=>(
+                <optgroup key={g.id} label={`▸ ${g.nome} (${g.empresas.length})`}>
+                  {g.empresas.map((c: any)=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+                </optgroup>
+              ))}
+              {empresasSemGrupo.length>0&&(
+                <optgroup label="▸ Sem Grupo">
+                  {empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+                </optgroup>
+              )}
             </select>
           )}
           <div style={{display:"flex",alignItems:"center",gap:4}}>
