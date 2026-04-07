@@ -110,17 +110,28 @@ export default function FichaTecnicaPage(){
   const [prodResults,setProdResults]=useState<any[]>([]);
   const [showProdSearch,setShowProdSearch]=useState(false);
   const [loadingProds,setLoadingProds]=useState(false);
+  const [showGuia,setShowGuia]=useState(false);
+  const [allProds,setAllProds]=useState<any[]>([]);
+
+  // Auto-load products when company changes
+  useEffect(()=>{
+    if(!resolvedCompId)return;
+    const loadProds=async()=>{
+      try{
+        const res=await fetch("/api/ficha-tecnica/produtos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId,busca:""})});
+        const d=await res.json();
+        if(d.success)setAllProds(d.produtos);
+      }catch{}
+    };
+    loadProds();
+  },[resolvedCompId]);
 
   const searchProdutos=async(term:string)=>{
     setProdSearch(term);
-    if(term.length<2)return;
-    setLoadingProds(true);
-    try{
-      const res=await fetch("/api/ficha-tecnica/produtos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId,busca:term})});
-      const d=await res.json();
-      if(d.success)setProdResults(d.produtos);
-    }catch{}
-    setLoadingProds(false);
+    if(term.length<2){setProdResults([]);return;}
+    const t=term.toLowerCase();
+    const filtered=allProds.filter(p=>p.descricao.toLowerCase().includes(t)||p.codigo?.toLowerCase().includes(t)||(p.codigo_omie+"").includes(t));
+    setProdResults(filtered.slice(0,20));
   };
 
   const selectProduto=(p:any)=>{
@@ -299,7 +310,32 @@ export default function FichaTecnicaPage(){
         </div>
       </div>
 
-      {msg&&<div onClick={()=>setMsg("")} style={{background:G+"15",border:`1px solid ${G}30`,borderRadius:10,padding:"10px 16px",marginBottom:12,fontSize:12,color:G,cursor:"pointer"}}>{msg}</div>}
+      {msg&&<div onClick={()=>setMsg("")} style={{background:msg.startsWith("✅")||msg.startsWith("ℹ")?G+"15":R+"15",border:`1px solid ${msg.startsWith("✅")||msg.startsWith("ℹ")?G:R}30`,borderRadius:10,padding:"10px 16px",marginBottom:12,fontSize:12,color:msg.startsWith("✅")||msg.startsWith("ℹ")?G:R,cursor:"pointer"}}>{msg}</div>}
+
+      {/* Products info + Guide toggle */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,color:TXM}}>
+          {allProds.length>0?<span style={{color:G}}>✅ {allProds.length} produtos carregados do Omie</span>:<span style={{color:Y}}>⚠️ Nenhum produto do Omie — importe em Dados → Sincronizar</span>}
+        </div>
+        <button onClick={()=>setShowGuia(!showGuia)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${B}30`,background:B+"08",color:B,fontSize:10,cursor:"pointer"}}>📖 {showGuia?"Fechar":"Como usar"}</button>
+      </div>
+
+      {showGuia&&(
+        <div style={{background:BG2,borderRadius:14,padding:16,border:`1px solid ${B}30`,marginBottom:14}}>
+          <div style={{fontSize:14,fontWeight:600,color:B,marginBottom:10}}>📖 Como criar uma Ficha Técnica</div>
+          <div style={{fontSize:12,color:TX,lineHeight:1.8}}>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>1. Escolha a empresa</strong> — Os produtos e preços vêm do Omie da empresa selecionada. Cada empresa tem seu próprio catálogo.</p>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>2. Crie a ficha</strong> — Use um <strong>Template</strong> (5 prontos para drywall/forro) ou crie do zero com <strong>+ Nova</strong>. Dê um nome descritivo: ex: "Parede Drywall Simples 73mm (ST)".</p>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>3. Configure os custos</strong> — No topo da ficha, ajuste: <strong>MO Direta</strong> (R$/m²), <strong>Custos Indiretos</strong> (%), <strong>Impostos</strong> (%) e <strong>Markup</strong> (%).</p>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>4. Adicione os materiais</strong> — Duas formas:</p>
+            <p style={{marginBottom:4,paddingLeft:16}}>▸ <strong style={{color:G}}>🔍 Buscar Produto</strong> — Busca no catálogo do Omie por nome ou código. Preço vem automático do ERP.</p>
+            <p style={{marginBottom:8,paddingLeft:16}}>▸ <strong>Digitar manual</strong> — Na última linha da tabela, preencha código, nome, unidade, qtd/m² e preço.</p>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>5. Ajuste quantidades</strong> — Para cada material, informe a <strong>quantidade por m²</strong> (ex: 2.10 placas/m², 24 parafusos/m²).</p>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>6. Atualize preços</strong> — Clique <strong style={{color:B}}>🔄 Preços Omie</strong> para atualizar todos os preços com os valores atuais do estoque.</p>
+            <p><strong style={{color:GOL}}>7. Resultado</strong> — O sistema calcula automaticamente: Material + MO + Indiretos + Impostos = <strong style={{color:R}}>Custo Total/m²</strong> → × Markup = <strong style={{color:G}}>Preço de Venda/m²</strong>.</p>
+          </div>
+        </div>
+      )}
 
       <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:14}}>
         {/* Left: fichas list */}
