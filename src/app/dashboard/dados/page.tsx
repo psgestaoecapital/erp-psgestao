@@ -248,20 +248,20 @@ export default function DadosPage() {
       }
       setSelectedCompany(targetComp.id);
       setEmpresa({
-        razao_social: data[0].razao_social || "",
-        nome_fantasia: data[0].nome_fantasia || "",
-        cnpj: data[0].cnpj || "",
-        cidade_estado: data[0].cidade_estado || "",
-        setor: data[0].setor || "",
-        num_colaboradores: data[0].num_colaboradores?.toString() || "",
-        faturamento_anual: data[0].faturamento_anual?.toString() || "",
-        pais: data[0].pais || "Brasil",
-        moeda: data[0].moeda || "BRL",
-        regime_tributario: data[0].regime_tributario || "simples",
-        tipo_empresa: data[0].tipo_empresa || "matriz",
-        id_fiscal_exterior: data[0].id_fiscal_exterior || "",
+        razao_social: targetComp.razao_social || "",
+        nome_fantasia: targetComp.nome_fantasia || "",
+        cnpj: targetComp.cnpj || "",
+        cidade_estado: targetComp.cidade_estado || "",
+        setor: targetComp.setor || "",
+        num_colaboradores: targetComp.num_colaboradores?.toString() || "",
+        faturamento_anual: targetComp.faturamento_anual?.toString() || "",
+        pais: targetComp.pais || "Brasil",
+        moeda: targetComp.moeda || "BRL",
+        regime_tributario: targetComp.regime_tributario || "simples",
+        tipo_empresa: targetComp.tipo_empresa || "matriz",
+        id_fiscal_exterior: targetComp.id_fiscal_exterior || "",
       });
-      loadBusinessLines(data[0].id);
+      loadBusinessLines(targetComp.id);
     }
   };
 
