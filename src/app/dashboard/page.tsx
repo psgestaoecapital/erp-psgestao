@@ -358,6 +358,7 @@ export default function DashboardPage(){
 
   // ===== MAIN DASHBOARD =====
   const [empresaSel, setEmpresaSel] = useState("consolidado");
+  const [filtroTipo, setFiltroTipo] = useState<"mes"|"dia"|"periodo">("mes");
   const [periodoInicio, setPeriodoInicio] = useState(()=>{
     const d=new Date(); d.setMonth(d.getMonth()-5);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
@@ -366,6 +367,46 @@ export default function DashboardPage(){
     const d=new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
   });
+  // Date-based filters (for dia/periodo modes)
+  const [dataInicio, setDataInicio] = useState(()=>new Date().toISOString().slice(0,10));
+  const [dataFim, setDataFim] = useState(()=>new Date().toISOString().slice(0,10));
+
+  // Quick period setters
+  const setQuickPeriod=(tipo:string)=>{
+    const hoje=new Date();
+    const fmt=(d:Date)=>d.toISOString().slice(0,10);
+    const fmtM=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    switch(tipo){
+      case "hoje": setFiltroTipo("dia"); setDataInicio(fmt(hoje)); setDataFim(fmt(hoje)); break;
+      case "semana": {
+        setFiltroTipo("periodo");
+        const seg=new Date(hoje); seg.setDate(hoje.getDate()-hoje.getDay()+1);
+        setDataInicio(fmt(seg)); setDataFim(fmt(hoje)); break;
+      }
+      case "mes": {
+        setFiltroTipo("mes");
+        setPeriodoInicio(fmtM(hoje)); setPeriodoFim(fmtM(hoje)); break;
+      }
+      case "trimestre": {
+        setFiltroTipo("mes");
+        const ini=new Date(hoje); ini.setMonth(hoje.getMonth()-2);
+        setPeriodoInicio(fmtM(ini)); setPeriodoFim(fmtM(hoje)); break;
+      }
+      case "semestre": {
+        setFiltroTipo("mes");
+        const ini=new Date(hoje); ini.setMonth(hoje.getMonth()-5);
+        setPeriodoInicio(fmtM(ini)); setPeriodoFim(fmtM(hoje)); break;
+      }
+      case "ano": {
+        setFiltroTipo("mes");
+        setPeriodoInicio(`${hoje.getFullYear()}-01`); setPeriodoFim(fmtM(hoje)); break;
+      }
+    }
+  };
+
+  // Effective period values (used by API calls)
+  const efPeriodoInicio = filtroTipo==="mes" ? periodoInicio : dataInicio.slice(0,7);
+  const efPeriodoFim = filtroTipo==="mes" ? periodoFim : dataFim.slice(0,7);
 
   // Drill-down state
   const [drillOpen, setDrillOpen] = useState<string|null>(null);
@@ -422,7 +463,7 @@ export default function DashboardPage(){
       const res = await fetch(`/api/omie/detail?t=${Date.now()}`, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ company_ids: compIds, categoria, tipo, periodo_inicio: periodoInicio, periodo_fim: periodoFim })
+        body: JSON.stringify({ company_ids: compIds, categoria, tipo, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim })
       });
       const d = await res.json();
       if (d.success) setDrillData(d.data);
@@ -505,12 +546,12 @@ export default function DashboardPage(){
     fetch(`/api/omie/process?t=${Date.now()}`, {
       method: "POST",
       headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
-      body: JSON.stringify({ company_ids: compIds, periodo_inicio: periodoInicio, periodo_fim: periodoFim })
+      body: JSON.stringify({ company_ids: compIds, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim })
     }).then(r=>r.json()).then(d=>{
       if(d.success) setRealData(d.data);
       setLoadingReal(false);
     }).catch(()=>setLoadingReal(false));
-  }, [empresaSel, dbCompanies, omieData, periodoInicio, periodoFim]);
+  }, [empresaSel, dbCompanies, omieData, efPeriodoInicio, efPeriodoFim]);
 
   const grupoEmpresas = [
     {id:"consolidado",nome:dbCompanies.length>1?"Todas as Empresas":"Empresa",cnpj:"Todos",pais:"—",group_id:null},
@@ -587,10 +628,34 @@ export default function DashboardPage(){
               )}
             </select>
           )}
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <input type="month" value={periodoInicio} onChange={e=>setPeriodoInicio(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}/>
-            <span style={{fontSize:10,color:TXD}}>a</span>
-            <input type="month" value={periodoFim} onChange={e=>setPeriodoFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}/>
+          <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+            {/* Quick period buttons */}
+            <div style={{display:"flex",gap:2}}>
+              {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"],["trimestre","Tri"],["semestre","Sem"],["ano","Ano"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setQuickPeriod(k)} style={{padding:"3px 8px",borderRadius:6,fontSize:9,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontWeight:500,cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+            <div style={{width:1,height:16,background:BD,margin:"0 2px"}}/>
+            {/* Mode toggle */}
+            <select value={filtroTipo} onChange={e=>{setFiltroTipo(e.target.value as any);}} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 6px",fontSize:9,fontWeight:600}}>
+              <option value="mes">Mensal</option>
+              <option value="dia">Dia</option>
+              <option value="periodo">Período</option>
+            </select>
+            {/* Date inputs based on mode */}
+            {filtroTipo==="mes"&&(<>
+              <input type="month" value={periodoInicio} onChange={e=>setPeriodoInicio(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
+              <span style={{fontSize:9,color:TXD}}>a</span>
+              <input type="month" value={periodoFim} onChange={e=>setPeriodoFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
+            </>)}
+            {filtroTipo==="dia"&&(
+              <input type="date" value={dataInicio} onChange={e=>{setDataInicio(e.target.value);setDataFim(e.target.value);}} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
+            )}
+            {filtroTipo==="periodo"&&(<>
+              <input type="date" value={dataInicio} onChange={e=>setDataInicio(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
+              <span style={{fontSize:9,color:TXD}}>a</span>
+              <input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
+            </>)}
           </div>
           <div style={{display:"flex",gap:4,marginLeft:8}}>
             {(userRole==="admin"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"4px 10px",borderRadius:6,fontSize:9,border:`1px solid ${G}`,color:G,textDecoration:"none",fontWeight:600}}>📊 BPO</a>}
@@ -1094,7 +1159,7 @@ export default function DashboardPage(){
           </Card>
 
           {/* Análise IA Automática — cruza DRE + Custos + Contexto */}
-          <AnaliseIAFlags realData={realData} empresaId={empresaSel} periodo={`${periodoInicio} a ${periodoFim}`}/>
+          <AnaliseIAFlags realData={realData} empresaId={empresaSel} periodo={`${efPeriodoInicio} a ${efPeriodoFim}`}/>
         </>)}
 
         <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais processados</div>
@@ -1454,7 +1519,7 @@ export default function DashboardPage(){
 
     {aba==="balanco"&&(<div>
       <Tit t="Balanço Patrimonial"/>
-      <BalancoPatrimonial empresaId={empresaSel==="consolidado"?(dbCompanies[0]?.id||""):empresaSel.startsWith("group_")?(dbCompanies.find(c=>c.group_id===empresaSel.replace("group_",""))?.id||""):empresaSel} periodoFim={periodoFim}/>
+      <BalancoPatrimonial empresaId={empresaSel==="consolidado"?(dbCompanies[0]?.id||""):empresaSel.startsWith("group_")?(dbCompanies.find(c=>c.group_id===empresaSel.replace("group_",""))?.id||""):empresaSel} periodoFim={efPeriodoFim}/>
     </div>)}
 
     {aba==="precos"&&(<div>
@@ -1536,7 +1601,7 @@ export default function DashboardPage(){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
           <div>
             <div style={{fontSize:10,color:TXD,marginBottom:4}}>Período</div>
-            <div style={{fontSize:13,fontWeight:600,color:GOL}}>{fmtMesLabel(periodoInicio)} a {fmtMesLabel(periodoFim)}</div>
+            <div style={{fontSize:13,fontWeight:600,color:GOL}}>{filtroTipo==="mes"?fmtMesLabel(efPeriodoInicio):efPeriodoInicio} a {filtroTipo==="mes"?fmtMesLabel(efPeriodoFim):efPeriodoFim}</div>
             <div style={{fontSize:9,color:TXD,marginTop:2}}>Mesmo período selecionado no header</div>
           </div>
           <div>
@@ -1556,8 +1621,8 @@ export default function DashboardPage(){
               headers:{"Content-Type":"application/json"},
               body:JSON.stringify({
                 financial_data:realData,
-                periodo_inicio:periodoInicio,
-                periodo_fim:periodoFim,
+                periodo_inicio:efPeriodoInicio,
+                periodo_fim:efPeriodoFim,
                 empresa_nome:empresaAtiva.nome,
               })
             });
@@ -1584,7 +1649,7 @@ export default function DashboardPage(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div>
               <div style={{fontSize:14,fontWeight:700,color:GOL}}>Relatório Executivo — PS Gestão e Capital</div>
-              <div style={{fontSize:10,color:TXD}}>{fmtMesLabel(periodoInicio)} a {fmtMesLabel(periodoFim)} | Gerado pelo PS</div>
+              <div style={{fontSize:10,color:TXD}}>{filtroTipo==="mes"?fmtMesLabel(efPeriodoInicio):efPeriodoInicio} a {filtroTipo==="mes"?fmtMesLabel(efPeriodoFim):efPeriodoFim} | Gerado pelo PS</div>
             </div>
             <button onClick={()=>{navigator.clipboard.writeText(reportText);showToast2("Relatório copiado!")}} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:10,cursor:"pointer"}}>Copiar</button>
           </div>
