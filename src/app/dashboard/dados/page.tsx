@@ -1098,14 +1098,14 @@ export default function DadosPage() {
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
                 <Input label="Client ID" value={caClientId} onChange={setCaClientId} placeholder="Ex: 6as5ta9dop17eipm2d2fgruk5p"/>
-                <Input label="Client Secret" value={caClientSecret} onChange={setCaClientSecret} placeholder="Ex: 16117sai2mgnurs..."/>
+                <Input label="Client Secret (cole COMPLETO)" value={caClientSecret} onChange={setCaClientSecret} placeholder="Cole o secret inteiro, não abrevie"/>
               </div>
 
               {caClientId&&caClientSecret&&!caToken&&(
                 <button onClick={()=>{
                   const state = btoa(JSON.stringify({client_id:caClientId,client_secret:caClientSecret}));
                   const redirectUri = encodeURIComponent(`${window.location.origin}/api/contaazul/callback`);
-                  const authUrl = `https://api.contaazul.com/auth/authorize?response_type=code&client_id=${caClientId}&redirect_uri=${redirectUri}&scope=sales+purchases+customers+categories&state=${state}`;
+                  const authUrl = `https://api.contaazul.com/auth/authorize?response_type=code&client_id=${encodeURIComponent(caClientId)}&redirect_uri=${redirectUri}&scope=sales&state=${encodeURIComponent(state)}`;
                   window.location.href = authUrl;
                 }} style={{
                   width:"100%",padding:"14px",borderRadius:10,border:"none",fontSize:13,fontWeight:700,
