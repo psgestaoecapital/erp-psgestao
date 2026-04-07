@@ -167,6 +167,21 @@ export default function DadosPage() {
   const [omieResult, setOmieResult] = useState<any>(null);
   const [omieErp, setOmieErp] = useState("omie");
   const [caToken, setCaToken] = useState("");
+  const [caClientId, setCaClientId] = useState("");
+  const [caClientSecret, setCaClientSecret] = useState("");
+
+  // Handle ContaAzul OAuth callback params
+  useEffect(()=>{
+    if(typeof window !== "undefined"){
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("ca_token");
+      const error = params.get("ca_error");
+      if(token){ setCaToken(token); setOmieErp("contaazul"); }
+      if(error){ setOmieErp("contaazul"); setOmieStatus("error"); setOmieResult({error:`Erro na autorização: ${error}`}); }
+      // Clean URL params
+      if(token || error){ window.history.replaceState({}, "", window.location.pathname); }
+    }
+  },[]);
 
   // Plano de Ação
   const [acoes, setAcoes] = useState<any[]>([]);
@@ -1076,15 +1091,36 @@ export default function DadosPage() {
           {omieErp==="contaazul"&&(
             <Card title="Configuração do ContaAzul">
               <div style={{fontSize:11,color:TXM,marginBottom:14,lineHeight:1.7}}>
-                Para conectar, acesse o ContaAzul: <strong style={{color:TX}}>Configurações → Integrações → Gerar Token de API</strong>. 
-                Copie o token e cole abaixo. Se não encontrar, acesse <a href="https://developers.contaazul.com" target="_blank" style={{color:GOL}}>developers.contaazul.com</a>.
+                <strong style={{color:TX}}>Passo 1:</strong> Acesse <a href="https://developers.contaazul.com" target="_blank" style={{color:GOL}}>developers.contaazul.com</a> e crie uma aplicação. 
+                Copie o <strong>Client ID</strong> e <strong>Client Secret</strong> abaixo.<br/>
+                <strong style={{color:TX}}>Passo 2:</strong> Clique em "Autorizar no ContaAzul" — você será redirecionado para autorizar o acesso.<br/>
+                <strong style={{color:TX}}>Passo 3:</strong> Após autorizar, os dados serão importados automaticamente.
               </div>
-              <div style={{marginBottom:12}}>
-                <Input label="Token de Acesso (Bearer)" value={caToken} onChange={setCaToken} placeholder="Seu token do ContaAzul"/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <Input label="Client ID" value={caClientId} onChange={setCaClientId} placeholder="Ex: 6as5ta9dop17eipm2d2fgruk5p"/>
+                <Input label="Client Secret" value={caClientSecret} onChange={setCaClientSecret} placeholder="Ex: 16117sai2mgnurs..."/>
               </div>
+
+              {caClientId&&caClientSecret&&!caToken&&(
+                <button onClick={()=>{
+                  const state = btoa(JSON.stringify({client_id:caClientId,client_secret:caClientSecret}));
+                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/contaazul/callback`);
+                  const authUrl = `https://api.contaazul.com/auth/authorize?response_type=code&client_id=${caClientId}&redirect_uri=${redirectUri}&scope=sales+purchases+customers+categories&state=${state}`;
+                  window.location.href = authUrl;
+                }} style={{
+                  width:"100%",padding:"14px",borderRadius:10,border:"none",fontSize:13,fontWeight:700,
+                  background:"linear-gradient(135deg,#0EA5E9,#38BDF8)",color:"#0C0C0A",cursor:"pointer",marginBottom:12,
+                }}>
+                  🔗 Autorizar no ContaAzul
+                </button>
+              )}
 
               {caToken&&(
                 <div>
+                  <div style={{padding:"8px 12px",borderRadius:8,background:G+"10",border:`1px solid ${G}30`,marginBottom:12,fontSize:11,color:G,fontWeight:500}}>
+                    ✅ Autorizado! Token obtido com sucesso.
+                  </div>
+
                   <div style={{fontSize:11,color:TXD,marginBottom:8}}>Dados que serão importados:</div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:6,marginBottom:14}}>
                     {[
@@ -1104,44 +1140,30 @@ export default function DadosPage() {
                   <button onClick={async()=>{
                     setOmieStatus("syncing");setOmieResult(null);
                     try{
-                      // Test connection
-                      const test=await fetch("/api/contaazul/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:caToken,sync_type:"test"})});
-                      const testR=await test.json();
-                      if(!testR.success){setOmieStatus("error");setOmieResult({error:testR.error||"Falha na autenticação"});return;}
-
-                      // Sync all data
                       const sync=await fetch("/api/contaazul/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:caToken,sync_type:"all"})});
                       const syncR=await sync.json();
                       if(syncR.success){
                         const d=syncR.data;
-                        // Save to Supabase (same omie_imports table, different source)
                         const compId=selectedCompany;
                         if(d.contas_receber?.registros?.length>0){
-                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"contas_receber",source:"contaazul",import_data:{conta_receber_cadastro:d.contas_receber.registros},record_count:d.contas_receber.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"contas_receber",import_data:{conta_receber_cadastro:d.contas_receber.registros},record_count:d.contas_receber.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
                         }
                         if(d.contas_pagar?.registros?.length>0){
-                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"contas_pagar",source:"contaazul",import_data:{conta_pagar_cadastro:d.contas_pagar.registros},record_count:d.contas_pagar.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"contas_pagar",import_data:{conta_pagar_cadastro:d.contas_pagar.registros},record_count:d.contas_pagar.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
                         }
                         if(d.clientes?.registros?.length>0){
-                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"clientes",source:"contaazul",import_data:{clientes_cadastro:d.clientes.registros},record_count:d.clientes.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"clientes",import_data:{clientes_cadastro:d.clientes.registros},record_count:d.clientes.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
                         }
                         if(d.categorias?.registros?.length>0){
-                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"categorias",source:"contaazul",import_data:{categoria_cadastro:d.categorias.registros},record_count:d.categorias.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
+                          await supabase.from("omie_imports").upsert({company_id:compId,import_type:"categorias",import_data:{categoria_cadastro:d.categorias.registros},record_count:d.categorias.total,imported_at:new Date().toISOString()},{onConflict:"company_id,import_type"});
                         }
                         setOmieStatus("success");
-                        setOmieResult({
-                          contas_receber:d.contas_receber?.total||0,
-                          contas_pagar:d.contas_pagar?.total||0,
-                          clientes:d.clientes?.total||0,
-                          vendas:d.vendas?.total||0,
-                          categorias:d.categorias?.total||0,
-                          empresa:testR.company?.name||"",
-                        });
+                        setOmieResult({contas_receber:d.contas_receber?.total||0,contas_pagar:d.contas_pagar?.total||0,clientes:d.clientes?.total||0,vendas:d.vendas?.total||0,categorias:d.categorias?.total||0});
                       }else{setOmieStatus("error");setOmieResult({error:syncR.error});}
                     }catch(e:any){setOmieStatus("error");setOmieResult({error:e.message});}
                   }} disabled={omieStatus==="syncing"} style={{
                     width:"100%",padding:"14px",borderRadius:10,border:"none",fontSize:13,fontWeight:700,
-                    background:omieStatus==="syncing"?"#3D3A30":`linear-gradient(135deg,#0EA5E9,#38BDF8)`,
+                    background:omieStatus==="syncing"?"#3D3A30":"linear-gradient(135deg,#0EA5E9,#38BDF8)",
                     color:omieStatus==="syncing"?"#A8A498":"#0C0C0A",cursor:omieStatus==="syncing"?"default":"pointer",
                   }}>
                     {omieStatus==="syncing"?"Importando dados do ContaAzul...":"◆ Importar Dados do ContaAzul"}
@@ -1149,18 +1171,14 @@ export default function DadosPage() {
 
                   {omieStatus==="success"&&omieResult&&(
                     <div style={{marginTop:12,padding:14,borderRadius:10,background:G+"10",border:`1px solid ${G}30`}}>
-                      <div style={{fontSize:13,fontWeight:600,color:G,marginBottom:8}}>✅ Importação concluída! {omieResult.empresa&&`(${omieResult.empresa})`}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:G,marginBottom:8}}>✅ Importação concluída!</div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:6}}>
-                        {[
-                          {l:"Contas a Receber",v:omieResult.contas_receber},
-                          {l:"Contas a Pagar",v:omieResult.contas_pagar},
-                          {l:"Clientes",v:omieResult.clientes},
-                          {l:"Vendas",v:omieResult.vendas},
-                          {l:"Categorias",v:omieResult.categorias},
-                        ].map(x=>(<div key={x.l} style={{textAlign:"center",padding:6,borderRadius:6,background:BG3}}>
-                          <div style={{fontSize:16,fontWeight:700,color:G}}>{x.v}</div>
-                          <div style={{fontSize:9,color:TXD}}>{x.l}</div>
-                        </div>))}
+                        {[{l:"Contas a Receber",v:omieResult.contas_receber},{l:"Contas a Pagar",v:omieResult.contas_pagar},{l:"Clientes",v:omieResult.clientes},{l:"Vendas",v:omieResult.vendas},{l:"Categorias",v:omieResult.categorias}].map(x=>(
+                          <div key={x.l} style={{textAlign:"center",padding:6,borderRadius:6,background:BG3}}>
+                            <div style={{fontSize:16,fontWeight:700,color:G}}>{x.v}</div>
+                            <div style={{fontSize:9,color:TXD}}>{x.l}</div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
