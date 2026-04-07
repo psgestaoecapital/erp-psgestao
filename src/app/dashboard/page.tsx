@@ -5,6 +5,7 @@ import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip,
 import AnaliseIAFlags from "./components/AnaliseIAFlags";
 import BalancoPatrimonial from "./components/BalancoPatrimonial";
 import IndicadoresFinanceiros from "./components/IndicadoresFinanceiros";
+import FluxoCaixa from "./components/FluxoCaixa";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",T="#2DD4BF",
@@ -961,6 +962,11 @@ export default function DashboardPage(){
           <div style={{fontSize:11,fontWeight:600,color:G}}>✓ Março: caixa superou dívidas pela primeira vez</div>
         </div>
       </Card>
+
+      {/* Fluxo de Caixa Diário */}
+      <Tit t="Fluxo de Caixa — Projeção Diária"/>
+      <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
+
       </>)}
     </div>)}
 
