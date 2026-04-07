@@ -140,6 +140,14 @@ export default function DadosPage() {
   const [toast, setToast] = useState<{msg:string,tipo:"ok"|"err"}|null>(null);
   const [companies, setCompanies] = useState<any[]>([]);
   const [selectedCompany, setSelectedCompany] = useState("");
+  const [groups, setGroups] = useState<any[]>([]);
+
+  // Save to localStorage when changing
+  useEffect(()=>{
+    if(selectedCompany&&typeof window!=="undefined"){
+      localStorage.setItem("ps_empresa_sel",selectedCompany);
+    }
+  },[selectedCompany]);
   const [mesSel, setMesSel] = useState("2025-01");
 
   // M0 - Empresa
@@ -203,10 +211,27 @@ export default function DadosPage() {
   useEffect(()=>{ loadCompanies(); }, []);
 
   const loadCompanies = async () => {
-    const { data } = await supabase.from("companies").select("*").order("created_at",{ascending:false});
+    const [{ data },{ data: grps }] = await Promise.all([
+      supabase.from("companies").select("*").order("created_at",{ascending:false}),
+      supabase.from("company_groups").select("*").order("nome"),
+    ]);
     if(data && data.length > 0) {
       setCompanies(data);
-      setSelectedCompany(data[0].id);
+      setGroups(grps||[]);
+      // Read saved selection from localStorage
+      const saved = typeof window!=="undefined" ? localStorage.getItem("ps_empresa_sel") : "";
+      let targetComp = data[0];
+      if(saved) {
+        if(saved.startsWith("group_")) {
+          const gid = saved.replace("group_","");
+          const match = data.find(c => c.group_id === gid);
+          if(match) targetComp = match;
+        } else if(saved !== "consolidado") {
+          const match = data.find(c => c.id === saved);
+          if(match) targetComp = match;
+        }
+      }
+      setSelectedCompany(targetComp.id);
       setEmpresa({
         razao_social: data[0].razao_social || "",
         nome_fantasia: data[0].nome_fantasia || "",

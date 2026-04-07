@@ -32,13 +32,14 @@ export default function RateioPage(){
   const [newReceita,setNewReceita]=useState({nome:"",valor:0,obs:""});
 
   useEffect(()=>{loadAll();},[]);
+  useEffect(()=>{if(selectedGroup&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel","group_"+selectedGroup);},[selectedGroup]);
   useEffect(()=>{if(selectedGroup)loadLinhas();},[selectedGroup]);
 
   const loadAll=async()=>{
     const{data:comps}=await supabase.from("companies").select("*").order("nome_fantasia");
     if(comps)setCompanies(comps);
     const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
-    if(grps){setGroups(grps);if(grps.length>0&&!selectedGroup)setSelectedGroup(grps[0].id);}
+    if(grps){setGroups(grps);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";if(saved&&saved.startsWith("group_")){setSelectedGroup(saved.replace("group_",""));}else if(grps.length>0&&!selectedGroup){setSelectedGroup(grps[0].id);}}
   };
 
   const loadLinhas=async()=>{

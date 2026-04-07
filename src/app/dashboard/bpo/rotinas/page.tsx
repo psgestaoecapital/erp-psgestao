@@ -30,7 +30,7 @@ const execCor=(e:string)=>e==="ia"?PU:e==="humano"?GO:BL;
 export default function RotinasPage(){
   const [companies,setCompanies]=useState<any[]>([]);
   const [rotinas,setRotinas]=useState<any[]>([]);
-  const [selectedComp,setSelectedComp]=useState<string|null>(null);
+  const [selectedComp,setSelectedComp]=useState<string|null>(()=>{if(typeof window!=="undefined"){const s=localStorage.getItem("ps_empresa_sel");if(s&&!s.startsWith("group_")&&s!=="consolidado")return s;}return null;});
   const [loading,setLoading]=useState(true);
   const [msg,setMsg]=useState("");
   const [tab,setTab]=useState("configurar");
