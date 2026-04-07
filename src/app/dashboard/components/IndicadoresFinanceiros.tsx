@@ -171,65 +171,140 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
   },[empresaId]);
 
   const categorias=calcIndicadores(realData,bp,fin);
-  const statusCfg={bom:{cor:G,bg:G+"12",label:"Bom"},atencao:{cor:Y,bg:Y+"12",label:"Atenção"},critico:{cor:R,bg:R+"12",label:"Crítico"},neutro:{cor:TXD,bg:TXD+"08",label:"—"}};
+  const statusCfg={
+    bom:{cor:G,bg:"rgba(52,211,153,0.12)",border:"rgba(52,211,153,0.25)",label:"✅ Saudável",icon:"✅"},
+    atencao:{cor:Y,bg:"rgba(251,191,36,0.12)",border:"rgba(251,191,36,0.25)",label:"⚠️ Atenção",icon:"⚠️"},
+    critico:{cor:R,bg:"rgba(248,113,113,0.12)",border:"rgba(248,113,113,0.25)",label:"🔴 Crítico",icon:"🔴"},
+    neutro:{cor:TXM,bg:"rgba(176,171,159,0.06)",border:"rgba(176,171,159,0.15)",label:"—",icon:"◽"},
+  };
+
+  // Count totals
+  const allInds = categorias.flatMap(c=>c.indicadores);
+  const totalBom = allInds.filter(i=>i.status==="bom").length;
+  const totalAtencao = allInds.filter(i=>i.status==="atencao").length;
+  const totalCritico = allInds.filter(i=>i.status==="critico").length;
 
   return(
     <div>
-      {/* Summary KPIs - top indicators */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:8,marginBottom:14}}>
-        {[
-          {label:"Ponto de Equilíbrio",value:categorias[0]?.indicadores[0]?.valor||"—",cor:GOL},
-          {label:"Margem EBITDA",value:categorias[1]?.indicadores[2]?.valor||"—",cor:G},
-          {label:"ROE (a.a.)",value:categorias[1]?.indicadores[4]?.valor||"—",cor:categorias[1]?.indicadores[4]?.raw>15?G:categorias[1]?.indicadores[4]?.raw>0?Y:R},
-          {label:"Liquidez Corrente",value:categorias[2]?.indicadores[0]?.valor||"—",cor:B},
-          {label:"Dív.Líq/EBITDA",value:categorias[3]?.indicadores[4]?.valor||"—",cor:Y},
-          {label:"Ciclo Financeiro",value:categorias[4]?.indicadores[3]?.valor||"—",cor:P},
-        ].map((k,i)=>(
-          <div key={i} style={{background:BG2,borderRadius:12,padding:"12px 14px",border:`1px solid ${BD}`,textAlign:"center"}}>
-            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{k.label}</div>
-            <div style={{fontSize:16,fontWeight:700,color:k.cor}}>{k.value}</div>
+      {/* Health Score Bar */}
+      <div style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:16,padding:"18px 20px",border:`1px solid ${BD}`,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(135deg,${GO},${GOL})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:"0 4px 12px rgba(198,151,63,0.3)"}}>📊</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:TX}}>Saúde Financeira</div>
+              <div style={{fontSize:10,color:TXM}}>{allInds.length} indicadores analisados</div>
+            </div>
           </div>
-        ))}
+          <div style={{display:"flex",gap:8}}>
+            <div style={{padding:"4px 12px",borderRadius:8,background:G+"15",border:`1px solid ${G}30`,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:12}}>✅</span><span style={{fontSize:13,fontWeight:700,color:G}}>{totalBom}</span>
+            </div>
+            <div style={{padding:"4px 12px",borderRadius:8,background:Y+"15",border:`1px solid ${Y}30`,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:12}}>⚠️</span><span style={{fontSize:13,fontWeight:700,color:Y}}>{totalAtencao}</span>
+            </div>
+            <div style={{padding:"4px 12px",borderRadius:8,background:R+"15",border:`1px solid ${R}30`,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:12}}>🔴</span><span style={{fontSize:13,fontWeight:700,color:R}}>{totalCritico}</span>
+            </div>
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",background:"#0C0C0A"}}>
+          {totalBom>0&&<div style={{width:`${totalBom/allInds.length*100}%`,background:G,transition:"width 0.5s"}}/>}
+          {totalAtencao>0&&<div style={{width:`${totalAtencao/allInds.length*100}%`,background:Y,transition:"width 0.5s"}}/>}
+          {totalCritico>0&&<div style={{width:`${totalCritico/allInds.length*100}%`,background:R,transition:"width 0.5s"}}/>}
+        </div>
       </div>
 
-      {/* Indicator categories */}
+      {/* Top 6 KPIs - Hero Cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))",gap:10,marginBottom:16}}>
+        {[
+          {label:"Ponto de Equilíbrio",value:categorias[0]?.indicadores[0]?.valor||"—",cor:GOL,icon:"🎯",status:categorias[0]?.indicadores[0]?.status||"neutro"},
+          {label:"Margem EBITDA",value:categorias[1]?.indicadores[2]?.valor||"—",cor:G,icon:"📈",status:categorias[1]?.indicadores[2]?.status||"neutro"},
+          {label:"ROE (anual)",value:categorias[1]?.indicadores[4]?.valor||"—",cor:categorias[1]?.indicadores[4]?.raw>15?G:categorias[1]?.indicadores[4]?.raw>0?Y:R,icon:"💰",status:categorias[1]?.indicadores[4]?.status||"neutro"},
+          {label:"Liquidez Corrente",value:categorias[2]?.indicadores[0]?.valor||"—",cor:B,icon:"💧",status:categorias[2]?.indicadores[0]?.status||"neutro"},
+          {label:"Dív.Líq / EBITDA",value:categorias[3]?.indicadores[4]?.valor||"—",cor:Y,icon:"🏦",status:categorias[3]?.indicadores[4]?.status||"neutro"},
+          {label:"Ciclo Financeiro",value:categorias[4]?.indicadores[3]?.valor||"—",cor:P,icon:"⚡",status:categorias[4]?.indicadores[3]?.status||"neutro"},
+        ].map((k,i)=>{
+          const sc=statusCfg[k.status as keyof typeof statusCfg]||statusCfg.neutro;
+          return(
+          <div key={i} style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:14,padding:"16px",border:`1px solid ${sc.border}`,textAlign:"center",position:"relative",overflow:"hidden"}}>
+            <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:sc.cor,opacity:0.6}}/>
+            <div style={{width:32,height:32,borderRadius:8,background:`${k.cor}15`,border:`1px solid ${k.cor}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,margin:"0 auto 8px",boxShadow:`0 2px 8px ${k.cor}20`}}>{k.icon}</div>
+            <div style={{fontSize:9,color:TXM,textTransform:"uppercase",letterSpacing:1,marginBottom:4,fontWeight:500}}>{k.label}</div>
+            <div style={{fontSize:18,fontWeight:700,color:k.cor,textShadow:`0 0 20px ${k.cor}30`}}>{k.value}</div>
+          </div>
+        );})}
+      </div>
+
+      {/* Indicator Categories */}
       {categorias.map((cat,ci)=>{
         const isOpen=!!expanded[cat.categoria];
+        const catCritico=cat.indicadores.filter(i=>i.status==="critico").length;
+        const catBom=cat.indicadores.filter(i=>i.status==="bom").length;
         return(
-          <div key={ci} style={{marginBottom:8}}>
+          <div key={ci} style={{marginBottom:10}}>
+            {/* Category Header */}
             <div onClick={()=>setExpanded({...expanded,[cat.categoria]:!isOpen})} style={{
               display:"flex",justifyContent:"space-between",alignItems:"center",
-              padding:"10px 14px",background:BG2,borderRadius:isOpen?"10px 10px 0 0":10,border:`1px solid ${BD}`,
-              cursor:"pointer",borderLeft:`3px solid ${cat.cor}`,
+              padding:"12px 16px",background:"linear-gradient(135deg, #161614, #1E1E1B)",
+              borderRadius:isOpen?"14px 14px 0 0":14,border:`1px solid ${BD}`,
+              cursor:"pointer",borderLeft:`4px solid ${cat.cor}`,
             }}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:16}}>{cat.icon}</span>
-                <span style={{fontSize:13,fontWeight:600,color:TX}}>{cat.categoria}</span>
-                <span style={{fontSize:10,color:TXD}}>({cat.indicadores.length})</span>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:32,height:32,borderRadius:8,background:`${cat.cor}15`,border:`1px solid ${cat.cor}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:`0 2px 8px ${cat.cor}15`}}>{cat.icon}</div>
+                <div>
+                  <span style={{fontSize:14,fontWeight:600,color:TX}}>{cat.categoria}</span>
+                  <div style={{display:"flex",gap:6,marginTop:2}}>
+                    {catBom>0&&<span style={{fontSize:9,color:G}}>✅ {catBom}</span>}
+                    {cat.indicadores.filter(i=>i.status==="atencao").length>0&&<span style={{fontSize:9,color:Y}}>⚠️ {cat.indicadores.filter(i=>i.status==="atencao").length}</span>}
+                    {catCritico>0&&<span style={{fontSize:9,color:R}}>🔴 {catCritico}</span>}
+                  </div>
+                </div>
               </div>
-              <span style={{fontSize:12,color:TXD,transition:"transform 0.2s",transform:isOpen?"rotate(180deg)":""}}>▾</span>
+              <span style={{fontSize:14,color:TXM,transition:"transform 0.3s",transform:isOpen?"rotate(180deg)":""}}>▾</span>
             </div>
+
+            {/* Category Content */}
             {isOpen&&(
-              <div style={{background:BG2,borderRadius:"0 0 10px 10px",border:`1px solid ${BD}`,borderTop:"none",padding:"8px 12px"}}>
+              <div style={{background:"#141412",borderRadius:"0 0 14px 14px",border:`1px solid ${BD}`,borderTop:"none",padding:"6px 8px"}}>
                 {cat.indicadores.map((ind,ii)=>{
                   const sc=statusCfg[ind.status];
                   return(
-                    <div key={ii} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:8,alignItems:"center",padding:"8px 4px",borderBottom:ii<cat.indicadores.length-1?`1px solid ${BD}15`:"none"}}>
+                    <div key={ii} style={{
+                      display:"grid",gridTemplateColumns:"minmax(200px,2fr) 120px 100px 100px",gap:8,alignItems:"center",
+                      padding:"12px 10px",borderRadius:10,marginBottom:2,
+                      background:ii%2===0?"rgba(255,255,255,0.015)":"transparent",
+                      borderLeft:`3px solid ${sc.cor}40`,
+                    }}>
+                      {/* Name + explanation */}
                       <div>
-                        <div style={{fontSize:12,fontWeight:500,color:TX}}>
-                          <span style={{color:cat.cor,fontWeight:700,marginRight:4}}>{ind.sigla}</span>
+                        <div style={{fontSize:13,fontWeight:600,color:TX,marginBottom:2}}>
+                          <span style={{display:"inline-block",padding:"1px 6px",borderRadius:4,background:`${cat.cor}15`,color:cat.cor,fontSize:10,fontWeight:700,marginRight:6,border:`1px solid ${cat.cor}25`}}>{ind.sigla}</span>
                           {ind.nome}
                         </div>
-                        <div style={{fontSize:9,color:TXD,marginTop:2,lineHeight:1.4}}>{ind.explicacao}</div>
+                        <div style={{fontSize:10,color:TXM,lineHeight:1.5}}>{ind.explicacao}</div>
                       </div>
+
+                      {/* Value */}
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontSize:15,fontWeight:700,color:sc.cor}}>{ind.valor}</div>
+                        <div style={{fontSize:17,fontWeight:700,color:sc.cor,letterSpacing:-0.3}}>{ind.valor}</div>
                       </div>
+
+                      {/* Status badge */}
                       <div style={{textAlign:"center"}}>
-                        <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:sc.bg,color:sc.cor,fontWeight:600,border:`1px solid ${sc.cor}30`}}>{sc.label}</span>
+                        <span style={{
+                          fontSize:10,padding:"4px 10px",borderRadius:8,fontWeight:600,
+                          background:sc.bg,color:sc.cor,border:`1px solid ${sc.border}`,
+                          display:"inline-block",
+                        }}>{sc.label}</span>
                       </div>
+
+                      {/* Reference */}
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontSize:9,color:TXD}}>Ref: {ind.ref}</div>
+                        <div style={{fontSize:10,color:TXM,padding:"4px 8px",borderRadius:6,background:"rgba(255,255,255,0.03)",border:`1px solid ${BD}`,display:"inline-block"}}>
+                          Ref: {ind.ref}
+                        </div>
                       </div>
                     </div>
                   );
@@ -242,28 +317,34 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
 
       {/* AI Analysis */}
       {realData&&(
-        <div style={{marginTop:12,background:BG2,borderRadius:12,padding:16,border:`1px solid ${GO}30`}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-            <div style={{width:24,height:24,borderRadius:6,background:`linear-gradient(135deg,${GO},${GOL})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:BG}}>PS</div>
-            <span style={{fontSize:12,fontWeight:600,color:GOL}}>Análise IA — Indicadores Fundamentalistas</span>
+        <div style={{marginTop:14,background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:14,padding:18,border:`1px solid ${GO}30`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{width:30,height:30,borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:BG,boxShadow:"0 4px 12px rgba(198,151,63,0.3)"}}>PS</div>
+            <div>
+              <span style={{fontSize:13,fontWeight:600,color:GOL}}>Diagnóstico do Consultor Digital</span>
+              <div style={{fontSize:9,color:TXD}}>Baseado nos {allInds.length} indicadores analisados</div>
+            </div>
           </div>
           {categorias.map(cat=>cat.indicadores.filter(i=>i.status==="critico")).flat().map((ind,i)=>(
-            <div key={i} style={{padding:"8px 12px",borderRadius:8,background:R+"10",border:`1px solid ${R}30`,marginBottom:6,fontSize:11,color:TXM,display:"flex",gap:8}}>
-              <span>🔴</span><span><strong style={{color:R}}>{ind.sigla} ({ind.valor})</strong> está abaixo do mínimo (ref: {ind.ref}). {ind.explicacao}</span>
+            <div key={`c${i}`} style={{padding:"10px 14px",borderRadius:10,background:R+"10",border:`1px solid ${R}25`,marginBottom:6,fontSize:12,color:TX,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:14,flexShrink:0}}>🔴</span>
+              <div><strong style={{color:R}}>{ind.sigla} = {ind.valor}</strong> <span style={{color:TXM}}>— {ind.explicacao} Referência: {ind.ref}.</span></div>
             </div>
           ))}
           {categorias.map(cat=>cat.indicadores.filter(i=>i.status==="atencao")).flat().slice(0,3).map((ind,i)=>(
-            <div key={i} style={{padding:"8px 12px",borderRadius:8,background:Y+"10",border:`1px solid ${Y}30`,marginBottom:6,fontSize:11,color:TXM,display:"flex",gap:8}}>
-              <span>🟡</span><span><strong style={{color:Y}}>{ind.sigla} ({ind.valor})</strong> — {ind.ref}. Monitorar tendência.</span>
+            <div key={`a${i}`} style={{padding:"10px 14px",borderRadius:10,background:Y+"10",border:`1px solid ${Y}25`,marginBottom:6,fontSize:12,color:TX,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:14,flexShrink:0}}>⚠️</span>
+              <div><strong style={{color:Y}}>{ind.sigla} = {ind.valor}</strong> <span style={{color:TXM}}>— Próximo do limite ({ind.ref}). Monitorar tendência.</span></div>
             </div>
           ))}
-          {categorias.map(cat=>cat.indicadores.filter(i=>i.status==="bom")).flat().length>15&&(
-            <div style={{padding:"8px 12px",borderRadius:8,background:G+"10",border:`1px solid ${G}30`,fontSize:11,color:TXM,display:"flex",gap:8}}>
-              <span>🟢</span><span>A maioria dos indicadores está saudável. Empresa bem posicionada financeiramente.</span>
+          {totalBom>allInds.length*0.6&&(
+            <div style={{padding:"10px 14px",borderRadius:10,background:G+"10",border:`1px solid ${G}25`,fontSize:12,color:TX,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:14,flexShrink:0}}>✅</span>
+              <div><strong style={{color:G}}>{totalBom} de {allInds.length} indicadores saudáveis.</strong> <span style={{color:TXM}}>Empresa bem posicionada. Preencha o Balanço Patrimonial para indicadores ainda mais precisos.</span></div>
             </div>
           )}
-          <div style={{fontSize:9,color:TXD,marginTop:8}}>
-            * ROE, ROA e ROIC são anualizados (valor mensal × 12). Preencha o Balanço Patrimonial e Financiamentos para indicadores mais precisos.
+          <div style={{fontSize:9,color:TXD,marginTop:10,padding:"6px 10px",borderRadius:6,background:"rgba(0,0,0,0.2)"}}>
+            * ROE, ROA e ROIC são anualizados (mensal × 12). Para máxima precisão, preencha Balanço Patrimonial e Financiamentos.
           </div>
         </div>
       )}
