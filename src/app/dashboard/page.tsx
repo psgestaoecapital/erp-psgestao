@@ -401,7 +401,7 @@ export default function DashboardPage(){
     setDrillOpen(key);
     setDrillLoading(true);
     setDrillData(null);
-    const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
+    const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : empresaSel.startsWith("group_") ? dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id) : [empresaSel];
     try {
       const res = await fetch(`/api/omie/detail?t=${Date.now()}`, {
         method: "POST",
@@ -462,7 +462,16 @@ export default function DashboardPage(){
   useEffect(() => {
     if(dbCompanies.length === 0 || omieData.length === 0) return;
     setLoadingReal(true);
-    const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : [empresaSel];
+    let compIds: string[];
+    if (empresaSel === "consolidado") {
+      compIds = dbCompanies.map(c => c.id);
+    } else if (empresaSel.startsWith("group_")) {
+      const gid = empresaSel.replace("group_", "");
+      compIds = dbCompanies.filter(c => c.group_id === gid).map(c => c.id);
+    } else {
+      compIds = [empresaSel];
+    }
+    if (compIds.length === 0) { setLoadingReal(false); return; }
     fetch(`/api/omie/process?t=${Date.now()}`, {
       method: "POST",
       headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
@@ -485,9 +494,19 @@ export default function DashboardPage(){
   })).filter(g=>g.empresas.length>0);
   const empresasSemGrupo = dbCompanies.filter(c=>!c.group_id || !dbGroups.find((g: any)=>g.id===c.group_id));
 
-  const empresaAtiva = empresaSel==="consolidado" 
-    ? {nome:dbCompanies.length>0?(dbCompanies[0].nome_fantasia||dbCompanies[0].razao_social):empresa.nome,cidade:dbCompanies.length>0?(dbCompanies[0].cidade_estado||empresa.cidade):empresa.cidade,lns:empresa.lns,colab:dbCompanies.length>0?(dbCompanies[0].num_colaboradores||empresa.colab):empresa.colab}
-    : {nome:dbCompanies.find(c=>c.id===empresaSel)?.nome_fantasia||dbCompanies.find(c=>c.id===empresaSel)?.razao_social||empresa.nome,cidade:dbCompanies.find(c=>c.id===empresaSel)?.cidade_estado||empresa.cidade,lns:empresa.lns,colab:dbCompanies.find(c=>c.id===empresaSel)?.num_colaboradores||empresa.colab};
+  const empresaAtiva = (()=>{
+    if (empresaSel === "consolidado") {
+      return {nome:dbCompanies.length>0?(dbCompanies[0].nome_fantasia||dbCompanies[0].razao_social):empresa.nome,cidade:dbCompanies.length>0?(dbCompanies[0].cidade_estado||empresa.cidade):empresa.cidade,lns:empresa.lns,colab:dbCompanies.length>0?(dbCompanies[0].num_colaboradores||empresa.colab):empresa.colab,isGroup:true,groupName:"Todas as Empresas",groupCount:dbCompanies.length};
+    }
+    if (empresaSel.startsWith("group_")) {
+      const gid = empresaSel.replace("group_", "");
+      const grp = dbGroups.find((g: any) => g.id === gid);
+      const emps = dbCompanies.filter(c => c.group_id === gid);
+      return {nome:grp?.nome||"Grupo",cidade:emps[0]?.cidade_estado||"",lns:empresa.lns,colab:emps.reduce((s: number,c: any)=>s+(c.num_colaboradores||0),0),isGroup:true,groupName:grp?.nome||"Grupo",groupCount:emps.length};
+    }
+    const c = dbCompanies.find(c=>c.id===empresaSel);
+    return {nome:c?.nome_fantasia||c?.razao_social||empresa.nome,cidade:c?.cidade_estado||empresa.cidade,lns:empresa.lns,colab:c?.num_colaboradores||empresa.colab,isGroup:false,groupName:"",groupCount:1};
+  })();
 
   // Build chart data from raw monthly data (computed in render to avoid stale state)
   const chartData = (()=>{
@@ -510,20 +529,21 @@ export default function DashboardPage(){
     <div style={{padding:"12px 20px",background:BG2,borderBottom:`1px solid ${BD}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresaSel==="consolidado"&&dbCompanies.length>1?"GRUPO: ":""}{empresaAtiva.nome}</div>
-          <div style={{fontSize:10,color:TXD}}>{empresaAtiva.cidade}{empresaAtiva.colab?` | ${empresaAtiva.colab} colaboradores`:""}{dbCompanies.length>1?` | ${dbCompanies.length} empresas no grupo`:""}</div>
+          <div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresaAtiva.isGroup?"📁 ":""}{empresaAtiva.isGroup&&empresaAtiva.groupName?empresaAtiva.groupName:empresaAtiva.nome}</div>
+          <div style={{fontSize:10,color:TXD}}>{empresaAtiva.cidade}{empresaAtiva.colab?` | ${empresaAtiva.colab} colaboradores`:""}{empresaAtiva.isGroup&&empresaAtiva.groupCount>1?` | ${empresaAtiva.groupCount} empresas`:""}</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {grupoEmpresas.length>1&&(
             <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}>
               <option value="consolidado">📊 Todas as Empresas ({dbCompanies.length})</option>
               {gruposComEmpresas.map(g=>(
-                <optgroup key={g.id} label={`▸ ${g.nome} (${g.empresas.length})`}>
-                  {g.empresas.map((c: any)=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+                <optgroup key={g.id} label={`━━━━━━━━━━━━━━━━━━`}>
+                  <option value={`group_${g.id}`}>📁 {g.nome} ({g.empresas.length} empresas)</option>
+                  {g.empresas.map((c: any)=><option key={c.id} value={c.id}>{"    "}└ {c.nome_fantasia||c.razao_social}</option>)}
                 </optgroup>
               ))}
               {empresasSemGrupo.length>0&&(
-                <optgroup label="▸ Sem Grupo">
+                <optgroup label="━━━━━━━━━━━━━━━━━━">
                   {empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
                 </optgroup>
               )}
