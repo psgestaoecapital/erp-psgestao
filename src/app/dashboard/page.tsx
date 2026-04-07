@@ -625,38 +625,38 @@ export default function DashboardPage(){
             }}>{ROLE_NAMES[userRole]||userRole}</span>
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {grupoEmpresas.length>1&&(
-            <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:10,fontWeight:600,minWidth:160}}>
-              <option value="consolidado">📊 Todas as Empresas ({dbCompanies.length})</option>
-              {gruposComEmpresas.map(g=>(
-                <optgroup key={g.id} label={`━━━━━━━━━━━━━━━━━━`}>
-                  <option value={`group_${g.id}`}>📁 {g.nome} ({g.empresas.length} empresas)</option>
-                  {g.empresas.map((c: any)=><option key={c.id} value={c.id}>{"    "}└ {c.nome_fantasia||c.razao_social}</option>)}
-                </optgroup>
-              ))}
-              {empresasSemGrupo.length>0&&(
-                <optgroup label="━━━━━━━━━━━━━━━━━━">
-                  {empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-                </optgroup>
-              )}
-            </select>
-          )}
-          <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
-            {/* Quick period buttons */}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {/* Row 1: Company + Quick periods */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {grupoEmpresas.length>1&&(
+              <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:10,fontWeight:600,minWidth:160}}>
+                <option value="consolidado">📊 Todas as Empresas ({dbCompanies.length})</option>
+                {gruposComEmpresas.map(g=>(
+                  <optgroup key={g.id} label={`━━━━━━━━━━━━━━━━━━`}>
+                    <option value={`group_${g.id}`}>📁 {g.nome} ({g.empresas.length} empresas)</option>
+                    {g.empresas.map((c: any)=><option key={c.id} value={c.id}>{"    "}└ {c.nome_fantasia||c.razao_social}</option>)}
+                  </optgroup>
+                ))}
+                {empresasSemGrupo.length>0&&(
+                  <optgroup label="━━━━━━━━━━━━━━━━━━">
+                    {empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+                  </optgroup>
+                )}
+              </select>
+            )}
             <div style={{display:"flex",gap:2}}>
               {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"],["trimestre","Tri"],["semestre","Sem"],["ano","Ano"]].map(([k,l])=>(
                 <button key={k} onClick={()=>setQuickPeriod(k)} style={{padding:"3px 8px",borderRadius:6,fontSize:9,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontWeight:500,cursor:"pointer"}}>{l}</button>
               ))}
             </div>
-            <div style={{width:1,height:16,background:BD,margin:"0 2px"}}/>
-            {/* Mode toggle */}
+          </div>
+          {/* Row 2: Date mode + inputs + BPO/Admin */}
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <select value={filtroTipo} onChange={e=>{setFiltroTipo(e.target.value as any);}} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 6px",fontSize:9,fontWeight:600}}>
               <option value="mes">Mensal</option>
               <option value="dia">Dia</option>
               <option value="periodo">Período</option>
             </select>
-            {/* Date inputs based on mode */}
             {filtroTipo==="mes"&&(<>
               <input type="month" value={periodoInicio} onChange={e=>setPeriodoInicio(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
               <span style={{fontSize:9,color:TXD}}>a</span>
@@ -670,10 +670,9 @@ export default function DashboardPage(){
               <span style={{fontSize:9,color:TXD}}>a</span>
               <input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600}}/>
             </>)}
-          </div>
-          <div style={{display:"flex",gap:4,marginLeft:8}}>
-            {(userRole==="admin"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"4px 10px",borderRadius:6,fontSize:9,border:`1px solid ${G}`,color:G,textDecoration:"none",fontWeight:600}}>📊 BPO</a>}
-            {(userRole==="admin")&&<a href="/dashboard/admin" style={{padding:"4px 10px",borderRadius:6,fontSize:9,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️ Admin</a>}
+            <div style={{width:1,height:16,background:BD,margin:"0 2px"}}/>
+            {(userRole==="admin"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"4px 12px",borderRadius:6,fontSize:10,border:`1px solid ${G}`,color:G,textDecoration:"none",fontWeight:600}}>📊 BPO</a>}
+            {(userRole==="admin")&&<a href="/dashboard/admin" style={{padding:"4px 12px",borderRadius:6,fontSize:10,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️ Admin</a>}
           </div>
         </div>
       </div>

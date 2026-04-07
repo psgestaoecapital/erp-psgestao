@@ -117,22 +117,36 @@ export default function BPOPage(){
   <div style={{padding:20,maxWidth:1200,margin:"0 auto",background:BG,minHeight:"100vh"}}>
     
     {/* Header */}
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontSize:22,fontWeight:700,color:GOL}}>BPO Inteligente — Central de Clientes</div>
-        <div style={{fontSize:11,color:TXD}}>Visão consolidada de todos os clientes • Operado por PS — Consultor Digital</div>
+        <div style={{fontSize:22,fontWeight:700,color:GOL}}>BPO Inteligente</div>
+        <div style={{fontSize:11,color:TXM}}>Central de operações • PS Gestão e Capital</div>
       </div>
-      <div style={{display:"flex",gap:8}}>
+      <div style={{display:"flex",gap:6}}>
         <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
-        <a href="/dashboard/bpo/supervisor" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none",fontWeight:600}}>👥 Supervisor</a>
-        <a href="/dashboard/bpo/automacao" style={{padding:"8px 16px",border:`1px solid ${G}`,borderRadius:8,color:G,fontSize:11,textDecoration:"none",fontWeight:600}}>🤖 Automação IA</a>
-        <a href="/dashboard/bpo/conciliacao" style={{padding:"8px 16px",border:`1px solid ${G}`,borderRadius:8,color:G,fontSize:11,textDecoration:"none",fontWeight:600}}>💳 Conciliação Cartão</a>
-        <a href="/dashboard/bpo/rotinas" style={{padding:"8px 16px",border:`1px solid ${PU}`,borderRadius:8,color:PU,fontSize:11,textDecoration:"none",fontWeight:600}}>🤖 Rotinas &amp; Automação</a>
-        <a href="/dashboard/bpo/rotinas" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none",fontWeight:600}}>⚡ Rotinas</a>
-        <button onClick={loadBPOData} style={{padding:"8px 16px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>
-          ↻ Atualizar
-        </button>
+        <button onClick={loadBPOData} style={{padding:"8px 16px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>↻ Atualizar</button>
       </div>
+    </div>
+
+    {/* Module cards */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:8,marginBottom:16}}>
+      {[
+        {href:"/dashboard/bpo/supervisor",icon:"👥",nome:"Supervisor",desc:"Visão consolidada multi-empresa",cor:GO},
+        {href:"/dashboard/bpo/automacao",icon:"🤖",nome:"Automação IA",desc:"Auto-classificação de lançamentos",cor:G},
+        {href:"/dashboard/bpo/conciliacao",icon:"💳",nome:"Conciliação Cartão",desc:"OFX/CSV → matching automático",cor:BL},
+        {href:"/dashboard/dados",icon:"📊",nome:"Entrada de Dados",desc:"Importar Omie, configurar empresa",cor:Y},
+      ].map((m,i)=>(
+        <a key={i} href={m.href} style={{background:BG2,borderRadius:12,padding:"14px",border:`1px solid ${BD}`,textDecoration:"none",display:"block",borderLeft:`4px solid ${m.cor}`,transition:"all 0.2s"}}
+          onMouseEnter={e=>(e.currentTarget.style.background="#1E1E1B")} onMouseLeave={e=>(e.currentTarget.style.background=BG2)}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:8,background:`${m.cor}15`,border:`1px solid ${m.cor}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{m.icon}</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:TX}}>{m.nome}</div>
+              <div style={{fontSize:10,color:TXM}}>{m.desc}</div>
+            </div>
+          </div>
+        </a>
+      ))}
     </div>
 
     {/* KPIs */}
