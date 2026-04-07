@@ -6,6 +6,8 @@ const GO="#C6973F",GOL="#E8C872",BG="#0F0F0D",BG2="#1C1B18",BG3="#2A2822",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",
     BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82";
 
+const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
+
 const Input=({label,value,onChange,type="text",placeholder="",prefix="",small=false}:any)=>(
   <div style={{marginBottom:small?8:12}}>
     <label style={{fontSize:11,color:TXM,display:"block",marginBottom:4}}>{label}</label>
@@ -190,6 +192,7 @@ export default function DadosPage() {
 
   // Data Alerts
   const [alertas, setAlertas] = useState<any[]>([]);
+  const [alertaAberto, setAlertaAberto] = useState<number|null>(null);
 
   // Contexto Humano (Bloco 18)
   const [contexto, setContexto] = useState({
@@ -240,31 +243,114 @@ export default function DadosPage() {
 
   const generateAlerts = async (compId: string) => {
     const alerts: any[] = [];
-    // Check Omie imports
     const { data: imports } = await supabase.from("omie_imports").select("import_type,import_data,record_count").eq("company_id", compId);
     if(!imports || imports.length === 0) {
-      alerts.push({tipo:"sem_dados",severidade:"critico",mensagem:"Nenhum dado importado do Omie",detalhe:"Esta empresa não tem dados financeiros. Conecte o Omie na aba Integrações.",sugestao:"Vá em ⚡ Integrações → Omie → Importar Dados"});
+      alerts.push({tipo:"sem_dados",severidade:"critico",mensagem:"Nenhum dado importado do Omie",detalhe:"Esta empresa não tem dados financeiros. Conecte o Omie na aba Integrações.",sugestao:"Vá em ⚡ Integrações → Omie → Importar Dados",itens:[]});
     } else {
-      // Check for empréstimos classificados como receita
+      // 1. Check empréstimos classificados como receita — com detalhes
       const recImports = imports.filter(i=>i.import_type==="contas_receber");
+      const empItens: any[] = [];
       for(const cr of recImports){
         const regs = cr.import_data?.conta_receber_cadastro || [];
         if(!Array.isArray(regs)) continue;
-        let emprestimosComoReceita = 0;
         for(const r of regs){
           const cat = r.codigo_categoria || "";
-          // Categories starting with 2. or 4. shouldn't be in contas_receber
           if(cat.startsWith("2.") || cat.startsWith("4.") || cat.startsWith("5.")) {
-            emprestimosComoReceita += Number(r.valor_documento) || 0;
+            empItens.push({
+              data: r.data_emissao || r.data_vencimento || "—",
+              doc: r.numero_documento || r.numero_documento_fiscal || "—",
+              valor: Number(r.valor_documento) || 0,
+              categoria_atual: `${cat} — ${r.descricao_categoria || "Sem descrição"}`,
+              status: r.status_titulo || "—",
+              onde_corrigir: "Omie → Contas a Receber → Localizar pelo documento → Alterar categoria para 1.xx (Receita Operacional) ou reclassificar como Empréstimo/Aporte",
+            });
           }
         }
-        if(emprestimosComoReceita > 0) {
-          alerts.push({tipo:"classificacao",severidade:"atencao",mensagem:`R$ ${(emprestimosComoReceita/1000).toFixed(1)}K em contas a receber podem não ser receita operacional`,detalhe:"Empréstimos bancários, aportes de capital e transferências internas aparecem como receita mas não são faturamento real.",sugestao:"Revise as categorias no Omie: categorias que começam com 2.xx, 4.xx ou 5.xx não devem estar em Contas a Receber"});
-        }
+      }
+      if(empItens.length > 0) {
+        const total = empItens.reduce((s,i) => s + i.valor, 0);
+        alerts.push({tipo:"classificacao",severidade:"atencao",
+          mensagem:`${empItens.length} lançamentos (${fmtR(total)}) podem estar classificados incorretamente`,
+          detalhe:`Contas a receber com categorias 2.xx, 4.xx ou 5.xx não são receita operacional. São empréstimos, aportes ou transferências que inflam o faturamento real.`,
+          sugestao:"Corrija no Omie: reclassifique para categoria correta ou mova para módulo de Empréstimos.",
+          itens: empItens.slice(0, 20),
+        });
       }
 
-      // Check for future-dated entries
+      // 2. Contas sem categoria
+      const semCatItens: any[] = [];
+      for(const cr of recImports){
+        const regs = cr.import_data?.conta_receber_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const cat = r.codigo_categoria || "";
+          if(!cat || cat === "sem_cat" || cat === "0") {
+            semCatItens.push({
+              data: r.data_emissao || r.data_vencimento || "—",
+              doc: r.numero_documento || r.numero_documento_fiscal || "—",
+              valor: Number(r.valor_documento) || 0,
+              categoria_atual: "SEM CATEGORIA",
+              status: r.status_titulo || "—",
+              onde_corrigir: "Omie → Contas a Receber → Localizar pelo documento → Atribuir categoria (ex: 1.01.01 Venda de Mercadorias)",
+            });
+          }
+        }
+      }
       const cpImports = imports.filter(i=>i.import_type==="contas_pagar");
+      for(const cp of cpImports){
+        const regs = cp.import_data?.conta_pagar_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          const cat = r.codigo_categoria || "";
+          if(!cat || cat === "sem_cat" || cat === "0") {
+            semCatItens.push({
+              data: r.data_emissao || r.data_vencimento || "—",
+              doc: r.numero_documento || r.numero_documento_fiscal || "—",
+              valor: Number(r.valor_documento) || 0,
+              categoria_atual: "SEM CATEGORIA",
+              status: r.status_titulo || "—",
+              onde_corrigir: "Omie → Contas a Pagar → Localizar pelo documento → Atribuir categoria correta",
+            });
+          }
+        }
+      }
+      if(semCatItens.length > 0) {
+        alerts.push({tipo:"sem_categoria",severidade:"critico",
+          mensagem:`${semCatItens.length} lançamentos sem categoria (${fmtR(semCatItens.reduce((s,i) => s + i.valor, 0))})`,
+          detalhe:"Lançamentos sem categoria não aparecem corretamente no DRE e distorcem a análise de custos.",
+          sugestao:"Abra o Omie e classifique cada lançamento na categoria correta.",
+          itens: semCatItens.slice(0, 20),
+        });
+      }
+
+      // 3. Lançamentos vencidos/atrasados
+      const atrasadosItens: any[] = [];
+      for(const cr of recImports){
+        const regs = cr.import_data?.conta_receber_cadastro || [];
+        if(!Array.isArray(regs)) continue;
+        for(const r of regs){
+          if(r.status_titulo === "ATRASADO") {
+            atrasadosItens.push({
+              data: r.data_vencimento || r.data_emissao || "—",
+              doc: r.numero_documento || "—",
+              valor: Number(r.valor_documento) || 0,
+              categoria_atual: r.descricao_categoria || r.codigo_categoria || "—",
+              status: "ATRASADO",
+              onde_corrigir: "Cobrar o cliente ou registrar como perda no Omie → Contas a Receber → Baixar como Prejuízo",
+            });
+          }
+        }
+      }
+      if(atrasadosItens.length > 0) {
+        alerts.push({tipo:"inadimplencia",severidade:"atencao",
+          mensagem:`${atrasadosItens.length} títulos atrasados (${fmtR(atrasadosItens.reduce((s,i) => s + i.valor, 0))})`,
+          detalhe:"Valores vencidos que ainda não foram recebidos. Impacta diretamente o fluxo de caixa.",
+          sugestao:"Acione a cobrança ou renegocie. Títulos acima de 90 dias devem ser provisionados como perda.",
+          itens: atrasadosItens.slice(0, 20),
+        });
+      }
+
+      // 4. Datas futuras (longo prazo)
       let futureCount = 0;
       const now = new Date();
       for(const cp of cpImports){
@@ -272,29 +358,14 @@ export default function DadosPage() {
         if(!Array.isArray(regs)) continue;
         for(const r of regs){
           const dt = r.data_vencimento || "";
-          if(dt){
-            const parts = dt.split("/");
-            if(parts.length===3){
-              const year = parseInt(parts[2]);
-              if(year > now.getFullYear()+1) futureCount++;
-            }
-          }
+          if(dt){const parts = dt.split("/");if(parts.length===3){const year = parseInt(parts[2]);if(year > now.getFullYear()+1) futureCount++;}}
         }
       }
       if(futureCount > 0) {
-        alerts.push({tipo:"datas_futuras",severidade:"info",mensagem:`${futureCount} registros com vencimento após ${now.getFullYear()+1}`,detalhe:"Parcelas de financiamentos e contratos de longo prazo. Estes valores são excluídos dos gráficos mensais para não distorcer a análise.",sugestao:"Verifique se são parcelas reais ou erros de cadastro no Omie"});
-      }
-
-      // Check for missing months
-      const cpMonths = new Set<string>();
-      for(const cp of cpImports){
-        const regs = cp.import_data?.conta_pagar_cadastro || [];
-        if(!Array.isArray(regs)) continue;
-        for(const r of regs){
-          const dt = r.data_emissao || "";
-          const parts = dt.split("/");
-          if(parts.length===3) cpMonths.add(`${parts[2]}-${parts[1]}`);
-        }
+        alerts.push({tipo:"datas_futuras",severidade:"info",
+          mensagem:`${futureCount} registros com vencimento após ${now.getFullYear()+1}`,
+          detalhe:"Parcelas de financiamentos e contratos de longo prazo.",
+          sugestao:"Verifique se são parcelas reais ou erros de cadastro no Omie",itens:[]});
       }
     }
     setAlertas(alerts);
@@ -497,20 +568,53 @@ export default function DadosPage() {
         <div style={{marginBottom:10}}>
           {alertas.map((a,i)=>(
             <div key={i} style={{
-              background:a.severidade==="critico"?R+"15":a.severidade==="atencao"?Y+"12":B+"10",
-              borderRadius:8,padding:"10px 14px",marginBottom:6,
+              background:a.severidade==="critico"?R+"12":a.severidade==="atencao"?Y+"10":B+"08",
+              borderRadius:12,padding:"12px 16px",marginBottom:8,
               borderLeft:`4px solid ${a.severidade==="critico"?R:a.severidade==="atencao"?Y:B}`,
-              border:`0.5px solid ${a.severidade==="critico"?R+"40":a.severidade==="atencao"?Y+"30":B+"30"}`
+              border:`1px solid ${a.severidade==="critico"?R+"30":a.severidade==="atencao"?Y+"25":B+"20"}`
             }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div>
-                  <div style={{fontSize:12,fontWeight:600,color:a.severidade==="critico"?R:a.severidade==="atencao"?Y:B}}>
-                    {a.severidade==="critico"?"⚠ Crítico":a.severidade==="atencao"?"⚡ Atenção":"ℹ Informação"}: {a.mensagem}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:a.severidade==="critico"?R:a.severidade==="atencao"?Y:B}}>
+                    {a.severidade==="critico"?"🔴 Crítico":a.severidade==="atencao"?"⚠️ Atenção":"ℹ️ Informação"}: {a.mensagem}
                   </div>
-                  {a.detalhe&&<div style={{fontSize:10,color:TXM,marginTop:4}}>{a.detalhe}</div>}
-                  {a.sugestao&&<div style={{fontSize:10,color:GO,marginTop:4,fontWeight:500}}>💡 {a.sugestao}</div>}
+                  {a.detalhe&&<div style={{fontSize:11,color:TXM,marginTop:4,lineHeight:1.5}}>{a.detalhe}</div>}
+                  {a.sugestao&&<div style={{fontSize:11,color:G,marginTop:4,fontWeight:500}}>💡 {a.sugestao}</div>}
                 </div>
+                {a.itens&&a.itens.length>0&&(
+                  <button onClick={()=>setAlertaAberto(alertaAberto===i?null:i)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontSize:10,cursor:"pointer",whiteSpace:"nowrap",marginLeft:8}}>
+                    {alertaAberto===i?"▲ Fechar":`▼ Ver ${a.itens.length} itens`}
+                  </button>
+                )}
               </div>
+
+              {alertaAberto===i&&a.itens&&a.itens.length>0&&(
+                <div style={{marginTop:10,maxHeight:300,overflowY:"auto"}}>
+                  <table style={{width:"100%",fontSize:10,borderCollapse:"collapse"}}>
+                    <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
+                      <th style={{padding:"6px",textAlign:"left",color:GO,fontSize:9,fontWeight:600}}>DATA</th>
+                      <th style={{padding:"6px",textAlign:"left",color:GO,fontSize:9,fontWeight:600}}>DOCUMENTO</th>
+                      <th style={{padding:"6px",textAlign:"right",color:GO,fontSize:9,fontWeight:600}}>VALOR</th>
+                      <th style={{padding:"6px",textAlign:"left",color:GO,fontSize:9,fontWeight:600}}>CATEGORIA ATUAL</th>
+                      <th style={{padding:"6px",textAlign:"left",color:GO,fontSize:9,fontWeight:600}}>STATUS</th>
+                      <th style={{padding:"6px",textAlign:"left",color:GO,fontSize:9,fontWeight:600}}>ONDE CORRIGIR</th>
+                    </tr></thead>
+                    <tbody>
+                      {a.itens.map((item:any,ii:number)=>(
+                        <tr key={ii} style={{borderBottom:`0.5px solid ${BD}20`}}>
+                          <td style={{padding:"6px",color:TX,whiteSpace:"nowrap",fontSize:11}}>{item.data}</td>
+                          <td style={{padding:"6px",color:TX,fontFamily:"monospace",fontSize:11}}>{item.doc}</td>
+                          <td style={{padding:"6px",textAlign:"right",color:R,fontWeight:600,fontSize:11}}>{fmtR(item.valor)}</td>
+                          <td style={{padding:"6px",color:Y,fontSize:10}}>{item.categoria_atual}</td>
+                          <td style={{padding:"6px"}}><span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:item.status==="ATRASADO"?R+"15":item.status==="RECEBIDO"||item.status==="PAGO"?G+"15":TXD+"10",color:item.status==="ATRASADO"?R:item.status==="RECEBIDO"||item.status==="PAGO"?G:TXM}}>{item.status}</span></td>
+                          <td style={{padding:"6px",color:G,fontSize:10,maxWidth:200}}>{item.onde_corrigir}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {a.itens.length>=20&&<div style={{fontSize:10,color:TXD,textAlign:"center",marginTop:6}}>Mostrando os primeiros 20 de {a.itens.length} itens</div>}
+                </div>
+              )}
             </div>
           ))}
         </div>
