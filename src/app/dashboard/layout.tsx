@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import AgenteIA from "./components/AgenteIA";
 import { useRouter } from "next/navigation";
 
 const GO="#C6973F",GOL="#E8C872",G="#22C55E",Y="#FACC15",R="#EF4444",
@@ -195,6 +196,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {children}
+      <AgenteIA/>
     </div>
   );
 }
