@@ -212,7 +212,7 @@ export default function DadosPage() {
 
   const loadCompanies = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    if (!user) return;
 
     const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
     const [{ data: grps }] = await Promise.all([
