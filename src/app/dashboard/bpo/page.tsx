@@ -124,6 +124,7 @@ export default function BPOPage(){
       </div>
       <div style={{display:"flex",gap:8}}>
         <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
+        <a href="/dashboard/bpo/supervisor" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none",fontWeight:600}}>👥 Supervisor</a>
         <a href="/dashboard/bpo/conciliacao" style={{padding:"8px 16px",border:`1px solid ${G}`,borderRadius:8,color:G,fontSize:11,textDecoration:"none",fontWeight:600}}>💳 Conciliação Cartão</a>
         <a href="/dashboard/bpo/rotinas" style={{padding:"8px 16px",border:`1px solid ${PU}`,borderRadius:8,color:PU,fontSize:11,textDecoration:"none",fontWeight:600}}>🤖 Rotinas &amp; Automação</a>
         <a href="/dashboard/bpo/rotinas" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none",fontWeight:600}}>⚡ Rotinas</a>

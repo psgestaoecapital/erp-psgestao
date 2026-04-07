@@ -115,7 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <img src="/images/logo-header.png" alt="PS Gestão" style={{ height: 38, width: "auto", filter: "drop-shadow(0 2px 8px rgba(198,151,63,0.15))" }}/>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#E8C872", letterSpacing: 0.3 }}>PS Gestão e Capital</div>
-            <div style={{ fontSize: 8, color: "#6B6960", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v7.1</div>
+            <div style={{ fontSize: 8, color: "#6B6960", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v7.2</div>
           </div>
         </a>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -123,6 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {completedCount<checklist.length?`⚡ ${completedCount}/${checklist.length}`:"✓ Pronto"}
           </button>
           <a href="/dashboard/dados" style={{ fontSize: 10, color: "#E8C872", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #C6973F30", background: "#C6973F08", fontWeight: 600 }}>📊 Dados</a>
+          <a href="/dashboard/viabilidade" style={{ fontSize: 10, color: "#A78BFA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #A78BFA30", background: "#A78BFA08", fontWeight: 600 }}>📐 Viabilidade</a>
           <a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
           <span style={{ fontSize: 10, color: "#6B6960", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>
