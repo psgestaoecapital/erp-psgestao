@@ -1103,9 +1103,10 @@ export default function DadosPage() {
 
               {caClientId&&caClientSecret&&!caToken&&(
                 <button onClick={()=>{
-                  const state = btoa(JSON.stringify({client_id:caClientId,client_secret:caClientSecret}));
-                  const redirectUri = encodeURIComponent(`${window.location.origin}/api/contaazul/callback`);
-                  const authUrl = `https://api.contaazul.com/auth/authorize?response_type=code&client_id=${encodeURIComponent(caClientId)}&redirect_uri=${redirectUri}&scope=sales&state=${encodeURIComponent(state)}`;
+                  // Store credentials in sessionStorage for callback
+                  try { sessionStorage.setItem("ca_creds", JSON.stringify({client_id:caClientId,client_secret:caClientSecret})); } catch{}
+                  const redirectUri = `${window.location.origin}/dashboard/contaazul-callback`;
+                  const authUrl = `https://api.contaazul.com/auth/authorize?redirect_uri=${encodeURIComponent(redirectUri)}&client_id=${caClientId}&scope=sales&state=psgestao`;
                   window.location.href = authUrl;
                 }} style={{
                   width:"100%",padding:"14px",borderRadius:10,border:"none",fontSize:13,fontWeight:700,
