@@ -1667,18 +1667,18 @@ export default function DashboardPage(){
                 method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify({company_ids:compIds,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
               });
-              const d=await res.json();
-              if(d.success) setReportText(d.report);
-              else setReportText("Erro: "+(d.error||"desconhecido"));
+              const text=await res.text();
+              try{const d=JSON.parse(text);if(d.success)setReportText(d.report);else setReportText("Erro: "+(d.error||"desconhecido"));}
+              catch{setReportText("Erro: Resposta inválida do servidor. Verifique se SUPABASE_SERVICE_ROLE_KEY está configurada no Vercel.");}
             } else {
               // Quick report
               const res=await fetch("/api/report",{
                 method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify({financial_data:realData,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
               });
-              const d=await res.json();
-              if(d.success) setReportText(d.report);
-              else setReportText("Erro: "+(d.error||"desconhecido"));
+              const text=await res.text();
+              try{const d=JSON.parse(text);if(d.success)setReportText(d.report);else setReportText("Erro: "+(d.error||"desconhecido"));}
+              catch{setReportText("Erro: Resposta inválida do servidor.");}
             }
           } catch(e:any) { setReportText("Erro: "+e.message); }
           setReportLoading(false);

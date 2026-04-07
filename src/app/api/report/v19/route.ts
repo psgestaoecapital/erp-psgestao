@@ -14,9 +14,11 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
+    if (!supabaseKey) return NextResponse.json({ error: "SUPABASE key não configurada. Adicione SUPABASE_SERVICE_ROLE_KEY no Vercel." }, { status: 500 });
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const compIds = company_ids || [];
+    if (compIds.length === 0) return NextResponse.json({ error: "Nenhuma empresa selecionada" }, { status: 400 });
 
     // ══════════════════════════════════════════
     // COLETA DE DADOS — TODOS OS BLOCOS
@@ -272,10 +274,15 @@ Nunca pule um slide. Cada parecer mínimo 4 linhas. Assine como "PS — Conselhe
     });
 
     const data = await response.json();
+    
+    if (data.error) {
+      return NextResponse.json({ error: `Erro API Claude: ${data.error?.message || JSON.stringify(data.error)}` }, { status: 500 });
+    }
+
     const reportText = data.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar relatório.";
 
     return NextResponse.json({ success: true, report: reportText, blocos_usados: blocos.length });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: `Erro no relatório: ${error.message}` }, { status: 500 });
   }
 }
