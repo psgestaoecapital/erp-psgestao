@@ -6,9 +6,7 @@ const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22
     BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#A09B90",PU="#A855F7";
 
 const fmtBRL=(v:number)=>{
-  if(Math.abs(v)>=1000000) return `R$ ${(v/1000000).toFixed(1)}M`;
-  if(Math.abs(v)>=1000) return `R$ ${(v/1000).toFixed(0)}K`;
-  return `R$ ${v.toFixed(0)}`;
+  return `R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 };
 
 type ClientData = {

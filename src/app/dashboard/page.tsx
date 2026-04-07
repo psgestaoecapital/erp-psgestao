@@ -13,10 +13,10 @@ const tl={color:'#1A1A18',fontWeight:700,fontSize:13,marginBottom:4};const ti={c
 
 const fmtBRL=(v:any)=>{
   const n=Number(v);
-  if(Math.abs(n)>=1000000) return `R$ ${(n/1000000).toFixed(2)}M`;
-  if(Math.abs(n)>=1000) return `R$ ${(n/1000).toFixed(1)}K`;
-  return `R$ ${n.toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
+  if(isNaN(n)) return "R$ 0,00";
+  return `R$ ${n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 };
+const fmtN=(v:any)=>{const n=Number(v);if(isNaN(n))return"0";return n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});};
 const fmtTooltip=(v:any,name:any)=>[fmtBRL(v),name];
 const fmtTooltipPct=(v:any,name:any)=>[`${v}%`,name];
 const fmtMesLabel=(k:string)=>{
@@ -34,7 +34,7 @@ const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
     <div style={{background:BG3,borderRadius:8,padding:12,marginTop:8,border:"0.5px solid #3D3A30"}}>
       <div style={{display:"flex",gap:12,marginBottom:10}}>
         <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:GOL}}>R$ {(data.total/1000).toFixed(0)}K</div>
+          <div style={{fontSize:16,fontWeight:700,color:GOL}}>{fmtBRL(data.total)}</div>
           <div style={{fontSize:8,color:TXD}}>Total</div>
         </div>
         <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
@@ -95,12 +95,12 @@ const negocios:any[]=[
     hc:12,clientes:16,ticket:"R$ 85.000",inadim:"0,8%",pmr:25,saude:"Estrela ★",bcg:"Estrela",
     produtos:[{n:"Proj. Com. 30kWp",v:5,m:45.3,preco:"R$ 78.000"},{n:"Proj. Com. 75kWp",v:3,m:44.0,preco:"R$ 158.000"},{n:"Proj. Ind. 150kWp+",v:2,m:42.9,preco:"R$ 285.000"},{n:"Carport Solar",v:4,m:48.5,preco:"R$ 95.000"},{n:"Retrofit Comercial",v:2,m:52.0,preco:"R$ 45.000"}],
     custos:[{n:"Custo dos Produtos",v:35.0},{n:"Mão de Obra Direta",v:15.0},{n:"Engenharia/Projeto",v:8.0},{n:"Terceiros",v:6.5},{n:"Comissões",v:3.5}],
-    obs:"Negócio mais rentável em valor absoluto. Cada projeto gera em média R$ 14K de lucro real. Equipe forte de 12 profissionais."},
+    obs:"Negócio mais rentável em valor absoluto. Cada projeto gera em média R$ 14.000 de lucro real. Equipe forte de 12 profissionais."},
   {id:4,nome:"Projetos de Usinas",tipo:"Serviço",cor:P,fat:[890,0,1450],mc:[142,0,232],mc_p:[18.9,0,17.8],lucro_r:[60,-58,214],lucro_p:[7.1,0,15.5],
     hc:10,clientes:3,ticket:"R$ 780.000",inadim:"0%",pmr:45,saude:"Instável",bcg:"Vaca Leiteira",
     produtos:[{n:"Usina 500kWp",v:1,m:38.5,preco:"R$ 650.000"},{n:"Usina 1MWp",v:1,m:35.2,preco:"R$ 1.250.000"},{n:"Usina 300kWp",v:1,m:41.0,preco:"R$ 420.000"}],
     custos:[{n:"Custo dos Produtos",v:45.0},{n:"Mão de Obra",v:12.0},{n:"Engenharia",v:6.5},{n:"Logística Pesada",v:8.0},{n:"Terceiros Especializados",v:10.0}],
-    obs:"ALERTA: Fevereiro zerou. 36% do faturamento depende de poucos projetos. Equipe de R$ 68K/mês fica ociosa sem projeto. Pipeline de 12+ propostas é urgente."},
+    obs:"ALERTA: Fevereiro zerou. 36% do faturamento depende de poucos projetos. Equipe de R$ 68.000/mês fica ociosa sem projeto. Pipeline de 12+ propostas é urgente."},
   {id:5,nome:"Manutenção O&M",tipo:"Serviço",cor:T,fat:[51,53,55],mc:[16,16,14],mc_p:[33.1,31.8,27.1],lucro_r:[11,10,10],lucro_p:[22.7,19.8,19.1],
     hc:3,clientes:168,ticket:"R$ 300",inadim:"1,3%",pmr:5,saude:"Joia ★★",bcg:"Joia",
     contratos:{inicio:[148,155,158],fim:[155,158,168],mrr:[46500,47400,50400],churn:[2.0,3.2,1.3],nps:[72,74,76],ltv:7200,cac:350},
@@ -175,12 +175,12 @@ export default function DashboardPage(){
       {/* ---- VISÃO GERAL DO NEGÓCIO ---- */}
       {subAba==="visao"&&(<div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:8,marginBottom:14}}>
-          <KPI r="Faturamento 1T" v={`R$ ${(ln.fat[0]+ln.fat[1]+ln.fat[2]).toLocaleString("pt-BR")}K`} d={`${((ln.fat[2]-ln.fat[0])/ln.fat[0]*100).toFixed(0)}% Jan→Mar`} ok={ln.fat[2]>ln.fat[0]}/>
+          <KPI r="Faturamento 1T" v={`R$ ${(ln.fat[0]+ln.fat[1]+ln.fat[2]).toLocaleString("pt-BR")}`} d={`${((ln.fat[2]-ln.fat[0])/ln.fat[0]*100).toFixed(0)}% Jan→Mar`} ok={ln.fat[2]>ln.fat[0]}/>
           <KPI r="Margem Direta" v={`${ln.mc_p[2]}%`} d={`Média ${((ln.mc_p[0]+ln.mc_p[1]+ln.mc_p[2])/3).toFixed(1)}%`} ok={ln.mc_p[2]>0}/>
-          <KPI r="Lucro Real 1T" v={`R$ ${(ln.lucro_r[0]+ln.lucro_r[1]+ln.lucro_r[2])}K`} d={`${ln.lucro_p[2]}% em março`} ok={ln.lucro_r[2]>0}/>
+          <KPI r="Lucro Real 1T" v={`${fmtBRL((ln.lucro_r[0]+ln.lucro_r[1]+ln.lucro_r[2])*1000)}`} d={`${ln.lucro_p[2]}% em março`} ok={ln.lucro_r[2]>0}/>
           <KPI r="Clientes" v={ln.clientes} d={`Ticket ${ln.ticket}`} ok={null}/>
           <KPI r="Inadimplência" v={ln.inadim} d={`PMR ${ln.pmr} dias`} ok={parseFloat(ln.inadim)<3}/>
-          <KPI r="Equipe" v={`${ln.hc} pessoas`} d={`Fat/pessoa R$ ${Math.round((ln.fat[0]+ln.fat[1]+ln.fat[2])/ln.hc/3)}K/mês`} ok={null}/>
+          <KPI r="Equipe" v={`${ln.hc} pessoas`} d={`Fat/pessoa ${fmtBRL(Math.round((ln.fat[0]+ln.fat[1]+ln.fat[2])/ln.hc/3)*1000)}/mês`} ok={null}/>
         </div>
 
         <Card>
@@ -294,7 +294,7 @@ export default function DashboardPage(){
         <Tit t="Base de Contratos — Receita Recorrente"/>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:8,marginBottom:14}}>
           <KPI r="Contratos Ativos" v={ln.contratos.fim[2]} d={`+${ln.contratos.fim[2]-ln.contratos.inicio[0]} no trimestre`} ok={true}/>
-          <KPI r="Receita Mensal Fixa" v={`R$ ${(ln.contratos.mrr[2]/1000).toFixed(1)}K`} d={`▲ ${((ln.contratos.mrr[2]-ln.contratos.mrr[0])/ln.contratos.mrr[0]*100).toFixed(0)}% no tri`} ok={true}/>
+          <KPI r="Receita Mensal Fixa" v={`${fmtBRL(ln.contratos.mrr[2])}`} d={`▲ ${((ln.contratos.mrr[2]-ln.contratos.mrr[0])/ln.contratos.mrr[0]*100).toFixed(0)}% no tri`} ok={true}/>
           <KPI r="Cancelamento" v={`${ln.contratos.churn[2]}%`} d={`Era ${ln.contratos.churn[0]}% em Jan`} ok={ln.contratos.churn[2]<ln.contratos.churn[0]}/>
           <KPI r="Satisfação (NPS)" v={ln.contratos.nps[2]} d={`▲ Subindo`} ok={ln.contratos.nps[2]>70}/>
           <KPI r="Valor Vitalício (LTV)" v={`R$ ${ln.contratos.ltv.toLocaleString("pt-BR")}`} d={`18 meses × ticket`} ok={true}/>
@@ -318,7 +318,7 @@ export default function DashboardPage(){
         <Card>
           <div style={{background:BG3,borderRadius:8,padding:12,border:`0.5px solid ${G}40`}}>
             <div style={{fontSize:10,color:G,fontWeight:600,marginBottom:4}}>◆ POR QUE ESTE É O NEGÓCIO MAIS VALIOSO</div>
-            <div style={{fontSize:11,color:TX,lineHeight:1.7}}>Cada contrato custa R$ 350 para conquistar e gera R$ 7.200 ao longo de 18 meses — retorno de 20,6 vezes. A carteira de 168 contratos, pelo método de múltiplos (2-4x receita anual), vale entre R$ 1,2M e R$ 2,4M. Triplicar para 500 contratos em 12 meses é viável contratando +2 técnicos e +1 vendedor dedicado. Meta de receita fixa: R$ 150K/mês.</div>
+            <div style={{fontSize:11,color:TX,lineHeight:1.7}}>Cada contrato custa R$ 350 para conquistar e gera R$ 7.200 ao longo de 18 meses — retorno de 20,6 vezes. A carteira de 168 contratos, pelo método de múltiplos (2-4x receita anual), vale entre R$ 1.200.000 e R$ 2.400.000. Triplicar para 500 contratos em 12 meses é viável contratando +2 técnicos e +1 vendedor dedicado. Meta de receita fixa: R$ 150.000/mês.</div>
           </div>
         </Card>
       </div>)}
@@ -329,8 +329,8 @@ export default function DashboardPage(){
         <Card>
           <div style={{fontSize:13,color:TX,lineHeight:1.8}}>
             <p style={{marginBottom:12}}><strong style={{color:GOL}}>Diagnóstico:</strong> {ln.obs}</p>
-            <p style={{marginBottom:12}}><strong style={{color:GOL}}>Margem real após rateio:</strong> A margem direta de {ln.mc_p[2]}% cai para {ln.lucro_p[2]}% quando incluímos a parcela do custo da estrutura central que este negócio consome (aluguel, salários administrativos, contabilidade, veículos). {ln.lucro_r[2]>=0?`Ainda assim, gera R$ ${ln.lucro_r[2]}K de lucro real em março.`:`Resultado negativo de R$ ${Math.abs(ln.lucro_r[2])}K em março. Ação urgente necessária.`}</p>
-            <p style={{marginBottom:12}}><strong style={{color:GOL}}>Produtividade:</strong> Com {ln.hc} colaboradores e faturamento médio de R$ {Math.round((ln.fat[0]+ln.fat[1]+ln.fat[2])/3)}K/mês, cada pessoa gera R$ {Math.round((ln.fat[0]+ln.fat[1]+ln.fat[2])/3/ln.hc)}K/mês de receita. {(ln.fat[0]+ln.fat[1]+ln.fat[2])/3/ln.hc>40?"Acima da média do setor.":"Abaixo do ideal — avaliar produtividade individual."}</p>
+            <p style={{marginBottom:12}}><strong style={{color:GOL}}>Margem real após rateio:</strong> A margem direta de {ln.mc_p[2]}% cai para {ln.lucro_p[2]}% quando incluímos a parcela do custo da estrutura central que este negócio consome (aluguel, salários administrativos, contabilidade, veículos). {ln.lucro_r[2]>=0?`Ainda assim, gera ${fmtBRL(ln.lucro_r[2]*1000)} de lucro real em março.`:`Resultado negativo de ${fmtBRL(Math.abs(ln.lucro_r[2]*1000))} em março. Ação urgente necessária.`}</p>
+            <p style={{marginBottom:12}}><strong style={{color:GOL}}>Produtividade:</strong> Com {ln.hc} colaboradores e faturamento médio de {fmtBRL(Math.round((ln.fat[0]+ln.fat[1]+ln.fat[2])/3)*1000)}/mês, cada pessoa gera {fmtBRL(Math.round((ln.fat[0]+ln.fat[1]+ln.fat[2])/3/ln.hc)*1000)}/mês de receita. {(ln.fat[0]+ln.fat[1]+ln.fat[2])/3/ln.hc>40?"Acima da média do setor.":"Abaixo do ideal — avaliar produtividade individual."}</p>
             <p><strong style={{color:GOL}}>Produto mais rentável:</strong> {ln.produtos[0].n} com {ln.produtos[0].m}% de margem real. {ln.produtos[0].m>50?"Excelente — expandir volume.":"Margem aceitável — avaliar possibilidade de aumento de preço."}</p>
           </div>
         </Card>
@@ -372,13 +372,13 @@ export default function DashboardPage(){
         body: JSON.stringify({
           contexto: contextoTexto,
           financial_summary: {
-            receita_operacional: `R$ ${((realData.total_rec_operacional||realData.total_receitas||0)/1000).toFixed(0)}K`,
-            despesas: `R$ ${((realData.total_despesas||0)/1000).toFixed(0)}K`,
-            resultado: `R$ ${((realData.resultado_periodo||0)/1000).toFixed(0)}K`,
+            receita_operacional: `${fmtBRL(realData.total_rec_operacional||realData.total_receitas||0)}`,
+            despesas: `${fmtBRL(realData.total_despesas||0)}`,
+            resultado: `${fmtBRL(realData.resultado_periodo||0)}`,
             margem: `${realData.margem||0}%`,
-            emprestimos: `R$ ${((realData.total_emprestimos||0)/1000).toFixed(0)}K`,
-            top_custos: (realData.top_custos||[]).slice(0,5).map((c:any)=>`${c.nome}: R$ ${(c.valor/1000).toFixed(0)}K`),
-            top_receitas: (realData.top_receitas_operacionais||[]).slice(0,5).map((r:any)=>`${r.nome}: R$ ${(r.valor/1000).toFixed(0)}K`),
+            emprestimos: `${fmtBRL(realData.total_emprestimos||0)}`,
+            top_custos: (realData.top_custos||[]).slice(0,5).map((c:any)=>`${c.nome}: ${fmtBRL(c.valor)}`),
+            top_receitas: (realData.top_receitas_operacionais||[]).slice(0,5).map((r:any)=>`${r.nome}: ${fmtBRL(r.valor)}`),
           },
           empresa_nome: empresaAtiva.nome,
         })
@@ -572,7 +572,7 @@ export default function DashboardPage(){
       {/* Data Quality Alerts */}
       {realData&&(()=>{
         const alerts: {sev:string,msg:string,det:string}[] = [];
-        if(realData.resultado_periodo<0) alerts.push({sev:"critico",msg:`Resultado negativo: R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`,det:"A empresa está gastando mais do que fatura. Ação imediata necessária."});
+        if(realData.resultado_periodo<0) alerts.push({sev:"critico",msg:`Resultado negativo: ${fmtBRL(realData.resultado_periodo)}`,det:"A empresa está gastando mais do que fatura. Ação imediata necessária."});
         if(realData.top_receitas?.some((r:any)=>r.nome?.toLowerCase().includes("empréstimo")||r.nome?.toLowerCase().includes("financiamento")||r.nome?.toLowerCase().includes("aporte")))
           alerts.push({sev:"atencao",msg:"Empréstimos/financiamentos estão sendo contados como receita",det:"Isso infla o faturamento real. Reclassifique no Omie: Categorias → mova empréstimos para 4.xx ou 5.xx"});
         return alerts.length>0?(
@@ -591,9 +591,9 @@ export default function DashboardPage(){
       {realData&&(
         <div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
-            <KPI r="Receitas (Contas a Receber)" v={`R$ ${(realData.total_receitas/1000).toFixed(0)}K`} d={`${realData.num_empresas} empresas consolidadas`} ok={true}/>
-            <KPI r="Despesas (Contas a Pagar)" v={`R$ ${(realData.total_despesas/1000).toFixed(0)}K`} d={`Total do período`} ok={null}/>
-            <KPI r="Resultado do Período" v={`R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+            <KPI r="Receitas (Contas a Receber)" v={`${fmtBRL(realData.total_receitas)}`} d={`${realData.num_empresas} empresas consolidadas`} ok={true}/>
+            <KPI r="Despesas (Contas a Pagar)" v={`${fmtBRL(realData.total_despesas)}`} d={`Total do período`} ok={null}/>
+            <KPI r="Resultado do Período" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
             <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no Omie" ok={true}/>
           </div>
 
@@ -604,7 +604,7 @@ export default function DashboardPage(){
                 <BarChart data={realData.chart_mensal||chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
                   <XAxis dataKey="mesLabel" tick={{fontSize:10,fill:'#D4D0C8'}}/>
-                  <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
+                  <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>v.toLocaleString('pt-BR',{maximumFractionDigits:0})}/>
                   <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
                   <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={16}/>
                   <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.7} radius={[4,4,0,0]} barSize={16}/>
@@ -628,7 +628,7 @@ export default function DashboardPage(){
                     onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
                     <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
                     <div style={{flex:1,fontSize:11,color:TX}}>{c.nome} <span style={{fontSize:9,color:TXD}}>{drillOpen===`custo-${i}`?"▼":"▶"}</span></div>
-                    <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>R$ {(c.valor/1000).toFixed(1)}K</div>
+                    <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>{fmtBRL(c.valor)}</div>
                   </div>
                   {drillOpen===`custo-${i}`&&<DrillPanel data={drillData} loading={drillLoading}/>}
                 </div>
@@ -647,12 +647,12 @@ export default function DashboardPage(){
       {!realData&&!loadingReal&&omieData.length===0&&(<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
         <KPI r="Faturamento 1T" v="R$ 6,5M" d="▲ 9% acima da meta" ok={true}/>
-        <KPI r="Lucro da Operação" v="R$ 663K" d="10,2% do faturamento" ok={true}/>
-        <KPI r="Lucro Final" v="R$ 602K" d="Após impostos e juros" ok={true}/>
-        <KPI r="Dinheiro Disponível" v="R$ 702K" d="113 dias de cobertura" ok={true}/>
-        <KPI r="Caixa - Dívidas" v="Sobram R$ 72K" d="✓ Caixa > Dívida" ok={true}/>
+        <KPI r="Lucro da Operação" v="R$ 663.000,00" d="10,2% do faturamento" ok={true}/>
+        <KPI r="Lucro Final" v="R$ 602.000,00" d="Após impostos e juros" ok={true}/>
+        <KPI r="Dinheiro Disponível" v="R$ 702.000,00" d="113 dias de cobertura" ok={true}/>
+        <KPI r="Caixa - Dívidas" v="Sobram R$ 72.000" d="✓ Caixa > Dívida" ok={true}/>
         <KPI r="Colaboradores" v="54 pessoas" d="38 oper. + 8 adm." ok={null}/>
-        <KPI r="Loja Online" v="(R$ 24K)" d="⚠ Prejuízo no trimestre" ok={false}/>
+        <KPI r="Loja Online" v="(R$ 24.000)" d="⚠ Prejuízo no trimestre" ok={false}/>
         <KPI r="Contratos O&M" v="168 ativos" d="R$ 50,4K/mês recorrente" ok={true}/>
       </div>
 
@@ -687,7 +687,7 @@ export default function DashboardPage(){
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
-            {[["Faturou",`R$${(n.fat[0]+n.fat[1]+n.fat[2])}K`,TX],["Margem",`${n.mc_p[2]}%`,n.mc[2]>=0?G:R],["Lucro Real",`R$${(n.lucro_r[0]+n.lucro_r[1]+n.lucro_r[2])}K`,n.lucro_r[2]>=0?GO:R],["Lucro %",`${n.lucro_p[2]}%`,n.lucro_r[2]>=0?GO:R]].map(([lb,vl,cl])=>(
+            {[["Faturou",`${fmtBRL((n.fat[0]+n.fat[1]+n.fat[2])*1000)}`,TX],["Margem",`${n.mc_p[2]}%`,n.mc[2]>=0?G:R],["Lucro Real",`${fmtBRL((n.lucro_r[0]+n.lucro_r[1]+n.lucro_r[2])*1000)}`,n.lucro_r[2]>=0?GO:R],["Lucro %",`${n.lucro_p[2]}%`,n.lucro_r[2]>=0?GO:R]].map(([lb,vl,cl])=>(
               <div key={lb as string} style={{textAlign:"center",background:BG3,borderRadius:6,padding:"5px 4px"}}>
                 <div style={{fontSize:8,color:TXD}}>{lb}</div><div style={{fontSize:12,fontWeight:700,color:cl as string}}>{vl}</div>
               </div>
@@ -709,7 +709,7 @@ export default function DashboardPage(){
                   <div style={{fontSize:9,color:TXD}}>Categoria Omie | Clique para ver lançamentos</div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:16,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+                  <div style={{fontSize:16,fontWeight:700,color:G}}>{fmtBRL(r.valor)}</div>
                   <div style={{fontSize:9,color:TXD}}>{realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100).toFixed(1):"0"}% do total</div>
                 </div>
               </div>
@@ -730,7 +730,7 @@ export default function DashboardPage(){
             <textarea
               value={contextoTexto}
               onChange={e=>setContextoTexto(e.target.value)}
-              placeholder={"Exemplos:\n• Estou pensando em demitir 3 pessoas para reduzir custos\n• Quero abrir uma filial em Chapecó, vale a pena?\n• O fornecedor X aumentou 20%, devo trocar?\n• Preciso de financiamento de R$ 500K, consigo pagar?"}
+              placeholder={"Exemplos:\n• Estou pensando em demitir 3 pessoas para reduzir custos\n• Quero abrir uma filial em Chapecó, vale a pena?\n• O fornecedor X aumentou 20%, devo trocar?\n• Preciso de financiamento de R$ 500.000, consigo pagar?"}
               style={{width:"100%",minHeight:100,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:12,fontSize:12,fontFamily:"Calibri, sans-serif",resize:"vertical",outline:"none",lineHeight:1.6}}
             />
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
@@ -762,10 +762,10 @@ export default function DashboardPage(){
     {aba==="financeiro"&&(<div>
       {realData&&(<>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
-          <KPI r="Receita Operacional" v={`R$ ${((realData.total_rec_operacional||realData.total_receitas)/1000).toFixed(0)}K`} d="Faturamento real (sem empréstimos)" ok={true}/>
-          <KPI r="Despesas Totais" v={`R$ ${(realData.total_despesas/1000).toFixed(0)}K`} d="Contas a pagar do período" ok={null}/>
-          <KPI r="Resultado Operacional" v={`R$ ${(realData.resultado_periodo/1000).toFixed(0)}K`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
-          <KPI r="Empréstimos Recebidos" v={`R$ ${((realData.total_emprestimos||0)/1000).toFixed(0)}K`} d="Financiamentos, aportes, transferências" ok={null}/>
+          <KPI r="Receita Operacional" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas)}`} d="Faturamento real (sem empréstimos)" ok={true}/>
+          <KPI r="Despesas Totais" v={`${fmtBRL(realData.total_despesas)}`} d="Contas a pagar do período" ok={null}/>
+          <KPI r="Resultado Operacional" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+          <KPI r="Empréstimos Recebidos" v={`${fmtBRL(realData.total_emprestimos||0)}`} d="Financiamentos, aportes, transferências" ok={null}/>
           <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do Omie" ok={true}/>
           <KPI r="Empresas no Grupo" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
@@ -775,7 +775,7 @@ export default function DashboardPage(){
             <BarChart data={realData.chart_mensal||chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
               <XAxis dataKey="mesLabel" tick={{fontSize:10,fill:'#D4D0C8'}}/>
-              <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>`${(v/1000).toFixed(0)}K`}/>
+              <YAxis tick={{fontSize:9,fill:'#D4D0C8'}} tickFormatter={(v:any)=>v.toLocaleString('pt-BR',{maximumFractionDigits:0})}/>
               <Tooltip contentStyle={tt} labelStyle={tl} itemStyle={ti} formatter={fmtTooltip}/>
               <Bar dataKey="receitas" name="Receitas" fill={G} radius={[4,4,0,0]} barSize={14}/>
               <Bar dataKey="despesas" name="Despesas" fill={R} opacity={0.6} radius={[4,4,0,0]} barSize={14}/>
@@ -796,7 +796,7 @@ export default function DashboardPage(){
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
                 <div style={{width:24,height:24,borderRadius:6,background:G+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:G}}>{i+1}</div>
                 <div style={{flex:1,fontSize:11,color:TX}}>{r.nome}</div>
-                <div style={{fontSize:13,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(1)}K</div>
+                <div style={{fontSize:13,fontWeight:700,color:G}}>{fmtBRL(r.valor)}</div>
               </div>
             ))}
           </Card>
@@ -809,7 +809,7 @@ export default function DashboardPage(){
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
                 <div style={{width:24,height:24,borderRadius:6,background:Y+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:Y}}>{i+1}</div>
                 <div style={{flex:1,fontSize:11,color:TXM}}>{r.nome}</div>
-                <div style={{fontSize:13,fontWeight:700,color:Y}}>R$ {(r.valor/1000).toFixed(1)}K</div>
+                <div style={{fontSize:13,fontWeight:700,color:Y}}>{fmtBRL(r.valor)}</div>
               </div>
             ))}
             <div style={{fontSize:9,color:Y,marginTop:8,padding:"6px 8px",background:Y+"10",borderRadius:4}}>⚡ Estes valores NÃO são contabilizados como receita operacional nos KPIs acima</div>
@@ -865,7 +865,7 @@ export default function DashboardPage(){
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:20,fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+                  <div style={{fontSize:20,fontWeight:700,color:G}}>{fmtBRL(r.valor)}</div>
                   <div style={{fontSize:10,color:TXD}}>{pct.toFixed(1)}% do faturamento</div>
                 </div>
               </div>
@@ -882,7 +882,7 @@ export default function DashboardPage(){
             <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,borderLeft:`3px solid ${Y}`,border:`1px solid ${BD}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{fontSize:12,color:TXM}}>{r.nome}</div>
-                <div style={{fontSize:14,fontWeight:700,color:Y}}>R$ {(r.valor/1000).toFixed(0)}K</div>
+                <div style={{fontSize:14,fontWeight:700,color:Y}}>{fmtBRL(r.valor)}</div>
               </div>
             </div>
           ))}
@@ -898,7 +898,7 @@ export default function DashboardPage(){
                   <div style={{fontSize:13,fontWeight:600,color:TX}}>{g.nome}</div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:10,color:TXD}}>{pct.toFixed(1)}%</span>
-                    <span style={{fontSize:15,fontWeight:700,color:i<2?R:TX}}>R$ {(g.total/1000).toFixed(0)}K</span>
+                    <span style={{fontSize:15,fontWeight:700,color:i<2?R:TX}}>{fmtBRL(g.total)}</span>
                   </div>
                 </div>
                 <div style={{background:BG3,borderRadius:4,height:6,overflow:"hidden"}}>
@@ -928,9 +928,9 @@ export default function DashboardPage(){
 
         {/* Summary KPIs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:8,marginBottom:14}}>
-          <KPI r="Receita Período" v={`R$ ${((realData.total_rec_operacional||realData.total_receitas||0)/1000).toFixed(0)}K`} d="Faturamento operacional" ok={true}/>
-          <KPI r="Despesas Período" v={`R$ ${((realData.total_despesas||0)/1000).toFixed(0)}K`} d="Contas a pagar" ok={null}/>
-          <KPI r="Resultado" v={`R$ ${((realData.resultado_periodo||0)/1000).toFixed(0)}K`} d={`Margem ${realData.margem||0}%`} ok={(realData.resultado_periodo||0)>0}/>
+          <KPI r="Receita Período" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas||0)}`} d="Faturamento operacional" ok={true}/>
+          <KPI r="Despesas Período" v={`${fmtBRL(realData.total_despesas||0)}`} d="Contas a pagar" ok={null}/>
+          <KPI r="Resultado" v={`${fmtBRL(realData.resultado_periodo||0)}`} d={`Margem ${realData.margem||0}%`} ok={(realData.resultado_periodo||0)>0}/>
           <KPI r="Margem" v={`${realData.margem||0}%`} d={Number(realData.margem||0)>0?"Positiva":"Negativa"} ok={Number(realData.margem||0)>0}/>
         </div>
 
@@ -969,10 +969,10 @@ export default function DashboardPage(){
                         {row.c}
                       </td>
                       {vals.map((v:number,k:number)=><td key={k} style={{padding:6,textAlign:"right",fontWeight:row.d?700:400,color:v<0?R:v===0?TXD:["mg","lc","fl"].includes(row.tp)?GOL:TX,fontSize:10}}>
-                        {v===0?"—":v<0?`(${Math.abs(v/1000).toFixed(0)}K)`:`${(v/1000).toFixed(0)}K`}
+                        {v===0?"—":v<0?`(R$ ${fmtN(Math.abs(v))})`:`R$ ${fmtN(v)}`}
                       </td>)}
                       <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:total===0?TXD:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
-                        {total===0?"—":total<0?`(${Math.abs(total/1000).toFixed(0)}K)`:`${(total/1000).toFixed(0)}K`}
+                        {total===0?"—":total<0?`(R$ ${fmtN(Math.abs(total))})`:`R$ ${fmtN(total)}`}
                       </td>
                     </tr>
                     {isOpen&&grupo&&grupo.contas.slice(0,12).map((c:any,ci:number)=>{
@@ -983,9 +983,9 @@ export default function DashboardPage(){
                         <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
                         {meses.map((m:string,k:number)=>{
                           const mv = c.meses?.[m]||0;
-                          return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:TXM}}>{mv===0?"—":`${(mv/1000).toFixed(0)}K`}</td>;
+                          return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:TXM}}>{mv===0?"—":`R$ ${fmtN(mv)}`}</td>;
                         })}
-                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>R$ {(subTotal/1000).toFixed(1)}K</td>
+                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:TXM}}>{fmtBRL(subTotal)}</td>
                       </tr>);
                     })}
                     {isOpen&&recCats&&recCats.slice(0,10).map((c:any,ci:number)=>{
@@ -995,9 +995,9 @@ export default function DashboardPage(){
                         <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
                         {meses.map((m:string,k:number)=>{
                           const mv = c.meses?.[m]||0;
-                          return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:G}}>{mv===0?"—":`${(mv/1000).toFixed(0)}K`}</td>;
+                          return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:G}}>{mv===0?"—":`R$ ${fmtN(mv)}`}</td>;
                         })}
-                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:G}}>R$ {(c.valor/1000).toFixed(1)}K</td>
+                        <td style={{padding:3,textAlign:"right",fontSize:10,fontWeight:600,color:G}}>{fmtBRL(c.valor)}</td>
                       </tr>);
                     })}
                   </React.Fragment>);
@@ -1022,7 +1022,7 @@ export default function DashboardPage(){
                   <div style={{width:80,height:6,background:BG3,borderRadius:3,overflow:"hidden"}}>
                     <div style={{width:`${Math.min((g.total/realData.total_despesas)*100,100)}%`,height:"100%",background:gi<2?R:gi<4?Y:GO,borderRadius:3}}/>
                   </div>
-                  <span style={{fontSize:15,fontWeight:700,color:gi<2?R:gi<4?Y:TX}}>R$ {(g.total/1000).toFixed(1)}K</span>
+                  <span style={{fontSize:15,fontWeight:700,color:gi<2?R:gi<4?Y:TX}}>{fmtBRL(g.total)}</span>
                   <span style={{fontSize:10,color:TXD}}>{realData.total_despesas>0?((g.total/realData.total_despesas)*100).toFixed(1):"0"}%</span>
                 </div>
               </div>
@@ -1037,7 +1037,7 @@ export default function DashboardPage(){
                           <div style={{width:60,height:4,background:BG3,borderRadius:2,overflow:"hidden"}}>
                             <div style={{width:`${Math.min((c.valor/g.total)*100,100)}%`,height:"100%",background:gi<2?R:gi<4?Y:GO,borderRadius:2,opacity:0.7}}/>
                           </div>
-                          <span style={{fontSize:11,fontWeight:600,color:TX,minWidth:60,textAlign:"right"}}>R$ {(c.valor/1000).toFixed(1)}K</span>
+                          <span style={{fontSize:11,fontWeight:600,color:TX,minWidth:60,textAlign:"right"}}>{fmtBRL(c.valor)}</span>
                         </div>
                       </div>
                       {drillOpen===`mc-${gi}-${ci}`&&<DrillPanel data={drillData} loading={drillLoading}/>}
@@ -1051,7 +1051,7 @@ export default function DashboardPage(){
           <Card>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontWeight:700,color:TX}}>TOTAL DE CUSTOS E DESPESAS</span>
-              <span style={{fontSize:18,fontWeight:700,color:R}}>R$ {(realData.total_despesas/1000).toFixed(0)}K</span>
+              <span style={{fontSize:18,fontWeight:700,color:R}}>{fmtBRL(realData.total_despesas)}</span>
             </div>
           </Card>
 
@@ -1159,7 +1159,7 @@ export default function DashboardPage(){
             <tbody>
               {[
                 {id:"cg_prod",g:"Produtos e Insumos",t_n:3138770,t:"3.138.770",orc:"2.974.500",orc_n:2974500,p:"48,3%",cor:R,
-                  ia:"⚠ R$ 164K ACIMA do orçado. Custo dos painéis subiu 5% com câmbio. Renegociar com Risen e Canadian para contrato anual com preço fixo. Avaliar fornecedor nacional (BYD Manaus) para reduzir exposição ao dólar. Meta: voltar para 45% do faturamento.",
+                  ia:"⚠ R$ 164.000 ACIMA do orçado. Custo dos painéis subiu 5% com câmbio. Renegociar com Risen e Canadian para contrato anual com preço fixo. Avaliar fornecedor nacional (BYD Manaus) para reduzir exposição ao dólar. Meta: voltar para 45% do faturamento.",
                   subs:[
                     {c:"Painéis solares (Risen, Canadian, JA)",t:"1.883.256",orc:"1.780.000"},
                     {c:"Inversores (Growatt, Fronius)",t:"627.756",orc:"610.000"},
@@ -1168,42 +1168,42 @@ export default function DashboardPage(){
                     {c:"Outros materiais e componentes",t:"94.167",orc:"80.000"},
                   ]},
                 {id:"cg_pess",g:"Pessoas (folha completa)",t_n:825500,t:"825.500",orc:"810.000",orc_n:810000,p:"12,7%",cor:Y,
-                  ia:"Ligeiramente acima (+R$ 15,5K) por hora extra em março (projetos de usina). Dentro do aceitável. Atenção: equipe de Usinas (10 pessoas, R$ 68K/mês) ficou ociosa em fevereiro. Considerar contrato flexível para 3 instaladores de usina — fixo nos meses com projeto, dispensados nos meses sem.",
+                  ia:"Ligeiramente acima (+R$ 15.500) por hora extra em março (projetos de usina). Dentro do aceitável. Atenção: equipe de Usinas (10 pessoas, R$ 68.000/mês) ficou ociosa em fevereiro. Considerar contrato flexível para 3 instaladores de usina — fixo nos meses com projeto, dispensados nos meses sem.",
                   subs:[
                     {c:"Equipe direta dos 6 negócios (38 pessoas)",t:"684.000",orc:"660.000"},
                     {c:"Equipe administrativa (8 pessoas)",t:"87.500",orc:"96.000"},
                     {c:"Pró-labore dos sócios (3 sócios)",t:"54.500",orc:"54.000"},
                   ]},
                 {id:"cg_com",g:"Comissões e Vendas",t_n:355000,t:"355.000",orc:"320.000",orc_n:320000,p:"5,5%",cor:Y,
-                  ia:"⚠ R$ 35K acima do orçado porque o faturamento superou a meta em 9%. Comissão proporcional é esperada. Porém, revisar política: comissão sobre faturamento bruto não incentiva margem. Mudar para comissão sobre margem direta — vendedor passa a buscar projetos mais rentáveis, não apenas maiores.",
+                  ia:"⚠ R$ 35.000 acima do orçado porque o faturamento superou a meta em 9%. Comissão proporcional é esperada. Porém, revisar política: comissão sobre faturamento bruto não incentiva margem. Mudar para comissão sobre margem direta — vendedor passa a buscar projetos mais rentáveis, não apenas maiores.",
                   subs:[
                     {c:"Comissões vendedores (% sobre venda)",t:"245.000",orc:"220.000"},
                     {c:"Bônus por meta atingida",t:"58.000",orc:"52.000"},
                     {c:"Premiações e incentivos",t:"52.000",orc:"48.000"},
                   ]},
                 {id:"cg_imp",g:"Impostos sobre Vendas",t_n:328420,t:"328.420",orc:"297.450",orc_n:297450,p:"5,1%",cor:Y,
-                  ia:"Proporcional ao faturamento — sem ação corretiva. Porém, avaliar com contabilidade se o regime de Lucro Presumido ainda é o mais vantajoso. Com lucro de 10,2%, o Lucro Real pode gerar economia de R$ 40-80K/ano dependendo da composição dos custos dedutíveis.",
+                  ia:"Proporcional ao faturamento — sem ação corretiva. Porém, avaliar com contabilidade se o regime de Lucro Presumido ainda é o mais vantajoso. Com lucro de 10,2%, o Lucro Real pode gerar economia de R$ 40.000-80.000/ano dependendo da composição dos custos dedutíveis.",
                   subs:[
                     {c:"ISS / ICMS",t:"162.500",orc:"148.000"},
                     {c:"COFINS",t:"123.425",orc:"112.000"},
                     {c:"PIS",t:"42.495",orc:"37.450"},
                   ]},
                 {id:"cg_log",g:"Frete e Logística",t_n:296215,t:"296.215",orc:"270.000",orc_n:270000,p:"4,6%",cor:Y,
-                  ia:"⚠ R$ 26K acima. Frete da Loja Online (R$ 44K grátis para cliente) é o principal desvio — representa 15% do custo total de frete para gerar apenas 2% do faturamento. Encerrar frete grátis ou descontinuar Loja Online elimina este desvio. Negociar contrato com transportadora regional para entregas locais.",
+                  ia:"⚠ R$ 26.000 acima. Frete da Loja Online (R$ 44.000 grátis para cliente) é o principal desvio — representa 15% do custo total de frete para gerar apenas 2% do faturamento. Encerrar frete grátis ou descontinuar Loja Online elimina este desvio. Negociar contrato com transportadora regional para entregas locais.",
                   subs:[
                     {c:"Frete de equipamentos (fornecedor→sede)",t:"154.000",orc:"148.000"},
                     {c:"Frete de entrega (sede→cliente)",t:"98.215",orc:"92.000"},
                     {c:"Frete Loja Online (grátis para cliente)",t:"44.000",orc:"30.000"},
                   ]},
                 {id:"cg_terc",g:"Terceirização e Serviços",t_n:252000,t:"252.000",orc:"240.000",orc_n:240000,p:"3,9%",cor:TXM,
-                  ia:"Dentro do esperado (+R$ 12K). Custo aumenta proporcionalmente aos projetos de usina em março. Recomendação: formalizar contrato com 2-3 equipes terceirizadas com preço fechado por projeto — evita surpresas e garante disponibilidade nos meses de pico.",
+                  ia:"Dentro do esperado (+R$ 12.000). Custo aumenta proporcionalmente aos projetos de usina em março. Recomendação: formalizar contrato com 2-3 equipes terceirizadas com preço fechado por projeto — evita surpresas e garante disponibilidade nos meses de pico.",
                   subs:[
                     {c:"Instaladores terceirizados",t:"152.000",orc:"145.000"},
                     {c:"Eletricistas especializados",t:"55.000",orc:"52.000"},
                     {c:"Engenharia e projetos externos",t:"45.000",orc:"43.000"},
                   ]},
                 {id:"cg_mkt",g:"Marketing (direto + institucional)",t_n:229300,t:"229.300",orc:"210.000",orc_n:210000,p:"3,5%",cor:TXM,
-                  ia:"R$ 19K acima, mas gerou 9% a mais de faturamento — ROI positivo. Porém, R$ 18K/mês da Loja Online em marketing digital gera prejuízo. Realocar esse valor para: captação de contratos O&M (R$ 10K) e prospecção de projetos comerciais (R$ 8K). Retorno estimado: +R$ 150K/ano.",
+                  ia:"R$ 19.000 acima, mas gerou 9% a mais de faturamento — ROI positivo. Porém, R$ 18.000/mês da Loja Online em marketing digital gera prejuízo. Realocar esse valor para: captação de contratos O&M (R$ 10.000) e prospecção de projetos comerciais (R$ 8.000). Retorno estimado: +R$ 150.000/ano.",
                   subs:[
                     {c:"Marketing direto dos negócios",t:"205.000",orc:"190.000"},
                     {c:"Marketing institucional (marca)",t:"24.300",orc:"20.000"},
@@ -1226,7 +1226,7 @@ export default function DashboardPage(){
                     {c:"Vale transporte",t:"2.400",orc:"2.400"},
                   ]},
                 {id:"cg_seg",g:"Seguros, Taxas e Outros",t_n:45100,t:"45.100",orc:"42.000",orc_n:42000,p:"0,7%",cor:TXM,
-                  ia:"Taxas de cartão subiram R$ 1,7K com aumento de vendas no crédito. Negociar taxa com Stone/PagSeguro — acima de R$ 200K/mês de faturamento no cartão, a taxa deve ser 2,5% e não 3,2%. Economia estimada: R$ 14K/ano. Contratar seguro RC profissional (obrigatório para instalações elétricas).",
+                  ia:"Taxas de cartão subiram R$ 1.700 com aumento de vendas no crédito. Negociar taxa com Stone/PagSeguro — acima de R$ 200.000/mês de faturamento no cartão, a taxa deve ser 2,5% e não 3,2%. Economia estimada: R$ 14.000/ano. Contratar seguro RC profissional (obrigatório para instalações elétricas).",
                   subs:[
                     {c:"Taxas de cartão de crédito/débito",t:"17.700",orc:"15.000"},
                     {c:"Seguros (empresa + RC profissional)",t:"9.600",orc:"9.600"},
@@ -1241,7 +1241,7 @@ export default function DashboardPage(){
                     {c:"Seguro dos veículos",t:"8.400",orc:"8.000"},
                   ]},
                 {id:"cg_adm",g:"Administrativo e Assessorias",t_n:40500,t:"40.500",orc:"39.000",orc_n:39000,p:"0,6%",cor:TXM,
-                  ia:"✓ Controlado. O investimento em assessoria financeira (PS Gestão R$ 7,5K/tri) gera retorno comprovado: a análise de rateio revelou R$ 520K/ano de oportunidade em repricing. Softwares (Omie R$ 3K/tri) adequados para o porte. Avaliar CRM (Pipedrive ou RD Station CRM) para gestão de propostas — custo R$ 500/mês, retorno estimado +R$ 200K/ano em conversão.",
+                  ia:"✓ Controlado. O investimento em assessoria financeira (PS Gestão R$ 7.500/tri) gera retorno comprovado: a análise de rateio revelou R$ 520.000/ano de oportunidade em repricing. Softwares (Omie R$ 3.000/tri) adequados para o porte. Avaliar CRM (Pipedrive ou RD Station CRM) para gestão de propostas — custo R$ 500/mês, retorno estimado +R$ 200.000/ano em conversão.",
                   subs:[
                     {c:"Contabilidade",t:"13.500",orc:"13.500"},
                     {c:"Assessoria jurídica",t:"10.500",orc:"9.000"},
@@ -1326,9 +1326,9 @@ export default function DashboardPage(){
       <Card>
         <div style={{fontSize:12,fontWeight:700,color:R,marginBottom:12}}>🔴 PONTOS CRÍTICOS (ação imediata)</div>
         {[
-          {t:"Custo de produtos 3 pontos acima do ideal",d:"Os produtos e insumos consomem 48,3% do faturamento — a meta é 45%. A diferença de 3 pontos equivale a R$ 195 mil por trimestre ou R$ 780 mil por ano de lucro perdido. A causa principal é o aumento de 5% no preço dos painéis solares importados (câmbio). Ação: renegociar contrato anual com Risen e Canadian Solar com preço fixo, e testar fornecedor nacional (BYD Manaus).",imp:"Impacto: +R$ 780K/ano",cor:R},
-          {t:"Loja Online destruindo valor em 3 frentes",d:"Consome R$ 44K em frete grátis (15% do custo total de frete para gerar 2% do faturamento), R$ 54K em marketing digital com retorno negativo, e R$ 7,9K em perdas/quebras acima da média. Cada mês que passa, a empresa perde R$ 8K. Ação: encerrar operação em 30 dias e realocar recursos para Manutenção O&M.",imp:"Impacto: +R$ 234K/ano",cor:R},
-          {t:"Política de comissões incentiva volume, não margem",d:"Vendedores ganham comissão sobre faturamento bruto, não sobre margem. Isso significa que um projeto de R$ 500K com 5% de margem gera mais comissão que um de R$ 200K com 25% de margem — mesmo que o segundo dê 2x mais lucro. Ação: migrar comissão para % da margem direta.",imp:"Impacto: +R$ 120K/ano",cor:R},
+          {t:"Custo de produtos 3 pontos acima do ideal",d:"Os produtos e insumos consomem 48,3% do faturamento — a meta é 45%. A diferença de 3 pontos equivale a R$ 195 mil por trimestre ou R$ 780 mil por ano de lucro perdido. A causa principal é o aumento de 5% no preço dos painéis solares importados (câmbio). Ação: renegociar contrato anual com Risen e Canadian Solar com preço fixo, e testar fornecedor nacional (BYD Manaus).",imp:"Impacto: +R$ 780.000/ano",cor:R},
+          {t:"Loja Online destruindo valor em 3 frentes",d:"Consome R$ 44.000 em frete grátis (15% do custo total de frete para gerar 2% do faturamento), R$ 54.000 em marketing digital com retorno negativo, e R$ 7.900 em perdas/quebras acima da média. Cada mês que passa, a empresa perde R$ 8.000. Ação: encerrar operação em 30 dias e realocar recursos para Manutenção O&M.",imp:"Impacto: +R$ 234.000/ano",cor:R},
+          {t:"Política de comissões incentiva volume, não margem",d:"Vendedores ganham comissão sobre faturamento bruto, não sobre margem. Isso significa que um projeto de R$ 500.000 com 5% de margem gera mais comissão que um de R$ 200.000 com 25% de margem — mesmo que o segundo dê 2x mais lucro. Ação: migrar comissão para % da margem direta.",imp:"Impacto: +R$ 120.000/ano",cor:R},
         ].map((p,i)=>(
           <div key={i} style={{background:R+"08",borderRadius:8,padding:14,marginBottom:8,borderLeft:`3px solid ${R}`}}>
             <div style={{fontSize:12,fontWeight:600,color:R,marginBottom:4}}>{p.t}</div>
@@ -1341,10 +1341,10 @@ export default function DashboardPage(){
       <Card>
         <div style={{fontSize:12,fontWeight:700,color:Y,marginBottom:12}}>🟡 PONTOS DE ATENÇÃO (agir em 30-60 dias)</div>
         {[
-          {t:"Equipe de Usinas ociosa em meses sem projeto",d:"10 profissionais com custo fixo de R$ 68K/mês ficaram sem projeto em fevereiro. A folha continuou mesmo com faturamento zero. Ação: converter 3 instaladores para contrato por projeto (reduz custo fixo em R$ 24K/mês) e nos meses sem usina, realocar equipe técnica para Projetos Comerciais.",imp:"Economia: R$ 72K/ano"},
-          {t:"Taxas de cartão acima do mercado",d:"As taxas de cartão estão em 3,2% do valor — para faturamento acima de R$ 200K/mês no cartão, a taxa negociada deveria ser 2,5%. Ação: renegociar com Stone ou PagSeguro apresentando o volume mensal.",imp:"Economia: R$ 14K/ano"},
-          {t:"Frete poderia ser otimizado com roteirização",d:"Os veículos de manutenção fazem visitas sem agrupamento geográfico. Roteirizar por região e dia pode reduzir 15-20% do consumo de combustível. Ação: implementar roteirização semanal das visitas.",imp:"Economia: R$ 16K/ano"},
-          {t:"Regime tributário pode não ser o mais vantajoso",d:"Com lucro de 10,2%, o Lucro Presumido pode estar custando mais que o Lucro Real. Ação: pedir simulação comparativa ao escritório de contabilidade com dados dos últimos 12 meses.",imp:"Economia potencial: R$ 40-80K/ano"},
+          {t:"Equipe de Usinas ociosa em meses sem projeto",d:"10 profissionais com custo fixo de R$ 68.000/mês ficaram sem projeto em fevereiro. A folha continuou mesmo com faturamento zero. Ação: converter 3 instaladores para contrato por projeto (reduz custo fixo em R$ 24.000/mês) e nos meses sem usina, realocar equipe técnica para Projetos Comerciais.",imp:"Economia: R$ 72.000/ano"},
+          {t:"Taxas de cartão acima do mercado",d:"As taxas de cartão estão em 3,2% do valor — para faturamento acima de R$ 200.000/mês no cartão, a taxa negociada deveria ser 2,5%. Ação: renegociar com Stone ou PagSeguro apresentando o volume mensal.",imp:"Economia: R$ 14.000/ano"},
+          {t:"Frete poderia ser otimizado com roteirização",d:"Os veículos de manutenção fazem visitas sem agrupamento geográfico. Roteirizar por região e dia pode reduzir 15-20% do consumo de combustível. Ação: implementar roteirização semanal das visitas.",imp:"Economia: R$ 16.000/ano"},
+          {t:"Regime tributário pode não ser o mais vantajoso",d:"Com lucro de 10,2%, o Lucro Presumido pode estar custando mais que o Lucro Real. Ação: pedir simulação comparativa ao escritório de contabilidade com dados dos últimos 12 meses.",imp:"Economia potencial: R$ 40.000-80.000/ano"},
         ].map((p,i)=>(
           <div key={i} style={{background:Y+"08",borderRadius:8,padding:14,marginBottom:8,borderLeft:`3px solid ${Y}`}}>
             <div style={{fontSize:12,fontWeight:600,color:Y,marginBottom:4}}>{p.t}</div>
@@ -1357,11 +1357,11 @@ export default function DashboardPage(){
       <Card>
         <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:12}}>🟢 OPORTUNIDADES DE MELHORIA (próximos 90 dias)</div>
         {[
-          {t:"Triplicar base de contratos de Manutenção (158→500)",d:"Cada contrato novo gera R$ 300/mês com 20,4% de lucro real e custo de aquisição de apenas R$ 350. Contratar +2 técnicos e +1 vendedor dedicado. Investimento: R$ 13K/mês. Retorno: R$ 99K/mês em 12 meses.",imp:"+R$ 1,2M/ano"},
-          {t:"Corrigir tabela de preços com custo real da estrutura",d:"A ficha técnica M16 já calcula o preço sugerido incluindo rateio da sede. Basta adotar esses preços. O markup real médio subiria de 11,2% para 18,5% nos Equipamentos.",imp:"+R$ 520K/ano"},
-          {t:"Instalar energia solar na própria sede",d:"Sistema de 5kWp eliminaria R$ 2,8K/mês de conta de energia. Payback de 18 meses. Além da economia, serve como vitrine para clientes que visitam a empresa.",imp:"+R$ 33K/ano"},
-          {t:"Implementar CRM para gestão de propostas",d:"Hoje as propostas são controladas em planilha. Um CRM (Pipedrive, R$ 500/mês) melhora acompanhamento, acelera fechamento e evita propostas esquecidas. Estimativa de conversão adicional: 2 projetos/mês.",imp:"+R$ 200K/ano"},
-          {t:"Realocar marketing da Loja Online para O&M",d:"Os R$ 18K/mês gastos em marketing digital da Loja Online (com retorno negativo) seriam muito mais produtivos captando contratos de manutenção (R$ 10K) e projetos comerciais (R$ 8K).",imp:"+R$ 150K/ano"},
+          {t:"Triplicar base de contratos de Manutenção (158→500)",d:"Cada contrato novo gera R$ 300/mês com 20,4% de lucro real e custo de aquisição de apenas R$ 350. Contratar +2 técnicos e +1 vendedor dedicado. Investimento: R$ 13.000/mês. Retorno: R$ 99.000/mês em 12 meses.",imp:"+R$ 1.200.000/ano"},
+          {t:"Corrigir tabela de preços com custo real da estrutura",d:"A ficha técnica M16 já calcula o preço sugerido incluindo rateio da sede. Basta adotar esses preços. O markup real médio subiria de 11,2% para 18,5% nos Equipamentos.",imp:"+R$ 520.000/ano"},
+          {t:"Instalar energia solar na própria sede",d:"Sistema de 5kWp eliminaria R$ 2,8K/mês de conta de energia. Payback de 18 meses. Além da economia, serve como vitrine para clientes que visitam a empresa.",imp:"+R$ 33.000/ano"},
+          {t:"Implementar CRM para gestão de propostas",d:"Hoje as propostas são controladas em planilha. Um CRM (Pipedrive, R$ 500/mês) melhora acompanhamento, acelera fechamento e evita propostas esquecidas. Estimativa de conversão adicional: 2 projetos/mês.",imp:"+R$ 200.000/ano"},
+          {t:"Realocar marketing da Loja Online para O&M",d:"Os R$ 18.000/mês gastos em marketing digital da Loja Online (com retorno negativo) seriam muito mais produtivos captando contratos de manutenção (R$ 10.000) e projetos comerciais (R$ 8.000).",imp:"+R$ 150.000/ano"},
         ].map((p,i)=>(
           <div key={i} style={{background:G+"08",borderRadius:8,padding:14,marginBottom:8,borderLeft:`3px solid ${G}`}}>
             <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:4}}>{p.t}</div>
@@ -1382,7 +1382,7 @@ export default function DashboardPage(){
             </div>
             <div style={{background:BG2,borderRadius:8,padding:10,textAlign:"center"}}>
               <div style={{fontSize:9,color:TXD}}>Pontos de Atenção</div>
-              <div style={{fontSize:18,fontWeight:700,color:G}}>+R$ 182K</div>
+              <div style={{fontSize:18,fontWeight:700,color:G}}>+R$ 182.000</div>
               <div style={{fontSize:9,color:TXM}}>por ano em economia</div>
             </div>
             <div style={{background:BG2,borderRadius:8,padding:10,textAlign:"center"}}>
@@ -1394,7 +1394,7 @@ export default function DashboardPage(){
           <div style={{textAlign:"center",background:GO+"15",borderRadius:8,padding:12}}>
             <div style={{fontSize:10,color:TXD}}>IMPACTO TOTAL SE TODAS AS AÇÕES FOREM EXECUTADAS</div>
             <div style={{fontSize:28,fontWeight:800,color:GOL,margin:"4px 0"}}>+R$ 3,4 milhões/ano</div>
-            <div style={{fontSize:11,color:TX}}>Lucro anual passaria de R$ 2,4M para R$ 5,8M — aumento de <strong style={{color:G}}>141%</strong></div>
+            <div style={{fontSize:11,color:TX}}>Lucro anual passaria de R$ 2.400.000 para R$ 5,8M — aumento de <strong style={{color:G}}>141%</strong></div>
           </div>
         </div>
       </Card>
@@ -1402,12 +1402,12 @@ export default function DashboardPage(){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
         <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`1px solid ${BD}`}}>
           <div style={{fontSize:9,color:TXD}}>Faturamento Mínimo / Mês</div>
-          <div style={{fontSize:20,fontWeight:700,color:GOL}}>R$ 978K</div>
+          <div style={{fontSize:20,fontWeight:700,color:GOL}}>R$ 978.000,00</div>
           <div style={{fontSize:9,color:TXM}}>Abaixo disso, dá prejuízo</div>
         </div>
         <div style={{background:BG2,borderRadius:8,padding:12,textAlign:"center",border:`1px solid ${BD}`}}>
           <div style={{fontSize:9,color:TXD}}>Custo Estrutura / Mês</div>
-          <div style={{fontSize:20,fontWeight:700,color:Y}}>R$ 181K</div>
+          <div style={{fontSize:20,fontWeight:700,color:Y}}>R$ 181.000,00</div>
           <div style={{fontSize:9,color:TXM}}>Sede, ADM, veículos</div>
         </div>
       </div>
@@ -1433,7 +1433,7 @@ export default function DashboardPage(){
                   return(
                     <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
                       <td style={{padding:6,color:TX,fontWeight:500}}>{r.nome}</td>
-                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:G}}>R$ {(r.valor/1000).toFixed(0)}K</td>
+                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:G}}>{fmtBRL(r.valor)}</td>
                       <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
                       <td style={{padding:6,width:120}}>
                         <div style={{background:BG3,borderRadius:4,height:8,overflow:"hidden"}}>
@@ -1463,7 +1463,7 @@ export default function DashboardPage(){
                   return(
                     <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
                       <td style={{padding:6,color:TX}}>{c.nome}</td>
-                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:i<3?R:TX}}>R$ {(c.valor/1000).toFixed(0)}K</td>
+                      <td style={{padding:6,textAlign:"right",fontWeight:700,color:i<3?R:TX}}>{fmtBRL(c.valor)}</td>
                       <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
                     </tr>
                   );
@@ -1499,7 +1499,7 @@ export default function DashboardPage(){
           <div>
             <div style={{fontSize:10,color:TXD,marginBottom:4}}>Dados disponíveis</div>
             <div style={{fontSize:11,color:TX}}>
-              {realData?`R$ ${((realData.total_rec_operacional||0)/1000).toFixed(0)}K receitas | R$ ${(realData.total_despesas/1000).toFixed(0)}K despesas`:"Carregando..."}
+              {realData?`${fmtBRL(realData.total_rec_operacional||0)} receitas | ${fmtBRL(realData.total_despesas)} despesas`:"Carregando..."}
             </div>
           </div>
         </div>
