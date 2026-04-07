@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 const GO="#C6973F",GOL="#E8C872",G="#22C55E",Y="#FACC15",R="#EF4444",
-    BG2="#1C1B18",BG3="#2A2822",BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#6B6960";
+    BG2="#1C1B18",BG3="#2A2822",BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
@@ -98,7 +98,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }}/>
         ))}
       </div>
-      <div style={{ color: "#6B6960", fontSize: 11, marginTop: 16, letterSpacing: 2, textTransform: "uppercase" }}>Carregando sistema</div>
+      <div style={{ color: "#918C82", fontSize: 11, marginTop: 16, letterSpacing: 2, textTransform: "uppercase" }}>Carregando sistema</div>
     </div>
   );
 
@@ -115,7 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <img src="/images/logo-header.png" alt="PS Gestão" style={{ height: 38, width: "auto", filter: "drop-shadow(0 2px 8px rgba(198,151,63,0.15))" }}/>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#E8C872", letterSpacing: 0.3 }}>PS Gestão e Capital</div>
-            <div style={{ fontSize: 8, color: "#6B6960", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v7.2</div>
+            <div style={{ fontSize: 8, color: "#918C82", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v7.2</div>
           </div>
         </a>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -129,10 +129,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <a href="/dashboard/sugestoes" style={{ fontSize: 10, color: "#F0ECE3", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822", background: "transparent" }}>💡</a>
           <a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
-          <span style={{ fontSize: 10, color: "#6B6960", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>
+          <span style={{ fontSize: 10, color: "#918C82", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>
           <button onClick={handleLogout} style={{
             padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822",
-            background: "transparent", color: "#6B6960", fontSize: 10, fontWeight: 500
+            background: "transparent", color: "#918C82", fontSize: 10, fontWeight: 500
           }}>Sair</button>
         </div>
       </header>

@@ -57,7 +57,7 @@ export default function LoginPage() {
             display: "block", margin: "0 auto 20px", maxWidth: 200, height: "auto",
             filter: "drop-shadow(0 8px 24px rgba(197,165,90,0.25))"
           }}/>
-          <p style={{ fontSize: 11, color: "#6B6960", letterSpacing: 3, textTransform: "uppercase", fontWeight: 500 }}>
+          <p style={{ fontSize: 11, color: "#918C82", letterSpacing: 3, textTransform: "uppercase", fontWeight: 500 }}>
             Consultor Digital
           </p>
         </div>
@@ -152,7 +152,7 @@ export default function LoginPage() {
                 Voltar para o login
               </button>
             ) : mode !== "reset" && (
-              <div style={{ fontSize: 10, color: "#6B6960", marginTop: 8, letterSpacing: 0.5 }}>
+              <div style={{ fontSize: 10, color: "#918C82", marginTop: 8, letterSpacing: 0.5 }}>
                 Acesso por convite · PS Gestão e Capital
               </div>
             )}

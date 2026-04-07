@@ -75,7 +75,7 @@ export default function ContaAzulCallback() {
           <>
             <div style={{ fontSize: 48, marginBottom: 16, animation: "pulse 1.5s infinite" }}>🔗</div>
             <div style={{ fontSize: 16, color: "#E8C872", fontWeight: 600 }}>{msg}</div>
-            <div style={{ fontSize: 12, color: "#6B6960", marginTop: 8 }}>Conectando ao ContaAzul...</div>
+            <div style={{ fontSize: 12, color: "#918C82", marginTop: 8 }}>Conectando ao ContaAzul...</div>
           </>
         )}
         {status === "error" && (

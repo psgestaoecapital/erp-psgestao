@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0F0F0D",BG2="#1C1B18",BG3="#2A2822",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",
-    BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#6B6960";
+    BD="#3D3A30",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82";
 
 const Input=({label,value,onChange,type="text",placeholder="",prefix="",small=false}:any)=>(
   <div style={{marginBottom:small?8:12}}>

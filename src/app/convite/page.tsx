@@ -119,13 +119,13 @@ function ConviteForm() {
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 28, fontWeight: 800, color: "#0F0F0D" }}>PS</div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#E8C872" }}>PS Gestão e Capital</h1>
-          <p style={{ fontSize: 12, color: "#6B6960", marginTop: 4, letterSpacing: 1, textTransform: "uppercase" }}>Convite para acessar o sistema</p>
+          <p style={{ fontSize: 12, color: "#918C82", marginTop: 4, letterSpacing: 1, textTransform: "uppercase" }}>Convite para acessar o sistema</p>
         </div>
 
         <div style={{ background: "#1C1B18", borderRadius: 16, padding: 32, border: "0.5px solid #3D3A30" }}>
           {invite?.companies && (
             <div style={{ background: "#2A2822", borderRadius: 8, padding: 12, marginBottom: 20, textAlign: "center", border: "0.5px solid #3D3A30" }}>
-              <div style={{ fontSize: 10, color: "#6B6960", textTransform: "uppercase", letterSpacing: 0.5 }}>Empresa</div>
+              <div style={{ fontSize: 10, color: "#918C82", textTransform: "uppercase", letterSpacing: 0.5 }}>Empresa</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#E8C872", marginTop: 4 }}>
                 {invite.companies.nome_fantasia || invite.companies.razao_social}
               </div>
@@ -185,7 +185,7 @@ function ConviteForm() {
           </form>
         </div>
 
-        <p style={{ textAlign: "center", fontSize: 10, color: "#6B6960", marginTop: 24 }}>
+        <p style={{ textAlign: "center", fontSize: 10, color: "#918C82", marginTop: 24 }}>
           PS Gestão e Capital — Assessoria Empresarial e BPO Financeiro
         </p>
       </div>

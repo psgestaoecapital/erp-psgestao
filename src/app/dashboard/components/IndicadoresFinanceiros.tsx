@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
-    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#6B6960";
+    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
 
 const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtP=(v:number)=>`${v.toFixed(1)}%`;

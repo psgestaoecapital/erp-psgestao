@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 const GO="#C6973F",GOL="#E8C872",G="#34D399",R="#F87171",Y="#FBBF24",
-    BG2="#161614",BG3="#1E1E1B",BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#6B6960";
+    BG2="#161614",BG3="#1E1E1B",BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
 
 const fmt=(v:number)=>v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtR=(v:number)=>`R$ ${fmt(v)}`;

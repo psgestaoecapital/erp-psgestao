@@ -8,7 +8,7 @@ import IndicadoresFinanceiros from "./components/IndicadoresFinanceiros";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",T="#2DD4BF",
-    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#6B6960";
+    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
 
 const tt={background:'#FFFFFF',border:'2px solid #C6973F',borderRadius:12,fontSize:12,color:'#1A1A18',padding:'12px 16px',boxShadow:'0 6px 20px rgba(0,0,0,0.4)',lineHeight:1.8};
 const tl={color:'#1A1A18',fontWeight:700,fontSize:13,marginBottom:4};const ti={color:'#333',fontSize:11,fontWeight:500};

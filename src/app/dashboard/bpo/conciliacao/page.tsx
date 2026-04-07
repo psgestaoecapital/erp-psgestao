@@ -3,7 +3,7 @@ import React, { useState, useCallback } from "react";
 
 const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",P="#A855F7",
-    BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#A09B90";
+    BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#918C82";
 
 type Transacao = {
   data: string;
