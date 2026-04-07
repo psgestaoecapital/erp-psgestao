@@ -570,14 +570,32 @@ export default function DadosPage() {
         <Card>
           <div style={{display:"flex",gap:12,alignItems:"center"}}>
             <div style={{flex:1}}>
-              <Select label="Empresa ativa" value={selectedCompany} onChange={(v:string)=>{
-                setSelectedCompany(v);
-                const c = companies.find(c=>c.id===v);
-                if(c) {
-                  setEmpresa({razao_social:c.razao_social||"",nome_fantasia:c.nome_fantasia||"",cnpj:c.cnpj||"",cidade_estado:c.cidade_estado||"",setor:c.setor||"",num_colaboradores:c.num_colaboradores?.toString()||"",faturamento_anual:c.faturamento_anual?.toString()||"",pais:c.pais||"Brasil",moeda:c.moeda||"BRL",regime_tributario:c.regime_tributario||"simples",tipo_empresa:c.tipo_empresa||"matriz",id_fiscal_exterior:c.id_fiscal_exterior||""});
-                  loadBusinessLines(v);
-                }
-              }} options={companies.map(c=>({value:c.id,label:c.nome_fantasia||c.razao_social}))}/>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,color:TXM,display:"block",marginBottom:4}}>Empresa ativa</label>
+                <select value={selectedCompany} onChange={e=>{
+                  const v=e.target.value;
+                  setSelectedCompany(v);
+                  if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",v);
+                  const c = companies.find(c=>c.id===v);
+                  if(c) {
+                    setEmpresa({razao_social:c.razao_social||"",nome_fantasia:c.nome_fantasia||"",cnpj:c.cnpj||"",cidade_estado:c.cidade_estado||"",setor:c.setor||"",num_colaboradores:c.num_colaboradores?.toString()||"",faturamento_anual:c.faturamento_anual?.toString()||"",pais:c.pais||"Brasil",moeda:c.moeda||"BRL",regime_tributario:c.regime_tributario||"simples",tipo_empresa:c.tipo_empresa||"matriz",id_fiscal_exterior:c.id_fiscal_exterior||""});
+                    loadBusinessLines(v);
+                  }
+                }} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,width:"100%"}}>
+                  {groups.map(g=>{
+                    const gComps=companies.filter(c=>c.group_id===g.id);
+                    if(gComps.length===0)return null;
+                    return(<optgroup key={g.id} label={`📁 ${g.nome} (${gComps.length} empresas)`}>
+                      {gComps.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+                    </optgroup>);
+                  })}
+                  {companies.filter(c=>!c.group_id).length>0&&(
+                    <optgroup label="── Sem grupo ──">
+                      {companies.filter(c=>!c.group_id).map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
             </div>
             {(aba==="resultado"||aba==="estrutura")&&(
               <div style={{flex:1}}>
