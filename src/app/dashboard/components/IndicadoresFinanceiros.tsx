@@ -217,7 +217,7 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
       </div>
 
       {/* Top 6 KPIs - Hero Cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))",gap:10,marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:12,marginBottom:16}}>
         {[
           {label:"Ponto de Equilíbrio",value:categorias[0]?.indicadores[0]?.valor||"—",cor:GOL,icon:"🎯",status:categorias[0]?.indicadores[0]?.status||"neutro"},
           {label:"Margem EBITDA",value:categorias[1]?.indicadores[2]?.valor||"—",cor:G,icon:"📈",status:categorias[1]?.indicadores[2]?.status||"neutro"},
@@ -228,11 +228,34 @@ export default function IndicadoresFinanceiros({realData,empresaId}:{realData:an
         ].map((k,i)=>{
           const sc=statusCfg[k.status as keyof typeof statusCfg]||statusCfg.neutro;
           return(
-          <div key={i} style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:14,padding:"16px",border:`1px solid ${sc.border}`,textAlign:"center",position:"relative",overflow:"hidden"}}>
-            <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:sc.cor,opacity:0.6}}/>
-            <div style={{width:32,height:32,borderRadius:8,background:`${k.cor}15`,border:`1px solid ${k.cor}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,margin:"0 auto 8px",boxShadow:`0 2px 8px ${k.cor}20`}}>{k.icon}</div>
-            <div style={{fontSize:9,color:TXM,textTransform:"uppercase",letterSpacing:1,marginBottom:4,fontWeight:500}}>{k.label}</div>
-            <div style={{fontSize:18,fontWeight:700,color:k.cor,textShadow:`0 0 20px ${k.cor}30`}}>{k.value}</div>
+          <div key={i} style={{
+            background:"linear-gradient(160deg, #1A1918 0%, #141412 100%)",
+            borderRadius:18,padding:"20px 16px",textAlign:"center",position:"relative",overflow:"hidden",
+            border:`1.5px solid ${sc.border}`,
+            boxShadow:`0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px ${sc.cor}10, inset 0 1px 0 rgba(255,255,255,0.03)`,
+            transition:"all 0.2s",cursor:"default",
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=`0 8px 30px rgba(0,0,0,0.5), 0 0 20px ${k.cor}20, inset 0 1px 0 rgba(255,255,255,0.05)`;}}
+          onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=`0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px ${sc.cor}10, inset 0 1px 0 rgba(255,255,255,0.03)`;}}
+          >
+            {/* Top accent line */}
+            <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg, transparent, ${k.cor}, transparent)`,opacity:0.7}}/>
+            {/* Icon */}
+            <div style={{
+              width:52,height:52,borderRadius:14,margin:"0 auto 12px",
+              background:`linear-gradient(145deg, ${k.cor}20, ${k.cor}08)`,
+              border:`2px solid ${k.cor}40`,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,
+              boxShadow:`0 4px 16px ${k.cor}25, inset 0 1px 0 rgba(255,255,255,0.08)`,
+            }}>{k.icon}</div>
+            {/* Label */}
+            <div style={{fontSize:10,color:TXM,textTransform:"uppercase",letterSpacing:1.2,marginBottom:6,fontWeight:600}}>{k.label}</div>
+            {/* Value */}
+            <div style={{fontSize:20,fontWeight:800,color:k.cor,letterSpacing:-0.5,textShadow:`0 0 24px ${k.cor}30`}}>{k.value}</div>
+            {/* Status dot */}
+            <div style={{marginTop:8}}>
+              <span style={{fontSize:9,padding:"3px 10px",borderRadius:8,background:sc.bg,color:sc.cor,fontWeight:600,border:`1px solid ${sc.border}`}}>{sc.label}</span>
+            </div>
           </div>
         );})}
       </div>
