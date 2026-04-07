@@ -31,51 +31,62 @@ const fmtMesLabel=(k:string)=>{
 
 // Drill-down panel
 const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
-  if(loading) return <div style={{padding:12,textAlign:"center",fontSize:11,color:TXM}}>Carregando detalhes...</div>;
+  if(loading) return <div style={{padding:16,textAlign:"center",fontSize:12,color:TXM}}>Carregando detalhes...</div>;
   if(!data) return null;
   return(
-    <div style={{background:BG3,borderRadius:8,padding:12,marginTop:8,border:"0.5px solid #3D3A30"}}>
-      <div style={{display:"flex",gap:12,marginBottom:10}}>
-        <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:GOL}}>{fmtBRL(data.total)}</div>
+    <div style={{background:"#1A1918",borderRadius:12,padding:14,marginTop:8,border:`1px solid ${BD}`}}>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+        <div style={{background:BG3,borderRadius:8,padding:"8px 14px",textAlign:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:GOL}}>{fmtBRL(data.total)}</div>
           <div style={{fontSize:10,color:TXM}}>Total</div>
         </div>
-        <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:TX}}>{data.count}</div>
+        <div style={{background:BG3,borderRadius:8,padding:"8px 14px",textAlign:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:TX}}>{data.count}</div>
           <div style={{fontSize:10,color:TXM}}>Lançamentos</div>
         </div>
         {Object.entries(data.por_status||{}).map(([s,v]:any)=>(
-          <div key={s} style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
-            <div style={{fontSize:14,fontWeight:700,color:s==="PAGO"||s==="RECEBIDO"?G:s==="ATRASADO"?R:TXM}}>{v.count}</div>
-            <div style={{fontSize:8,color:TXD}}>{s}</div>
+          <div key={s} style={{background:BG3,borderRadius:8,padding:"8px 14px",textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:s==="PAGO"||s==="RECEBIDO"?G:s==="ATRASADO"?R:s==="A VENCER"?Y:TXM}}>{v.count}</div>
+            <div style={{fontSize:10,color:TXM}}>{s}</div>
           </div>
         ))}
       </div>
-      <div style={{maxHeight:250,overflowY:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
-          <thead><tr style={{borderBottom:"1px solid #3D3A30"}}>
-            <th style={{padding:4,textAlign:"left",color:GO,fontSize:11}}>Data</th>
-            <th style={{padding:4,textAlign:"left",color:GO,fontSize:11}}>Documento</th>
-            <th style={{padding:4,textAlign:"left",color:GO,fontSize:11}}>Status</th>
-            <th style={{padding:4,textAlign:"right",color:GO,fontSize:11}}>Valor</th>
+      <div style={{maxHeight:350,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
+            <th style={{padding:"8px 6px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>DATA</th>
+            <th style={{padding:"8px 6px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>CLIENTE / FORNECEDOR</th>
+            <th style={{padding:"8px 6px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>DESCRIÇÃO</th>
+            <th style={{padding:"8px 6px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>DOC / NF</th>
+            <th style={{padding:"8px 6px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>STATUS</th>
+            <th style={{padding:"8px 6px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>VALOR</th>
           </tr></thead>
           <tbody>
             {data.transacoes?.map((t:any,i:number)=>(
-              <tr key={i} style={{borderBottom:"0.5px solid #3D3A3020"}}>
-                <td style={{padding:4,color:TXM}}>{t.data}</td>
-                <td style={{padding:4,color:TX}}>{t.documento||t.parcela||"—"}</td>
-                <td style={{padding:4}}>
-                  <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,
-                    background:t.status==="PAGO"||t.status==="RECEBIDO"?"#22C55E20":t.status==="ATRASADO"?"#EF444420":"#A8A49810",
-                    color:t.status==="PAGO"||t.status==="RECEBIDO"?G:t.status==="ATRASADO"?R:TXM
+              <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
+                <td style={{padding:"7px 6px",color:TXM,whiteSpace:"nowrap",fontSize:11}}>{t.data}{t.vencimento&&t.vencimento!==t.data?<div style={{fontSize:9,color:TXD}}>Venc: {t.vencimento}</div>:null}</td>
+                <td style={{padding:"7px 6px"}}>
+                  <div style={{color:TX,fontWeight:500,fontSize:12}}>{t.nome_cf||"—"}</div>
+                  {t.cliente_fornecedor&&<div style={{fontSize:9,color:TXD}}>Cód: {t.cliente_fornecedor}</div>}
+                </td>
+                <td style={{padding:"7px 6px",color:TXM,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",fontSize:11}}>{t.observacao||t.desc_categoria||"—"}</td>
+                <td style={{padding:"7px 6px"}}>
+                  <div style={{color:TX,fontFamily:"monospace",fontSize:11}}>{t.documento||t.nf||"—"}</div>
+                  {t.parcela&&<div style={{fontSize:9,color:TXD}}>Parc: {t.parcela}</div>}
+                </td>
+                <td style={{padding:"7px 6px",textAlign:"center"}}>
+                  <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,fontWeight:500,
+                    background:t.status==="PAGO"||t.status==="RECEBIDO"?G+"18":t.status==="ATRASADO"?R+"18":t.status==="A VENCER"?Y+"18":TXM+"10",
+                    color:t.status==="PAGO"||t.status==="RECEBIDO"?G:t.status==="ATRASADO"?R:t.status==="A VENCER"?Y:TXM,
+                    border:`1px solid ${t.status==="PAGO"||t.status==="RECEBIDO"?G+"30":t.status==="ATRASADO"?R+"30":t.status==="A VENCER"?Y+"30":BD}`
                   }}>{t.status||"—"}</span>
                 </td>
-                <td style={{padding:4,textAlign:"right",fontWeight:600,color:TX}}>R$ {t.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})}</td>
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:600,color:TX,whiteSpace:"nowrap",fontSize:12}}>{fmtBRL(t.valor)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {data.count>50&&<div style={{fontSize:11,color:TXM,textAlign:"center",marginTop:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
+        {data.count>50&&<div style={{fontSize:11,color:TXM,textAlign:"center",marginTop:8,padding:6,background:BG3,borderRadius:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
       </div>
     </div>
   );

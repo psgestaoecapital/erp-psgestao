@@ -25,6 +25,22 @@ export async function POST(req: NextRequest) {
     const pInicio = periodo_inicio || "2020-01";
     const pFim = periodo_fim || "2030-12";
     
+    // Load client/supplier names from clientes import
+    const clienteNomes: Record<string, string> = {};
+    const { data: clienteImports } = await supabase.from("omie_imports").select("import_data").in("company_id", company_ids).eq("import_type", "clientes");
+    if (clienteImports) {
+      for (const ci of clienteImports) {
+        const clientes = ci.import_data?.clientes_cadastro || ci.import_data?.clientes || [];
+        if (Array.isArray(clientes)) {
+          for (const c of clientes) {
+            const cod = c.codigo_cliente_omie || c.codigo_cliente || c.codigo;
+            const nome = c.nome_fantasia || c.razao_social || c.nome || "";
+            if (cod && nome) clienteNomes[String(cod)] = nome;
+          }
+        }
+      }
+    }
+
     const transactions: any[] = [];
     
     for (const imp of imports) {
@@ -46,14 +62,22 @@ export async function POST(req: NextRequest) {
           }
         }
         
+        const codCF = String(r.codigo_cliente_fornecedor || r.codigo_cliente || "");
+        
         transactions.push({
           valor: Number(r.valor_documento) || 0,
           data: dt,
+          vencimento: r.data_vencimento || "",
           status: r.status_titulo || "",
           documento: r.numero_documento || r.numero_documento_fiscal || "",
           parcela: r.numero_parcela || "",
-          cliente_fornecedor: r.codigo_cliente_fornecedor || "",
+          cliente_fornecedor: codCF,
+          nome_cf: clienteNomes[codCF] || r.nome_cliente || r.nome_fornecedor || "",
+          observacao: r.observacao || r.descricao || "",
           categoria: cat,
+          desc_categoria: r.descricao_categoria || "",
+          nf: r.numero_documento_fiscal || r.numero_nf || "",
+          pedido: r.numero_pedido || "",
         });
       }
     }
