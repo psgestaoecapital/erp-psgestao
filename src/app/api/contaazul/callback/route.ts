@@ -36,13 +36,12 @@ export async function GET(req: NextRequest) {
       headers: { 
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
+        "Authorization": `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
         redirect_uri: `${req.nextUrl.origin}/api/contaazul/callback`,
-        client_id: clientId,
-        client_secret: clientSecret,
       }).toString(),
     });
 
