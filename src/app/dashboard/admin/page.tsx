@@ -79,6 +79,32 @@ export default function AdminPage(){
       const{data}=await supabase.from("user_companies").insert({user_id:uid,company_id:e.id,role}).select().single();
       if(data)setUserComps(prev=>[...prev,data]);
     }
+    setMsg(`${toAdd.length} empresas vinculadas!`);
+  };
+
+  const vincularGrupo=async(uid:string,groupId:string)=>{
+    const role=usuarios.find(u=>u.id===uid)?.role||"visualizador";
+    const existing=getUserCompIds(uid);
+    const groupCompanies=empresas.filter(e=>e.group_id===groupId&&!existing.includes(e.id));
+    for(const e of groupCompanies){
+      const{data}=await supabase.from("user_companies").insert({user_id:uid,company_id:e.id,role}).select().single();
+      if(data)setUserComps(prev=>[...prev,data]);
+    }
+    const grupoNome=grupos.find(g=>g.id===groupId)?.nome||"Grupo";
+    setMsg(`✅ ${groupCompanies.length} empresas do grupo "${grupoNome}" vinculadas!`);
+    setTimeout(()=>setMsg(""),3000);
+  };
+
+  const desvincularGrupo=async(uid:string,groupId:string)=>{
+    const groupCompIds=empresas.filter(e=>e.group_id===groupId).map(e=>e.id);
+    for(const compId of groupCompIds){
+      await supabase.from("user_companies").delete().eq("user_id",uid).eq("company_id",compId);
+    }
+    setUserComps(userComps.filter(uc=>!(uc.user_id===uid&&groupCompIds.includes(uc.company_id))));
+    const grupoNome=grupos.find(g=>g.id===groupId)?.nome||"Grupo";
+    setMsg(`Empresas do grupo "${grupoNome}" desvinculadas.`);
+    setTimeout(()=>setMsg(""),3000);
+  };
     setMsg(`Todas as ${empresas.length} empresas vinculadas!`);
   };
 
@@ -341,6 +367,32 @@ export default function AdminPage(){
                 <span style={{fontSize:10,fontWeight:600,color:GO}}>Selecione as empresas que este usuário pode acessar:</span>
                 <button onClick={()=>vincularTodas(u.id)} style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`,cursor:"pointer"}}>Vincular todas</button>
               </div>
+
+              {/* Group assignment buttons */}
+              {grupos.length>0&&(
+                <div style={{marginBottom:10,padding:"8px 10px",background:BG2,borderRadius:8,border:`1px solid ${BD}`}}>
+                  <div style={{fontSize:9,color:TXM,fontWeight:600,marginBottom:6}}>📁 VINCULAR POR GRUPO (todas as empresas do grupo de uma vez)</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    {grupos.map(g=>{
+                      const gComps=empresas.filter(e=>e.group_id===g.id);
+                      const allLinked=gComps.every(e=>uComps.includes(e.id));
+                      const someLinked=gComps.some(e=>uComps.includes(e.id));
+                      return(
+                        <button key={g.id} onClick={()=>allLinked?desvincularGrupo(u.id,g.id):vincularGrupo(u.id,g.id)} style={{
+                          padding:"6px 14px",borderRadius:8,fontSize:10,cursor:"pointer",fontWeight:600,
+                          background:allLinked?G+"15":someLinked?Y+"15":"transparent",
+                          border:`1px solid ${allLinked?G:someLinked?Y:BD}40`,
+                          color:allLinked?G:someLinked?Y:TXM,
+                        }}>
+                          {allLinked?"✅":"📁"} {g.nome} ({gComps.length})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Individual companies */}
               {empresas.map(emp=>{
                 const linked=uComps.includes(emp.id);
                 return(
