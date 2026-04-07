@@ -471,7 +471,7 @@ export default function AdminPage(){
       )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:16,marginBottom:8}}>
         <div style={{fontSize:12,fontWeight:600,color:TX}}>Convites recentes</div>
-        <button onClick={async()=>{if(!confirm("Excluir TODOS os convites pendentes?"))return;await supabase.from("invites").delete().eq("is_used",false);setMsg("Convites pendentes excluídos!");loadData();}} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:R+"15",border:`1px solid ${R}30`,color:R,cursor:"pointer"}}>🗑 Limpar pendentes</button>
+        <button onClick={async()=>{if(!confirm("Excluir TODOS os convites pendentes?"))return;await supabase.from("invites").delete().eq("is_used",false);setConvites(prev=>prev.filter(c=>c.is_used));setMsg("Convites pendentes excluídos!");}} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:R+"15",border:`1px solid ${R}30`,color:R,cursor:"pointer"}}>🗑 Limpar pendentes</button>
       </div>
       {convites.map((inv,i)=>(
         <div key={inv.id||i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,border:`1px solid ${BD}`,borderLeft:`3px solid ${inv.used?G:getRC(inv.role)}`}}>
@@ -480,7 +480,7 @@ export default function AdminPage(){
             <div style={{fontSize:9,color:TXD}}>{inv.email||"Sem e-mail"} | <span style={{color:getRC(inv.role),fontWeight:600}}>{getRN(inv.role)}</span> | {new Date(inv.created_at).toLocaleDateString("pt-BR")}</div></div>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:inv.is_used?G+"20":Y+"20",color:inv.is_used?G:Y,fontWeight:600}}>{inv.is_used?"Usado":"Pendente"}</span>
-              <button onClick={async(e)=>{e.stopPropagation();if(!confirm("Excluir este convite?"))return;await supabase.from("invites").delete().eq("id",inv.id);setMsg("Convite excluído!");loadData();}} style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:R+"10",border:`1px solid ${R}25`,color:R,cursor:"pointer"}}>✕</button>
+              <button onClick={async(e)=>{e.stopPropagation();if(!confirm("Excluir este convite?"))return;await supabase.from("invites").delete().eq("id",inv.id);setConvites(prev=>prev.filter(c=>c.id!==inv.id));setMsg("Convite excluído!");}} style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:R+"10",border:`1px solid ${R}25`,color:R,cursor:"pointer"}}>✕</button>
             </div>
           </div>
         </div>
