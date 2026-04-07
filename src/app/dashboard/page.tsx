@@ -963,11 +963,12 @@ export default function DashboardPage(){
         </div>
       </Card>
 
-      {/* Fluxo de Caixa Diário */}
+      </>)}
+
+      {/* Fluxo de Caixa Diário — sempre visível */}
       <Tit t="Fluxo de Caixa — Projeção Diária"/>
       <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
 
-      </>)}
     </div>)}
 
     {aba==="negocios"&&(<div>
