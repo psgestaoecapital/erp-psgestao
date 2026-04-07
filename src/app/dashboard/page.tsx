@@ -371,7 +371,12 @@ export default function DashboardPage(){
   }
 
   // ===== MAIN DASHBOARD =====
-  const [empresaSel, setEmpresaSel] = useState("consolidado");
+  const [empresaSel, setEmpresaSel] = useState(()=>{
+    if(typeof window!=="undefined"){const s=localStorage.getItem("ps_empresa_sel");if(s)return s;}
+    return "consolidado";
+  });
+  // Persist company selection
+  useEffect(()=>{if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",empresaSel);},[empresaSel]);
   const [filtroTipo, setFiltroTipo] = useState<"mes"|"dia"|"periodo">("mes");
   const [periodoInicio, setPeriodoInicio] = useState(()=>{
     const d=new Date(); d.setMonth(d.getMonth()-5);

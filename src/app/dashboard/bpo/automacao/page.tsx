@@ -22,11 +22,12 @@ export default function BPOAutoPage(){
   const [selected,setSelected]=useState<Set<string>>(new Set());
 
   useEffect(()=>{loadCompanies();},[]);
+  useEffect(()=>{if(selectedComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selectedComp);},[selectedComp]);
   useEffect(()=>{if(selectedComp)loadData();},[selectedComp]);
 
   const loadCompanies=async()=>{
     const{data}=await supabase.from("companies").select("*").order("nome_fantasia");
-    if(data&&data.length>0){setCompanies(data);setSelectedComp(data[0].id);}
+    if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?data.find((c:any)=>c.id===saved):null;setSelectedComp(match?match.id:data[0].id);}
     setLoading(false);
   };
 

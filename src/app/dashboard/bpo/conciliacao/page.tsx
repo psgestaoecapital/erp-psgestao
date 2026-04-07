@@ -19,11 +19,12 @@ export default function ConciliacaoPage(){
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{loadCompanies();},[]);
+  useEffect(()=>{if(selComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selComp);},[selComp]);
   useEffect(()=>{if(selComp)loadHistorico();},[selComp]);
 
   const loadCompanies=async()=>{
     const{data}=await supabase.from("companies").select("*").order("nome_fantasia");
-    if(data&&data.length>0){setCompanies(data);setSelComp(data[0].id);}
+    if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?data.find((c:any)=>c.id===saved):null;setSelComp(match?match.id:data[0].id);}
     setLoading(false);
   };
 
