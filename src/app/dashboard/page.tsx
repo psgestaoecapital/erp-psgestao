@@ -464,7 +464,7 @@ export default function DashboardPage(){
   // Report state
   const [reportText, setReportText] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
-  const [reportSource, setReportSource] = useState("");
+  const [reportSource, setReportSource] = useState("v19");
   const showToast2 = (msg:string) => { /* simple alert */ alert(msg); };
 
   const loadDrill = async (categoria: string, tipo: "receita"|"despesa", key: string) => {
@@ -1619,52 +1619,91 @@ export default function DashboardPage(){
     </div>)}
 
     {aba==="relatorio"&&(<div>
-      <Tit t="Gerar Relatório com o PS"/>
+      <Tit t="Relatório Executivo — PS Consultor Digital"/>
+      
+      {/* Report type selector */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        <div onClick={()=>setReportSource("rapido")} style={{
+          background:reportSource==="rapido"?"linear-gradient(135deg, #161614, #1E1E1B)":BG2,
+          borderRadius:14,padding:18,border:`1px solid ${reportSource==="rapido"?GO+"50":BD}`,cursor:"pointer",transition:"all 0.2s",
+        }}>
+          <div style={{fontSize:18,marginBottom:6}}>⚡</div>
+          <div style={{fontSize:14,fontWeight:600,color:reportSource==="rapido"?GOL:TX}}>Relatório Rápido</div>
+          <div style={{fontSize:11,color:TXM,marginTop:4}}>Análise resumida com os principais KPIs, alertas e recomendações. Gerado em ~30 segundos.</div>
+        </div>
+        <div onClick={()=>setReportSource("v19")} style={{
+          background:reportSource==="v19"?"linear-gradient(135deg, #1a1510, #161614)":BG2,
+          borderRadius:14,padding:18,border:`1px solid ${reportSource==="v19"?GO:BD}`,cursor:"pointer",transition:"all 0.2s",
+          position:"relative",overflow:"hidden",
+        }}>
+          <div style={{position:"absolute",top:8,right:8,fontSize:8,padding:"2px 8px",borderRadius:6,background:`${GO}20`,color:GOL,fontWeight:700,border:`1px solid ${GO}40`}}>CEO EDITION</div>
+          <div style={{fontSize:18,marginBottom:6}}>👑</div>
+          <div style={{fontSize:14,fontWeight:600,color:reportSource==="v19"?GOL:TX}}>Relatório V19 — 18 Slides</div>
+          <div style={{fontSize:11,color:TXM,marginTop:4}}>Nível Conselho de Administração. DRE, Balanço, Fluxo, ESG, Risco, Valuation, Carta ao Acionista. ~2 minutos.</div>
+        </div>
+      </div>
+
       <Card>
-        <div style={{fontSize:11,color:TXM,marginBottom:12}}>O relatório é gerado automaticamente pela IA analisando todos os dados financeiros reais do período selecionado, o plano de ação em andamento e o contexto do empresário.</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16}}>
           <div>
-            <div style={{fontSize:10,color:TXD,marginBottom:4}}>Período</div>
+            <div style={{fontSize:10,color:TXM,marginBottom:4}}>Período</div>
             <div style={{fontSize:13,fontWeight:600,color:GOL}}>{filtroTipo==="mes"?fmtMesLabel(efPeriodoInicio):efPeriodoInicio} a {filtroTipo==="mes"?fmtMesLabel(efPeriodoFim):efPeriodoFim}</div>
-            <div style={{fontSize:9,color:TXD,marginTop:2}}>Mesmo período selecionado no header</div>
           </div>
           <div>
-            <div style={{fontSize:10,color:TXD,marginBottom:4}}>Dados disponíveis</div>
-            <div style={{fontSize:11,color:TX}}>
-              {realData?`${fmtBRL(realData.total_rec_operacional||0)} receitas | ${fmtBRL(realData.total_despesas)} despesas`:"Carregando..."}
-            </div>
+            <div style={{fontSize:10,color:TXM,marginBottom:4}}>Empresa</div>
+            <div style={{fontSize:13,fontWeight:600,color:TX}}>{empresaAtiva.nome}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:TXM,marginBottom:4}}>Dados</div>
+            <div style={{fontSize:11,color:TX}}>{realData?`${fmtBRL(realData.total_rec_operacional||0)} receitas`:"Carregando..."}</div>
           </div>
         </div>
+
+        {reportSource==="v19"&&(
+          <div style={{padding:"10px 14px",borderRadius:8,background:`${GO}08`,border:`1px solid ${GO}20`,marginBottom:12,fontSize:11,color:TXM,lineHeight:1.6}}>
+            <strong style={{color:GOL}}>👑 V19 CEO Edition</strong> cruza automaticamente: DRE + Balanço + Financiamentos + Fluxo de Caixa + Linhas de Negócio + Contexto do Empresário → gera 18 slides com análise de nível Conselho de Administração.
+          </div>
+        )}
+
         <button onClick={async()=>{
           if(!realData) return;
           setReportLoading(true);
           setReportText("");
           try {
-            const res = await fetch("/api/report",{
-              method:"POST",
-              headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({
-                financial_data:realData,
-                periodo_inicio:efPeriodoInicio,
-                periodo_fim:efPeriodoFim,
-                empresa_nome:empresaAtiva.nome,
-              })
-            });
-            const d = await res.json();
-            if(d.success) {
-              setReportText(d.report);
-              setReportSource("claude");
+            if(reportSource==="v19"){
+              // V19 CEO Edition
+              let compIds: string[];
+              if(empresaSel==="consolidado") compIds=dbCompanies.map(c=>c.id);
+              else if(empresaSel.startsWith("group_")) compIds=dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id);
+              else compIds=[empresaSel];
+              const res=await fetch("/api/report/v19",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({company_ids:compIds,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
+              });
+              const d=await res.json();
+              if(d.success) setReportText(d.report);
+              else setReportText("Erro: "+(d.error||"desconhecido"));
             } else {
-              setReportText("Erro ao gerar relatório: "+(d.error||"desconhecido"));
+              // Quick report
+              const res=await fetch("/api/report",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({financial_data:realData,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
+              });
+              const d=await res.json();
+              if(d.success) setReportText(d.report);
+              else setReportText("Erro: "+(d.error||"desconhecido"));
             }
           } catch(e:any) { setReportText("Erro: "+e.message); }
           setReportLoading(false);
         }} disabled={reportLoading||!realData} style={{
-          width:"100%",padding:16,border:"none",borderRadius:10,
-          background:reportLoading?BD:`linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
-          color:reportLoading?TXM:BG,fontSize:15,fontWeight:700,cursor:reportLoading?"wait":"pointer"
+          width:"100%",padding:16,border:"none",borderRadius:12,
+          background:reportLoading?BD:reportSource==="v19"?`linear-gradient(135deg, #8B6914, ${GO}, ${GOL})`:
+            `linear-gradient(135deg,${GO} 0%,${GOL} 100%)`,
+          color:reportLoading?TXM:BG,fontSize:14,fontWeight:700,cursor:reportLoading?"wait":"pointer",
+          boxShadow:reportLoading?"none":`0 4px 16px rgba(198,151,63,0.3)`,
         }}>
-          {reportLoading?"◆ PS gerando relatório... aguarde":"◆ PS, gere meu Relatório"}
+          {reportLoading?(reportSource==="v19"?"👑 Gerando 18 slides... aguarde ~2 min":"⚡ Gerando relatório..."):
+            (reportSource==="v19"?"👑 Gerar Relatório V19 — 18 Slides CEO Edition":"⚡ Gerar Relatório Rápido")}
         </button>
       </Card>
 
@@ -1672,21 +1711,27 @@ export default function DashboardPage(){
         <Card>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div>
-              <div style={{fontSize:14,fontWeight:700,color:GOL}}>Relatório Executivo — PS Gestão e Capital</div>
-              <div style={{fontSize:10,color:TXD}}>{filtroTipo==="mes"?fmtMesLabel(efPeriodoInicio):efPeriodoInicio} a {filtroTipo==="mes"?fmtMesLabel(efPeriodoFim):efPeriodoFim} | Gerado pelo PS</div>
+              <div style={{fontSize:15,fontWeight:700,color:GOL}}>{reportSource==="v19"?"👑 Relatório V19 — CEO Edition":"⚡ Relatório Rápido"} — PS Gestão</div>
+              <div style={{fontSize:10,color:TXM}}>{filtroTipo==="mes"?fmtMesLabel(efPeriodoInicio):efPeriodoInicio} a {filtroTipo==="mes"?fmtMesLabel(efPeriodoFim):efPeriodoFim} | {empresaAtiva.nome}</div>
             </div>
-            <button onClick={()=>{navigator.clipboard.writeText(reportText);showToast2("Relatório copiado!")}} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:10,cursor:"pointer"}}>Copiar</button>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{navigator.clipboard.writeText(reportText);showToast2("Copiado!")}} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:10,cursor:"pointer",fontWeight:600}}>📋 Copiar</button>
+              <button onClick={()=>window.print()} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontSize:10,cursor:"pointer"}}>🖨️ Imprimir</button>
+            </div>
           </div>
           <div style={{fontSize:12,color:TX,lineHeight:1.8,whiteSpace:"pre-wrap"}} dangerouslySetInnerHTML={{__html:reportText
-            .replace(/^# (.+)/gm,'<h2 style="color:#E8C872;font-size:16px;font-weight:800;margin:16px 0 8px">$1</h2>')
-            .replace(/^## (\d+\..+)/gm,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:20px 0 8px">$1</h3>')
-            .replace(/^## (.+)/gm,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:20px 0 8px">$1</h3>')
-            .replace(/^---$/gm,'<hr style="border:none;border-top:1px solid #3D3A30;margin:16px 0"/>')
-            .replace(/\*\*(.+?)\*\*/g,'<strong style="color:#E8E5DC">$1</strong>')
-            .replace(/^⚠/gm,'<span style="color:#EF4444">⚠</span>')
-            .replace(/^⚡/gm,'<span style="color:#FACC15">⚡</span>')
-            .replace(/^💡/gm,'<span style="color:#22C55E">💡</span>')
-            .replace(/^- /gm,'• ')
+            .replace(/--- \[SLIDE (\d+)[^\]]*\] ([^-]+) ---/g,'<div style="margin:24px 0 12px;padding:12px 16px;border-radius:10px;background:linear-gradient(135deg,rgba(198,151,63,0.08),transparent);border:1px solid rgba(198,151,63,0.2);border-left:4px solid #C6973F"><div style="font-size:10px;color:#918C82;letter-spacing:1px;text-transform:uppercase">SLIDE $1</div><div style="font-size:16px;font-weight:700;color:#E8C872;margin-top:4px">$2</div></div>')
+            .replace(/--- \[SLIDE (\d+)\] ([^-]+) ---/g,'<div style="margin:24px 0 12px;padding:12px 16px;border-radius:10px;background:linear-gradient(135deg,rgba(198,151,63,0.08),transparent);border:1px solid rgba(198,151,63,0.2);border-left:4px solid #C6973F"><div style="font-size:10px;color:#918C82;letter-spacing:1px;text-transform:uppercase">SLIDE $1</div><div style="font-size:16px;font-weight:700;color:#E8C872;margin-top:4px">$2</div></div>')
+            .replace(/^# (.+)/gm,'<h2 style="color:#E8C872;font-size:16px;font-weight:800;margin:20px 0 8px">$1</h2>')
+            .replace(/^## (.+)/gm,'<h3 style="color:#E8C872;font-size:14px;font-weight:700;margin:16px 0 6px">$1</h3>')
+            .replace(/^### (.+)/gm,'<h4 style="color:#B0AB9F;font-size:13px;font-weight:600;margin:12px 0 6px">$1</h4>')
+            .replace(/^---$/gm,'<hr style="border:none;border-top:1px solid #2A2822;margin:16px 0"/>')
+            .replace(/\*\*(.+?)\*\*/g,'<strong style="color:#F0ECE3">$1</strong>')
+            .replace(/🟢/g,'<span style="color:#34D399">🟢</span>')
+            .replace(/🟡/g,'<span style="color:#FBBF24">🟡</span>')
+            .replace(/🔴/g,'<span style="color:#F87171">🔴</span>')
+            .replace(/\|([^|\n]+)\|/g,'<span style="color:#B0AB9F;padding:0 4px">|$1|</span>')
+            .replace(/^- /gm,'<span style="color:#C6973F;margin-right:4px">▸</span> ')
           }}/>
         </Card>
       )}
