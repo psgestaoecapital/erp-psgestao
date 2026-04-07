@@ -59,8 +59,26 @@ function ConviteForm() {
         org_id: invite.org_id,
         full_name: nome,
         email: email,
-        role: invite.role || "geral",
+        role: invite.role || "visualizador",
       });
+
+      // Link user to company/companies
+      if (invite.group_id) {
+        // Group invite: link to ALL companies in the group
+        const { data: groupComps } = await supabase.from("companies").select("id").eq("group_id", invite.group_id);
+        if (groupComps) {
+          for (const comp of groupComps) {
+            await supabase.from("user_companies").insert({
+              user_id: authData.user.id, company_id: comp.id, role: invite.role || "visualizador"
+            });
+          }
+        }
+      } else if (invite.company_id) {
+        // Single company invite
+        await supabase.from("user_companies").insert({
+          user_id: authData.user.id, company_id: invite.company_id, role: invite.role || "visualizador"
+        });
+      }
     }
 
     setSuccess(true);

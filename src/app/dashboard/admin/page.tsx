@@ -25,6 +25,7 @@ export default function AdminPage(){
   const [showForm,setShowForm]=useState(false);
   const [showInvite,setShowInvite]=useState(false);
   const [selectedCompany,setSelectedCompany]=useState("");
+  const [selectedGroup,setSelectedGroup]=useState("");
   const [inviteRole,setInviteRole]=useState("socio");
   const [inviteEmail,setInviteEmail]=useState("");
   const [generatedLink,setGeneratedLink]=useState("");
@@ -150,11 +151,20 @@ export default function AdminPage(){
   const collapseAllGroups=()=>setExpandedGroups({});
 
   const gerarConvite=async()=>{
-    if(!selectedCompany)return;
+    if(!selectedCompany&&!selectedGroup){setMsg("Selecione uma empresa ou grupo.");return;}
     const{data:{user}}=await supabase.auth.getUser();if(!user)return;
     let{data:up}=await supabase.from("users").select("org_id").eq("id",user.id).single();
     const code="conv_"+Math.random().toString(36).substring(2,10)+Date.now().toString(36);
-    const{error}=await supabase.from("invites").insert({org_id:up?.org_id,company_id:selectedCompany,email:inviteEmail||null,role:inviteRole,invite_code:code,created_by:user.id});
+    const inviteData:any={org_id:up?.org_id,email:inviteEmail||null,role:inviteRole,invite_code:code,created_by:user.id};
+    if(selectedGroup){
+      inviteData.group_id=selectedGroup;
+      // Use first company of group as company_id for display
+      const firstComp=empresas.find(e=>e.group_id===selectedGroup);
+      inviteData.company_id=firstComp?.id||null;
+    } else {
+      inviteData.company_id=selectedCompany;
+    }
+    const{error}=await supabase.from("invites").insert(inviteData);
     if(error){setMsg("Erro: "+error.message);return;}
     setGeneratedLink(window.location.origin+"/convite?code="+code);setCopied(false);loadData();
   };
@@ -420,18 +430,29 @@ export default function AdminPage(){
         <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:10,border:`1px solid ${BD}`}}>
           <div style={{fontSize:13,fontWeight:700,color:GOL,marginBottom:10}}>Gerar Link de Convite</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Empresa *</div>
-            <select value={selectedCompany} onChange={e=>setSelectedCompany(e.target.value)} style={inp}>
+            <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>📁 Grupo (acesso a TODAS as empresas)</div>
+            <select value={selectedGroup} onChange={e=>{setSelectedGroup(e.target.value);if(e.target.value)setSelectedCompany("");}} style={{...inp,borderColor:selectedGroup?"#34D399":""}}>
+              <option value="">— Sem grupo (empresa individual) —</option>
+              {grupos.map(g=>{const cnt=empresas.filter(e=>e.group_id===g.id).length;return <option key={g.id} value={g.id}>📁 {g.nome} ({cnt} empresas)</option>;})}
+            </select></div>
+            <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>🏢 Ou empresa individual</div>
+            <select value={selectedCompany} onChange={e=>{setSelectedCompany(e.target.value);if(e.target.value)setSelectedGroup("");}} disabled={!!selectedGroup} style={{...inp,opacity:selectedGroup?0.4:1}}>
               <option value="">Selecione</option>
               {empresas.map(emp=><option key={emp.id} value={emp.id}>{emp.nome_fantasia||emp.razao_social}</option>)}
             </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Nível de Acesso *</div>
+            <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>Nível de Acesso *</div>
             <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)} style={{...inp,color:getRC(inviteRole),fontWeight:600}}>
               {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
             </select></div>
-            <div style={{gridColumn:"1/3"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>E-mail (opcional)</div>
+            <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>E-mail (opcional)</div>
             <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@empresa.com" style={inp}/></div>
           </div>
+          {selectedGroup&&(
+            <div style={{background:"#34D39910",borderRadius:8,padding:10,marginBottom:12,border:"1px solid #34D39930"}}>
+              <div style={{fontSize:11,fontWeight:600,color:"#34D399"}}>✅ Convite de GRUPO — o usuário terá acesso a todas as empresas do grupo:</div>
+              <div style={{fontSize:10,color:TXM,marginTop:4}}>{empresas.filter(e=>e.group_id===selectedGroup).map(e=>e.nome_fantasia||e.razao_social).join(" • ")}</div>
+            </div>
+          )}
           <div style={{background:BG3,borderRadius:8,padding:10,marginBottom:12,borderLeft:`3px solid ${getRC(inviteRole)}`}}>
             <div style={{fontSize:11,fontWeight:600,color:getRC(inviteRole)}}>{ROLES.find(r=>r.role===inviteRole)?.icon} {getRN(inviteRole)}</div>
             <div style={{fontSize:10,color:TXM,marginTop:3}}>{ROLES.find(r=>r.role===inviteRole)?.desc}</div>
