@@ -249,10 +249,28 @@ export default function SugestoesPage(){
                         ))}
                         <button onClick={()=>excluir(s.id)} style={{padding:"4px 10px",borderRadius:6,fontSize:10,border:`1px solid ${R}30`,background:"transparent",color:R,cursor:"pointer",marginLeft:"auto"}}>🗑 Excluir</button>
                       </div>
-                      <div style={{display:"flex",gap:6}}>
-                        <input value={resposta} onChange={e=>setResposta(e.target.value)} placeholder="Escreva uma resposta para o usuário..." style={{...inp,fontSize:11}}/>
-                        <button onClick={()=>salvarResposta(s.id)} style={{padding:"8px 14px",borderRadius:8,background:GO,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>Responder</button>
+                      <div style={{display:"flex",gap:6,marginBottom:8}}>
+                        <input value={resposta} onChange={e=>setResposta(e.target.value)} placeholder="Resposta / observação para o usuário..." style={{...inp,fontSize:11}}/>
+                        <button onClick={()=>salvarResposta(s.id)} style={{padding:"8px 14px",borderRadius:8,background:GO,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>💾 Salvar</button>
                       </div>
+                      {s.user_email&&(
+                        <button onClick={()=>{
+                          const st=statusConfig[s.status]||statusConfig.pendente;
+                          const subject=encodeURIComponent(`PS Gestão — Sugestão "${s.titulo}" → ${st.label}`);
+                          const body=encodeURIComponent(
+                            `Olá ${s.user_name||""},\n\n`+
+                            `Sua sugestão foi atualizada no sistema PS Gestão:\n\n`+
+                            `📋 Título: ${s.titulo}\n`+
+                            `📝 Descrição: ${s.descricao}\n`+
+                            `📌 Status: ${st.icon} ${st.label}\n`+
+                            (s.resposta?`\n💬 Resposta da equipe:\n${s.resposta}\n`:"")+
+                            `\n---\nPS Gestão e Capital — Consultor Digital\nhttps://erp-psgestao.vercel.app`
+                          );
+                          window.open(`mailto:${s.user_email}?subject=${subject}&body=${body}`,"_blank");
+                        }} style={{padding:"6px 14px",borderRadius:8,background:B+"15",border:`1px solid ${B}30`,color:B,fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                          📧 Notificar {s.user_name||s.user_email} por e-mail
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
