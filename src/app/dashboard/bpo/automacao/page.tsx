@@ -27,7 +27,7 @@ export default function BPOAutoPage(){
 
   const loadCompanies=async()=>{
     const{data}=await supabase.from("companies").select("*").order("nome_fantasia");
-    if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?data.find((c:any)=>c.id===saved):null;setSelectedComp(match?match.id:data[0].id);}
+    if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?(saved==="consolidado"?data[0]:saved.startsWith("group_")?data.find((c:any)=>c.group_id===saved.replace("group_",""))||data[0]:data.find((c:any)=>c.id===saved)):null;setSelectedComp(match?match.id:data[0].id);}
     setLoading(false);
   };
 

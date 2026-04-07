@@ -77,7 +77,19 @@ type FichaItem = { id:string; ficha_id:string; ordem:number; nome:string; unidad
 
 export default function FichaTecnicaPage(){
   const [companies,setCompanies]=useState<any[]>([]);
+  const [groups,setGroups]=useState<any[]>([]);
   const [selComp,setSelComp]=useState("");
+
+  // Resolve actual company_id (handles group_ and consolidado)
+  const resolvedCompId = (() => {
+    if(selComp.startsWith("group_")){
+      const gid=selComp.replace("group_","");
+      const match=companies.find(c=>c.group_id===gid);
+      return match?.id||companies[0]?.id||"";
+    }
+    if(selComp==="consolidado") return companies[0]?.id||"";
+    return selComp;
+  })();
   const [fichas,setFichas]=useState<FichaTec[]>([]);
   const [selFicha,setSelFicha]=useState<string|null>(null);
   const [itens,setItens]=useState<FichaItem[]>([]);
@@ -96,19 +108,31 @@ export default function FichaTecnicaPage(){
   const [editItem,setEditItem]=useState<Partial<FichaItem>|null>(null);
 
   useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(selComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selComp);},[selComp]);
-  useEffect(()=>{if(selComp)loadFichas();},[selComp]);
+  useEffect(()=>{if(selComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selComp);},[resolvedCompId]);
+  useEffect(()=>{if(resolvedCompId)loadFichas();},[resolvedCompId]);
   useEffect(()=>{if(selFicha)loadItens();},[selFicha]);
 
   const loadCompanies=async()=>{
-    const{data}=await supabase.from("companies").select("*").order("nome_fantasia");
-    if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?data.find((c:any)=>c.id===saved):null;setSelComp(match?match.id:data[0].id);}
+    const[{data},{data:grps}]=await Promise.all([
+      supabase.from("companies").select("*").order("nome_fantasia"),
+      supabase.from("company_groups").select("*").order("nome"),
+    ]);
+    if(data&&data.length>0){
+      setCompanies(data);
+      setGroups(grps||[]);
+      const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";
+      if(saved&&(saved==="consolidado"||saved.startsWith("group_")||data.find((c:any)=>c.id===saved))){
+        setSelComp(saved);
+      } else {
+        setSelComp(data[0].id);
+      }
+    }
     setLoading(false);
   };
 
   const loadFichas=async()=>{
     setLoading(true);
-    const{data}=await supabase.from("fichas_tecnicas").select("*").eq("company_id",selComp).order("categoria,nome");
+    const{data}=await supabase.from("fichas_tecnicas").select("*").eq("company_id",resolvedCompId).order("categoria,nome");
     setFichas((data as FichaTec[])||[]);
     setLoading(false);
   };
@@ -121,7 +145,7 @@ export default function FichaTecnicaPage(){
   const criarFicha=async()=>{
     if(!newNome.trim())return;
     const{data}=await supabase.from("fichas_tecnicas").insert({
-      company_id:selComp,nome:newNome,categoria:newCat,unidade:"m²",
+      company_id:resolvedCompId,nome:newNome,categoria:newCat,unidade:"m²",
       mao_obra_direta:parseFloat(newMO)||0,custos_indiretos_pct:parseFloat(newInd)||0,
       impostos_pct:parseFloat(newImp)||0,markup_pct:parseFloat(newMarkup)||0,
     }).select().single();
@@ -133,7 +157,7 @@ export default function FichaTecnicaPage(){
     const tpl=TEMPLATES[tplKey];
     if(!tpl)return;
     const{data:ficha}=await supabase.from("fichas_tecnicas").insert({
-      company_id:selComp,nome:tpl.nome,categoria:tpl.cat,unidade:"m²",
+      company_id:resolvedCompId,nome:tpl.nome,categoria:tpl.cat,unidade:"m²",
       mao_obra_direta:tpl.mo,custos_indiretos_pct:15,impostos_pct:8.65,markup_pct:30,
     }).select().single();
     if(ficha){
@@ -174,7 +198,7 @@ export default function FichaTecnicaPage(){
   const seedDatabase=async()=>{
     setSeeding(true);
     try{
-      const res=await fetch("/api/ficha-tecnica/seed",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:selComp})});
+      const res=await fetch("/api/ficha-tecnica/seed",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId})});
       const d=await res.json();
       if(d.success){setMsg(`✅ ${d.fichas_criadas} fichas + ${d.itens_criados} itens criados! (${d.total_materiais} materiais base)`);loadFichas();}
       else setMsg(`❌ ${d.error}`);
@@ -212,8 +236,17 @@ export default function FichaTecnicaPage(){
           <div style={{fontSize:11,color:TXM}}>Composição de custo por m² — base para análise de projetos e formação de preço</div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          <select value={selComp} onChange={e=>setSelComp(e.target.value)} style={{...inp,width:200}}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+          <select value={selComp} onChange={e=>{setSelComp(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={{...inp,width:250}}>
+            {companies.length>1&&<option value="consolidado">📊 Todas ({companies.length})</option>}
+            {groups.map(g=>{
+              const gComps=companies.filter(c=>c.group_id===g.id);
+              if(gComps.length===0)return null;
+              return(<optgroup key={g.id} label="───────────">
+                <option value={`group_${g.id}`}>📁 {g.nome} ({gComps.length})</option>
+                {gComps.map(c=><option key={c.id} value={c.id}>└ {c.nome_fantasia||c.razao_social}</option>)}
+              </optgroup>);
+            })}
+            {companies.filter(c=>!c.group_id).map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>
           <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
         </div>
