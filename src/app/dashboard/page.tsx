@@ -20,6 +20,7 @@ const fmtBRL=(v:any)=>{
 };
 const fmtN=(v:any)=>{const n=Number(v);if(isNaN(n))return"0";return n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});};
 const fmtTooltip=(v:any,name:any)=>[fmtBRL(v),name];
+const decodeHTML=(s:string)=>s?.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&").replace(/&quot;/g,'"')||s;
 const fmtTooltipPct=(v:any,name:any)=>[`${v}%`,name];
 const fmtMesLabel=(k:string)=>{
   if(!k||!k.includes("-")) return k;
@@ -37,11 +38,11 @@ const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
       <div style={{display:"flex",gap:12,marginBottom:10}}>
         <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
           <div style={{fontSize:16,fontWeight:700,color:GOL}}>{fmtBRL(data.total)}</div>
-          <div style={{fontSize:8,color:TXD}}>Total</div>
+          <div style={{fontSize:10,color:TXM}}>Total</div>
         </div>
         <div style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
           <div style={{fontSize:16,fontWeight:700,color:TX}}>{data.count}</div>
-          <div style={{fontSize:8,color:TXD}}>Lançamentos</div>
+          <div style={{fontSize:10,color:TXM}}>Lançamentos</div>
         </div>
         {Object.entries(data.por_status||{}).map(([s,v]:any)=>(
           <div key={s} style={{background:BG3,borderRadius:6,padding:"6px 12px",textAlign:"center"}}>
@@ -53,10 +54,10 @@ const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
       <div style={{maxHeight:250,overflowY:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
           <thead><tr style={{borderBottom:"1px solid #3D3A30"}}>
-            <th style={{padding:4,textAlign:"left",color:GO,fontSize:9}}>Data</th>
-            <th style={{padding:4,textAlign:"left",color:GO,fontSize:9}}>Documento</th>
-            <th style={{padding:4,textAlign:"left",color:GO,fontSize:9}}>Status</th>
-            <th style={{padding:4,textAlign:"right",color:GO,fontSize:9}}>Valor</th>
+            <th style={{padding:4,textAlign:"left",color:GO,fontSize:11}}>Data</th>
+            <th style={{padding:4,textAlign:"left",color:GO,fontSize:11}}>Documento</th>
+            <th style={{padding:4,textAlign:"left",color:GO,fontSize:11}}>Status</th>
+            <th style={{padding:4,textAlign:"right",color:GO,fontSize:11}}>Valor</th>
           </tr></thead>
           <tbody>
             {data.transacoes?.map((t:any,i:number)=>(
@@ -74,7 +75,7 @@ const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
             ))}
           </tbody>
         </table>
-        {data.count>50&&<div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
+        {data.count>50&&<div style={{fontSize:11,color:TXM,textAlign:"center",marginTop:6}}>Mostrando os 50 maiores de {data.count} lançamentos</div>}
       </div>
     </div>
   );
@@ -121,9 +122,9 @@ const caixa=[{m:"Jan",disp:510,div:700,saldo:-190},{m:"Fev",disp:545,div:665,sal
 
 const KPI=({r,v,d,ok}:any)=>(
   <div style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:12,padding:"12px 14px",borderLeft:`3px solid ${ok?G:ok===false?R:BD}`,border:`1px solid #2A2822`,transition:"all 0.2s"}}>
-    <div style={{fontSize:9,color:TXM,letterSpacing:0.8,textTransform:"uppercase",fontWeight:500}}>{r}</div>
+    <div style={{fontSize:10,color:TXM,letterSpacing:0.8,textTransform:"uppercase",fontWeight:500}}>{r}</div>
     <div style={{fontSize:20,fontWeight:700,color:ok?GOL:ok===false?R:TX,marginTop:4,letterSpacing:-0.3}}>{v}</div>
-    <div style={{fontSize:9,color:ok?G:ok===false?R:TXM,marginTop:3,fontWeight:500}}>{d}</div>
+    <div style={{fontSize:11,color:ok?G:ok===false?R:TXM,marginTop:3,fontWeight:500}}>{d}</div>
   </div>
 );
 
@@ -254,12 +255,12 @@ export default function DashboardPage(){
               <div style={{width:28,height:28,borderRadius:6,background:p.m>50?G+"20":p.m>30?GO+"20":Y+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:p.m>50?G:p.m>30?GO:Y}}>{i+1}</div>
               <div>
                 <div style={{fontSize:12,fontWeight:500,color:TX}}>{p.n}</div>
-                <div style={{fontSize:9,color:TXD}}>Preço: {p.preco} | {p.v} vendas no trimestre</div>
+                <div style={{fontSize:11,color:TXM}}>Preço: {p.preco} | {p.v} vendas no trimestre</div>
               </div>
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:18,fontWeight:700,color:p.m>50?G:p.m>30?GO:Y}}>{p.m}%</div>
-              <div style={{fontSize:8,color:TXD}}>margem real</div>
+              <div style={{fontSize:10,color:TXM}}>margem real</div>
             </div>
           </div>
         ))}
@@ -435,8 +436,8 @@ export default function DashboardPage(){
             resultado: `${fmtBRL(realData.resultado_periodo||0)}`,
             margem: `${realData.margem||0}%`,
             emprestimos: `${fmtBRL(realData.total_emprestimos||0)}`,
-            top_custos: (realData.top_custos||[]).slice(0,5).map((c:any)=>`${c.nome}: ${fmtBRL(c.valor)}`),
-            top_receitas: (realData.top_receitas_operacionais||[]).slice(0,5).map((r:any)=>`${r.nome}: ${fmtBRL(r.valor)}`),
+            top_custos: (realData.top_custos||[]).slice(0,5).map((c:any)=>`${decodeHTML(c.nome)}: ${fmtBRL(c.valor)}`),
+            top_receitas: (realData.top_receitas_operacionais||[]).slice(0,5).map((r:any)=>`${decodeHTML(r.nome)}: ${fmtBRL(r.valor)}`),
           },
           empresa_nome: empresaAtiva.nome,
         })
@@ -731,7 +732,7 @@ export default function DashboardPage(){
                   <div onClick={()=>loadDrill(c.cod,"despesa",`custo-${i}`)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`,cursor:"pointer",transition:"background 0.2s"}}
                     onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
                     <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
-                    <div style={{flex:1,fontSize:11,color:TX}}>{c.nome} <span style={{fontSize:9,color:TXD}}>{drillOpen===`custo-${i}`?"▼":"▶"}</span></div>
+                    <div style={{flex:1,fontSize:11,color:TX}}>{decodeHTML(c.nome)} <span style={{fontSize:9,color:TXD}}>{drillOpen===`custo-${i}`?"▼":"▶"}</span></div>
                     <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>{fmtBRL(c.valor)}</div>
                   </div>
                   {drillOpen===`custo-${i}`&&<DrillPanel data={drillData} loading={drillLoading}/>}
@@ -740,7 +741,7 @@ export default function DashboardPage(){
             </Card>
           )}
 
-          <div style={{fontSize:9,color:TXD,textAlign:"right",marginBottom:10}}>Fonte: Omie API | Última sincronização: {omieData.length>0?new Date(Math.max(...omieData.map(d=>new Date(d.imported_at).getTime()))).toLocaleString("pt-BR"):""}</div>
+          <div style={{fontSize:10,color:TXM,textAlign:"right",marginBottom:10}}>Fonte: Omie API | Última sincronização: {omieData.length>0?new Date(Math.max(...omieData.map(d=>new Date(d.imported_at).getTime()))).toLocaleString("pt-BR"):""}</div>
         </div>
       )}
 
@@ -809,12 +810,12 @@ export default function DashboardPage(){
               onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background=BG2)}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
-                  <div style={{fontSize:13,fontWeight:600,color:TX}}>{r.nome} <span style={{fontSize:9,color:TXD}}>{drillOpen===`rec-${i}`?"▼":"▶"}</span></div>
-                  <div style={{fontSize:9,color:TXD}}>Categoria Omie | Clique para ver lançamentos</div>
+                  <div style={{fontSize:13,fontWeight:600,color:TX}}>{decodeHTML(r.nome)} <span style={{fontSize:9,color:TXD}}>{drillOpen===`rec-${i}`?"▼":"▶"}</span></div>
+                  <div style={{fontSize:11,color:TXM}}>Categoria Omie | Clique para ver lançamentos</div>
                 </div>
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:16,fontWeight:700,color:G}}>{fmtBRL(r.valor)}</div>
-                  <div style={{fontSize:9,color:TXD}}>{realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100).toFixed(1):"0"}% do total</div>
+                  <div style={{fontSize:11,color:TXM}}>{realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100).toFixed(1):"0"}% do total</div>
                 </div>
               </div>
             </div>
@@ -899,7 +900,7 @@ export default function DashboardPage(){
             {realData.top_receitas_operacionais.map((r:any,i:number)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
                 <div style={{width:24,height:24,borderRadius:6,background:G+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:G}}>{i+1}</div>
-                <div style={{flex:1,fontSize:11,color:TX}}>{r.nome}</div>
+                <div style={{flex:1,fontSize:11,color:TX}}>{decodeHTML(r.nome)}</div>
                 <div style={{fontSize:13,fontWeight:700,color:G}}>{fmtBRL(r.valor)}</div>
               </div>
             ))}
@@ -912,7 +913,7 @@ export default function DashboardPage(){
             {realData.top_emprestimos.map((r:any,i:number)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`}}>
                 <div style={{width:24,height:24,borderRadius:6,background:Y+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:Y}}>{i+1}</div>
-                <div style={{flex:1,fontSize:11,color:TXM}}>{r.nome}</div>
+                <div style={{flex:1,fontSize:11,color:TXM}}>{decodeHTML(r.nome)}</div>
                 <div style={{fontSize:13,fontWeight:700,color:Y}}>{fmtBRL(r.valor)}</div>
               </div>
             ))}
@@ -920,7 +921,7 @@ export default function DashboardPage(){
           </Card>
         </>)}
 
-        <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais</div>
+        <div style={{fontSize:10,color:TXM,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais</div>
       </>)}
 
       {!realData&&(<>
@@ -964,8 +965,8 @@ export default function DashboardPage(){
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{width:4,height:40,borderRadius:2,background:cores[i%8]}}/>
                   <div>
-                    <div style={{fontSize:14,fontWeight:600,color:TX}}>{r.nome}</div>
-                    <div style={{fontSize:10,color:TXD}}>Categoria Omie | Receita operacional</div>
+                    <div style={{fontSize:14,fontWeight:600,color:TX}}>{decodeHTML(r.nome)}</div>
+                    <div style={{fontSize:11,color:TXM}}>Categoria Omie | Receita operacional</div>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -985,7 +986,7 @@ export default function DashboardPage(){
           {realData.top_emprestimos.map((r:any,i:number)=>(
             <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,borderLeft:`3px solid ${Y}`,border:`1px solid ${BD}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:12,color:TXM}}>{r.nome}</div>
+                <div style={{fontSize:12,color:TXM}}>{decodeHTML(r.nome)}</div>
                 <div style={{fontSize:14,fontWeight:700,color:Y}}>{fmtBRL(r.valor)}</div>
               </div>
             </div>
@@ -1084,7 +1085,7 @@ export default function DashboardPage(){
                       const subTotal = c.valor;
                       return(
                       <tr key={`sub-${ci}`} style={{background:BG3+"50"}}>
-                        <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
+                        <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{decodeHTML(c.nome)}</td>
                         {meses.map((m:string,k:number)=>{
                           const mv = c.meses?.[m]||0;
                           return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:TXM}}>{mv===0?"—":`R$ ${fmtN(mv)}`}</td>;
@@ -1096,7 +1097,7 @@ export default function DashboardPage(){
                       const meses = realData.dre_mensal.slice(-6).map((d:any)=>d.mes);
                       return(
                       <tr key={`sub-${ci}`} style={{background:BG3+"50"}}>
-                        <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{c.nome}</td>
+                        <td style={{padding:"3px 6px 3px 28px",fontSize:10,color:TXD}}>{decodeHTML(c.nome)}</td>
                         {meses.map((m:string,k:number)=>{
                           const mv = c.meses?.[m]||0;
                           return <td key={k} style={{padding:3,textAlign:"right",fontSize:9,color:mv===0?TXD:G}}>{mv===0?"—":`R$ ${fmtN(mv)}`}</td>;
@@ -1136,7 +1137,7 @@ export default function DashboardPage(){
                     <div key={ci}>
                       <div onClick={()=>loadDrill(c.cod||"","despesa",`mc-${gi}-${ci}`)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0 5px 20px",borderBottom:`0.5px solid ${BD}20`,cursor:"pointer"}}
                         onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                        <span style={{fontSize:10,color:TXM}}>{c.nome} <span style={{fontSize:8,color:TXD}}>{drillOpen===`mc-${gi}-${ci}`?"▼":"▶"}</span></span>
+                        <span style={{fontSize:10,color:TXM}}>{decodeHTML(c.nome)} <span style={{fontSize:8,color:TXD}}>{drillOpen===`mc-${gi}-${ci}`?"▼":"▶"}</span></span>
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
                           <div style={{width:60,height:4,background:BG3,borderRadius:2,overflow:"hidden"}}>
                             <div style={{width:`${Math.min((c.valor/g.total)*100,100)}%`,height:"100%",background:gi<2?R:gi<4?Y:GO,borderRadius:2,opacity:0.7}}/>
@@ -1163,7 +1164,7 @@ export default function DashboardPage(){
           <AnaliseIAFlags realData={realData} empresaId={empresaSel} periodo={`${efPeriodoInicio} a ${efPeriodoFim}`}/>
         </>)}
 
-        <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais processados</div>
+        <div style={{fontSize:10,color:TXM,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais processados</div>
       </>)}
 
       {/* DEMO DATA - only show when no real data */}
@@ -1546,7 +1547,7 @@ export default function DashboardPage(){
                   const pct=realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100):0;
                   return(
                     <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
-                      <td style={{padding:6,color:TX,fontWeight:500}}>{r.nome}</td>
+                      <td style={{padding:6,color:TX,fontWeight:500}}>{decodeHTML(r.nome)}</td>
                       <td style={{padding:6,textAlign:"right",fontWeight:700,color:G}}>{fmtBRL(r.valor)}</td>
                       <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
                       <td style={{padding:6,width:120}}>
@@ -1576,7 +1577,7 @@ export default function DashboardPage(){
                   const pct=realData.total_despesas>0?((c.valor/realData.total_despesas)*100):0;
                   return(
                     <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
-                      <td style={{padding:6,color:TX}}>{c.nome}</td>
+                      <td style={{padding:6,color:TX}}>{decodeHTML(c.nome)}</td>
                       <td style={{padding:6,textAlign:"right",fontWeight:700,color:i<3?R:TX}}>{fmtBRL(c.valor)}</td>
                       <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
                     </tr>
