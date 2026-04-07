@@ -103,29 +103,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0F0F0D" }}>
+    <div style={{ minHeight: "100vh", background: "#0C0C0A" }}>
       <header style={{
-        background: "linear-gradient(135deg, #0F0F0D 0%, #2A2822 100%)",
-        padding: "12px 20px", borderBottom: "1px solid #3D3A30",
-        display: "flex", justifyContent: "space-between", alignItems: "center"
+        background: "linear-gradient(180deg, #141412 0%, #0C0C0A 100%)",
+        padding: "0 24px", height: 60, borderBottom: "1px solid #2A2822",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        position: "sticky", top: 0, zIndex: 100,
+        boxShadow: "0 1px 12px rgba(0,0,0,0.4)"
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <img src="/images/logo-header.png" alt="PS Gestão" style={{ height: 40, width: "auto" }}/>
+        <a href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}>
+          <img src="/images/logo-header.png" alt="PS Gestão" style={{ height: 38, width: "auto", filter: "drop-shadow(0 2px 8px rgba(198,151,63,0.15))" }}/>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#E8C872" }}>PS Gestão e Capital</div>
-            <div style={{ fontSize: 9, color: "#6B6960", letterSpacing: 1, textTransform: "uppercase" }}>ERP Inteligente · v7.1</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#E8C872", letterSpacing: 0.3 }}>PS Gestão e Capital</div>
+            <div style={{ fontSize: 8, color: "#6B6960", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v7.1</div>
           </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={()=>setShowGuide(true)} style={{ fontSize: 11, color: completedCount<checklist.length?"#FACC15":"#22C55E", textDecoration: "none", padding: "6px 12px", borderRadius: 6, border: `0.5px solid ${completedCount<checklist.length?"#FACC1540":"#22C55E40"}`, background: "transparent", cursor: "pointer" }}>
-            {completedCount<checklist.length?`⚡ ${completedCount}/${checklist.length} etapas`:"✓ Tudo pronto"}
+        </a>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={()=>setShowGuide(true)} style={{ fontSize: 10, color: completedCount<checklist.length?"#FBBF24":"#34D399", padding: "5px 12px", borderRadius: 8, border: `1px solid ${completedCount<checklist.length?"#FBBF2425":"#34D39925"}`, background: completedCount<checklist.length?"#FBBF2408":"#34D39908", fontWeight: 600 }}>
+            {completedCount<checklist.length?`⚡ ${completedCount}/${checklist.length}`:"✓ Pronto"}
           </button>
-          <a href="/dashboard/dados" style={{ fontSize: 11, color: "#E8C872", textDecoration: "none", padding: "6px 12px", borderRadius: 6, border: "0.5px solid #C6973F", background: "#C6973F15" }}>Entrada de Dados</a>
-          <a href="/dashboard/admin" style={{ fontSize: 11, color: "#C6973F", textDecoration: "none", padding: "6px 12px", borderRadius: 6, border: "0.5px solid #C6973F40" }}>Administrador</a>
-          <span style={{ fontSize: 11, color: "#A8A498" }}>{user?.email}</span>
+          <a href="/dashboard/dados" style={{ fontSize: 10, color: "#E8C872", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #C6973F30", background: "#C6973F08", fontWeight: 600 }}>📊 Dados</a>
+          <a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>
+          <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
+          <span style={{ fontSize: 10, color: "#6B6960", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>
           <button onClick={handleLogout} style={{
-            padding: "6px 14px", borderRadius: 6, border: "0.5px solid #3D3A30",
-            background: "transparent", color: "#A8A498", fontSize: 11
+            padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822",
+            background: "transparent", color: "#6B6960", fontSize: 10, fontWeight: 500
           }}>Sair</button>
         </div>
       </header>

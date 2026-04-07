@@ -45,26 +45,31 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0F0F0D", padding: 20 }}>
-      <div style={{ width: "100%", maxWidth: 420 }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(ellipse at 50% 0%, #1a1510 0%, #0C0C0A 60%)", padding: 20, position: "relative", overflow: "hidden" }}>
+      {/* Background glow */}
+      <div style={{ position: "absolute", top: "-20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "400px", background: "radial-gradient(ellipse, rgba(198,151,63,0.06) 0%, transparent 70%)", pointerEvents: "none" }}/>
+      
+      <div style={{ width: "100%", maxWidth: 400, position: "relative", zIndex: 1 }}>
         
         {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
           <img src="/images/logo-login.png" alt="PS Gestão e Capital" style={{
-            display: "block", margin: "0 auto 16px", maxWidth: 200, height: "auto",
-            filter: "drop-shadow(0 4px 12px rgba(197,165,90,0.2))"
+            display: "block", margin: "0 auto 20px", maxWidth: 200, height: "auto",
+            filter: "drop-shadow(0 8px 24px rgba(197,165,90,0.25))"
           }}/>
-          <p style={{ fontSize: 12, color: "#6B6960", marginTop: 4, letterSpacing: 2, textTransform: "uppercase" }}>
+          <p style={{ fontSize: 11, color: "#6B6960", letterSpacing: 3, textTransform: "uppercase", fontWeight: 500 }}>
             Consultor Digital
           </p>
         </div>
 
         {/* Card */}
         <div style={{
-          background: "#1C1B18", borderRadius: 16, padding: 32,
-          border: "0.5px solid #3D3A30", boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
+          background: "rgba(22,22,20,0.9)", borderRadius: 20, padding: "36px 32px",
+          border: "1px solid rgba(42,40,34,0.8)",
+          boxShadow: "0 16px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(198,151,63,0.05)",
+          backdropFilter: "blur(20px)"
         }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#E8E5DC", marginBottom: 24, textAlign: "center" }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, color: "#F0ECE3", marginBottom: 28, textAlign: "center", letterSpacing: 0.3 }}>
             {mode === "login" ? "Acessar o Sistema" : mode === "signup" ? "Criar Conta" : "Recuperar Senha"}
           </h2>
 
@@ -129,11 +134,13 @@ export default function LoginPage() {
               )}
 
               <button type="submit" disabled={loading} style={{
-                width: "100%", padding: 14, border: "none", borderRadius: 10,
-                background: loading ? "#3D3A30" : "linear-gradient(135deg, #C6973F 0%, #E8C872 100%)",
-                color: "#0F0F0D", fontSize: 15, fontWeight: 700, letterSpacing: 0.5
+                width: "100%", padding: 14, border: "none", borderRadius: 12,
+                background: loading ? "#3D3A30" : "linear-gradient(135deg, #8B6914 0%, #C6973F 40%, #E8C872 100%)",
+                color: "#0C0C0A", fontSize: 13, fontWeight: 700, letterSpacing: 1,
+                boxShadow: loading ? "none" : "0 4px 16px rgba(198,151,63,0.3)",
+                transition: "all 0.2s"
               }}>
-                {loading ? "Aguarde..." : mode === "login" ? "◆ Entrar" : mode === "signup" ? "◆ Criar Conta" : "◆ Enviar Link de Recuperação"}
+                {loading ? "Aguarde..." : mode === "login" ? "Entrar" : mode === "signup" ? "Criar Conta" : "Enviar Link"}
               </button>
             </form>
           )}
@@ -145,15 +152,15 @@ export default function LoginPage() {
                 Voltar para o login
               </button>
             ) : mode !== "reset" && (
-              <div style={{ fontSize: 11, color: "#6B6960", marginTop: 8 }}>
-                Acesso somente por convite da PS Gestão e Capital
+              <div style={{ fontSize: 10, color: "#6B6960", marginTop: 8, letterSpacing: 0.5 }}>
+                Acesso por convite · PS Gestão e Capital
               </div>
             )}
           </div>
         </div>
 
-        <p style={{ textAlign: "center", fontSize: 10, color: "#6B6960", marginTop: 24 }}>
-          PS Gestão e Capital — Assessoria Empresarial e BPO Financeiro
+        <p style={{ textAlign: "center", fontSize: 10, color: "#4A483F", marginTop: 28, letterSpacing: 0.5 }}>
+          Assessoria Empresarial · BPO Financeiro · ERP com IA
         </p>
       </div>
     </div>

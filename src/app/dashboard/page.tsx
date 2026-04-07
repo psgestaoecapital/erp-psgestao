@@ -4,9 +4,9 @@ import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 import AnaliseIAFlags from "./components/AnaliseIAFlags";
 
-const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",
-    G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",P="#A855F7",T="#14B8A6",
-    BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#A09B90";
+const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
+    G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",T="#2DD4BF",
+    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#6B6960";
 
 const tt={background:'#FFFFFF',border:'2px solid #C6973F',borderRadius:12,fontSize:12,color:'#1A1A18',padding:'12px 16px',boxShadow:'0 6px 20px rgba(0,0,0,0.4)',lineHeight:1.8};
 const tl={color:'#1A1A18',fontWeight:700,fontSize:13,marginBottom:4};const ti={color:'#333',fontSize:11,fontWeight:500};
@@ -118,16 +118,16 @@ const rev=[{m:"Jan/25",fat:2226,marg:415,estr:179,lucro:236},{m:"Fev/25",fat:114
 const caixa=[{m:"Jan",disp:510,div:700,saldo:-190},{m:"Fev",disp:545,div:665,saldo:-120},{m:"Mar",disp:702,div:630,saldo:72}];
 
 const KPI=({r,v,d,ok}:any)=>(
-  <div style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${ok?GO:ok===false?R:BD}`,border:`1px solid ${BD}`,boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}>
-    <div style={{fontSize:9,color:TXM,letterSpacing:0.4,textTransform:"uppercase"}}>{r}</div>
-    <div style={{fontSize:17,fontWeight:700,color:ok?GOL:ok===false?R:TX,marginTop:3}}>{v}</div>
-    <div style={{fontSize:9,color:ok?G:ok===false?R:TXM,marginTop:2}}>{d}</div>
+  <div style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:12,padding:"12px 14px",borderLeft:`3px solid ${ok?G:ok===false?R:BD}`,border:`1px solid #2A2822`,transition:"all 0.2s"}}>
+    <div style={{fontSize:9,color:TXM,letterSpacing:0.8,textTransform:"uppercase",fontWeight:500}}>{r}</div>
+    <div style={{fontSize:20,fontWeight:700,color:ok?GOL:ok===false?R:TX,marginTop:4,letterSpacing:-0.3}}>{v}</div>
+    <div style={{fontSize:9,color:ok?G:ok===false?R:TXM,marginTop:3,fontWeight:500}}>{d}</div>
   </div>
 );
 
-const Tit=({t}:{t:string})=>(<div style={{display:"flex",alignItems:"center",gap:8,margin:"16px 0 10px"}}><div style={{width:3,height:16,background:GO,borderRadius:2}}/><span style={{fontSize:14,fontWeight:700}}>{t}</span></div>);
+const Tit=({t}:{t:string})=>(<div style={{display:"flex",alignItems:"center",gap:10,margin:"20px 0 12px"}}><div style={{width:3,height:18,background:`linear-gradient(180deg, ${GOL}, ${GO})`,borderRadius:2}}/><span style={{fontSize:14,fontWeight:700,letterSpacing:0.2}}>{t}</span></div>);
 
-const Card=({children,p="14px 16px",title}:{children:React.ReactNode,p?:string,title?:string})=>(<div style={{background:BG2,borderRadius:12,padding:p,marginBottom:10,border:`1px solid ${BD}`,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>{title&&<div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>{title}</div>}{children}</div>);
+const Card=({children,p="16px 18px",title}:{children:React.ReactNode,p?:string,title?:string})=>(<div style={{background:"#161614",borderRadius:14,padding:p,marginBottom:10,border:`1px solid #2A2822`,transition:"all 0.2s"}}>{title&&<div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:12,letterSpacing:0.2}}>{title}</div>}{children}</div>);
 
 export default function DashboardPage(){
   const [aba,setAba]=useState("geral");
@@ -526,15 +526,15 @@ export default function DashboardPage(){
   })();
 
   return(<div>
-    <div style={{padding:"12px 20px",background:BG2,borderBottom:`1px solid ${BD}`}}>
+    <div style={{padding:"14px 24px",background:"linear-gradient(180deg, #161614 0%, #0C0C0A 100%)",borderBottom:`1px solid #2A2822`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:14,color:GOL,fontWeight:600}}>{empresaAtiva.isGroup?"📁 ":""}{empresaAtiva.isGroup&&empresaAtiva.groupName?empresaAtiva.groupName:empresaAtiva.nome}</div>
-          <div style={{fontSize:10,color:TXD}}>{empresaAtiva.cidade}{empresaAtiva.colab?` | ${empresaAtiva.colab} colaboradores`:""}{empresaAtiva.isGroup&&empresaAtiva.groupCount>1?` | ${empresaAtiva.groupCount} empresas`:""}</div>
+          <div style={{fontSize:15,color:GOL,fontWeight:700,letterSpacing:0.3}}>{empresaAtiva.isGroup?"📁 ":""}{empresaAtiva.isGroup&&empresaAtiva.groupName?empresaAtiva.groupName:empresaAtiva.nome}</div>
+          <div style={{fontSize:10,color:TXD,marginTop:2}}>{empresaAtiva.cidade}{empresaAtiva.colab?` · ${empresaAtiva.colab} colaboradores`:""}{empresaAtiva.isGroup&&empresaAtiva.groupCount>1?` · ${empresaAtiva.groupCount} empresas`:""}</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {grupoEmpresas.length>1&&(
-            <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600}}>
+            <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:10,fontWeight:600,minWidth:160}}>
               <option value="consolidado">📊 Todas as Empresas ({dbCompanies.length})</option>
               {gruposComEmpresas.map(g=>(
                 <optgroup key={g.id} label={`━━━━━━━━━━━━━━━━━━`}>
@@ -563,7 +563,7 @@ export default function DashboardPage(){
     </div>
 
     <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`}}>
-      {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"7px 14px",borderRadius:20,fontSize:11,whiteSpace:"nowrap",border:`0.5px solid ${aba===a.id?GO:BD}`,background:aba===a.id?GO+"18":"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
+      {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"8px 18px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",border:aba===a.id?`1px solid ${GO}50`:`1px solid transparent`,background:aba===a.id?`linear-gradient(135deg, ${GO}18, ${GO}08)`:"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,letterSpacing:0.3,transition:"all 0.2s",position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
     </div>
 
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>
