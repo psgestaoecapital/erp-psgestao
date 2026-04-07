@@ -162,7 +162,7 @@ export default function DashboardPage(){
     consultor:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
     visualizador:["geral"],
   };
-  const ROLE_NAMES:Record<string,string>={admin:"Administrador",socio:"Sócio/CEO",financeiro:"Financeiro",comercial:"Comercial",operacional:"Operador",consultor:"Consultor",visualizador:"Visualizador"};
+  const ROLE_NAMES:Record<string,string>={adm:"Administrador",socio:"Sócio/CEO",diretor_industrial:"Diretor Industrial",gerente_planta:"Gerente Planta",financeiro:"Financeiro",comercial:"Comercial",supervisor:"Supervisor",coordenador:"Coordenador",operacional:"Operador",consultor:"Consultor",conselheiro:"Conselheiro",visualizador:"Visualizador"};
 
   const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço"},{id:"indicadores",nome:"Indicadores"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
   const allowedTabs=ROLE_TABS[userRole]||ROLE_TABS.admin;

@@ -87,7 +87,7 @@ export default function SugestoesPage(){
     setMsg("Excluído.");loadData();setTimeout(()=>setMsg(""),2000);
   };
 
-  const isAdmin=userRole==="admin"||userRole==="socio";
+  const isAdmin=userRole==="adm"||userRole==="socio";
   const filtered=filtro==="todos"?sugestoes:sugestoes.filter(s=>s.status===filtro);
   const counts={
     total:sugestoes.length,

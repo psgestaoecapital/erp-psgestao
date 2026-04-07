@@ -7,11 +7,16 @@ const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22
 
 const ROLES = [
   {role:"adm",nome:"Administrador",desc:"Acesso total. Gestão de empresas, usuários e configurações.",cor:GOL,icon:"👑",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
-  {role:"socio",nome:"Sócio / CEO",desc:"Dashboard completo, relatórios, Fale com PS, plano de ação.",cor:GO,icon:"💼",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
+  {role:"socio",nome:"Sócio / CEO",desc:"Dashboard completo, relatórios, indicadores, plano de ação.",cor:GO,icon:"💼",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
+  {role:"diretor_industrial",nome:"Diretor Industrial",desc:"Gestão industrial, produção, custos e indicadores operacionais.",cor:"#F59E0B",icon:"🏭",tabs:["geral","negocios","resultado","financeiro","precos"]},
+  {role:"gerente_planta",nome:"Gerente de Planta",desc:"Operação da planta, eficiência, custos diretos, equipe.",cor:"#F97316",icon:"🔧",tabs:["geral","negocios","resultado","financeiro"]},
   {role:"financeiro",nome:"Financeiro",desc:"DRE, custos, contas a pagar/receber. Sem gestão de usuários.",cor:G,icon:"📊",tabs:["geral","resultado","financeiro","precos"]},
   {role:"comercial",nome:"Comercial",desc:"Receitas, clientes, vendas. Sem visibilidade de custos detalhados.",cor:BL,icon:"🎯",tabs:["geral","negocios","precos"]},
+  {role:"supervisor",nome:"Supervisor",desc:"Supervisão operacional, metas de equipe, indicadores de produção.",cor:"#06B6D4",icon:"📋",tabs:["geral","negocios","resultado"]},
+  {role:"coordenador",nome:"Coordenador",desc:"Coordenação de área específica, relatórios setoriais.",cor:"#8B5CF6",icon:"📌",tabs:["geral","negocios","resultado"]},
   {role:"operacional",nome:"Operacional",desc:"Plano de ação, alertas, dados operacionais básicos.",cor:Y,icon:"⚙️",tabs:["geral","negocios"]},
   {role:"consultor",nome:"Consultor Externo",desc:"Acesso completo em leitura. Para consultores PS Gestão.",cor:"#A855F7",icon:"🔍",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
+  {role:"conselheiro",nome:"Conselheiro",desc:"Acesso a relatórios e indicadores. Visão estratégica.",cor:"#EC4899",icon:"🎓",tabs:["geral","resultado","financeiro","relatorio"]},
   {role:"visualizador",nome:"Visualizador",desc:"Apenas painel geral. Sem acesso a dados detalhados.",cor:TXD,icon:"👁️",tabs:["geral"]},
 ];
 const getRN=(r:string)=>ROLES.find(x=>x.role===r)?.nome||r;
@@ -372,8 +377,11 @@ export default function AdminPage(){
           {isEditing&&(
             <div style={{marginTop:8,background:BG3,borderRadius:8,padding:10,borderLeft:`3px solid ${GO}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <span style={{fontSize:10,fontWeight:600,color:GO}}>Selecione as empresas que este usuário pode acessar:</span>
-                <button onClick={()=>vincularTodas(u.id)} style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`,cursor:"pointer"}}>Vincular todas</button>
+                <span style={{fontSize:10,fontWeight:600,color:GO}}>Empresas que este usuário pode acessar:</span>
+                <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>vincularTodas(u.id)} style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`,cursor:"pointer"}}>✅ Vincular todas</button>
+                  <button onClick={async()=>{if(!confirm("Remover TODOS os acessos deste usuário?"))return;await supabase.from("user_companies").delete().eq("user_id",u.id);setUserComps(userComps.filter(uc=>uc.user_id!==u.id));setMsg("Todos os acessos removidos!");}} style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:R+"20",color:R,border:`1px solid ${R}30`,cursor:"pointer"}}>🚫 Remover todos</button>
+                </div>
               </div>
 
               {/* Group assignment buttons */}

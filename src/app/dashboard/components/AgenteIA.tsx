@@ -75,16 +75,19 @@ export default function AgenteIA(){
       {/* Floating button */}
       <button onClick={()=>setOpen(!open)} style={{
         position:"fixed",bottom:20,right:20,zIndex:9999,
-        width:56,height:56,borderRadius:16,border:"none",cursor:"pointer",
+        width:open?48:60,height:open?48:60,borderRadius:open?14:16,border:"none",cursor:"pointer",
         background:`linear-gradient(135deg,${GO},${GOL})`,
-        boxShadow:`0 4px 20px rgba(198,151,63,0.4), 0 0 0 3px rgba(198,151,63,0.1)`,
-        display:"flex",alignItems:"center",justifyContent:"center",
+        boxShadow:`0 4px 24px rgba(198,151,63,0.5), 0 0 0 3px rgba(198,151,63,0.15)`,
+        display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,
         transition:"all 0.3s",transform:open?"rotate(45deg)":"",
       }}>
         {open?(
-          <span style={{fontSize:24,color:BG,fontWeight:700,lineHeight:1}}>+</span>
+          <span style={{fontSize:22,color:BG,fontWeight:700,lineHeight:1}}>+</span>
         ):(
-          <span style={{fontSize:22,fontWeight:800,color:BG,fontFamily:"Arial"}}>PS</span>
+          <>
+            <span style={{fontSize:18,fontWeight:900,color:BG,fontFamily:"Arial",lineHeight:1,letterSpacing:-0.5}}>PS</span>
+            <span style={{fontSize:7,color:BG,fontWeight:600,opacity:0.8,letterSpacing:0.5}}>AJUDA</span>
+          </>
         )}
       </button>
 
