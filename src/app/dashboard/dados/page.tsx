@@ -222,7 +222,7 @@ export default function DadosPage() {
 
     let companyData: any[] = [];
 
-    if (up?.role === "admin") {
+    if (up?.role === "adm") {
       // Admin sees all
       const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
       companyData = data || [];

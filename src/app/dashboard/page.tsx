@@ -150,7 +150,7 @@ export default function DashboardPage(){
   const [subAba,setSubAba]=useState("visao");
   const [dreAberto,setDreAberto]=useState<Record<string,boolean>>({});
   const [custoAberto,setCustoAberto]=useState<Record<string,boolean>>({});
-  const [userRole,setUserRole]=useState<string>("admin");
+  const [userRole,setUserRole]=useState<string>("adm");
 
   // RBAC: Role → abas permitidas
   const ROLE_TABS:Record<string,string[]>={
@@ -511,7 +511,7 @@ export default function DashboardPage(){
       if (grps) setDbGroups(grps);
 
       // ADMIN: sees all companies
-      if (up?.role === "admin") {
+      if (up?.role === "adm") {
         const { data } = await supabase.from("companies").select("*").order("created_at");
         if (data && data.length > 0) setDbCompanies(data);
         setLoadingDb(false);
@@ -623,8 +623,8 @@ export default function DashboardPage(){
               {empresaAtiva.cidade}{empresaAtiva.colab?` · ${empresaAtiva.colab} colab.`:""}
               {empresaAtiva.isGroup&&empresaAtiva.groupCount>1?` · ${empresaAtiva.groupCount} empresas`:""}
               <span style={{marginLeft:6,padding:"1px 6px",borderRadius:4,fontSize:8,fontWeight:600,
-                background:userRole==="admin"?GOL+"15":GO+"15",
-                color:userRole==="admin"?GOL:GO,
+                background:userRole==="adm"?GOL+"15":GO+"15",
+                color:userRole==="adm"?GOL:GO,
               }}>{ROLE_NAMES[userRole]||userRole}</span>
             </div>
           </div>
@@ -642,7 +642,7 @@ export default function DashboardPage(){
               {empresasSemGrupo.length>0&&empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
             </select>
           )}
-          {(userRole==="admin")&&<a href="/dashboard/admin" style={{padding:"5px 12px",borderRadius:6,fontSize:10,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️</a>}
+          {(userRole==="adm")&&<a href="/dashboard/admin" style={{padding:"5px 12px",borderRadius:6,fontSize:10,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️</a>}
         </div>
       </div>
       {/* Row 2: Period filters - compact horizontal */}
@@ -675,7 +675,7 @@ export default function DashboardPage(){
     <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`,position:"sticky",top:82,zIndex:99,background:BG,alignItems:"center"}}>
       {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"8px 18px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",border:aba===a.id?`1px solid ${GO}50`:`1px solid transparent`,background:aba===a.id?`linear-gradient(135deg, ${GO}18, ${GO}08)`:"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,letterSpacing:0.3,transition:"all 0.2s",position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
       <div style={{width:1,height:20,background:BD,margin:"0 4px",flexShrink:0}}/>
-      {(userRole==="admin"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"8px 16px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",background:`${G}12`,border:`1px solid ${G}30`,color:G,textDecoration:"none",fontWeight:600,flexShrink:0}}>📊 BPO</a>}
+      {(userRole==="adm"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"8px 16px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",background:`${G}12`,border:`1px solid ${G}30`,color:G,textDecoration:"none",fontWeight:600,flexShrink:0}}>📊 BPO</a>}
     </div>
 
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>

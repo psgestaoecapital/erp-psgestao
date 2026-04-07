@@ -6,7 +6,7 @@ const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22
     BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#918C82";
 
 const ROLES = [
-  {role:"admin",nome:"Administrador",desc:"Acesso total. Gestão de empresas, usuários e configurações.",cor:GOL,icon:"👑",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
+  {role:"adm",nome:"Administrador",desc:"Acesso total. Gestão de empresas, usuários e configurações.",cor:GOL,icon:"👑",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
   {role:"socio",nome:"Sócio / CEO",desc:"Dashboard completo, relatórios, Fale com PS, plano de ação.",cor:GO,icon:"💼",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
   {role:"financeiro",nome:"Financeiro",desc:"DRE, custos, contas a pagar/receber. Sem gestão de usuários.",cor:G,icon:"📊",tabs:["geral","resultado","financeiro","precos"]},
   {role:"comercial",nome:"Comercial",desc:"Receitas, clientes, vendas. Sem visibilidade de custos detalhados.",cor:BL,icon:"🎯",tabs:["geral","negocios","precos"]},
@@ -115,7 +115,7 @@ export default function AdminPage(){
     let orgId=up?.org_id;
     if(!orgId){
       const{data:org}=await supabase.from("organizations").insert({name:"PS Gestão e Capital",slug:"psgestao-"+Date.now()}).select().single();
-      if(org){orgId=org.id;await supabase.from("users").upsert({id:user.id,org_id:orgId,full_name:"Administrador",email:user.email!,role:"admin"});}
+      if(org){orgId=org.id;await supabase.from("users").upsert({id:user.id,org_id:orgId,full_name:"Administrador",email:user.email!,role:"adm"});}
     }
     const empData:any={razao_social:newEmp.razao_social,nome_fantasia:newEmp.nome_fantasia,cnpj:newEmp.cnpj,cidade_estado:newEmp.cidade_estado,org_id:orgId};
     if(newEmp.group_id)empData.group_id=newEmp.group_id;
