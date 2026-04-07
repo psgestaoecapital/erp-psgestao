@@ -105,8 +105,6 @@ export default function AdminPage(){
     setMsg(`Empresas do grupo "${grupoNome}" desvinculadas.`);
     setTimeout(()=>setMsg(""),3000);
   };
-    setMsg(`Todas as ${empresas.length} empresas vinculadas!`);
-  };
 
   const criarEmpresa=async(e:React.FormEvent)=>{
     e.preventDefault();
