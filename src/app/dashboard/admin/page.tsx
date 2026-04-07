@@ -29,10 +29,18 @@ export default function AdminPage(){
   const [inviteEmail,setInviteEmail]=useState("");
   const [generatedLink,setGeneratedLink]=useState("");
   const [copied,setCopied]=useState(false);
-  const [newEmp,setNewEmp]=useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:""});
+  const [newEmp,setNewEmp]=useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",group_id:""});
   const [msg,setMsg]=useState("");
   const [userComps,setUserComps]=useState<any[]>([]);
   const [editingUser,setEditingUser]=useState<string|null>(null);
+  // Grupos
+  const [grupos,setGrupos]=useState<any[]>([]);
+  const [expandedGroups,setExpandedGroups]=useState<Record<string,boolean>>({});
+  const [showNewGroup,setShowNewGroup]=useState(false);
+  const [newGroupName,setNewGroupName]=useState("");
+  const [newGroupCor,setNewGroupCor]=useState("#C6973F");
+  const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
+  const groupColors=["#C6973F","#FF9800","#4CAF50","#3B82F6","#A855F7","#EF4444","#14B8A6","#FF5722","#8BC34A","#E91E63"];
 
   useEffect(()=>{loadData();},[]);
   const loadData=async()=>{
@@ -44,6 +52,8 @@ export default function AdminPage(){
     if(usr)setUsuarios(usr);
     const{data:uc}=await supabase.from("user_companies").select("*");
     if(uc)setUserComps(uc);
+    const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
+    if(grps)setGrupos(grps);
   };
 
   const getUserCompIds=(uid:string)=>userComps.filter(uc=>uc.user_id===uid).map(uc=>uc.company_id);
@@ -82,10 +92,38 @@ export default function AdminPage(){
       const{data:org}=await supabase.from("organizations").insert({name:"PS Gestão e Capital",slug:"psgestao-"+Date.now()}).select().single();
       if(org){orgId=org.id;await supabase.from("users").upsert({id:user.id,org_id:orgId,full_name:"Administrador",email:user.email!,role:"admin"});}
     }
-    const{error}=await supabase.from("companies").insert({...newEmp,org_id:orgId});
+    const empData:any={razao_social:newEmp.razao_social,nome_fantasia:newEmp.nome_fantasia,cnpj:newEmp.cnpj,cidade_estado:newEmp.cidade_estado,org_id:orgId};
+    if(newEmp.group_id)empData.group_id=newEmp.group_id;
+    const{error}=await supabase.from("companies").insert(empData);
     if(error){setMsg("Erro: "+error.message);return;}
-    setMsg("Empresa cadastrada!");setNewEmp({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:""});setShowForm(false);loadData();
+    setMsg("Empresa cadastrada!");setNewEmp({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",group_id:""});setShowForm(false);loadData();
   };
+
+  const criarGrupo=async()=>{
+    if(!newGroupName.trim())return;
+    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
+    const{data:up}=await supabase.from("users").select("org_id").eq("id",user.id).single();
+    const{error}=await supabase.from("company_groups").insert({nome:newGroupName.trim(),cor:newGroupCor,org_id:up?.org_id});
+    if(error){setMsg("Erro: "+error.message);return;}
+    setMsg("Grupo criado!");setNewGroupName("");setShowNewGroup(false);loadData();
+  };
+
+  const moverEmpresaGrupo=async(empId:string,groupId:string|null)=>{
+    const{error}=await supabase.from("companies").update({group_id:groupId}).eq("id",empId);
+    if(error){setMsg("Erro: "+error.message);return;}
+    setMsg("Empresa movida!");setMovingEmpresa(null);loadData();
+  };
+
+  const excluirGrupo=async(gid:string)=>{
+    const empsNoGrupo=empresas.filter(e=>e.group_id===gid);
+    if(empsNoGrupo.length>0){setMsg("Mova todas as empresas antes de excluir o grupo.");return;}
+    await supabase.from("company_groups").delete().eq("id",gid);
+    setMsg("Grupo excluído!");loadData();
+  };
+
+  const toggleGroup=(gid:string)=>setExpandedGroups(prev=>({...prev,[gid]:!prev[gid]}));
+  const expandAllGroups=()=>{const all:any={};grupos.forEach(g=>{all[g.id]=true;});all["sem_grupo"]=true;setExpandedGroups(all);};
+  const collapseAllGroups=()=>setExpandedGroups({});
 
   const gerarConvite=async()=>{
     if(!selectedCompany)return;
@@ -124,12 +162,36 @@ export default function AdminPage(){
       ))}
     </div>
 
-    {/* EMPRESAS */}
+    {/* EMPRESAS COM GRUPOS */}
     {tab==="empresas"&&(<div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <div style={{fontSize:14,fontWeight:600,color:TX}}>{empresas.length} empresas</div>
-        <button onClick={()=>setShowForm(!showForm)} style={{padding:"8px 16px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Nova Empresa</button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:14,fontWeight:600,color:TX}}>{empresas.length} empresas · {grupos.length} grupos</div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>setShowNewGroup(true)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${GO}`,background:"transparent",color:GO,fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Grupo</button>
+          <button onClick={()=>setShowForm(!showForm)} style={{padding:"6px 14px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>+ Empresa</button>
+          <button onClick={expandAllGroups} style={{padding:"6px 10px",borderRadius:6,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontSize:10,cursor:"pointer"}}>▼ Expandir</button>
+          <button onClick={collapseAllGroups} style={{padding:"6px 10px",borderRadius:6,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontSize:10,cursor:"pointer"}}>▲ Recolher</button>
+        </div>
       </div>
+
+      {/* New Group Form */}
+      {showNewGroup&&(
+        <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:10,border:`1px solid ${GO}40`}}>
+          <div style={{fontSize:13,fontWeight:700,color:GOL,marginBottom:10}}>Criar Novo Grupo</div>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Nome do Grupo</div>
+              <input value={newGroupName} onChange={e=>setNewGroupName(e.target.value)} placeholder="Ex: Grupo Tryo Gessos" style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Cor</div>
+              <div style={{display:"flex",gap:4}}>{groupColors.map(c=>(
+                <div key={c} onClick={()=>setNewGroupCor(c)} style={{width:24,height:24,borderRadius:6,background:c,cursor:"pointer",border:newGroupCor===c?"2px solid white":"2px solid transparent"}}/>
+              ))}</div></div>
+            <button onClick={criarGrupo} style={{padding:"8px 16px",borderRadius:8,background:GO,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Criar</button>
+            <button onClick={()=>setShowNewGroup(false)} style={{padding:"8px 16px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* New Empresa Form */}
       {showForm&&(
         <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:10,border:`1px solid ${BD}`}}>
           <div style={{fontSize:13,fontWeight:700,color:GOL,marginBottom:10}}>Cadastrar Nova Empresa</div>
@@ -139,6 +201,11 @@ export default function AdminPage(){
                 <div key={f.k}><div style={{fontSize:10,color:TXD,marginBottom:3}}>{f.l}</div>
                 <input value={(newEmp as any)[f.k]} onChange={e=>setNewEmp({...newEmp,[f.k]:e.target.value})} placeholder={f.p} style={inp}/></div>
               ))}
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Grupo</div>
+                <select value={newEmp.group_id} onChange={e=>setNewEmp({...newEmp,group_id:e.target.value})} style={{...inp,cursor:"pointer"}}>
+                  <option value="">Sem grupo</option>
+                  {grupos.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+                </select></div>
             </div>
             <div style={{marginTop:10,display:"flex",gap:8}}>
               <button type="submit" style={{padding:"8px 16px",borderRadius:8,background:GO,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Salvar</button>
@@ -147,13 +214,89 @@ export default function AdminPage(){
           </form>
         </div>
       )}
-      {empresas.map(emp=>(
-        <div key={emp.id} style={{background:BG2,borderRadius:10,padding:"12px 16px",marginBottom:6,border:`1px solid ${BD}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:14,fontWeight:600,color:TX}}>{emp.nome_fantasia||emp.razao_social}</div>
-          <div style={{fontSize:10,color:TXD}}>{emp.cnpj||"Sem CNPJ"} | {emp.cidade_estado||"Sem cidade"}</div></div>
-          <div style={{fontSize:9,color:TXD}}>{new Date(emp.created_at).toLocaleDateString("pt-BR")}</div>
-        </div>
-      ))}
+
+      {/* Groups with companies */}
+      {grupos.map(grupo=>{
+        const empsDoGrupo=empresas.filter(e=>e.group_id===grupo.id);
+        const isOpen=!!expandedGroups[grupo.id];
+        return(
+          <div key={grupo.id} style={{background:BG2,borderRadius:10,marginBottom:6,border:`1px solid ${BD}`,borderLeft:`4px solid ${grupo.cor||GO}`,overflow:"hidden"}}>
+            <div onClick={()=>toggleGroup(grupo.id)} style={{padding:"10px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:14,color:grupo.cor||GO,transition:"transform 0.2s",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>
+                <div>
+                  <span style={{fontSize:14,fontWeight:600,color:TX}}>{grupo.nome}</span>
+                  <span style={{fontSize:10,color:TXD,marginLeft:8}}>{empsDoGrupo.length} empresa{empsDoGrupo.length!==1?"s":""}</span>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,fontWeight:700,color:grupo.cor||GO,background:(grupo.cor||GO)+"20",padding:"2px 8px",borderRadius:8}}>{empsDoGrupo.length}</span>
+                {empsDoGrupo.length===0&&<button onClick={(e)=>{e.stopPropagation();excluirGrupo(grupo.id);}} style={{background:"none",border:"none",color:R,fontSize:12,cursor:"pointer",padding:"2px 4px"}} title="Excluir grupo vazio">🗑</button>}
+              </div>
+            </div>
+            {isOpen&&(
+              <div style={{borderTop:`1px solid ${BD}`}}>
+                {empsDoGrupo.length===0&&<div style={{padding:16,textAlign:"center",fontSize:11,color:TXD}}>Nenhuma empresa neste grupo</div>}
+                {empsDoGrupo.map(emp=>(
+                  <div key={emp.id} style={{padding:"8px 16px 8px 44px",borderBottom:`0.5px solid ${BD}40`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div><div style={{fontSize:13,fontWeight:500,color:TX}}>{emp.nome_fantasia||emp.razao_social}</div>
+                    <div style={{fontSize:10,color:TXD}}>{emp.cnpj||"Sem CNPJ"} · {emp.cidade_estado||""}</div></div>
+                    <div style={{display:"flex",gap:4}}>
+                      {movingEmpresa===emp.id?(
+                        <select onChange={e=>{moverEmpresaGrupo(emp.id,e.target.value||null);}} style={{...inp,width:"auto",fontSize:10,padding:"4px 8px"}}>
+                          <option value="">Sem grupo</option>
+                          {grupos.filter(g=>g.id!==grupo.id).map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+                        </select>
+                      ):(
+                        <button onClick={()=>setMovingEmpresa(emp.id)} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,color:TXM,fontSize:10,cursor:"pointer",padding:"3px 8px"}} title="Mover para outro grupo">↗️ Mover</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Empresas sem grupo */}
+      {(()=>{
+        const semGrupo=empresas.filter(e=>!e.group_id||!grupos.find(g=>g.id===e.group_id));
+        if(semGrupo.length===0)return null;
+        const isOpen=!!expandedGroups["sem_grupo"];
+        return(
+          <div style={{background:BG2,borderRadius:10,marginBottom:6,border:`1px solid ${BD}`,borderLeft:`4px solid ${TXD}`,overflow:"hidden"}}>
+            <div onClick={()=>toggleGroup("sem_grupo")} style={{padding:"10px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:14,color:TXD,transition:"transform 0.2s",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>
+                <span style={{fontSize:14,fontWeight:600,color:TXM}}>Sem Grupo</span>
+                <span style={{fontSize:10,color:TXD}}>{semGrupo.length} empresa{semGrupo.length!==1?"s":""}</span>
+              </div>
+              <span style={{fontSize:11,fontWeight:700,color:TXD,background:TXD+"20",padding:"2px 8px",borderRadius:8}}>{semGrupo.length}</span>
+            </div>
+            {isOpen&&(
+              <div style={{borderTop:`1px solid ${BD}`}}>
+                {semGrupo.map(emp=>(
+                  <div key={emp.id} style={{padding:"8px 16px 8px 44px",borderBottom:`0.5px solid ${BD}40`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div><div style={{fontSize:13,fontWeight:500,color:TX}}>{emp.nome_fantasia||emp.razao_social}</div>
+                    <div style={{fontSize:10,color:TXD}}>{emp.cnpj||"Sem CNPJ"} · {emp.cidade_estado||""}</div></div>
+                    <div style={{display:"flex",gap:4}}>
+                      {movingEmpresa===emp.id?(
+                        <select onChange={e=>{moverEmpresaGrupo(emp.id,e.target.value||null);}} style={{...inp,width:"auto",fontSize:10,padding:"4px 8px"}}>
+                          <option value="">Mover para...</option>
+                          {grupos.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+                        </select>
+                      ):(
+                        <button onClick={()=>setMovingEmpresa(emp.id)} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,color:TXM,fontSize:10,cursor:"pointer",padding:"3px 8px"}} title="Mover para grupo">↗️ Mover</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>)}
 
     {/* USUÁRIOS */}

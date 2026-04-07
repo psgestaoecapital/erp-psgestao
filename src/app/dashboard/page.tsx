@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
+import AnaliseIAFlags from "./components/AnaliseIAFlags";
 
 const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",
     G="#22C55E",R="#EF4444",Y="#FACC15",B="#3B82F6",P="#A855F7",T="#14B8A6",
@@ -1011,6 +1012,9 @@ export default function DashboardPage(){
               <span style={{fontSize:18,fontWeight:700,color:R}}>R$ {(realData.total_despesas/1000).toFixed(0)}K</span>
             </div>
           </Card>
+
+          {/* Análise IA Automática — cruza DRE + Custos + Contexto */}
+          <AnaliseIAFlags realData={realData} empresaId={empresaSel} periodo={`${periodoInicio} a ${periodoFim}`}/>
         </>)}
 
         <div style={{fontSize:9,color:TXD,textAlign:"right",margin:"8px 0"}}>Fonte: Omie API — dados reais processados</div>

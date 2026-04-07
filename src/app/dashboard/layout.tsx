@@ -94,15 +94,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         display: "flex", justifyContent: "space-between", alignItems: "center"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 8,
-            background: "linear-gradient(135deg, #C6973F 0%, #E8C872 100%)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 16, fontWeight: 800, color: "#0F0F0D"
-          }}>PS</div>
+          <img src="/images/logo-header.png" alt="PS Gestão" style={{ height: 40, width: "auto" }}/>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#E8C872" }}>PS Gestão e Capital</div>
-            <div style={{ fontSize: 9, color: "#6B6960", letterSpacing: 1, textTransform: "uppercase" }}>ERP Inteligente</div>
+            <div style={{ fontSize: 9, color: "#6B6960", letterSpacing: 1, textTransform: "uppercase" }}>ERP Inteligente · v7.1</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

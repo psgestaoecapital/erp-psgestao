@@ -50,17 +50,12 @@ export default function LoginPage() {
         
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{
-            width: 64, height: 64, borderRadius: 16, margin: "0 auto 16px",
-            background: "linear-gradient(135deg, #C6973F 0%, #E8C872 100%)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 28, fontWeight: 800, color: "#0F0F0D"
-          }}>PS</div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#E8C872", letterSpacing: 0.5 }}>
-            PS Gestão e Capital
-          </h1>
-          <p style={{ fontSize: 12, color: "#6B6960", marginTop: 4, letterSpacing: 1, textTransform: "uppercase" }}>
-            ERP Inteligente com IA
+          <img src="/images/logo-login.png" alt="PS Gestão e Capital" style={{
+            display: "block", margin: "0 auto 16px", maxWidth: 200, height: "auto",
+            filter: "drop-shadow(0 4px 12px rgba(197,165,90,0.2))"
+          }}/>
+          <p style={{ fontSize: 12, color: "#6B6960", marginTop: 4, letterSpacing: 2, textTransform: "uppercase" }}>
+            Consultor Digital
           </p>
         </div>
 
