@@ -63,7 +63,7 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
       }
     }
 
-    // Load contas a receber (entradas) — pagos + pendentes
+    // Load contas a receber (entradas)
     const{data:recImports}=await supabase.from("omie_imports").select("import_data").in("company_id",companyIds).eq("import_type","contas_receber");
     if(recImports){
       for(const imp of recImports){
@@ -71,22 +71,20 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
         if(!Array.isArray(regs)) continue;
         for(const r of regs){
           const status=r.status_titulo||"";
-          if(status==="CANCELADO") continue;
-          // Pagos: usar data_pagamento (histórico real). Pendentes: usar data_vencimento (projeção)
-          const isPago=status==="PAGO"||status==="RECEBIDO"||status==="LIQUIDADO";
-          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||"");
+          if(status==="CANCELADO"||status==="PAGO"||status==="RECEBIDO") continue;
+          const venc=r.data_vencimento||r.data_previsao||"";
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_cliente||"");
           lancs.push({
-            data:dataRef,valor:Number(r.valor_documento)||0,tipo:"entrada",
+            data:venc,valor:Number(r.valor_documento)||0,tipo:"entrada",
             nome:clienteNomes[codCF]||"Cliente "+codCF,
             doc:r.numero_documento||r.numero_documento_fiscal||"",
-            status:isPago?"RECEBIDO":status,vencimento:r.data_vencimento||r.data_previsao||"",
+            status,vencimento:venc,
           });
         }
       }
     }
 
-    // Load contas a pagar (saídas) — pagos + pendentes
+    // Load contas a pagar (saídas)
     const{data:pagImports}=await supabase.from("omie_imports").select("import_data").in("company_id",companyIds).eq("import_type","contas_pagar");
     if(pagImports){
       for(const imp of pagImports){
@@ -94,15 +92,14 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
         if(!Array.isArray(regs)) continue;
         for(const r of regs){
           const status=r.status_titulo||"";
-          if(status==="CANCELADO") continue;
-          const isPago=status==="PAGO"||status==="LIQUIDADO";
-          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||"");
+          if(status==="CANCELADO"||status==="PAGO"||status==="LIQUIDADO") continue;
+          const venc=r.data_vencimento||r.data_previsao||"";
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_fornecedor||"");
           lancs.push({
-            data:dataRef,valor:Number(r.valor_documento)||0,tipo:"saida",
+            data:venc,valor:Number(r.valor_documento)||0,tipo:"saida",
             nome:clienteNomes[codCF]||r.observacao||"Fornecedor "+codCF,
             doc:r.numero_documento||r.numero_documento_fiscal||"",
-            status:isPago?"PAGO":status,vencimento:r.data_vencimento||r.data_previsao||"",
+            status,vencimento:venc,
           });
         }
       }
@@ -112,18 +109,14 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
     setLoading(false);
   };
 
-  // Build daily cash flow — past (historical) + future (projected)
+  // Build daily cash flow
   const diasCaixa:DiaCaixa[]=useMemo(()=>{
     const hoje=new Date();
     hoje.setHours(0,0,0,0);
     const dias:DiaCaixa[]=[];
-    
-    // Determine how many past days to show based on period
-    const diasPassado=Math.min(Math.floor(periodo/2),30);
-    const diasFuturo=periodo;
     let acumulado=saldoInicial;
 
-    for(let i=-diasPassado;i<diasFuturo;i++){
+    for(let i=0;i<periodo;i++){
       const d=new Date(hoje);
       d.setDate(hoje.getDate()+i);
       const dStr=fmtDataCompleta(d);
