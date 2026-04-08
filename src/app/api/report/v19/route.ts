@@ -205,7 +205,7 @@ Base para cálculo de múltiplos setoriais.
     // ══════════════════════════════════════════
 
     const systemPrompt = `PROMPT MESTRE V19 — CEO EDITION — PS GESTÃO E CAPITAL
-PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 10 SLIDES EXECUTIVOS
+PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 6 SLIDES EXECUTIVOS
 
 [PROTOCOLO 0 — ISOLAMENTO E IDENTIDADE]
 Dados válidos: EXCLUSIVAMENTE os BLOCOS fornecidos abaixo.
@@ -235,28 +235,15 @@ Use emojis de status: 🟢 🟡 🔴
 Tabelas em Markdown. Mínimo 4 linhas de análise real por parecer.
 Cada ação deve ter: prazo, responsável e impacto em R$.
 
-GERE 10 SLIDES PRIORITÁRIOS (resumido):
-1. Painel Executivo CEO
-2. Desempenho Comercial e BCG
-3. Balanço Patrimonial Gerencial
-4. DRE Analítico Completo
-5. Capital de Giro e Ciclo Financeiro
-6. Fluxo de Caixa
-7. Estrutura de Capital e Solvência
-8. Pessoas e Produtividade
-9. Pareto de Custos e Orçamento
-10. Radar de Conformidade 360°
-11. Inteligência Estratégica
-12. ESG e Sustentabilidade
-13. Tecnologia e Digitalização
-14. Matriz de Risco Empresarial
-15. Valuation e Geração de Valor
-16. Plano de Ação (mín. 20 ações)
-17. Carta ao Acionista
-18. Metas e Próximos 90 Dias
+GERE 6 SLIDES EXECUTIVOS (máximo 500 palavras cada):
+1. Painel Executivo CEO (KPIs, resultado, margem)
+2. DRE Analítico (receitas, despesas, EBITDA)
+3. Capital de Giro e Fluxo de Caixa
+4. Pareto de Custos (top 10 maiores despesas)
+5. Plano de Ação (10 ações com prazo e impacto R$)
+6. Carta ao Acionista + Metas 90 Dias
 
-REGRA FINAL: Se um dado estiver ausente, sinalize a lacuna e sugira como coletá-lo.
-Nunca pule um slide. Cada parecer mínimo 4 linhas. Assine como "PS — Conselheiro Digital".`;
+REGRA FINAL: Seja conciso. Se dado ausente, sinalize. Assine como "PS — Conselheiro Digital".`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -267,9 +254,9 @@ Nunca pule um slide. Cada parecer mínimo 4 linhas. Assine como "PS — Conselhe
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 6000,
+        max_tokens: 4000,
         system: systemPrompt,
-        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE 10 SLIDES RESUMIDOS AGORA:\n\n${blocos}` }],
+        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE 6 SLIDES EXECUTIVOS AGORA:\n\n${blocos}` }],
       }),
     });
 
