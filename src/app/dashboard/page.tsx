@@ -517,8 +517,10 @@ export default function DashboardPage(){
       setLoadingDb(false);
     };
     loadCompanies();
-    supabase.from("omie_imports").select("company_id,import_type,record_count,imported_at").then(({data}) => {
-      if(data) setOmieData(data);
+    supabase.from("omie_imports").select("company_id,import_type,record_count,imported_at").then(({data, error}) => {
+      if(error) console.error("OMIE_IMPORTS ERROR:", error);
+      if(data) { console.log("OMIE_IMPORTS:", data.length, "rows"); setOmieData(data); }
+      else console.log("OMIE_IMPORTS: null data");
     });
   }, []);
 
@@ -676,6 +678,11 @@ export default function DashboardPage(){
         ):null;
       })()}
 
+      {/* Debug - temporary */}
+      <div style={{background:"#1a1510",border:"1px solid #C6973F30",borderRadius:8,padding:8,marginBottom:8,fontSize:10,color:TXD}}>
+        🔍 {dbCompanies.length} empresas | {omieData.length} imports | sel: {empresaSel?.substring(0,12)} | real: {realData?"✅":"❌"} | loading: {loadingReal?"⏳":"—"}
+      </div>
+
       {/* Real data from Omie */}
       {realData&&(
         <div>
@@ -734,6 +741,10 @@ export default function DashboardPage(){
       )}
 
       {!realData&&!loadingReal&&omieData.length===0&&(<>
+        {/* Debug info - temporary */}
+        <div style={{background:"#1a1510",border:"1px solid #C6973F30",borderRadius:8,padding:10,marginBottom:10,fontSize:10,color:TXD}}>
+          🔍 Debug: {dbCompanies.length} empresas | {omieData.length} imports | empresaSel: {empresaSel} | loadingDb: {loadingDb?"sim":"não"}
+        </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
         <KPI r="Faturamento 1T" v="R$ 6,5M" d="▲ 9% acima da meta" ok={true}/>
         <KPI r="Lucro da Operação" v="R$ 663.000,00" d="10,2% do faturamento" ok={true}/>
