@@ -244,6 +244,7 @@ async function handleSeed() {
       moeda: "BRL",
       regime_tributario: "presumido",
       tipo_empresa: "matriz",
+      org_id: "c830f980-9be9-40c1-bb46-584cdc92dd65",
     }, { onConflict: "cnpj" }).select().single();
 
     if (compErr) {
@@ -260,6 +261,7 @@ async function handleSeed() {
         moeda: "BRL",
         regime_tributario: "presumido",
         tipo_empresa: "matriz",
+      org_id: "c830f980-9be9-40c1-bb46-584cdc92dd65",
       }).select().single();
       if (e2) return NextResponse.json({ error: "Erro criando empresa: " + e2.message }, { status: 500 });
       var companyId = c2.id;
