@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { AuthProvider } from "@/lib/AuthProvider";
 import AgenteIA from "./components/AgenteIA";
 import { useRouter } from "next/navigation";
 
@@ -195,8 +196,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
 
+      <AuthProvider>
       {children}
       <AgenteIA/>
+    </AuthProvider>
     </div>
   );
 }
