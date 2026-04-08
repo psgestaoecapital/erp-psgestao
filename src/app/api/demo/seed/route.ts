@@ -308,13 +308,13 @@ async function handleSeed() {
     const produtos = generateProdutos();
 
     const imports = [
-      { import_type: "categorias", import_data: categorias, record_count: categorias.length },
-      { import_type: "clientes", import_data: clientes, record_count: clientes.length },
-      { import_type: "produtos", import_data: produtos, record_count: produtos.length },
-      { import_type: "contas_pagar", import_data: contasPagar, record_count: contasPagar.length },
-      { import_type: "contas_receber", import_data: contasReceber, record_count: contasReceber.length },
-      { import_type: "vendas", import_data: [], record_count: 0 },
-      { import_type: "estoque", import_data: produtos.filter(p => p.estoque > 0), record_count: produtos.filter(p => p.estoque > 0).length },
+      { import_type: "categorias", import_data: { categoria_cadastro: categorias }, record_count: categorias.length },
+      { import_type: "clientes", import_data: { clientes_cadastro: clientes }, record_count: clientes.length },
+      { import_type: "produtos", import_data: { produto_servico_cadastro: produtos }, record_count: produtos.length },
+      { import_type: "contas_pagar", import_data: { conta_pagar_cadastro: contasPagar }, record_count: contasPagar.length },
+      { import_type: "contas_receber", import_data: { conta_receber_cadastro: contasReceber }, record_count: contasReceber.length },
+      { import_type: "vendas", import_data: { pedido_venda_produto: [] }, record_count: 0 },
+      { import_type: "estoque", import_data: { produtos_estoque: produtos.filter(p => p.estoque > 0) }, record_count: produtos.filter(p => p.estoque > 0).length },
       { import_type: "resumo", import_data: {}, record_count: 0 },
       { import_type: "empresa", import_data: { razao_social: "PS Demo Comércio e Serviços Ltda", cnpj: "00.000.000/0001-00" }, record_count: 1 },
     ];
