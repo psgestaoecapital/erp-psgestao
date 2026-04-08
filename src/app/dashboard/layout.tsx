@@ -10,15 +10,19 @@ const GO="#C6973F",GOL="#E8C872",G="#22C55E",Y="#FACC15",R="#EF4444",
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState("");
   const [loading, setLoading] = useState(true);
   const [showGuide, setShowGuide] = useState(false);
   const [checklist, setChecklist] = useState<{id:string,titulo:string,desc:string,ok:boolean,link:string}[]>([]);
   const router = useRouter();
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data?.user) { router.push("/"); return; }
       setUser(data.user);
+      // Carregar role do usuário
+      const { data: profile } = await supabase.from("users").select("role").eq("id", data.user.id).single();
+      if (profile?.role) setUserRole(profile.role);
       setLoading(false);
       checkOnboarding();
     }).catch(() => {
@@ -131,7 +135,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <a href="/dashboard/viabilidade" style={{ fontSize: 10, color: "#A78BFA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #A78BFA30", background: "#A78BFA08", fontWeight: 600 }}>📐 Viabilidade</a>
           <a href="/dashboard/tutorial" style={{ fontSize: 10, color: "#2DD4BF", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2DD4BF30", background: "#2DD4BF08", fontWeight: 600 }}>📚 Ajuda</a>
           <a href="/dashboard/sugestoes" style={{ fontSize: 10, color: "#F0ECE3", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822", background: "transparent" }}>💡</a>
-          <a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>
+          {userRole==="adm"&&<a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>}
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
           <span style={{ fontSize: 10, color: "#918C82", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>
           <button onClick={handleLogout} style={{

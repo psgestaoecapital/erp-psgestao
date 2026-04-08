@@ -39,6 +39,8 @@ export default function AdminPage(){
   const [msg,setMsg]=useState("");
   const [userComps,setUserComps]=useState<any[]>([]);
   const [editingUser,setEditingUser]=useState<string|null>(null);
+  const [isAuthorized,setIsAuthorized]=useState(false);
+  const [checkingAuth,setCheckingAuth]=useState(true);
   // Grupos
   const [grupos,setGrupos]=useState<any[]>([]);
   const [expandedGroups,setExpandedGroups]=useState<Record<string,boolean>>({});
@@ -48,7 +50,19 @@ export default function AdminPage(){
   const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
   const groupColors=["#C6973F","#FF9800","#4CAF50","#3B82F6","#A855F7","#EF4444","#14B8A6","#FF5722","#8BC34A","#E91E63"];
 
-  useEffect(()=>{loadData();},[]);
+  useEffect(()=>{checkAuth();},[]);
+
+  const checkAuth=async()=>{
+    const{data:{user}}=await supabase.auth.getUser();
+    if(!user){setCheckingAuth(false);return;}
+    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
+    if(up?.role==="adm"){
+      setIsAuthorized(true);
+      loadData();
+    }
+    setCheckingAuth(false);
+  };
+
   const loadData=async()=>{
     const{data:emp}=await supabase.from("companies").select("*").order("created_at",{ascending:false});
     if(emp)setEmpresas(emp);
@@ -180,6 +194,17 @@ export default function AdminPage(){
   };
 
   const inp={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
+
+  if(checkingAuth) return(<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:TXM,fontSize:13}}>Verificando permissão...</div></div>);
+
+  if(!isAuthorized) return(
+    <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:48}}>🔒</div>
+      <div style={{fontSize:18,fontWeight:700,color:R}}>Acesso Restrito</div>
+      <div style={{fontSize:12,color:TXM,textAlign:"center",maxWidth:300}}>Esta área é exclusiva para administradores do sistema. Se você acredita que deveria ter acesso, entre em contato com o administrador.</div>
+      <a href="/dashboard" style={{padding:"10px 24px",borderRadius:8,background:GOL,color:BG,fontSize:12,fontWeight:600,textDecoration:"none",marginTop:8}}>← Voltar ao Dashboard</a>
+    </div>
+  );
 
   return(
   <div style={{padding:"20px",maxWidth:1000,margin:"0 auto",background:BG,minHeight:"100vh"}}>
