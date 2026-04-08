@@ -14,7 +14,7 @@ type ChatMsg={role:"user"|"assistant";content:string;time:string;};
 export default function DevCentralPage(){
   const [isAdmin,setIsAdmin]=useState(false);
   const [checking,setChecking]=useState(true);
-  const [tab,setTab]=useState<"ambientes"|"chat"|"seguranca"|"changelog">("ambientes");
+  const [tab,setTab]=useState<"ambientes"|"fluxo"|"chat"|"seguranca"|"changelog">("ambientes");
   // Chat
   const [msgs,setMsgs]=useState<ChatMsg[]>([]);
   const [input,setInput]=useState("");
@@ -168,7 +168,7 @@ Responda em português, seja técnico mas claro. Sugira melhorias proativamente.
 
       {/* Tabs */}
       <div style={{display:"flex",gap:4,marginBottom:16}}>
-        {([["ambientes","🌐 Ambientes"],["chat","💬 Chat Dev"],["seguranca","🔒 Segurança"],["changelog","📋 Changelog"]] as const).map(([k,l])=>(
+        {([["ambientes","🌐 Ambientes"],["fluxo","🔄 Fluxo de Melhorias"],["chat","💬 Chat Dev"],["seguranca","🔒 Segurança"],["changelog","📋 Changelog"]] as const).map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)} style={{
             padding:"8px 18px",borderRadius:10,fontSize:12,cursor:"pointer",fontWeight:tab===k?600:400,
             border:tab===k?`1px solid ${GO}50`:`1px solid ${BD}`,
@@ -267,6 +267,216 @@ Responda em português, seja técnico mas claro. Sugira melhorias proativamente.
           </div>
         </div>
       )}
+      {/* FLUXO DE MELHORIAS */}
+      {tab==="fluxo"&&(
+        <div>
+          {/* Introdução */}
+          <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${GO}30`,marginBottom:14}}>
+            <div style={{fontSize:16,fontWeight:700,color:GOL,marginBottom:6}}>🔄 Fluxo de Melhorias e Novas Atualizações</div>
+            <div style={{fontSize:12,color:TXM}}>Guia passo a passo para solicitar, desenvolver e publicar melhorias no sistema. Qualquer pessoa pode seguir este fluxo — não é necessário conhecimento técnico.</div>
+          </div>
+
+          {/* Fluxograma Visual */}
+          <div style={{background:BG2,borderRadius:14,padding:24,border:`1px solid ${BD}`,marginBottom:14}}>
+            <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:16}}>📋 Visão Geral do Fluxo</div>
+            
+            <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"center"}}>
+              {/* Etapa 1 */}
+              <div style={{width:"100%",maxWidth:600,background:`linear-gradient(135deg,${B}15,${B}08)`,border:`2px solid ${B}50`,borderRadius:14,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:4}}>💡</div>
+                <div style={{fontSize:14,fontWeight:700,color:B}}>ETAPA 1 — Ideia ou Necessidade</div>
+                <div style={{fontSize:11,color:TXM,marginTop:4}}>Identifique o que precisa: correção de bug, melhoria visual, novo módulo, nova funcionalidade, ajuste de segurança.</div>
+              </div>
+              <div style={{fontSize:20,color:TXD}}>▼</div>
+
+              {/* Etapa 2 */}
+              <div style={{width:"100%",maxWidth:600,background:`linear-gradient(135deg,${P}15,${P}08)`,border:`2px solid ${P}50`,borderRadius:14,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:4}}>📝</div>
+                <div style={{fontSize:14,fontWeight:700,color:P}}>ETAPA 2 — Documentar o Pedido</div>
+                <div style={{fontSize:11,color:TXM,marginTop:4}}>Descreva com detalhes: o que está errado ou o que deseja. Use o <strong style={{color:GOL}}>Chat Dev</strong> (aba ao lado) ou anote no papel. Inclua prints se possível.</div>
+              </div>
+              <div style={{fontSize:20,color:TXD}}>▼</div>
+
+              {/* Etapa 3 */}
+              <div style={{width:"100%",maxWidth:600,background:`linear-gradient(135deg,${GO}15,${GO}08)`,border:`2px solid ${GO}50`,borderRadius:14,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:4}}>🤖</div>
+                <div style={{fontSize:14,fontWeight:700,color:GOL}}>ETAPA 3 — Desenvolvimento</div>
+                <div style={{fontSize:11,color:TXM,marginTop:4}}>Acesse o <strong style={{color:GOL}}>Claude.ai</strong> (claude.ai) com a conta PS Gestão. Cole o pedido. O Claude implementa as mudanças no código automaticamente.</div>
+              </div>
+              <div style={{fontSize:20,color:TXD}}>▼</div>
+
+              {/* Etapa 4 */}
+              <div style={{width:"100%",maxWidth:600,background:`linear-gradient(135deg,${Y}15,${Y}08)`,border:`2px solid ${Y}50`,borderRadius:14,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:4}}>🟡</div>
+                <div style={{fontSize:14,fontWeight:700,color:Y}}>ETAPA 4 — Testar em Staging</div>
+                <div style={{fontSize:11,color:TXM,marginTop:4}}>O código vai para o ambiente de <strong style={{color:Y}}>homologação (staging)</strong>. Acesse a URL de staging e teste. Clientes NÃO são afetados.</div>
+              </div>
+              <div style={{fontSize:20,color:TXD}}>▼</div>
+
+              {/* Etapa 5 */}
+              <div style={{width:"100%",maxWidth:600,background:`linear-gradient(135deg,${G}15,${G}08)`,border:`2px solid ${G}50`,borderRadius:14,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:4}}>✅</div>
+                <div style={{fontSize:14,fontWeight:700,color:G}}>ETAPA 5 — Aprovar e Publicar</div>
+                <div style={{fontSize:11,color:TXM,marginTop:4}}>Testou e aprovou? O Claude faz o <strong style={{color:G}}>merge para produção</strong>. Em 2 minutos a melhoria está disponível para todos os clientes.</div>
+              </div>
+              <div style={{fontSize:20,color:TXD}}>▼</div>
+
+              {/* Etapa 6 */}
+              <div style={{width:"100%",maxWidth:600,background:`linear-gradient(135deg,${GO}15,${GO}08)`,border:`2px solid ${GO}50`,borderRadius:14,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:4}}>📄</div>
+                <div style={{fontSize:14,fontWeight:700,color:GOL}}>ETAPA 6 — Documentar</div>
+                <div style={{fontSize:11,color:TXM,marginTop:4}}>O Claude atualiza automaticamente: <strong style={{color:GOL}}>Changelog + Documentação Técnica</strong>. Tudo salvo no Git com backup.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Guia Detalhado por Etapa */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            
+            {/* Como descrever um pedido */}
+            <div style={{background:BG2,borderRadius:14,padding:18,border:`1px solid ${BD}`}}>
+              <div style={{fontSize:13,fontWeight:600,color:P,marginBottom:10}}>📝 Como Descrever um Pedido</div>
+              <div style={{fontSize:11,color:TXM,lineHeight:2}}>
+                <div><strong style={{color:TX}}>1.</strong> O que está acontecendo? <span style={{color:TXD}}>(descreva o problema ou desejo)</span></div>
+                <div><strong style={{color:TX}}>2.</strong> Onde acontece? <span style={{color:TXD}}>(qual tela, qual botão, qual empresa)</span></div>
+                <div><strong style={{color:TX}}>3.</strong> O que deveria acontecer? <span style={{color:TXD}}>(o resultado esperado)</span></div>
+                <div><strong style={{color:TX}}>4.</strong> Tem print ou foto? <span style={{color:TXD}}>(ajuda muito — tire foto da tela)</span></div>
+              </div>
+              <div style={{background:BG3,borderRadius:8,padding:12,marginTop:10,fontSize:10,color:TXM,border:`1px solid ${BD}`}}>
+                <div style={{color:GOL,fontWeight:600,marginBottom:4}}>Exemplo de pedido BOM:</div>
+                <div>"Na tela de Dashboard, quando seleciono a empresa Tryo Gesso e clico na aba Resultado, os valores de março aparecem zerados. Deveria mostrar R$ 3.129.400 de faturamento. Segue print."</div>
+              </div>
+              <div style={{background:BG3,borderRadius:8,padding:12,marginTop:6,fontSize:10,color:TXM,border:`1px solid ${R}20`}}>
+                <div style={{color:R,fontWeight:600,marginBottom:4}}>Exemplo de pedido RUIM:</div>
+                <div>"O sistema não funciona." (Não explica onde, o quê, quando)</div>
+              </div>
+            </div>
+
+            {/* Como usar o Claude.ai */}
+            <div style={{background:BG2,borderRadius:14,padding:18,border:`1px solid ${BD}`}}>
+              <div style={{fontSize:13,fontWeight:600,color:GOL,marginBottom:10}}>🤖 Como Usar o Claude.ai para Desenvolver</div>
+              <div style={{fontSize:11,color:TXM,lineHeight:2}}>
+                <div><strong style={{color:TX}}>1.</strong> Acesse <strong style={{color:GOL}}>claude.ai</strong> no navegador</div>
+                <div><strong style={{color:TX}}>2.</strong> Faça login com a conta PS Gestão</div>
+                <div><strong style={{color:TX}}>3.</strong> Inicie uma nova conversa</div>
+                <div><strong style={{color:TX}}>4.</strong> Cole esta frase inicial:</div>
+              </div>
+              <div style={{background:BG3,borderRadius:8,padding:12,marginTop:6,fontSize:10,color:TX,border:`1px solid ${GO}30`,fontFamily:"monospace",lineHeight:1.6}}>
+                "Estou trabalhando no ERP PS Gestão e Capital. Repositório: github.com/psgestaoecapital/erp-psgestao. Stack: Next.js 16 + Supabase + Vercel. Preciso da seguinte melhoria: [DESCREVA AQUI]"
+              </div>
+              <div style={{fontSize:11,color:TXM,lineHeight:2,marginTop:8}}>
+                <div><strong style={{color:TX}}>5.</strong> O Claude vai implementar e fazer push para <strong style={{color:Y}}>staging</strong></div>
+                <div><strong style={{color:TX}}>6.</strong> Teste no staging → se ok, peça para fazer merge para <strong style={{color:G}}>produção</strong></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Como testar em staging */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            <div style={{background:BG2,borderRadius:14,padding:18,border:`1px solid ${BD}`}}>
+              <div style={{fontSize:13,fontWeight:600,color:Y,marginBottom:10}}>🟡 Como Testar em Staging</div>
+              <div style={{fontSize:11,color:TXM,lineHeight:2}}>
+                <div><strong style={{color:TX}}>1.</strong> Abra a URL de staging no navegador:</div>
+              </div>
+              <div style={{background:BG3,borderRadius:8,padding:10,marginTop:4,marginBottom:8,fontSize:9,color:Y,wordBreak:"break-all",border:`1px solid ${Y}20`}}>{STAGING_URL}</div>
+              <div style={{fontSize:11,color:TXM,lineHeight:2}}>
+                <div><strong style={{color:TX}}>2.</strong> Faça login com suas credenciais normais</div>
+                <div><strong style={{color:TX}}>3.</strong> Teste a funcionalidade nova ou corrigida</div>
+                <div><strong style={{color:TX}}>4.</strong> Verifique se nada mais quebrou</div>
+                <div><strong style={{color:TX}}>5.</strong> Se ok → avise o Claude para publicar</div>
+                <div><strong style={{color:TX}}>6.</strong> Se bug → descreva e peça correção</div>
+              </div>
+            </div>
+
+            {/* O que testar */}
+            <div style={{background:BG2,borderRadius:14,padding:18,border:`1px solid ${BD}`}}>
+              <div style={{fontSize:13,fontWeight:600,color:G,marginBottom:10}}>✅ Checklist de Teste (antes de publicar)</div>
+              <div style={{fontSize:11,color:TXM,lineHeight:2.2}}>
+                {[
+                  "O dashboard carrega dados corretamente?",
+                  "A empresa correta está selecionada?",
+                  "Os valores financeiros batem com o Omie?",
+                  "As abas (Painel, Negócios, Resultado...) funcionam?",
+                  "O login funciona normalmente?",
+                  "Usuários não-admin veem APENAS suas empresas?",
+                  "O botão Admin está OCULTO para não-admin?",
+                  "A nova funcionalidade faz o que deveria?",
+                  "Nenhuma tela mostra erro ou fica em branco?",
+                ].map((item,i)=>(
+                  <div key={i} style={{display:"flex",gap:6,alignItems:"flex-start"}}>
+                    <span style={{color:G,flexShrink:0}}>☐</span>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Tipos de Melhoria */}
+          <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`,marginBottom:14}}>
+            <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>📊 Tipos de Melhoria e Tempo Estimado</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10}}>
+              {[
+                {icon:"🐛",tipo:"Correção de Bug",tempo:"30 min — 2h",cor:R,exemplos:"Tela em branco, valor errado, botão não funciona"},
+                {icon:"🎨",tipo:"Ajuste Visual",tempo:"15 min — 1h",cor:P,exemplos:"Mudar cor, tamanho de texto, posição de elemento"},
+                {icon:"📊",tipo:"Novo Indicador/KPI",tempo:"1 — 3h",cor:B,exemplos:"Adicionar margem líquida, ROIC, ciclo financeiro"},
+                {icon:"📄",tipo:"Novo Relatório",tempo:"2 — 4h",cor:GOL,exemplos:"Relatório mensal, análise setorial, parecer IA"},
+                {icon:"🔧",tipo:"Novo Módulo",tempo:"4 — 8h",cor:G,exemplos:"Contas a pagar, conciliação bancária, NF-e"},
+                {icon:"🔗",tipo:"Nova Integração",tempo:"4 — 12h",cor:Y,exemplos:"Bling, Nuvemshop, Pluggy, banco via API"},
+              ].map((m,i)=>(
+                <div key={i} style={{background:BG3,borderRadius:10,padding:14,border:`1px solid ${m.cor}20`}}>
+                  <div style={{fontSize:20,marginBottom:4}}>{m.icon}</div>
+                  <div style={{fontSize:12,fontWeight:600,color:m.cor}}>{m.tipo}</div>
+                  <div style={{fontSize:10,color:TX,marginTop:4}}>⏱️ {m.tempo}</div>
+                  <div style={{fontSize:9,color:TXD,marginTop:4}}>Ex: {m.exemplos}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Emergência */}
+          <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${R}30`,marginBottom:14}}>
+            <div style={{fontSize:14,fontWeight:600,color:R,marginBottom:8}}>🚨 Em Caso de Emergência (sistema fora do ar)</div>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"8px 12px",fontSize:12,color:TX,lineHeight:1.8}}>
+              <strong style={{color:R}}>Passo 1:</strong><span>Acesse <strong style={{color:GOL}}>vercel.com</strong> → faça login → projeto erp-psgestao</span>
+              <strong style={{color:R}}>Passo 2:</strong><span>Clique em <strong style={{color:GOL}}>Deployments</strong> no menu lateral</span>
+              <strong style={{color:R}}>Passo 3:</strong><span>Encontre o <strong style={{color:G}}>último deploy que funcionava</strong> (antes do problema)</span>
+              <strong style={{color:R}}>Passo 4:</strong><span>Clique nos <strong style={{color:GOL}}>3 pontinhos (⋯)</strong> → <strong style={{color:G}}>Promote to Production</strong></span>
+              <strong style={{color:R}}>Passo 5:</strong><span>Em <strong style={{color:G}}>30 segundos</strong> o sistema volta ao normal</span>
+            </div>
+            <div style={{fontSize:10,color:R,marginTop:10,padding:8,background:R+"08",borderRadius:6,border:`1px solid ${R}20`}}>
+              ⚠️ Isso restaura o CÓDIGO, não o banco de dados. Se o problema for no banco, entre em contato com o desenvolvedor.
+            </div>
+          </div>
+
+          {/* Contatos */}
+          <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`}}>
+            <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:10}}>📞 Canais de Suporte ao Desenvolvimento</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              <div style={{background:BG3,borderRadius:10,padding:14,textAlign:"center",border:`1px solid ${BD}`}}>
+                <div style={{fontSize:20,marginBottom:4}}>💬</div>
+                <div style={{fontSize:12,fontWeight:600,color:GOL}}>Chat Dev</div>
+                <div style={{fontSize:10,color:TXM,marginTop:4}}>Dúvidas rápidas, planejamento, histórico salvo</div>
+                <div style={{fontSize:9,color:TXD,marginTop:4}}>Aba "Chat Dev" ao lado</div>
+              </div>
+              <div style={{background:BG3,borderRadius:10,padding:14,textAlign:"center",border:`1px solid ${BD}`}}>
+                <div style={{fontSize:20,marginBottom:4}}>🤖</div>
+                <div style={{fontSize:12,fontWeight:600,color:B}}>Claude.ai</div>
+                <div style={{fontSize:10,color:TXM,marginTop:4}}>Desenvolvimento, código, deploy, mudanças complexas</div>
+                <div style={{fontSize:9,color:TXD,marginTop:4}}>claude.ai (conta PS Gestão)</div>
+              </div>
+              <div style={{background:BG3,borderRadius:10,padding:14,textAlign:"center",border:`1px solid ${BD}`}}>
+                <div style={{fontSize:20,marginBottom:4}}>🚨</div>
+                <div style={{fontSize:12,fontWeight:600,color:R}}>Emergência</div>
+                <div style={{fontSize:10,color:TXM,marginTop:4}}>Sistema fora do ar? Rollback no Vercel (30 segundos)</div>
+                <div style={{fontSize:9,color:TXD,marginTop:4}}>vercel.com → Deployments → Promote</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHAT DEV */}
       {tab==="chat"&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:14}}>
           {/* Chat area */}
