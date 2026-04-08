@@ -253,10 +253,20 @@ Responda em português, seja técnico mas claro. Sugira melhorias proativamente.
               <div>4. Em <strong style={{color:G}}>30 segundos</strong> a produção volta ao normal</div>
             </div>
           </div>
+
+          {/* Documentação */}
+          <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${P}20`,marginTop:14}}>
+            <div style={{fontSize:14,fontWeight:600,color:P,marginBottom:8}}>📄 Documentação Técnica</div>
+            <div style={{fontSize:11,color:TXM,marginBottom:14}}>Documentação completa do sistema — 979 linhas, 16 capítulos. Atualizada a cada sessão de desenvolvimento.</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <a href="/docs/PS_Gestao_Documentacao_Tecnica_v73.docx" download style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 18px",borderRadius:8,background:P+"15",border:`1px solid ${P}40`,color:P,fontSize:12,fontWeight:600,textDecoration:"none",cursor:"pointer"}}>📥 Baixar Word (.docx)</a>
+              <a href="/docs/DOCUMENTACAO_TECNICA.md" download style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 18px",borderRadius:8,background:B+"15",border:`1px solid ${B}40`,color:B,fontSize:12,fontWeight:600,textDecoration:"none",cursor:"pointer"}}>📥 Baixar Markdown (.md)</a>
+              <a href="/docs/CHANGELOG.md" download style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 18px",borderRadius:8,background:G+"15",border:`1px solid ${G}40`,color:G,fontSize:12,fontWeight:600,textDecoration:"none",cursor:"pointer"}}>📥 Baixar Changelog</a>
+            </div>
+            <div style={{fontSize:9,color:TXD,marginTop:10}}>Arquivos salvos no repositório Git (backup automático). Word atualizado a cada versão major.</div>
+          </div>
         </div>
       )}
-
-      {/* CHAT DEV */}
       {tab==="chat"&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:14}}>
           {/* Chat area */}
