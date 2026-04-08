@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
@@ -205,7 +205,7 @@ Base para cálculo de múltiplos setoriais.
     // ══════════════════════════════════════════
 
     const systemPrompt = `PROMPT MESTRE V19 — CEO EDITION — PS GESTÃO E CAPITAL
-PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 18 SLIDES EXECUTIVOS
+PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 10 SLIDES EXECUTIVOS
 
 [PROTOCOLO 0 — ISOLAMENTO E IDENTIDADE]
 Dados válidos: EXCLUSIVAMENTE os BLOCOS fornecidos abaixo.
@@ -235,7 +235,7 @@ Use emojis de status: 🟢 🟡 🔴
 Tabelas em Markdown. Mínimo 4 linhas de análise real por parecer.
 Cada ação deve ter: prazo, responsável e impacto em R$.
 
-GERE TODOS OS 18 SLIDES:
+GERE 10 SLIDES PRIORITÁRIOS (resumido):
 1. Painel Executivo CEO
 2. Desempenho Comercial e BCG
 3. Balanço Patrimonial Gerencial
@@ -267,9 +267,9 @@ Nunca pule um slide. Cada parecer mínimo 4 linhas. Assine como "PS — Conselhe
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 16000,
+        max_tokens: 6000,
         system: systemPrompt,
-        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE OS 18 SLIDES AGORA:\n\n${blocos}` }],
+        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE 10 SLIDES RESUMIDOS AGORA:\n\n${blocos}` }],
       }),
     });
 

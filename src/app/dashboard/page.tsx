@@ -1605,7 +1605,7 @@ export default function DashboardPage(){
         }}>
           <div style={{position:"absolute",top:8,right:8,fontSize:8,padding:"2px 8px",borderRadius:6,background:`${GO}20`,color:GOL,fontWeight:700,border:`1px solid ${GO}40`}}>CEO EDITION</div>
           <div style={{fontSize:18,marginBottom:6}}>👑</div>
-          <div style={{fontSize:14,fontWeight:600,color:reportSource==="v19"?GOL:TX}}>Relatório V19 — 18 Slides</div>
+          <div style={{fontSize:14,fontWeight:600,color:reportSource==="v19"?GOL:TX}}>Relatório V19 — 10 Slides</div>
           <div style={{fontSize:11,color:TXM,marginTop:4}}>Nível Conselho de Administração. DRE, Balanço, Fluxo, ESG, Risco, Valuation, Carta ao Acionista. ~2 minutos.</div>
         </div>
       </div>
@@ -1628,7 +1628,7 @@ export default function DashboardPage(){
 
         {reportSource==="v19"&&(
           <div style={{padding:"10px 14px",borderRadius:8,background:`${GO}08`,border:`1px solid ${GO}20`,marginBottom:12,fontSize:11,color:TXM,lineHeight:1.6}}>
-            <strong style={{color:GOL}}>👑 V19 CEO Edition</strong> cruza automaticamente: DRE + Balanço + Financiamentos + Fluxo de Caixa + Linhas de Negócio + Contexto do Empresário → gera 18 slides com análise de nível Conselho de Administração.
+            <strong style={{color:GOL}}>👑 V19 CEO Edition</strong> cruza automaticamente: DRE + Balanço + Financiamentos + Fluxo de Caixa + Linhas de Negócio + Contexto do Empresário → gera 10 slides com análise de nível Conselho de Administração.
           </div>
         )}
 
@@ -1669,8 +1669,8 @@ export default function DashboardPage(){
           color:reportLoading?TXM:BG,fontSize:14,fontWeight:700,cursor:reportLoading?"wait":"pointer",
           boxShadow:reportLoading?"none":`0 4px 16px rgba(198,151,63,0.3)`,
         }}>
-          {reportLoading?(reportSource==="v19"?"👑 Gerando 18 slides... aguarde ~2 min":"⚡ Gerando relatório..."):
-            (reportSource==="v19"?"👑 Gerar Relatório V19 — 18 Slides CEO Edition":"⚡ Gerar Relatório Rápido")}
+          {reportLoading?(reportSource==="v19"?"👑 Gerando 10 slides... aguarde ~1 min":"⚡ Gerando relatório..."):
+            (reportSource==="v19"?"👑 Gerar Relatório V19 — 10 Slides CEO Edition":"⚡ Gerar Relatório Rápido")}
         </button>
       </Card>
 
