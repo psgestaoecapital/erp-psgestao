@@ -542,10 +542,11 @@ export default function DashboardPage(){
       method: "POST",
       headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
       body: JSON.stringify({ company_ids: compIds, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim })
-    }).then(r=>r.json()).then(d=>{
-      if(d.success) setRealData(d.data);
+    }).then(r=>r.text()).then(text=>{
+      try{const d=JSON.parse(text);if(d.success){setRealData(d.data);console.log("PROCESS OK");}else console.error("PROCESS FAIL:",d.error);}
+      catch{console.error("PROCESS BAD JSON:",text.substring(0,200));}
       setLoadingReal(false);
-    }).catch(()=>setLoadingReal(false));
+    }).catch(e=>{console.error("PROCESS ERROR:",e);setLoadingReal(false);});
   }, [empresaSel, dbCompanies, omieData, efPeriodoInicio, efPeriodoFim]);
 
   const grupoEmpresas = [
