@@ -123,11 +123,6 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
     const diasFuturo=periodo;
     let acumulado=saldoInicial;
 
-    // First pass: calculate initial accumulated from past days before our window
-    // (sum of all lancamentos before the start of our display window)
-    const startDate=new Date(hoje);
-    startDate.setDate(hoje.getDate()-diasPassado);
-
     for(let i=-diasPassado;i<diasFuturo;i++){
       const d=new Date(hoje);
       d.setDate(hoje.getDate()+i);
