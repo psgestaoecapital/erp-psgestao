@@ -5,6 +5,28 @@
 
 ---
 
+## SESSÃO 08/04/2026 (tarde) — v8.0-wealth-mvp
+
+### PS Wealth — Módulo de Gestão Patrimonial e Investimentos (NOVO)
+- **Especificação v2.0** completa com Multi-Family Office (docs/MODULO_WEALTH_MANAGEMENT_SPEC.md)
+- **22 tabelas SQL** projetadas para: famílias, membros, entidades, clientes, IPS, ativos, posições, transações, proventos, snapshots, imóveis, coleções, seguros, previdência, caixa PJ, sucessão, governança, educação, rebalanceamento, compliance, cotações, relatórios
+- **Migration Fase 1** pronta (supabase_wealth_fase1.sql): 9 tabelas core, 9 índices, RLS
+- **Layout Wealth** separado (`/wealth/layout.tsx`) com navegação dedicada
+- **Dashboard Escritório** (`/wealth/page.tsx`) com AUM, KPIs, ranking clientes, distribuição por perfil, alertas
+- **Botão 💰 Wealth** adicionado ao header do ERP
+- **8 inovações patenteáveis** especificadas: IPS Engine, P360 Score, Narrative AI, Predictive Rebalancing, Family Behavioral DNA, Compliance Autopilot, Succession AI, Family Wealth Map
+- **Modelo de licenciamento:** Consultor R$2-5K → MFO R$30-80K → Enterprise R$80-200K/mês
+
+### Arquivos Modificados/Criados
+- `docs/MODULO_WEALTH_MANAGEMENT_SPEC.md` — NOVO (especificação completa)
+- `supabase_wealth_fase1.sql` — NOVO (migration Fase 1)
+- `src/app/wealth/layout.tsx` — NOVO (layout com navegação)
+- `src/app/wealth/page.tsx` — NOVO (dashboard escritório)
+- `src/app/dashboard/layout.tsx` — botão Wealth no header
+- `docs/CHANGELOG.md` — esta entrada
+
+---
+
 ## SESSÃO 08/04/2026 (manhã) — v7.3-fix
 
 ### Problema Crítico Resolvido: Chaves do Supabase
