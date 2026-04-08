@@ -220,19 +220,10 @@ export default function DadosPage() {
     ]);
     setGroups(grps || []);
 
-    let companyData: any[] = [];
+    // Load companies (RLS no banco filtra)
+    const { data: companyData } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
 
-    if (up?.role === "adm") {
-      // Admin sees all
-      const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
-      companyData = data || [];
-    } else {
-      // Other roles: only user_companies
-      const { data: uc } = await supabase.from("user_companies").select("companies(*)").eq("user_id", user.id);
-      if (uc) companyData = uc.map((u: any) => u.companies).filter(Boolean);
-    }
-
-    if (companyData.length > 0) {
+    if (companyData && companyData.length > 0) {
       setCompanies(companyData);
       const saved = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : "";
       let targetComp = companyData[0];

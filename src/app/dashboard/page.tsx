@@ -510,33 +510,10 @@ export default function DashboardPage(){
       const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
       if (grps) setDbGroups(grps);
 
-      // ADMIN: sees all companies
-      if (up?.role === "adm") {
-        const { data } = await supabase.from("companies").select("*").order("created_at");
-        if (data && data.length > 0) setDbCompanies(data);
-        setLoadingDb(false);
-        return;
-      }
-
-      // ALL OTHER ROLES: ONLY see companies from user_companies (SECURITY)
-      const { data: uc } = await supabase.from("user_companies").select("company_id, role, companies(*)").eq("user_id", user.id);
+      // Load companies (RLS no banco filtra automaticamente)
+      const { data } = await supabase.from("companies").select("*").order("created_at");
+      if (data && data.length > 0) setDbCompanies(data);
       
-      if (uc && uc.length > 0) {
-        const comps = uc.map((u: any) => u.companies).filter(Boolean);
-        if (comps.length > 0) { setDbCompanies(comps); setLoadingDb(false); return; }
-      }
-
-      // Operador: fallback via operator_clients
-      if (up?.role === "operacional") {
-        const { data: opCli } = await supabase.from("operator_clients").select("company_id").eq("user_id", user.id);
-        if (opCli && opCli.length > 0) {
-          const compIds = opCli.map((oc: any) => oc.company_id);
-          const { data } = await supabase.from("companies").select("*").in("id", compIds).order("created_at");
-          if (data && data.length > 0) setDbCompanies(data);
-        }
-      }
-
-      // No companies found — user needs to be assigned by admin
       setLoadingDb(false);
     };
     loadCompanies();

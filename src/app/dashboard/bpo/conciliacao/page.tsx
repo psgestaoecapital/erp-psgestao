@@ -23,11 +23,7 @@ export default function ConciliacaoPage(){
   useEffect(()=>{if(selComp)loadHistorico();},[selComp]);
 
   const loadCompanies=async()=>{
-    const{data:{user:authUser}}=await supabase.auth.getUser();
-    const{data:userP}=authUser?await supabase.from("users").select("role").eq("id",authUser.id).single():{data:null};
-    let data:any[]=[];
-    if(userP?.role==="adm"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
-    else if(authUser){const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",authUser.id);data=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
+    const{data}=await supabase.from("companies").select("*").order("nome_fantasia")
     if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?(saved==="consolidado"?data[0]:saved.startsWith("group_")?data.find((c:any)=>c.group_id===saved.replace("group_",""))||data[0]:data.find((c:any)=>c.id===saved)):null;setSelComp(match?match.id:data[0].id);}
     setLoading(false);
   };
