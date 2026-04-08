@@ -19,8 +19,16 @@ export default function AgenteIA(){
 
   useEffect(()=>{
     const loadCompanies=async()=>{
-      const{data}=await supabase.from("companies").select("id");
-      if(data)setCompanyIds(data.map(c=>c.id));
+      const{data:{user}}=await supabase.auth.getUser();
+      if(!user)return;
+      const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
+      if(up?.role==="adm"){
+        const{data}=await supabase.from("companies").select("id");
+        if(data)setCompanyIds(data.map(c=>c.id));
+      } else {
+        const{data:uc}=await supabase.from("user_companies").select("company_id").eq("user_id",user.id);
+        if(uc)setCompanyIds(uc.map(c=>c.company_id));
+      }
     };
     loadCompanies();
   },[]);

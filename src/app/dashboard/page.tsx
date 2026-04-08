@@ -510,19 +510,30 @@ export default function DashboardPage(){
       const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
       if (grps) setDbGroups(grps);
 
-      // Load companies (RLS no banco filtra automaticamente)
-      const { data } = await supabase.from("companies").select("*").order("created_at");
-      if (data && data.length > 0) setDbCompanies(data);
+      // SEGURANÇA: admin vê tudo, outros vêem só user_companies
+      if (up?.role === "adm") {
+        const { data } = await supabase.from("companies").select("*").order("created_at");
+        if (data && data.length > 0) setDbCompanies(data);
+      } else {
+        const { data: uc } = await supabase.from("user_companies").select("company_id, companies(*)").eq("user_id", user.id);
+        const comps = (uc || []).map((u: any) => u.companies).filter(Boolean);
+        if (comps.length > 0) setDbCompanies(comps);
+      }
       
       setLoadingDb(false);
     };
     loadCompanies();
-    supabase.from("omie_imports").select("company_id,import_type,record_count,imported_at").then(({data, error}) => {
-      if(error) console.error("OMIE_IMPORTS ERROR:", error);
-      if(data) { console.log("OMIE_IMPORTS:", data.length, "rows"); setOmieData(data); }
-      else console.log("OMIE_IMPORTS: null data");
-    });
   }, []);
+
+  // Load omie imports only for authorized companies
+  useEffect(() => {
+    if(dbCompanies.length === 0) return;
+    const compIds = dbCompanies.map(c => c.id);
+    supabase.from("omie_imports").select("company_id,import_type,record_count,imported_at").in("company_id", compIds).then(({data, error}) => {
+      if(error) console.error("OMIE_IMPORTS ERROR:", error);
+      if(data) setOmieData(data);
+    });
+  }, [dbCompanies]);
 
   // Load processed data from SERVER API (cache-busted)
   useEffect(() => {

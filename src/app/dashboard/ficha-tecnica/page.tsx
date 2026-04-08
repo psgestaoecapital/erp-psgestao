@@ -171,12 +171,21 @@ export default function FichaTecnicaPage(){
   useEffect(()=>{if(selFicha)loadItens();},[selFicha]);
 
   const loadCompanies=async()=>{
+    const{data:{user}}=await supabase.auth.getUser();
+    const{data:userP}=user?await supabase.from("users").select("role").eq("id",user.id).single():{data:null};
     const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
     setGroups(grps||[]);
 
-    const{data:compData}=await supabase.from("companies").select("*").order("nome_fantasia");
+    let compData:any[]=[];
+    if(userP?.role==="adm"){
+      const{data}=await supabase.from("companies").select("*").order("nome_fantasia");
+      compData=data||[];
+    } else if(user){
+      const{data:uc}=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);
+      compData=(uc||[]).map((u:any)=>u.companies).filter(Boolean);
+    }
 
-    if(compData&&compData.length>0){
+    if(compData.length>0){
       setCompanies(compData);
       const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";
       if(saved&&(saved==="consolidado"||saved.startsWith("group_")||compData.find((c:any)=>c.id===saved))){

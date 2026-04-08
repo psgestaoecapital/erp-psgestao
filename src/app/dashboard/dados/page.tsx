@@ -221,7 +221,14 @@ export default function DadosPage() {
     setGroups(grps || []);
 
     // Load companies (RLS no banco filtra)
-    const { data: companyData } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
+    let companyData: any[] = [];
+    if (up?.role === "adm") {
+      const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
+      companyData = data || [];
+    } else if (user) {
+      const { data: uc } = await supabase.from("user_companies").select("companies(*)").eq("user_id", user.id);
+      companyData = (uc || []).map((u: any) => u.companies).filter(Boolean);
+    }
 
     if (companyData && companyData.length > 0) {
       setCompanies(companyData);
