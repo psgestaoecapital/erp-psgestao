@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const transactions: any[] = [];
     
     for (const imp of imports) {
-      const regs = imp.import_data?.[arrayKey] || [];
+      const regs = imp.import_data?.[arrayKey] || (Array.isArray(imp.import_data) ? imp.import_data : []);
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
         const cat = r.codigo_categoria || "sem_cat";

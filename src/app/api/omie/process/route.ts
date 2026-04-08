@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     // Category name map - handle multiple Omie field name formats
     const catMap: Record<string, string> = {};
     for (const cat of imports.filter((i: any) => i.import_type === "categorias")) {
-      const regs = cat.import_data?.categoria_cadastro || [];
+      const regs = cat.import_data?.categoria_cadastro || (Array.isArray(cat.import_data) ? cat.import_data : []);
       if (Array.isArray(regs)) {
         for (const c of regs) {
           const cod = c.codigo || c.cCodigo || c.cCodCateg || "";
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     let totalDesp = 0;
 
     for (const cp of imports.filter((i: any) => i.import_type === "contas_pagar")) {
-      const regs = cp.import_data?.conta_pagar_cadastro || [];
+      const regs = cp.import_data?.conta_pagar_cadastro || (Array.isArray(cp.import_data) ? cp.import_data : []);
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
         // Omie fields: valor_documento (number), data_emissao (DD/MM/YYYY), codigo_categoria (string)
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
     let totalEmprestimos = 0;
 
     for (const cr of imports.filter((i: any) => i.import_type === "contas_receber")) {
-      const regs = cr.import_data?.conta_receber_cadastro || [];
+      const regs = cr.import_data?.conta_receber_cadastro || (Array.isArray(cr.import_data) ? cr.import_data : []);
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
         const v = Number(r.valor_documento) || 0;
