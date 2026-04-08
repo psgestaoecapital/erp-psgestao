@@ -222,7 +222,10 @@ function generateProdutos(): any[] {
 // API HANDLER
 // ═══════════════════════════════════════════════
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) { return handleSeed(); }
+export async function POST(req: NextRequest) { return handleSeed(); }
+
+async function handleSeed() {
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
     
