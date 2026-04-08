@@ -253,6 +253,8 @@ export default function DadosPage() {
         id_fiscal_exterior: targetComp.id_fiscal_exterior || "",
       });
       loadBusinessLines(targetComp.id);
+      setOmieKey(targetComp.omie_app_key||"");setOmieSecret(targetComp.omie_app_secret||"");
+      if(targetComp.omie_app_key)setOmieErp("omie");
     }
   };
 
@@ -585,6 +587,8 @@ export default function DadosPage() {
                   const c = companies.find(c=>c.id===v);
                   if(c) {
                     setEmpresa({razao_social:c.razao_social||"",nome_fantasia:c.nome_fantasia||"",cnpj:c.cnpj||"",cidade_estado:c.cidade_estado||"",setor:c.setor||"",num_colaboradores:c.num_colaboradores?.toString()||"",faturamento_anual:c.faturamento_anual?.toString()||"",pais:c.pais||"Brasil",moeda:c.moeda||"BRL",regime_tributario:c.regime_tributario||"simples",tipo_empresa:c.tipo_empresa||"matriz",id_fiscal_exterior:c.id_fiscal_exterior||""});
+                    setOmieKey(c.omie_app_key||"");setOmieSecret(c.omie_app_secret||"");
+                    if(c.omie_app_key)setOmieErp("omie");
                     loadBusinessLines(v);
                   }
                 }} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,width:"100%"}}>
