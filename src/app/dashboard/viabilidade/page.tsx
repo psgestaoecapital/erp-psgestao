@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
@@ -32,6 +32,29 @@ export default function ViabilidadePage(){
   const [iaPergunta,setIaPergunta]=useState("");
   const [iaResposta,setIaResposta]=useState("");
   const [iaLoading,setIaLoading]=useState(false);
+  const [companies,setCompanies]=useState<any[]>([]);
+  const [groups,setGroups]=useState<any[]>([]);
+  const [selectedComp,setSelectedComp]=useState("");
+
+  useEffect(()=>{loadCompanies();},[]);
+  useEffect(()=>{if(selectedComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selectedComp);},[selectedComp]);
+
+  const loadCompanies=async()=>{
+    const{data:{user}}=await supabase.auth.getUser();
+    if(!user)return;
+    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
+    const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
+    if(grps)setGroups(grps);
+    let data:any[]=[];
+    if(up?.role==="adm"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
+    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);data=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
+    if(data.length>0){
+      setCompanies(data);
+      const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";
+      const match=saved?data.find((c:any)=>c.id===saved):null;
+      setSelectedComp(match?match.id:data[0].id);
+    }
+  };
 
   const perguntarIA=async()=>{
     if(!iaPergunta.trim()||!resultado)return;
@@ -52,7 +75,7 @@ Riscos: ${resultado.riscos.join("; ")}
 Sugestões: ${resultado.sugestoes.join("; ")}
 Dados do arquivo: ${fileData.substring(0,2000)}`;
 
-      const compId=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel")||"":"";
+      const compId=selectedComp;
       const formData=new FormData();
       formData.append("question",`CONTEXTO DA ANÁLISE DE VIABILIDADE:\n${contextoViabilidade}\n\nPERGUNTA DO EMPRESÁRIO: ${iaPergunta}`);
       formData.append("company_id",compId);
@@ -143,7 +166,17 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
           <div style={{fontSize:20,fontWeight:700,color:GOL}}>📐 Módulo Viabilidade de Projetos</div>
           <div style={{fontSize:11,color:TXD}}>Upload de arquivo → IA analisa → viável ou não, com sugestões</div>
         </div>
-        <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600}}>
+            {groups.length>0&&groups.map(g=>{
+              const groupComps=companies.filter(c=>c.group_id===g.id);
+              if(groupComps.length===0)return null;
+              return <optgroup key={g.id} label={`📁 ${g.nome}`}>{groupComps.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}</optgroup>;
+            })}
+            {companies.filter(c=>!c.group_id||!groups.find((g:any)=>g.id===c.group_id)).map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+          </select>
+          <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
+        </div>
       </div>
 
       {/* STEP 1: Upload */}
