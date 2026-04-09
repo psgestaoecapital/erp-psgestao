@@ -204,7 +204,7 @@ function ConviteForm() {
         </div>
 
         <p style={{ textAlign: "center", fontSize: 10, color: "#918C82", marginTop: 24 }}>
-          PS Gestão e Capital — Assessoria Empresarial e BPO Financeiro
+          PS Gestão e Capital — Assessoria Empresarial · BPO Financeiro · Consultoria de Investimentos
         </p>
       </div>
     </div>
