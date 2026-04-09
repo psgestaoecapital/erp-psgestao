@@ -28,8 +28,8 @@ export default function BPOSupervisorPage(){
     if(comps)setCompanies(comps);
     const{data:usrs}=await supabase.from("users").select("*").order("full_name");
     if(usrs){setUsers(usrs);setOperators(usrs.filter((u:any)=>u.role==="operacional"||u.role==="financeiro"));}
-    const{data:oc}=await supabase.from("operator_clients").select("*");
-    if(oc)setOpClients(oc);
+    const{data:oc,error:ocErr}=await supabase.from("operator_clients").select("*");
+    if(oc&&!ocErr)setOpClients(oc);
     setLoading(false);
   };
 
