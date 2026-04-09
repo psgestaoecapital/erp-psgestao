@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
@@ -205,7 +205,7 @@ Base para cálculo de múltiplos setoriais.
     // ══════════════════════════════════════════
 
     const systemPrompt = `PROMPT MESTRE V19 — CEO EDITION — PS GESTÃO E CAPITAL
-PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 6 SLIDES EXECUTIVOS
+PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 18 SLIDES EXECUTIVOS
 
 [PROTOCOLO 0 — ISOLAMENTO E IDENTIDADE]
 Dados válidos: EXCLUSIVAMENTE os BLOCOS fornecidos abaixo.
@@ -235,15 +235,28 @@ Use emojis de status: 🟢 🟡 🔴
 Tabelas em Markdown. Mínimo 4 linhas de análise real por parecer.
 Cada ação deve ter: prazo, responsável e impacto em R$.
 
-GERE 6 SLIDES EXECUTIVOS (máximo 500 palavras cada):
-1. Painel Executivo CEO (KPIs, resultado, margem)
-2. DRE Analítico (receitas, despesas, EBITDA)
-3. Capital de Giro e Fluxo de Caixa
-4. Pareto de Custos (top 10 maiores despesas)
-5. Plano de Ação (10 ações com prazo e impacto R$)
-6. Carta ao Acionista + Metas 90 Dias
+GERE 18 SLIDES EXECUTIVOS (máximo 600 palavras cada):
 
-REGRA FINAL: Seja conciso. Se dado ausente, sinalize. Assine como "PS — Conselheiro Digital".`;
+1. PAINEL EXECUTIVO CEO — KPIs principais (receita, despesa, resultado, margem, clientes), comparação com mês anterior, semáforo de saúde geral da empresa.
+2. DRE ANALÍTICO — Receita operacional, deduções, custos diretos, margem bruta, despesas operacionais, EBITDA, resultado líquido. Análise de cada linha com variação.
+3. ANÁLISE POR LINHA DE NEGÓCIO — Faturamento, custos diretos, margem de contribuição e lucro real de cada linha de negócio. Ranking das mais rentáveis vs destruidoras de valor.
+4. MAPA DE CUSTOS — Top 15 maiores despesas com percentual sobre receita. Classificação ABC. Identificar custos fora do padrão e oportunidades de redução.
+5. CAPITAL DE GIRO E LIQUIDEZ — Ativo circulante vs passivo circulante, liquidez corrente/seca/geral, necessidade de capital de giro, ciclo financeiro (PMR+PME-PMP).
+6. FLUXO DE CAIXA — Projeção de entradas e saídas dos próximos 30/60/90 dias. Dias críticos de caixa negativo. Saldo acumulado projetado.
+7. INDICADORES FUNDAMENTALISTAS — Ponto de equilíbrio, margem EBITDA, ROE, ROA, ROIC, giro de ativos, dívida líquida/EBITDA, cobertura de juros.
+8. ANÁLISE DE ENDIVIDAMENTO — Perfil da dívida (curto vs longo prazo), custo médio do capital de terceiros, capacidade de pagamento, relação dívida/patrimônio.
+9. ANÁLISE DE CLIENTES — Top 10 clientes por faturamento, concentração (% do maior cliente), inadimplência, ticket médio, risco de dependência.
+10. FORMAÇÃO DE PREÇOS — Markup médio por linha de negócio, margem desejada vs realizada, ponto de equilíbrio por produto/serviço, sugestões de reajuste.
+11. PARETO DE RECEITAS — 20% dos produtos/serviços que geram 80% da receita. Análise de mix ideal. Oportunidades de upsell/cross-sell.
+12. MATRIZ DE RISCOS — Mapeamento de 10 riscos (financeiro, operacional, mercado, regulatório, pessoal-chave) com probabilidade, impacto e ação mitigadora.
+13. ANÁLISE ESG SIMPLIFICADA — Pontos de atenção em governança, práticas ambientais e sociais. Oportunidades de melhoria e riscos reputacionais.
+14. VALUATION SIMPLIFICADO — Estimativa de valor da empresa por 3 métodos: múltiplo de EBITDA (setorial), múltiplo de receita, e fluxo de caixa descontado simplificado. Faixa de valor estimada.
+15. BENCHMARK SETORIAL — Comparação dos indicadores da empresa com médias do setor (quando disponível). Posicionamento competitivo.
+16. PLANO DE AÇÃO PRIORITÁRIO — 15 ações concretas com: descrição, prazo, responsável, investimento necessário, retorno esperado em R$, prioridade (urgente/importante/desejável).
+17. METAS PARA OS PRÓXIMOS 90 DIAS — 10 metas SMART com indicador de acompanhamento, meta numérica e checkpoint mensal.
+18. CARTA AO ACIONISTA — Texto formal de 1 página dirigido ao sócio/acionista. Tom de conselheiro sênior. Diagnóstico honesto, principais preocupações, reconhecimento de avanços, recomendações estratégicas. Assinado como "PS — Conselheiro Digital". Esta carta é o diferencial que gera boca-a-boca.
+
+REGRA FINAL: Cada slide DEVE ter análise real com números dos dados fornecidos. Se dado ausente, sinalize com [DADO NÃO DISPONÍVEL]. Assine como "PS — Conselheiro Digital".`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -254,9 +267,9 @@ REGRA FINAL: Seja conciso. Se dado ausente, sinalize. Assine como "PS — Consel
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 4000,
+        max_tokens: 16000,
         system: systemPrompt,
-        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE 6 SLIDES EXECUTIVOS AGORA:\n\n${blocos}` }],
+        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE 18 SLIDES EXECUTIVOS COMPLETOS AGORA:\n\n${blocos}` }],
       }),
     });
 
