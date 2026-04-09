@@ -160,7 +160,7 @@ export default function LoginPage() {
         </div>
 
         <p style={{ textAlign: "center", fontSize: 10, color: "#4A483F", marginTop: 28, letterSpacing: 0.5 }}>
-          Assessoria Empresarial · BPO Financeiro · ERP com IA
+          Assessoria Empresarial · BPO Financeiro · Consultoria de Investimentos
         </p>
       </div>
     </div>
