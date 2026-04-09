@@ -121,7 +121,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <img src="/images/logo-header.png" alt="PS Gestão" style={{ height: 38, width: "auto", filter: "drop-shadow(0 2px 8px rgba(198,151,63,0.15))" }}/>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#E8C872", letterSpacing: 0.3 }}>PS Gestão e Capital</div>
-            <div style={{ fontSize: 8, color: "#918C82", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v7.2</div>
+            <div style={{ fontSize: 8, color: "#918C82", letterSpacing: 2, textTransform: "uppercase", fontWeight: 500 }}>Consultor Digital · v8.0</div>
           </div>
         </a>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
