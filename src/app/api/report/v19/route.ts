@@ -7,282 +7,315 @@ export const maxDuration = 300;
 const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+const pct = (v: number, t: number) => t > 0 ? (v / t * 100).toFixed(1) + "%" : "0%";
 
 export async function POST(req: NextRequest) {
   try {
     const { company_ids, periodo_inicio, periodo_fim, empresa_nome, contexto_humano } = await req.json();
     const apiKey = process.env.ANTHROPIC_API_KEY;
-
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
-    if (!supabaseKey) return NextResponse.json({ error: "SUPABASE key não configurada. Adicione SUPABASE_SERVICE_ROLE_KEY no Vercel." }, { status: 500 });
-
     const supabase = createClient(supabaseUrl, supabaseKey);
     const compIds = company_ids || [];
     if (compIds.length === 0) return NextResponse.json({ error: "Nenhuma empresa selecionada" }, { status: 400 });
 
     // ══════════════════════════════════════════
-    // COLETA DE DADOS — TODOS OS BLOCOS
+    // COLETA DE TODAS AS 17 FONTES DE DADOS
     // ══════════════════════════════════════════
 
-    // 1. Companies info
+    // 1. EMPRESAS
     const { data: companies } = await supabase.from("companies").select("*").in("id", compIds);
-    const compInfo = (companies || []).map(c => `${c.nome_fantasia || c.razao_social} | CNPJ: ${c.cnpj || "N/I"} | ${c.cidade_estado || ""} | ${c.setor || ""} | ${c.num_colaboradores || "N/I"} colaboradores | Regime: ${c.regime_tributario || "N/I"}`).join("\n");
+    const compInfo = (companies || []).map(c => `${c.nome_fantasia || c.razao_social} | CNPJ: ${c.cnpj || "N/I"} | ${c.cidade_estado || ""} | Setor: ${c.setor || "N/I"} | ${c.num_colaboradores || "N/I"} colaboradores | Regime: ${c.regime_tributario || "N/I"} | Faturamento: ${c.faturamento_anual ? fmtR(Number(c.faturamento_anual)) : "N/I"}`).join("\n");
 
-    // 2. Omie financial data
+    // 2. DADOS IMPORTADOS (Omie, ContaAzul, Bling ou qualquer ERP integrado)
     const { data: imports } = await supabase.from("omie_imports").select("*").in("company_id", compIds);
-    let totalRec = 0, totalDesp = 0, totalEmp = 0;
+    let totalRec = 0, totalDesp = 0, totalEmp = 0, totalClientes = 0, totalProdutos = 0;
     const recCats: Record<string, number> = {};
     const despCats: Record<string, number> = {};
     const clienteNomes: Record<string, string> = {};
-    let totalClientes = 0;
+    const contasReceber: any[] = [];
+    const contasPagar: any[] = [];
+    let estoqueText = "Não importado.", vendasText = "Não importado.";
 
     if (imports) {
       for (const imp of imports) {
         if (imp.import_type === "clientes") {
           const cls = imp.import_data?.clientes_cadastro || [];
-          if (Array.isArray(cls)) {
-            totalClientes += cls.length;
-            for (const c of cls) {
-              const cod = c.codigo_cliente_omie || c.codigo_cliente || c.codigo;
-              clienteNomes[String(cod)] = c.nome_fantasia || c.razao_social || c.nome || "";
-            }
-          }
+          if (Array.isArray(cls)) { totalClientes += cls.length; for (const c of cls) { const cod = c.codigo_cliente_omie || c.codigo_cliente || c.codigo; clienteNomes[String(cod)] = c.nome_fantasia || c.razao_social || c.nome || ""; } }
+        }
+        if (imp.import_type === "produtos") {
+          const prods = imp.import_data?.produto_servico_cadastro || imp.import_data?.produtos || [];
+          if (Array.isArray(prods)) totalProdutos += prods.length;
         }
         if (imp.import_type === "contas_receber") {
           const regs = imp.import_data?.conta_receber_cadastro || [];
-          if (Array.isArray(regs)) {
-            for (const r of regs) {
-              const v = Number(r.valor_documento) || 0;
-              const cat = r.codigo_categoria || "sem_cat";
-              const desc = r.descricao_categoria || cat;
-              if (cat.startsWith("1.")) { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; }
-              else if (cat.startsWith("2.") || cat.startsWith("4.") || cat.startsWith("5.")) { totalEmp += v; }
-              else { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; }
-            }
-          }
+          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; const cat = r.codigo_categoria || "sem_cat"; const desc = r.descricao_categoria || cat; const status = r.status_titulo || ""; if (cat.startsWith("2.") || cat.startsWith("4.") || cat.startsWith("5.")) { totalEmp += v; } else { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; } contasReceber.push({ valor: v, vencimento: r.data_vencimento, status, cliente: clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
         }
         if (imp.import_type === "contas_pagar") {
           const regs = imp.import_data?.conta_pagar_cadastro || [];
-          if (Array.isArray(regs)) {
-            for (const r of regs) {
-              const v = Number(r.valor_documento) || 0;
-              const cat = r.codigo_categoria || "sem_cat";
-              const desc = r.descricao_categoria || cat;
-              totalDesp += v;
-              despCats[desc] = (despCats[desc] || 0) + v;
-            }
-          }
+          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; const desc = r.descricao_categoria || r.codigo_categoria || "sem_cat"; totalDesp += v; despCats[desc] = (despCats[desc] || 0) + v; contasPagar.push({ valor: v, vencimento: r.data_vencimento, status: r.status_titulo || "", fornecedor: r.observacao || clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
+        }
+        if (imp.import_type === "estoque") {
+          const est = imp.import_data?.produtos || imp.import_data || [];
+          if (Array.isArray(est) && est.length > 0) { const tv = est.reduce((s: number, e: any) => s + (Number(e.saldo) || 0) * (Number(e.preco_unitario) || 0), 0); estoqueText = `${est.length} itens | Valor: ${fmtR(tv)}`; }
+        }
+        if (imp.import_type === "vendas") {
+          const vds = imp.import_data?.pedido_venda_produto || imp.import_data?.vendas || [];
+          if (Array.isArray(vds) && vds.length > 0) { const tv = vds.reduce((s: number, v: any) => s + (Number(v.total_pedido) || Number(v.valor_total) || 0), 0); vendasText = `${vds.length} pedidos | Total: ${fmtR(tv)}`; }
         }
       }
     }
 
-    const resultado = totalRec - totalDesp;
-    const margem = totalRec > 0 ? (resultado / totalRec * 100).toFixed(1) : "0";
-    const topRec = Object.entries(recCats).sort((a, b) => b[1] - a[1]).slice(0, 15);
-    const topDesp = Object.entries(despCats).sort((a, b) => b[1] - a[1]).slice(0, 15);
+    // Parciais do ERP integrado — serão consolidados com dados manuais abaixo
 
-    // 3. Balance sheet
-    const { data: bpData } = await supabase.from("balanco_patrimonial").select("*").in("company_id", compIds);
-    let bpText = "Não preenchido — dados insuficientes para Balanço.";
-    if (bpData && bpData.length > 0) {
-      const grupos: Record<string, { nome: string; valor: number }[]> = {};
-      for (const item of bpData) {
-        const g = `${item.lado?.toUpperCase()} — ${item.grupo}`;
-        if (!grupos[g]) grupos[g] = [];
-        grupos[g].push({ nome: item.nome, valor: Number(item.valor) || 0 });
-      }
-      bpText = Object.entries(grupos).map(([g, itens]) => {
-        const total = itens.reduce((s, i) => s + i.valor, 0);
-        return `${g} (Total: ${fmtR(total)}):\n${itens.filter(i => i.valor !== 0).map(i => `  ${i.nome}: ${fmtR(i.valor)}`).join("\n")}`;
-      }).join("\n\n");
-    }
-
-    // 4. Financiamentos
-    const { data: finData } = await supabase.from("financiamentos").select("*").in("company_id", compIds);
-    let finText = "Nenhum financiamento cadastrado.";
-    if (finData && finData.length > 0) {
-      finText = finData.map(f => `${f.banco} | ${f.tipo} | Original: ${fmtR(Number(f.valor_original))} | Saldo: ${fmtR(Number(f.saldo_devedor))} | Taxa: ${f.taxa_mensal}% a.m. | Parcelas: ${f.parcelas_restantes}/${f.parcelas} | Venc: ${f.vencimento} | Garantia: ${f.garantia || "Sem"}`).join("\n");
-    }
-
-    // 5. Business lines (rateio)
-    const { data: blData } = await supabase.from("business_line_config").select("*").in("company_id", compIds).eq("ativo", true);
-    let blText = "Linhas de negócio não configuradas.";
-    if (blData && blData.length > 0) {
-      const blIds = blData.map(b => b.id);
-      const { data: blRec } = await supabase.from("business_line_receitas").select("*").in("business_line_id", blIds);
-      const { data: blCust } = await supabase.from("business_line_custos").select("*").in("business_line_id", blIds);
-      blText = blData.map(bl => {
-        const rec = (blRec || []).filter(r => r.business_line_id === bl.id).reduce((s: number, r: any) => s + Number(r.valor), 0);
-        const cust = (blCust || []).filter(c => c.business_line_id === bl.id).reduce((s: number, c: any) => s + Number(c.valor), 0);
-        return `${bl.nome} | CNPJ: ${bl.cnpj_origem || "N/I"} | HC: ${bl.headcount || 0} | Receita: ${fmtR(rec)} | Custos Diretos: ${fmtR(cust)} | Margem Direta: ${fmtR(rec - cust)} (${rec > 0 ? ((rec - cust) / rec * 100).toFixed(1) : 0}%)`;
+    // ── DADOS MANUAIS (m2_dre_divisional) — complementa ou substitui Omie ──
+    const { data: dreDivData } = await supabase.from("m2_dre_divisional").select("*").in("company_id", compIds);
+    let recManual = 0, despManual = 0;
+    let dreDivText = "Não preenchido.";
+    if (dreDivData && dreDivData.length > 0) {
+      const porL: Record<string, any[]> = {};
+      dreDivData.forEach(d => { const k = d.linha_negocio || d.nome_linha || "geral"; if (!porL[k]) porL[k] = []; porL[k].push(d); });
+      dreDivText = Object.entries(porL).map(([l, ds]) => {
+        const rec = ds.filter(d => d.tipo === "receita").reduce((s, d) => s + Number(d.valor || 0), 0);
+        const cust = ds.filter(d => d.tipo === "custo" || d.tipo === "despesa").reduce((s, d) => s + Number(d.valor || 0), 0);
+        recManual += rec;
+        despManual += cust;
+        return `${l} | Receita: ${fmtR(rec)} | Custos: ${fmtR(cust)} | Margem: ${fmtR(rec - cust)} (${pct(rec - cust, rec)})`;
       }).join("\n");
     }
 
-    // 6. Custos sede
-    const { data: sedeData } = await supabase.from("custos_sede").select("*");
-    let sedeText = "Custos da sede não cadastrados.";
+    // ── CUSTOS SEDE (m3_dre_sede) ──
+    const { data: sedeData } = await supabase.from("m3_dre_sede").select("*").in("company_id", compIds);
+    let sedeText = "Não cadastrados.", totalSede = 0;
     if (sedeData && sedeData.length > 0) {
-      const totalSede = sedeData.reduce((s, c) => s + Number(c.valor), 0);
-      sedeText = sedeData.map(c => `${c.nome}: ${fmtR(Number(c.valor))}/mês`).join("\n") + `\nTOTAL SEDE: ${fmtR(totalSede)}/mês`;
+      totalSede = sedeData.reduce((s, c) => s + Number(c.valor || 0), 0);
+      despManual += totalSede;
+      sedeText = sedeData.sort((a: any, b: any) => Number(b.valor || 0) - Number(a.valor || 0)).map(c => `${c.nome || c.descricao || c.categoria}: ${fmtR(Number(c.valor))}/mês`).join("\n") + `\nTOTAL: ${fmtR(totalSede)}/mês`;
     }
 
-    // 7. Contexto humano
+    // ── CONSOLIDAÇÃO: USAR A MELHOR FONTE DISPONÍVEL ──
+    // Se tem dados importados (Omie/ContaAzul/Bling) → usar importados como base
+    // Se NÃO tem importados MAS tem manuais → usar manuais
+    // Se tem ambos → somar (importados já incluem o período do ERP, manuais complementam)
+    const fonteReceita = totalRec > 0 ? "ERP integrado" : recManual > 0 ? "entrada manual" : "sem dados";
+    const fonteDespesa = totalDesp > 0 ? "ERP integrado" : despManual > 0 ? "entrada manual" : "sem dados";
+
+    if (totalRec === 0 && recManual > 0) totalRec = recManual;
+    if (totalDesp === 0 && despManual > 0) totalDesp = despManual;
+
+    const resultado = totalRec - totalDesp;
+    const margem = totalRec > 0 ? (resultado / totalRec * 100).toFixed(1) : "0";
+    const topRec = Object.entries(recCats).sort((a, b) => b[1] - a[1]).slice(0, 20);
+    const topDesp = Object.entries(despCats).sort((a, b) => b[1] - a[1]).slice(0, 20);
+    const vencidas = contasReceber.filter(c => c.status !== "RECEBIDO" && c.status !== "PAGO" && c.vencimento && new Date(c.vencimento.split("/").reverse().join("-")) < new Date());
+    const totalVencido = vencidas.reduce((s: number, c: any) => s + c.valor, 0);
+    const clienteFat: Record<string, number> = {};
+    contasReceber.forEach(c => { if (c.cliente !== "N/I") clienteFat[c.cliente] = (clienteFat[c.cliente] || 0) + c.valor; });
+    const topClientes = Object.entries(clienteFat).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+    // 3. BALANCO PATRIMONIAL
+    const { data: bpData } = await supabase.from("balanco_patrimonial").select("*").in("company_id", compIds);
+    let bpText = "Não preenchido.";
+    let ativoC = 0, ativoNC = 0, passC = 0, passNC = 0, pl = 0;
+    if (bpData && bpData.length > 0) {
+      const grupos: Record<string, { nome: string; valor: number }[]> = {};
+      for (const item of bpData) {
+        const g = `${item.lado?.toUpperCase()} — ${item.grupo}`; if (!grupos[g]) grupos[g] = []; const val = Number(item.valor) || 0; grupos[g].push({ nome: item.nome, valor: val });
+        const gl = (item.grupo || "").toLowerCase(); const lado = (item.lado || "").toLowerCase();
+        if (lado === "ativo" && gl.includes("circulante") && !gl.includes("não") && !gl.includes("nao")) ativoC += val;
+        if (lado === "ativo" && (gl.includes("não circulante") || gl.includes("nao circulante"))) ativoNC += val;
+        if (lado === "passivo" && gl.includes("circulante") && !gl.includes("não") && !gl.includes("nao") && !gl.includes("patrimônio") && !gl.includes("patrimonio")) passC += val;
+        if (lado === "passivo" && (gl.includes("não circulante") || gl.includes("nao circulante"))) passNC += val;
+        if (lado === "passivo" && (gl.includes("patrimônio") || gl.includes("patrimonio"))) pl += val;
+      }
+      bpText = Object.entries(grupos).map(([g, itens]) => { const total = itens.reduce((s, i) => s + i.valor, 0); return `${g} (${fmtR(total)}):\n${itens.filter(i => i.valor !== 0).map(i => `  ${i.nome}: ${fmtR(i.valor)}`).join("\n")}`; }).join("\n\n");
+    }
+
+    // 4. INDICADORES CALCULADOS
+    const ativoT = ativoC + ativoNC; const passT = passC + passNC;
+    const cg = ativoC - passC; const liqCorr = passC > 0 ? ativoC / passC : 0;
+    const ebitda = resultado + (totalDesp * 0.03);
+    const margEbitda = totalRec > 0 ? (ebitda / totalRec * 100) : 0;
+    const roe = pl > 0 ? (resultado / pl * 100) : 0;
+    const roa = ativoT > 0 ? (resultado / ativoT * 100) : 0;
+    const divLiq = (passC + passNC) - ativoC;
+    const divEbitda = ebitda > 0 ? divLiq / (ebitda * 12) : 0;
+
+    const indicText = `Liquidez Corrente: ${liqCorr.toFixed(2)} ${liqCorr >= 1 ? "🟢" : liqCorr >= 0.8 ? "🟡" : "🔴"}\nCapital de Giro: ${fmtR(cg)} ${cg >= 0 ? "🟢" : "🔴"}\nAtivo Total: ${fmtR(ativoT)} | Passivo Total: ${fmtR(passT)} | PL: ${fmtR(pl)}\nEBITDA (período): ${fmtR(ebitda)} | Margem EBITDA: ${margEbitda.toFixed(1)}% ${margEbitda >= 15 ? "🟢" : margEbitda >= 8 ? "🟡" : "🔴"}\nROE: ${roe.toFixed(1)}% ${roe >= 15 ? "🟢" : roe >= 5 ? "🟡" : "🔴"} | ROA: ${roa.toFixed(1)}%\nDívida Líq/EBITDA: ${divEbitda.toFixed(2)}x ${divEbitda <= 2 ? "🟢" : divEbitda <= 3.5 ? "🟡" : "🔴"}\nInadimplência: ${fmtR(totalVencido)} (${pct(totalVencido, totalRec)})`;
+
+    // 5. FINANCIAMENTOS
+    const { data: finData } = await supabase.from("financiamentos").select("*").in("company_id", compIds);
+    let finText = "Nenhum financiamento.", dividaBruta = 0;
+    if (finData && finData.length > 0) { dividaBruta = finData.reduce((s, f) => s + Number(f.saldo_devedor || 0), 0); finText = finData.map(f => `${f.banco} | ${f.tipo} | Saldo: ${fmtR(Number(f.saldo_devedor))} | Taxa: ${f.taxa_mensal}% a.m. | Parc: ${f.parcelas_restantes}/${f.parcelas}`).join("\n") + `\nDívida Bruta: ${fmtR(dividaBruta)}`; }
+
+    // 6. LINHAS DE NEGOCIO
+    const { data: blData } = await supabase.from("business_lines").select("*").in("company_id", compIds);
+    let blText = "Não configuradas.";
+    if (blData && blData.length > 0) blText = blData.map(bl => `${bl.nome} | Tipo: ${bl.tipo || "N/I"} | Pessoas: ${bl.pessoas || 0}`).join("\n");
+
+    // 7-8. DRE Divisional e Custos Sede já carregados acima na consolidação
+
+    // 9. ORCAMENTO
+    const { data: orcData } = await supabase.from("orcamento").select("*").in("company_id", compIds);
+    let orcText = "Não preenchido.";
+    if (orcData && orcData.length > 0) { orcText = orcData.map(o => { const r = Number(o.valor_real || 0); const orc = Number(o.valor_orcado || 0); const vp = orc > 0 ? ((r / orc - 1) * 100).toFixed(1) : "N/A"; return `${o.categoria || o.nome}: Real ${fmtR(r)} | Orçado ${fmtR(orc)} | Var ${vp}% ${orc > 0 ? (r <= orc ? "🟢" : r <= orc * 1.1 ? "🟡" : "🔴") : ""}`; }).join("\n"); }
+
+    // 10. PLANO DE ACAO
+    const { data: planosData } = await supabase.from("plano_acao").select("*").in("company_id", compIds).order("created_at", { ascending: false });
+    let planosText = "Nenhum.";
+    if (planosData && planosData.length > 0) { const pend = planosData.filter(p => p.status !== "concluido" && p.status !== "cancelado"); const conc = planosData.filter(p => p.status === "concluido"); planosText = `${planosData.length} ações | ${conc.length} concluídas | ${pend.length} pendentes\n` + pend.slice(0, 15).map(p => `${p.status === "atrasado" ? "🔴" : "🟡"} ${p.titulo || p.descricao} | Prazo: ${p.prazo || "N/I"} | Resp: ${p.responsavel || "N/I"}`).join("\n"); }
+
+    // 11. FICHAS TECNICAS
+    const { data: fichasData } = await supabase.from("fichas_tecnicas").select("*").in("company_id", compIds);
+    let fichasText = "Não cadastradas.";
+    if (fichasData && fichasData.length > 0) { const { data: fItens } = await supabase.from("ficha_itens").select("*").in("ficha_id", fichasData.map(f => f.id)); fichasText = fichasData.slice(0, 10).map(f => { const it = (fItens || []).filter(i => i.ficha_id === f.id); const ct = it.reduce((s, i) => s + (Number(i.quantidade || 0) * Number(i.preco_unitario || 0)), 0); return `${f.nome} | ${it.length} materiais | Custo: ${fmtR(ct)}`; }).join("\n") + `\nTotal fichas: ${fichasData.length}`; }
+
+    // 12. BPO
+    const { data: bpoData } = await supabase.from("bpo_classificacoes").select("*").in("company_id", compIds).limit(50);
+    let bpoText = "Sem dados.";
+    if (bpoData && bpoData.length > 0) { const auto = bpoData.filter(b => b.fonte === "ia" || b.automatico); bpoText = `${bpoData.length} lançamentos | ${auto.length} auto (IA) | ${bpoData.length - auto.length} manuais`; }
+
+    // 13. CONCILIACAO
+    const { data: concData } = await supabase.from("conciliacao_cartao").select("*").in("company_id", compIds);
+    let concText = "Sem dados.";
+    if (concData && concData.length > 0) concText = concData.map(c => `${c.operadora || "Cartão"} | ${c.periodo} | ${c.status}`).join("\n");
+
+    // 14. CONTEXTO HUMANO
     const { data: ctxData } = await supabase.from("ai_reports").select("report_content").eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
     let ctxText = contexto_humano || "";
-    if (ctxData && ctxData.length > 0 && ctxData[0].report_content) {
-      ctxText = typeof ctxData[0].report_content === "string" ? ctxData[0].report_content : JSON.stringify(ctxData[0].report_content);
-    }
+    if (ctxData && ctxData.length > 0 && ctxData[0].report_content) { const ct = ctxData[0].report_content; ctxText = typeof ct === "string" ? ct : JSON.stringify(ct); }
 
-    // ══════════════════════════════════════════
-    // MONTAGEM DOS BLOCOS V19
-    // ══════════════════════════════════════════
+    // 15. FLUXO DE CAIXA
+    const recFut = contasReceber.filter(c => c.status !== "RECEBIDO" && c.status !== "PAGO" && c.status !== "CANCELADO");
+    const pagFut = contasPagar.filter(c => c.status !== "PAGO" && c.status !== "LIQUIDADO" && c.status !== "CANCELADO");
+    const fluxoText = `A Receber pendente: ${recFut.length} títulos | ${fmtR(recFut.reduce((s: number, c: any) => s + c.valor, 0))}\nA Pagar pendente: ${pagFut.length} títulos | ${fmtR(pagFut.reduce((s: number, c: any) => s + c.valor, 0))}\nBurn rate: ${fmtR(totalDesp / 30)}/dia\nInadimplência: ${vencidas.length} títulos | ${fmtR(totalVencido)}`;
+
+    // 16. TOP CLIENTES
+    let topCliText = "Sem dados.";
+    if (topClientes.length > 0) { const conc = totalRec > 0 ? (topClientes[0][1] as number / totalRec * 100).toFixed(1) : "0"; topCliText = topClientes.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v as number)} (${pct(v as number, totalRec)})`).join("\n") + `\nConcentração maior cliente: ${conc}% ${Number(conc) > 30 ? "🔴" : Number(conc) > 20 ? "🟡" : "🟢"}\nTotal clientes: ${totalClientes}`; }
+
+    // ══════════════════════════════════
+    // MONTAGEM DOS BLOCOS
+    // ══════════════════════════════════
 
     const blocos = `
-[BLOCO 0] IDENTIFICAÇÃO E CONTEXTO
-${compInfo}
-Período: ${periodo_inicio} a ${periodo_fim}
-Clientes cadastrados: ${totalClientes}
-Empresas no grupo: ${compIds.length}
+═══ DADOS COMPLETOS DO ERP PS GESTÃO ═══
+Período: ${periodo_inicio || "N/I"} a ${periodo_fim || "N/I"} | Gerado: ${new Date().toLocaleDateString("pt-BR")}
 
-CONTEXTO DO EMPRESÁRIO:
+[BLOCO 0] EMPRESA
+${compInfo} | Grupo: ${compIds.length} empresa(s) | ${totalClientes} clientes | ${totalProdutos} produtos
+
+[BLOCO 1] CONTEXTO DO EMPRESÁRIO
 ${ctxText || "Não preenchido."}
 
-[BLOCO 1] BALANÇO PATRIMONIAL GERENCIAL
-${bpText}
+[BLOCO 2] DRE CONSOLIDADO (fonte: ${fonteReceita} para receitas, ${fonteDespesa} para despesas)
+Receita Operacional: ${fmtR(totalRec)} | Empréstimos: ${fmtR(totalEmp)} | Despesas: ${fmtR(totalDesp)}
+${recManual > 0 && totalRec !== recManual ? `Receitas manuais (linhas de negócio): ${fmtR(recManual)}` : ""}
+${despManual > 0 && totalDesp !== despManual ? `Despesas manuais (linhas + sede): ${fmtR(despManual)}` : ""}
+RESULTADO: ${fmtR(resultado)} ${resultado >= 0 ? "🟢" : "🔴"} | Margem: ${margem}%
 
-[BLOCO 2] DRE DIVISIONAL (LINHAS DE NEGÓCIO)
+TOP 20 RECEITAS:
+${topRec.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v)} (${pct(v, totalRec)})`).join("\n") || "Sem dados"}
+
+TOP 20 DESPESAS:
+${topDesp.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v)} (${pct(v, totalDesp)})`).join("\n") || "Sem dados"}
+
+[BLOCO 3] LINHAS DE NEGÓCIO
 ${blText}
+DRE Divisional:
+${dreDivText}
 
-[BLOCO 3] DRE CONSOLIDADO — SEDE E RETAGUARDA
-Receita Operacional Total: ${fmtR(totalRec)}
-Empréstimos/Financiamentos: ${fmtR(totalEmp)}
-Despesas Totais: ${fmtR(totalDesp)}
-Resultado Operacional: ${fmtR(resultado)}
-Margem: ${margem}%
-
-TOP 15 RECEITAS POR CATEGORIA:
-${topRec.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v)}`).join("\n")}
-
-TOP 15 DESPESAS POR CATEGORIA:
-${topDesp.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v)}`).join("\n")}
-
-CUSTOS DA SEDE (RATEIO):
+[BLOCO 4] CUSTOS ESTRUTURA/SEDE
 ${sedeText}
 
-[BLOCO 4] FLUXO DE CAIXA
-Dados de contas a pagar e receber disponíveis no sistema.
-Burn Rate estimado: ${fmtR(totalDesp / 30)}/dia
+[BLOCO 5] BALANÇO PATRIMONIAL
+${bpText}
+Resumo: AC ${fmtR(ativoC)} | ANC ${fmtR(ativoNC)} | PC ${fmtR(passC)} | PNC ${fmtR(passNC)} | PL ${fmtR(pl)}
 
-[BLOCO 5] CAPITAL DE GIRO E CICLO FINANCEIRO
-Cálculos derivados do DRE + Balanço. Dados disponíveis para cálculo automático.
+[BLOCO 6] INDICADORES FUNDAMENTALISTAS
+${indicText}
 
-[BLOCO 6] INTELIGÊNCIA COMERCIAL
-Clientes cadastrados: ${totalClientes}
-Receita por categoria disponível acima.
-
-[BLOCO 7] GESTÃO DE PESSOAS
-${(companies || []).map(c => `${c.nome_fantasia}: ${c.num_colaboradores || "N/I"} colaboradores`).join("\n")}
-${blData && blData.length > 0 ? blData.map(bl => `${bl.nome}: ${bl.headcount || 0} pessoas | Responsável: ${bl.responsavel || "N/I"}`).join("\n") : ""}
-
-[BLOCO 8] METAS E ORÇAMENTO
-Dados de orçamento não preenchidos — utilizar o DRE real como base e projetar +10% para meta.
-
-[BLOCO 9] ESTRUTURA DE CAPITAL E DÍVIDA
+[BLOCO 7] DÍVIDA E FINANCIAMENTOS
 ${finText}
-Dívida Bruta: ${fmtR(finData ? finData.reduce((s, f) => s + Number(f.saldo_devedor), 0) : 0)}
 
-[BLOCO 10-14] GOVERNANÇA, ESG, DIGITAL, RISCO
-Utilizar contexto do empresário acima para análise qualitativa.
-Dados específicos devem ser complementados pelo assessor.
+[BLOCO 8] FLUXO DE CAIXA
+${fluxoText}
 
-[BLOCO 15] VALUATION E GERAÇÃO DE VALOR
-EBITDA estimado (mensal): ${fmtR(resultado + (totalDesp * 0.03))}
-Base para cálculo de múltiplos setoriais.
+[BLOCO 9] TOP CLIENTES
+${topCliText}
+
+[BLOCO 10] ORÇAMENTO REAL vs PLANEJADO
+${orcText}
+
+[BLOCO 11] PLANO DE AÇÃO VIGENTE
+${planosText}
+
+[BLOCO 12] FICHAS TÉCNICAS
+${fichasText}
+
+[BLOCO 13] ESTOQUE: ${estoqueText} | VENDAS: ${vendasText}
+
+[BLOCO 14] BPO: ${bpoText} | CONCILIAÇÃO: ${concText}
+
+[BLOCO 15] VALUATION
+EBITDA período: ${fmtR(ebitda)} | Anualizado: ${fmtR(ebitda * 12)} | PL: ${fmtR(pl)} | Receita anual: ${fmtR(totalRec * 12)} | Dívida: ${fmtR(dividaBruta)} | Setor: ${(companies || [])[0]?.setor || "N/I"}
+Múltiplos: Serviços 5-8x, Comércio 4-6x, Indústria 6-10x, Tech 10-15x EBITDA
 `;
 
-    // ══════════════════════════════════════════
-    // PROMPT V19 COMPLETO + DADOS → CLAUDE
-    // ══════════════════════════════════════════
+    // ══════════════════════════════════
+    // PROMPT V19 → CLAUDE API
+    // ══════════════════════════════════
 
     const systemPrompt = `PROMPT MESTRE V19 — CEO EDITION — PS GESTÃO E CAPITAL
-PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 18 SLIDES EXECUTIVOS
+RELATÓRIO DE INTELIGÊNCIA EMPRESARIAL — 18 SLIDES EXECUTIVOS
 
-[PROTOCOLO 0 — ISOLAMENTO E IDENTIDADE]
-Dados válidos: EXCLUSIVAMENTE os BLOCOS fornecidos abaixo.
-Você é o Conselheiro de Administração e CFO Sênior da empresa analisada.
-25 anos de experiência em reestruturação e governança de PMEs no Brasil.
-Cada parecer deve soar como a voz de quem tem assento no Conselho.
+Você é o Conselheiro de Administração e CFO Sênior. 25 anos de experiência em PMEs brasileiras.
+Tom: formal, técnico, direto, corajoso. Se é ruim, diga que é ruim. Se é crítico, chame de crítico.
+PROIBIDO: termos em inglês sem tradução, dados inventados, frases vagas, eufemismos.
+USE EXCLUSIVAMENTE os dados dos BLOCOS fornecidos. Se ausente: [DADO NÃO DISPONÍVEL].
 
-[PROTOCOLO 1 — TOM EXECUTIVO]
-Tom: formal, técnico, direto, corajoso. Sem eufemismos.
-PROIBIDO: termos em inglês sem tradução, gírias, frases vagas.
-Se o dado é ruim, diga que é ruim. Se é crítico, chame de crítico.
-Use o glossário: Break-even=Ponto de Equilíbrio, Valuation=Avaliação de Mercado, Markup=Fator de Formação de Preço, Compliance=Conformidade, Churn=Evasão de Clientes, Turnover=Rotatividade.
-
-[PROTOCOLO 2 — PRECISÃO MATEMÁTICA]
-Receita Bruta = APENAS faturamento operacional.
-EBITDA = Lucro + Juros + Depreciação + Amortização.
-Capital de Giro = Ativo Circulante - Passivo Circulante.
-ROIC = EBIT(1-t) / (PL + Dívida Líquida). Se ROIC > WACC: cria valor.
-Nunca interpolar dados ausentes sem sinalizar.
-
-[PROTOCOLO 3 — CRUZAMENTOS OBRIGATÓRIOS]
-DRE vs. Balanço, DRE vs. Fluxo de Caixa, Qualitativo vs. Quantitativo.
-
-[PROTOCOLO 4 — FORMATAÇÃO]
 Cada slide: --- [SLIDE X — TÍTULO] ---
-Use emojis de status: 🟢 🟡 🔴
-Tabelas em Markdown. Mínimo 4 linhas de análise real por parecer.
-Cada ação deve ter: prazo, responsável e impacto em R$.
+Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao final de cada slide.
 
-GERE 18 SLIDES EXECUTIVOS (máximo 600 palavras cada):
-
-1. PAINEL EXECUTIVO CEO — KPIs principais (receita, despesa, resultado, margem, clientes), comparação com mês anterior, semáforo de saúde geral da empresa.
-2. DRE ANALÍTICO — Receita operacional, deduções, custos diretos, margem bruta, despesas operacionais, EBITDA, resultado líquido. Análise de cada linha com variação.
-3. ANÁLISE POR LINHA DE NEGÓCIO — Faturamento, custos diretos, margem de contribuição e lucro real de cada linha de negócio. Ranking das mais rentáveis vs destruidoras de valor.
-4. MAPA DE CUSTOS — Top 15 maiores despesas com percentual sobre receita. Classificação ABC. Identificar custos fora do padrão e oportunidades de redução.
-5. CAPITAL DE GIRO E LIQUIDEZ — Ativo circulante vs passivo circulante, liquidez corrente/seca/geral, necessidade de capital de giro, ciclo financeiro (PMR+PME-PMP).
-6. FLUXO DE CAIXA — Projeção de entradas e saídas dos próximos 30/60/90 dias. Dias críticos de caixa negativo. Saldo acumulado projetado.
-7. INDICADORES FUNDAMENTALISTAS — Ponto de equilíbrio, margem EBITDA, ROE, ROA, ROIC, giro de ativos, dívida líquida/EBITDA, cobertura de juros.
-8. ANÁLISE DE ENDIVIDAMENTO — Perfil da dívida (curto vs longo prazo), custo médio do capital de terceiros, capacidade de pagamento, relação dívida/patrimônio.
-9. ANÁLISE DE CLIENTES — Top 10 clientes por faturamento, concentração (% do maior cliente), inadimplência, ticket médio, risco de dependência.
-10. FORMAÇÃO DE PREÇOS — Markup médio por linha de negócio, margem desejada vs realizada, ponto de equilíbrio por produto/serviço, sugestões de reajuste.
-11. PARETO DE RECEITAS — 20% dos produtos/serviços que geram 80% da receita. Análise de mix ideal. Oportunidades de upsell/cross-sell.
-12. MATRIZ DE RISCOS — Mapeamento de 10 riscos (financeiro, operacional, mercado, regulatório, pessoal-chave) com probabilidade, impacto e ação mitigadora.
-13. ANÁLISE ESG SIMPLIFICADA — Pontos de atenção em governança, práticas ambientais e sociais. Oportunidades de melhoria e riscos reputacionais.
-14. VALUATION SIMPLIFICADO — Estimativa de valor da empresa por 3 métodos: múltiplo de EBITDA (setorial), múltiplo de receita, e fluxo de caixa descontado simplificado. Faixa de valor estimada.
-15. BENCHMARK SETORIAL — Comparação dos indicadores da empresa com médias do setor (quando disponível). Posicionamento competitivo.
-16. PLANO DE AÇÃO PRIORITÁRIO — 15 ações concretas com: descrição, prazo, responsável, investimento necessário, retorno esperado em R$, prioridade (urgente/importante/desejável).
-17. METAS PARA OS PRÓXIMOS 90 DIAS — 10 metas SMART com indicador de acompanhamento, meta numérica e checkpoint mensal.
-18. CARTA AO ACIONISTA — Texto formal de 1 página dirigido ao sócio/acionista. Tom de conselheiro sênior. Diagnóstico honesto, principais preocupações, reconhecimento de avanços, recomendações estratégicas. Assinado como "PS — Conselheiro Digital". Esta carta é o diferencial que gera boca-a-boca.
-
-REGRA FINAL: Cada slide DEVE ter análise real com números dos dados fornecidos. Se dado ausente, sinalize com [DADO NÃO DISPONÍVEL]. Assine como "PS — Conselheiro Digital".`;
+18 SLIDES (máx 600 palavras cada):
+1. PAINEL CEO — KPIs (receita, despesa, resultado, margem, EBITDA, clientes). Semáforo geral.
+2. DRE ANALÍTICO — Receita, custos, margem bruta, despesas, EBITDA, resultado. Tabela + análise.
+3. LINHAS DE NEGÓCIO — Faturamento, custo, margem por linha. Ranking rentabilidade. Usar BLOCOS 3.
+4. MAPA DE CUSTOS — Top 20 despesas, % sobre receita, ABC. Oportunidades de redução com R$.
+5. CAPITAL DE GIRO — AC vs PC, liquidez corrente/seca, NCG, ciclo financeiro. Usar BLOCO 5 e 6.
+6. FLUXO DE CAIXA — Receber vs pagar, projeção 30/60/90d, inadimplência, burn rate. BLOCO 8.
+7. INDICADORES — PE, EBITDA, ROE, ROA, Dív/EBITDA, Liquidez. Semáforo cada. BLOCO 6.
+8. ENDIVIDAMENTO — Perfil dívida, custo, capacidade pagamento, dívida/PL. BLOCO 7.
+9. CLIENTES — Top 10, concentração, inadimplência, ticket médio, risco dependência. BLOCO 9.
+10. PREÇOS — Markup, margem por produto (fichas técnicas), PE por linha. BLOCOS 3 e 12.
+11. PARETO RECEITAS — 20% que gera 80%. Mix ideal. Oportunidades upsell.
+12. MATRIZ DE RISCOS — 10 riscos dos dados. Probabilidade, impacto, mitigação.
+13. ESG — Governança, social, ambiental inferidos. Oportunidades e riscos.
+14. VALUATION — 3 métodos: múltiplo EBITDA, receita, FCD simples. Faixa de valor. BLOCO 15.
+15. ORÇAMENTO vs REAL — Variações, desvios, ações corretivas. BLOCO 10.
+16. PLANO DE AÇÃO — Revisar existente (BLOCO 11) + 10 novas ações com prazo, responsável, R$.
+17. METAS 90 DIAS — 10 metas SMART com indicador e checkpoint mensal.
+18. CARTA AO ACIONISTA — 1 página formal. Diagnóstico honesto. Integrar contexto do empresário (BLOCO 1). Preocupações + avanços + recomendações. Assinar "PS — Conselheiro Digital".`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 16000,
         system: systemPrompt,
-        messages: [{ role: "user", content: `DADOS DA EMPRESA — GERE 18 SLIDES EXECUTIVOS COMPLETOS AGORA:\n\n${blocos}` }],
+        messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 18 SLIDES EXECUTIVOS:\n\n${blocos}` }],
       }),
     });
 
     const data = await response.json();
-    
-    if (data.error) {
-      return NextResponse.json({ error: `Erro API Claude: ${data.error?.message || JSON.stringify(data.error)}` }, { status: 500 });
-    }
+    if (data.error) return NextResponse.json({ error: `Claude API: ${data.error?.message || JSON.stringify(data.error)}` }, { status: 500 });
+    const reportText = data.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar.";
 
-    const reportText = data.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar relatório.";
-
-    return NextResponse.json({ success: true, report: reportText, blocos_usados: blocos.length });
+    return NextResponse.json({
+      success: true, report: reportText, blocos_usados: blocos.length,
+      fontes: { empresas: (companies || []).length, erp_imports: (imports || []).length, dados_manuais_dre: (dreDivData || []).length, custos_sede: (sedeData || []).length, balanco: (bpData || []).length, financ: (finData || []).length, linhas: (blData || []).length, orcamento: (orcData || []).length, planos: (planosData || []).length, fichas: (fichasData || []).length, bpo: (bpoData || []).length, conc: (concData || []).length, clientes: totalClientes, produtos: totalProdutos, contexto: ctxText ? "sim" : "nao", fonte_receita: fonteReceita, fonte_despesa: fonteDespesa },
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: `Erro no relatório: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ error: `Erro: ${error.message}` }, { status: 500 });
   }
 }
