@@ -7,6 +7,12 @@ const OWNER = "psgestaoecapital";
 const REPO = "erp-psgestao";
 const BRANCH = "main";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 async function githubAPI(path: string, method: string = "GET", body?: any) {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error("GITHUB_TOKEN não configurado no Vercel");
@@ -27,7 +33,10 @@ async function githubAPI(path: string, method: string = "GET", body?: any) {
   return { data, status: res.status };
 }
 
-// GET: test connection
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
+}
+
 export async function GET() {
   try {
     const { data } = await githubAPI("");
@@ -37,19 +46,18 @@ export async function GET() {
       default_branch: data.default_branch,
       private: data.private,
       message: "GitHub connection OK" 
-    });
+    }, { headers: corsHeaders });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders });
   }
 }
 
-// POST: create or update file(s)
 export async function POST(req: NextRequest) {
   try {
     const { files, commit_message } = await req.json();
     
     if (!files || !Array.isArray(files) || files.length === 0) {
-      return NextResponse.json({ error: "Envie { files: [{ path, content }], commit_message }" }, { status: 400 });
+      return NextResponse.json({ error: "Envie { files: [{ path, content }], commit_message }" }, { status: 400, headers: corsHeaders });
     }
 
     const results: { path: string; status: string; error?: string }[] = [];
@@ -62,14 +70,12 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        // Get current file SHA (needed for updates)
         let sha: string | undefined;
         const { data: existing, status } = await githubAPI(`contents/${path}?ref=${BRANCH}`);
         if (status === 200 && existing.sha) {
           sha = existing.sha;
         }
 
-        // Create or update file
         const { data: result } = await githubAPI(`contents/${path}`, "PUT", {
           message: commit_message || `deploy: ${path}`,
           content: Buffer.from(content).toString("base64"),
@@ -91,8 +97,8 @@ export async function POST(req: NextRequest) {
       message: `${ok} arquivo(s) deployado(s), ${errors} erro(s)`,
       results,
       deploy: "Vercel irá rebuildar automaticamente em ~1-2 minutos",
-    });
+    }, { headers: corsHeaders });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders });
   }
 }
