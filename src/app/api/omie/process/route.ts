@@ -39,7 +39,9 @@ function classifyCat(cod: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { company_ids, periodo_inicio, periodo_fim } = await req.json();
+    const { company_ids, periodo_inicio, periodo_fim, regime } = await req.json();
+    // regime: "competencia" (default) | "caixa"
+    const regimeCaixa = regime === "caixa";
     const supabase = createClient(supabaseUrl, supabaseKey);
     let query = supabase.from("omie_imports").select("*");
     if (company_ids?.length > 0) query = query.in("company_id", company_ids);
@@ -76,8 +78,14 @@ export async function POST(req: NextRequest) {
         // Omie fields: valor_documento (number), data_emissao (DD/MM/YYYY), codigo_categoria (string)
         const v = Number(r.valor_documento) || 0;
         if (v <= 0) continue;
+        const status = (r.status_titulo || "").toUpperCase();
+        // Regime de Caixa: só inclui itens efetivamente pagos
+        if (regimeCaixa && status !== "PAGO" && status !== "LIQUIDADO" && status !== "BAIXADO") continue;
         const cat = r.codigo_categoria || "sem_cat";
-        const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
+        // Regime de Caixa: usa data de pagamento; Competência: usa data de emissão
+        const dt = regimeCaixa
+          ? (r.data_pagamento || r.data_baixa || r.data_emissao || r.data_vencimento || "")
+          : (r.data_emissao || r.data_vencimento || r.data_previsao || "");
         const ma = parseMesAno(dt);
         if (ma && (ma < pInicio || ma > pFim)) continue; // Period filter
         const tipo = classifyCat(cat);
@@ -107,8 +115,14 @@ export async function POST(req: NextRequest) {
       for (const r of regs) {
         const v = Number(r.valor_documento) || 0;
         if (v <= 0) continue;
+        const statusRec = (r.status_titulo || "").toUpperCase();
+        // Regime de Caixa: só inclui itens efetivamente recebidos
+        if (regimeCaixa && statusRec !== "RECEBIDO" && statusRec !== "LIQUIDADO" && statusRec !== "BAIXADO") continue;
         const cat = r.codigo_categoria || "sem_cat";
-        const dt = r.data_emissao || r.data_vencimento || r.data_previsao || "";
+        // Regime de Caixa: usa data de recebimento; Competência: usa data de emissão
+        const dt = regimeCaixa
+          ? (r.data_pagamento || r.data_baixa || r.data_recebimento || r.data_emissao || r.data_vencimento || "")
+          : (r.data_emissao || r.data_vencimento || r.data_previsao || "");
         const ma = parseMesAno(dt);
         if (ma && (ma < pInicio || ma > pFim)) continue; // Period filter
         const nome = catMap[cat] || cat;
@@ -184,6 +198,44 @@ export async function POST(req: NextRequest) {
     }
     for (const g of Object.values(gruposCusto)) g.contas.sort((a: any, b: any) => b.valor - a.valor);
 
+    // === ORÇAMENTO (budget data) ===
+    let orcMap: Record<string, number> = {};
+    try {
+      const { data: orcData } = await supabase.from("orcamento").select("categoria,valor_orcado,tipo").in("company_id", company_ids);
+      if (orcData && orcData.length > 0) {
+        for (const o of orcData) {
+          const key = (o.categoria || "").toLowerCase().trim();
+          orcMap[key] = (orcMap[key] || 0) + Number(o.valor_orcado || 0);
+        }
+      }
+    } catch {}
+
+    // Enrich topCustos with orçado
+    for (const c of topCustos as any[]) {
+      const key = (c.nome || "").toLowerCase().trim();
+      const cod = (c.cod || "").toLowerCase().trim();
+      c.orcado = orcMap[key] || orcMap[cod] || 0;
+      c.variacao = c.orcado > 0 ? ((c.valor / c.orcado - 1) * 100) : null;
+    }
+    // Enrich topReceitas with orçado
+    for (const r of topReceitas as any[]) {
+      const key = (r.nome || "").toLowerCase().trim();
+      const cod = (r.cod || "").toLowerCase().trim();
+      r.orcado = orcMap[key] || orcMap[cod] || 0;
+      r.variacao = r.orcado > 0 ? ((r.valor / r.orcado - 1) * 100) : null;
+    }
+    // Enrich gruposCusto with orçado
+    for (const g of Object.values(gruposCusto) as any[]) {
+      g.orcado = g.contas.reduce((s: number, c: any) => s + (c.orcado || 0), 0);
+      g.variacao = g.orcado > 0 ? ((g.total / g.orcado - 1) * 100) : null;
+      for (const c of g.contas as any[]) {
+        const key = (c.nome || "").toLowerCase().trim();
+        c.orcado = orcMap[key] || 0;
+        c.variacao = c.orcado > 0 ? ((c.valor / c.orcado - 1) * 100) : null;
+      }
+    }
+    const totalOrcadoDesp = Object.values(orcMap).reduce((s, v) => s + v, 0);
+
     // Client count
     let totalCli = 0;
     for (const cl of imports.filter((i: any) => i.import_type === "clientes")) totalCli += cl.record_count || 0;
@@ -205,6 +257,7 @@ export async function POST(req: NextRequest) {
     };
 
     const response = NextResponse.json({ success: true, data: {
+      regime: regimeCaixa ? "caixa" : "competencia",
       total_receitas: totalRec, total_despesas: totalDesp,
       total_rec_operacional: totalRecOperacional,
       total_emprestimos: totalEmprestimos,
@@ -218,6 +271,8 @@ export async function POST(req: NextRequest) {
       top_receitas_operacionais: Object.entries(recPorCat).filter(([,r]:any)=>r.operacional).map(([cod,v])=>({...v,cod})).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
       top_emprestimos: Object.entries(recPorCat).filter(([,r]:any)=>!r.operacional).map(([cod,v])=>({...v,cod})).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
       grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
+      total_orcado_despesas: totalOrcadoDesp,
+      variacao_global: totalOrcadoDesp > 0 ? ((totalDesp / totalOrcadoDesp - 1) * 100).toFixed(1) : null,
       debug,
     }});
     response.headers.set("Cache-Control","no-store, no-cache, must-revalidate");
