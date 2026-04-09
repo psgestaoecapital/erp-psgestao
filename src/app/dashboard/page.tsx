@@ -93,44 +93,12 @@ const DrillPanel=({data,loading}:{data:any,loading:boolean})=>{
   );
 };
 
-const empresa={nome:"SOLAR OESTE ENERGIA",cidade:"Chapecó/SC",periodo:"Jan-Mar 2025",lns:6,colab:54};
+const empresa={nome:"",cidade:"",periodo:"",lns:0,colab:0};
 
-const negocios:any[]=[
-  {id:1,nome:"Venda de Equipamentos",tipo:"Comércio",cor:GO,fat:[580,512,672],mc:[107,42,176],mc_p:[19.5,8.7,27.7],lucro_r:[50,-40,148],lucro_p:[9.5,-8.2,23.3],
-    hc:6,clientes:361,ticket:"R$ 4.900",inadim:"3,2%",pmr:28,saude:"Forte",bcg:"Estrela",
-    produtos:[{n:"Kit Solar 5kWp",v:280,m:28.5,preco:"R$ 18.500"},{n:"Kit Solar 10kWp",v:145,m:26.2,preco:"R$ 32.000"},{n:"Kit Solar 3kWp",v:120,m:32.1,preco:"R$ 12.800"},{n:"Inversor Growatt 5kW",v:95,m:21.4,preco:"R$ 4.200"},{n:"Painel 550W Risen",v:850,m:18.5,preco:"R$ 890"}],
-    custos:[{n:"Custo dos Produtos",v:60.2},{n:"Frete/Logística",v:4.8},{n:"Comissões",v:5.5},{n:"Marketing",v:3.2},{n:"Embalagem",v:1.3}],
-    obs:"Maior faturamento mas margem comprimida pelo custo dos painéis importados. Março recuperou com projetos maiores."},
-  {id:2,nome:"Projetos Residenciais",tipo:"Serviço",cor:B,fat:[242,198,308],mc:[41,34,48],mc_p:[17.9,18.2,16.4],lucro_r:[18,12,23],lucro_p:[7.8,6.4,7.9],
-    hc:8,clientes:68,ticket:"R$ 11.000",inadim:"2,1%",pmr:35,saude:"Crescendo",bcg:"Interrogação",
-    produtos:[{n:"Proj. Resid. 5kWp",v:32,m:38.2,preco:"R$ 22.500"},{n:"Proj. Resid. 8kWp",v:18,m:35.8,preco:"R$ 33.000"},{n:"Proj. Resid. 3kWp",v:15,m:42.1,preco:"R$ 15.800"},{n:"Ampliação Resid.",v:8,m:45.0,preco:"R$ 8.500"}],
-    custos:[{n:"Custo dos Produtos",v:42.5},{n:"Mão de Obra Direta",v:18.0},{n:"Frete",v:5.2},{n:"Terceiros",v:8.5},{n:"Comissões",v:4.5}],
-    obs:"Ticket médio subindo. 40% dos clientes são empresários — oportunidade de upsell para Projetos Comerciais."},
-  {id:3,nome:"Projetos Comerciais",tipo:"Serviço",cor:G,fat:[425,340,595],mc:[116,93,142],mc_p:[28.9,29.0,25.2],lucro_r:[78,56,94],lucro_p:[19.4,17.4,16.7],
-    hc:12,clientes:16,ticket:"R$ 85.000",inadim:"0,8%",pmr:25,saude:"Estrela ★",bcg:"Estrela",
-    produtos:[{n:"Proj. Com. 30kWp",v:5,m:45.3,preco:"R$ 78.000"},{n:"Proj. Com. 75kWp",v:3,m:44.0,preco:"R$ 158.000"},{n:"Proj. Ind. 150kWp+",v:2,m:42.9,preco:"R$ 285.000"},{n:"Carport Solar",v:4,m:48.5,preco:"R$ 95.000"},{n:"Retrofit Comercial",v:2,m:52.0,preco:"R$ 45.000"}],
-    custos:[{n:"Custo dos Produtos",v:35.0},{n:"Mão de Obra Direta",v:15.0},{n:"Engenharia/Projeto",v:8.0},{n:"Terceiros",v:6.5},{n:"Comissões",v:3.5}],
-    obs:"Negócio mais rentável em valor absoluto. Cada projeto gera em média R$ 14.000 de lucro real. Equipe forte de 12 profissionais."},
-  {id:4,nome:"Projetos de Usinas",tipo:"Serviço",cor:P,fat:[890,0,1450],mc:[142,0,232],mc_p:[18.9,0,17.8],lucro_r:[60,-58,214],lucro_p:[7.1,0,15.5],
-    hc:10,clientes:3,ticket:"R$ 780.000",inadim:"0%",pmr:45,saude:"Instável",bcg:"Vaca Leiteira",
-    produtos:[{n:"Usina 500kWp",v:1,m:38.5,preco:"R$ 650.000"},{n:"Usina 1MWp",v:1,m:35.2,preco:"R$ 1.250.000"},{n:"Usina 300kWp",v:1,m:41.0,preco:"R$ 420.000"}],
-    custos:[{n:"Custo dos Produtos",v:45.0},{n:"Mão de Obra",v:12.0},{n:"Engenharia",v:6.5},{n:"Logística Pesada",v:8.0},{n:"Terceiros Especializados",v:10.0}],
-    obs:"ALERTA: Fevereiro zerou. 36% do faturamento depende de poucos projetos. Equipe de R$ 68.000/mês fica ociosa sem projeto. Pipeline de 12+ propostas é urgente."},
-  {id:5,nome:"Manutenção O&M",tipo:"Serviço",cor:T,fat:[51,53,55],mc:[16,16,14],mc_p:[33.1,31.8,27.1],lucro_r:[11,10,10],lucro_p:[22.7,19.8,19.1],
-    hc:3,clientes:168,ticket:"R$ 300",inadim:"1,3%",pmr:5,saude:"Joia ★★",bcg:"Joia",
-    contratos:{inicio:[148,155,158],fim:[155,158,168],mrr:[46500,47400,50400],churn:[2.0,3.2,1.3],nps:[72,74,76],ltv:7200,cac:350},
-    produtos:[{n:"Limpeza Painéis",v:420,m:63.0,preco:"R$ 520"},{n:"O&M Residencial",v:148,m:61.5,preco:"R$ 600/mês"},{n:"O&M Comercial",v:15,m:57.0,preco:"R$ 1.100/mês"},{n:"Visita Técnica",v:35,m:56.0,preco:"R$ 800"},{n:"O&M Usina",v:5,m:50.5,preco:"R$ 2.000/mês"}],
-    custos:[{n:"Mão de Obra Técnica",v:35.0},{n:"Deslocamento",v:12.0},{n:"Materiais/Peças",v:8.0},{n:"Seguro RC",v:3.0}],
-    obs:"JOIA DO PORTFÓLIO. Único negócio com receita fixa mensal. 168 contratos crescendo. Margem de 20,4%. Meta: triplicar para 500 contratos em 12 meses."},
-  {id:6,nome:"Loja Online",tipo:"Comércio",cor:R,fat:[38,41,49],mc:[-3,-5,-4],mc_p:[-8.4,-12.9,-8.6],lucro_r:[-7,-9,-8],lucro_p:[-19.4,-23.1,-17.1],
-    hc:2,clientes:365,ticket:"R$ 350",inadim:"5,2%",pmr:30,saude:"Prejuízo",bcg:"Abacaxi",
-    produtos:[{n:"Kit Limpeza Solar",v:85,m:35.0,preco:"R$ 189"},{n:"Cabo Solar 6mm",v:120,m:28.0,preco:"R$ 95/10m"},{n:"Conector MC4",v:200,m:42.0,preco:"R$ 25/par"},{n:"String Box",v:30,m:22.0,preco:"R$ 380"}],
-    custos:[{n:"Custo dos Produtos",v:55.0},{n:"Frete Grátis",v:15.0},{n:"Plataforma/Taxas",v:12.0},{n:"Marketing Digital",v:18.0},{n:"Embalagem",v:5.0}],
-    obs:"DESTRUINDO VALOR. Cada R$ 1 vendido custa R$ 1,09. Frete grátis + marketing digital + taxas = 109,4% do faturamento. Encerrar em 30 dias."},
-];
+const negocios:any[]=[];
 
-const rev=[{m:"Jan/25",fat:2226,marg:415,estr:179,lucro:236},{m:"Fev/25",fat:1144,marg:104,estr:179,lucro:-74},{m:"Mar/25",fat:3129,marg:687,estr:186,lucro:501}];
-const caixa=[{m:"Jan",disp:510,div:700,saldo:-190},{m:"Fev",disp:545,div:665,saldo:-120},{m:"Mar",disp:702,div:630,saldo:72}];
+const rev:any[]=[];
+const caixa:any[]=[];
 
 const KPI=({r,v,d,ok}:any)=>(
   <div style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:12,padding:"12px 14px",borderLeft:`3px solid ${ok?G:ok===false?R:BD}`,border:`1px solid #2A2822`,transition:"all 0.2s"}}>
@@ -495,6 +463,7 @@ export default function DashboardPage(){
   const [omieData, setOmieData] = useState<any[]>([]);
   const [realData, setRealData] = useState<any>(null);
   const [loadingReal, setLoadingReal] = useState(false);
+  const [regime, setRegime] = useState<"competencia"|"caixa">("competencia");
 
   useEffect(() => {
     // Load companies user has access to (via user_companies junction table)
@@ -552,13 +521,13 @@ export default function DashboardPage(){
     fetch(`/api/omie/process?t=${Date.now()}`, {
       method: "POST",
       headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
-      body: JSON.stringify({ company_ids: compIds, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim })
+      body: JSON.stringify({ company_ids: compIds, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim, regime })
     }).then(r=>r.text()).then(text=>{
       try{const d=JSON.parse(text);if(d.success){setRealData(d.data);console.log("PROCESS OK");}else console.error("PROCESS FAIL:",d.error);}
       catch{console.error("PROCESS BAD JSON:",text.substring(0,200));}
       setLoadingReal(false);
     }).catch(e=>{console.error("PROCESS ERROR:",e);setLoadingReal(false);});
-  }, [empresaSel, dbCompanies, omieData, efPeriodoInicio, efPeriodoFim]);
+  }, [empresaSel, dbCompanies, omieData, efPeriodoInicio, efPeriodoFim, regime]);
 
   const grupoEmpresas = [
     {id:"consolidado",nome:dbCompanies.length>1?"Todas as Empresas":"Empresa",cnpj:"Todos",pais:"—",group_id:null},
@@ -660,6 +629,11 @@ export default function DashboardPage(){
           <span style={{fontSize:9,color:TXD}}>a</span>
           <input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:5,padding:"2px 6px",fontSize:10,fontWeight:600}}/>
         </>)}
+        <div style={{width:1,height:14,background:BD,margin:"0 4px"}}/>
+        <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${BD}`}}>
+          <button onClick={()=>setRegime("competencia")} style={{padding:"3px 10px",fontSize:9,fontWeight:600,border:"none",cursor:"pointer",background:regime==="competencia"?`${GO}30`:"transparent",color:regime==="competencia"?GOL:TXD}}>Competência</button>
+          <button onClick={()=>setRegime("caixa")} style={{padding:"3px 10px",fontSize:9,fontWeight:600,border:"none",cursor:"pointer",background:regime==="caixa"?`${GO}30`:"transparent",color:regime==="caixa"?GOL:TXD}}>Caixa</button>
+        </div>
       </div>
     </div>
 
@@ -724,18 +698,29 @@ export default function DashboardPage(){
 
           {realData.top_custos&&realData.top_custos.length>0&&(
             <Card>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Clique para ver detalhes</div>
-              {realData.top_custos.slice(0,10).map((c:any,i:number)=>(
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:12,fontWeight:600,color:GOL}}>Maiores Custos — Real vs Orçado</div>
+                {realData.variacao_global&&<div style={{fontSize:10,color:Number(realData.variacao_global)>0?R:G,fontWeight:600}}>Variação global: {Number(realData.variacao_global)>0?"+":""}{realData.variacao_global}%</div>}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"24px 1fr auto auto auto",gap:"0 8px",alignItems:"center",fontSize:10,color:TXD,padding:"4px 0",borderBottom:`1px solid ${BD}`,marginBottom:4}}>
+                <span></span><span>Categoria</span><span style={{textAlign:"right"}}>Real</span><span style={{textAlign:"right"}}>Orçado</span><span style={{textAlign:"right",width:60}}>Variação</span>
+              </div>
+              {realData.top_custos.slice(0,10).map((c:any,i:number)=>{
+                const varPct=c.variacao!==null&&c.variacao!==undefined?c.variacao:null;
+                const varColor=varPct===null?TXD:varPct>5?R:varPct>0?Y:G;
+                return(
                 <div key={i}>
-                  <div onClick={()=>loadDrill(c.cod,"despesa",`custo-${i}`)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`0.5px solid ${BD}20`,cursor:"pointer",transition:"background 0.2s"}}
+                  <div onClick={()=>loadDrill(c.cod,"despesa",`custo-${i}`)} style={{display:"grid",gridTemplateColumns:"24px 1fr auto auto auto",gap:"0 8px",alignItems:"center",padding:"6px 0",borderBottom:`0.5px solid ${BD}20`,cursor:"pointer",transition:"background 0.2s"}}
                     onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
                     <div style={{width:24,height:24,borderRadius:6,background:i<3?R+"20":i<6?Y+"20":GO+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:i<3?R:i<6?Y:GO}}>{i+1}</div>
-                    <div style={{flex:1,fontSize:11,color:TX}}>{decodeHTML(c.nome)} <span style={{fontSize:9,color:TXD}}>{drillOpen===`custo-${i}`?"▼":"▶"}</span></div>
-                    <div style={{fontSize:13,fontWeight:700,color:i<3?R:i<6?Y:TX}}>{fmtBRL(c.valor)}</div>
+                    <div style={{fontSize:11,color:TX}}>{decodeHTML(c.nome)} <span style={{fontSize:9,color:TXD}}>{drillOpen===`custo-${i}`?"▼":"▶"}</span></div>
+                    <div style={{fontSize:12,fontWeight:700,color:i<3?R:i<6?Y:TX,textAlign:"right"}}>{fmtBRL(c.valor)}</div>
+                    <div style={{fontSize:11,color:c.orcado?TXM:TXD,textAlign:"right"}}>{c.orcado?fmtBRL(c.orcado):"—"}</div>
+                    <div style={{fontSize:11,fontWeight:600,color:varColor,textAlign:"right",width:60}}>{varPct!==null?`${varPct>0?"+":""}${varPct.toFixed(1)}%`:"—"}</div>
                   </div>
                   {drillOpen===`custo-${i}`&&<DrillPanel data={drillData} loading={drillLoading}/>}
                 </div>
-              ))}
+              );})}
             </Card>
           )}
 
@@ -1560,20 +1545,26 @@ export default function DashboardPage(){
 
         {realData.top_custos&&realData.top_custos.length>0&&(
           <Card>
-            <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Para análise de margem</div>
+            <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Maiores Custos — Real vs Orçado</div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
                 <th style={{padding:6,textAlign:"left",color:GOL,fontSize:10}}>Categoria de Custo</th>
-                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Valor Total</th>
-                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>% dos Custos</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Real</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Orçado</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>Variação</th>
+                <th style={{padding:6,textAlign:"right",color:GOL,fontSize:10}}>% Custos</th>
               </tr></thead>
               <tbody>
                 {realData.top_custos.slice(0,10).map((c:any,i:number)=>{
                   const pct=realData.total_despesas>0?((c.valor/realData.total_despesas)*100):0;
+                  const varPct=c.variacao!==null&&c.variacao!==undefined?c.variacao:null;
+                  const varColor=varPct===null?TXD:varPct>5?R:varPct>0?Y:G;
                   return(
                     <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
                       <td style={{padding:6,color:TX}}>{decodeHTML(c.nome)}</td>
                       <td style={{padding:6,textAlign:"right",fontWeight:700,color:i<3?R:TX}}>{fmtBRL(c.valor)}</td>
+                      <td style={{padding:6,textAlign:"right",color:c.orcado?TXM:TXD}}>{c.orcado?fmtBRL(c.orcado):"—"}</td>
+                      <td style={{padding:6,textAlign:"right",fontWeight:600,color:varColor}}>{varPct!==null?`${varPct>0?"+":""}${varPct.toFixed(1)}%`:"—"}</td>
                       <td style={{padding:6,textAlign:"right",color:TXM}}>{pct.toFixed(1)}%</td>
                     </tr>
                   );
@@ -1616,7 +1607,7 @@ export default function DashboardPage(){
         }}>
           <div style={{position:"absolute",top:8,right:8,fontSize:8,padding:"2px 8px",borderRadius:6,background:`${GO}20`,color:GOL,fontWeight:700,border:`1px solid ${GO}40`}}>CEO EDITION</div>
           <div style={{fontSize:18,marginBottom:6}}>👑</div>
-          <div style={{fontSize:14,fontWeight:600,color:reportSource==="v19"?GOL:TX}}>Relatório V19 — 6 Slides</div>
+          <div style={{fontSize:14,fontWeight:600,color:reportSource==="v19"?GOL:TX}}>Relatório V19 — 18 Slides</div>
           <div style={{fontSize:11,color:TXM,marginTop:4}}>Nível Conselho de Administração. DRE, Balanço, Fluxo, ESG, Risco, Valuation, Carta ao Acionista. ~2 minutos.</div>
         </div>
       </div>
@@ -1639,7 +1630,7 @@ export default function DashboardPage(){
 
         {reportSource==="v19"&&(
           <div style={{padding:"10px 14px",borderRadius:8,background:`${GO}08`,border:`1px solid ${GO}20`,marginBottom:12,fontSize:11,color:TXM,lineHeight:1.6}}>
-            <strong style={{color:GOL}}>👑 V19 CEO Edition</strong> cruza automaticamente: DRE + Balanço + Financiamentos + Fluxo de Caixa + Linhas de Negócio + Contexto do Empresário → gera 6 slides com análise de nível Conselho de Administração.
+            <strong style={{color:GOL}}>👑 V19 CEO Edition</strong> cruza automaticamente: DRE + Balanço + Financiamentos + Fluxo de Caixa + Linhas de Negócio + Contexto do Empresário → gera 18 slides com análise de nível Conselho de Administração.
           </div>
         )}
 
@@ -1680,8 +1671,8 @@ export default function DashboardPage(){
           color:reportLoading?TXM:BG,fontSize:14,fontWeight:700,cursor:reportLoading?"wait":"pointer",
           boxShadow:reportLoading?"none":`0 4px 16px rgba(198,151,63,0.3)`,
         }}>
-          {reportLoading?(reportSource==="v19"?"👑 Gerando 6 slides... aguarde ~1 min":"⚡ Gerando relatório..."):
-            (reportSource==="v19"?"👑 Gerar Relatório V19 — 6 Slides CEO Edition":"⚡ Gerar Relatório Rápido")}
+          {reportLoading?(reportSource==="v19"?"👑 Gerando 18 slides... aguarde ~2 min":"⚡ Gerando relatório..."):
+            (reportSource==="v19"?"👑 Gerar Relatório V19 — 18 Slides CEO Edition":"⚡ Gerar Relatório Rápido")}
         </button>
       </Card>
 
@@ -1719,8 +1710,8 @@ export default function DashboardPage(){
 
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital</div>
-      <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial e BPO Financeiro</div>
-      <div style={{fontSize:8,color:TXD,marginTop:4}}>v7.0 — BPO Inteligente</div>
+      <div style={{fontSize:9,color:TXD,marginTop:4}}>Assessoria Empresarial · BPO Financeiro · Consultoria de Investimentos</div>
+      <div style={{fontSize:8,color:TXD,marginTop:4}}>v8.0 — ERP Inteligente com IA</div>
     </div>
   </div>);
 }
