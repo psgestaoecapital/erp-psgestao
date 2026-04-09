@@ -10,9 +10,11 @@ const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2,m
 
 type ItemBP = { id:string; grupo:string; subgrupo:string; nome:string; valor:number; obs?:string; };
 type Financiamento = {
-  id:string; banco:string; tipo:string; valorOriginal:number; saldoDevedor:number;
+  id:string; banco:string; tipo:string; operacao:string; contrato:string;
+  valorOriginal:number; valorLiquido:number; saldoDevedor:number;
   taxaMensal:number; parcelas:number; parcelasRestantes:number;
-  vencimento:string; garantia:string; status:string;
+  valorParcela:number; ultimaParcela:number;
+  vencimento:string; garantia:string; situacao:string; status:string;
 };
 
 const estruturaAtivo = [
@@ -51,7 +53,7 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
       setPassivos(bp.filter((i:any)=>i.lado==="passivo").map((i:any)=>({id:i.id,grupo:i.grupo,subgrupo:i.subgrupo,nome:i.nome,valor:Number(i.valor)||0,obs:i.obs})));
     }
     const{data:fin}=await supabase.from("financiamentos").select("*").eq("company_id",empresaId).order("vencimento");
-    if(fin)setFinanciamentos(fin.map((f:any)=>({id:f.id,banco:f.banco,tipo:f.tipo,valorOriginal:Number(f.valor_original)||0,saldoDevedor:Number(f.saldo_devedor)||0,taxaMensal:Number(f.taxa_mensal)||0,parcelas:f.parcelas||0,parcelasRestantes:f.parcelas_restantes||0,vencimento:f.vencimento||"",garantia:f.garantia||"",status:f.status||"ativo"})));
+    if(fin)setFinanciamentos(fin.map((f:any)=>({id:f.id,banco:f.banco,tipo:f.tipo,operacao:f.operacao||"",contrato:f.contrato||"",valorOriginal:Number(f.valor_original)||0,valorLiquido:Number(f.valor_liquido)||0,saldoDevedor:Number(f.saldo_devedor)||0,taxaMensal:Number(f.taxa_mensal)||0,parcelas:f.parcelas||0,parcelasRestantes:f.parcelas_restantes||0,valorParcela:Number(f.valor_parcela)||0,ultimaParcela:Number(f.ultima_parcela)||0,vencimento:f.vencimento||"",garantia:f.garantia||"",situacao:f.situacao||"Normal",status:f.status||"ativo"})));
   };
 
   const salvarItem = async (lado:"ativo"|"passivo", grupo:string, nome:string) => {
@@ -71,10 +73,14 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
     if(!f.banco||!f.saldoDevedor)return;
     await supabase.from("financiamentos").insert({
       company_id:empresaId, banco:f.banco, tipo:f.tipo||"Empréstimo",
-      valor_original:f.valorOriginal||0, saldo_devedor:f.saldoDevedor||0,
+      operacao:f.operacao||"", contrato:f.contrato||"",
+      valor_original:f.valorOriginal||0, valor_liquido:f.valorLiquido||0,
+      saldo_devedor:f.saldoDevedor||0,
       taxa_mensal:f.taxaMensal||0, parcelas:f.parcelas||0,
-      parcelas_restantes:f.parcelasRestantes||0, vencimento:f.vencimento||"",
-      garantia:f.garantia||"", status:"ativo"
+      parcelas_restantes:f.parcelasRestantes||0,
+      valor_parcela:f.valorParcela||0, ultima_parcela:f.ultimaParcela||0,
+      vencimento:f.vencimento||"",
+      garantia:f.garantia||"", situacao:f.situacao||"Normal", status:"ativo"
     });
     setShowAddFin(false);setNewFin({});setMsg("Financiamento cadastrado!");loadData();
     setTimeout(()=>setMsg(""),2000);
@@ -229,15 +235,21 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
             <div style={{fontSize:13,fontWeight:600,color:GOL,marginBottom:12}}>Cadastrar Financiamento</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
               {[
-                {l:"Banco/Instituição *",k:"banco",p:"Ex: Bradesco, BNDES, Sicoob"},
-                {l:"Tipo",k:"tipo",p:"Empréstimo, Financiamento, Leasing"},
-                {l:"Valor Original (R$)",k:"valorOriginal",p:"0,00",type:"number"},
+                {l:"Banco/Instituição *",k:"banco",p:"Ex: Caixa, BNDES, Sicoob, Bradesco"},
+                {l:"Nº Operação",k:"operacao",p:"Ex: 7607 - PEAC FGI - EPP"},
+                {l:"Nº Contrato",k:"contrato",p:"Ex: 0000000001844678"},
+                {l:"Tipo",k:"tipo",p:"Capital de Giro, Financiamento, Leasing"},
+                {l:"Situação",k:"situacao",p:"Normal, Atraso, Quitado"},
+                {l:"Valor Contratado (R$)",k:"valorOriginal",p:"0,00",type:"number"},
+                {l:"Valor Líquido (R$)",k:"valorLiquido",p:"0,00",type:"number"},
                 {l:"Saldo Devedor (R$) *",k:"saldoDevedor",p:"0,00",type:"number"},
                 {l:"Taxa Mensal (%)",k:"taxaMensal",p:"1,5",type:"number"},
                 {l:"Total de Parcelas",k:"parcelas",p:"60",type:"number"},
                 {l:"Parcelas Restantes",k:"parcelasRestantes",p:"36",type:"number"},
+                {l:"Valor da Parcela (R$)",k:"valorParcela",p:"0,00",type:"number"},
+                {l:"Última Parcela Paga (R$)",k:"ultimaParcela",p:"0,00",type:"number"},
                 {l:"Vencimento Final",k:"vencimento",p:"2028-12",type:"month"},
-                {l:"Garantia",k:"garantia",p:"Imóvel, Veículo, Aval"},
+                {l:"Garantia",k:"garantia",p:"Imóvel, Veículo, Aval, FAMPE/SEBRAE"},
               ].map(f=>(
                 <div key={f.k}><div style={{fontSize:10,color:TXD,marginBottom:3}}>{f.l}</div>
                 <input value={(newFin as any)[f.k]||""} onChange={e=>setNewFin({...newFin,[f.k]:f.type==="number"?parseFloat(e.target.value)||0:e.target.value})} placeholder={f.p} type={f.type||"text"} style={inp}/></div>
@@ -260,19 +272,21 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",fontSize:11,minWidth:800}}>
                 <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
-                  {["Banco","Tipo","Valor Original","Saldo Devedor","Taxa","Parcelas","Vencimento","Garantia","Ações"].map(h=>(
-                    <th key={h} style={{padding:"10px 8px",textAlign:h.includes("Valor")||h.includes("Saldo")||h==="Taxa"?"right":"left",color:GO,fontSize:9,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>{h}</th>
+                  {["Banco","Operação","Contrato","Tipo","Situação","Saldo Devedor","Parcela","Restantes","Vencimento","Garantia","Ações"].map(h=>(
+                    <th key={h} style={{padding:"10px 8px",textAlign:h.includes("Saldo")||h==="Parcela"?"right":"left",color:GO,fontSize:9,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {financiamentos.map((f,i)=>(
                     <tr key={f.id} style={{borderBottom:`1px solid ${BD}20`}}>
                       <td style={{padding:"8px",fontWeight:500,color:TX}}>{f.banco}</td>
+                      <td style={{padding:"8px",color:TXM,fontSize:10}}>{f.operacao||"—"}</td>
+                      <td style={{padding:"8px",color:TXD,fontSize:10}}>{f.contrato||"—"}</td>
                       <td style={{padding:"8px",color:TXM}}>{f.tipo}</td>
-                      <td style={{padding:"8px",textAlign:"right",color:TXM}}>{fmtR(f.valorOriginal)}</td>
+                      <td style={{padding:"8px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:4,background:f.situacao==="Normal"?G+"20":f.situacao==="Quitado"?B+"20":R+"20",color:f.situacao==="Normal"?G:f.situacao==="Quitado"?B:R}}>{f.situacao||"Normal"}</span></td>
                       <td style={{padding:"8px",textAlign:"right",fontWeight:600,color:R}}>{fmtR(f.saldoDevedor)}</td>
-                      <td style={{padding:"8px",textAlign:"right",color:Y}}>{f.taxaMensal}% a.m.</td>
-                      <td style={{padding:"8px",color:TXM}}>{f.parcelasRestantes}/{f.parcelas}</td>
+                      <td style={{padding:"8px",textAlign:"right",color:Y}}>{f.valorParcela?fmtR(f.valorParcela):"—"}</td>
+                      <td style={{padding:"8px",color:TXM,textAlign:"center"}}>{f.parcelasRestantes}/{f.parcelas}</td>
                       <td style={{padding:"8px",color:TXD}}>{f.vencimento}</td>
                       <td style={{padding:"8px",color:TXD}}>{f.garantia||"—"}</td>
                       <td style={{padding:"8px"}}>
