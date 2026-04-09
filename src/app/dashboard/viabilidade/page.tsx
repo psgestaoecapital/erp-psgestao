@@ -29,6 +29,40 @@ export default function ViabilidadePage(){
   const [setor,setSetor]=useState("");
   const [resultado,setResultado]=useState<AnaliseResult|null>(null);
   const [dragOver,setDragOver]=useState(false);
+  const [iaPergunta,setIaPergunta]=useState("");
+  const [iaResposta,setIaResposta]=useState("");
+  const [iaLoading,setIaLoading]=useState(false);
+
+  const perguntarIA=async()=>{
+    if(!iaPergunta.trim()||!resultado)return;
+    setIaLoading(true);setIaResposta("");
+    try{
+      const contextoViabilidade=`ANÁLISE DE VIABILIDADE DO PROJETO:
+Arquivo: ${fileName}
+Setor: ${setor}
+Descrição: ${descricaoProjeto}
+Resultado: ${resultado.viavel?"VIÁVEL":"INVIÁVEL"}
+Score: ${resultado.score}/100
+Margem Projetada: ${resultado.margemProjetada}%
+Investimento: ${fmtR(resultado.investimento)}
+Retorno Anual: ${fmtR(resultado.retorno)}
+Payback: ${resultado.payback}
+Pontos Fortes: ${resultado.pontos_fortes.join("; ")}
+Riscos: ${resultado.riscos.join("; ")}
+Sugestões: ${resultado.sugestoes.join("; ")}
+Dados do arquivo: ${fileData.substring(0,2000)}`;
+
+      const compId=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel")||"":"";
+      const formData=new FormData();
+      formData.append("question",`CONTEXTO DA ANÁLISE DE VIABILIDADE:\n${contextoViabilidade}\n\nPERGUNTA DO EMPRESÁRIO: ${iaPergunta}`);
+      formData.append("company_id",compId);
+      const res=await fetch("/api/consultor",{method:"POST",body:formData});
+      const data=await res.json();
+      if(data.success) setIaResposta(data.answer);
+      else setIaResposta(`❌ Erro: ${data.error}`);
+    }catch(e:any){setIaResposta(`❌ ${e.message}`);}
+    setIaLoading(false);
+  };
 
   const handleFile=(file:File)=>{
     setFileName(file.name);
@@ -268,6 +302,50 @@ export default function ViabilidadePage(){
                 <span style={{color:GO,fontWeight:700,fontSize:12,flexShrink:0}}>{i+1}.</span>{s}
               </div>
             ))}
+          </div>
+
+          {/* AI Question Field */}
+          <div style={{background:BG2,borderRadius:14,padding:"16px 18px",border:`1px solid ${GO}30`,marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <span style={{fontSize:20}}>🧠</span>
+              <span style={{fontSize:12,fontWeight:600,color:GOL}}>Pergunte à IA sobre esta análise</span>
+            </div>
+            <div style={{fontSize:10,color:TXD,marginBottom:10}}>A IA conhece os dados do projeto e os dados financeiros reais da empresa. Pergunte qualquer dúvida.</div>
+
+            {!iaLoading&&!iaResposta&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+                {[
+                  "Como foi calculada a margem projetada?",
+                  "Consigo pagar esse investimento com meu fluxo de caixa?",
+                  "Quais custos posso reduzir para viabilizar?",
+                  "Vale mais a pena esse projeto ou quitar um financiamento?",
+                ].map((ex,i)=>(
+                  <div key={i} onClick={()=>setIaPergunta(ex)} style={{fontSize:10,color:TXM,padding:"8px 10px",background:BG3,borderRadius:8,cursor:"pointer",border:`1px solid ${BD}`,transition:"all 0.2s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor=GO+"60";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=BD;}}>
+                    💡 {ex}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8}}>
+              <input value={iaPergunta} onChange={e=>setIaPergunta(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")perguntarIA();}}
+                placeholder="Ex: Como chegou nesse valor de investimento? Esse projeto cabe no meu caixa?"
+                style={{flex:1,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:10,padding:"10px 14px",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+              <button onClick={perguntarIA} disabled={iaLoading||!iaPergunta.trim()} style={{
+                padding:"10px 18px",borderRadius:10,border:"none",cursor:iaLoading?"wait":"pointer",
+                background:iaLoading?BD:`linear-gradient(135deg,${GO},${GOL})`,color:iaLoading?TXD:BG,fontSize:12,fontWeight:600,whiteSpace:"nowrap",
+              }}>{iaLoading?"⏳ Analisando...":"🧠 Perguntar"}</button>
+            </div>
+
+            {iaResposta&&(
+              <div style={{marginTop:12,background:BG3,borderRadius:10,padding:14,border:`1px solid ${BD}`}}>
+                <div style={{fontSize:9,color:GOL,marginBottom:6,fontWeight:600}}>🧠 RESPOSTA DO CONSULTOR IA</div>
+                <div style={{fontSize:12,color:TX,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{iaResposta}</div>
+                <button onClick={()=>{setIaResposta("");setIaPergunta("");}} style={{marginTop:8,fontSize:10,color:TXD,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Fazer outra pergunta</button>
+              </div>
+            )}
           </div>
 
           {/* Actions */}
