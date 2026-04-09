@@ -170,26 +170,40 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
     // ═══ BUILD MESSAGES ═══
     const messages: any[] = [];
 
-    // If PDF or image, use vision
-    if (file && file.size > 0 && (fileType.includes("pdf") || fileType.includes("image"))) {
+    // If PDF, use document type
+    if (file && file.size > 0 && fileType.includes("pdf")) {
       const buffer = await file.arrayBuffer();
       const base64 = Buffer.from(buffer).toString("base64");
-      const mediaType = fileType.includes("pdf") ? "application/pdf" : fileType;
-
       messages.push({
         role: "user",
         content: [
-          {
-            type: "document",
-            source: { type: "base64", media_type: mediaType, data: base64 },
-          },
-          {
-            type: "text",
-            text: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise o documento anexado à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável. Se envolver decisão financeira (financiamento, investimento, venda), calcule cenários com números reais.`,
-          },
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+          { type: "text", text: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise o documento anexado à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável. Se envolver decisão financeira (financiamento, investimento, venda), calcule cenários com números reais.` },
         ],
       });
-    } else {
+    }
+    // If image, use image type
+    else if (file && file.size > 0 && fileType.includes("image")) {
+      const buffer = await file.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
+      const imgType = fileType.includes("png") ? "image/png" : fileType.includes("webp") ? "image/webp" : fileType.includes("gif") ? "image/gif" : "image/jpeg";
+      messages.push({
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: imgType, data: base64 } },
+          { type: "text", text: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise a imagem anexada à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável.` },
+        ],
+      });
+    }
+    // Text/CSV/other files — read as text and include in prompt
+    else if (file && file.size > 0 && fileContent) {
+      messages.push({
+        role: "user",
+        content: `${contextBlock}\n\n📎 CONTEÚDO DO ARQUIVO (${file.name}):\n${fileContent}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise o conteúdo do arquivo à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável.`,
+      });
+    }
+    // No file — just question with context
+    else {
       messages.push({
         role: "user",
         content: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nResponda com base nos dados financeiros reais acima. Seja direto, prático e acionável. Se envolver decisão financeira, calcule cenários com números reais da empresa.`,
