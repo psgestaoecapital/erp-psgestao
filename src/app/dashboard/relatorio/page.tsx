@@ -113,11 +113,31 @@ export default function RelatorioPage(){
   const printRef=useRef<HTMLDivElement>(null);
 
   useEffect(()=>{
-    const stored=localStorage.getItem("ps_report_v19");
-    const meta=localStorage.getItem("ps_report_meta");
-    if(stored){setReport(stored);setLoading(false);}
-    else{setLoading(false);}
-    if(meta){try{const m=JSON.parse(meta);setEmpresa(m.empresa||"");setPeriodo(m.periodo||"");}catch{}}
+    async function load(){
+      // Try localStorage first (from dashboard), then Supabase
+      const stored=localStorage.getItem("ps_report_v19");
+      const meta=localStorage.getItem("ps_report_meta");
+      if(stored){
+        setReport(stored);
+        if(meta){try{const m=JSON.parse(meta);setEmpresa(m.empresa||"");setPeriodo(m.periodo||"");}catch{}}
+        setLoading(false);
+        return;
+      }
+      // Fallback: read latest from Supabase
+      try{
+        const{data}=await supabase.from("ai_reports").select("*").eq("report_type","v19_ceo").order("created_at",{ascending:false}).limit(1);
+        if(data&&data.length>0){
+          const r=data[0];
+          const content=typeof r.report_content==="string"?r.report_content:JSON.stringify(r.report_content);
+          setReport(content);
+          const m=r.metadata||{};
+          setEmpresa(m.empresa||"");
+          setPeriodo(m.periodo||"");
+        }
+      }catch{}
+      setLoading(false);
+    }
+    load();
   },[]);
 
   if(loading) return <div style={{display:"flex",justifyContent:"center",alignItems:"center",minHeight:"100vh",background:BG,color:TXM,fontFamily:"'Georgia','Times New Roman',serif"}}>Carregando relatório...</div>;
