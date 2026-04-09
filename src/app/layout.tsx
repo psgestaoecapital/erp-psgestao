@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "PS Gestão e Capital — ERP Inteligente",
-  description: "Assessoria Empresarial e BPO Financeiro",
+  description: "Assessoria Empresarial · BPO Financeiro · Consultoria de Investimentos",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
