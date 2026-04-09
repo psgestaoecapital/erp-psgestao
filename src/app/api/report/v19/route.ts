@@ -311,6 +311,16 @@ Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao
     if (data.error) return NextResponse.json({ error: `Claude API: ${data.error?.message || JSON.stringify(data.error)}` }, { status: 500 });
     const reportText = data.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar.";
 
+    // Auto-save to ai_reports for premium view
+    try {
+      await supabase.from("ai_reports").insert({
+        company_id: compIds[0],
+        report_type: "v19_ceo",
+        report_content: reportText,
+        metadata: { empresa: empresa_nome, periodo: `${periodo_inicio} a ${periodo_fim}`, slides: 18, fontes: 17, generated_at: new Date().toISOString() },
+      });
+    } catch {}
+
     return NextResponse.json({
       success: true, report: reportText, blocos_usados: blocos.length,
       fontes: { empresas: (companies || []).length, erp_imports: (imports || []).length, dados_manuais_dre: (dreDivData || []).length, custos_sede: (sedeData || []).length, balanco: (bpData || []).length, financ: (finData || []).length, linhas: (blData || []).length, orcamento: (orcData || []).length, planos: (planosData || []).length, fichas: (fichasData || []).length, bpo: (bpoData || []).length, conc: (concData || []).length, clientes: totalClientes, produtos: totalProdutos, contexto: ctxText ? "sim" : "nao", fonte_receita: fonteReceita, fonte_despesa: fonteDespesa },
