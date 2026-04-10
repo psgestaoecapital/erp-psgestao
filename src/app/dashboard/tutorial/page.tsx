@@ -66,18 +66,33 @@ const tutoriais: Tutorial[] = [
     ]},
 
   // ═══ BPO ═══
-  { id:"t08", titulo:"Módulo BPO — Visão Geral", desc:"Gerencie múltiplas empresas como BPO", icon:"📊", cor:G, categoria:"BPO Financeiro", duracao:"5 min", nivel:"intermediário",
+  { id:"t08", titulo:"Módulo BPO — Visão Geral", desc:"Central de operações multi-empresa com IA", icon:"📊", cor:G, categoria:"BPO Financeiro", duracao:"5 min", nivel:"intermediário",
     steps:[
-      {titulo:"Acesse o BPO",desc:"No Dashboard, clique no botão '📊 BPO' (visível para Admin e Sócio). Você verá a lista de todas as empresas clientes com status de saúde financeira.",acao:"Cada empresa mostra: receita, margem, alertas e status (saudável/atenção/crítico)."},
-      {titulo:"Dashboard do Supervisor",desc:"Clique em '👥 Supervisor' para acessar o painel do supervisor BPO. Aqui você vê: todas as empresas, operadores responsáveis e atribuições.",acao:"Atribua empresas a operadores — cada operador só verá as empresas atribuídas a ele."},
-      {titulo:"Rotinas Automatizáveis",desc:"Clique em '🤖 Rotinas & Automação' para ver as 14 rotinas que podem ser automatizadas: conciliação, classificação, fechamento, etc.",dica:"Cada rotina mostra: frequência, tempo manual vs. automático e economia estimada."},
-      {titulo:"Conciliação de Cartão",desc:"Clique em '💳 Conciliação Cartão'. Faça upload do CSV da operadora (Cielo, Stone, Rede, etc.) e o sistema concilia automaticamente com o ERP.",acao:"Use o CSV Demo para testar antes de usar dados reais."},
+      {titulo:"Acesse o BPO",desc:"No Dashboard, clique em '📊 BPO'. Você verá todas as empresas com semáforo de saúde financeira: 🟢 Saudável, 🟡 Atenção, 🔴 Crítico.",acao:"Alertas são REAIS — baseados em resultado negativo, margem baixa, títulos vencidos e sync desatualizado."},
+      {titulo:"Módulos do BPO",desc:"6 módulos: Supervisor (atribuir operadores), Automação IA (classificar lançamentos), Conciliação (cartão crédito), Rotinas (automáticas), Importar (dados), Consultor IA (análise docs).",acao:"Cada empresa pode ter módulos diferentes ativados — configurável no contrato."},
+      {titulo:"Contrato por Empresa",desc:"Cada empresa-cliente tem um contrato que define quais módulos estão ativos: contas a pagar, conciliação, classificação IA, cobrança, emissão boleto, DRE, relatório.",acao:"O contrato é criado automaticamente na primeira execução. Configure em BPO → Rotinas."},
+      {titulo:"Segurança",desc:"O operador só vê as empresas atribuídas a ele. O admin e acesso_total veem todas. Registros cancelados são automaticamente excluídos dos cálculos.",dica:"Cada ação é logada com data, hora e resultado."},
     ]},
-  { id:"t09", titulo:"Atribuir Empresas a Operadores", desc:"Configurar quem vê o quê no BPO", icon:"🔗", cor:P, categoria:"BPO Financeiro", duracao:"3 min", nivel:"intermediário",
+  { id:"t09", titulo:"BPO — Rodar Dia (IA)", desc:"Botão único executa todas as rotinas com IA", icon:"🤖", cor:G, categoria:"BPO Financeiro", duracao:"4 min", nivel:"intermediário",
+    steps:[
+      {titulo:"O que é o Rodar Dia",desc:"Um único botão que executa TODAS as rotinas ativas da empresa: classificação IA, detecção de anomalias, alertas de inadimplência, resumo do dia.",acao:"A IA processa até 20 lançamentos por vez. Confiança >85% = auto-aprovado. Abaixo disso = fila para revisão humana."},
+      {titulo:"Classificação IA em Lote",desc:"A IA analisa lançamentos sem categoria e sugere a classificação correta baseada no histórico da empresa e padrões do mercado.",dica:"Quanto mais lançamentos classificados, mais precisa a IA fica — ela aprende com o histórico."},
+      {titulo:"Detecção de Anomalias",desc:"A IA identifica: duplicidades (mesmo valor+data+fornecedor), valores atípicos (5x acima da média), títulos vencidos para cobrança.",acao:"Anomalias geram alertas com severidade (crítica/alta/média) e ação sugerida."},
+      {titulo:"Resumo IA do Dia",desc:"Ao final da execução, a IA gera um resumo em texto do que encontrou, priorizando o que o operador precisa resolver primeiro.",dica:"Use o Consultor IA para perguntas específicas sobre os alertas do dia."},
+    ]},
+  { id:"t09b", titulo:"Atribuir Empresas a Operadores", desc:"Configurar quem vê o quê no BPO", icon:"🔗", cor:P, categoria:"BPO Financeiro", duracao:"3 min", nivel:"intermediário",
     steps:[
       {titulo:"Acesse o Supervisor",desc:"BPO → '👥 Supervisor' → aba 'Atribuições'.",acao:"Selecione o operador e a empresa, depois clique 'Atribuir'."},
       {titulo:"O que Muda para o Operador",desc:"O operador com role 'Operacional' só verá no dashboard as empresas atribuídas a ele. Não verá as outras empresas nem o painel Admin.",dica:"Isso é essencial para BPOs com múltiplos clientes — cada operador foca nos seus clientes."},
       {titulo:"Remover Atribuição",desc:"Na mesma tela, clique 'Remover' ao lado da atribuição para desvincular uma empresa do operador.",acao:"O operador perde acesso imediatamente."},
+    ]},
+  { id:"t09c", titulo:"Visão Diária — DRE por Dia", desc:"Mapa completo do mês com 5 grupos", icon:"📅", cor:G, categoria:"BPO Financeiro", duracao:"4 min", nivel:"intermediário",
+    steps:[
+      {titulo:"Acesse a Visão Diária",desc:"No header, clique em '📅 Visão Diária'. Selecione a empresa ou grupo e o mês.",acao:"Abre sempre no mês atual. Permite navegar para meses anteriores."},
+      {titulo:"5 Grupos do DRE",desc:"RECEITAS (por negócio → cliente), IMPOSTOS (ICMS, ISS, DAS), CUSTOS DIRETOS (CMV, folha, encargos), DESPESAS OPERACIONAIS (aluguel, marketing), FINANCEIRO (parcelas, juros).",dica:"Clique em cada grupo para expandir e ver os detalhes por categoria e por cliente/fornecedor."},
+      {titulo:"Orçado vs Real",desc:"Cada linha mostra: Real | Orçado | Variação %. Semáforo: 🟢 dentro do orçado, 🟡 até 5% acima, 🔴 acima de 5%.",acao:"Preencha o orçamento em Dados → Orçamento para ver as comparações."},
+      {titulo:"Fluxo de Caixa",desc:"Abaixo do DRE, gráfico de barras mostra o saldo acumulado dia a dia. Verde = positivo, vermelho = negativo.",dica:"Passe o mouse sobre as barras para ver entrada, saída e saldo do dia."},
+      {titulo:"Tooltip com Detalhes",desc:"Passe o mouse sobre qualquer valor na tabela para ver: documento, observação, categoria, status, vencimento.",acao:"Perfeito para auditoria — sem precisar abrir o ERP do cliente."},
     ]},
 
   // ═══ MÓDULOS AVANÇADOS ═══
