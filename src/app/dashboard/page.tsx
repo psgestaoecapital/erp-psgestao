@@ -123,6 +123,7 @@ export default function DashboardPage(){
   // RBAC: Role → abas permitidas
   const ROLE_TABS:Record<string,string[]>={
     admin:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    acesso_total:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
     socio:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
     financeiro:["geral","resultado","balanco","indicadores","financeiro","precos"],
     comercial:["geral","negocios","precos"],
@@ -130,7 +131,7 @@ export default function DashboardPage(){
     consultor:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
     visualizador:["geral"],
   };
-  const ROLE_NAMES:Record<string,string>={adm:"Administrador",socio:"Sócio/CEO",diretor_industrial:"Diretor Industrial",gerente_planta:"Gerente Planta",financeiro:"Financeiro",comercial:"Comercial",supervisor:"Supervisor",coordenador:"Coordenador",operacional:"Operador",consultor:"Consultor",conselheiro:"Conselheiro",visualizador:"Visualizador"};
+  const ROLE_NAMES:Record<string,string>={adm:"Administrador",acesso_total:"Acesso Total",socio:"Sócio/CEO",diretor_industrial:"Diretor Industrial",gerente_planta:"Gerente Planta",financeiro:"Financeiro",comercial:"Comercial",supervisor:"Supervisor",coordenador:"Coordenador",operacional:"Operador",consultor:"Consultor",conselheiro:"Conselheiro",visualizador:"Visualizador"};
 
   const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço"},{id:"indicadores",nome:"Indicadores"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
   const allowedTabs=ROLE_TABS[userRole]||ROLE_TABS.admin;
@@ -480,7 +481,7 @@ export default function DashboardPage(){
       if (grps) setDbGroups(grps);
 
       // SEGURANÇA: admin vê tudo, outros vêem só user_companies
-      if (up?.role === "adm") {
+      if (up?.role === "adm" || up?.role === "acesso_total") {
         const { data } = await supabase.from("companies").select("*").order("created_at");
         if (data && data.length > 0) setDbCompanies(data);
       } else {
@@ -583,8 +584,8 @@ export default function DashboardPage(){
               {empresaAtiva.cidade}{empresaAtiva.colab?` · ${empresaAtiva.colab} colab.`:""}
               {empresaAtiva.isGroup&&empresaAtiva.groupCount>1?` · ${empresaAtiva.groupCount} empresas`:""}
               <span style={{marginLeft:6,padding:"1px 6px",borderRadius:4,fontSize:8,fontWeight:600,
-                background:userRole==="adm"?GOL+"15":GO+"15",
-                color:userRole==="adm"?GOL:GO,
+                background:userRole==="adm"||userRole==="acesso_total"?GOL+"15":GO+"15",
+                color:userRole==="adm"||userRole==="acesso_total"?GOL:GO,
               }}>{ROLE_NAMES[userRole]||userRole}</span>
             </div>
           </div>
@@ -602,7 +603,7 @@ export default function DashboardPage(){
               {empresasSemGrupo.length>0&&empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
             </select>
           )}
-          {(userRole==="adm")&&<a href="/dashboard/admin" style={{padding:"5px 12px",borderRadius:6,fontSize:10,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️</a>}
+          {(userRole==="adm"||userRole==="acesso_total")&&<a href="/dashboard/admin" style={{padding:"5px 12px",borderRadius:6,fontSize:10,border:`1px solid ${BD}`,color:TXM,textDecoration:"none"}}>⚙️</a>}
         </div>
       </div>
       {/* Row 2: Period filters - compact horizontal */}
@@ -640,7 +641,7 @@ export default function DashboardPage(){
     <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`,position:"sticky",top:82,zIndex:99,background:BG,alignItems:"center"}}>
       {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"8px 18px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",border:aba===a.id?`1px solid ${GO}50`:`1px solid transparent`,background:aba===a.id?`linear-gradient(135deg, ${GO}18, ${GO}08)`:"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,letterSpacing:0.3,transition:"all 0.2s",position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
       <div style={{width:1,height:20,background:BD,margin:"0 4px",flexShrink:0}}/>
-      {(userRole==="adm"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"8px 16px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",background:`${G}12`,border:`1px solid ${G}30`,color:G,textDecoration:"none",fontWeight:600,flexShrink:0}}>📊 BPO</a>}
+      {(userRole==="adm"||userRole==="acesso_total"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"8px 16px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",background:`${G}12`,border:`1px solid ${G}30`,color:G,textDecoration:"none",fontWeight:600,flexShrink:0}}>📊 BPO</a>}
     </div>
 
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>
