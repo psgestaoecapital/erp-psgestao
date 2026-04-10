@@ -26,8 +26,19 @@ export async function POST(req: NextRequest) {
     const { data: companies } = await supabase.from("companies").select("*").in("id", compIds);
     const compInfo = (companies || []).map(c => `${c.nome_fantasia || c.razao_social} | CNPJ: ${c.cnpj || "N/I"} | ${c.cidade_estado || ""} | Setor: ${c.setor || "N/I"} | ${c.num_colaboradores || "N/I"} colaboradores | Regime: ${c.regime_tributario || "N/I"} | Faturamento: ${c.faturamento_anual ? fmtR(Number(c.faturamento_anual)) : "N/I"}`).join("\n");
 
-    // 2. DADOS IMPORTADOS (Omie, ContaAzul, Bling ou qualquer ERP integrado)
-    const { data: imports } = await supabase.from("omie_imports").select("*").in("company_id", compIds);
+    // 2. DADOS IMPORTADOS — com deduplicação e filtro de cancelados
+    const { data: rawImports } = await supabase.from("omie_imports").select("*").in("company_id", compIds);
+    // DEDUP: manter apenas o mais recente por (company_id, import_type)
+    const impMap = new Map<string, any>();
+    if (rawImports) for (const imp of rawImports) {
+      const key = `${imp.company_id}|${imp.import_type}`;
+      const existing = impMap.get(key);
+      if (!existing || new Date(imp.imported_at || 0) > new Date(existing.imported_at || 0)) impMap.set(key, imp);
+    }
+    const imports = Array.from(impMap.values());
+
+    const STATUS_EXCL = new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
+
     let totalRec = 0, totalDesp = 0, totalEmp = 0, totalClientes = 0, totalProdutos = 0;
     const recCats: Record<string, number> = {};
     const despCats: Record<string, number> = {};
@@ -48,11 +59,11 @@ export async function POST(req: NextRequest) {
         }
         if (imp.import_type === "contas_receber") {
           const regs = imp.import_data?.conta_receber_cadastro || [];
-          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; const cat = r.codigo_categoria || "sem_cat"; const desc = r.descricao_categoria || cat; const status = r.status_titulo || ""; if (cat.startsWith("2.") || cat.startsWith("4.") || cat.startsWith("5.")) { totalEmp += v; } else { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; } contasReceber.push({ valor: v, vencimento: r.data_vencimento, status, cliente: clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
+          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; if (v <= 0) continue; const st = (r.status_titulo || "").toUpperCase().trim(); if (STATUS_EXCL.has(st)) continue; const cat = r.codigo_categoria || "sem_cat"; const desc = r.descricao_categoria || cat; const status = r.status_titulo || ""; const descL = desc.toLowerCase(); if (cat.startsWith("4.") || cat.startsWith("5.") || descL.includes("empréstimo") || descL.includes("financiamento") || descL.includes("aporte") || descL.includes("transferência")) { totalEmp += v; } else { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; } contasReceber.push({ valor: v, vencimento: r.data_vencimento, status, cliente: clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
         }
         if (imp.import_type === "contas_pagar") {
           const regs = imp.import_data?.conta_pagar_cadastro || [];
-          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; const desc = r.descricao_categoria || r.codigo_categoria || "sem_cat"; totalDesp += v; despCats[desc] = (despCats[desc] || 0) + v; contasPagar.push({ valor: v, vencimento: r.data_vencimento, status: r.status_titulo || "", fornecedor: r.observacao || clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
+          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; if (v <= 0) continue; const st = (r.status_titulo || "").toUpperCase().trim(); if (STATUS_EXCL.has(st)) continue; const desc = r.descricao_categoria || r.codigo_categoria || "sem_cat"; totalDesp += v; despCats[desc] = (despCats[desc] || 0) + v; contasPagar.push({ valor: v, vencimento: r.data_vencimento, status: r.status_titulo || "", fornecedor: r.observacao || clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
         }
         if (imp.import_type === "estoque") {
           const est = imp.import_data?.produtos || imp.import_data || [];
