@@ -177,7 +177,7 @@ export default function FichaTecnicaPage(){
     setGroups(grps||[]);
 
     let compData:any[]=[];
-    if(userP?.role==="adm"){
+    if(userP?.role==="adm"||userP?.role==="acesso_total"){
       const{data}=await supabase.from("companies").select("*").order("nome_fantasia");
       compData=data||[];
     } else if(user){
