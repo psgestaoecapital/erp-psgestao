@@ -134,6 +134,7 @@ export default function DashboardPage(){
   const ROLE_NAMES:Record<string,string>={adm:"Administrador",acesso_total:"Acesso Total",socio:"Sócio/CEO",diretor_industrial:"Diretor Industrial",gerente_planta:"Gerente Planta",financeiro:"Financeiro",comercial:"Comercial",supervisor:"Supervisor",coordenador:"Coordenador",operacional:"Operador",consultor:"Consultor",conselheiro:"Conselheiro",visualizador:"Visualizador"};
 
   const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço"},{id:"indicadores",nome:"Indicadores"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
+  const isDemoMode=typeof window!=="undefined"&&localStorage.getItem("ps_demo_mode")==="true";
   const allowedTabs=ROLE_TABS[userRole]||ROLE_TABS.admin;
   const abas=todasAbas.filter(a=>allowedTabs.includes(a.id));
   const abasDemo: string[] = [];
@@ -579,8 +580,8 @@ export default function DashboardPage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div>
-            <div style={{fontSize:15,color:GOL,fontWeight:700,letterSpacing:0.3}}>{empresaAtiva.isGroup?"📁 ":""}{empresaAtiva.isGroup&&empresaAtiva.groupName?empresaAtiva.groupName:empresaAtiva.nome}</div>
-            <div style={{fontSize:10,color:TXD,marginTop:1}}>
+            <div className={isDemoMode?"ps-blur":""} style={{fontSize:15,color:GOL,fontWeight:700,letterSpacing:0.3}}>{empresaAtiva.isGroup?"📁 ":""}{empresaAtiva.isGroup&&empresaAtiva.groupName?empresaAtiva.groupName:empresaAtiva.nome}</div>
+            <div className={isDemoMode?"ps-blur":""} style={{fontSize:10,color:TXD,marginTop:1}}>
               {empresaAtiva.cidade}{empresaAtiva.colab?` · ${empresaAtiva.colab} colab.`:""}
               {empresaAtiva.isGroup&&empresaAtiva.groupCount>1?` · ${empresaAtiva.groupCount} empresas`:""}
               <span style={{marginLeft:6,padding:"1px 6px",borderRadius:4,fontSize:8,fontWeight:600,
@@ -592,7 +593,7 @@ export default function DashboardPage(){
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {grupoEmpresas.length>1&&(
-            <select value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600,maxWidth:200}}>
+            <select className={isDemoMode?"ps-blur":""} value={empresaSel} onChange={e=>setEmpresaSel(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:600,maxWidth:200}}>
               <option value="consolidado">📊 Todas ({dbCompanies.length})</option>
               {gruposComEmpresas.map(g=>(
                 <optgroup key={g.id} label="───────────">
