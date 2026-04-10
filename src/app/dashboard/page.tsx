@@ -1667,8 +1667,18 @@ export default function DashboardPage(){
                 body:JSON.stringify({company_ids:compIds,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
               });
               const text=await res.text();
-              try{const d=JSON.parse(text);if(d.success)setReportText(d.report);else setReportText("Erro: "+(d.error||"desconhecido"));}
-              catch{setReportText("Erro: Resposta inválida do servidor. Verifique se SUPABASE_SERVICE_ROLE_KEY está configurada no Vercel.");}
+              try{const d=JSON.parse(text);if(d.success)setReportText(d.report);else{
+                const err=d.error||"desconhecido";
+                let desc="";
+                if(err.includes("Overloaded"))desc="\n\n💡 O que aconteceu: O servidor de IA está temporariamente sobrecarregado com muitas solicitações simultâneas.\n\n✅ O que fazer: Aguarde 2-3 minutos e tente novamente. Isso é normal em horários de pico.";
+                else if(err.includes("rate"))desc="\n\n💡 O que aconteceu: Muitas solicitações em pouco tempo.\n\n✅ O que fazer: Aguarde 1 minuto e tente novamente.";
+                else if(err.includes("ANTHROPIC_API_KEY"))desc="\n\n💡 O que aconteceu: A chave da IA não está configurada no servidor.\n\n✅ O que fazer: Entre em contato com o administrador para configurar a variável ANTHROPIC_API_KEY no Vercel.";
+                else if(err.includes("timeout")||err.includes("Timeout"))desc="\n\n💡 O que aconteceu: A geração do relatório demorou mais que o esperado (limite: 5 minutos).\n\n✅ O que fazer: Tente selecionar um período menor ou menos empresas.";
+                else if(err.includes("500")||err.includes("Internal"))desc="\n\n💡 O que aconteceu: Erro interno no servidor.\n\n✅ O que fazer: Aguarde alguns minutos e tente novamente. Se persistir, entre em contato com o suporte.";
+                else desc="\n\n💡 Tente novamente em alguns minutos. Se o erro persistir, entre em contato com o suporte.";
+                setReportText("⚠️ Erro ao gerar relatório: "+err+desc);
+              }}
+              catch{setReportText("⚠️ Erro: Resposta inválida do servidor.\n\n💡 O que aconteceu: O servidor retornou uma resposta que não é válida.\n\n✅ O que fazer: Verifique se a chave SUPABASE_SERVICE_ROLE_KEY está configurada no Vercel. Tente novamente em 2 minutos.");}
             } else {
               // Quick report
               const res=await fetch("/api/report",{
@@ -1676,10 +1686,16 @@ export default function DashboardPage(){
                 body:JSON.stringify({financial_data:realData,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
               });
               const text=await res.text();
-              try{const d=JSON.parse(text);if(d.success)setReportText(d.report);else setReportText("Erro: "+(d.error||"desconhecido"));}
-              catch{setReportText("Erro: Resposta inválida do servidor.");}
+              try{const d=JSON.parse(text);if(d.success)setReportText(d.report);else setReportText("⚠️ Erro: "+(d.error||"desconhecido")+"\n\n💡 Tente novamente em alguns minutos.");}
+              catch{setReportText("⚠️ Erro: Resposta inválida do servidor.\n\n💡 Tente novamente em 2 minutos.");}
             }
-          } catch(e:any) { setReportText("Erro: "+e.message); }
+          } catch(e:any) { 
+            let desc="";
+            if(e.message?.includes("Failed to fetch"))desc="\n\n💡 O que aconteceu: Não foi possível conectar ao servidor. Verifique sua conexão com a internet.";
+            else if(e.message?.includes("timeout"))desc="\n\n💡 O que aconteceu: A conexão expirou. O relatório V19 pode levar até 2 minutos para gerar.";
+            else desc="\n\n💡 Tente novamente em alguns minutos.";
+            setReportText("⚠️ Erro: "+e.message+desc);
+          }
           setReportLoading(false);
         }} disabled={reportLoading||!realData} style={{
           width:"100%",padding:16,border:"none",borderRadius:12,
