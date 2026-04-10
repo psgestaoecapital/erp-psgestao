@@ -29,6 +29,11 @@ export default function WealthLayout({children}:{children:React.ReactNode}){
       setUser(data.user);
       const{data:profile}=await supabase.from("users").select("role").eq("id",data.user.id).single();
       if(profile?.role)setRole(profile.role);
+      // SECURITY: Block non-wealth users
+      if(profile?.role && profile.role !== "wealth_advisor" && profile.role !== "wealth_admin") {
+        router.push("/dashboard");
+        return;
+      }
       setLoading(false);
     }).catch(()=>router.push("/"));
   },[router]);
