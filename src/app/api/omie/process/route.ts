@@ -4,27 +4,29 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = 'force-dynamic';
 
 const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
 
 function parseMesAno(dt: string): string | null {
   if (!dt || typeof dt !== "string") return null;
-  // DD/MM/YYYY format (Omie standard)
-  const p = dt.split("/");
-  if (p.length === 3) {
-    const mes = parseInt(p[1]);
-    let ano = parseInt(p[2]);
-    if (p[2].length === 2) ano = 2000 + ano;
-    if (ano >= 2020 && ano <= 2030 && mes >= 1 && mes <= 12) {
-      return `${ano}-${String(mes).padStart(2,"0")}`;
-    }
+  const p1 = dt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (p1) {
+    const mes = parseInt(p1[2]);
+    let ano = parseInt(p1[3]);
+    if (p1[3].length === 2) ano = 2000 + ano;
+    if (ano >= 2020 && ano <= 2030 && mes >= 1 && mes <= 12) return `${ano}-${String(mes).padStart(2, "0")}`;
+  }
+  const p2 = dt.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (p2) {
+    const ano = parseInt(p2[1]); const mes = parseInt(p2[2]);
+    if (ano >= 2020 && ano <= 2030 && mes >= 1 && mes <= 12) return `${ano}-${String(mes).padStart(2, "0")}`;
   }
   return null;
 }
 
 function fmtMes(key: string): string {
-  const [a,m] = key.split("-");
-  const n = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-  return `${n[parseInt(m)-1]}/${a.slice(2)}`;
+  const [a, m] = key.split("-");
+  const n = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${n[parseInt(m) - 1]}/${a.slice(2)}`;
 }
 
 function classifyCat(cod: string): string {
@@ -37,37 +39,53 @@ function classifyCat(cod: string): string {
   return "outros";
 }
 
+const STATUS_EXCLUIDOS = new Set([
+  "CANCELADO", "CANCELADA", "ESTORNADO", "ESTORNADA",
+  "DEVOLVIDO", "DEVOLVIDA", "ANULADO", "ANULADA",
+  "REJEITADO", "REJEITADA", "CANCELAMENTO",
+]);
+
+function isStatusValido(status: string): boolean {
+  return !STATUS_EXCLUIDOS.has((status || "").toUpperCase().trim());
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { company_ids, periodo_inicio, periodo_fim, regime } = await req.json();
-    // regime: "competencia" (default) | "caixa"
     const regimeCaixa = regime === "caixa";
     const supabase = createClient(supabaseUrl, supabaseKey);
     let query = supabase.from("omie_imports").select("*");
     if (company_ids?.length > 0) query = query.in("company_id", company_ids);
-    const { data: imports, error } = await query;
+    const { data: rawImports, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!imports?.length) return NextResponse.json({ error: "Sem dados" }, { status: 404 });
+    if (!rawImports?.length) return NextResponse.json({ error: "Sem dados" }, { status: 404 });
 
-    // Period filter (YYYY-MM format)
+    // DEDUP: keep only most recent per (company_id, import_type)
+    const importMap = new Map<string, any>();
+    for (const imp of rawImports) {
+      const key = `${imp.company_id}|${imp.import_type}`;
+      const existing = importMap.get(key);
+      if (!existing || new Date(imp.imported_at || 0) > new Date(existing.imported_at || 0)) importMap.set(key, imp);
+    }
+    const imports = Array.from(importMap.values());
+    const duplicatasRemovidas = rawImports.length - imports.length;
+
     const pInicio = periodo_inicio || "2020-01";
     const pFim = periodo_fim || "2030-12";
 
-    // Category name map - handle multiple Omie field name formats
     const catMap: Record<string, string> = {};
     for (const cat of imports.filter((i: any) => i.import_type === "categorias")) {
       const regs = cat.import_data?.categoria_cadastro || (Array.isArray(cat.import_data) ? cat.import_data : []);
-      if (Array.isArray(regs)) {
-        for (const c of regs) {
-          const cod = c.codigo || c.cCodigo || c.cCodCateg || "";
-          const desc = c.descricao || c.cDescricao || c.cDescrCateg || "";
-          if (cod) catMap[cod] = desc || cod;
-        }
+      if (Array.isArray(regs)) for (const c of regs) {
+        const cod = c.codigo || c.cCodigo || c.cCodCateg || "";
+        const desc = c.descricao || c.cDescricao || c.cDescrCateg || "";
+        if (cod) catMap[cod] = desc || cod;
       }
     }
 
-    // === PROCESS CONTAS A PAGAR (DESPESAS) ===
-    const despPorCat: Record<string, { nome: string; valor: number; tipo: string; meses: Record<string,number> }> = {};
+    let audit = { registros_pagar_total: 0, registros_pagar_cancelados: 0, registros_pagar_validos: 0, registros_receber_total: 0, registros_receber_cancelados: 0, registros_receber_validos: 0, registros_sem_data: 0, duplicatas_removidas: duplicatasRemovidas, emprestimos_excluidos_receita: 0 };
+
+    const despPorCat: Record<string, { nome: string; valor: number; tipo: string; meses: Record<string, number> }> = {};
     const despPorMes: Record<string, Record<string, number>> = {};
     let totalDesp = 0;
 
@@ -75,21 +93,19 @@ export async function POST(req: NextRequest) {
       const regs = cp.import_data?.conta_pagar_cadastro || (Array.isArray(cp.import_data) ? cp.import_data : []);
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
-        // Omie fields: valor_documento (number), data_emissao (DD/MM/YYYY), codigo_categoria (string)
+        audit.registros_pagar_total++;
         const v = Number(r.valor_documento) || 0;
         if (v <= 0) continue;
-        const status = (r.status_titulo || "").toUpperCase();
-        // Regime de Caixa: só inclui itens efetivamente pagos
+        const status = (r.status_titulo || "").toUpperCase().trim();
+        if (!isStatusValido(status)) { audit.registros_pagar_cancelados++; continue; }
         if (regimeCaixa && status !== "PAGO" && status !== "LIQUIDADO" && status !== "BAIXADO") continue;
+        audit.registros_pagar_validos++;
         const cat = r.codigo_categoria || "sem_cat";
-        // Regime de Caixa: usa data de pagamento; Competência: usa data de emissão
-        const dt = regimeCaixa
-          ? (r.data_pagamento || r.data_baixa || r.data_emissao || r.data_vencimento || "")
-          : (r.data_emissao || r.data_vencimento || r.data_previsao || "");
+        const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_emissao || r.data_vencimento || "") : (r.data_emissao || r.data_vencimento || r.data_previsao || "");
         const ma = parseMesAno(dt);
-        if (ma && (ma < pInicio || ma > pFim)) continue; // Period filter
+        if (!ma) audit.registros_sem_data++;
+        if (ma && (ma < pInicio || ma > pFim)) continue;
         const tipo = classifyCat(cat);
-
         totalDesp += v;
         if (!despPorCat[cat]) despPorCat[cat] = { nome: catMap[cat] || cat, valor: 0, tipo, meses: {} };
         despPorCat[cat].valor += v;
@@ -102,180 +118,114 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // === PROCESS CONTAS A RECEBER (RECEITAS) ===
     const recPorMes: Record<string, number> = {};
-    const recPorCat: Record<string, { nome: string; valor: number; operacional: boolean; meses: Record<string,number> }> = {};
-    let totalRec = 0;
-    let totalRecOperacional = 0;
-    let totalEmprestimos = 0;
+    const recOperacionalPorMes: Record<string, number> = {};
+    const recPorCat: Record<string, { nome: string; valor: number; operacional: boolean; meses: Record<string, number> }> = {};
+    let totalRec = 0, totalRecOperacional = 0, totalEmprestimos = 0;
 
     for (const cr of imports.filter((i: any) => i.import_type === "contas_receber")) {
       const regs = cr.import_data?.conta_receber_cadastro || (Array.isArray(cr.import_data) ? cr.import_data : []);
       if (!Array.isArray(regs)) continue;
       for (const r of regs) {
+        audit.registros_receber_total++;
         const v = Number(r.valor_documento) || 0;
         if (v <= 0) continue;
-        const statusRec = (r.status_titulo || "").toUpperCase();
-        // Regime de Caixa: só inclui itens efetivamente recebidos
+        const statusRec = (r.status_titulo || "").toUpperCase().trim();
+        if (!isStatusValido(statusRec)) { audit.registros_receber_cancelados++; continue; }
         if (regimeCaixa && statusRec !== "RECEBIDO" && statusRec !== "LIQUIDADO" && statusRec !== "BAIXADO") continue;
+        audit.registros_receber_validos++;
         const cat = r.codigo_categoria || "sem_cat";
-        // Regime de Caixa: usa data de recebimento; Competência: usa data de emissão
-        const dt = regimeCaixa
-          ? (r.data_pagamento || r.data_baixa || r.data_recebimento || r.data_emissao || r.data_vencimento || "")
-          : (r.data_emissao || r.data_vencimento || r.data_previsao || "");
+        const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_recebimento || r.data_emissao || r.data_vencimento || "") : (r.data_emissao || r.data_vencimento || r.data_previsao || "");
         const ma = parseMesAno(dt);
-        if (ma && (ma < pInicio || ma > pFim)) continue; // Period filter
+        if (!ma) audit.registros_sem_data++;
+        if (ma && (ma < pInicio || ma > pFim)) continue;
         const nome = catMap[cat] || cat;
-        
-        // Classify: operational revenue vs non-operational
         const isOperacional = cat.startsWith("1.") && !nome.toLowerCase().includes("empréstimo") && !nome.toLowerCase().includes("financiamento") && !nome.toLowerCase().includes("aporte");
-        const isEmprestimo = cat.startsWith("4.") || cat.startsWith("5.") || cat.startsWith("0.") || 
-          nome.toLowerCase().includes("empréstimo") || nome.toLowerCase().includes("financiamento") || 
-          nome.toLowerCase().includes("aporte") || nome.toLowerCase().includes("transferência");
+        const isEmprestimo = cat.startsWith("4.") || cat.startsWith("5.") || cat.startsWith("0.") || nome.toLowerCase().includes("empréstimo") || nome.toLowerCase().includes("financiamento") || nome.toLowerCase().includes("aporte") || nome.toLowerCase().includes("transferência");
 
         totalRec += v;
-        if (isEmprestimo) {
-          totalEmprestimos += v;
-        } else {
-          totalRecOperacional += v;
-        }
-        
+        if (isEmprestimo) { totalEmprestimos += v; audit.emprestimos_excluidos_receita++; } else { totalRecOperacional += v; }
         if (!recPorCat[cat]) recPorCat[cat] = { nome, valor: 0, operacional: !isEmprestimo, meses: {} };
         recPorCat[cat].valor += v;
         if (ma) {
           recPorCat[cat].meses[ma] = (recPorCat[cat].meses[ma] || 0) + v;
           recPorMes[ma] = (recPorMes[ma] || 0) + v;
+          if (!isEmprestimo) recOperacionalPorMes[ma] = (recOperacionalPorMes[ma] || 0) + v;
         }
       }
     }
 
-    // === BUILD DRE MENSAL ===
-    const allM = [...new Set([...Object.keys(recPorMes), ...Object.keys(despPorMes)])].sort();
-    
-    // Filter: only months up to current month (exclude future dates)
+    const allM = [...new Set([...Object.keys(recOperacionalPorMes), ...Object.keys(despPorMes)])].sort();
     const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const pastM = allM.filter(m => m <= currentMonth);
 
     const dreMensal = pastM.map(m => {
       const d = despPorMes[m] || {};
-      const rec = recPorMes[m] || 0;
-      const cd = d.custo_direto || 0;
-      const da = d.despesa_adm || 0;
-      const dd = d.deducao || 0;
-      const df = d.financeiro || 0;
-      const dout = d.outros || 0;
-      return {
-        mes: m, mesLabel: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd,
-        despesas_adm: da, financeiro: df, outros: dout,
-        margem: rec - cd - dd, lucro_op: rec - cd - dd - da,
-        lucro_final: rec - cd - dd - da - df - dout
-      };
+      const rec = recOperacionalPorMes[m] || 0;
+      const cd = d.custo_direto || 0; const da = d.despesa_adm || 0; const dd = d.deducao || 0; const df = d.financeiro || 0; const dout = d.outros || 0;
+      return { mes: m, mesLabel: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd, despesas_adm: da, financeiro: df, outros: dout, margem: rec - cd - dd, lucro_op: rec - cd - dd - da, lucro_final: rec - cd - dd - da - df - dout };
     });
 
-    // === CHART DATA (last 12 months) ===
     const chartMensal = pastM.slice(-12).map(m => ({
       mes: m, mesLabel: fmtMes(m),
-      receitas: recPorMes[m] || 0,
+      receitas: recOperacionalPorMes[m] || 0,
       despesas: despPorMes[m]?.["_total"] || 0,
-      resultado: (recPorMes[m] || 0) - (despPorMes[m]?.["_total"] || 0),
+      resultado: (recOperacionalPorMes[m] || 0) - (despPorMes[m]?.["_total"] || 0),
     }));
 
-    // === TOP CUSTOS & RECEITAS ===
-    const topCustos = Object.entries(despPorCat).map(([cod,v])=>({...v,cod})).sort((a, b) => b.valor - a.valor).slice(0, 20);
-    const topReceitas = Object.entries(recPorCat).map(([cod,v])=>({...v,cod})).sort((a, b) => b.valor - a.valor).slice(0, 10);
+    const topCustos = Object.entries(despPorCat).map(([cod, v]) => ({ ...v, cod })).sort((a, b) => b.valor - a.valor).slice(0, 20);
+    const topReceitas = Object.entries(recPorCat).map(([cod, v]) => ({ ...v, cod })).sort((a, b) => b.valor - a.valor).slice(0, 10);
 
-    // === COST GROUPS (Mapa de Custos) ===
     const gruposCusto: Record<string, { nome: string; total: number; contas: any[] }> = {};
     for (const info of Object.values(despPorCat)) {
-      const g = info.tipo === "custo_direto" ? "Custos Diretos" :
-               info.tipo === "despesa_adm" ? "Despesas Administrativas" :
-               info.tipo === "deducao" ? "Deduções e Impostos" :
-               info.tipo === "financeiro" ? "Resultado Financeiro" : "Outros";
+      const g = info.tipo === "custo_direto" ? "Custos Diretos" : info.tipo === "despesa_adm" ? "Despesas Administrativas" : info.tipo === "deducao" ? "Deduções e Impostos" : info.tipo === "financeiro" ? "Resultado Financeiro" : "Outros";
       if (!gruposCusto[g]) gruposCusto[g] = { nome: g, total: 0, contas: [] };
       gruposCusto[g].total += info.valor;
       gruposCusto[g].contas.push({ nome: info.nome, valor: info.valor, meses: info.meses });
     }
     for (const g of Object.values(gruposCusto)) g.contas.sort((a: any, b: any) => b.valor - a.valor);
 
-    // === ORÇAMENTO (budget data) ===
     let orcMap: Record<string, number> = {};
     try {
       const { data: orcData } = await supabase.from("orcamento").select("categoria,valor_orcado,tipo").in("company_id", company_ids);
-      if (orcData && orcData.length > 0) {
-        for (const o of orcData) {
-          const key = (o.categoria || "").toLowerCase().trim();
-          orcMap[key] = (orcMap[key] || 0) + Number(o.valor_orcado || 0);
-        }
-      }
-    } catch {}
+      if (orcData && orcData.length > 0) for (const o of orcData) { const key = (o.categoria || "").toLowerCase().trim(); orcMap[key] = (orcMap[key] || 0) + Number(o.valor_orcado || 0); }
+    } catch { }
 
-    // Enrich topCustos with orçado
-    for (const c of topCustos as any[]) {
-      const key = (c.nome || "").toLowerCase().trim();
-      const cod = (c.cod || "").toLowerCase().trim();
-      c.orcado = orcMap[key] || orcMap[cod] || 0;
-      c.variacao = c.orcado > 0 ? ((c.valor / c.orcado - 1) * 100) : null;
-    }
-    // Enrich topReceitas with orçado
-    for (const r of topReceitas as any[]) {
-      const key = (r.nome || "").toLowerCase().trim();
-      const cod = (r.cod || "").toLowerCase().trim();
-      r.orcado = orcMap[key] || orcMap[cod] || 0;
-      r.variacao = r.orcado > 0 ? ((r.valor / r.orcado - 1) * 100) : null;
-    }
-    // Enrich gruposCusto with orçado
+    for (const c of topCustos as any[]) { const key = (c.nome || "").toLowerCase().trim(); const cod = (c.cod || "").toLowerCase().trim(); c.orcado = orcMap[key] || orcMap[cod] || 0; c.variacao = c.orcado > 0 ? ((c.valor / c.orcado - 1) * 100) : null; }
+    for (const r of topReceitas as any[]) { const key = (r.nome || "").toLowerCase().trim(); const cod = (r.cod || "").toLowerCase().trim(); r.orcado = orcMap[key] || orcMap[cod] || 0; r.variacao = r.orcado > 0 ? ((r.valor / r.orcado - 1) * 100) : null; }
     for (const g of Object.values(gruposCusto) as any[]) {
       g.orcado = g.contas.reduce((s: number, c: any) => s + (c.orcado || 0), 0);
       g.variacao = g.orcado > 0 ? ((g.total / g.orcado - 1) * 100) : null;
-      for (const c of g.contas as any[]) {
-        const key = (c.nome || "").toLowerCase().trim();
-        c.orcado = orcMap[key] || 0;
-        c.variacao = c.orcado > 0 ? ((c.valor / c.orcado - 1) * 100) : null;
-      }
+      for (const c of g.contas as any[]) { const key = (c.nome || "").toLowerCase().trim(); c.orcado = orcMap[key] || 0; c.variacao = c.orcado > 0 ? ((c.valor / c.orcado - 1) * 100) : null; }
     }
     const totalOrcadoDesp = Object.values(orcMap).reduce((s, v) => s + v, 0);
 
-    // Client count
     let totalCli = 0;
     for (const cl of imports.filter((i: any) => i.import_type === "clientes")) totalCli += cl.record_count || 0;
 
-    // Debug info
-    const catSample = imports.filter((i:any)=>i.import_type==="categorias")[0]?.import_data?.categoria_cadastro?.[0] || null;
-    const debug = {
-      meses_despesas: Object.keys(despPorMes).sort(),
-      meses_receitas: Object.keys(recPorMes).sort(),
-      registros_pagar: imports.filter((i:any)=>i.import_type==="contas_pagar").reduce((a:number,c:any)=>{
-        const r = c.import_data?.conta_pagar_cadastro; return a + (Array.isArray(r)?r.length:0);
-      },0),
-      registros_receber: imports.filter((i:any)=>i.import_type==="contas_receber").reduce((a:number,c:any)=>{
-        const r = c.import_data?.conta_receber_cadastro; return a + (Array.isArray(r)?r.length:0);
-      },0),
-      cat_map_size: Object.keys(catMap).length,
-      cat_sample: catSample ? JSON.stringify(Object.keys(catSample).slice(0,5)) : "nenhum",
-      cat_first_entry: Object.entries(catMap).slice(0,2).map(([k,v])=>`${k}=${v}`),
-    };
+    const resultado = totalRecOperacional - totalDesp;
+    const margem = totalRecOperacional > 0 ? ((resultado / totalRecOperacional) * 100).toFixed(1) : "0";
 
-    const response = NextResponse.json({ success: true, data: {
-      regime: regimeCaixa ? "caixa" : "competencia",
-      total_receitas: totalRec, total_despesas: totalDesp,
-      total_rec_operacional: totalRecOperacional,
-      total_emprestimos: totalEmprestimos,
-      resultado_periodo: totalRecOperacional - totalDesp,
-      margem: totalRecOperacional > 0 ? ((totalRecOperacional - totalDesp) / totalRecOperacional * 100).toFixed(1) : "0",
-      total_clientes: totalCli,
-      num_empresas: new Set(imports.map((i: any) => i.company_id)).size,
-      dre_mensal: dreMensal, chart_mensal: chartMensal,
-      top_custos: topCustos,
-      top_receitas: topReceitas,
-      top_receitas_operacionais: Object.entries(recPorCat).filter(([,r]:any)=>r.operacional).map(([cod,v])=>({...v,cod})).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
-      top_emprestimos: Object.entries(recPorCat).filter(([,r]:any)=>!r.operacional).map(([cod,v])=>({...v,cod})).sort((a:any,b:any)=>b.valor-a.valor).slice(0,10),
-      grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
-      total_orcado_despesas: totalOrcadoDesp,
-      variacao_global: totalOrcadoDesp > 0 ? ((totalDesp / totalOrcadoDesp - 1) * 100).toFixed(1) : null,
-      debug,
-    }});
-    response.headers.set("Cache-Control","no-store, no-cache, must-revalidate");
+    const response = NextResponse.json({
+      success: true, data: {
+        regime: regimeCaixa ? "caixa" : "competencia",
+        total_receitas: totalRec, total_despesas: totalDesp,
+        total_rec_operacional: totalRecOperacional, total_emprestimos: totalEmprestimos,
+        resultado_periodo: resultado, margem,
+        total_clientes: totalCli,
+        num_empresas: new Set(imports.map((i: any) => i.company_id)).size,
+        dre_mensal: dreMensal, chart_mensal: chartMensal,
+        top_custos: topCustos, top_receitas: topReceitas,
+        top_receitas_operacionais: Object.entries(recPorCat).filter(([, r]: any) => r.operacional).map(([cod, v]) => ({ ...v, cod })).sort((a: any, b: any) => b.valor - a.valor).slice(0, 10),
+        top_emprestimos: Object.entries(recPorCat).filter(([, r]: any) => !r.operacional).map(([cod, v]) => ({ ...v, cod })).sort((a: any, b: any) => b.valor - a.valor).slice(0, 10),
+        grupos_custo: Object.values(gruposCusto).sort((a, b) => b.total - a.total),
+        total_orcado_despesas: totalOrcadoDesp,
+        variacao_global: totalOrcadoDesp > 0 ? ((totalDesp / totalOrcadoDesp - 1) * 100).toFixed(1) : null,
+        audit,
+      }
+    });
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
     return response;
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
