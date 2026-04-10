@@ -30,42 +30,60 @@ export async function POST(req: NextRequest) {
     const { data: company } = await supabase.from("companies").select("*").eq("id", companyId).single();
     const compName = company?.nome_fantasia || company?.razao_social || "Empresa";
 
-    // 2. Financial imports (contas a pagar/receber)
-    const { data: imports } = await supabase.from("omie_imports").select("import_type,import_data,record_count").eq("company_id", companyId);
+    // 2. Financial imports — com deduplicação e filtro de cancelados
+    const { data: rawImports } = await supabase.from("omie_imports").select("import_type,import_data,record_count,imported_at").eq("company_id", companyId);
+    
+    // DEDUP: manter apenas o mais recente por import_type
+    const impMap = new Map<string, any>();
+    if (rawImports) for (const imp of rawImports) {
+      const existing = impMap.get(imp.import_type);
+      if (!existing || new Date(imp.imported_at || 0) > new Date(existing.imported_at || 0)) impMap.set(imp.import_type, imp);
+    }
+    const imports = Array.from(impMap.values());
 
-    let totalRec = 0, totalDesp = 0, totalVencido = 0;
+    const STATUS_EXCL = new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
+
+    let totalRec = 0, totalRecOp = 0, totalDesp = 0, totalVencido = 0, totalEmprestimos = 0;
     const topCustos: { nome: string; valor: number }[] = [];
     const topReceitas: { nome: string; valor: number }[] = [];
     const financPendentes: any[] = [];
     const recVencidos: any[] = [];
 
     if (imports) {
-      // Contas a receber
+      // Contas a receber — filtrar cancelados + separar empréstimos
       for (const imp of imports.filter(i => i.import_type === "contas_receber")) {
         const regs = imp.import_data?.conta_receber_cadastro || [];
         if (!Array.isArray(regs)) continue;
         for (const r of regs) {
           const v = Number(r.valor_documento) || 0;
+          if (v <= 0) continue;
+          const status = (r.status_titulo || "").toUpperCase().trim();
+          if (STATUS_EXCL.has(status)) continue;
+          const cat = r.codigo_categoria || "";
+          const desc = (r.descricao_categoria || "").toLowerCase();
+          const isEmp = cat.startsWith("4.") || cat.startsWith("5.") || desc.includes("empréstimo") || desc.includes("financiamento") || desc.includes("aporte") || desc.includes("transferência");
           totalRec += v;
-          const status = (r.status_titulo || "").toUpperCase();
+          if (isEmp) totalEmprestimos += v; else totalRecOp += v;
           if (status === "VENCIDO" || status === "ATRASADO") {
             totalVencido += v;
             recVencidos.push({ valor: v, cliente: r.codigo_cliente_fornecedor, venc: r.data_vencimento });
           }
         }
       }
-      // Contas a pagar
+      // Contas a pagar — filtrar cancelados
       const catTotals: Record<string, number> = {};
       for (const imp of imports.filter(i => i.import_type === "contas_pagar")) {
         const regs = imp.import_data?.conta_pagar_cadastro || [];
         if (!Array.isArray(regs)) continue;
         for (const r of regs) {
           const v = Number(r.valor_documento) || 0;
+          if (v <= 0) continue;
+          const status = (r.status_titulo || "").toUpperCase().trim();
+          if (STATUS_EXCL.has(status)) continue;
           totalDesp += v;
           const cat = r.descricao_categoria || r.codigo_categoria || "outros";
           catTotals[cat] = (catTotals[cat] || 0) + v;
-          const status = (r.status_titulo || "").toUpperCase();
-          if (status !== "PAGO" && status !== "LIQUIDADO" && status !== "CANCELADO") {
+          if (status !== "PAGO" && status !== "LIQUIDADO") {
             financPendentes.push({ valor: v, forn: r.observacao || r.codigo_cliente_fornecedor, venc: r.data_vencimento, cat });
           }
         }
@@ -110,8 +128,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 8. Fluxo de caixa resumo
-    const resultado = totalRec - totalDesp;
-    const margem = totalRec > 0 ? ((resultado / totalRec) * 100).toFixed(1) : "0";
+    const resultado = totalRecOp - totalDesp;
+    const margem = totalRecOp > 0 ? ((resultado / totalRecOp) * 100).toFixed(1) : "0";
 
     // ═══ PROCESS UPLOADED FILE ═══
     let fileContent = "";
@@ -151,7 +169,8 @@ export async function POST(req: NextRequest) {
 ═══ DADOS REAIS DA EMPRESA: ${compName} ═══
 
 📊 RESUMO FINANCEIRO:
-Receita total: ${fmtR(totalRec)}
+Receita operacional: ${fmtR(totalRecOp)}${totalEmprestimos > 0 ? ` (+ empréstimos/aportes: ${fmtR(totalEmprestimos)})` : ""}
+Despesa total: ${fmtR(totalDesp)}
 Despesa total: ${fmtR(totalDesp)}
 Resultado: ${fmtR(resultado)} (Margem: ${margem}%)
 Inadimplência: ${fmtR(totalVencido)} (${recVencidos.length} títulos vencidos)
@@ -242,7 +261,7 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
       answer,
       context_used: {
         empresa: compName,
-        receitas: fmtR(totalRec),
+        receitas: fmtR(totalRecOp),
         despesas: fmtR(totalDesp),
         resultado: fmtR(resultado),
         financiamentos: finData?.length || 0,
