@@ -56,7 +56,7 @@ export default function AdminPage(){
     const{data:{user}}=await supabase.auth.getUser();
     if(!user){setCheckingAuth(false);return;}
     const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    if(up?.role==="adm"){
+    if(up?.role==="adm"||up?.role==="acesso_total"){
       setIsAuthorized(true);
       loadData();
     }
