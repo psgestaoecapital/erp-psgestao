@@ -349,8 +349,8 @@ export default function DashboardPage(){
   useEffect(()=>{if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",empresaSel);},[empresaSel]);
   const [filtroTipo, setFiltroTipo] = useState<"mes"|"dia"|"periodo">("mes");
   const [periodoInicio, setPeriodoInicio] = useState(()=>{
-    const d=new Date(); d.setMonth(d.getMonth()-5);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const d=new Date();
+    return `${d.getFullYear()}-01`;
   });
   const [periodoFim, setPeriodoFim] = useState(()=>{
     const d=new Date();
