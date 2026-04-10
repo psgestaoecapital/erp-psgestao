@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 const pct = (v: number, t: number) => t > 0 ? (v / t * 100).toFixed(1) + "%" : "0%";
 
@@ -154,10 +154,34 @@ export async function POST(req: NextRequest) {
 
     // 7-8. DRE Divisional e Custos Sede já carregados acima na consolidação
 
-    // 9. ORCAMENTO
+    // 9. ORCAMENTO — CRUZAMENTO REAL vs ORÇADO
     const { data: orcData } = await supabase.from("orcamento").select("*").in("company_id", compIds);
     let orcText = "Não preenchido.";
-    if (orcData && orcData.length > 0) { orcText = orcData.map(o => { const r = Number(o.valor_real || 0); const orc = Number(o.valor_orcado || 0); const vp = orc > 0 ? ((r / orc - 1) * 100).toFixed(1) : "N/A"; return `${o.categoria || o.nome}: Real ${fmtR(r)} | Orçado ${fmtR(orc)} | Var ${vp}% ${orc > 0 ? (r <= orc ? "🟢" : r <= orc * 1.1 ? "🟡" : "🔴") : ""}`; }).join("\n"); }
+    // Build orçado lookup by category
+    const orcLookup: Record<string, number> = {};
+    if (orcData && orcData.length > 0) {
+      orcData.forEach(o => { if (o.categoria && o.valor_orcado) orcLookup[o.categoria] = Number(o.valor_orcado) || 0; });
+    }
+
+    // Cross-reference: for each DRE category (real), find the orçado value
+    const allCats = new Set([...Object.keys(recCats), ...Object.keys(despCats), ...Object.keys(orcLookup)]);
+    const orcComparativo: string[] = [];
+    let totalOrcReceita = 0, totalOrcDespesa = 0, totalRealReceita = totalRec, totalRealDespesa = totalDesp;
+    
+    for (const cat of Array.from(allCats).sort()) {
+      const real = (recCats[cat] || 0) + (despCats[cat] || 0);
+      const orc = orcLookup[cat] || 0;
+      if (real === 0 && orc === 0) continue;
+      const varPct = orc > 0 ? ((real / orc - 1) * 100).toFixed(1) : "N/A";
+      const status = orc > 0 ? (real <= orc ? "🟢" : real <= orc * 1.1 ? "🟡" : "🔴") : "";
+      orcComparativo.push(`${cat}: Real ${fmtR(real)} | Orçado ${fmtR(orc)} | Var ${varPct}% ${status}`);
+      if (recCats[cat]) totalOrcReceita += orc;
+      if (despCats[cat]) totalOrcDespesa += orc;
+    }
+
+    if (orcComparativo.length > 0) {
+      orcText = `RESUMO ORÇAMENTÁRIO:\nReceita Real: ${fmtR(totalRealReceita)} | Orçada: ${fmtR(totalOrcReceita)} ${totalOrcReceita > 0 ? `| Var: ${((totalRealReceita / totalOrcReceita - 1) * 100).toFixed(1)}%` : ""}\nDespesa Real: ${fmtR(totalRealDespesa)} | Orçada: ${fmtR(totalOrcDespesa)} ${totalOrcDespesa > 0 ? `| Var: ${((totalRealDespesa / totalOrcDespesa - 1) * 100).toFixed(1)}%` : ""}\n\nDETALHAMENTO POR CATEGORIA:\n${orcComparativo.join("\n")}`;
+    }
 
     // 10. PLANO DE ACAO
     const { data: planosData } = await supabase.from("plano_acao").select("*").in("company_id", compIds).order("created_at", { ascending: false });
@@ -208,16 +232,19 @@ ${compInfo} | Grupo: ${compIds.length} empresa(s) | ${totalClientes} clientes | 
 ${ctxText || "Não preenchido."}
 
 [BLOCO 2] DRE CONSOLIDADO (fonte: ${fonteReceita} para receitas, ${fonteDespesa} para despesas)
-Receita Operacional: ${fmtR(totalRec)} | Empréstimos: ${fmtR(totalEmp)} | Despesas: ${fmtR(totalDesp)}
+Receita Operacional: ${fmtR(totalRec)}${totalOrcReceita > 0 ? ` | Orçada: ${fmtR(totalOrcReceita)} | Var: ${((totalRec / totalOrcReceita - 1) * 100).toFixed(1)}%` : ""} 
+Empréstimos: ${fmtR(totalEmp)}
+Despesas: ${fmtR(totalDesp)}${totalOrcDespesa > 0 ? ` | Orçadas: ${fmtR(totalOrcDespesa)} | Var: ${((totalDesp / totalOrcDespesa - 1) * 100).toFixed(1)}%` : ""}
 ${recManual > 0 && totalRec !== recManual ? `Receitas manuais (linhas de negócio): ${fmtR(recManual)}` : ""}
 ${despManual > 0 && totalDesp !== despManual ? `Despesas manuais (linhas + sede): ${fmtR(despManual)}` : ""}
 RESULTADO: ${fmtR(resultado)} ${resultado >= 0 ? "🟢" : "🔴"} | Margem: ${margem}%
+${totalOrcReceita > 0 && totalOrcDespesa > 0 ? `Resultado Orçado: ${fmtR(totalOrcReceita - totalOrcDespesa)} | Desvio do resultado: ${fmtR(resultado - (totalOrcReceita - totalOrcDespesa))}` : ""}
 
-TOP 20 RECEITAS:
-${topRec.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v)} (${pct(v, totalRec)})`).join("\n") || "Sem dados"}
+TOP 20 RECEITAS (Real | Orçado | Variação):
+${topRec.map(([n, v], i) => { const orc = orcLookup[n] || 0; const varP = orc > 0 ? `Var ${((v as number / orc - 1) * 100).toFixed(1)}% ${v as number <= orc ? "🟢" : v as number <= orc * 1.1 ? "🟡" : "🔴"}` : "Sem orçamento"; return `${i + 1}. ${n}: Real ${fmtR(v as number)} (${pct(v as number, totalRec)}) | Orçado ${orc > 0 ? fmtR(orc) : "—"} | ${varP}`; }).join("\n") || "Sem dados"}
 
-TOP 20 DESPESAS:
-${topDesp.map(([n, v], i) => `${i + 1}. ${n}: ${fmtR(v)} (${pct(v, totalDesp)})`).join("\n") || "Sem dados"}
+TOP 20 DESPESAS (Real | Orçado | Variação):
+${topDesp.map(([n, v], i) => { const orc = orcLookup[n] || 0; const varP = orc > 0 ? `Var ${((v as number / orc - 1) * 100).toFixed(1)}% ${v as number <= orc ? "🟢" : v as number <= orc * 1.1 ? "🟡" : "🔴"}` : "Sem orçamento"; return `${i + 1}. ${n}: Real ${fmtR(v as number)} (${pct(v as number, totalDesp)}) | Orçado ${orc > 0 ? fmtR(orc) : "—"} | ${varP}`; }).join("\n") || "Sem dados"}
 
 [BLOCO 3] LINHAS DE NEGÓCIO
 ${blText}
@@ -280,7 +307,7 @@ Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao
 1. PAINEL CEO — KPIs (receita, despesa, resultado, margem, EBITDA, clientes). Semáforo geral.
 2. DRE ANALÍTICO — Receita, custos, margem bruta, despesas, EBITDA, resultado. Tabela + análise.
 3. LINHAS DE NEGÓCIO — Faturamento, custo, margem por linha. Ranking rentabilidade. Usar BLOCOS 3.
-4. MAPA DE CUSTOS — Top 20 despesas, % sobre receita, ABC. Oportunidades de redução com R$.
+4. MAPA DE CUSTOS — Top 20 despesas, % sobre receita, ABC. COMPARAR CADA DESPESA COM O ORÇADO (dados no BLOCO 2 e BLOCO 10). Semáforo: 🟢 dentro do orçado, 🟡 até 10% acima, 🔴 mais de 10% acima. Oportunidades de redução com R$.
 5. CAPITAL DE GIRO — AC vs PC, liquidez corrente/seca, NCG, ciclo financeiro. Usar BLOCO 5 e 6.
 6. FLUXO DE CAIXA — Receber vs pagar, projeção 30/60/90d, inadimplência, burn rate. BLOCO 8.
 7. INDICADORES — PE, EBITDA, ROE, ROA, Dív/EBITDA, Liquidez. Semáforo cada. BLOCO 6.
@@ -291,7 +318,7 @@ Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao
 12. MATRIZ DE RISCOS — 10 riscos dos dados. Probabilidade, impacto, mitigação.
 13. ESG — Governança, social, ambiental inferidos. Oportunidades e riscos.
 14. VALUATION — 3 métodos: múltiplo EBITDA, receita, FCD simples. Faixa de valor. BLOCO 15.
-15. ORÇAMENTO vs REAL — Variações, desvios, ações corretivas. BLOCO 10.
+15. ORÇAMENTO vs REAL — Tabela: cada categoria com Real, Orçado, Variação R$ e %. Semáforo por linha. Top 5 maiores desvios. Aderência geral. Usar BLOCOS 2 e 10.
 16. PLANO DE AÇÃO — Revisar existente (BLOCO 11) + 10 novas ações com prazo, responsável, R$.
 17. METAS 90 DIAS — 10 metas SMART com indicador e checkpoint mensal.
 18. CARTA AO ACIONISTA — 1 página formal. Diagnóstico honesto. Integrar contexto do empresário (BLOCO 1). Preocupações + avanços + recomendações. Assinar "PS — Conselheiro Digital".`;
