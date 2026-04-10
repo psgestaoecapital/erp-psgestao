@@ -158,57 +158,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Global Demo Mode Blur — oculta TODOS nomes de empresas, clientes, CNPJs */}
       {demoMode&&<style>{`
-        /* Selectors de empresa */
+        /* Seletor de empresa */
         select { filter: blur(5px) !important; user-select: none !important; }
-        select:focus { filter: blur(4px) !important; }
         
-        /* Nome da empresa no header, cards, titulos */
-        h1, h2, [class*="empresa"], [class*="company"] { }
+        /* Nome da empresa/grupo no TOPO do dashboard (fontSize ~15, cor dourada, bold) */
+        div[style*="fontSize:15"][style*="fontWeight:700"],
+        div[style*="font-size:15"][style*="font-weight:700"],
+        div[style*="fontSize: 15"][style*="fontWeight: 700"] { filter: blur(6px) !important; }
         
-        /* Cards de clientes no BPO e dashboard */
-        [style*="fontSize:14"][style*="fontWeight:600"],
-        [style*="fontSize: 14"][style*="fontWeight: 600"] { filter: blur(5px) !important; }
+        /* Subtitulo com cidade/info da empresa */
+        div[style*="fontSize:11"][style*="color:#918C82"],
+        div[style*="fontSize:11"][style*="color:#A8A498"],
+        span[style*="fontSize:11"][style*="color:#918C82"] { filter: blur(5px) !important; }
         
-        /* Nomes em tabelas - primeira coluna geralmente é nome */
+        /* Cards de clientes no BPO */
+        div[style*="fontSize:14"][style*="fontWeight:600"]:not([style*="color:#E8C872"]),
+        div[style*="fontSize:14"][style*="fontWeight:600"][style*="color:#F0ECE3"],
+        div[style*="fontSize:14"][style*="fontWeight:600"][style*="color:#E8E5DC"] { filter: blur(5px) !important; }
+        
+        /* CNPJ e info pequena */
+        div[style*="fontSize:10"][style*="color:#918C82"],
+        div[style*="fontSize:10"][style*="color:#A8A498"],
+        span[style*="fontSize:10"][style*="color:#918C82"] { filter: blur(5px) !important; }
+        
+        /* Nomes em tabelas - primeira coluna */
         table tbody tr td:first-child { filter: blur(5px) !important; }
-        table tbody tr td:first-child:hover { filter: blur(3px) !important; }
-        
-        /* Manter headers de tabela legíveis */
         table thead tr th { filter: none !important; }
         
-        /* Textos que parecem CNPJ (10-11px, cor cinza) */
-        [style*="fontSize:10"][style*="color:#918C82"],
-        [style*="fontSize: 10"][style*="color: #918C82"],
-        [style*="fontSize:10"][style*="color:#A8A498"] { filter: blur(5px) !important; }
-        
-        /* Tooltips */
-        [style*="position:fixed"][style*="zIndex:9999"] div[style*="fontWeight:600"],
-        [style*="position: fixed"][style*="z-index: 9999"] div[style*="font-weight: 600"] { filter: blur(5px) !important; }
-        
-        /* Visão Diária - nomes na coluna fixa */
-        td[style*="position:sticky"] { filter: blur(5px) !important; }
+        /* Visão Diária - coluna fixa com nomes */
+        td[style*="position:sticky"][style*="left:0"] { filter: blur(5px) !important; }
         th[style*="position:sticky"] { filter: none !important; }
-        /* Manter valores numéricos legíveis */
-        td[style*="text-align:right"]:not([style*="position:sticky"]) { filter: none !important; }
-        td[style*="textAlign:\"right\""]:not([style*="position:sticky"]) { filter: none !important; }
         
-        /* BPO - cards de empresa */
-        [style*="cursor:pointer"] [style*="fontSize:14"],
-        [style*="cursor: pointer"] [style*="font-size: 14"] { filter: blur(5px) !important; }
+        /* Valores numéricos = visíveis */
+        td[style*="textAlign"][style*="right"]:not([style*="sticky"]):not(:first-child) { filter: none !important; }
         
-        /* Classe manual para blur */
+        /* Tooltips com nomes */
+        div[style*="position:fixed"][style*="zIndex:9999"] div[style*="color:#B0AB9F"],
+        div[style*="position:fixed"][style*="zIndex:9999"] div[style*="color:#A8A498"] { filter: blur(5px) !important; }
+        
+        /* Títulos de módulos e KPIs = visíveis */
+        div[style*="fontSize:18"][style*="fontWeight:700"],
+        div[style*="fontSize:20"][style*="fontWeight:700"],
+        div[style*="fontSize:22"][style*="fontWeight:700"],
+        div[style*="fontSize:16"][style*="fontWeight:700"] { filter: none !important; }
+        
+        /* Relatório - nome da empresa */
+        div[style*="fontSize:13"][style*="fontWeight:600"][style*="color:#E8E5DC"] { filter: blur(5px) !important; }
+        
+        /* Nome na aba Relatório */
+        div[style*="fontSize:10"][style*="color:#A8A498"] { filter: blur(5px) !important; }
+        
+        /* Classe manual */
         .ps-blur, [data-blur] { filter: blur(6px) !important; user-select: none !important; }
-        .ps-blur:hover, [data-blur]:hover { filter: blur(3px) !important; }
-        
-        /* KPIs e valores devem ficar visíveis */
-        [style*="fontSize:18"][style*="fontWeight:700"],
-        [style*="fontSize:20"][style*="fontWeight:700"],
-        [style*="fontSize:16"][style*="fontWeight:700"],
-        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#22C55E"],
-        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#EF4444"],
-        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#FBBF24"],
-        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#C8941A"],
-        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#E8C872"] { filter: none !important; }
       `}</style>}
 
       {/* Guide Popup */}
