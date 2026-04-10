@@ -156,60 +156,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </header>
 
-      {/* Global Demo Mode Blur — oculta TODOS nomes de empresas, clientes, CNPJs */}
+      {/* Global Demo Mode — oculta nomes, mantém números visíveis */}
       {demoMode&&<style>{`
-        /* Seletor de empresa */
-        select { filter: blur(5px) !important; user-select: none !important; }
+        /* APENAS seletores de empresa — NÃO seletores de período */
+        select[style*="color:#E8C872"], select[style*="color: rgb(232, 200, 114)"] { filter: blur(5px) !important; }
         
-        /* Nome da empresa/grupo no TOPO do dashboard (fontSize ~15, cor dourada, bold) */
-        div[style*="fontSize:15"][style*="fontWeight:700"],
-        div[style*="font-size:15"][style*="font-weight:700"],
-        div[style*="fontSize: 15"][style*="fontWeight: 700"] { filter: blur(6px) !important; }
+        /* Nome do grupo/empresa no topo do dashboard */
+        div[style*="fontSize:15"][style*="fontWeight:700"][style*="color:#E8C872"],
+        div[style*="fontSize:15"][style*="fontWeight:700"][style*="color: rgb(232, 200, 114)"],
+        div[style*="font-size: 15px"][style*="font-weight: 700"] { filter: blur(6px) !important; }
         
-        /* Subtitulo com cidade/info da empresa */
-        div[style*="fontSize:11"][style*="color:#918C82"],
-        div[style*="fontSize:11"][style*="color:#A8A498"],
-        span[style*="fontSize:11"][style*="color:#918C82"] { filter: blur(5px) !important; }
+        /* Info da empresa abaixo do nome (cidade, CNPJ) */
+        div[style*="fontSize:11"][style*="color:#918C82"]:not([style*="textTransform"]):not([style*="text-transform"]),
+        span[style*="fontSize:11"][style*="color:#918C82"]:not([style*="uppercase"]) { filter: blur(5px) !important; }
         
-        /* Cards de clientes no BPO */
-        div[style*="fontSize:14"][style*="fontWeight:600"]:not([style*="color:#E8C872"]),
-        div[style*="fontSize:14"][style*="fontWeight:600"][style*="color:#F0ECE3"],
-        div[style*="fontSize:14"][style*="fontWeight:600"][style*="color:#E8E5DC"] { filter: blur(5px) !important; }
-        
-        /* CNPJ e info pequena */
-        div[style*="fontSize:10"][style*="color:#918C82"],
-        div[style*="fontSize:10"][style*="color:#A8A498"],
-        span[style*="fontSize:10"][style*="color:#918C82"] { filter: blur(5px) !important; }
-        
-        /* Nomes em tabelas - primeira coluna */
-        table tbody tr td:first-child { filter: blur(5px) !important; }
-        table thead tr th { filter: none !important; }
-        
-        /* Visão Diária - coluna fixa com nomes */
-        td[style*="position:sticky"][style*="left:0"] { filter: blur(5px) !important; }
-        th[style*="position:sticky"] { filter: none !important; }
-        
-        /* Valores numéricos = visíveis */
-        td[style*="textAlign"][style*="right"]:not([style*="sticky"]):not(:first-child) { filter: none !important; }
-        
-        /* Tooltips com nomes */
-        div[style*="position:fixed"][style*="zIndex:9999"] div[style*="color:#B0AB9F"],
-        div[style*="position:fixed"][style*="zIndex:9999"] div[style*="color:#A8A498"] { filter: blur(5px) !important; }
-        
-        /* Títulos de módulos e KPIs = visíveis */
-        div[style*="fontSize:18"][style*="fontWeight:700"],
-        div[style*="fontSize:20"][style*="fontWeight:700"],
-        div[style*="fontSize:22"][style*="fontWeight:700"],
-        div[style*="fontSize:16"][style*="fontWeight:700"] { filter: none !important; }
-        
-        /* Relatório - nome da empresa */
-        div[style*="fontSize:13"][style*="fontWeight:600"][style*="color:#E8E5DC"] { filter: blur(5px) !important; }
-        
-        /* Nome na aba Relatório */
-        div[style*="fontSize:10"][style*="color:#A8A498"] { filter: blur(5px) !important; }
-        
-        /* Classe manual */
-        .ps-blur, [data-blur] { filter: blur(6px) !important; user-select: none !important; }
+        /* Classe manual para qualquer elemento */
+        .ps-blur { filter: blur(6px) !important; user-select: none !important; }
       `}</style>}
 
       {/* Guide Popup */}
