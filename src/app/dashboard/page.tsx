@@ -642,7 +642,7 @@ export default function DashboardPage(){
     <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`,position:"sticky",top:82,zIndex:99,background:BG,alignItems:"center"}}>
       {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"8px 18px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",border:aba===a.id?`1px solid ${GO}50`:`1px solid transparent`,background:aba===a.id?`linear-gradient(135deg, ${GO}18, ${GO}08)`:"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,letterSpacing:0.3,transition:"all 0.2s",position:"relative"}}>{a.nome}{realData&&abasDemo.includes(a.id)&&<span style={{fontSize:7,color:Y,marginLeft:3,verticalAlign:"super"}}>demo</span>}</button>))}
       <div style={{width:1,height:20,background:BD,margin:"0 4px",flexShrink:0}}/>
-      {(userRole==="adm"||userRole==="acesso_total"||userRole==="socio"||userRole==="consultor")&&<a href="/dashboard/bpo" style={{padding:"8px 16px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",background:`${G}12`,border:`1px solid ${G}30`,color:G,textDecoration:"none",fontWeight:600,flexShrink:0}}>📊 BPO</a>}
+      {(userRole==="adm"||userRole==="acesso_total"||userRole==="socio"||userRole==="consultor"||userRole==="operacional")&&<a href="/dashboard/bpo" style={{padding:"8px 16px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",background:`${G}12`,border:`1px solid ${G}30`,color:G,textDecoration:"none",fontWeight:600,flexShrink:0}}>📊 BPO</a>}
     </div>
 
     <div style={{padding:"14px 20px",maxWidth:1200,margin:"0 auto"}}>
