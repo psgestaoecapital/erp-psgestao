@@ -32,7 +32,7 @@ export default function DevCentralPage(){
     const{data:{user}}=await supabase.auth.getUser();
     if(!user){setChecking(false);return;}
     const{data}=await supabase.from("users").select("role").eq("id",user.id).single();
-    if(data?.role==="adm"){setIsAdmin(true);loadChatHistory();}
+    if(data?.role==="adm"||data?.role==="acesso_total"){setIsAdmin(true);loadChatHistory();}
     setChecking(false);
   };
 
