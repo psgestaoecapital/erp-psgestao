@@ -239,20 +239,42 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
       });
     }
 
-    // ═══ CALL CLAUDE ═══
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8000,
-        system: `Você é o Conselheiro Financeiro IA da PS Gestão e Capital. Você tem acesso a TODOS os dados financeiros reais da empresa. Responda como um CFO sênior que conhece profundamente a empresa. Seja direto, use números reais, calcule cenários, e sempre dê uma RECOMENDAÇÃO CLARA no final (FAZER / NÃO FAZER / FAZER COM RESSALVAS). Use emojis para organizar e formatação clara.`,
-        messages,
-      }),
-    });
+    // ═══ CALL CLAUDE (com retry automático) ═══
+    let data: any = null;
+    let lastError = "";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 8000,
+            system: `Você é o Conselheiro Financeiro IA da PS Gestão e Capital. Você tem acesso a TODOS os dados financeiros reais da empresa. Responda como um CFO sênior que conhece profundamente a empresa. Seja direto, use números reais, calcule cenários, e sempre dê uma RECOMENDAÇÃO CLARA no final (FAZER / NÃO FAZER / FAZER COM RESSALVAS). Use emojis para organizar e formatação clara.`,
+            messages,
+          }),
+        });
+        data = await response.json();
+        if (data.error) {
+          const msg = data.error?.message || JSON.stringify(data.error);
+          if (msg.includes("Overloaded") || msg.includes("overloaded") || msg.includes("529")) {
+            lastError = msg;
+            if (attempt < 3) { await new Promise(r => setTimeout(r, 3000 * attempt)); continue; }
+          }
+          lastError = msg;
+        } else { break; }
+      } catch (e: any) { lastError = e.message; if (attempt < 3) await new Promise(r => setTimeout(r, 2000)); }
+    }
 
-    const data = await response.json();
-    if (data.error) return NextResponse.json({ error: `Claude API: ${data.error?.message || JSON.stringify(data.error)}` }, { status: 500 });
+    if (!data || data.error) {
+      const msg = lastError || "Erro desconhecido";
+      let friendly = "";
+      if (msg.includes("Overloaded") || msg.includes("overloaded")) friendly = "O servidor de IA está temporariamente sobrecarregado. Tentamos 3 vezes automaticamente. Por favor, aguarde 2-3 minutos e tente novamente.";
+      else if (msg.includes("rate")) friendly = "Muitas solicitações em pouco tempo. Aguarde 1 minuto e tente novamente.";
+      else if (msg.includes("timeout")) friendly = "A análise demorou mais que o esperado. Tente uma pergunta mais curta.";
+      else friendly = "Erro temporário na IA. Tente novamente em alguns minutos.";
+      return NextResponse.json({ error: `⚠️ ${friendly}` }, { status: 503 });
+    }
 
     const answer = data.content?.map((c: any) => c.text || "").join("") || "Erro ao processar.";
 
