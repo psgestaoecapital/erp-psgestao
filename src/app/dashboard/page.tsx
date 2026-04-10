@@ -1022,12 +1022,12 @@ export default function DashboardPage(){
 
         <Card p="8px">
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}>
               <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
                 {["",
                   ...realData.dre_mensal.slice(-6).map((d:any)=>d.mesLabel||d.mes),
-                  "Total"
-                ].map((h:string)=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:GOL,fontSize:10}}>{h}</th>)}
+                  "Total","Orçado","Var %"
+                ].map((h:string)=><th key={h} style={{padding:"8px 6px",textAlign:h===""?"left":"right",color:h==="Orçado"||h==="Var %"?GOL:GOL,fontSize:10}}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {[
@@ -1047,6 +1047,15 @@ export default function DashboardPage(){
                   const grupo = row.grupo ? realData.grupos_custo?.find((g:any)=>g.nome===row.grupo) : null;
                   const recCats = row.id==="fat" ? realData.top_receitas_operacionais : null;
                   const hasExpand = grupo || recCats;
+                  // Orçado: puxar do grupo de custos ou receitas
+                  let orcado = 0;
+                  if(grupo) orcado = grupo.orcado || 0;
+                  else if(row.id==="fat" && realData.top_receitas_operacionais) orcado = realData.top_receitas_operacionais.reduce((s:number,r:any)=>s+(r.orcado||0),0);
+                  else if(row.tp==="mg") orcado = (realData.top_receitas_operacionais||[]).reduce((s:number,r:any)=>s+(r.orcado||0),0) - ((realData.grupos_custo||[]).find((g:any)=>g.nome==="Custos Diretos")?.orcado||0) - ((realData.grupos_custo||[]).find((g:any)=>g.nome==="Deduções e Impostos")?.orcado||0);
+                  else if(row.tp==="lc") orcado = (realData.top_receitas_operacionais||[]).reduce((s:number,r:any)=>s+(r.orcado||0),0) - (realData.total_orcado_despesas||0) + ((realData.grupos_custo||[]).find((g:any)=>g.nome==="Resultado Financeiro")?.orcado||0) + ((realData.grupos_custo||[]).find((g:any)=>g.nome==="Outros")?.orcado||0);
+                  else if(row.tp==="fl") orcado = (realData.top_receitas_operacionais||[]).reduce((s:number,r:any)=>s+(r.orcado||0),0) - (realData.total_orcado_despesas||0);
+                  const varPct = orcado > 0 ? ((total / orcado - 1) * 100) : null;
+                  const varColor = varPct===null?TXD: row.tp==="fat"?(varPct>=0?G:R) : (varPct>5?R:varPct>0?Y:G);
                   return(<React.Fragment key={`dre-${i}`}>
                     <tr onClick={hasExpand?()=>setCustoAberto({...custoAberto,["dre_"+row.id]:!isOpen}):undefined}
                       style={{background:row.tp==="mg"?G+"10":row.tp==="lc"?GO+"10":row.tp==="fl"?GO+"18":"transparent",borderBottom:`0.5px solid ${BD}40`,cursor:hasExpand?"pointer":"default"}}>
@@ -1059,6 +1068,12 @@ export default function DashboardPage(){
                       </td>)}
                       <td style={{padding:6,textAlign:"right",fontWeight:700,color:total<0?R:total===0?TXD:["mg","lc","fl"].includes(row.tp)?GOL:TX}}>
                         {total===0?"—":total<0?`(R$ ${fmtN(Math.abs(total))})`:`R$ ${fmtN(total)}`}
+                      </td>
+                      <td style={{padding:6,textAlign:"right",fontSize:10,color:orcado>0?TXM:TXD}}>
+                        {orcado>0?`R$ ${fmtN(orcado)}`:"—"}
+                      </td>
+                      <td style={{padding:6,textAlign:"right",fontSize:10,fontWeight:600,color:varColor,minWidth:55}}>
+                        {varPct!==null?`${varPct>0?"+":""}${varPct.toFixed(1)}%`:"—"}
                       </td>
                     </tr>
                     {isOpen&&grupo&&grupo.contas.slice(0,12).map((c:any,ci:number)=>{
