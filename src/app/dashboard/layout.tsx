@@ -128,6 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button onClick={()=>setShowGuide(true)} style={{ fontSize: 10, color: completedCount<checklist.length?"#FBBF24":"#34D399", padding: "5px 12px", borderRadius: 8, border: `1px solid ${completedCount<checklist.length?"#FBBF2425":"#34D39925"}`, background: completedCount<checklist.length?"#FBBF2408":"#34D39908", fontWeight: 600 }}>
             {completedCount<checklist.length?`⚡ ${completedCount}/${checklist.length}`:"✓ Pronto"}
           </button>
+          <a href="/dashboard/visao-mensal" style={{ fontSize: 10, color: "#34D399", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #34D39930", background: "#34D39908", fontWeight: 600 }}>📅 Visão Diária</a>
           <a href="/dashboard/dados" style={{ fontSize: 10, color: "#E8C872", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #C6973F30", background: "#C6973F08", fontWeight: 600 }}>📊 Dados</a>
           <a href="/dashboard/rateio" style={{ fontSize: 10, color: "#FBBF24", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #FBBF2430", background: "#FBBF2408", fontWeight: 600 }}>📋 Rateio</a>
           <a href="/dashboard/orcamento" style={{ fontSize: 10, color: "#60A5FA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #60A5FA30", background: "#60A5FA08", fontWeight: 600 }}>📊 Orçamento</a>
