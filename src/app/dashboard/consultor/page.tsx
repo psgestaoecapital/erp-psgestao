@@ -26,7 +26,7 @@ export default function ConsultorPage(){
     if(!user){setLoadingDb(false);return;}
     const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
     let data:any[]=[];
-    if(up?.role==="adm"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
+    if(up?.role==="adm"||up?.role==="acesso_total"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
     else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);data=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
     if(data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=data.find(c=>c.id===saved);setSelectedComp(match?match.id:data[0].id);}
     setLoadingDb(false);
