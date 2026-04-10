@@ -13,7 +13,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userRole, setUserRole] = useState("");
   const [loading, setLoading] = useState(true);
   const [showGuide, setShowGuide] = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
+  const [demoMode, setDemoMode] = useState(()=>{if(typeof window!=="undefined"){return localStorage.getItem("ps_demo_mode")==="true";}return false;});
+
+  const toggleDemo=()=>{const nv=!demoMode;setDemoMode(nv);if(typeof window!=="undefined")localStorage.setItem("ps_demo_mode",String(nv));};
   const [checklist, setChecklist] = useState<{id:string,titulo:string,desc:string,ok:boolean,link:string}[]>([]);
   const router = useRouter();
 
@@ -142,7 +144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {(userRole==="adm"||userRole==="acesso_total")&&<a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>}
           {(userRole==="adm"||userRole==="acesso_total")&&<a href="/dashboard/dev" style={{ fontSize: 10, color: "#60A5FA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #60A5FA30", background: "#60A5FA08" }}>🛠️ Dev</a>}
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
-          <button onClick={()=>setDemoMode(!demoMode)} title={demoMode?"Desativar modo demonstração":"Ativar modo demonstração — oculta nomes"} style={{
+          <button onClick={toggleDemo} title={demoMode?"Desativar modo demonstração":"Ativar modo demonstração — oculta nomes"} style={{
             padding: "5px 10px", borderRadius: 8, border: `1px solid ${demoMode?"#22C55E30":"#2A2822"}`,
             background: demoMode?"#22C55E12":"transparent", color: demoMode?"#22C55E":"#918C82", fontSize: 10, fontWeight: 600, cursor: "pointer"
           }}>{demoMode?"👁️ Demo ON":"👁️‍🗨️"}</button>
@@ -154,15 +156,59 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </header>
 
-      {/* Global Demo Mode Blur */}
+      {/* Global Demo Mode Blur — oculta TODOS nomes de empresas, clientes, CNPJs */}
       {demoMode&&<style>{`
-        .ps-blur, [data-blur] { filter: blur(6px) !important; user-select: none !important; transition: filter 0.3s; }
+        /* Selectors de empresa */
+        select { filter: blur(5px) !important; user-select: none !important; }
+        select:focus { filter: blur(4px) !important; }
+        
+        /* Nome da empresa no header, cards, titulos */
+        h1, h2, [class*="empresa"], [class*="company"] { }
+        
+        /* Cards de clientes no BPO e dashboard */
+        [style*="fontSize:14"][style*="fontWeight:600"],
+        [style*="fontSize: 14"][style*="fontWeight: 600"] { filter: blur(5px) !important; }
+        
+        /* Nomes em tabelas - primeira coluna geralmente é nome */
+        table tbody tr td:first-child { filter: blur(5px) !important; }
+        table tbody tr td:first-child:hover { filter: blur(3px) !important; }
+        
+        /* Manter headers de tabela legíveis */
+        table thead tr th { filter: none !important; }
+        
+        /* Textos que parecem CNPJ (10-11px, cor cinza) */
+        [style*="fontSize:10"][style*="color:#918C82"],
+        [style*="fontSize: 10"][style*="color: #918C82"],
+        [style*="fontSize:10"][style*="color:#A8A498"] { filter: blur(5px) !important; }
+        
+        /* Tooltips */
+        [style*="position:fixed"][style*="zIndex:9999"] div[style*="fontWeight:600"],
+        [style*="position: fixed"][style*="z-index: 9999"] div[style*="font-weight: 600"] { filter: blur(5px) !important; }
+        
+        /* Visão Diária - nomes na coluna fixa */
+        td[style*="position:sticky"] { filter: blur(5px) !important; }
+        th[style*="position:sticky"] { filter: none !important; }
+        /* Manter valores numéricos legíveis */
+        td[style*="text-align:right"]:not([style*="position:sticky"]) { filter: none !important; }
+        td[style*="textAlign:\"right\""]:not([style*="position:sticky"]) { filter: none !important; }
+        
+        /* BPO - cards de empresa */
+        [style*="cursor:pointer"] [style*="fontSize:14"],
+        [style*="cursor: pointer"] [style*="font-size: 14"] { filter: blur(5px) !important; }
+        
+        /* Classe manual para blur */
+        .ps-blur, [data-blur] { filter: blur(6px) !important; user-select: none !important; }
         .ps-blur:hover, [data-blur]:hover { filter: blur(3px) !important; }
-        /* Blur company names in selects, headers, cards */
-        select { filter: blur(5px) !important; }
-        select:focus { filter: blur(3px) !important; }
-        /* Blur CNPJ patterns */
-        [title*="CNPJ"], [title*="cnpj"] { filter: blur(6px) !important; }
+        
+        /* KPIs e valores devem ficar visíveis */
+        [style*="fontSize:18"][style*="fontWeight:700"],
+        [style*="fontSize:20"][style*="fontWeight:700"],
+        [style*="fontSize:16"][style*="fontWeight:700"],
+        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#22C55E"],
+        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#EF4444"],
+        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#FBBF24"],
+        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#C8941A"],
+        [style*="fontSize:14"][style*="fontWeight:700"][style*="color:#E8C872"] { filter: none !important; }
       `}</style>}
 
       {/* Guide Popup */}
