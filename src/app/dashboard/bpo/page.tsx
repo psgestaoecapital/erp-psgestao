@@ -29,7 +29,7 @@ export default function BPOPage(){
     if(!user){setLoading(false);return;}
     const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
     let companies:any[]=[];
-    if(up?.role==="adm"){const{data}=await supabase.from("companies").select("*").order("created_at");companies=data||[];}
+    if(up?.role==="adm"||up?.role==="acesso_total"){const{data}=await supabase.from("companies").select("*").order("created_at");companies=data||[];}
     else{const{data:uc}=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);companies=(uc||[]).map((u:any)=>u.companies).filter(Boolean);}
     if(companies.length===0){setLoading(false);return;}
 
