@@ -13,6 +13,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userRole, setUserRole] = useState("");
   const [loading, setLoading] = useState(true);
   const [showGuide, setShowGuide] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [checklist, setChecklist] = useState<{id:string,titulo:string,desc:string,ok:boolean,link:string}[]>([]);
   const router = useRouter();
 
@@ -141,13 +142,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {(userRole==="adm"||userRole==="acesso_total")&&<a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>⚙️ Admin</a>}
           {(userRole==="adm"||userRole==="acesso_total")&&<a href="/dashboard/dev" style={{ fontSize: 10, color: "#60A5FA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #60A5FA30", background: "#60A5FA08" }}>🛠️ Dev</a>}
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
-          <span style={{ fontSize: 10, color: "#918C82", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</span>
+          <button onClick={()=>setDemoMode(!demoMode)} title={demoMode?"Desativar modo demonstração":"Ativar modo demonstração — oculta nomes"} style={{
+            padding: "5px 10px", borderRadius: 8, border: `1px solid ${demoMode?"#22C55E30":"#2A2822"}`,
+            background: demoMode?"#22C55E12":"transparent", color: demoMode?"#22C55E":"#918C82", fontSize: 10, fontWeight: 600, cursor: "pointer"
+          }}>{demoMode?"👁️ Demo ON":"👁️‍🗨️"}</button>
+          <span style={{ fontSize: 10, color: "#918C82", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{demoMode?"demo@psgestao.com":user?.email}</span>
           <button onClick={handleLogout} style={{
             padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822",
             background: "transparent", color: "#918C82", fontSize: 10, fontWeight: 500
           }}>Sair</button>
         </div>
       </header>
+
+      {/* Global Demo Mode Blur */}
+      {demoMode&&<style>{`
+        .ps-blur, [data-blur] { filter: blur(6px) !important; user-select: none !important; transition: filter 0.3s; }
+        .ps-blur:hover, [data-blur]:hover { filter: blur(3px) !important; }
+        /* Blur company names in selects, headers, cards */
+        select { filter: blur(5px) !important; }
+        select:focus { filter: blur(3px) !important; }
+        /* Blur CNPJ patterns */
+        [title*="CNPJ"], [title*="cnpj"] { filter: blur(6px) !important; }
+      `}</style>}
 
       {/* Guide Popup */}
       {showGuide&&(
