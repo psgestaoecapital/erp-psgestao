@@ -334,19 +334,45 @@ Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao
 17. METAS 90 DIAS — 10 metas SMART com indicador e checkpoint mensal.
 18. CARTA AO ACIONISTA — 1 página formal. Diagnóstico honesto. Integrar contexto do empresário (BLOCO 1). Preocupações + avanços + recomendações. Assinar "PS — Conselheiro Digital".`;
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 16000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 18 SLIDES EXECUTIVOS:\n\n${blocos}` }],
-      }),
+    // ═══ CALL CLAUDE (com retry automático) ═══
+    let data: any = null;
+    let lastError = "";
+    const reqBody = JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 16000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 18 SLIDES EXECUTIVOS:\n\n${blocos}` }],
     });
 
-    const data = await response.json();
-    if (data.error) return NextResponse.json({ error: `Claude API: ${data.error?.message || JSON.stringify(data.error)}` }, { status: 500 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+          body: reqBody,
+        });
+        data = await response.json();
+        if (data.error) {
+          const msg = data.error?.message || JSON.stringify(data.error);
+          if ((msg.includes("Overloaded") || msg.includes("overloaded") || msg.includes("529")) && attempt < 3) {
+            lastError = msg;
+            await new Promise(r => setTimeout(r, 5000 * attempt));
+            continue;
+          }
+          lastError = msg;
+        } else { break; }
+      } catch (e: any) { lastError = e.message; if (attempt < 3) await new Promise(r => setTimeout(r, 3000)); }
+    }
+
+    if (!data || data.error) {
+      const msg = lastError || "Erro desconhecido";
+      let friendly = "";
+      if (msg.includes("Overloaded") || msg.includes("overloaded")) friendly = "O servidor de IA está temporariamente sobrecarregado. Tentamos 3 vezes. Aguarde 2-3 minutos e tente novamente.";
+      else if (msg.includes("rate")) friendly = "Muitas solicitações. Aguarde 1 minuto.";
+      else friendly = "Erro temporário na IA. Tente novamente em alguns minutos.";
+      return NextResponse.json({ error: `⚠️ ${friendly}` }, { status: 503 });
+    }
+
     const reportText = data.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar.";
 
     // Auto-save to ai_reports for premium view
