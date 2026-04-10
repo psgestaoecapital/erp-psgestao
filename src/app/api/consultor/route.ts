@@ -117,20 +117,31 @@ export async function POST(req: NextRequest) {
     let fileContent = "";
     let fileType = "";
     if (file && file.size > 0) {
-      fileType = file.type;
-      if (fileType.includes("pdf")) {
-        // Convert PDF to base64 for Claude vision
-        const buffer = await file.arrayBuffer();
-        fileContent = `[PDF ENVIADO: ${file.name}, ${(file.size / 1024).toFixed(0)}KB — conteúdo será analisado via visão]`;
-      } else if (fileType.includes("image")) {
+      fileType = file.type || "";
+      const fileName = (file.name || "").toLowerCase();
+      // Detect by extension if type is empty
+      if (!fileType) {
+        if (fileName.endsWith(".pdf")) fileType = "application/pdf";
+        else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) fileType = "image/jpeg";
+        else if (fileName.endsWith(".png")) fileType = "image/png";
+        else if (fileName.endsWith(".webp")) fileType = "image/webp";
+        else if (fileName.endsWith(".gif")) fileType = "image/gif";
+        else fileType = "text/plain";
+      }
+      const isImage = fileType.includes("image") || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(fileName);
+      const isPDF = fileType.includes("pdf") || fileName.endsWith(".pdf");
+
+      if (isPDF) {
+        fileContent = `[PDF ENVIADO: ${file.name}, ${(file.size / 1024).toFixed(0)}KB]`;
+      } else if (isImage) {
         fileContent = `[IMAGEM ENVIADA: ${file.name}, ${(file.size / 1024).toFixed(0)}KB]`;
+        fileType = "image"; // force image path
       } else {
-        // Text/CSV/other — read as text
         try {
           fileContent = await file.text();
           if (fileContent.length > 15000) fileContent = fileContent.substring(0, 15000) + "\n...[truncado]";
         } catch {
-          fileContent = `[Arquivo: ${file.name}, ${(file.size / 1024).toFixed(0)}KB — não foi possível ler como texto]`;
+          fileContent = `[Arquivo: ${file.name}, ${(file.size / 1024).toFixed(0)}KB]`;
         }
       }
     }
@@ -169,40 +180,39 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
 
     // ═══ BUILD MESSAGES ═══
     const messages: any[] = [];
+    const fileName = file ? (file.name || "").toLowerCase() : "";
+    const isPDF = fileType.includes("pdf") || fileName.endsWith(".pdf");
+    const isImage = fileType.includes("image") || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(fileName);
 
-    // If PDF, use document type
-    if (file && file.size > 0 && fileType.includes("pdf")) {
+    if (file && file.size > 0 && isPDF) {
       const buffer = await file.arrayBuffer();
       const base64 = Buffer.from(buffer).toString("base64");
       messages.push({
         role: "user",
         content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-          { type: "text", text: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise o documento anexado à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável. Se envolver decisão financeira (financiamento, investimento, venda), calcule cenários com números reais.` },
+          { type: "text", text: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise o documento anexado à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável. Se envolver decisão financeira, calcule cenários com números reais.` },
         ],
       });
     }
-    // If image, use image type
-    else if (file && file.size > 0 && fileType.includes("image")) {
+    else if (file && file.size > 0 && isImage) {
       const buffer = await file.arrayBuffer();
       const base64 = Buffer.from(buffer).toString("base64");
-      const imgType = fileType.includes("png") ? "image/png" : fileType.includes("webp") ? "image/webp" : fileType.includes("gif") ? "image/gif" : "image/jpeg";
+      const imgMediaType: "image/jpeg"|"image/png"|"image/webp"|"image/gif" = fileName.endsWith(".png") ? "image/png" : fileName.endsWith(".webp") ? "image/webp" : fileName.endsWith(".gif") ? "image/gif" : "image/jpeg";
       messages.push({
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: imgType, data: base64 } },
+          { type: "image", source: { type: "base64", media_type: imgMediaType, data: base64 } },
           { type: "text", text: `${contextBlock}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise a imagem anexada à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável.` },
         ],
       });
     }
-    // Text/CSV/other files — read as text and include in prompt
     else if (file && file.size > 0 && fileContent) {
       messages.push({
         role: "user",
         content: `${contextBlock}\n\n📎 CONTEÚDO DO ARQUIVO (${file.name}):\n${fileContent}\n\n═══ PERGUNTA DO EMPRESÁRIO ═══\n${question}\n\nAnalise o conteúdo do arquivo à luz de TODOS os dados financeiros reais acima. Dê uma resposta completa, prática e acionável.`,
       });
     }
-    // No file — just question with context
     else {
       messages.push({
         role: "user",
