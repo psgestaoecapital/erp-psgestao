@@ -128,12 +128,13 @@ export default function OperacionalPage(){
 
       {/* RESUMO (contas pagar/receber) */}
       {resumo&&(tab==="receber"||tab==="pagar")&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:10}}>
           {[
             {l:"Em Aberto",v:fR(resumo.aberto),s:`${resumo.qtdAberto} títulos`,c:C.b},
             {l:"Vencidos",v:fR(resumo.vencido),s:`${resumo.qtdVencido} títulos`,c:C.r},
             {l:tab==="receber"?"Recebido":"Pago",v:fR(resumo.pago),s:`${resumo.qtdPago} títulos`,c:C.g},
             {l:"Total Geral",v:fR(resumo.aberto+resumo.pago+resumo.vencido),s:`${resumo.total} títulos`,c:C.gol},
+            {l:"Fontes",v:`${resumo.total}`,s:`PS:${resumo.qtdPSGestao||0} Omie:${resumo.qtdOmie||0} Nibo:${resumo.qtdNibo||0}`,c:C.p},
           ].map((k,i)=>(
             <div key={i} style={{background:C.bg2,borderRadius:8,padding:"8px 10px",borderLeft:`3px solid ${k.c}`}}>
               <div style={{fontSize:7,color:C.txd,textTransform:"uppercase"}}>{k.l}</div>
@@ -199,15 +200,17 @@ function TabelaContas({items,tipo,onEdit,onDelete,onBaixar}:any){
   return(
     <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
       <thead><tr style={{borderBottom:`1px solid ${C.bd}`}}>
-        {["Descrição",tipo==="receber"?"Cliente":"Fornecedor","Valor","Vencimento","Pagamento","Status","Ações"].map(h=>
+        {["Origem","Descrição",tipo==="receber"?"Cliente":"Fornecedor","Valor","Vencimento","Pagamento","Status","Ações"].map(h=>
           <th key={h} style={{padding:"6px 4px",textAlign:h==="Valor"||h==="Ações"?"center":"left",color:C.gol,fontSize:9}}>{h}</th>)}
       </tr></thead>
       <tbody>
-        {items.map((i:any)=>{
-          const vencido=i.status==="aberto"&&new Date(i.data_vencimento)<new Date();
+        {items.map((i:any,idx:number)=>{
+          const vencido=i.status==="aberto"&&i.data_vencimento&&new Date(i.data_vencimento)<new Date();
           const st=vencido?"vencido":i.status;
+          const origemCor=i._origem==="Omie"?C.b:i._origem==="Nibo"?C.p:C.g;
           return(
-            <tr key={i.id} style={{borderBottom:`0.5px solid ${C.bd}20`,background:vencido?C.r+"05":"transparent"}}>
+            <tr key={i.id||idx} style={{borderBottom:`0.5px solid ${C.bd}20`,background:vencido?C.r+"05":"transparent"}}>
+              <td style={{padding:"5px 4px"}}><span style={{padding:"1px 5px",borderRadius:3,fontSize:7,fontWeight:600,background:origemCor+"20",color:origemCor}}>{i._origem||"PS Gestão"}</span></td>
               <td style={{padding:"5px 4px",color:C.tx,maxWidth:200}}><div style={{fontWeight:600}}>{i.descricao}</div><div style={{fontSize:8,color:C.txd}}>{i.categoria} {i.numero_nf?`· NF ${i.numero_nf}`:""}</div></td>
               <td style={{padding:"5px 4px",color:C.txm,fontSize:9}}>{i.cliente_nome||i.fornecedor_nome||"—"}</td>
               <td style={{padding:"5px 4px",textAlign:"center",fontWeight:600,color:tipo==="receber"?C.g:C.r}}>{fR(i.valor)}</td>
@@ -215,11 +218,15 @@ function TabelaContas({items,tipo,onEdit,onDelete,onBaixar}:any){
               <td style={{padding:"5px 4px",color:C.txm}}>{fDt(i.data_pagamento)}</td>
               <td style={{padding:"5px 4px"}}><span style={{padding:"2px 6px",borderRadius:4,fontSize:8,fontWeight:600,background:(STATUS_CORES[st]||C.txd)+"20",color:STATUS_CORES[st]||C.txd}}>{st}</span></td>
               <td style={{padding:"5px 4px",textAlign:"center"}}>
-                <div style={{display:"flex",gap:4,justifyContent:"center"}}>
-                  {st!=="pago"&&st!=="cancelado"&&<button onClick={()=>onBaixar(i)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.g+"20",color:C.g,fontSize:8,cursor:"pointer"}}>✅ Baixar</button>}
-                  <button onClick={()=>onEdit(i)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.b+"20",color:C.b,fontSize:8,cursor:"pointer"}}>✏️</button>
-                  <button onClick={()=>onDelete(i.id)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.r+"20",color:C.r,fontSize:8,cursor:"pointer"}}>🗑️</button>
-                </div>
+                {i._editavel!==false?(
+                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                    {st!=="pago"&&st!=="cancelado"&&<button onClick={()=>onBaixar(i)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.g+"20",color:C.g,fontSize:8,cursor:"pointer"}}>✅ Baixar</button>}
+                    <button onClick={()=>onEdit(i)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.b+"20",color:C.b,fontSize:8,cursor:"pointer"}}>✏️</button>
+                    <button onClick={()=>onDelete(i.id)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.r+"20",color:C.r,fontSize:8,cursor:"pointer"}}>🗑️</button>
+                  </div>
+                ):(
+                  <span style={{fontSize:7,color:C.txd}}>via {i._origem}</span>
+                )}
               </td>
             </tr>
           );
@@ -234,25 +241,34 @@ function TabelaCadastro({items,campos,onEdit,onDelete}:any){
   return(
     <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
       <thead><tr style={{borderBottom:`1px solid ${C.bd}`}}>
+        <th style={{padding:"6px 4px",textAlign:"left",color:C.gol,fontSize:9}}>Origem</th>
         {campos.map((c:string)=><th key={c} style={{padding:"6px 4px",textAlign:"left",color:C.gol,fontSize:9}}>{c.replace(/_/g," ").replace(/\b\w/g,(l:string)=>l.toUpperCase())}</th>)}
         <th style={{padding:"6px 4px",textAlign:"center",color:C.gol,fontSize:9}}>Ações</th>
       </tr></thead>
       <tbody>
-        {items.map((i:any)=>(
-          <tr key={i.id} style={{borderBottom:`0.5px solid ${C.bd}20`}}>
-            {campos.map((c:string)=>{
-              const v=i[c];
-              const isNum=typeof v==="number";
-              return<td key={c} style={{padding:"5px 4px",color:isNum?C.g:C.tx,fontWeight:c==="nome"?600:400}}>{isNum&&c.includes("preco")||c.includes("saldo")?fR(v):v||"—"}</td>;
-            })}
-            <td style={{padding:"5px 4px",textAlign:"center"}}>
-              <div style={{display:"flex",gap:4,justifyContent:"center"}}>
-                <button onClick={()=>onEdit(i)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.b+"20",color:C.b,fontSize:8,cursor:"pointer"}}>✏️</button>
-                <button onClick={()=>onDelete(i.id)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.r+"20",color:C.r,fontSize:8,cursor:"pointer"}}>🗑️</button>
-              </div>
-            </td>
-          </tr>
-        ))}
+        {items.map((i:any,idx:number)=>{
+          const origemCor=i._origem==="Omie"?C.b:i._origem==="Nibo"?C.p:C.g;
+          return(
+            <tr key={i.id||idx} style={{borderBottom:`0.5px solid ${C.bd}20`}}>
+              <td style={{padding:"5px 4px"}}><span style={{padding:"1px 5px",borderRadius:3,fontSize:7,fontWeight:600,background:origemCor+"20",color:origemCor}}>{i._origem||"PS Gestão"}</span></td>
+              {campos.map((c:string)=>{
+                const v=i[c];
+                const isNum=typeof v==="number";
+                return<td key={c} style={{padding:"5px 4px",color:isNum?C.g:C.tx,fontWeight:c==="nome"?600:400}}>{isNum&&(c.includes("preco")||c.includes("saldo"))?fR(v):v||"—"}</td>;
+              })}
+              <td style={{padding:"5px 4px",textAlign:"center"}}>
+                {i._editavel!==false?(
+                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                    <button onClick={()=>onEdit(i)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.b+"20",color:C.b,fontSize:8,cursor:"pointer"}}>✏️</button>
+                    <button onClick={()=>onDelete(i.id)} style={{padding:"2px 6px",borderRadius:4,border:"none",background:C.r+"20",color:C.r,fontSize:8,cursor:"pointer"}}>🗑️</button>
+                  </div>
+                ):(
+                  <span style={{fontSize:7,color:C.txd}}>via {i._origem}</span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
