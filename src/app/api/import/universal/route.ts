@@ -7,26 +7,26 @@ export const maxDuration = 120;
 const SUPA_URL = "https://horsymhsinqcimflrtjo.supabase.co";
 const KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
 
-// ═══ MAPEAMENTO INTELIGENTE DE COLUNAS ═══
+// âââ MAPEAMENTO INTELIGENTE DE COLUNAS âââ
 const COLUMN_MAP: Record<string, Record<string, string[]>> = {
   clientes: {
-    nome: ["razao social","razão social","nome","nome fantasia","cliente","name","company","empresa","razao","denominacao"],
+    nome: ["razao social","razÃ£o social","nome","nome fantasia","cliente","name","company","empresa","razao","denominacao"],
     nome_fantasia: ["nome fantasia","fantasia","trade name","apelido"],
     cpf_cnpj: ["cpf","cnpj","cpf/cnpj","cpf_cnpj","documento","document","cnpj/cpf","inscricao"],
     email: ["email","e-mail","e_mail","mail","correio"],
     telefone: ["telefone","tel","fone","phone","tel comercial","telefone comercial"],
     celular: ["celular","cel","mobile","whatsapp","whats","tel celular"],
     cep: ["cep","zip","codigo postal","postal"],
-    endereco: ["endereco","endereço","rua","logradouro","address","street"],
-    numero: ["numero","número","num","nro","number","n°","nº"],
+    endereco: ["endereco","endereÃ§o","rua","logradouro","address","street"],
+    numero: ["numero","nÃºmero","num","nro","number","nÂ°","nÂº"],
     bairro: ["bairro","neighborhood","district"],
-    cidade: ["cidade","city","municipio","município","localidade"],
+    cidade: ["cidade","city","municipio","municÃ­pio","localidade"],
     uf: ["uf","estado","state","sigla"],
     ie: ["ie","inscricao estadual","inscr estadual","insc est"],
-    observacoes: ["observacao","observações","obs","nota","notes"],
+    observacoes: ["observacao","observaÃ§Ãµes","obs","nota","notes"],
   },
   fornecedores: {
-    nome: ["razao social","razão social","nome","fornecedor","supplier","nome fantasia","empresa"],
+    nome: ["razao social","razÃ£o social","nome","fornecedor","supplier","nome fantasia","empresa"],
     nome_fantasia: ["nome fantasia","fantasia"],
     cpf_cnpj: ["cpf","cnpj","cpf/cnpj","documento","cnpj/cpf"],
     email: ["email","e-mail"],
@@ -35,45 +35,45 @@ const COLUMN_MAP: Record<string, Record<string, string[]>> = {
     cidade: ["cidade","city","municipio"],
     uf: ["uf","estado"],
     banco: ["banco","bank"],
-    agencia: ["agencia","agência","agency"],
+    agencia: ["agencia","agÃªncia","agency"],
     conta: ["conta","account","conta corrente"],
     pix: ["pix","chave pix","chave"],
   },
   receber: {
-    descricao: ["descricao","descrição","historico","histórico","description","memo","observacao","detalhamento"],
+    descricao: ["descricao","descriÃ§Ã£o","historico","histÃ³rico","description","memo","observacao","detalhamento"],
     valor: ["valor","value","amount","total","vlr","vl","valor documento","valor titulo","valor original"],
     data_vencimento: ["vencimento","data vencimento","dt vencimento","due date","venc","dt venc","data vcto"],
     data_emissao: ["emissao","data emissao","dt emissao","issue date","data lancamento","dt lancamento","competencia","data"],
     data_pagamento: ["pagamento","data pagamento","dt pagamento","payment date","data recebimento","dt recebimento","dt baixa"],
     cliente_nome: ["cliente","customer","client","sacado","pagador","nome cliente"],
     categoria: ["categoria","category","plano contas","conta contabil","classificacao","tipo"],
-    numero_documento: ["documento","doc","numero","nº","num doc","nr documento","numero documento","nf","nota"],
+    numero_documento: ["documento","doc","numero","nÂº","num doc","nr documento","numero documento","nf","nota"],
     numero_nf: ["nf","nota fiscal","nfe","numero nf","nr nf","nf-e"],
-    status: ["status","situacao","situação","estado","st"],
+    status: ["status","situacao","situaÃ§Ã£o","estado","st"],
     forma_pagamento: ["forma pgto","forma pagamento","payment method","meio pagamento","tipo pgto"],
     centro_custo: ["centro custo","cc","cost center","centro de custo"],
   },
   pagar: {
-    descricao: ["descricao","descrição","historico","histórico","description","memo","observacao","detalhamento"],
+    descricao: ["descricao","descriÃ§Ã£o","historico","histÃ³rico","description","memo","observacao","detalhamento"],
     valor: ["valor","value","amount","total","vlr","vl","valor documento","valor titulo"],
     data_vencimento: ["vencimento","data vencimento","dt vencimento","due date","venc","dt venc"],
     data_emissao: ["emissao","data emissao","dt emissao","issue date","data lancamento","dt lancamento","competencia","data"],
     data_pagamento: ["pagamento","data pagamento","dt pagamento","payment date","dt baixa"],
     fornecedor_nome: ["fornecedor","supplier","vendor","cedente","beneficiario","nome fornecedor","credor"],
     categoria: ["categoria","category","plano contas","conta contabil","classificacao","tipo"],
-    numero_documento: ["documento","doc","numero","nº","num doc","nr documento","numero documento"],
+    numero_documento: ["documento","doc","numero","nÂº","num doc","nr documento","numero documento"],
     numero_nf: ["nf","nota fiscal","nfe","numero nf"],
     codigo_barras: ["codigo barras","cod barras","barcode","linha digitavel"],
-    status: ["status","situacao","situação"],
+    status: ["status","situacao","situaÃ§Ã£o"],
     forma_pagamento: ["forma pgto","forma pagamento","payment method","tipo pgto"],
     centro_custo: ["centro custo","cc","cost center"],
   },
   produtos: {
-    codigo: ["codigo","código","code","sku","ref","referencia","id","cod"],
-    nome: ["nome","descricao","descrição","produto","product","name","item","mercadoria"],
+    codigo: ["codigo","cÃ³digo","code","sku","ref","referencia","id","cod"],
+    nome: ["nome","descricao","descriÃ§Ã£o","produto","product","name","item","mercadoria"],
     unidade: ["unidade","un","unit","und","medida"],
-    preco_venda: ["preco venda","preço venda","preco","preço","price","valor venda","pvenda","pv"],
-    preco_custo: ["preco custo","preço custo","custo","cost","valor custo","pcusto","pc"],
+    preco_venda: ["preco venda","preÃ§o venda","preco","preÃ§o","price","valor venda","pvenda","pv"],
+    preco_custo: ["preco custo","preÃ§o custo","custo","cost","valor custo","pcusto","pc"],
     estoque_atual: ["estoque","estoque atual","stock","saldo","quantidade","qtd","qty"],
     estoque_minimo: ["estoque minimo","est min","min stock","minimo"],
     ncm: ["ncm","ncm/sh","codigo ncm"],
@@ -153,8 +153,8 @@ function parseStatus(val: any): string {
   return "aberto";
 }
 
-// ═══ API — STEP 1: Analyze file ═══
-// ═══ API — STEP 2: Import data ═══
+// âââ API â STEP 1: Analyze file âââ
+// âââ API â STEP 2: Import data âââ
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
     const isCSV = fileName.endsWith(".csv") || fileName.endsWith(".tsv");
     const isExcel = fileName.endsWith(".xlsx") || fileName.endsWith(".xls");
 
-    if (!isCSV && !isExcel) return NextResponse.json({ error: "Formato não suportado. Use .xlsx, .xls ou .csv" }, { status: 400 });
+    if (!isCSV && !isExcel) return NextResponse.json({ error: "Formato nÃ£o suportado. Use .xlsx, .xls ou .csv" }, { status: 400 });
 
     let headers: string[] = [];
     let rows: any[][] = [];
@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
     // Map columns
     const mapping = mapColumns(headers, tipo);
 
-    // ═══ ANALYZE MODE — return preview ═══
+    // âââ ANALYZE MODE â return preview âââ
     if (action === "analyze") {
       const preview = rows.slice(0, 10).map(r => {
         const obj: Record<string, any> = {};
@@ -249,12 +249,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ═══ IMPORT MODE — save to database ═══
-    if (!companyId) return NextResponse.json({ error: "company_id obrigatório para importar" }, { status: 400 });
+    // âââ IMPORT MODE â save to database âââ
+    if (!companyId) return NextResponse.json({ error: "company_id obrigatÃ³rio para importar" }, { status: 400 });
 
     const TABELA_MAP: Record<string, string> = { clientes: "erp_clientes", fornecedores: "erp_fornecedores", receber: "erp_receber", pagar: "erp_pagar", produtos: "erp_produtos" };
     const tabela = TABELA_MAP[tipo];
-    if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
+    if (!tabela) return NextResponse.json({ error: `Tipo invÃ¡lido: ${tipo}` }, { status: 400 });
 
     const DATE_FIELDS = ["data_vencimento", "data_emissao", "data_pagamento"];
     const NUMBER_FIELDS = ["valor", "valor_pago", "preco_venda", "preco_custo", "estoque_atual", "estoque_minimo", "estoque_maximo", "limite_credito", "juros", "multa", "desconto"];
@@ -272,14 +272,14 @@ export async function POST(req: NextRequest) {
       }
       return obj;
     }).filter(r => {
-      // Validação mínima
+      // ValidaÃ§Ã£o mÃ­nima
       if (tipo === "clientes" || tipo === "fornecedores") return r.nome;
       if (tipo === "receber" || tipo === "pagar") return r.descricao || r.valor;
       if (tipo === "produtos") return r.nome;
       return true;
     });
 
-    if (records.length === 0) return NextResponse.json({ error: "Nenhum registro válido encontrado" }, { status: 400 });
+    if (records.length === 0) return NextResponse.json({ error: "Nenhum registro vÃ¡lido encontrado" }, { status: 400 });
 
     const sb = createClient(SUPA_URL, KEY());
     // Insert in batches of 100
