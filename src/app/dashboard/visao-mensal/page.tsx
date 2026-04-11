@@ -72,7 +72,11 @@ export default function VisaoMensalPage(){
     let d:any[]=[];
     if(up?.role==="adm"||up?.role==="acesso_total"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
     else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
+    if(d.length>0){setCompanies(d);const s=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";
+      if(s==="consolidado"&&d.length>1){setSel("consolidado");}
+      else if(s&&s.startsWith("group_")){const gid=s.replace("group_","");const gc=d.filter((c:any)=>c.group_id===gid);setSel(gc.length>0?s:d[0].id);}
+      else{const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
+    }
     setLoading(false);
   };
 
@@ -88,7 +92,8 @@ export default function VisaoMensalPage(){
   const loadData=async()=>{
     setLoading(true);
     let cIds:string[]=[];
-    if(sel.startsWith("group_")){const gid=sel.replace("group_","");cIds=companies.filter(c=>c.group_id===gid).map(c=>c.id);}else cIds=[sel];
+    if(sel==="consolidado"){cIds=companies.map(c=>c.id);}
+    else if(sel.startsWith("group_")){const gid=sel.replace("group_","");cIds=companies.filter(c=>c.group_id===gid).map(c=>c.id);}else cIds=[sel];
 
     const[{data:imports},{data:blData},{data:orcData}]=await Promise.all([
       supabase.from("omie_imports").select("import_type,import_data").in("company_id",cIds),
@@ -295,6 +300,7 @@ export default function VisaoMensalPage(){
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={ss}>
+            {companies.length>1&&<option value="consolidado">📊 Consolidado (todas)</option>}
             {groups.map(g=>{const gc=companies.filter(c=>c.group_id===g.id);if(!gc.length)return null;return[<option key={`g_${g.id}`} value={`group_${g.id}`}>📁 {g.nome}</option>,...gc.map(c=><option key={c.id} value={c.id}>&nbsp;&nbsp;{c.nome_fantasia||c.razao_social}</option>)];})}
             {companies.filter(c=>!c.group_id||!groups.find((g:any)=>g.id===c.group_id)).map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>
