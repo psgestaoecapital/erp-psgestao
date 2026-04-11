@@ -2,12 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
-
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from '@/lib/supabase'
 
 const MENU = [
   { href: '/dashboard',                  label: 'Visao Diaria',  icon: '📅' },
@@ -25,7 +20,7 @@ const MENU = [
   { href: '/dashboard/noc',               label: 'NOC',           icon: '📡' },
   { href: '/dashboard/wealth',            label: 'Wealth',        icon: '🏰' },
   { href: '/dashboard/consultor-ia',      label: 'Consultor IA',  icon: '🤖' },
-  { href: '/dashboard/contador',          label: 'Contador',      icon: '📊' },
+  { href: '/dashboard/contador',          label: 'Contador',      icon: '📈' },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -63,16 +58,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         position: 'sticky', top: 0, zIndex: 50,
         background: '#1A1410', borderBottom: '1px solid #2A2822',
         padding: '6px 12px', display: 'flex', alignItems: 'center',
-        gap: 4, overflowX: 'auto', flexWrap: 'nowrap',
+        gap: 4, overflowX: 'auto',
       }}>
-        {/* Logo */}
-        <a href='/dashboard' style={{ ...st(false), minWidth: 52, marginRight: 6,
-          color: '#C6973F', fontWeight: 700, fontSize: 9, letterSpacing: '0.06em' }}>
-          <span style={{ fontSize: 16 }}>PS</span>
+
+        <a href='/dashboard' style={{
+          ...st(false), minWidth: 52, marginRight: 6,
+          color: '#C6973F', fontWeight: 700, fontSize: 9, letterSpacing: '0.06em'
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 900 }}>PS</span>
           <span>GESTAO</span>
         </a>
 
-        {/* Nav */}
         {MENU.map(item => (
           <a key={item.href} href={item.href} style={st(active(item.href))}
             onClick={e => { e.preventDefault(); router.push(item.href) }}>
@@ -81,7 +77,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </a>
         ))}
 
-        {/* Admin */}
         {(role === 'admin' || role === 'acesso_total') && (
           <a href='/dashboard/admin' style={st(active('/dashboard/admin'))}
             onClick={e => { e.preventDefault(); router.push('/dashboard/admin') }}>
@@ -90,7 +85,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </a>
         )}
 
-        {/* Dev */}
         {(role === 'admin' || role === 'acesso_total' || role === 'dev') && (
           <a href='/dashboard/dev' style={st(active('/dashboard/dev'))}
             onClick={e => { e.preventDefault(); router.push('/dashboard/dev') }}>
@@ -101,16 +95,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div style={{ width:1, height:20, background:'#2A2822', margin:'0 4px', flexShrink:0 }} />
 
-        {/* Demo */}
         <button onClick={() => setDemo(d => !d)} style={{
-          ...st(demo), cursor:'pointer', background: demo ? '#C6973F15':'transparent',
-          border: demo ? '1px solid #C6973F':'1px solid transparent',
+          ...st(demo), cursor:'pointer',
         }}>
           <span style={{ fontSize: 16 }}>🎭</span>
           <span style={{ color: demo ? '#C6973F':'#B0AB9F' }}>{demo ? 'Demo ON':'Demo'}</span>
         </button>
 
-        <div style={{ flex:1 }} />
+        <div style={{ flex: 1 }} />
 
         {email && (
           <span style={{ fontSize:9, color:'#6B6560', whiteSpace:'nowrap', marginRight:4 }}>
