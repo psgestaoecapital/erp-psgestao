@@ -1,50 +1,13 @@
-/**
- * Rate limiting simples em memória para API Routes.
- * Para produção com múltiplas instâncias, substituir por Redis (Upstash).
- */
+const store = new Map<string, { count: number; resetAt: number }>()
 
-interface RateLimitEntry {
-  count: number
-  resetAt: number
-}
-
-const store = new Map<string, RateLimitEntry>()
-
-interface RateLimitOptions {
-  windowMs?: number  // janela em ms (padrão: 60s)
-  max?: number       // máximo de requisições por janela (padrão: 60)
-}
-
-interface RateLimitResult {
-  success: boolean
-  remaining: number
-  resetAt: number
-}
-
-export function rateLimit(
-  identifier: string,
-  { windowMs = 60_000, max = 60 }: RateLimitOptions = {}
-): RateLimitResult {
+export function rateLimit(id: string, windowMs = 60_000, max = 60) {
   const now = Date.now()
-  const entry = store.get(identifier)
-
+  const entry = store.get(id)
   if (!entry || now > entry.resetAt) {
-    store.set(identifier, { count: 1, resetAt: now + windowMs })
-    return { success: true, remaining: max - 1, resetAt: now + windowMs }
+    store.set(id, { count: 1, resetAt: now + windowMs })
+    return { success: true, remaining: max - 1 }
   }
-
   entry.count++
-  if (entry.count > max) {
-    return { success: false, remaining: 0, resetAt: entry.resetAt }
-  }
-
-  return { success: true, remaining: max - entry.count, resetAt: entry.resetAt }
-}
-
-/** Limpa entradas expiradas (chame periodicamente em cron ou warmup) */
-export function cleanupRateLimit() {
-  const now = Date.now()
-  for (const [key, entry] of store.entries()) {
-    if (now > entry.resetAt) store.delete(key)
-  }
+  if (entry.count > max) return { success: false, remaining: 0 }
+  return { success: true, remaining: max - entry.count }
 }
