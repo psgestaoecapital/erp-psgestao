@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { applyBPOFilters, filterSummary, type Lancamento } from '@/lib/dataFilters'
+import { supabase } from '@/lib/supabase'
 
 interface UseBPODataOptions {
   empresaId: string
@@ -7,19 +8,7 @@ interface UseBPODataOptions {
   enabled?: boolean
 }
 
-interface BPODataState {
-  data: Lancamento[]
-  loading: boolean
-  error: string | null
-  summary: ReturnType<typeof filterSummary> | null
-  refetch: () => void
-}
-
-/**
- * Hook unificado para dados do módulo BPO.
- * Aplica applyBPOFilters (mesmo padrão do dashboard) — corrige inconsistência anterior.
- */
-export function useBPOData({ empresaId, periodo, enabled = true }: UseBPODataOptions): BPODataState {
+export function useBPOData({ empresaId, periodo, enabled = true }: UseBPODataOptions) {
   const [data, setData] = useState<Lancamento[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -27,15 +16,20 @@ export function useBPOData({ empresaId, periodo, enabled = true }: UseBPODataOpt
 
   const fetchData = useCallback(async () => {
     if (!empresaId || !enabled) return
-
     setLoading(true)
     setError(null)
 
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Sessão não encontrada')
+
       const params = new URLSearchParams({ empresa_id: empresaId })
       if (periodo) params.set('periodo', periodo)
 
-      const res = await fetch(`/api/lancamentos?${params}`)
+      const res = await fetch(`/api/lancamentos?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
+
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error ?? 'Erro ao carregar dados BPO')
@@ -43,8 +37,6 @@ export function useBPOData({ empresaId, periodo, enabled = true }: UseBPODataOpt
 
       const json = await res.json()
       const raw: Lancamento[] = json.data ?? []
-
-      // Aplica filtro padrão BPO (idêntico ao dashboard)
       const filtered = applyBPOFilters(raw)
       setData(filtered)
       setSummary(filterSummary(raw, filtered))
@@ -57,6 +49,5 @@ export function useBPOData({ empresaId, periodo, enabled = true }: UseBPODataOpt
   }, [empresaId, periodo, enabled])
 
   useEffect(() => { fetchData() }, [fetchData])
-
   return { data, loading, error, summary, refetch: fetchData }
 }
