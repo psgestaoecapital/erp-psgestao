@@ -1,26 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 
-export const GET = withAuth(async (req: NextRequest, { user }) => {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
+export const GET = withAuth(async (req: NextRequest, { userId }) => {
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  // Retorna apenas empresas às quais o usuário tem acesso via profiles
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('empresa_id, role')
-    .eq('id', user.id)
-    .single()
+    .from('profiles').select('empresa_id, role').eq('id', userId).single()
 
   if (!profile) return NextResponse.json({ error: 'Perfil não encontrado' }, { status: 404 })
 
-  // Admin vê todas; usuário comum vê apenas a sua
   const query = profile.role === 'admin'
     ? supabase.from('empresas').select('*').order('nome')
     : supabase.from('empresas').select('*').eq('id', profile.empresa_id)
