@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
       headers = lines[hdrIdx].split(sep).map(h => h.replace(/["']/g, "").trim());
       rows = lines.slice(hdrIdx + 1).map(l => l.split(sep).map(v => v.replace(/["']/g, "").trim()));
     } else {
-      const ExcelJS = await import("exceljs");
+      const ExcelJS = require("exceljs");
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(await file.arrayBuffer() as any);
       const ws = wb.worksheets[0];
@@ -196,20 +196,20 @@ export async function POST(req: NextRequest) {
 
       // Find header row (first row with >2 non-empty cells)
       let hdrRow = 1;
-      ws.eachRow((row, num) => {
+      ws.eachRow((row: any, num: any) => {
         if (hdrRow > 1) return;
         let filled = 0;
-        row.eachCell(() => filled++);
+        row.eachCell((_c: any) => filled++);
         if (filled >= 3) hdrRow = num;
       });
 
       const hdrCells = ws.getRow(hdrRow);
-      hdrCells.eachCell((cell, col) => { headers[col - 1] = String(cell.value || "").trim(); });
+      hdrCells.eachCell((cell: any, col: any) => { headers[col - 1] = String(cell.value || "").trim(); });
 
-      ws.eachRow((row, num) => {
+      ws.eachRow((row: any, num: any) => {
         if (num <= hdrRow) return;
         const r: any[] = [];
-        row.eachCell((cell, col) => { r[col - 1] = cell.value; });
+        row.eachCell((cell: any, col: any) => { r[col - 1] = cell.value; });
         if (r.some(v => v != null && String(v).trim() !== "")) rows.push(r);
       });
     }
