@@ -1,32 +1,24 @@
-import { redirect } from 'next/navigation'
-import { getServerUser } from './session'
-
 /**
- * Use em Server Components de página para garantir autenticação.
- * Redireciona automaticamente para /login se não autenticado.
- *
- * Exemplo:
- *   export default async function DashboardPage() {
- *     const user = await requireAuth()
- *     return <Dashboard user={user} />
- *   }
+ * authGuard.ts — helpers para proteção de rotas e roles
  */
-export async function requireAuth() {
-  const user = await getServerUser()
-  if (!user) redirect('/login')
-  return user
+
+export function unauthorizedResponse(message = 'Não autorizado') {
+  return new Response(JSON.stringify({ error: message }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json' }
+  })
 }
 
-/**
- * Verifica papel (role) do usuário.
- * Redireciona para /dashboard se não tiver permissão.
- */
-export async function requireRole(allowedRoles: string[]) {
-  const user = await getServerUser()
-  if (!user) redirect('/login')
+export function forbiddenResponse(message = 'Acesso negado') {
+  return new Response(JSON.stringify({ error: message }), {
+    status: 403,
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
 
-  const role = (user.user_metadata?.role as string) ?? 'viewer'
-  if (!allowedRoles.includes(role)) redirect('/dashboard')
-
-  return user
+export function badRequestResponse(message = 'Parâmetros inválidos') {
+  return new Response(JSON.stringify({ error: message }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json' }
+  })
 }
