@@ -1,27 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
+import { callAI } from '@/lib/aiProvider'
 
 export const POST = withAuth(async (req: NextRequest, { userId }) => {
-  const { dados, prompt } = await req.json()
-  if (!dados || !prompt) return NextResponse.json({ error: 'dados e prompt obrigatórios' }, { status: 400 })
+  const { dados, prompt, empresaId } = await req.json()
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-5',
-      max_tokens: 2048,
-      system: 'Você é o Consultor IA do PS Gestão, especialista em análise financeira. Responda em português, linguagem executiva e orientada a ação.',
-      messages: [{ role: 'user', content: `${prompt}\n\nDados:\n${JSON.stringify(dados, null, 2)}` }]
+  if (!dados || !prompt) {
+    return NextResponse.json({ error: 'dados e prompt são obrigatórios' }, { status: 400 })
+  }
+
+  try {
+    const result = await callAI({
+      system: 'Você é o Consultor IA do PS Gestão, especialista em análise financeira e gestão empresarial. Responda sempre em português, com linguagem executiva, objetiva e orientada a ação.',
+      prompt: prompt + '\n\nDados financeiros:\n' + JSON.stringify(dados, null, 2),
+      maxTokens: 2048,
     })
-  })
 
-  if (!res.ok) return NextResponse.json({ error: 'Erro na API de IA' }, { status: 500 })
-  const json = await res.json()
-  const text = json.content?.[0]?.text ?? ''
-  return NextResponse.json({ analise: text })
+    return NextResponse.json({
+      analise: result.text,
+      provider: result.provider,
+      fallback: result.fallback,
+    })
+  } catch (err: any) {
+    console.error('[AI Analise]', err.message)
+    return NextResponse.json(
+      { error: err.message ?? 'Erro na análise de IA' },
+      { status: 503 }
+    )
+  }
 })
