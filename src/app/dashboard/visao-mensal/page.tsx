@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { Suspense }, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -46,7 +46,7 @@ function classifyDesp(cat:string,nome:string):string{
   return"despesas";
 }
 
-export default function VisaoMensalPage(){
+function VisaoMensalPageInner(){
   const searchParams = useSearchParams();
   const empresaParam = searchParams.get("empresa");
   const [companies,setCompanies]=useState<any[]>([]);
@@ -394,4 +394,13 @@ export default function VisaoMensalPage(){
       <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:12}}>PS Gestão e Capital — Visão Diária v8.0</div>
     </div>
   );
+}
+
+
+export default function VisaoMensalPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-muted-foreground">Carregando...</div>}>
+      <VisaoMensalPageInner />
+    </Suspense>
+  )
 }
