@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
@@ -46,6 +47,8 @@ function classifyDesp(cat:string,nome:string):string{
 }
 
 export default function VisaoMensalPage(){
+  const searchParams = useSearchParams();
+  const empresaParam = searchParams.get("empresa");
   const [companies,setCompanies]=useState<any[]>([]);
   const [groups,setGroups]=useState<any[]>([]);
   const [sel,setSel]=useState("");
@@ -72,7 +75,9 @@ export default function VisaoMensalPage(){
     let d:any[]=[];
     if(up?.role==="adm"||up?.role==="acesso_total"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
     else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";
+    if(d.length>0){setCompanies(d);
+      // Prioridade: 1) URL param, 2) localStorage, 3) primeira empresa
+      const s=empresaParam||((typeof window!=="undefined")?localStorage.getItem("ps_empresa_sel"):"")||"";
       if(s==="consolidado"&&d.length>1){setSel("consolidado");}
       else if(s&&s.startsWith("group_")){const gid=s.replace("group_","");const gc=d.filter((c:any)=>c.group_id===gid);setSel(gc.length>0?s:d[0].id);}
       else{const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
