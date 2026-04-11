@@ -1,46 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from '@supabase/supabase-js'
 
-export const GET = withAuth(async (req: NextRequest, { user }) => {
+export const GET = withAuth(async (req: NextRequest, { userId }) => {
   const { searchParams } = new URL(req.url)
   const empresaId = searchParams.get('empresa_id')
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatório' }, { status: 400 })
 
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
   const { data, error } = await supabase
-    .from('lancamentos')
-    .select('*')
-    .eq('empresa_id', empresaId)
-    .neq('status', 'cancelado')
-    .order('data_lancamento', { ascending: false })
+    .from('lancamentos').select('*').eq('empresa_id', empresaId)
+    .neq('status', 'cancelado').order('data_lancamento', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data })
 })
 
-export const POST = withAuth(async (req: NextRequest, { user }) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   const body = await req.json()
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-
   const { data, error } = await supabase
-    .from('lancamentos')
-    .insert({ ...body, created_by: user.id })
-    .select()
-    .single()
-
+    .from('lancamentos').insert({ ...body, created_by: userId }).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data }, { status: 201 })
 })
