@@ -939,7 +939,7 @@ export default function DashboardPage(){
       <div style={{background:BG2,borderRadius:12,padding:20,border:`1px solid ${BD}`,textAlign:"center"}}>
         <div style={{fontSize:14,fontWeight:700,color:GOL,marginBottom:8}}>📅 Visão Diária — Acompanhamento Dia a Dia</div>
         <div style={{fontSize:11,color:TXM,marginBottom:16}}>Tabela de dias × receitas × despesas × margem bruta × EBITDA × resultado final.<br/>Fluxo de caixa diário com projeção. Clique para acessar a tela completa.</div>
-        <a href="/dashboard/visao-mensal" style={{display:"inline-block",padding:"12px 32px",borderRadius:10,background:`linear-gradient(135deg, #3D2314, ${GO})`,color:"#FAF7F2",fontSize:13,fontWeight:700,textDecoration:"none",border:"none",cursor:"pointer"}}>📊 Abrir Visão Diária Completa</a>
+        <a href={`/dashboard/visao-mensal?empresa=${empresaSel}`} style={{display:"inline-block",padding:"12px 32px",borderRadius:10,background:`linear-gradient(135deg, #3D2314, ${GO})`,color:"#FAF7F2",fontSize:13,fontWeight:700,textDecoration:"none",border:"none",cursor:"pointer"}}>📊 Abrir Visão Diária Completa</a>
         <div style={{marginTop:20}}>
           <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:10}}>💵 Fluxo de Caixa — Projeção Diária</div>
           <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
