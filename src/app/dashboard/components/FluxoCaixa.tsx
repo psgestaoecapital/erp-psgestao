@@ -63,7 +63,7 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
       }
     }
 
-    // Load contas a receber (entradas)
+    // Load contas a receber (entradas) — pagos + pendentes
     const{data:recImports}=await supabase.from("omie_imports").select("import_data").in("company_id",companyIds).eq("import_type","contas_receber");
     if(recImports){
       for(const imp of recImports){
@@ -71,20 +71,22 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
         if(!Array.isArray(regs)) continue;
         for(const r of regs){
           const status=r.status_titulo||"";
-          if(status==="CANCELADO"||status==="PAGO"||status==="RECEBIDO") continue;
-          const venc=r.data_vencimento||r.data_previsao||"";
+          if(status==="CANCELADO") continue;
+          // Pagos: usar data_pagamento (histórico real). Pendentes: usar data_vencimento (projeção)
+          const isPago=status==="PAGO"||status==="RECEBIDO"||status==="LIQUIDADO";
+          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||"");
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_cliente||"");
           lancs.push({
-            data:venc,valor:Number(r.valor_documento)||0,tipo:"entrada",
+            data:dataRef,valor:Number(r.valor_documento)||0,tipo:"entrada",
             nome:clienteNomes[codCF]||"Cliente "+codCF,
             doc:r.numero_documento||r.numero_documento_fiscal||"",
-            status,vencimento:venc,
+            status:isPago?"RECEBIDO":status,vencimento:r.data_vencimento||r.data_previsao||"",
           });
         }
       }
     }
 
-    // Load contas a pagar (saídas)
+    // Load contas a pagar (saídas) — pagos + pendentes
     const{data:pagImports}=await supabase.from("omie_imports").select("import_data").in("company_id",companyIds).eq("import_type","contas_pagar");
     if(pagImports){
       for(const imp of pagImports){
@@ -92,16 +94,61 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
         if(!Array.isArray(regs)) continue;
         for(const r of regs){
           const status=r.status_titulo||"";
-          if(status==="CANCELADO"||status==="PAGO"||status==="LIQUIDADO") continue;
-          const venc=r.data_vencimento||r.data_previsao||"";
+          if(status==="CANCELADO") continue;
+          const isPago=status==="PAGO"||status==="LIQUIDADO";
+          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||"");
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_fornecedor||"");
           lancs.push({
-            data:venc,valor:Number(r.valor_documento)||0,tipo:"saida",
+            data:dataRef,valor:Number(r.valor_documento)||0,tipo:"saida",
             nome:clienteNomes[codCF]||r.observacao||"Fornecedor "+codCF,
             doc:r.numero_documento||r.numero_documento_fiscal||"",
-            status,vencimento:venc,
+            status:isPago?"PAGO":status,vencimento:r.data_vencimento||r.data_previsao||"",
           });
         }
+      }
+    }
+
+    // ═══ DADOS DO MÓDULO OPERACIONAL (erp_receber / erp_pagar) ═══
+    // Contas a receber digitadas no PS Gestão
+    const{data:erpReceber}=await supabase.from("erp_receber").select("*").in("company_id",companyIds).neq("status","cancelado");
+    if(erpReceber){
+      for(const r of erpReceber){
+        const isPago=r.status==="pago";
+        const dataRef=isPago?(r.data_pagamento||r.data_vencimento||""):(r.data_vencimento||"");
+        if(!dataRef)continue;
+        // Converter YYYY-MM-DD para DD/MM/YYYY
+        const parts=dataRef.split("-");
+        const dataBR=parts.length===3?`${parts[2]}/${parts[1]}/${parts[0]}`:dataRef;
+        const vencParts=(r.data_vencimento||"").split("-");
+        const vencBR=vencParts.length===3?`${vencParts[2]}/${vencParts[1]}/${vencParts[0]}`:"";
+        lancs.push({
+          data:dataBR,valor:Number(r.valor)||0,tipo:"entrada",
+          nome:r.cliente_nome||"Cliente PS Gestão",
+          doc:r.numero_documento||r.numero_nf||"",
+          status:isPago?"RECEBIDO":r.status==="vencido"?"VENCIDO":"ABERTO",
+          vencimento:vencBR,
+        });
+      }
+    }
+
+    // Contas a pagar digitadas no PS Gestão
+    const{data:erpPagar}=await supabase.from("erp_pagar").select("*").in("company_id",companyIds).neq("status","cancelado");
+    if(erpPagar){
+      for(const r of erpPagar){
+        const isPago=r.status==="pago";
+        const dataRef=isPago?(r.data_pagamento||r.data_vencimento||""):(r.data_vencimento||"");
+        if(!dataRef)continue;
+        const parts=dataRef.split("-");
+        const dataBR=parts.length===3?`${parts[2]}/${parts[1]}/${parts[0]}`:dataRef;
+        const vencParts=(r.data_vencimento||"").split("-");
+        const vencBR=vencParts.length===3?`${vencParts[2]}/${vencParts[1]}/${vencParts[0]}`:"";
+        lancs.push({
+          data:dataBR,valor:Number(r.valor)||0,tipo:"saida",
+          nome:r.fornecedor_nome||r.descricao||"Fornecedor PS Gestão",
+          doc:r.numero_documento||r.numero_nf||"",
+          status:isPago?"PAGO":r.status==="vencido"?"VENCIDO":"ABERTO",
+          vencimento:vencBR,
+        });
       }
     }
 
@@ -109,14 +156,18 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
     setLoading(false);
   };
 
-  // Build daily cash flow
+  // Build daily cash flow — past (historical) + future (projected)
   const diasCaixa:DiaCaixa[]=useMemo(()=>{
     const hoje=new Date();
     hoje.setHours(0,0,0,0);
     const dias:DiaCaixa[]=[];
+    
+    // Determine how many past days to show based on period
+    const diasPassado=Math.min(Math.floor(periodo/2),30);
+    const diasFuturo=periodo;
     let acumulado=saldoInicial;
 
-    for(let i=0;i<periodo;i++){
+    for(let i=-diasPassado;i<diasFuturo;i++){
       const d=new Date(hoje);
       d.setDate(hoje.getDate()+i);
       const dStr=fmtDataCompleta(d);
