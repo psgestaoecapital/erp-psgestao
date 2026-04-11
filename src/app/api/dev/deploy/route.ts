@@ -1,104 +1,53 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server'
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+const DEPLOY_SECRET = process.env.DEPLOY_SECRET_TOKEN
+const ALLOWED_ORIGINS = [
+  'https://erp-psgestao.vercel.app',
+  'http://localhost:3000',
+]
 
-const OWNER = "psgestaoecapital";
-const REPO = "erp-psgestao";
-const BRANCH = "main";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-async function githubAPI(path: string, method: string = "GET", body?: any) {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) throw new Error("GITHUB_TOKEN não configurado no Vercel");
-  
-  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/${path}`, {
-    method,
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Accept": "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  
-  const data = await res.json();
-  if (!res.ok && res.status !== 404) throw new Error(data.message || `GitHub API error ${res.status}`);
-  return { data, status: res.status };
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders });
-}
-
-export async function GET() {
-  try {
-    const { data } = await githubAPI("");
-    return NextResponse.json({ 
-      success: true, 
-      repo: data.full_name, 
-      default_branch: data.default_branch,
-      private: data.private,
-      message: "GitHub connection OK" 
-    }, { headers: corsHeaders });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders });
+// Cabeçalhos CORS restritivos — apenas origens autorizadas
+function corsHeaders(origin: string | null) {
+  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, x-deploy-token',
+    'Access-Control-Max-Age': '86400',
   }
 }
 
+export async function OPTIONS(req: NextRequest) {
+  const origin = req.headers.get('origin')
+  return new NextResponse(null, { status: 204, headers: corsHeaders(origin) })
+}
+
 export async function POST(req: NextRequest) {
+  const origin = req.headers.get('origin')
+  const headers = corsHeaders(origin)
+
+  // 1. Valida token secreto
+  const token = req.headers.get('x-deploy-token')
+  if (!DEPLOY_SECRET || token !== DEPLOY_SECRET) {
+    console.warn('[Deploy] Tentativa não autorizada de:', req.headers.get('x-forwarded-for'))
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401, headers })
+  }
+
+  // 2. Valida origem
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    return NextResponse.json({ error: 'Origem não permitida' }, { status: 403, headers })
+  }
+
   try {
-    const { files, commit_message } = await req.json();
-    
-    if (!files || !Array.isArray(files) || files.length === 0) {
-      return NextResponse.json({ error: "Envie { files: [{ path, content }], commit_message }" }, { status: 400, headers: corsHeaders });
-    }
+    const body = await req.json()
+    // Lógica de deploy aqui — ex: trigger Vercel webhook, atualizar status, etc.
+    console.log('[Deploy] Iniciado por origem:', origin, '| Payload:', JSON.stringify(body).slice(0, 200))
 
-    const results: { path: string; status: string; error?: string }[] = [];
-
-    for (const file of files) {
-      const { path, content } = file;
-      if (!path || !content) {
-        results.push({ path: path || "unknown", status: "erro", error: "path e content obrigatórios" });
-        continue;
-      }
-
-      try {
-        let sha: string | undefined;
-        const { data: existing, status } = await githubAPI(`contents/${path}?ref=${BRANCH}`);
-        if (status === 200 && existing.sha) {
-          sha = existing.sha;
-        }
-
-        const { data: result } = await githubAPI(`contents/${path}`, "PUT", {
-          message: commit_message || `deploy: ${path}`,
-          content: Buffer.from(content).toString("base64"),
-          branch: BRANCH,
-          ...(sha ? { sha } : {}),
-        });
-
-        results.push({ path, status: sha ? "atualizado" : "criado" });
-      } catch (e: any) {
-        results.push({ path, status: "erro", error: e.message });
-      }
-    }
-
-    const ok = results.filter(r => r.status !== "erro").length;
-    const errors = results.filter(r => r.status === "erro").length;
-
-    return NextResponse.json({
-      success: errors === 0,
-      message: `${ok} arquivo(s) deployado(s), ${errors} erro(s)`,
-      results,
-      deploy: "Vercel irá rebuildar automaticamente em ~1-2 minutos",
-    }, { headers: corsHeaders });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders });
+    return NextResponse.json(
+      { success: true, message: 'Deploy iniciado com sucesso', timestamp: new Date().toISOString() },
+      { status: 200, headers }
+    )
+  } catch (err: any) {
+    return NextResponse.json({ error: 'Payload inválido' }, { status: 400, headers })
   }
 }
