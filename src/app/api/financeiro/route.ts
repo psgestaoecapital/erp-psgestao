@@ -34,22 +34,129 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // ═══ UNIFICAÇÃO: Merge com omie_imports ═══
+  let merged = (data || []).map((d: any) => ({ ...d, _origem: "PS Gestão", _editavel: true }));
+
+  const IMPORT_MAP: Record<string, string> = {
+    erp_receber: "contas_receber",
+    erp_pagar: "contas_pagar",
+    erp_clientes: "clientes",
+    erp_fornecedores: "fornecedores",
+  };
+
+  const importType = IMPORT_MAP[tabela];
+  if (importType) {
+    const { data: imports } = await sb.from("omie_imports")
+      .select("import_data, imported_at, record_count")
+      .eq("company_id", companyId)
+      .eq("import_type", importType)
+      .order("imported_at", { ascending: false })
+      .limit(1);
+
+    if (imports && imports.length > 0) {
+      const importData = imports[0].import_data;
+      const importedAt = imports[0].imported_at;
+      // Detectar fonte (Omie ou Nibo)
+      const fonte = importData?.fonte || "Omie";
+
+      // Extrair array de registros do import
+      let registros: any[] = [];
+      const keys = Object.keys(importData || {});
+      for (const k of keys) {
+        if (Array.isArray(importData[k])) { registros = importData[k]; break; }
+      }
+
+      // Mapear para formato unificado
+      const importados = registros.map((r: any, idx: number) => {
+        if (tabela === "erp_receber" || tabela === "erp_pagar") {
+          return {
+            id: `imp_${importType}_${idx}`,
+            descricao: r.descricao_categoria || r.observacao || r.descricao || `Lançamento ${fonte} #${idx + 1}`,
+            valor: r.valor_documento || r.valor || 0,
+            valor_pago: r.valor_pago || 0,
+            data_vencimento: r.data_vencimento || "",
+            data_emissao: r.data_emissao || "",
+            data_pagamento: r.data_pagamento || "",
+            status_titulo: r.status_titulo || "",
+            status: r.status_titulo === "RECEBIDO" || r.status_titulo === "PAGO" ? "pago" :
+                    r.status_titulo === "VENCIDO" ? "vencido" :
+                    r.status_titulo === "CANCELADO" ? "cancelado" : "aberto",
+            cliente_nome: r.nome_cliente || "",
+            fornecedor_nome: r.nome_fornecedor || "",
+            categoria: r.descricao_categoria || "",
+            numero_documento: r.numero_documento || "",
+            numero_nf: r.numero_nf || "",
+            _origem: fonte,
+            _editavel: false,
+            _importadoEm: importedAt,
+          };
+        }
+        if (tabela === "erp_clientes") {
+          return {
+            id: `imp_cli_${idx}`,
+            nome: r.razao_social || r.nome || r.nome_fantasia || "",
+            nome_fantasia: r.nome_fantasia || "",
+            cpf_cnpj: r.cnpj_cpf || "",
+            email: r.email || "",
+            telefone: r.telefone || "",
+            cidade: r.cidade || "",
+            uf: r.uf || "",
+            _origem: fonte,
+            _editavel: false,
+          };
+        }
+        if (tabela === "erp_fornecedores") {
+          return {
+            id: `imp_for_${idx}`,
+            nome: r.razao_social || r.nome || "",
+            nome_fantasia: r.nome_fantasia || "",
+            cpf_cnpj: r.cnpj_cpf || "",
+            email: r.email || "",
+            telefone: r.telefone || "",
+            cidade: r.cidade || "",
+            uf: r.uf || "",
+            _origem: fonte,
+            _editavel: false,
+          };
+        }
+        return null;
+      }).filter(Boolean);
+
+      // Deduplicar por número documento ou nome+valor
+      const idsExistentes = new Set(merged.map((m: any) => `${m.numero_documento||""}_${m.valor||""}_${m.nome||""}`));
+      const novos = importados.filter((imp: any) => {
+        const key = `${imp.numero_documento||""}_${imp.valor||""}_${imp.nome||""}`;
+        return !idsExistentes.has(key);
+      });
+
+      merged = [...merged, ...novos];
+    }
+  }
+
+  // Filtro por status nos importados
+  if (status && status !== "todos" && (tabela === "erp_receber" || tabela === "erp_pagar")) {
+    merged = merged.filter((m: any) => m.status === status);
+  }
+
   // Resumo para contas a pagar/receber
   let resumo = null;
   if (tabela === "erp_receber" || tabela === "erp_pagar") {
-    const todos = data || [];
+    const todos = merged;
     resumo = {
       total: todos.length,
       aberto: todos.filter((r: any) => r.status === "aberto").reduce((s: number, r: any) => s + (r.valor || 0), 0),
-      vencido: todos.filter((r: any) => r.status === "vencido" || (r.status === "aberto" && new Date(r.data_vencimento) < new Date())).reduce((s: number, r: any) => s + (r.valor || 0), 0),
+      vencido: todos.filter((r: any) => r.status === "vencido" || (r.status === "aberto" && r.data_vencimento && new Date(r.data_vencimento) < new Date())).reduce((s: number, r: any) => s + (r.valor || 0), 0),
       pago: todos.filter((r: any) => r.status === "pago").reduce((s: number, r: any) => s + (r.valor_pago || r.valor || 0), 0),
       qtdAberto: todos.filter((r: any) => r.status === "aberto").length,
-      qtdVencido: todos.filter((r: any) => r.status === "vencido" || (r.status === "aberto" && new Date(r.data_vencimento) < new Date())).length,
+      qtdVencido: todos.filter((r: any) => r.status === "vencido" || (r.status === "aberto" && r.data_vencimento && new Date(r.data_vencimento) < new Date())).length,
       qtdPago: todos.filter((r: any) => r.status === "pago").length,
+      qtdPSGestao: todos.filter((r: any) => r._origem === "PS Gestão").length,
+      qtdOmie: todos.filter((r: any) => r._origem === "Omie").length,
+      qtdNibo: todos.filter((r: any) => r._origem === "Nibo").length,
     };
   }
 
-  return NextResponse.json({ success: true, data: data || [], total: data?.length || 0, resumo });
+  return NextResponse.json({ success: true, data: merged, total: merged.length, resumo });
 }
 
 // POST — criar
