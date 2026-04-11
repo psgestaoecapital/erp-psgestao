@@ -148,10 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {(userRole==="wealth_advisor"||userRole==="wealth_admin"||userRole==="acesso_total")&&<a href="/wealth" style={{ fontSize: 10, color: "#C6973F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #C6973F30", background: "#C6973F08", fontWeight: 600 }}>ð° Wealth</a>}
           <a href="/dashboard/consultor" style={{ fontSize: 10, color: "#C6973F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #C6973F30", background: "#C6973F08", fontWeight: 600 }}>ð§  Consultor IA</a>
           {(userRole==="adm"||userRole==="acesso_total")&&<Link href="/dashboard/contador" className={pathname?.startsWith('/dashboard/contador') ? 'active' : ''}>
-            <span>📊</span>
-            <span>Contador</span>
-          </Link>
-          <a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>âï¸ Admin</a>}
+            <span>📊</span><a href="/dashboard/admin" style={{ fontSize: 10, color: "#B0AB9F", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #2A2822" }}>âï¸ Admin</a>}
           {(userRole==="adm"||userRole==="acesso_total")&&<a href="/dashboard/dev" style={{ fontSize: 10, color: "#60A5FA", textDecoration: "none", padding: "5px 12px", borderRadius: 8, border: "1px solid #60A5FA30", background: "#60A5FA08" }}>ð ï¸ Dev</a>}
           <div style={{ width: 1, height: 20, background: "#2A2822", margin: "0 4px" }}/>
           <button onClick={toggleDemo} title={demoMode?"Desativar modo demonstraÃ§Ã£o":"Ativar modo demonstraÃ§Ã£o â oculta nomes"} style={{
