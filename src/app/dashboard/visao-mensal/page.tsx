@@ -11,6 +11,30 @@ const fmtRFull=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits
 type Lanc={dia:number;valor:number;doc:string;obs:string;cliente:string;categoria:string;catCod:string;status:string;venc:string;emis:string;};
 type Row={id:string;nome:string;grp:string;total:number;orc:number;dias:Record<number,number>;lancs:Record<number,Lanc[]>;filhos?:Row[];};
 
+// ═══ STATUS VISUAL — Realizado / No Prazo / Atrasado ═══
+const statusInfo=(l:Lanc):{cor:string;label:string;icon:string}=>{
+  const st=(l.status||"").toUpperCase();
+  if(st.includes("RECEBIDO")||st.includes("PAGO")||st.includes("LIQUIDADO")||st==="pago")return{cor:G,label:"Realizado",icon:"✅"};
+  // Verificar vencimento
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  let dtVenc:Date|null=null;
+  if(l.venc){
+    const p1=l.venc.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if(p1){let a=parseInt(p1[3]);if(p1[3].length===2)a+=2000;dtVenc=new Date(a,parseInt(p1[2])-1,parseInt(p1[1]));}
+    const p2=l.venc.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if(!dtVenc&&p2)dtVenc=new Date(parseInt(p2[1]),parseInt(p2[2])-1,parseInt(p2[3]));
+  }
+  if(st.includes("VENCIDO")||st==="vencido"||(dtVenc&&dtVenc<hoje&&!st.includes("CANCEL")))return{cor:R,label:"Atrasado",icon:"🔴"};
+  if(st.includes("CANCEL"))return{cor:TXD,label:"Cancelado",icon:"⚫"};
+  return{cor:B,label:"No Prazo",icon:"🔵"};
+};
+
+const statusDia=(lancs:Lanc[]):{r:number;p:number;a:number;vr:number;vp:number;va:number}=>{
+  let r=0,p=0,a=0,vr=0,vp=0,va=0;
+  for(const l of lancs){const s=statusInfo(l);if(s.cor===G){r++;vr+=l.valor;}else if(s.cor===R){a++;va+=l.valor;}else if(s.cor===B){p++;vp+=l.valor;}}
+  return{r,p,a,vr,vp,va};
+};
+
 const STATUS_EXCL=new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
 
 function classifyDesp(cat:string,nome:string):string{
@@ -228,8 +252,16 @@ export default function VisaoMensalPage(){
         <td style={{padding:"4px 4px",textAlign:"right",fontSize:9,color:r.orc>0?TXM:TXD,borderRight:`1px solid ${BD}40`,position:"sticky",left:275,background:bg||BG,zIndex:2}}>{r.orc>0?fmtR(r.orc):"—"}</td>
         <td style={{padding:"4px 4px",textAlign:"right",fontSize:9,fontWeight:600,color:vC,borderRight:`1px solid ${BD}`,position:"sticky",left:340,background:bg||BG,zIndex:2,minWidth:45}}>{vP!==null?`${vP>0?"+":""}${vP.toFixed(0)}%`:"—"}</td>
         {dias.map(d=>{const v=r.dias[d]||0;const it=r.lancs?.[d]||[];const iT=d===dHj;
+          const st=it.length>0?statusDia(it):null;
           return <td key={d} onMouseEnter={it.length>0?(e)=>showTip(e,it):undefined} onMouseLeave={()=>setTip(null)}
-            style={{padding:"3px 3px",textAlign:"right",fontSize:9,color:v===0?"transparent":valC(v,r.grp),fontWeight:v>0&&isP?600:400,whiteSpace:"nowrap",cursor:it.length>0?"help":"default",background:iT?GO+"08":"transparent",borderRight:d%7===0?`1px solid ${BD}20`:"none",minWidth:48}}>{v===0?"·":fmtR(v)}</td>;
+            style={{padding:"3px 3px",textAlign:"right",fontSize:9,color:v===0?"transparent":valC(v,r.grp),fontWeight:v>0&&isP?600:400,whiteSpace:"nowrap",cursor:it.length>0?"help":"default",background:iT?GO+"08":st&&st.a>0?R+"06":"transparent",borderRight:d%7===0?`1px solid ${BD}20`:"none",minWidth:48,position:"relative"}}>
+            {v===0?"·":fmtR(v)}
+            {st&&it.length>0&&<div style={{display:"flex",gap:1,justifyContent:"center",marginTop:1}}>
+              {st.r>0&&<div style={{width:5,height:5,borderRadius:3,background:G}} title={`${st.r} realizado(s)`}/>}
+              {st.p>0&&<div style={{width:5,height:5,borderRadius:3,background:B}} title={`${st.p} no prazo`}/>}
+              {st.a>0&&<div style={{width:5,height:5,borderRadius:3,background:R}} title={`${st.a} atrasado(s)`}/>}
+            </div>}
+          </td>;
         })}
       </tr>
     );
@@ -255,6 +287,11 @@ export default function VisaoMensalPage(){
         <div>
           <div style={{fontSize:18,fontWeight:700,color:GOL}}>📅 Visão Diária — {nMes(mesAno)}</div>
           <div style={{fontSize:10,color:TXD}}>DRE diário com 5 níveis • Expandir por negócio/cliente/fornecedor</div>
+        </div>
+        <div style={{display:"flex",gap:12,alignItems:"center",marginRight:8}}>
+          <div style={{display:"flex",gap:4,alignItems:"center"}}><div style={{width:8,height:8,borderRadius:4,background:G}}/><span style={{fontSize:9,color:G}}>Realizado</span></div>
+          <div style={{display:"flex",gap:4,alignItems:"center"}}><div style={{width:8,height:8,borderRadius:4,background:B}}/><span style={{fontSize:9,color:B}}>No Prazo</span></div>
+          <div style={{display:"flex",gap:4,alignItems:"center"}}><div style={{width:8,height:8,borderRadius:4,background:R}}/><span style={{fontSize:9,color:R}}>Atrasado</span></div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={ss}>
@@ -320,16 +357,26 @@ export default function VisaoMensalPage(){
       )}
 
       {tip&&(
-        <div style={{position:"fixed",left:tip.x,top:tip.y,background:"#1E1E1B",border:`1px solid ${GO}60`,borderRadius:10,padding:12,zIndex:9999,maxWidth:300,boxShadow:"0 8px 24px rgba(0,0,0,0.6)"}}>
+        <div style={{position:"fixed",left:tip.x,top:tip.y,background:"#1E1E1B",border:`1px solid ${GO}60`,borderRadius:10,padding:12,zIndex:9999,maxWidth:340,boxShadow:"0 8px 24px rgba(0,0,0,0.6)"}}>
           <div style={{fontSize:10,fontWeight:700,color:GOL,marginBottom:6}}>{tip.items.length} lançamento(s)</div>
-          {tip.items.slice(0,5).map((it,i)=>(
-            <div key={i} style={{padding:"3px 0",borderBottom:i<tip.items.length-1?`0.5px solid ${BD}`:"none",fontSize:10}}>
-              <div style={{color:TX,fontWeight:600}}>{fmtRFull(it.valor)}</div>
+          {(()=>{const sd=statusDia(tip.items);return sd.r+sd.p+sd.a>0?(
+            <div style={{display:"flex",gap:8,marginBottom:8,padding:"4px 6px",background:BG2,borderRadius:6}}>
+              {sd.r>0&&<span style={{fontSize:8,color:G}}>✅ {sd.r} realiz. ({fmtRFull(sd.vr)})</span>}
+              {sd.p>0&&<span style={{fontSize:8,color:B}}>🔵 {sd.p} no prazo ({fmtRFull(sd.vp)})</span>}
+              {sd.a>0&&<span style={{fontSize:8,color:R}}>🔴 {sd.a} atras. ({fmtRFull(sd.va)})</span>}
+            </div>
+          ):null;})()}
+          {tip.items.slice(0,5).map((it,i)=>{const si=statusInfo(it);return(
+            <div key={i} style={{padding:"4px 0",borderBottom:i<tip.items.length-1?`0.5px solid ${BD}`:"none",fontSize:10,borderLeft:`3px solid ${si.cor}`,paddingLeft:8,marginBottom:2}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{color:TX,fontWeight:600}}>{fmtRFull(it.valor)}</span>
+                <span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:si.cor+"20",color:si.cor,fontWeight:600}}>{si.label}</span>
+              </div>
               <div style={{color:TXM}}>{it.cliente}</div>
-              <div style={{color:TXD,fontSize:9}}>{it.categoria}{it.doc&&` • ${it.doc}`}{it.status&&` • ${it.status}`}</div>
+              <div style={{color:TXD,fontSize:9}}>{it.categoria}{it.doc&&` • ${it.doc}`}{it.venc&&` • Venc: ${it.venc}`}</div>
               {it.obs&&<div style={{color:TXD,fontSize:9,fontStyle:"italic"}}>{it.obs}</div>}
             </div>
-          ))}
+          );})}
           {tip.items.length>5&&<div style={{fontSize:9,color:TXD}}>+{tip.items.length-5} mais</div>}
         </div>
       )}
