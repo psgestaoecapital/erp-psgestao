@@ -122,18 +122,18 @@ export default function DashboardPage(){
 
   // RBAC: Role → abas permitidas
   const ROLE_TABS:Record<string,string[]>={
-    admin:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
-    acesso_total:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
-    socio:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
-    financeiro:["geral","resultado","balanco","indicadores","financeiro","precos"],
+    admin:["geral","visao_diaria","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    acesso_total:["geral","visao_diaria","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    socio:["geral","visao_diaria","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    financeiro:["geral","visao_diaria","resultado","balanco","indicadores","financeiro","precos"],
     comercial:["geral","negocios","precos"],
     operacional:["geral","negocios"],
-    consultor:["geral","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
+    consultor:["geral","visao_diaria","negocios","resultado","balanco","indicadores","financeiro","precos","relatorio"],
     visualizador:["geral"],
   };
   const ROLE_NAMES:Record<string,string>={adm:"Administrador",acesso_total:"Acesso Total",socio:"Sócio/CEO",diretor_industrial:"Diretor Industrial",gerente_planta:"Gerente Planta",financeiro:"Financeiro",comercial:"Comercial",supervisor:"Supervisor",coordenador:"Coordenador",operacional:"Operador",consultor:"Consultor",conselheiro:"Conselheiro",visualizador:"Visualizador"};
 
-  const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço"},{id:"indicadores",nome:"Indicadores"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
+  const todasAbas=[{id:"geral",nome:"Painel Geral"},{id:"visao_diaria",nome:"Visão Diária"},{id:"negocios",nome:"Negócios"},{id:"resultado",nome:"Resultado"},{id:"balanco",nome:"Balanço"},{id:"indicadores",nome:"Indicadores"},{id:"financeiro",nome:"Financeiro"},{id:"precos",nome:"Preços"},{id:"relatorio",nome:"Relatório"}];
   const isDemoMode=typeof window!=="undefined"&&localStorage.getItem("ps_demo_mode")==="true";
   const allowedTabs=ROLE_TABS[userRole]||ROLE_TABS.admin;
   const abas=todasAbas.filter(a=>allowedTabs.includes(a.id));
@@ -933,6 +933,18 @@ export default function DashboardPage(){
       <Tit t="Fluxo de Caixa — Projeção Diária"/>
       <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
 
+    </div>)}
+
+    {aba==="visao_diaria"&&(<div>
+      <div style={{background:BG2,borderRadius:12,padding:20,border:`1px solid ${BD}`,textAlign:"center"}}>
+        <div style={{fontSize:14,fontWeight:700,color:GOL,marginBottom:8}}>📅 Visão Diária — Acompanhamento Dia a Dia</div>
+        <div style={{fontSize:11,color:TXM,marginBottom:16}}>Tabela de dias × receitas × despesas × margem bruta × EBITDA × resultado final.<br/>Fluxo de caixa diário com projeção. Clique para acessar a tela completa.</div>
+        <a href="/dashboard/visao-mensal" style={{display:"inline-block",padding:"12px 32px",borderRadius:10,background:`linear-gradient(135deg, #3D2314, ${GO})`,color:"#FAF7F2",fontSize:13,fontWeight:700,textDecoration:"none",border:"none",cursor:"pointer"}}>📊 Abrir Visão Diária Completa</a>
+        <div style={{marginTop:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:10}}>💵 Fluxo de Caixa — Projeção Diária</div>
+          <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
+        </div>
+      </div>
     </div>)}
 
     {aba==="negocios"&&(<div>
