@@ -106,6 +106,20 @@ export default function VisaoMensalPage(){
       }
     }
 
+    // ═══ DADOS erp_receber (digitados no PS Gestão) ═══
+    const{data:erpRec}=await supabase.from("erp_receber").select("*").in("company_id",cIds).neq("status","cancelado");
+    if(erpRec)for(const r of erpRec){
+      const v=Number(r.valor)||0;if(v<=0)continue;
+      const dia=parseDia(r.data_emissao||r.data_vencimento||"");if(!dia)continue;
+      const nome=r.cliente_nome||"PS Gestão";const catN=r.categoria||"Outros";
+      let lnId="geral";for(const ln of lns){if(catN.toLowerCase().includes(ln.nome.toLowerCase())){lnId=ln.id;break;}}
+      if(!recByLn[lnId])recByLn[lnId]={};
+      if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
+      recByLn[lnId][nome].t+=v;addDia(recByLn[lnId][nome].d,dia,v);
+      addLanc(recByLn[lnId][nome].l,dia,{dia,valor:v,doc:r.numero_documento||"",obs:r.descricao||"",cliente:nome,categoria:catN,catCod:"",status:r.status||"",venc:r.data_vencimento||"",emis:r.data_emissao||""});
+      tRec+=v;addDia(entD,dia,v);
+    }
+
     // Build receita tree
     const recFilhos:Row[]=[];
     for(const ln of [...lns,{id:"geral",nome:"Outros"}]){
@@ -141,6 +155,22 @@ export default function VisaoMensalPage(){
         if(cls==="impostos")tImp+=v;else if(cls==="custos")tCst+=v;else if(cls==="financeiro")tFin+=v;else tDsp+=v;
         addDia(saiD,dia,v);
       }
+    }
+
+    // ═══ DADOS erp_pagar (digitados no PS Gestão) ═══
+    const{data:erpPag}=await supabase.from("erp_pagar").select("*").in("company_id",cIds).neq("status","cancelado");
+    if(erpPag)for(const r of erpPag){
+      const v=Number(r.valor)||0;if(v<=0)continue;
+      const dia=parseDia(r.data_emissao||r.data_vencimento||"");if(!dia)continue;
+      const catN=r.categoria||r.descricao||"Outros";
+      const forn=r.fornecedor_nome||r.descricao||"PS Gestão";
+      const cls=classifyDesp("",catN);
+      const gk=catN;
+      if(!grpData[cls][gk])grpData[cls][gk]={t:0,d:{},l:{}};
+      grpData[cls][gk].t+=v;addDia(grpData[cls][gk].d,dia,v);
+      addLanc(grpData[cls][gk].l,dia,{dia,valor:v,doc:r.numero_documento||"",obs:r.descricao||"",cliente:forn,categoria:catN,catCod:"",status:r.status||"",venc:r.data_vencimento||"",emis:r.data_emissao||""});
+      if(cls==="impostos")tImp+=v;else if(cls==="custos")tCst+=v;else if(cls==="financeiro")tFin+=v;else tDsp+=v;
+      addDia(saiD,dia,v);
     }
 
     const buildGrp=(key:string,nome:string,icon:string,grp:string,orc:number):Row=>{
