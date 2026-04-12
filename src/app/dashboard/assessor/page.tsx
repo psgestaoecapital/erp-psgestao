@@ -1,101 +1,61 @@
-'use client';
-import { useState, useEffect } from 'react';
+'use client'
 
-export default function AssessorDashboard() {
-  const [assessoria, setAssessoria] = useState<any>(null);
-  const [clientes, setClientes] = useState<any[]>([]);
-  const [diagnosticos, setDiagnosticos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+import React from 'react'
+import { useRouter } from 'next/navigation'
 
-  useEffect(() => { loadData(); }, []);
+const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', blue: '#42A5F5', teal: '#009688' }
 
-  async function loadData() {
-    try {
-      const res = await fetch('/api/assessor', { credentials: 'include' });
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        setAssessoria(data[0]);
-        const cliRes = await fetch('/api/assessor/clientes', { credentials: 'include' });
-        setClientes(await cliRes.json());
-        const diagRes = await fetch('/api/assessor/diagnostico', { credentials: 'include' });
-        const diagData = await diagRes.json();
-        setDiagnosticos(Array.isArray(diagData) ? diagData : []);
-      } else {
-        setNeedsOnboarding(true);
-      }
-    } catch (e) { console.error(e); }
-    setLoading(false);
-  }
+const MODULOS = [
+  { id: 'onboarding', label: 'Cadastro', desc: 'Cadastrar assessoria com white-label (logo, cores, nome)', icon: 'C', color: C.gold },
+  { id: 'clientes', label: 'Clientes', desc: 'Gestao de clientes da assessoria', icon: 'U', color: C.blue },
+  { id: 'diagnosticos', label: 'Diagnosticos', desc: 'Diagnostico inteligente via CSV ou conector ERP', icon: 'D', color: C.teal },
+  { id: 'plano-acao', label: 'Plano de Acao', desc: 'Acoes monitoradas com prazo, responsavel e progresso', icon: 'P', color: C.green },
+  { id: 'dashboard-ceo', label: 'Dashboard CEO', desc: 'Visao executiva para o empresario: KPIs, ABC, fluxo de caixa', icon: 'E', color: '#FF9800' },
+]
 
-  if (loading) return <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'60vh', color:'#3D2314', fontFamily:'system-ui' }}>Carregando PS Assessor...</div>;
-
-  if (needsOnboarding) {
-    return (
-      <div style={{ maxWidth:600, margin:'60px auto', textAlign:'center', fontFamily:'system-ui' }}>
-        <h1 style={{ color:'#3D2314', fontSize:28, marginBottom:8 }}>PS Assessor</h1>
-        <p style={{ color:'#666', marginBottom:24 }}>Configure sua assessoria para comecar</p>
-        <a href="/dashboard/assessor/onboarding" style={{ display:'inline-block', background:'#3D2314', color:'#FAF7F2', padding:'14px 32px', borderRadius:8, textDecoration:'none', fontSize:16, fontWeight:600 }}>Configurar Assessoria</a>
-      </div>
-    );
-  }
-
-  const cores = { p: assessoria?.cor_primaria || '#3D2314', s: assessoria?.cor_secundaria || '#C8941A', f: assessoria?.cor_fundo || '#FAF7F2' };
-  const diagConcluidos = diagnosticos.filter((d:any) => d.status === 'concluido' || d.status === 'entregue').length;
+export default function AssessorPage() {
+  const router = useRouter()
 
   return (
-    <div style={{ fontFamily:'system-ui', background:cores.f, minHeight:'100vh', padding:24 }}>
-      <div style={{ maxWidth:1100, margin:'0 auto' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
-          <div>
-            <h1 style={{ color:cores.p, fontSize:24, margin:0 }}>{assessoria?.nome_fantasia || assessoria?.nome}</h1>
-            <p style={{ color:'#888', fontSize:13 }}>Plano {assessoria?.plano?.toUpperCase()} | {clientes.length}/{assessoria?.max_clientes} clientes</p>
+    <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
+      <div style={{ marginBottom: 16 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: C.gold, margin: 0 }}>PS Assessor</h1>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Plataforma SaaS white-label para assessorias empresariais</div>
+      </div>
+
+      {/* Pricing */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
+        {[
+          { plano: 'Starter', preco: 'R$ 497/mes', clientes: '5 clientes', cor: C.muted },
+          { plano: 'Pro', preco: 'R$ 1.497/mes', clientes: '20 clientes', cor: C.gold },
+          { plano: 'Enterprise', preco: 'R$ 3.497/mes', clientes: 'Ilimitado', cor: C.teal },
+        ].map((p, i) => (
+          <div key={i} style={{ background: C.card, borderRadius: 8, padding: 14, borderTop: '3px solid ' + p.cor, textAlign: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: p.cor }}>{p.plano}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: C.text, margin: '6px 0' }}>{p.preco}</div>
+            <div style={{ fontSize: 10, color: C.muted }}>{p.clientes}</div>
           </div>
-          <a href="/dashboard/assessor/onboarding" style={{ color:cores.s, fontSize:13, textDecoration:'none' }}>Configuracoes</a>
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
-          {[
-            { v: clientes.length, l: 'Clientes' },
-            { v: diagnosticos.length, l: 'Diagnosticos' },
-            { v: diagConcluidos, l: 'Concluidos' },
-            { v: diagnosticos.length - diagConcluidos, l: 'Em andamento' },
-          ].map((k,i) => (
-            <div key={i} style={{ background:'white', borderRadius:12, padding:20, borderLeft:'4px solid '+cores.s }}>
-              <div style={{ fontSize:28, fontWeight:700, color:cores.p }}>{k.v}</div>
-              <div style={{ fontSize:12, color:'#888', marginTop:4 }}>{k.l}</div>
+        ))}
+      </div>
+
+      {/* Modulos */}
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.gold, marginBottom: 10 }}>Modulos</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+        {MODULOS.map(m => (
+          <div key={m.id} onClick={() => router.push('/dashboard/assessor/' + m.id)}
+            style={{ background: C.card, borderRadius: 8, padding: 16, cursor: 'pointer', borderLeft: '3px solid ' + m.color, transition: '0.15s' }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#241c14')}
+            onMouseLeave={e => (e.currentTarget.style.background = C.card)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: m.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 18, color: m.color }}>{m.icon}</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{m.label}</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{m.desc}</div>
+              </div>
             </div>
-          ))}
-        </div>
-        <div style={{ display:'flex', gap:12, marginBottom:24 }}>
-          <a href="/dashboard/assessor/clientes" style={{ background:cores.p, color:cores.f, padding:'10px 20px', borderRadius:8, textDecoration:'none', fontSize:14, fontWeight:600 }}>+ Novo Cliente</a>
-          <a href="/dashboard/assessor/diagnosticos" style={{ background:cores.s, color:'white', padding:'10px 20px', borderRadius:8, textDecoration:'none', fontSize:14, fontWeight:600 }}>+ Novo Diagnostico</a>
-        </div>
-        <div style={{ background:'white', borderRadius:12, padding:20 }}>
-          <h3 style={{ color:cores.p, marginBottom:12, fontSize:16 }}>Diagnosticos Recentes</h3>
-          {diagnosticos.length === 0 ? (
-            <p style={{ color:'#999', fontSize:13 }}>Nenhum diagnostico ainda. Cadastre um cliente e inicie o primeiro diagnostico.</p>
-          ) : (
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
-              <thead><tr style={{ borderBottom:'2px solid '+cores.s }}>
-                <th style={{ textAlign:'left', padding:8, color:cores.p }}>Cliente</th>
-                <th style={{ textAlign:'left', padding:8, color:cores.p }}>Titulo</th>
-                <th style={{ textAlign:'center', padding:8, color:cores.p }}>Status</th>
-                <th style={{ textAlign:'right', padding:8, color:cores.p }}>Data</th>
-              </tr></thead>
-              <tbody>{diagnosticos.slice(0,10).map((d:any) => (
-                <tr key={d.id} style={{ borderBottom:'1px solid #eee' }}>
-                  <td style={{ padding:8 }}>{d.clientes_assessoria?.nome || '-'}</td>
-                  <td style={{ padding:8 }}>{d.titulo}</td>
-                  <td style={{ padding:8, textAlign:'center' }}>
-                    <span style={{ background: d.status==='concluido'||d.status==='entregue'?'#D4EDDA':d.status==='em_andamento'?'#FFF3CD':'#F0F0F0', padding:'3px 10px', borderRadius:12, fontSize:11 }}>{d.status}</span>
-                  </td>
-                  <td style={{ padding:8, textAlign:'right', color:'#888' }}>{new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-          )}
-        </div>
+          </div>
+        ))}
       </div>
     </div>
-  );
+  )
 }
