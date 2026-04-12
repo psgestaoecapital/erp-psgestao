@@ -156,7 +156,7 @@ export default function CustoPage() {
         </select>
         <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} style={inputSt} />
         <select value={fonte} onChange={e => setFonte(e.target.value as any)} style={inputSt}>
-          <option value="auto">Auto (Industrial > Lanc.)</option>
+          <option value="auto">Auto (Industrial, depois Lanc.)</option>
           <option value="industrial">So Industrial</option>
           <option value="lancamentos">So Lancamentos</option>
         </select>
