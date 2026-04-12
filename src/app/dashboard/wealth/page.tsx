@@ -5,24 +5,26 @@ import { supabase } from '@/lib/supabase'
 
 const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', blue: '#42A5F5' }
 
+interface WealthCliente { id: string; nome: string; cpf_cnpj?: string; perfil_risco?: string; ativo?: boolean }
+interface WealthPortfolio { id: string; cliente_id: string; nome_ativo?: string; classe_ativo?: string; valor_atual?: number }
+interface ClasseData { valor: number; count: number }
+
 export default function WealthPage() {
-  const [clientes, setClientes] = useState<any[]>([])
-  const [portfolios, setPortfolios] = useState<any[]>([])
+  const [clientes, setClientes] = useState<WealthCliente[]>([])
+  const [portfolios, setPortfolios] = useState<WealthPortfolio[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('overview')
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     setLoading(true)
-    const [clientesRes, portfoliosRes] = await Promise.all([
+    const [cRes, pRes] = await Promise.all([
       supabase.from('wealth_clientes').select('*').order('nome'),
       supabase.from('wealth_portfolios').select('*'),
     ])
-    setClientes(clientesRes.data || [])
-    setPortfolios(portfoliosRes.data || [])
+    setClientes((cRes.data || []) as WealthCliente[])
+    setPortfolios((pRes.data || []) as WealthPortfolio[])
     setLoading(false)
   }
 
@@ -36,91 +38,79 @@ export default function WealthPage() {
     background: tab === t ? C.card : 'transparent', color: tab === t ? C.gold : C.muted, border: 'none',
   })
 
-  // Group by asset class
-  const byClass = portfolios.reduce((acc, p) => {
+  const byClass: Record<string, ClasseData> = portfolios.reduce((acc, p) => {
     const cls = p.classe_ativo || 'Outros'
     if (!acc[cls]) acc[cls] = { valor: 0, count: 0 }
     acc[cls].valor += p.valor_atual || 0
     acc[cls].count++
     return acc
-  }, {} as Record<string, { valor: number; count: number }>)
+  }, {} as Record<string, ClasseData>)
+
+  const classEntries = Object.entries(byClass).sort((a, b) => b[1].valor - a[1].valor)
 
   return (
     <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, margin: 0 }}>🏰 PS Wealth — Multi Family Office</h1>
-        <button onClick={loadData} style={{ background: C.gold, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>🔄</button>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, margin: 0 }}>\u{1F3F0} PS Wealth \u2014 Multi Family Office</h1>
+        <button onClick={loadData} style={{ background: C.gold, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>\u{1F504}</button>
       </div>
 
-      {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 16 }}>
-        <div style={{ background: C.card, borderRadius: 8, padding: 16, borderTop: '3px solid ' + C.gold }}>
-          <div style={{ fontSize: 11, color: C.muted }}>AUM Total</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: C.gold }}>{fmtM(totalAUM)}</div>
-        </div>
-        <div style={{ background: C.card, borderRadius: 8, padding: 16, borderTop: '3px solid ' + C.blue }}>
-          <div style={{ fontSize: 11, color: C.muted }}>Clientes</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: C.blue }}>{totalClientes}</div>
-        </div>
-        <div style={{ background: C.card, borderRadius: 8, padding: 16, borderTop: '3px solid ' + C.green }}>
-          <div style={{ fontSize: 11, color: C.muted }}>Portfólios</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: C.green }}>{portfolios.length}</div>
-        </div>
-        <div style={{ background: C.card, borderRadius: 8, padding: 16, borderTop: '3px solid ' + C.muted }}>
-          <div style={{ fontSize: 11, color: C.muted }}>Ticket Médio</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: C.text }}>{totalClientes > 0 ? fmtM(totalAUM / totalClientes) : '-'}</div>
-        </div>
+        {[
+          { label: 'AUM Total', value: fmtM(totalAUM), color: C.gold },
+          { label: 'Clientes', value: String(totalClientes), color: C.blue },
+          { label: 'Portf\u00f3lios', value: String(portfolios.length), color: C.green },
+          { label: 'Ticket M\u00e9dio', value: totalClientes > 0 ? fmtM(totalAUM / totalClientes) : '-', color: C.text },
+        ].map((s, i) => (
+          <div key={i} style={{ background: C.card, borderRadius: 8, padding: 16, borderTop: '3px solid ' + s.color }}>
+            <div style={{ fontSize: 11, color: C.muted }}>{s.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid ' + C.border, marginBottom: 16 }}>
-        <button style={tabStyle('overview')} onClick={() => setTab('overview')}>Visão Geral</button>
+        <button style={tabStyle('overview')} onClick={() => setTab('overview')}>Vis\u00e3o Geral</button>
         <button style={tabStyle('clientes')} onClick={() => setTab('clientes')}>Clientes</button>
-        <button style={tabStyle('alocacao')} onClick={() => setTab('alocacao')}>Alocação</button>
+        <button style={tabStyle('alocacao')} onClick={() => setTab('alocacao')}>Aloca\u00e7\u00e3o</button>
       </div>
 
       {loading && <div style={{ textAlign: 'center', padding: 40, color: C.muted }}>Carregando...</div>}
 
-      {/* Overview */}
       {tab === 'overview' && !loading && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-            {/* Allocation */}
-            <div style={{ background: C.card, borderRadius: 8, padding: 16 }}>
-              <div style={{ fontWeight: 700, color: C.gold, marginBottom: 12 }}>Alocação por Classe</div>
-              {Object.entries(byClass).sort((a, b) => b[1].valor - a[1].valor).map(([cls, data]) => {
-                const pct = totalAUM > 0 ? (data.valor / totalAUM) * 100 : 0
-                return (
-                  <div key={cls} style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-                      <span>{cls}</span>
-                      <span style={{ color: C.gold }}>{pct.toFixed(1)}% — {fmtM(data.valor)}</span>
-                    </div>
-                    <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: pct + '%', background: C.gold, borderRadius: 3 }} />
-                    </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+          <div style={{ background: C.card, borderRadius: 8, padding: 16 }}>
+            <div style={{ fontWeight: 700, color: C.gold, marginBottom: 12 }}>Aloca\u00e7\u00e3o por Classe</div>
+            {classEntries.map(([cls, data]) => {
+              const pct = totalAUM > 0 ? (data.valor / totalAUM) * 100 : 0
+              return (
+                <div key={cls} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span>{cls}</span>
+                    <span style={{ color: C.gold }}>{pct.toFixed(1)}% \u2014 {fmtM(data.valor)}</span>
                   </div>
-                )
-              })}
-              {Object.keys(byClass).length === 0 && <div style={{ color: C.muted, fontSize: 12 }}>Nenhum portfólio cadastrado</div>}
-            </div>
-
-            {/* Recent clients */}
-            <div style={{ background: C.card, borderRadius: 8, padding: 16 }}>
-              <div style={{ fontWeight: 700, color: C.gold, marginBottom: 12 }}>Clientes Recentes</div>
-              {clientes.slice(0, 8).map((c, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid ' + C.border, fontSize: 12 }}>
-                  <span>{c.nome}</span>
-                  <span style={{ color: C.muted }}>{c.perfil_risco || '-'}</span>
+                  <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: pct + '%', background: C.gold, borderRadius: 3 }} />
+                  </div>
                 </div>
-              ))}
-              {clientes.length === 0 && <div style={{ color: C.muted, fontSize: 12 }}>Nenhum cliente cadastrado</div>}
-            </div>
+              )
+            })}
+            {classEntries.length === 0 && <div style={{ color: C.muted, fontSize: 12 }}>Nenhum portf\u00f3lio cadastrado</div>}
+          </div>
+
+          <div style={{ background: C.card, borderRadius: 8, padding: 16 }}>
+            <div style={{ fontWeight: 700, color: C.gold, marginBottom: 12 }}>Clientes Recentes</div>
+            {clientes.slice(0, 8).map((c, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid ' + C.border, fontSize: 12 }}>
+                <span>{c.nome}</span>
+                <span style={{ color: C.muted }}>{c.perfil_risco || '-'}</span>
+              </div>
+            ))}
+            {clientes.length === 0 && <div style={{ color: C.muted, fontSize: 12 }}>Nenhum cliente cadastrado</div>}
           </div>
         </div>
       )}
 
-      {/* Clientes tab */}
       {tab === 'clientes' && !loading && (
         <div style={{ background: C.card, borderRadius: 8, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -146,13 +136,12 @@ export default function WealthPage() {
                   </tr>
                 )
               })}
-              {clientes.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: C.muted }}>Nenhum cliente cadastrado</td></tr>}
+              {clientes.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: C.muted }}>Nenhum cliente</td></tr>}
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Alocação tab */}
       {tab === 'alocacao' && !loading && (
         <div style={{ background: C.card, borderRadius: 8, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -174,7 +163,7 @@ export default function WealthPage() {
                   </tr>
                 )
               })}
-              {portfolios.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: C.muted }}>Nenhum portfólio cadastrado</td></tr>}
+              {portfolios.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: C.muted }}>Nenhum portf\u00f3lio</td></tr>}
             </tbody>
           </table>
         </div>
