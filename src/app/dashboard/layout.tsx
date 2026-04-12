@@ -1,5 +1,8 @@
 'use client'
 
+import HelpWidget from '@/components/HelpWidget'
+
+
 import React, { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -134,6 +137,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       <main>{children}</main>
+      <HelpWidget />
     </div>
   )
 }
