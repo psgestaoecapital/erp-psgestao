@@ -7,6 +7,16 @@ const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', 
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
 
+function toYM(d: string): string {
+  if (!d) return ''
+  if (d.includes('/')) {
+    const p = d.split('/')
+    if (p.length === 3 && p[2].length === 4) return p[2] + '-' + p[1].padStart(2, '0')
+  }
+  if (d.includes('-') && d.length >= 7) return d.substring(0, 7)
+  return d
+}
+
 export default function DashboardCEOPage() {
   const [empresas, setEmpresas] = useState<any[]>([])
   const [empresaSel, setEmpresaSel] = useState('')
@@ -75,7 +85,7 @@ export default function DashboardCEOPage() {
           const codCF = String(r.codigo_cliente_fornecedor || '')
           const nome = nomes[codCF] || 'Cliente ' + codCF
           clienteMap[nome] = (clienteMap[nome] || 0) + v
-          const mes = (r.data_emissao || r.data_vencimento || '').substring(0, 7)
+          const mes = toYM(r.data_emissao || r.data_vencimento || '')
           if (mes) { if (!mesMap[mes]) mesMap[mes] = { rec: 0, desp: 0 }; mesMap[mes].rec += v }
         }
       }
@@ -88,7 +98,7 @@ export default function DashboardCEOPage() {
           const v = Number(r.valor_documento) || 0
           if (v <= 0) continue
           totalDesp += v
-          const mes = (r.data_emissao || r.data_vencimento || '').substring(0, 7)
+          const mes = toYM(r.data_emissao || r.data_vencimento || '')
           if (mes) { if (!mesMap[mes]) mesMap[mes] = { rec: 0, desp: 0 }; mesMap[mes].desp += v }
         }
       }
