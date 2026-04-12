@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
-const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', yellow: '#FFC107', blue: '#42A5F5', teal: '#009688', espresso: '#3D2314' }
+const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', yellow: '#FFC107', blue: '#42A5F5', teal: '#009688', espresso: '#3D2314', orange: '#FF9800' }
 
 // ═══════════════════════════════════════
 // TIPOS E ESTRUTURAS
