@@ -10,6 +10,28 @@ const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DE
 
 interface Row { data: string; valor: number; descricao: string; categoria: string; fornecedor: string; cliente: string; tipo: string }
 
+// Converte DD/MM/YYYY ou YYYY-MM-DD para YYYY-MM (para agrupar por mes)
+function toYearMonth(d: string): string {
+  if (!d) return ''
+  if (d.includes('/')) {
+    const p = d.split('/')
+    if (p.length === 3 && p[2].length === 4) return p[2] + '-' + p[1].padStart(2, '0')
+    if (p.length === 3 && p[0].length === 4) return p[0] + '-' + p[1].padStart(2, '0')
+  }
+  if (d.includes('-') && d.length >= 7) return d.substring(0, 7)
+  return d
+}
+
+// Converte DD/MM/YYYY para YYYY-MM-DD (para ordenacao)
+function toISO(d: string): string {
+  if (!d) return ''
+  if (d.includes('/')) {
+    const p = d.split('/')
+    if (p.length === 3 && p[2].length === 4) return p[2] + '-' + p[1].padStart(2, '0') + '-' + p[0].padStart(2, '0')
+  }
+  return d
+}
+
 function extractFromOmie(imports: any[]): Row[] {
   const rows: Row[] = []
   const nomes: Record<string, string> = {}
@@ -55,7 +77,7 @@ function extractFromOmie(imports: any[]): Row[] {
       }
     }
   }
-  return rows.sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+  return rows.sort((a, b) => toISO(b.data).localeCompare(toISO(a.data)))
 }
 
 export async function POST(req: NextRequest) {
@@ -121,7 +143,8 @@ export async function POST(req: NextRequest) {
     const mMap: Record<string, { receita: number; despesa: number }> = {}
     rows.forEach(l => {
       if (!l.data) return
-      const mes = l.data.substring(0, 7)
+      const mes = toYearMonth(l.data)
+      if (!mes || mes.length < 6) return
       if (!mMap[mes]) mMap[mes] = { receita: 0, despesa: 0 }
       if (l.valor >= 0) mMap[mes].receita += l.valor
       else mMap[mes].despesa += Math.abs(l.valor)
@@ -130,7 +153,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       total_lancamentos: rows.length,
-      periodo: { inicio: rows[rows.length - 1]?.data, fim: rows[0]?.data },
+      periodo: { inicio: toISO(rows[rows.length - 1]?.data || ''), fim: toISO(rows[0]?.data || '') },
       abc_clientes: abcClientes.slice(0, 20),
       abc_fornecedores: abcFornecedores.slice(0, 20),
       abc_categorias: abcCategorias,
