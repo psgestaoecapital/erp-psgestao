@@ -8,51 +8,97 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    // Buscar da tabela clientes_assessoria (tabela real do sistema)
-    const { data: clientes, error } = await supabase
+    // 1. Buscar clientes_assessoria
+    const { data: clientes } = await supabase
       .from('clientes_assessoria')
       .select('id, nome, cnpj, segmento, regime_tributario, assessoria_id, status')
       .eq('status', 'ativo')
       .order('nome')
 
-    if (error) {
-      return NextResponse.json({ error: error.message, empresas: [] }, { status: 200 })
+    // 2. Buscar companies (onde vivem os dados do omie_imports)
+    const { data: companies } = await supabase
+      .from('companies')
+      .select('id, nome_fantasia, razao_social, cnpj, group_id')
+      .order('nome_fantasia')
+
+    const allEmpresas: any[] = []
+    const seenCnpjs = new Set<string>()
+
+    // Adicionar companies primeiro (tem dados reais em omie_imports)
+    if (companies) {
+      for (const c of companies) {
+        const cnpjClean = (c.cnpj || '').replace(/[^0-9]/g, '')
+        seenCnpjs.add(cnpjClean)
+        allEmpresas.push({
+          id: c.id,
+          nome: c.nome_fantasia || c.razao_social || 'Sem nome',
+          cnpj: c.cnpj || '',
+          fonte: 'companies',
+          group_id: c.group_id,
+        })
+      }
     }
 
-    const allEmpresas = (clientes || []).map((c: any) => ({
-      id: c.id,
-      nome: c.nome,
-      cnpj: c.cnpj,
-      segmento: c.segmento,
-      regime_tributario: c.regime_tributario,
-      fonte: 'clientes_assessoria',
-    }))
-
-    // Identificar grupos (mesmo prefixo CNPJ raiz = mesmo grupo)
-    const grupos: Record<string, any[]> = {}
-    allEmpresas.forEach((e: any) => {
-      if (e.cnpj) {
-        const raiz = String(e.cnpj).replace(/[^0-9]/g, '').substring(0, 8)
-        if (!grupos[raiz]) grupos[raiz] = []
-        grupos[raiz].push(e)
+    // Adicionar clientes_assessoria que NAO estao em companies (evitar duplicatas por CNPJ)
+    if (clientes) {
+      for (const c of clientes) {
+        const cnpjClean = (c.cnpj || '').replace(/[^0-9]/g, '')
+        if (cnpjClean && seenCnpjs.has(cnpjClean)) continue
+        allEmpresas.push({
+          id: c.id,
+          nome: c.nome,
+          cnpj: c.cnpj || '',
+          fonte: 'clientes_assessoria',
+          assessoria_id: c.assessoria_id,
+        })
       }
-    })
+    }
 
-    const gruposConsolidados = Object.entries(grupos)
-      .filter(([, members]) => (members as any[]).length > 1)
-      .map(([raiz, members]) => ({
-        id: 'grupo_' + raiz,
-        nome: 'GRUPO: ' + (members as any[])[0].nome.split(' ')[0] + ' (' + (members as any[]).length + ' empresas)',
-        cnpj: raiz + '... (consolidado)',
-        fonte: 'grupo',
-        empresa_ids: (members as any[]).map((m: any) => m.id),
-        membros: (members as any[]).map((m: any) => ({ id: m.id, nome: m.nome, cnpj: m.cnpj })),
-      }))
+    // 3. Gerar grupos automaticos
+
+    // 3a. Grupos por company_groups (se existir group_id)
+    const groupIds = [...new Set(allEmpresas.filter(e => e.group_id).map(e => e.group_id))]
+    const gruposDB: any[] = []
+    if (groupIds.length > 0) {
+      const { data: groups } = await supabase.from('company_groups').select('id, nome').in('id', groupIds)
+      if (groups) {
+        for (const g of groups) {
+          const members = allEmpresas.filter(e => e.group_id === g.id)
+          if (members.length > 1) {
+            gruposDB.push({
+              id: 'group_' + g.id,
+              nome: 'GRUPO: ' + g.nome + ' (' + members.length + ' empresas)',
+              fonte: 'grupo',
+              empresa_ids: members.map(m => m.id),
+              membros: members.map(m => ({ id: m.id, nome: m.nome, cnpj: m.cnpj })),
+            })
+          }
+        }
+      }
+    }
+
+    // 3b. Grupo por assessoria (todas as empresas da mesma assessoria)
+    const assessoriaIds = [...new Set((clientes || []).map(c => c.assessoria_id).filter(Boolean))]
+    const gruposAssessoria: any[] = []
+    if (assessoriaIds.length > 0) {
+      for (const aId of assessoriaIds) {
+        const members = (clientes || []).filter(c => c.assessoria_id === aId)
+        if (members.length > 1) {
+          gruposAssessoria.push({
+            id: 'assessoria_' + aId,
+            nome: 'TODOS OS CLIENTES (' + members.length + ' empresas)',
+            fonte: 'grupo',
+            empresa_ids: members.map((m: any) => m.id),
+            membros: members.map((m: any) => ({ id: m.id, nome: m.nome, cnpj: m.cnpj })),
+          })
+        }
+      }
+    }
 
     return NextResponse.json({
-      empresas: [...gruposConsolidados, ...allEmpresas],
+      empresas: [...gruposDB, ...gruposAssessoria, ...allEmpresas],
       total: allEmpresas.length,
-      grupos: gruposConsolidados.length,
+      grupos: gruposDB.length + gruposAssessoria.length,
     })
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro', empresas: [] }, { status: 200 })
