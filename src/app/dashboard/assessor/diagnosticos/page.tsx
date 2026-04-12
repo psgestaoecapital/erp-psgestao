@@ -10,6 +10,8 @@ export default function DiagnosticosPage() {
   const [modo, setModo] = useState<'csv' | 'erp' | null>(null)
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [empresaSel, setEmpresaSel] = useState('')
+  const [multiSelect, setMultiSelect] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [resultado, setResultado] = useState<any>(null)
   const [parecer, setParecer] = useState('')
   const [loading, setLoading] = useState(false)
@@ -21,8 +23,7 @@ export default function DiagnosticosPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const loadEmpresas = async () => {
-    setLoadingEmpresas(true)
-    setErrorMsg('')
+    setLoadingEmpresas(true); setErrorMsg('')
     try {
       const resp = await fetch('/api/assessor/empresas-erp')
       const data = await resp.json()
@@ -32,32 +33,62 @@ export default function DiagnosticosPage() {
     setLoadingEmpresas(false)
   }
 
+  const individuais = empresas.filter(e => e.fonte !== 'grupo')
+  const grupos = empresas.filter(e => e.fonte === 'grupo')
+
+  const toggleSelect = (id: string) => {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    setSelected(next)
+  }
+
+  const selectAll = () => {
+    if (selected.size === individuais.length) setSelected(new Set())
+    else setSelected(new Set(individuais.map(e => e.id)))
+  }
+
   const analisarERP = async () => {
-    if (!empresaSel) return
     setLoading(true); setResultado(null); setParecer(''); setErrorMsg('')
-    try {
+
+    let idsToAnalyze: string[] = []
+
+    if (multiSelect) {
+      idsToAnalyze = [...selected]
+    } else if (empresaSel) {
       const emp = empresas.find(e => e.id === empresaSel)
       if (emp?.fonte === 'grupo' && emp.empresa_ids) {
+        idsToAnalyze = emp.empresa_ids
+      } else {
+        idsToAnalyze = [empresaSel]
+      }
+    }
+
+    if (idsToAnalyze.length === 0) { setErrorMsg('Selecione pelo menos uma empresa'); setLoading(false); return }
+
+    try {
+      if (idsToAnalyze.length === 1) {
+        // Individual
+        const resp = await fetch('/api/assessor/analisar-erp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresa_id: idsToAnalyze[0] }) })
+        const data = await resp.json()
+        if (data.error) setErrorMsg(data.error)
+        else setResultado(data)
+      } else {
+        // Consolidado
         const resultados: any[] = []
-        for (const eid of emp.empresa_ids) {
+        for (const eid of idsToAnalyze) {
           const resp = await fetch('/api/assessor/analisar-erp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresa_id: eid }) })
           const data = await resp.json()
           if (!data.error) resultados.push(data)
         }
-        if (resultados.length === 0) { setErrorMsg('Nenhum lancamento encontrado'); setLoading(false); return }
+        if (resultados.length === 0) { setErrorMsg('Nenhum lancamento encontrado nas empresas selecionadas'); setLoading(false); return }
         setResultado({
           total_lancamentos: resultados.reduce((s, r) => s + (r.total_lancamentos || 0), 0),
           tipo: 'consolidado', empresas_analisadas: resultados.length,
           abc_clientes: mergeABC(resultados.flatMap(r => r.abc_clientes || [])),
           abc_fornecedores: mergeABC(resultados.flatMap(r => r.abc_fornecedores || [])),
-          abc_categorias: resultados[0]?.abc_categorias || [],
+          abc_categorias: mergeABCCat(resultados.flatMap(r => r.abc_categorias || [])),
           dfcl_mensal: mergeDFCL(resultados.flatMap(r => r.dfcl_mensal || [])),
         })
-      } else {
-        const resp = await fetch('/api/assessor/analisar-erp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresa_id: empresaSel }) })
-        const data = await resp.json()
-        if (data.error) setErrorMsg(data.error)
-        else setResultado(data)
       }
     } catch { setErrorMsg('Erro na analise') }
     setLoading(false)
@@ -71,25 +102,22 @@ export default function DiagnosticosPage() {
       formData.append('file', csvFile)
       const resp = await fetch('/api/assessor/import', { method: 'POST', body: formData })
       const data = await resp.json()
-      if (data.error) { setErrorMsg(data.error) }
-      else {
-        setResultado({
-          total_lancamentos: data.total || 0,
-          tipo: 'csv',
-          abc_clientes: data.abc_clientes || [],
-          abc_fornecedores: data.abc_fornecedores || [],
-          abc_categorias: [],
-          dfcl_mensal: data.dfcl_mensal || [],
-        })
-      }
+      if (data.error) setErrorMsg(data.error)
+      else setResultado({ total_lancamentos: data.total || 0, tipo: 'csv', abc_clientes: data.abc_clientes || [], abc_fornecedores: data.abc_fornecedores || [], abc_categorias: [], dfcl_mensal: data.dfcl_mensal || [] })
     } catch { setErrorMsg('Erro ao processar CSV') }
     setCsvParsing(false)
   }
 
   const mergeABC = (items: any[]) => {
     const map: Record<string, number> = {}
-    items.forEach(i => { map[i.nome] = (map[i.nome] || 0) + i.valor })
+    items.forEach(i => { map[i.nome] = (map[i.nome] || 0) + (i.valor || 0) })
     return Object.entries(map).map(([nome, valor]) => ({ nome, valor })).sort((a, b) => b.valor - a.valor).slice(0, 20)
+  }
+
+  const mergeABCCat = (items: any[]) => {
+    const map: Record<string, { receita: number; despesa: number }> = {}
+    items.forEach(i => { if (!map[i.nome]) map[i.nome] = { receita: 0, despesa: 0 }; map[i.nome].receita += i.receita || 0; map[i.nome].despesa += i.despesa || 0 })
+    return Object.entries(map).map(([nome, v]) => ({ nome, receita: v.receita, despesa: v.despesa, saldo: v.receita - v.despesa })).sort((a, b) => b.despesa - a.despesa)
   }
 
   const mergeDFCL = (items: any[]) => {
@@ -102,7 +130,10 @@ export default function DiagnosticosPage() {
     if (!resultado) return
     setLoadingIA(true)
     try {
-      const resp = await fetch('/api/assessor/consultor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ diagnostico: resultado, cliente_nome: empresas.find(e => e.id === empresaSel)?.nome || 'Cliente' }) })
+      const nomesSel = multiSelect
+        ? [...selected].map(id => empresas.find(e => e.id === id)?.nome || '').filter(Boolean).join(', ')
+        : empresas.find(e => e.id === empresaSel)?.nome || 'Cliente'
+      const resp = await fetch('/api/assessor/consultor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ diagnostico: resultado, cliente_nome: nomesSel }) })
       const data = await resp.json()
       setParecer(data.parecer || 'Erro ao gerar parecer')
     } catch { setParecer('Erro de conexao') }
@@ -110,18 +141,22 @@ export default function DiagnosticosPage() {
   }
 
   const fmt = (v: number) => 'R$ ' + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 0 })
+  const chk: React.CSSProperties = { width: 16, height: 16, accentColor: C.teal, cursor: 'pointer' }
 
   return (
     <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, marginBottom: 4 }}>Diagnostico Inteligente</h1>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 16 }}>PS Assessor | Individual, consolidado ou via CSV</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold }}>Diagnostico Inteligente</h1>
+        <a href="/dashboard/assessor" style={{ color: C.gold, fontSize: 11, textDecoration: 'none' }}>Dashboard Assessor</a>
+      </div>
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 16 }}>PS Assessor | Individual, consolidado manual ou CSV</div>
 
       {!modo && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div onClick={() => { setModo('erp'); loadEmpresas() }} style={{ background: C.card, borderRadius: 8, padding: 24, cursor: 'pointer', textAlign: 'center', borderLeft: '3px solid ' + C.teal }}>
             <div style={{ fontSize: 28, marginBottom: 8 }}>ERP</div>
             <div style={{ fontWeight: 700, fontSize: 16, color: C.teal }}>Conector ERP</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Individual ou consolidado. Gera ABC + DFCL automaticamente.</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Individual ou consolidado manual (multi-select)</div>
           </div>
           <div onClick={() => setModo('csv')} style={{ background: C.card, borderRadius: 8, padding: 24, cursor: 'pointer', textAlign: 'center', borderLeft: '3px solid ' + C.blue }}>
             <div style={{ fontSize: 28, marginBottom: 8 }}>CSV</div>
@@ -134,19 +169,14 @@ export default function DiagnosticosPage() {
       {modo === 'csv' && (
         <div>
           <button onClick={() => { setModo(null); setResultado(null); setParecer(''); setErrorMsg(''); setCsvFile(null) }} style={{ background: 'transparent', border: '1px solid ' + C.border, color: C.muted, padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 11, marginBottom: 12 }}>Voltar</button>
-
           <div style={{ background: C.card, borderRadius: 8, padding: 20, marginBottom: 12, borderLeft: '3px solid ' + C.blue }}>
             <div style={{ fontWeight: 700, color: C.blue, marginBottom: 10 }}>Upload CSV - Diagnostico Rapido</div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>Formato esperado: colunas com data, descricao, valor, categoria, cliente/fornecedor (separador ; ou ,)</div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>Colunas: data, descricao, valor, categoria, cliente/fornecedor (separador ; ou ,)</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input ref={fileRef} type="file" accept=".csv,.txt" onChange={e => setCsvFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
               <button onClick={() => fileRef.current?.click()} style={{ background: C.blue, color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>Selecionar CSV</button>
               {csvFile && <span style={{ fontSize: 12, color: C.text }}>{csvFile.name}</span>}
-              {csvFile && (
-                <button onClick={analisarCSV} disabled={csvParsing} style={{ background: C.green, color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', opacity: csvParsing ? 0.5 : 1 }}>
-                  {csvParsing ? 'Analisando...' : 'Analisar'}
-                </button>
-              )}
+              {csvFile && <button onClick={analisarCSV} disabled={csvParsing} style={{ background: C.green, color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', opacity: csvParsing ? 0.5 : 1 }}>{csvParsing ? 'Analisando...' : 'Analisar'}</button>}
             </div>
           </div>
         </div>
@@ -154,29 +184,70 @@ export default function DiagnosticosPage() {
 
       {modo === 'erp' && (
         <div>
-          <button onClick={() => { setModo(null); setResultado(null); setParecer(''); setErrorMsg('') }} style={{ background: 'transparent', border: '1px solid ' + C.border, color: C.muted, padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 11, marginBottom: 12 }}>Voltar</button>
+          <button onClick={() => { setModo(null); setResultado(null); setParecer(''); setErrorMsg(''); setMultiSelect(false); setSelected(new Set()) }} style={{ background: 'transparent', border: '1px solid ' + C.border, color: C.muted, padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 11, marginBottom: 12 }}>Voltar</button>
 
           <div style={{ background: C.card, borderRadius: 8, padding: 16, marginBottom: 12, borderLeft: '3px solid ' + C.teal }}>
-            <div style={{ fontWeight: 700, color: C.teal, marginBottom: 10 }}>Conector ERP - Individual ou Consolidado</div>
-            {loadingEmpresas ? <div style={{ color: C.muted, fontSize: 12 }}>Carregando...</div> : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: C.teal }}>Conector ERP</div>
+              <button onClick={() => { setMultiSelect(!multiSelect); setSelected(new Set()); setEmpresaSel('') }}
+                style={{ padding: '6px 14px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 600,
+                  background: multiSelect ? C.teal + '20' : 'transparent',
+                  border: '1px solid ' + (multiSelect ? C.teal : C.border),
+                  color: multiSelect ? C.teal : C.muted }}>
+                {multiSelect ? 'Modo: Multi-Select (Consolidado Manual)' : 'Ativar Consolidado Manual'}
+              </button>
+            </div>
+
+            {loadingEmpresas ? <div style={{ color: C.muted, fontSize: 12 }}>Carregando...</div> : multiSelect ? (
+              /* === MULTI-SELECT MODE === */
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: C.muted }}>Selecione as empresas para consolidar ({selected.size} selecionadas)</div>
+                  <button onClick={selectAll} style={{ fontSize: 10, color: C.teal, background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                    {selected.size === individuais.length ? 'Desmarcar todas' : 'Selecionar todas'}
+                  </button>
+                </div>
+
+                <div style={{ maxHeight: 200, overflowY: 'auto', background: C.bg, borderRadius: 8, padding: 8 }}>
+                  {individuais.map(e => (
+                    <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', cursor: 'pointer', borderRadius: 6, background: selected.has(e.id) ? C.teal + '10' : 'transparent', marginBottom: 2 }}>
+                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} style={chk} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: selected.has(e.id) ? 600 : 400, color: selected.has(e.id) ? C.text : C.muted }}>{e.nome}</div>
+                        {e.cnpj && <div style={{ fontSize: 10, color: C.muted }}>{e.cnpj}</div>}
+                      </div>
+                      {e.fonte === 'companies' && <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: C.green + '20', color: C.green, marginLeft: 'auto' }}>dados Omie</span>}
+                    </label>
+                  ))}
+                </div>
+
+                <button onClick={analisarERP} disabled={loading || selected.size === 0}
+                  style={{ marginTop: 10, background: C.teal, color: '#fff', border: 'none', padding: '10px 24px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13, opacity: loading || selected.size === 0 ? 0.5 : 1, width: '100%' }}>
+                  {loading ? 'Analisando...' : selected.size > 1 ? 'Analisar Consolidado (' + selected.size + ' empresas)' : selected.size === 1 ? 'Analisar Individual' : 'Selecione empresas'}
+                </button>
+              </div>
+            ) : (
+              /* === SELECT MODE === */
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <select value={empresaSel} onChange={e => setEmpresaSel(e.target.value)} style={{ flex: 1, background: C.bg, border: '1px solid ' + C.border, color: C.text, padding: '10px 14px', borderRadius: 6, fontSize: 12 }}>
                   <option value="">Selecione empresa ou grupo</option>
-                  {empresas.filter(e => e.fonte === 'grupo').length > 0 && (
+                  {grupos.length > 0 && (
                     <optgroup label="GRUPOS (Consolidado)">
-                      {empresas.filter(e => e.fonte === 'grupo').map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                      {grupos.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                     </optgroup>
                   )}
                   <optgroup label="Empresas Individuais">
-                    {empresas.filter(e => e.fonte !== 'grupo').map(e => <option key={e.id} value={e.id}>{e.nome}{e.cnpj ? ' - ' + e.cnpj : ''}</option>)}
+                    {individuais.map(e => <option key={e.id} value={e.id}>{e.nome}{e.cnpj ? ' - ' + e.cnpj : ''}</option>)}
                   </optgroup>
                 </select>
-                <button onClick={analisarERP} disabled={loading || !empresaSel} style={{ background: C.teal, color: '#fff', border: 'none', padding: '10px 24px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13, opacity: loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                <button onClick={analisarERP} disabled={loading || !empresaSel} style={{ background: C.teal, color: '#fff', border: 'none', padding: '10px 24px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13, opacity: loading || !empresaSel ? 0.5 : 1, whiteSpace: 'nowrap' }}>
                   {loading ? 'Analisando...' : 'Analisar'}
                 </button>
               </div>
             )}
-            {empresaSel && empresas.find(e => e.id === empresaSel)?.membros && (
+
+            {/* Membros do grupo selecionado */}
+            {!multiSelect && empresaSel && empresas.find(e => e.id === empresaSel)?.membros && (
               <div style={{ marginTop: 10, padding: 10, background: C.bg, borderRadius: 6, fontSize: 11, color: C.muted }}>
                 <b style={{ color: C.teal }}>Empresas do grupo:</b>
                 {empresas.find(e => e.id === empresaSel)?.membros?.map((m: any, i: number) => (
