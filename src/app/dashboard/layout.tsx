@@ -21,6 +21,7 @@ const MENU = [
   { href: '/dashboard/wealth',            label: 'Wealth',        icon: '🏰' },
   { href: '/dashboard/consultor-ia',      label: 'Consultor IA',  icon: '🤖' },
   { href: '/dashboard/contador',          label: 'Contador',      icon: '📈' },
+  { href: '/dashboard/assessor',         label: 'PS Assessor',   icon: '🤝' },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -90,6 +91,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onClick={e => { e.preventDefault(); router.push('/dashboard/dev') }}>
             <span style={{ fontSize: 16 }}>🛠️</span>
             <span>Dev</span>
+          </a>
+        )}
+
+        {/* PS Assessor */}
+        {(role === 'admin' || role === 'acesso_total' || role === 'assessor_admin' || role === 'assessor_usuario') && (
+          <a href='/dashboard/assessor' style={st(active('/dashboard/assessor'))}
+            onClick={e => { e.preventDefault(); router.push('/dashboard/assessor') }}>
+            <span style={{ fontSize: 16 }}>🤝</span>
+            <span>PS Assessor</span>
           </a>
         )}
 
