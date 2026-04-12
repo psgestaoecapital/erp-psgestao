@@ -1,39 +1,83 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
 
-const DEPLOY_SECRET = process.env.DEPLOY_SECRET_TOKEN
-const ALLOWED_ORIGINS = ['https://erp-psgestao.vercel.app', 'http://localhost:3000']
-
-function corsHeaders(origin: string | null) {
-  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
-  return {
-    'Access-Control-Allow-Origin': allowed,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, x-deploy-token',
-  }
-}
-
-export async function OPTIONS(req: NextRequest) {
-  return new NextResponse(null, { status: 204, headers: corsHeaders(req.headers.get('origin')) })
-}
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
+const REPO = 'psgestaoecapital/erp-psgestao';
+const BRANCH = 'main';
 
 export async function POST(req: NextRequest) {
-  const origin = req.headers.get('origin')
-  const headers = corsHeaders(origin)
+  try {
+    const { path, content, message } = await req.json();
+    if (!path || !content) return NextResponse.json({ error: 'path e content obrigatorios' }, { status: 400 });
 
-  const token = req.headers.get('x-deploy-token')
-  if (!DEPLOY_SECRET || token !== DEPLOY_SECRET) {
-    return NextResponse.json({ error: 'Não autorizado' }, { status: 401, headers })
-  }
+    // Get current SHA if file exists
+    let sha: string | null = null;
+    try {
+      const getRes = await fetch(
+        `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`,
+        { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'PS-Gestao-ERP' } }
+      );
+      if (getRes.ok) {
+        const getData = await getRes.json();
+        sha = getData.sha;
+      }
+    } catch (e) {}
 
-  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
-    return NextResponse.json({ error: 'Origem não permitida' }, { status: 403, headers })
+    // Deploy file
+    const body: any = {
+      message: message || 'Deploy via Dev Module: ' + path,
+      content: Buffer.from(content, 'utf-8').toString('base64'),
+      branch: BRANCH
+    };
+    if (sha) body.sha = sha;
+
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO}/contents/${path}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'PS-Gestao-ERP'
+        },
+        body: JSON.stringify(body)
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      return NextResponse.json({ 
+        success: true, 
+        path, 
+        sha: data.content?.sha,
+        commit: data.commit?.sha?.substring(0, 7),
+        message: 'Arquivo deployado com sucesso'
+      });
+    } else {
+      const err = await res.json();
+      return NextResponse.json({ error: err.message || 'Falha no deploy' }, { status: res.status });
+    }
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 });
   }
+}
+
+// GET: list files in a directory
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const path = searchParams.get('path') || 'src/app';
 
   try {
-    const body = await req.json()
-    console.log('[Deploy] Iniciado | Payload:', JSON.stringify(body).slice(0, 200))
-    return NextResponse.json({ success: true, timestamp: new Date().toISOString() }, { headers })
-  } catch {
-    return NextResponse.json({ error: 'Payload inválido' }, { status: 400, headers })
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`,
+      { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'PS-Gestao-ERP' } }
+    );
+    if (!res.ok) {
+      const err = await res.json();
+      return NextResponse.json({ error: err.message }, { status: res.status });
+    }
+    const data = await res.json();
+    return NextResponse.json(Array.isArray(data) ? data.map((f: any) => ({ name: f.name, path: f.path, type: f.type, size: f.size, sha: f.sha })) : data);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
