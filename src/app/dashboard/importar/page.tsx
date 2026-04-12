@@ -20,20 +20,33 @@ export default function ImportarPage() {
   const CAMPOS = ['data', 'descricao', 'valor', 'categoria', 'fornecedor', 'tipo']
 
   useEffect(() => {
-    supabase.from('empresas').select('id, nome').order('nome').then(({ data }) => {
-      if (data && data.length > 0) { setEmpresas(data); setEmpresaSel(data[0].id) }
-    })
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: up } = await supabase.from('users').select('role').eq('id', user.id).single()
+      let comps: any[] = []
+      if (up?.role === 'adm' || up?.role === 'acesso_total') {
+        const { data } = await supabase.from('companies').select('id, nome_fantasia, razao_social').order('nome_fantasia')
+        comps = data || []
+      } else {
+        const { data: uc } = await supabase.from('user_companies').select('companies(id, nome_fantasia, razao_social)').eq('user_id', user.id)
+        comps = (uc || []).map((u: any) => u.companies).filter(Boolean)
+      }
+      const mapped = comps.map((c: any) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || 'Sem nome' }))
+      if (mapped.length > 0) { setEmpresas(mapped); setEmpresaSel(mapped[0].id) }
+    }
+    load()
   }, [])
 
   const parseCSV = (text: string) => {
     const lines = text.split(/\r?\n/).filter(l => l.trim())
-    if (lines.length < 2) return { headers: [], rows: [] }
+    if (lines.length < 2) return { headers: [] as string[], rows: [] as any[] }
     const sep = lines[0].includes(';') ? ';' : ','
     const hdrs = lines[0].split(sep).map(h => h.replace(/"/g, '').trim())
     const rows = lines.slice(1).map(line => {
       const vals = line.split(sep).map(v => v.replace(/"/g, '').trim())
       const obj: Record<string, string> = {}
-      hdrs.forEach((h, i) => obj[h] = vals[i] || '')
+      hdrs.forEach((h, i) => { obj[h] = vals[i] || '' })
       return obj
     })
     return { headers: hdrs, rows }
@@ -62,8 +75,7 @@ export default function ImportarPage() {
       const isOFX = f.name.toLowerCase().endsWith('.ofx')
       const parsed = isOFX ? parseOFX(text) : parseCSV(text)
       setHeaders(parsed.headers)
-      setPreview(parsed.rows.slice(0, 50))
-      // Auto-mapping
+      setPreview(parsed.rows.slice(0, 200))
       const autoMap: Record<string, string> = {}
       CAMPOS.forEach(campo => {
         const match = parsed.headers.find(h => h.toLowerCase().includes(campo))
@@ -80,26 +92,34 @@ export default function ImportarPage() {
     setImporting(true)
     let success = 0, errors = 0
 
+    // Build registros array
+    const registros: any[] = []
     for (const row of preview) {
       try {
         const valorStr = (row[mapping.valor] || '0').replace(/[^\d.,-]/g, '').replace(',', '.')
         const valor = parseFloat(valorStr) || 0
         if (valor === 0) { errors++; continue }
-
-        const lancamento = {
-          empresa_id: empresaSel,
+        registros.push({
           data: row[mapping.data] || new Date().toISOString().split('T')[0],
           descricao: row[mapping.descricao] || '',
           valor: valor,
           categoria: row[mapping.categoria] || 'Importado',
           fornecedor: row[mapping.fornecedor] || '',
           tipo: row[mapping.tipo] || (valor >= 0 ? 'receita' : 'despesa'),
-          origem: 'import_' + (file?.name || 'manual'),
-        }
-
-        const { error } = await supabase.from('lancamentos').insert(lancamento)
-        if (error) { errors++; console.error(error) } else success++
+        })
+        success++
       } catch { errors++ }
+    }
+
+    // Save as omie_imports with type import_csv
+    if (registros.length > 0) {
+      const { error } = await supabase.from('omie_imports').insert({
+        company_id: empresaSel,
+        import_type: 'import_csv',
+        import_data: { registros, arquivo: file?.name || 'manual', importado_em: new Date().toISOString() },
+        record_count: registros.length,
+      })
+      if (error) { console.error(error); errors += registros.length; success = 0 }
     }
 
     setResult({ success, errors })
@@ -111,9 +131,15 @@ export default function ImportarPage() {
 
   return (
     <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, marginBottom: 16 }}>📥 Importar Dados</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, margin: 0 }}>Importar Dados</h1>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <a href="/dashboard/bpo" style={{ padding: '8px 14px', border: '1px solid ' + C.border, borderRadius: 6, color: C.text, textDecoration: 'none', fontSize: 11 }}>BPO</a>
+          <a href="/dashboard/dados" style={{ padding: '8px 14px', border: '1px solid ' + C.border, borderRadius: 6, color: C.text, textDecoration: 'none', fontSize: 11 }}>Dados</a>
+        </div>
+      </div>
 
-      {/* Step 1: Upload */}
+      {/* Step 1 */}
       <div style={{ background: C.card, borderRadius: 8, padding: 16, marginBottom: 12, borderLeft: '4px solid ' + (step >= 1 ? C.gold : C.border) }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>1. Selecione o arquivo (CSV ou OFX)</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -122,13 +148,14 @@ export default function ImportarPage() {
           </select>
           <input ref={fileRef} type="file" accept=".csv,.ofx,.txt" onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} style={{ background: C.gold, color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>
-            📁 Selecionar Arquivo
+            Selecionar Arquivo
           </button>
           {file && <span style={{ fontSize: 12, color: C.muted }}>{file.name} ({preview.length} registros)</span>}
         </div>
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>Dados salvos no formato unificado (omie_imports) - compativeis com BPO, Anti-Fraude e Dashboard</div>
       </div>
 
-      {/* Step 2: Map & Preview */}
+      {/* Step 2 */}
       {step >= 2 && (
         <div style={{ background: C.card, borderRadius: 8, padding: 16, marginBottom: 12, borderLeft: '4px solid ' + C.gold }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>2. Mapeamento de Colunas</div>
@@ -143,38 +170,36 @@ export default function ImportarPage() {
               </div>
             ))}
           </div>
-
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Preview ({preview.length} registros)</div>
           <div style={{ overflow: 'auto', maxHeight: 250 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead>
-                <tr>{headers.slice(0, 6).map(h => <th key={h} style={{ padding: '6px 8px', textAlign: 'left', color: C.gold, whiteSpace: 'nowrap' }}>{h}</th>)}</tr>
-              </thead>
-              <tbody>
-                {preview.slice(0, 10).map((row, i) => (
-                  <tr key={i} style={{ borderTop: '1px solid ' + C.border }}>
-                    {headers.slice(0, 6).map(h => <td key={h} style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>{row[h] || '-'}</td>)}
-                  </tr>
-                ))}
-              </tbody>
+              <thead><tr>{headers.slice(0, 6).map(h => <th key={h} style={{ padding: '6px 8px', textAlign: 'left', color: C.gold, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
+              <tbody>{preview.slice(0, 10).map((row, i) => (
+                <tr key={i} style={{ borderTop: '1px solid ' + C.border }}>
+                  {headers.slice(0, 6).map(h => <td key={h} style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>{row[h] || '-'}</td>)}
+                </tr>
+              ))}</tbody>
             </table>
           </div>
-
           <button onClick={handleImport} disabled={importing || !mapping.valor} style={{ marginTop: 12, background: '#2E7D32', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 14, opacity: importing ? 0.5 : 1 }}>
-            {importing ? '⏳ Importando...' : '✅ IMPORTAR ' + preview.length + ' REGISTROS'}
+            {importing ? 'Importando...' : 'IMPORTAR ' + preview.length + ' REGISTROS'}
           </button>
         </div>
       )}
 
-      {/* Step 3: Result */}
+      {/* Step 3 */}
       {result && (
         <div style={{ background: C.card, borderRadius: 8, padding: 20, textAlign: 'center', borderLeft: '4px solid ' + (result.errors === 0 ? C.green : C.red) }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>{result.errors === 0 ? '✅' : '⚠️'}</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{result.success} importados</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{result.success} importados com sucesso</div>
           {result.errors > 0 && <div style={{ fontSize: 14, color: C.red, marginTop: 4 }}>{result.errors} erros</div>}
-          <button onClick={() => { setStep(1); setFile(null); setPreview([]); setResult(null) }} style={{ marginTop: 12, background: C.gold, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>Nova Importação</button>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>Dados disponiveis em: Dados, Anti-Fraude, BPO, Dashboard</div>
+          <button onClick={() => { setStep(1); setFile(null); setPreview([]); setResult(null) }} style={{ marginTop: 12, background: C.gold, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>Nova Importacao</button>
         </div>
       )}
+
+      <div style={{ fontSize: 10, color: C.muted, textAlign: 'center', marginTop: 16 }}>
+        PS Gestao e Capital - Importar v8.5.1 | Formato unificado omie_imports | Conectado ao BPO
+      </div>
     </div>
   )
 }
