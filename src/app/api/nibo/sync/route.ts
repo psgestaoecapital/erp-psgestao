@@ -9,10 +9,13 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABAS
 const NIBO_BASE = "https://api.nibo.com.br/empresas/v1";
 
 // ═══ NIBO API CLIENT ═══
-async function niboFetch(endpoint: string, apiKey: string, orgId: string) {
+async function niboFetch(endpoint: string, apiKey: string, orgId: string, apiSecret?: string) {
   const url = `${NIBO_BASE}/${orgId}${endpoint}`;
+  const auth = apiSecret 
+    ? `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`
+    : `Bearer ${apiKey}`;
   const res = await fetch(url, {
-    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { "Authorization": auth, "Content-Type": "application/json", "Accept": "application/json" },
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -22,12 +25,12 @@ async function niboFetch(endpoint: string, apiKey: string, orgId: string) {
 }
 
 // Fetch paginated Nibo data
-async function niboFetchAll(endpoint: string, apiKey: string, orgId: string, maxPages = 20) {
+async function niboFetchAll(endpoint: string, apiKey: string, orgId: string, apiSecret?: string, maxPages = 20) {
   let allItems: any[] = [];
   let page = 1;
   while (page <= maxPages) {
     const sep = endpoint.includes("?") ? "&" : "?";
-    const data = await niboFetch(`${endpoint}${sep}$top=100&$skip=${(page - 1) * 100}`, apiKey, orgId);
+    const data = await niboFetch(`${endpoint}${sep}$top=100&$skip=${(page - 1) * 100}`, apiKey, orgId, apiSecret);
     const items = data?.items || data?.value || (Array.isArray(data) ? data : []);
     if (items.length === 0) break;
     allItems = allItems.concat(items);
@@ -39,7 +42,7 @@ async function niboFetchAll(endpoint: string, apiKey: string, orgId: string, max
 
 export async function POST(req: NextRequest) {
   try {
-    const { company_id, nibo_api_key, nibo_org_id, sync_types } = await req.json();
+    const { company_id, nibo_api_key, nibo_org_id, nibo_api_secret, sync_types } = await req.json();
     
     if (!company_id || !nibo_api_key || !nibo_org_id) {
       return NextResponse.json({ error: "Campos obrigatórios: company_id, nibo_api_key, nibo_org_id" }, { status: 400 });
@@ -48,11 +51,12 @@ export async function POST(req: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const results: any = {};
     const types = sync_types || ["clientes", "fornecedores", "recebimentos", "pagamentos", "categorias", "contas"];
+    const secret = nibo_api_secret || undefined;
 
     // ═══ 1. CLIENTES ═══
     if (types.includes("clientes")) {
       try {
-        const clientes = await niboFetchAll("/contacts/customers", nibo_api_key, nibo_org_id);
+        const clientes = await niboFetchAll("/contacts/customers", nibo_api_key, nibo_org_id, secret);
         const mapped = clientes.map((c: any) => ({
           codigo_cliente: c.id || c.contactId,
           nome_fantasia: c.tradeName || c.name || "",
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
     // ═══ 2. FORNECEDORES ═══
     if (types.includes("fornecedores")) {
       try {
-        const fornecedores = await niboFetchAll("/contacts/suppliers", nibo_api_key, nibo_org_id);
+        const fornecedores = await niboFetchAll("/contacts/suppliers", nibo_api_key, nibo_org_id, secret);
         const mapped = fornecedores.map((f: any) => ({
           codigo_fornecedor: f.id || f.contactId,
           nome: f.name || f.tradeName || "",
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
     // ═══ 3. CATEGORIAS ═══
     if (types.includes("categorias")) {
       try {
-        const categorias = await niboFetchAll("/categories", nibo_api_key, nibo_org_id);
+        const categorias = await niboFetchAll("/categories", nibo_api_key, nibo_org_id, secret);
         const mapped = categorias.map((c: any) => ({
           codigo: c.id || c.categoryId || "",
           descricao: c.name || c.description || "",
@@ -127,9 +131,9 @@ export async function POST(req: NextRequest) {
     if (types.includes("recebimentos")) {
       try {
         // Recebimentos agendados (a receber)
-        const agendados = await niboFetchAll("/schedules/receivable", nibo_api_key, nibo_org_id);
+        const agendados = await niboFetchAll("/schedules/receivable", nibo_api_key, nibo_org_id, secret);
         // Recebimentos realizados
-        const recebidos = await niboFetchAll("/schedules/receipt", nibo_api_key, nibo_org_id);
+        const recebidos = await niboFetchAll("/schedules/receipt", nibo_api_key, nibo_org_id, secret);
         
         const allRec = [...agendados, ...recebidos];
         const mapped = allRec.map((r: any) => ({
@@ -163,9 +167,9 @@ export async function POST(req: NextRequest) {
     if (types.includes("pagamentos")) {
       try {
         // Pagamentos agendados (a pagar)
-        const agendados = await niboFetchAll("/schedules/payable", nibo_api_key, nibo_org_id);
+        const agendados = await niboFetchAll("/schedules/payable", nibo_api_key, nibo_org_id, secret);
         // Pagamentos realizados
-        const pagos = await niboFetchAll("/schedules/payment", nibo_api_key, nibo_org_id);
+        const pagos = await niboFetchAll("/schedules/payment", nibo_api_key, nibo_org_id, secret);
         
         const allPag = [...agendados, ...pagos];
         const mapped = allPag.map((p: any) => ({
@@ -198,7 +202,7 @@ export async function POST(req: NextRequest) {
     // ═══ 6. CONTAS BANCÁRIAS E SALDO ═══
     if (types.includes("contas")) {
       try {
-        const contas = await niboFetch("/bankaccounts", nibo_api_key, nibo_org_id);
+        const contas = await niboFetch("/bankaccounts", nibo_api_key, nibo_org_id, secret);
         const items = contas?.items || contas?.value || (Array.isArray(contas) ? contas : []);
         const mapped = items.map((c: any) => ({
           id: c.id || c.bankAccountId,
