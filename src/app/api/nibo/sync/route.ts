@@ -9,7 +9,8 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABAS
 const NIBO_BASE = "https://api.nibo.com.br/empresas/v1";
 
 async function niboFetch(endpoint: string, apiToken: string) {
-  const url = `${NIBO_BASE}${endpoint}`;
+  const sep = endpoint.includes("?") ? "&" : "?";
+  const url = `${NIBO_BASE}${endpoint}${sep}apitoken=${apiToken}`;
   const res = await fetch(url, {
     headers: { "ApiToken": apiToken, "Content-Type": "application/json", "Accept": "application/json" },
   });
