@@ -21,6 +21,7 @@ export default function BPOAutoPage(){
   const [filtro,setFiltro]=useState("pendente");
   const [selectAll,setSelectAll]=useState(false);
   const [selected,setSelected]=useState<Set<string>>(new Set());
+  const [fraudScores,setFraudScores]=useState<Record<string,{score:number;flags:string[]}>>({});
 
   useEffect(()=>{loadCompanies();},[]);
   useEffect(()=>{if(selectedComp&&typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",selectedComp);},[selectedComp]);
@@ -57,6 +58,37 @@ export default function BPOAutoPage(){
     }
     setFila(allFila);setLogs(allLogs.sort((a,b)=>b.created_at?.localeCompare(a.created_at||"")));setRotinas(allRotinas);
     setSelected(new Set());setSelectAll(false);
+
+    // Compute fraud scores for each item
+    const scores:Record<string,{score:number;flags:string[]}>={}; 
+    const fornNomes=new Set<string>();
+    // Build supplier registry from all imports
+    for(const cid of ids){
+      const{data:imps}=await supabase.from("omie_imports").select("import_type,import_data").eq("company_id",cid).eq("import_type","clientes");
+      for(const imp of (imps||[])){
+        const cls=imp.import_data?.clientes_cadastro||[];
+        if(Array.isArray(cls))cls.forEach((c:any)=>fornNomes.add((c.nome_fantasia||c.razao_social||"").toUpperCase().trim()));
+      }
+    }
+    for(const item of allFila){
+      if(item.tipo_conta!=="pagar"){scores[item.id]={score:100,flags:[]};continue;}
+      let penalty=0;const flags:string[]=[];
+      const nome=(item.nome_cliente_fornecedor||"").toUpperCase().trim();
+      const v=Math.abs(item.valor||0);
+      // 1. Fornecedor cadastrado?
+      if(nome&&!fornNomes.has(nome)){flags.push("Fornecedor nao cadastrado");penalty+=20;}
+      // 2. Sem categoria
+      if(!item.categoria_atual||item.categoria_atual==="SEM CATEGORIA"){flags.push("Sem categoria no ERP");penalty+=5;}
+      // 3. Valor redondo
+      if(v>=10000&&v%1000===0){flags.push("Valor redondo suspeito");penalty+=10;}
+      // 4. Duplicata
+      const dupes=allFila.filter(f=>f.id!==item.id&&Math.abs(Math.abs(f.valor||0)-v)<0.01&&f.data_lancamento===item.data_lancamento);
+      if(dupes.length>0){flags.push("Possivel duplicata");penalty+=15;}
+      // 5. Valor alto
+      if(v>50000){flags.push("Valor acima de R$50K");penalty+=10;}
+      scores[item.id]={score:Math.max(0,100-penalty),flags};
+    }
+    setFraudScores(scores);
     setLoading(false);
   };
 
@@ -229,8 +261,10 @@ export default function BPOAutoPage(){
               <button onClick={aprovarSelecionados} style={{padding:"6px 14px",borderRadius:8,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:11,fontWeight:600,cursor:"pointer"}}>✅ Aprovar {selected.size} selecionados</button>
             )}
             <button onClick={aprovarTodos} style={{padding:"6px 14px",borderRadius:8,background:GO+"15",border:`1px solid ${GO}30`,color:GOL,fontSize:11,fontWeight:600,cursor:"pointer"}}>✅ Aprovar Todos ({counts.pendente})</button>
-            <button onClick={retroalimentar} style={{padding:"6px 14px",borderRadius:8,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:11,fontWeight:600,cursor:"pointer"}}>🔄 Aplicar ao Dashboard ({counts.aprovado})</button>
           </div>
+        )}
+        {counts.aprovado>0&&(
+          <button onClick={retroalimentar} style={{padding:"6px 14px",borderRadius:8,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:11,fontWeight:600,cursor:"pointer"}}>🔄 Aplicar ao Dashboard ({counts.aprovado})</button>
         )}
       </div>
 
@@ -257,14 +291,18 @@ export default function BPOAutoPage(){
                   <th style={{padding:"8px 6px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>CATEGORIA ATUAL</th>
                   <th style={{padding:"8px 6px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>SUGESTÃO IA</th>
                   <th style={{padding:"8px 6px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>CONFIANÇA</th>
+                  <th style={{padding:"8px 6px",textAlign:"center",color:"#EF4444",fontSize:10,fontWeight:600}}>🛡️ SCORE</th>
                   <th style={{padding:"8px 6px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>AÇÃO</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((item,i)=>{
                   const confColor=item.confianca>=80?G:item.confianca>=50?Y:R;
+                  const fs=fraudScores[item.id]||{score:100,flags:[]};
+                  const sColor=fs.score>=80?G:fs.score>=60?Y:fs.score>=30?"#F97316":R;
+                  const blocked=fs.score<30&&item.status==="pendente";
                   return(
-                    <tr key={item.id} style={{borderBottom:`0.5px solid ${BD}30`,background:i%2===0?"rgba(255,255,255,0.01)":"transparent"}}>
+                    <tr key={item.id} style={{borderBottom:`0.5px solid ${BD}30`,background:blocked?"#EF444408":i%2===0?"rgba(255,255,255,0.01)":"transparent"}}>
                       {filtro==="pendente"&&<td style={{padding:"6px"}}><input type="checkbox" checked={selected.has(item.id)} onChange={()=>toggleSelect(item.id)}/></td>}
                       <td style={{padding:"6px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:item.tipo_conta==="receber"?G+"15":R+"15",color:item.tipo_conta==="receber"?G:R}}>{item.tipo_conta==="receber"?"📥 Receber":"📤 Pagar"}</span></td>
                       <td style={{padding:"6px",color:TXM,fontSize:11}}>{item.data_lancamento}</td>
@@ -279,11 +317,19 @@ export default function BPOAutoPage(){
                         <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:`${confColor}15`,color:confColor,fontWeight:600,border:`1px solid ${confColor}25`}}>{item.confianca}%</span>
                       </td>
                       <td style={{padding:"6px",textAlign:"center"}}>
+                        <span title={fs.flags.join(" | ")} style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:`${sColor}15`,color:sColor,fontWeight:700,border:`1px solid ${sColor}25`,cursor:fs.flags.length>0?"help":"default"}}>{fs.score}</span>
+                        {fs.flags.length>0&&<div style={{fontSize:7,color:sColor,marginTop:1}}>{fs.flags[0]}</div>}
+                      </td>
+                      <td style={{padding:"6px",textAlign:"center"}}>
                         {item.status==="pendente"?(
-                          <div style={{display:"flex",gap:3,justifyContent:"center"}}>
-                            <button onClick={()=>aprovar(item.id)} style={{padding:"3px 8px",borderRadius:4,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:9,cursor:"pointer",fontWeight:600}}>✅</button>
-                            <button onClick={()=>rejeitar(item.id)} style={{padding:"3px 8px",borderRadius:4,background:R+"15",border:`1px solid ${R}30`,color:R,fontSize:9,cursor:"pointer",fontWeight:600}}>❌</button>
-                          </div>
+                          blocked?(
+                            <div style={{fontSize:8,color:R,fontWeight:600}}>⚠️ Score critico<br/>Revisar antes</div>
+                          ):(
+                            <div style={{display:"flex",gap:3,justifyContent:"center"}}>
+                              <button onClick={()=>aprovar(item.id)} style={{padding:"3px 8px",borderRadius:4,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:9,cursor:"pointer",fontWeight:600}}>✅</button>
+                              <button onClick={()=>rejeitar(item.id)} style={{padding:"3px 8px",borderRadius:4,background:R+"15",border:`1px solid ${R}30`,color:R,fontSize:9,cursor:"pointer",fontWeight:600}}>❌</button>
+                            </div>
+                          )
                         ):(
                           <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:item.status==="aprovado"?G+"15":R+"15",color:item.status==="aprovado"?G:R}}>{item.status==="aprovado"?"✅ Aprovado":"❌ Rejeitado"}</span>
                         )}
