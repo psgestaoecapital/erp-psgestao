@@ -15,11 +15,19 @@ const DIAS_SEMANA=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 
 function parseDataBR(d:string):Date|null {
   if(!d) return null;
+  // ISO format: 2025-10-08 or 2025-10-08T00:00:00Z
+  if(d.match(/^\d{4}-\d{2}-\d{2}/)){
+    const dt=new Date(d);
+    if(!isNaN(dt.getTime())) return dt;
+  }
+  // BR format: DD/MM/YYYY
   const parts=d.split("/");
-  if(parts.length!==3) return null;
-  let ano=parseInt(parts[2]);
-  if(parts[2].length===2) ano=2000+ano;
-  return new Date(ano, parseInt(parts[1])-1, parseInt(parts[0]));
+  if(parts.length===3){
+    let ano=parseInt(parts[2]);
+    if(parts[2].length===2) ano=2000+ano;
+    return new Date(ano, parseInt(parts[1])-1, parseInt(parts[0]));
+  }
+  return null;
 }
 
 function fmtDataCurta(d:Date):string {
