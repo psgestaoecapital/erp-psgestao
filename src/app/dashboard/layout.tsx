@@ -138,7 +138,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </span>
         )}
 
-        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.7.0</span>
+        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.7.1</span>
 
         <button onClick={signOut} style={{
           fontSize:10, color:'#B0AB9F', background:'transparent',
