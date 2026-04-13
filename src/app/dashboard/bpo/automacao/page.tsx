@@ -10,6 +10,7 @@ const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})
 
 export default function BPOAutoPage(){
   const [companies,setCompanies]=useState<any[]>([]);
+  const [grupos,setGrupos]=useState<any[]>([]);
   const [selectedComp,setSelectedComp]=useState("");
   const [fila,setFila]=useState<any[]>([]);
   const [logs,setLogs]=useState<any[]>([]);
@@ -31,18 +32,30 @@ export default function BPOAutoPage(){
     let data:any[]=[];
     if(uP?.role==="adm"||uP?.role==="acesso_total"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
     else if(authU){const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",authU.id);data=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(data&&data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?(saved==="consolidado"?data[0]:saved.startsWith("group_")?data.find((c:any)=>c.group_id===saved.replace("group_",""))||data[0]:data.find((c:any)=>c.id===saved)):null;setSelectedComp(match?match.id:data[0].id);}
+    if(data&&data.length>0){setCompanies(data);
+      const{data:grps}=await supabase.from("company_groups").select("*").order("nome");setGrupos(grps||[]);
+      const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=saved?(saved==="consolidado"?data[0]:saved.startsWith("group_")?data.find((c:any)=>c.group_id===saved.replace("group_",""))||data[0]:data.find((c:any)=>c.id===saved)):null;setSelectedComp(match?match.id:data[0].id);}
     setLoading(false);
+  };
+
+  const getCompIds=():string[]=>{
+    if(selectedComp.startsWith("group_")){return companies.filter(c=>c.group_id===selectedComp.replace("group_","")).map(c=>c.id);}
+    return [selectedComp];
   };
 
   const loadData=async()=>{
     setLoading(true);
-    const[{data:f},{data:l},{data:r}]=await Promise.all([
-      supabase.from("bpo_classificacoes").select("*").eq("company_id",selectedComp).order("created_at",{ascending:false}),
-      supabase.from("bpo_sync_log").select("*").eq("company_id",selectedComp).order("created_at",{ascending:false}).limit(10),
-      supabase.from("bpo_rotinas").select("*").eq("company_id",selectedComp),
-    ]);
-    setFila(f||[]);setLogs(l||[]);setRotinas(r||[]);
+    const ids=getCompIds();
+    let allFila:any[]=[],allLogs:any[]=[],allRotinas:any[]=[];
+    for(const cid of ids){
+      const[{data:f},{data:l},{data:r}]=await Promise.all([
+        supabase.from("bpo_classificacoes").select("*").eq("company_id",cid).order("created_at",{ascending:false}),
+        supabase.from("bpo_sync_log").select("*").eq("company_id",cid).order("created_at",{ascending:false}).limit(10),
+        supabase.from("bpo_rotinas").select("*").eq("company_id",cid),
+      ]);
+      allFila.push(...(f||[]));allLogs.push(...(l||[]));allRotinas.push(...(r||[]));
+    }
+    setFila(allFila);setLogs(allLogs.sort((a,b)=>b.created_at?.localeCompare(a.created_at||"")));setRotinas(allRotinas);
     setSelected(new Set());setSelectAll(false);
     setLoading(false);
   };
@@ -50,19 +63,24 @@ export default function BPOAutoPage(){
   const runClassification=async()=>{
     setClassifying(true);setMsg("");
     try{
-      const res=await fetch("/api/bpo/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:selectedComp})});
-      const d=await res.json();
-      if(d.success){
-        setMsg(`✅ ${d.classificacoes_geradas} classificações geradas em ${(d.duracao_ms/1000).toFixed(1)}s. ${d.pendentes_restantes>0?`Restam ${d.pendentes_restantes} pendentes.`:""}`);
-        loadData();
-      } else setMsg(`❌ Erro: ${d.error||d.message}`);
+      const ids=getCompIds();
+      let totalClassif=0,totalPend=0;
+      for(const cid of ids){
+        const res=await fetch("/api/bpo/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:cid})});
+        const d=await res.json();
+        if(d.success){totalClassif+=(d.classificacoes_geradas||0);totalPend+=(d.pendentes_restantes||0);}
+        else{setMsg(`❌ Erro em empresa: ${d.error||"desconhecido"}`);setClassifying(false);return;}
+      }
+      setMsg(`✅ ${totalClassif} classificações geradas (${ids.length} empresa${ids.length>1?"s":""}). ${totalPend>0?`Restam ${totalPend} pendentes.`:""}`);
+      loadData();
     }catch(e:any){setMsg(`❌ ${e.message}`);}
     setClassifying(false);
   };
 
   const activateRoutine=async()=>{
-    await supabase.from("bpo_rotinas").upsert({company_id:selectedComp,tipo:"auto_classificacao",ativo:true,frequencia:"diaria"},{onConflict:"company_id"});
-    setMsg("✅ Rotina de auto-classificação ativada!");loadData();
+    const ids=getCompIds();
+    for(const cid of ids){await supabase.from("bpo_rotinas").upsert({company_id:cid,tipo:"auto_classificacao",ativo:true,frequencia:"diaria"},{onConflict:"company_id"});}
+    setMsg(`✅ Rotina ativada para ${ids.length} empresa${ids.length>1?"s":""}!`);loadData();
     setTimeout(()=>setMsg(""),3000);
   };
 
@@ -94,10 +112,14 @@ export default function BPOAutoPage(){
     if(!selectedComp)return;
     setMsg("Aplicando classificações ao Dashboard...");
     try{
-      const r=await fetch("/api/bpo/retroalimentar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:selectedComp})});
-      const d=await r.json();
-      if(d.error){setMsg("❌ "+d.error);}
-      else{setMsg(`✅ ${d.aplicados} classificações aplicadas ao Dashboard. ${d.nao_encontrados>0?d.nao_encontrados+" não encontrados.":""}`);}
+      const ids=getCompIds();
+      let totalAplic=0,totalNao=0;
+      for(const cid of ids){
+        const r=await fetch("/api/bpo/retroalimentar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:cid})});
+        const d=await r.json();
+        if(!d.error){totalAplic+=(d.aplicados||0);totalNao+=(d.nao_encontrados||0);}
+      }
+      setMsg(`✅ ${totalAplic} classificações aplicadas ao Dashboard (${ids.length} empresa${ids.length>1?"s":""}). ${totalNao>0?totalNao+" não encontrados.":""}`);
     }catch(e:any){setMsg("❌ Erro: "+e.message);}
     setTimeout(()=>setMsg(""),5000);
   };
@@ -146,8 +168,16 @@ export default function BPOAutoPage(){
       <div style={{background:BG2,borderRadius:12,padding:14,border:`1px solid ${BD}`,marginBottom:14,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
         <div>
           <div style={{fontSize:10,color:TXM,marginBottom:3}}>Empresa</div>
-          <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{...inp,width:220}}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+          <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{...inp,width:260}}>
+            {grupos.map(g=>{
+              const emps=companies.filter(c=>c.group_id===g.id);
+              if(emps.length===0)return null;
+              return(<optgroup key={g.id} label={'📁 '+g.nome}>
+                <option value={'group_'+g.id}>📁 {g.nome} ({emps.length} empresas)</option>
+                {emps.map(e=><option key={e.id} value={e.id}>└ {e.nome_fantasia||e.razao_social}</option>)}
+              </optgroup>);
+            })}
+            {companies.filter(c=>!c.group_id||!grupos.find(g=>g.id===c.group_id)).map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>
         </div>
         <div style={{display:"flex",gap:6,alignSelf:"flex-end"}}>
