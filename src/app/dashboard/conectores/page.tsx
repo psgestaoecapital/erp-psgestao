@@ -22,7 +22,7 @@ const CONNECTORS = [
   { id: 'omie', nome: 'Omie', cat: 'erp_financeiro', status: 'ativo', cor: '#22C55E', campos: [{ k: 'omie_app_key', l: 'App Key', p: 'Chave do aplicativo Omie' }, { k: 'omie_app_secret', l: 'App Secret', p: 'Secret do aplicativo Omie', secret: true }], syncApi: '/api/omie/sync' },
   { id: 'contaazul', nome: 'ContaAzul', cat: 'erp_financeiro', status: 'em_breve', cor: '#0EA5E9', campos: [{ k: 'contaazul_token', l: 'Token', p: 'Token OAuth' }] },
   { id: 'bling', nome: 'Bling', cat: 'erp_financeiro', status: 'em_breve', cor: '#8B5CF6', campos: [{ k: 'bling_api_key', l: 'API Key', p: 'Chave API v3' }] },
-  { id: 'nibo', nome: 'Nibo', cat: 'erp_financeiro', status: 'em_breve', cor: '#3B82F6', campos: [{ k: 'nibo_api_key', l: 'API Key', p: 'Token Nibo' }] },
+  { id: 'nibo', nome: 'Nibo', cat: 'erp_financeiro', status: 'ativo', cor: '#3B82F6', campos: [{ k: 'nibo_api_key', l: 'API Key', p: 'Token API do Nibo' }, { k: 'nibo_org_id', l: 'Organization ID', p: 'ID da organizacao no Nibo' }], syncApi: '/api/nibo/sync' },
   { id: 'granatum', nome: 'Granatum', cat: 'erp_financeiro', status: 'planejado', cor: '#EAB308', campos: [] },
   { id: 'controlle', nome: 'Controlle', cat: 'erp_financeiro', status: 'planejado', cor: '#A16207', campos: [] },
   { id: 'tiny', nome: 'Tiny ERP', cat: 'erp_financeiro', status: 'planejado', cor: '#F97316', campos: [] },
@@ -137,47 +137,47 @@ export default function ConectoresPage() {
   const testar = async (conId: string) => {
     if (!empresa) return
     setMsg('Testando conexao...')
-    const con = CONNECTORS.find(c => c.id === conId)
-    if (!con || conId !== 'omie') { setMsg('Teste disponivel apenas para Omie no momento'); return }
-
-    const appKey = configs['omie_app_key']
-    const appSecret = configs['omie_app_secret']
-    if (!appKey || !appSecret) { setMsg('Preencha App Key e App Secret'); return }
-
-    try {
-      const res = await fetch('/api/omie', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ app_key: appKey, app_secret: appSecret, endpoint: 'geral/empresas/', method: 'ListarEmpresas', params: { pagina: 1, registros_por_pagina: 1 } })
-      })
-      const data = await res.json()
-      if (data.error) { setMsg('Erro: ' + data.error) }
-      else { setMsg('Conexao OK! Empresa encontrada no Omie.') }
-    } catch (e: any) { setMsg('Erro de rede: ' + e.message) }
+    if (conId === 'omie') {
+      const appKey = configs['omie_app_key']; const appSecret = configs['omie_app_secret']
+      if (!appKey || !appSecret) { setMsg('Preencha App Key e App Secret'); return }
+      try {
+        const res = await fetch('/api/omie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_key: appKey, app_secret: appSecret, endpoint: 'geral/empresas/', method: 'ListarEmpresas', params: { pagina: 1, registros_por_pagina: 1 } }) })
+        const data = await res.json()
+        setMsg(data.error ? 'Erro Omie: ' + data.error : 'Conexao Omie OK!')
+      } catch (e: any) { setMsg('Erro: ' + e.message) }
+    } else if (conId === 'nibo') {
+      const apiKey = configs['nibo_api_key']; const orgId = configs['nibo_org_id']
+      if (!apiKey || !orgId) { setMsg('Preencha API Key e Organization ID'); return }
+      try {
+        const res = await fetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, nibo_api_key: apiKey, nibo_org_id: orgId, sync_types: ['categorias'] }) })
+        const data = await res.json()
+        setMsg(data.error ? 'Erro Nibo: ' + data.error : 'Conexao Nibo OK! ' + (data.results?.categorias?.total || 0) + ' categorias encontradas.')
+      } catch (e: any) { setMsg('Erro: ' + e.message) }
+    } else { setMsg('Teste disponivel para Omie e Nibo') }
     setTimeout(() => setMsg(''), 5000)
   }
 
   const sincronizar = async (conId: string) => {
-    if (!empresa || conId !== 'omie') return
-    const appKey = configs['omie_app_key']
-    const appSecret = configs['omie_app_secret']
-    if (!appKey || !appSecret) { setMsg('Salve as credenciais primeiro'); return }
-
-    setSyncing(true); setMsg('Sincronizando dados do Omie... (pode levar 1-2 min)')
+    if (!empresa) return
+    setSyncing(true); setMsg('Sincronizando dados... (pode levar 1-2 min)')
     try {
-      const res = await fetch('/api/omie/sync', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ app_key: appKey, app_secret: appSecret, sync_type: 'full', company_id: empresa.id })
-      })
-      const data = await res.json()
-      if (data.error) { setMsg('Erro na sync: ' + data.error) }
-      else {
-        const total = Object.values(data.counts || {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
-        setMsg('Sincronizacao concluida! ' + total + ' registros importados.')
-        loadEmpresa(empresa)
-      }
+      if (conId === 'omie') {
+        const appKey = configs['omie_app_key']; const appSecret = configs['omie_app_secret']
+        if (!appKey || !appSecret) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
+        const res = await fetch('/api/omie/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_key: appKey, app_secret: appSecret, sync_type: 'full', company_id: empresa.id }) })
+        const data = await res.json()
+        if (data.error) setMsg('Erro: ' + data.error)
+        else { const total = Object.values(data.counts || {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0); setMsg('Omie: ' + total + ' registros importados!'); loadEmpresa(empresa) }
+      } else if (conId === 'nibo') {
+        const apiKey = configs['nibo_api_key']; const orgId = configs['nibo_org_id']
+        if (!apiKey || !orgId) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
+        const res = await fetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, nibo_api_key: apiKey, nibo_org_id: orgId }) })
+        const data = await res.json()
+        if (data.error) setMsg('Erro: ' + data.error)
+        else { setMsg(data.message || 'Nibo sync OK!'); loadEmpresa(empresa) }
+      } else { setMsg('Sync disponivel para Omie e Nibo') }
     } catch (e: any) { setMsg('Erro: ' + e.message) }
-    setSyncing(false)
-    setTimeout(() => setMsg(''), 8000)
+    setSyncing(false); setTimeout(() => setMsg(''), 8000)
   }
 
   const filtered = filtro === 'todos' ? CONNECTORS : CONNECTORS.filter(c => c.cat === filtro)
