@@ -1,296 +1,239 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 120;
-
-const supabaseUrl = "https://horsymhsinqcimflrtjo.supabase.co";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
-
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const STATUS_EXCL = new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 
-const STATUS_EXCLUIDOS = new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
+function toISO(d: string): string {
+  if (!d) return "";
+  if (d.includes("/")) { const p = d.split("/"); if (p.length === 3 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`; }
+  return d;
+}
 
-export async function POST(req: NextRequest) {
+function extractAll(imports: any[]) {
+  const pagar: any[] = [], receber: any[] = [], nomes: Record<string, string> = {};
+  for (const imp of imports) {
+    if (imp.import_type === "clientes") {
+      const cls = imp.import_data?.clientes_cadastro || [];
+      if (Array.isArray(cls)) for (const c of cls) nomes[String(c.codigo_cliente_omie || c.codigo_cliente || c.codigo || "")] = c.nome_fantasia || c.razao_social || "";
+    }
+  }
+  for (const imp of imports) {
+    const tipo = imp.import_type;
+    if (tipo !== "contas_pagar" && tipo !== "contas_receber") continue;
+    const key = tipo === "contas_receber" ? "conta_receber_cadastro" : "conta_pagar_cadastro";
+    const regs = imp.import_data?.[key] || [];
+    if (!Array.isArray(regs)) continue;
+    for (const r of regs) {
+      const st = (r.status_titulo || "").toUpperCase().trim();
+      if (STATUS_EXCL.has(st)) continue;
+      const v = Number(r.valor_documento) || 0; if (v <= 0) continue;
+      const codCF = String(r.codigo_cliente_fornecedor || r.codigo_fornecedor || "");
+      const item = { valor: v, data: toISO(r.data_emissao || r.data_vencimento || ""), vencimento: toISO(r.data_vencimento || ""), status: st, nome: nomes[codCF] || r.observacao || codCF, cat: r.descricao_categoria || r.codigo_categoria || "", doc: r.numero_documento || "", obs: r.observacao || "" };
+      if (tipo === "contas_pagar") pagar.push(item); else receber.push(item);
+    }
+  }
+  return { pagar, receber, nomes };
+}
+
+export async function POST(req: Request) {
   const startTime = Date.now();
   try {
     const { company_id, modulos } = await req.json();
-    if (!company_id) return NextResponse.json({ error: "company_id obrigatório" }, { status: 400 });
-
+    if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
     const supabase = createClient(supabaseUrl, supabaseKey);
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
-    // 1. Load company info
     const { data: company } = await supabase.from("companies").select("*").eq("id", company_id).single();
-    if (!company) return NextResponse.json({ error: "Empresa não encontrada" }, { status: 404 });
+    if (!company) return NextResponse.json({ error: "Empresa nao encontrada" }, { status: 404 });
 
-    // 2. Load contract (or create default)
     let { data: contrato } = await supabase.from("bpo_contratos").select("*").eq("company_id", company_id).single();
-    if (!contrato) {
-      const { data: newContrato } = await supabase.from("bpo_contratos").insert({
-        company_id, classificacao_ia: true, dre_mensal: true, relatorio_ia: true
-      }).select().single();
-      contrato = newContrato;
-    }
+    if (!contrato) { const { data: nc } = await supabase.from("bpo_contratos").insert({ company_id, classificacao_ia: true, dre_mensal: true, relatorio_ia: true }).select().single(); contrato = nc; }
 
-    // 3. Load all Omie data
     const { data: imports } = await supabase.from("omie_imports").select("import_type,import_data,record_count").eq("company_id", company_id);
+    const { pagar, receber } = extractAll(imports || []);
 
-    // 4. Create execution record
-    const { data: execucao } = await supabase.from("bpo_execucoes").insert({
-      company_id, status: "executando", executado_por: null,
-    }).select().single();
+    const { data: execucao } = await supabase.from("bpo_execucoes").insert({ company_id, status: "executando" }).select().single();
     const execId = execucao?.id;
 
     const alertas: any[] = [];
-    let classificacoesGeradas = 0;
-    let classificacoesAuto = 0;
-    let anomaliasDetectadas = 0;
-    let conciliacoes = 0;
-    let cobrancas = 0;
+    const resultados: Record<string, any> = {};
+    const hoje = new Date().toISOString().split("T")[0];
 
-    // ═══ MODULE: CLASSIFICAÇÃO IA ═══
-    if (contrato?.classificacao_ia && imports && apiKey) {
-      const catMap: Record<string, { count: number; tipo: string }> = {};
-      const unclassified: any[] = [];
-      const clienteNomes: Record<string, string> = {};
-
-      // Build maps
-      for (const imp of imports) {
-        if (imp.import_type === "clientes") {
-          const cls = imp.import_data?.clientes_cadastro || [];
-          if (Array.isArray(cls)) for (const c of cls) {
-            const cod = c.codigo_cliente_omie || c.codigo_cliente || c.codigo;
-            clienteNomes[String(cod)] = c.nome_fantasia || c.razao_social || c.nome || "";
-          }
-        }
+    // ═══════════════════════════════════════════════════════
+    // 1. ANOMALIAS — Duplicatas + outliers
+    // ═══════════════════════════════════════════════════════
+    {
+      let anom = 0;
+      const seen = new Map<string, any>();
+      for (const r of [...pagar, ...receber]) {
+        const fp = `${r.valor}|${r.data}|${r.nome}`;
+        if (seen.has(fp)) { anom++; alertas.push({ tipo: "anomalia", severidade: "alta", titulo: `Duplicidade: ${fmtR(r.valor)} - ${r.nome}`, descricao: `Mesmo valor, data e fornecedor. Docs: ${r.doc} e ${seen.get(fp).doc}`, acao_sugerida: "Verificar no Omie" }); }
+        seen.set(fp, r);
       }
-
-      // Find unclassified
-      for (const imp of imports) {
-        if (imp.import_type === "contas_receber" || imp.import_type === "contas_pagar") {
-          const key = imp.import_type === "contas_receber" ? "conta_receber_cadastro" : "conta_pagar_cadastro";
-          const regs = imp.import_data?.[key] || [];
-          if (!Array.isArray(regs)) continue;
-          for (const r of regs) {
-            const status = (r.status_titulo || "").toUpperCase();
-            if (STATUS_EXCLUIDOS.has(status)) continue;
-            const cat = r.codigo_categoria || "";
-            if (!cat || cat === "sem_cat" || cat === "0") {
-              const codCF = String(r.codigo_cliente_fornecedor || "");
-              unclassified.push({
-                tipo: imp.import_type === "contas_receber" ? "receber" : "pagar",
-                doc: r.numero_documento || "",
-                data: r.data_emissao || r.data_vencimento || "",
-                valor: Number(r.valor_documento) || 0,
-                nome: clienteNomes[codCF] || r.observacao || `CF ${codCF}`,
-                obs: r.observacao || "",
-              });
-            } else {
-              const desc = r.descricao_categoria || "";
-              catMap[`${cat}|${desc}`] = { count: (catMap[`${cat}|${desc}`]?.count || 0) + 1, tipo: imp.import_type === "contas_receber" ? "receita" : "despesa" };
-            }
-          }
-        }
-      }
-
-      // Classify with AI in batch (max 20 at a time)
-      if (unclassified.length > 0) {
-        const batch = unclassified.slice(0, 20);
-        const categoriasExistentes = Object.entries(catMap).map(([k, v]) => `${k} (${v.count}x, ${v.tipo})`).join("\n");
-
-        try {
-          const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-            body: JSON.stringify({
-              model: "claude-sonnet-4-20250514",
-              max_tokens: 4000,
-              system: "Você classifica lançamentos financeiros. Responda APENAS com JSON array. Cada item: {index, categoria_sugerida, confianca (0-100), justificativa}. Use as categorias existentes quando possível.",
-              messages: [{ role: "user", content: `CATEGORIAS EXISTENTES:\n${categoriasExistentes}\n\nLANÇAMENTOS PARA CLASSIFICAR:\n${batch.map((u, i) => `[${i}] ${u.tipo} | ${u.nome} | ${fmtR(u.valor)} | ${u.data} | ${u.obs}`).join("\n")}\n\nClassifique cada um. JSON array:` }],
-            }),
-          });
-          const aiData = await aiRes.json();
-          const text = aiData.content?.[0]?.text || "";
-          const jsonMatch = text.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            const classifications = JSON.parse(jsonMatch[0]);
-            for (const cl of classifications) {
-              const item = batch[cl.index];
-              if (!item) continue;
-              const autoApprove = cl.confianca >= 85;
-              await supabase.from("bpo_classificacoes").insert({
-                company_id,
-                tipo_conta: item.tipo,
-                documento: item.doc,
-                data_lancamento: item.data,
-                valor: item.valor,
-                nome_cliente_fornecedor: item.nome,
-                categoria_sugerida: cl.categoria_sugerida,
-                confianca: cl.confianca,
-                justificativa: cl.justificativa,
-                status: autoApprove ? "aprovado" : "pendente",
-                categoria_final: autoApprove ? cl.categoria_sugerida : "",
-                operador_acao: autoApprove ? "auto_ia" : "",
-              });
-              classificacoesGeradas++;
-              if (autoApprove) classificacoesAuto++;
-            }
-          }
-        } catch (e) {
-          alertas.push({ tipo: "erro", severidade: "alta", titulo: "Erro na classificação IA", descricao: String(e), acao_sugerida: "Verificar ANTHROPIC_API_KEY" });
-        }
-
-        if (unclassified.length > 20) {
-          alertas.push({ tipo: "info", severidade: "media", titulo: `${unclassified.length - 20} lançamentos aguardam classificação`, descricao: `Total sem categoria: ${unclassified.length}. Classificados nesta execução: ${Math.min(20, unclassified.length)}.`, acao_sugerida: "Rodar novamente para classificar o restante" });
-        }
-      }
+      const vals = pagar.map(r => r.valor).filter(v => v > 0);
+      const avg = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      for (const r of pagar) { if (r.valor > avg * 5 && r.valor > 10000) { anom++; alertas.push({ tipo: "anomalia", severidade: "media", titulo: `Valor atipico: ${fmtR(r.valor)}`, descricao: `${r.nome}: ${(r.valor / avg).toFixed(1)}x acima da media`, acao_sugerida: "Verificar legitimidade" }); } }
+      resultados.anomalias = { detectadas: anom };
     }
 
-    // ═══ MODULE: DETECÇÃO DE ANOMALIAS ═══
-    if (imports) {
-      for (const imp of imports) {
-        if (imp.import_type !== "contas_pagar" && imp.import_type !== "contas_receber") continue;
-        const key = imp.import_type === "contas_receber" ? "conta_receber_cadastro" : "conta_pagar_cadastro";
-        const regs = imp.import_data?.[key] || [];
-        if (!Array.isArray(regs)) continue;
-
-        // Detect duplicates (same value + same date + same client)
-        const seen = new Map<string, any>();
-        for (const r of regs) {
-          const status = (r.status_titulo || "").toUpperCase();
-          if (STATUS_EXCLUIDOS.has(status)) continue;
-          const v = Number(r.valor_documento) || 0;
-          const dt = r.data_emissao || r.data_vencimento || "";
-          const cf = String(r.codigo_cliente_fornecedor || "");
-          const fingerprint = `${v}|${dt}|${cf}`;
-          if (seen.has(fingerprint)) {
-            anomaliasDetectadas++;
-            const prev = seen.get(fingerprint);
-            alertas.push({
-              tipo: "anomalia", severidade: "alta",
-              titulo: `Possível duplicidade: ${fmtR(v)}`,
-              descricao: `${imp.import_type}: Dois lançamentos com mesmo valor (${fmtR(v)}), data (${dt}) e fornecedor/cliente (${cf}). Docs: ${r.numero_documento || "?"} e ${prev.numero_documento || "?"}`,
-              acao_sugerida: "Verificar no Omie se é duplicidade real",
-            });
-          }
-          seen.set(fingerprint, r);
-        }
-
-        // Detect overdue
-        if (imp.import_type === "contas_receber") {
-          let totalVencido = 0;
-          let qtdVencidos = 0;
-          for (const r of regs) {
-            const status = (r.status_titulo || "").toUpperCase();
-            if (status === "VENCIDO" || status === "ATRASADO") {
-              totalVencido += Number(r.valor_documento) || 0;
-              qtdVencidos++;
-            }
-          }
-          if (qtdVencidos > 0) {
-            alertas.push({
-              tipo: "cobranca", severidade: totalVencido > 50000 ? "critica" : "alta",
-              titulo: `${qtdVencidos} título(s) vencido(s): ${fmtR(totalVencido)}`,
-              descricao: `A empresa tem ${fmtR(totalVencido)} em títulos vencidos que precisam de cobrança.`,
-              acao_sugerida: contrato?.cobranca ? "Gerar cobranças automáticas" : "Ativar módulo de cobrança no contrato",
-            });
-            cobrancas = qtdVencidos;
-          }
-        }
-
-        // Detect large unusual transactions
-        if (regs.length > 10) {
-          const values = regs.filter((r: any) => !STATUS_EXCLUIDOS.has((r.status_titulo || "").toUpperCase())).map((r: any) => Number(r.valor_documento) || 0).filter((v: number) => v > 0);
-          const avg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
-          const threshold = avg * 5;
-          for (const r of regs) {
-            const v = Number(r.valor_documento) || 0;
-            if (v > threshold && v > 10000) {
-              anomaliasDetectadas++;
-              alertas.push({
-                tipo: "anomalia", severidade: "media",
-                titulo: `Valor atípico: ${fmtR(v)} (média: ${fmtR(avg)})`,
-                descricao: `${imp.import_type}: Doc ${r.numero_documento || "?"} com valor ${(v / avg).toFixed(1)}x acima da média.`,
-                acao_sugerida: "Verificar se é lançamento legítimo",
-              });
-            }
-          }
-        }
+    // ═══════════════════════════════════════════════════════
+    // 2. COBRANCA — Vencidos + inadimplencia
+    // ═══════════════════════════════════════════════════════
+    {
+      const vencidos = receber.filter(r => r.status === "VENCIDO" || r.status === "ATRASADO" || (r.vencimento && r.vencimento < hoje && r.status !== "LIQUIDADO" && r.status !== "PAGO"));
+      const totalVencido = vencidos.reduce((s, r) => s + r.valor, 0);
+      if (vencidos.length > 0) {
+        alertas.push({ tipo: "cobranca", severidade: totalVencido > 50000 ? "critica" : "alta", titulo: `${vencidos.length} titulo(s) vencido(s): ${fmtR(totalVencido)}`, descricao: `Top devedores: ${vencidos.sort((a, b) => b.valor - a.valor).slice(0, 3).map(v => v.nome + " " + fmtR(v.valor)).join(", ")}`, acao_sugerida: "Acionar cobranca" });
       }
+      resultados.cobranca = { vencidos: vencidos.length, valor_vencido: totalVencido, top_devedores: vencidos.sort((a, b) => b.valor - a.valor).slice(0, 10).map(v => ({ nome: v.nome, valor: v.valor, vencimento: v.vencimento })) };
     }
 
-    // ═══ MODULE: RESUMO IA DO DIA ═══
+    // ═══════════════════════════════════════════════════════
+    // 3. CONTAS A PAGAR — Proximos 7 dias
+    // ═══════════════════════════════════════════════════════
+    {
+      const em7d = new Date(); em7d.setDate(em7d.getDate() + 7);
+      const sem7 = em7d.toISOString().split("T")[0];
+      const proximos = pagar.filter(r => r.vencimento >= hoje && r.vencimento <= sem7 && r.status !== "LIQUIDADO" && r.status !== "PAGO");
+      const totalProx = proximos.reduce((s, r) => s + r.valor, 0);
+      if (proximos.length > 0) {
+        alertas.push({ tipo: "contas_pagar", severidade: totalProx > 100000 ? "alta" : "media", titulo: `${proximos.length} pagamentos esta semana: ${fmtR(totalProx)}`, descricao: `Vencimentos de ${hoje} a ${sem7}`, acao_sugerida: "Programar pagamentos no banco" });
+      }
+      const atrasados = pagar.filter(r => r.vencimento && r.vencimento < hoje && r.status !== "LIQUIDADO" && r.status !== "PAGO");
+      if (atrasados.length > 0) {
+        const totalAtr = atrasados.reduce((s, r) => s + r.valor, 0);
+        alertas.push({ tipo: "contas_pagar", severidade: "critica", titulo: `${atrasados.length} pagamento(s) ATRASADO(S): ${fmtR(totalAtr)}`, descricao: `Fornecedores: ${atrasados.slice(0, 3).map(a => a.nome).join(", ")}`, acao_sugerida: "Pagar imediatamente para evitar juros" });
+      }
+      resultados.contas_pagar = { proximos_7d: proximos.length, valor_7d: totalProx, atrasados: atrasados.length, valor_atrasado: atrasados.reduce((s, r) => s + r.valor, 0) };
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 4. FLUXO DE CAIXA — Projecao 30/60/90 dias
+    // ═══════════════════════════════════════════════════════
+    {
+      const proj = [30, 60, 90].map(dias => {
+        const limite = new Date(); limite.setDate(limite.getDate() + dias);
+        const lim = limite.toISOString().split("T")[0];
+        const entradas = receber.filter(r => r.vencimento >= hoje && r.vencimento <= lim).reduce((s, r) => s + r.valor, 0);
+        const saidas = pagar.filter(r => r.vencimento >= hoje && r.vencimento <= lim).reduce((s, r) => s + r.valor, 0);
+        return { dias, entradas, saidas, saldo: entradas - saidas };
+      });
+      const negativo = proj.find(p => p.saldo < 0);
+      if (negativo) {
+        alertas.push({ tipo: "fluxo_caixa", severidade: "alta", titulo: `Fluxo negativo em ${negativo.dias} dias: ${fmtR(negativo.saldo)}`, descricao: `Entradas: ${fmtR(negativo.entradas)} | Saidas: ${fmtR(negativo.saidas)}`, acao_sugerida: "Acelerar recebimentos ou renegociar prazos" });
+      }
+      resultados.fluxo_caixa = proj;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 5. DRE MENSAL — Receita x Despesa por mes
+    // ═══════════════════════════════════════════════════════
+    {
+      const meses: Record<string, { rec: number; desp: number }> = {};
+      for (const r of receber) { const ym = r.data?.substring(0, 7); if (ym) { if (!meses[ym]) meses[ym] = { rec: 0, desp: 0 }; meses[ym].rec += r.valor; } }
+      for (const r of pagar) { const ym = r.data?.substring(0, 7); if (ym) { if (!meses[ym]) meses[ym] = { rec: 0, desp: 0 }; meses[ym].desp += r.valor; } }
+      const dreArr = Object.entries(meses).map(([mes, v]) => ({ mes, receita: v.rec, despesa: v.desp, resultado: v.rec - v.desp, margem: v.rec > 0 ? ((v.rec - v.desp) / v.rec * 100) : 0 })).sort((a, b) => b.mes.localeCompare(a.mes)).slice(0, 6);
+      if (dreArr.length > 0 && dreArr[0].resultado < 0) {
+        alertas.push({ tipo: "dre", severidade: "alta", titulo: `Ultimo mes com resultado negativo: ${fmtR(dreArr[0].resultado)}`, descricao: `${dreArr[0].mes}: Receita ${fmtR(dreArr[0].receita)} - Despesa ${fmtR(dreArr[0].despesa)}`, acao_sugerida: "Revisar custos e acelerar faturamento" });
+      }
+      resultados.dre_mensal = dreArr;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 6. FECHAMENTO — Pendencias do periodo
+    // ═══════════════════════════════════════════════════════
+    {
+      const semCat = [...pagar, ...receber].filter(r => !r.cat || r.cat === "sem_cat" || r.cat === "0" || r.cat === "SEM CATEGORIA");
+      const pendClass = semCat.length;
+      const { data: classifPend } = await supabase.from("bpo_classificacoes").select("id").eq("company_id", company_id).eq("status", "pendente");
+      const pendAprov = classifPend?.length || 0;
+      if (pendClass > 0 || pendAprov > 0) {
+        alertas.push({ tipo: "fechamento", severidade: "media", titulo: `Pendencias: ${pendClass} sem categoria, ${pendAprov} aguardando aprovacao`, descricao: "Itens pendentes impedem fechamento preciso do periodo", acao_sugerida: "Classificar e aprovar antes do fechamento" });
+      }
+      resultados.fechamento = { sem_categoria: pendClass, aguardando_aprovacao: pendAprov, total_lancamentos: pagar.length + receber.length };
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 7. OBRIGACOES FISCAIS — Calendario
+    // ═══════════════════════════════════════════════════════
+    {
+      const mesAtual = new Date().getMonth() + 1;
+      const anoAtual = new Date().getFullYear();
+      const obrigacoes = [
+        { nome: "DAS (Simples Nacional)", dia: 20, regimes: ["simples"] },
+        { nome: "DARF PIS", dia: 25, regimes: ["lucro_presumido", "lucro_real"] },
+        { nome: "DARF COFINS", dia: 25, regimes: ["lucro_presumido", "lucro_real"] },
+        { nome: "DARF IRPJ", dia: 30, regimes: ["lucro_presumido", "lucro_real"] },
+        { nome: "DARF CSLL", dia: 30, regimes: ["lucro_presumido", "lucro_real"] },
+        { nome: "GFIP/SEFIP", dia: 7, regimes: ["todos"] },
+        { nome: "FGTS", dia: 7, regimes: ["todos"] },
+        { nome: "INSS", dia: 20, regimes: ["todos"] },
+      ];
+      const proximas = obrigacoes.map(o => {
+        const venc = new Date(anoAtual, mesAtual - 1, o.dia);
+        if (venc < new Date()) venc.setMonth(venc.getMonth() + 1);
+        const dias = Math.ceil((venc.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        return { ...o, vencimento: venc.toISOString().split("T")[0], dias_restantes: dias };
+      }).sort((a, b) => a.dias_restantes - b.dias_restantes);
+      const urgentes = proximas.filter(o => o.dias_restantes <= 5);
+      if (urgentes.length > 0) {
+        alertas.push({ tipo: "obrigacoes", severidade: "critica", titulo: `${urgentes.length} obrigacao(oes) vence(m) em ate 5 dias`, descricao: urgentes.map(o => `${o.nome} (${o.dias_restantes}d)`).join(", "), acao_sugerida: "Gerar guias imediatamente" });
+      }
+      resultados.obrigacoes = proximas;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 8. BALANCO / INDICADORES
+    // ═══════════════════════════════════════════════════════
+    {
+      const totalRec = receber.reduce((s, r) => s + r.valor, 0);
+      const totalPag = pagar.reduce((s, r) => s + r.valor, 0);
+      const resultado = totalRec - totalPag;
+      const margem = totalRec > 0 ? (resultado / totalRec * 100) : 0;
+      const ticketMedio = receber.length > 0 ? totalRec / receber.length : 0;
+      const inadimplencia = receber.filter(r => r.status === "VENCIDO" || r.status === "ATRASADO").reduce((s, r) => s + r.valor, 0);
+      const pctInad = totalRec > 0 ? (inadimplencia / totalRec * 100) : 0;
+      resultados.indicadores = { receita_total: totalRec, despesa_total: totalPag, resultado, margem: margem.toFixed(1) + "%", ticket_medio: ticketMedio, inadimplencia, pct_inadimplencia: pctInad.toFixed(1) + "%", total_clientes: new Set(receber.map(r => r.nome)).size, total_fornecedores: new Set(pagar.map(r => r.nome)).size };
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 9. RESUMO IA DO DIA
+    // ═══════════════════════════════════════════════════════
     let resumoIA = "";
-    if (contrato?.dre_mensal && apiKey && alertas.length > 0) {
+    if (apiKey && alertas.length > 0) {
       try {
         const alertasTxt = alertas.slice(0, 10).map(a => `[${a.severidade}] ${a.titulo}: ${a.descricao}`).join("\n");
-        const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1000,
-            system: "Você é o assistente BPO da PS Gestão. Resuma os alertas do dia em 3-5 linhas, priorizando o que o operador precisa resolver primeiro. Seja direto e prático.",
-            messages: [{ role: "user", content: `Empresa: ${company.nome_fantasia || company.razao_social}\nAlertas do dia:\n${alertasTxt}\n\nResumo para o operador:` }],
-          }),
-        });
+        const aiRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: "Voce e o assistente BPO da PS Gestao. Resuma os alertas do dia em 3-5 linhas, priorizando o que o operador precisa resolver primeiro. Seja direto e pratico.", messages: [{ role: "user", content: `Empresa: ${company.nome_fantasia || company.razao_social}\nAlertas:\n${alertasTxt}\n\nResumo:` }] }) });
         const aiData = await aiRes.json();
         resumoIA = aiData.content?.[0]?.text || "";
       } catch { }
     }
 
-    // ═══ SAVE ALERTS ═══
+    // ═══════════════════════════════════════════════════════
+    // SAVE & RETURN
+    // ═══════════════════════════════════════════════════════
     if (alertas.length > 0 && execId) {
-      for (const a of alertas) {
-        await supabase.from("bpo_alertas").insert({ company_id, execucao_id: execId, ...a });
-      }
+      for (const a of alertas.slice(0, 30)) { await supabase.from("bpo_alertas").insert({ company_id, execucao_id: execId, ...a }); }
     }
 
-    // ═══ UPDATE EXECUTION ═══
     const duracao = Date.now() - startTime;
     if (execId) {
-      await supabase.from("bpo_execucoes").update({
-        status: "concluido",
-        classificacoes_geradas: classificacoesGeradas,
-        classificacoes_auto: classificacoesAuto,
-        anomalias_detectadas: anomaliasDetectadas,
-        conciliacoes_feitas: conciliacoes,
-        cobrancas_enviadas: cobrancas,
-        alertas_gerados: alertas.length,
-        resumo_ia: resumoIA,
-        duracao_ms: duracao,
-      }).eq("id", execId);
+      await supabase.from("bpo_execucoes").update({ status: "concluido", anomalias_detectadas: resultados.anomalias?.detectadas || 0, cobrancas_enviadas: resultados.cobranca?.vencidos || 0, alertas_gerados: alertas.length, resumo_ia: resumoIA, duracao_ms: duracao, resultados: JSON.stringify(resultados) }).eq("id", execId);
     }
-
-    // Update contract last execution
     await supabase.from("bpo_contratos").update({ updated_at: new Date().toISOString() }).eq("company_id", company_id);
 
     return NextResponse.json({
       success: true,
-      empresa: company.nome_fantasia || company.razao_social,
-      execucao_id: execId,
       duracao_ms: duracao,
-      resultados: {
-        classificacoes_geradas: classificacoesGeradas,
-        classificacoes_auto: classificacoesAuto,
-        classificacoes_pendentes: classificacoesGeradas - classificacoesAuto,
-        anomalias_detectadas: anomaliasDetectadas,
-        conciliacoes: conciliacoes,
-        cobrancas: cobrancas,
-        alertas: alertas.length,
-      },
+      alertas_gerados: alertas.length,
       alertas: alertas.slice(0, 20),
       resumo_ia: resumoIA,
-      contrato: {
-        classificacao_ia: contrato?.classificacao_ia,
-        contas_pagar: contrato?.contas_pagar,
-        contas_receber: contrato?.contas_receber,
-        conciliacao_bancaria: contrato?.conciliacao_bancaria,
-        cobranca: contrato?.cobranca,
-      },
+      resultados,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
