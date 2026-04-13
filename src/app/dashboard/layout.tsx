@@ -35,6 +35,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [demo, setDemo] = useState(false)
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ps_demo_mode')
+      if (saved === 'true') setDemo(true)
+    }
+  }, [])
+
+  const toggleDemo = () => {
+    setDemo(d => {
+      const next = !d
+      if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(next))
+      return next
+    })
+  }
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
       setEmail(session.user.email || '')
@@ -108,7 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div style={{ width:1, height:20, background:'#2A2822', margin:'0 4px', flexShrink:0 }} />
 
-        <button onClick={() => setDemo(d => !d)} style={{
+        <button onClick={toggleDemo} style={{
           ...st(demo), cursor:'pointer',
         }}>
           <span style={{ fontSize: 16 }}>🎭</span>
@@ -118,7 +133,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div style={{ flex: 1 }} />
 
         {email && (
-          <span style={{ fontSize:9, color:'#6B6560', whiteSpace:'nowrap', marginRight:4 }}>
+          <span style={{ fontSize:9, color:'#6B6560', whiteSpace:'nowrap', marginRight:4, filter: demo ? 'blur(6px)' : 'none' }}>
             {email.split('@')[0]}
           </span>
         )}
@@ -133,7 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </header>
 
       {demo && (
-        <style dangerouslySetInnerHTML={{ __html: `.ps-demo td:not(:first-child){filter:blur(5px)!important}.ps-demo th{filter:none!important}.ps-demo option{filter:blur(4px)!important}.ps-demo select{filter:blur(4px)!important}.ps-demo .demo-hide{filter:blur(5px)!important}` }} />
+        <style dangerouslySetInnerHTML={{ __html: `.ps-demo .ps-blur{filter:blur(6px)!important;user-select:none!important}.ps-demo .demo-hide{filter:blur(6px)!important;user-select:none!important}.ps-demo td:not(:first-child):not(:nth-child(2)){filter:blur(4px)!important}` }} />
       )}
 
       <main className={demo ? 'ps-demo' : ''}>{children}</main>
