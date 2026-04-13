@@ -148,7 +148,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </header>
 
       {demo && (
-        <style dangerouslySetInnerHTML={{ __html: `.ps-demo .ps-blur{filter:blur(6px)!important;user-select:none!important}.ps-demo .demo-hide{filter:blur(6px)!important;user-select:none!important}.ps-demo td:not(:first-child):not(:nth-child(2)){filter:blur(4px)!important}` }} />
+        <style dangerouslySetInnerHTML={{ __html: [
+          '.ps-demo .ps-blur{filter:blur(8px)!important;user-select:none!important}',
+          '.ps-demo .demo-hide{filter:blur(8px)!important;user-select:none!important}',
+          '.ps-demo td:not(:first-child){color:transparent!important;text-shadow:0 0 10px currentColor!important}',
+        ].join('') }} />
       )}
 
       <main className={demo ? 'ps-demo' : ''}>{children}</main>
