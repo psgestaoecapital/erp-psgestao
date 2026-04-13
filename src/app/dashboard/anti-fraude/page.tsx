@@ -261,6 +261,40 @@ export default function AntiFraudePage() {
   const scoreColor = (s: number) => s >= 80 ? C.g : s >= 60 ? C.y : s >= 30 ? '#F97316' : C.r
   const fmt = (v: number) => 'R$ ' + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 
+  // Gera resumo narrativo
+  const gerarResumo = () => {
+    if (despesas.length === 0) return null
+    const pctSeguro = ((stats.seguro / stats.total) * 100).toFixed(0)
+    const flagCount: Record<string, number> = {}
+    despesas.forEach(l => l.flags.forEach(f => {
+      const key = f.split(':')[0].split('(')[0].trim()
+      flagCount[key] = (flagCount[key] || 0) + 1
+    }))
+    const topFlags = Object.entries(flagCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
+
+    const nivel = stats.scoreMedia >= 80 ? 'saudavel' : stats.scoreMedia >= 60 ? 'moderado' : 'critico'
+
+    const intro = nivel === 'saudavel'
+      ? `Score medio ${stats.scoreMedia} — a empresa tem boa disciplina de pagamentos. ${pctSeguro}% dos ${stats.total} pagamentos analisados estao na faixa segura (score 80+).`
+      : nivel === 'moderado'
+      ? `Score medio ${stats.scoreMedia} — nivel moderado de risco. ${stats.atencao + stats.suspeito + stats.critico} pagamentos (${(100 - Number(pctSeguro)).toFixed(0)}%) apresentam alguma flag de atencao.`
+      : `Score medio ${stats.scoreMedia} — ALERTA: nivel critico de risco. ${stats.critico} pagamentos com score abaixo de 30 exigem revisao imediata.`
+
+    const risco = stats.valorRisco > 0
+      ? `Valor total em risco (score < 60): ${fmt(stats.valorRisco)}.`
+      : ''
+
+    const criticos = stats.critico > 0
+      ? ` ${stats.critico} pagamento${stats.critico > 1 ? 's' : ''} critico${stats.critico > 1 ? 's' : ''} — provavelmente acumulam multiplas flags simultaneas (fornecedor nao cadastrado + sem NF-e + valor atipico). Revisar com urgencia.`
+      : ''
+
+    const recomendacao = topFlags.length > 0
+      ? `\n\nPrincipais flags detectadas: ${topFlags.map(([f, c]) => f + ' (' + c + 'x)').join(', ')}. ${topFlags[0][0].includes('NF-e') || topFlags[0][0].includes('Pedido') ? 'Recomendacao: exigir documentacao fiscal vinculada a cada pagamento.' : topFlags[0][0].includes('Fornecedor') ? 'Recomendacao: atualizar cadastro de fornecedores no ERP.' : 'Recomendacao: revisar politica de aprovacao de pagamentos.'}`
+      : ''
+
+    return intro + ' ' + risco + criticos + recomendacao
+  }
+
   return (
     <div style={{ padding: '16px 16px 40px', minHeight: '100vh', background: C.bg, color: C.tx }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
@@ -319,6 +353,14 @@ export default function AntiFraudePage() {
               </div>
             ))}
           </div>
+
+          {/* RESUMO EXECUTIVO */}
+          {gerarResumo() && (
+            <div style={{ background: C.card, borderRadius: 8, padding: 14, marginBottom: 14, borderLeft: '3px solid ' + scoreColor(stats.scoreMedia), border: '1px solid ' + C.bd }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: scoreColor(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
+              <div style={{ fontSize: 12, color: C.tx, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{gerarResumo()}</div>
+            </div>
+          )}
 
           {/* FILTROS */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
