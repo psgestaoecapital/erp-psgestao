@@ -4,38 +4,34 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 const NIBO_BASE = "https://api.nibo.com.br/empresas/v1";
 
-// ═══ NIBO API CLIENT ═══
-async function niboFetch(endpoint: string, apiKey: string, orgId: string, apiSecret?: string) {
-  const url = `${NIBO_BASE}/${orgId}${endpoint}`;
-  const auth = apiSecret 
-    ? `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`
-    : `Bearer ${apiKey}`;
+async function niboFetch(endpoint: string, apiToken: string) {
+  const url = `${NIBO_BASE}${endpoint}`;
   const res = await fetch(url, {
-    headers: { "Authorization": auth, "Content-Type": "application/json", "Accept": "application/json" },
+    headers: { "ApiToken": apiToken, "Content-Type": "application/json", "Accept": "application/json" },
   });
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Nibo API ${res.status}: ${errText}`);
+    throw new Error(`Nibo ${res.status}: ${errText}`);
   }
   return res.json();
 }
 
-// Fetch paginated Nibo data
-async function niboFetchAll(endpoint: string, apiKey: string, orgId: string, apiSecret?: string, maxPages = 20) {
+async function niboFetchAll(endpoint: string, apiToken: string, orderBy: string = "id", maxPages = 30) {
   let allItems: any[] = [];
-  let page = 1;
-  while (page <= maxPages) {
+  let skip = 0;
+  const top = 200;
+  while (skip < maxPages * top) {
     const sep = endpoint.includes("?") ? "&" : "?";
-    const data = await niboFetch(`${endpoint}${sep}$top=100&$skip=${(page - 1) * 100}`, apiKey, orgId, apiSecret);
+    const data = await niboFetch(`${endpoint}${sep}$orderby=${orderBy}&$top=${top}&$skip=${skip}`, apiToken);
     const items = data?.items || data?.value || (Array.isArray(data) ? data : []);
     if (items.length === 0) break;
     allItems = allItems.concat(items);
-    if (items.length < 100) break;
-    page++;
+    if (items.length < top) break;
+    skip += top;
   }
   return allItems;
 }
@@ -44,166 +40,132 @@ export async function POST(req: NextRequest) {
   try {
     const { company_id, nibo_api_key, nibo_org_id, nibo_api_secret, sync_types } = await req.json();
     
-    if (!company_id || !nibo_api_key || !nibo_org_id) {
-      return NextResponse.json({ error: "Campos obrigatórios: company_id, nibo_api_key, nibo_org_id" }, { status: 400 });
+    if (!company_id || !nibo_api_key) {
+      return NextResponse.json({ error: "Campos obrigatorios: company_id, nibo_api_key" }, { status: 400 });
     }
 
+    const apiToken = nibo_api_key;
     const supabase = createClient(supabaseUrl, supabaseKey);
     const results: any = {};
-    const types = sync_types || ["clientes", "fornecedores", "recebimentos", "pagamentos", "categorias", "contas"];
-    const secret = nibo_api_secret || undefined;
+    const types = sync_types || ["stakeholders", "categorias", "debitos", "creditos", "contas"];
 
-    // ═══ 1. CLIENTES ═══
-    if (types.includes("clientes")) {
+    // ═══ 1. STAKEHOLDERS (Clientes + Fornecedores) ═══
+    if (types.includes("stakeholders") || types.includes("clientes")) {
       try {
-        const clientes = await niboFetchAll("/contacts/customers", nibo_api_key, nibo_org_id, secret);
-        const mapped = clientes.map((c: any) => ({
-          codigo_cliente: c.id || c.contactId,
+        const items = await niboFetchAll("/stakeholders", apiToken, "name");
+        const clientes = items.filter((s: any) => s.isCustomer);
+        const fornecedores = items.filter((s: any) => s.isSupplier);
+        
+        const mappedClientes = items.map((c: any) => ({
+          codigo_cliente_omie: c.id || c.stakeholderId || "",
           nome_fantasia: c.tradeName || c.name || "",
           razao_social: c.name || "",
           cnpj_cpf: c.document || c.cpfCnpj || "",
           email: c.email || "",
-          telefone: c.phone || "",
+          telefone: c.phoneNumber || c.phone || "",
           cidade: c.city || "",
           uf: c.state || "",
+          isCustomer: c.isCustomer || false,
+          isSupplier: c.isSupplier || false,
         }));
         
-        await supabase.from("omie_imports").upsert({
-          company_id,
-          import_type: "clientes",
-          import_data: { clientes_cadastro: mapped, fonte: "nibo" },
-          record_count: mapped.length,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: "company_id,import_type" });
+        await supabase.from("omie_imports").delete().eq("company_id", company_id).eq("import_type", "clientes");
+        await supabase.from("omie_imports").insert({
+          company_id, import_type: "clientes",
+          import_data: { clientes_cadastro: mappedClientes, fonte: "nibo" },
+          record_count: mappedClientes.length,
+        });
         
-        results.clientes = { total: mapped.length, status: "ok" };
-      } catch (e: any) { results.clientes = { status: "erro", msg: e.message }; }
+        results.stakeholders = { total: items.length, clientes: clientes.length, fornecedores: fornecedores.length, status: "ok" };
+      } catch (e: any) { results.stakeholders = { status: "erro", msg: e.message }; }
     }
 
-    // ═══ 2. FORNECEDORES ═══
-    if (types.includes("fornecedores")) {
-      try {
-        const fornecedores = await niboFetchAll("/contacts/suppliers", nibo_api_key, nibo_org_id, secret);
-        const mapped = fornecedores.map((f: any) => ({
-          codigo_fornecedor: f.id || f.contactId,
-          nome: f.name || f.tradeName || "",
-          cnpj_cpf: f.document || f.cpfCnpj || "",
-          email: f.email || "",
-          telefone: f.phone || "",
-        }));
-        
-        await supabase.from("omie_imports").upsert({
-          company_id,
-          import_type: "fornecedores",
-          import_data: { fornecedores_cadastro: mapped, fonte: "nibo" },
-          record_count: mapped.length,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: "company_id,import_type" });
-        
-        results.fornecedores = { total: mapped.length, status: "ok" };
-      } catch (e: any) { results.fornecedores = { status: "erro", msg: e.message }; }
-    }
-
-    // ═══ 3. CATEGORIAS ═══
+    // ═══ 2. CATEGORIAS ═══
     if (types.includes("categorias")) {
       try {
-        const categorias = await niboFetchAll("/categories", nibo_api_key, nibo_org_id, secret);
-        const mapped = categorias.map((c: any) => ({
+        const items = await niboFetchAll("/categories", apiToken, "name");
+        const mapped = items.map((c: any) => ({
           codigo: c.id || c.categoryId || "",
           descricao: c.name || c.description || "",
-          tipo: c.type || c.categoryType || "",
+          tipo: c.type || "",
           grupo: c.parentName || c.group || "",
         }));
         
-        await supabase.from("omie_imports").upsert({
-          company_id,
-          import_type: "categorias",
+        await supabase.from("omie_imports").delete().eq("company_id", company_id).eq("import_type", "categorias");
+        await supabase.from("omie_imports").insert({
+          company_id, import_type: "categorias",
           import_data: { categoria_cadastro: mapped, fonte: "nibo" },
           record_count: mapped.length,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: "company_id,import_type" });
+        });
         
         results.categorias = { total: mapped.length, status: "ok" };
       } catch (e: any) { results.categorias = { status: "erro", msg: e.message }; }
     }
 
-    // ═══ 4. CONTAS A RECEBER ═══
-    if (types.includes("recebimentos")) {
+    // ═══ 3. DEBITOS (Contas a Pagar) ═══
+    if (types.includes("debitos") || types.includes("pagamentos")) {
       try {
-        // Recebimentos agendados (a receber)
-        const agendados = await niboFetchAll("/schedules/receivable", nibo_api_key, nibo_org_id, secret);
-        // Recebimentos realizados
-        const recebidos = await niboFetchAll("/schedules/receipt", nibo_api_key, nibo_org_id, secret);
-        
-        const allRec = [...agendados, ...recebidos];
-        const mapped = allRec.map((r: any) => ({
-          codigo_lancamento: r.id || r.scheduleId || "",
-          valor_documento: r.value || r.amount || 0,
-          data_vencimento: r.dueDate || r.date || "",
-          data_emissao: r.issueDate || r.date || "",
-          data_pagamento: r.paymentDate || r.paidDate || "",
-          status_titulo: r.isPaid ? "RECEBIDO" : r.isOverdue ? "VENCIDO" : "EM_ABERTO",
-          codigo_cliente_fornecedor: r.contactId || r.customerId || "",
-          descricao_categoria: r.categoryName || r.description || "",
-          codigo_categoria: r.categoryId || "",
-          observacao: r.description || r.observation || "",
-          numero_documento: r.documentNumber || r.invoiceNumber || "",
-          conta_bancaria: r.bankAccountName || "",
-        }));
-        
-        await supabase.from("omie_imports").upsert({
-          company_id,
-          import_type: "contas_receber",
-          import_data: { conta_receber_cadastro: mapped, fonte: "nibo" },
-          record_count: mapped.length,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: "company_id,import_type" });
-        
-        results.recebimentos = { total: mapped.length, agendados: agendados.length, recebidos: recebidos.length, status: "ok" };
-      } catch (e: any) { results.recebimentos = { status: "erro", msg: e.message }; }
-    }
-
-    // ═══ 5. CONTAS A PAGAR ═══
-    if (types.includes("pagamentos")) {
-      try {
-        // Pagamentos agendados (a pagar)
-        const agendados = await niboFetchAll("/schedules/payable", nibo_api_key, nibo_org_id, secret);
-        // Pagamentos realizados
-        const pagos = await niboFetchAll("/schedules/payment", nibo_api_key, nibo_org_id, secret);
-        
-        const allPag = [...agendados, ...pagos];
-        const mapped = allPag.map((p: any) => ({
-          codigo_lancamento: p.id || p.scheduleId || "",
+        const items = await niboFetchAll("/schedules/debit", apiToken, "dueDate");
+        const mapped = items.map((p: any) => ({
+          codigo_lancamento_omie: p.id || p.scheduleId || "",
           valor_documento: p.value || p.amount || 0,
-          data_vencimento: p.dueDate || p.date || "",
-          data_emissao: p.issueDate || p.date || "",
+          data_vencimento: p.dueDate || "",
+          data_emissao: p.issueDate || p.date || p.dueDate || "",
           data_pagamento: p.paymentDate || p.paidDate || "",
           status_titulo: p.isPaid ? "PAGO" : p.isOverdue ? "VENCIDO" : "EM_ABERTO",
-          codigo_cliente_fornecedor: p.contactId || p.supplierId || "",
-          descricao_categoria: p.categoryName || p.description || "",
-          codigo_categoria: p.categoryId || "",
+          codigo_cliente_fornecedor: p.stakeholder?.id || p.stakeholderId || "",
+          descricao_categoria: p.category?.name || p.categoryName || "",
+          codigo_categoria: p.category?.id || p.categoryId || "",
           observacao: p.description || p.observation || "",
-          numero_documento: p.documentNumber || "",
-          conta_bancaria: p.bankAccountName || "",
+          numero_documento: p.documentNumber || p.invoiceNumber || "",
+          nome_fornecedor: p.stakeholder?.name || "",
         }));
         
-        await supabase.from("omie_imports").upsert({
-          company_id,
-          import_type: "contas_pagar",
+        await supabase.from("omie_imports").delete().eq("company_id", company_id).eq("import_type", "contas_pagar");
+        await supabase.from("omie_imports").insert({
+          company_id, import_type: "contas_pagar",
           import_data: { conta_pagar_cadastro: mapped, fonte: "nibo" },
           record_count: mapped.length,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: "company_id,import_type" });
+        });
         
-        results.pagamentos = { total: mapped.length, agendados: agendados.length, pagos: pagos.length, status: "ok" };
-      } catch (e: any) { results.pagamentos = { status: "erro", msg: e.message }; }
+        results.debitos = { total: mapped.length, status: "ok" };
+      } catch (e: any) { results.debitos = { status: "erro", msg: e.message }; }
     }
 
-    // ═══ 6. CONTAS BANCÁRIAS E SALDO ═══
+    // ═══ 4. CREDITOS (Contas a Receber) ═══
+    if (types.includes("creditos") || types.includes("recebimentos")) {
+      try {
+        const items = await niboFetchAll("/schedules/credit", apiToken, "dueDate");
+        const mapped = items.map((r: any) => ({
+          codigo_lancamento_omie: r.id || r.scheduleId || "",
+          valor_documento: r.value || r.amount || 0,
+          data_vencimento: r.dueDate || "",
+          data_emissao: r.issueDate || r.date || r.dueDate || "",
+          data_pagamento: r.paymentDate || r.paidDate || "",
+          status_titulo: r.isPaid ? "RECEBIDO" : r.isOverdue ? "VENCIDO" : "EM_ABERTO",
+          codigo_cliente_fornecedor: r.stakeholder?.id || r.stakeholderId || "",
+          descricao_categoria: r.category?.name || r.categoryName || "",
+          codigo_categoria: r.category?.id || r.categoryId || "",
+          observacao: r.description || r.observation || "",
+          numero_documento: r.documentNumber || r.invoiceNumber || "",
+          nome_cliente: r.stakeholder?.name || "",
+        }));
+        
+        await supabase.from("omie_imports").delete().eq("company_id", company_id).eq("import_type", "contas_receber");
+        await supabase.from("omie_imports").insert({
+          company_id, import_type: "contas_receber",
+          import_data: { conta_receber_cadastro: mapped, fonte: "nibo" },
+          record_count: mapped.length,
+        });
+        
+        results.creditos = { total: mapped.length, status: "ok" };
+      } catch (e: any) { results.creditos = { status: "erro", msg: e.message }; }
+    }
+
+    // ═══ 5. CONTAS BANCARIAS ═══
     if (types.includes("contas")) {
       try {
-        const contas = await niboFetch("/bankaccounts", nibo_api_key, nibo_org_id, secret);
-        const items = contas?.items || contas?.value || (Array.isArray(contas) ? contas : []);
+        const items = await niboFetchAll("/bankaccounts", apiToken, "name");
         const mapped = items.map((c: any) => ({
           id: c.id || c.bankAccountId,
           nome: c.name || c.description || "",
@@ -214,13 +176,12 @@ export async function POST(req: NextRequest) {
           tipo: c.type || "",
         }));
         
-        await supabase.from("omie_imports").upsert({
-          company_id,
-          import_type: "contas_bancarias",
+        await supabase.from("omie_imports").delete().eq("company_id", company_id).eq("import_type", "contas_bancarias");
+        await supabase.from("omie_imports").insert({
+          company_id, import_type: "contas_bancarias",
           import_data: { contas: mapped, fonte: "nibo" },
           record_count: mapped.length,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: "company_id,import_type" });
+        });
         
         results.contas = { total: mapped.length, status: "ok" };
       } catch (e: any) { results.contas = { status: "erro", msg: e.message }; }
@@ -235,35 +196,11 @@ export async function POST(req: NextRequest) {
       message: `Nibo sync: ${totalRecords} registros importados${errors.length > 0 ? `, ${errors.length} erro(s)` : ""}`,
       fonte: "nibo",
       company_id,
+      counts: Object.fromEntries(Object.entries(results).filter(([, r]: any) => r.status === "ok").map(([k, r]: any) => [k, r.total])),
       results,
-      synced_at: new Date().toISOString(),
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: `Erro na sincronização Nibo: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ error: `Erro Nibo: ${error.message}` }, { status: 500 });
   }
-}
-
-// GET — status da integração
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const companyId = searchParams.get("company_id");
-  if (!companyId) return NextResponse.json({ error: "company_id obrigatório" }, { status: 400 });
-  
-  const supabase = createClient(supabaseUrl, supabaseKey);
-  const { data } = await supabase.from("omie_imports")
-    .select("import_type, record_count, imported_at")
-    .eq("company_id", companyId)
-    .order("imported_at", { ascending: false });
-  
-  const niboImports = (data || []).filter((d: any) => {
-    // Check if it's a nibo import by looking at the data
-    return true; // All imports for this company
-  });
-
-  return NextResponse.json({
-    company_id: companyId,
-    imports: niboImports,
-    last_sync: niboImports.length > 0 ? niboImports[0].imported_at : null,
-  });
 }
