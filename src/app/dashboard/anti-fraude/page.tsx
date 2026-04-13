@@ -3,271 +3,358 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
-const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', yellow: '#FFC107', blue: '#42A5F5' }
+const C = { bg: '#0F0F0F', card: '#1A1410', card2: '#201C16', bd: '#2A2822', go: '#C8941A', gol: '#E8C872', tx: '#FAF7F2', txm: '#B0AB9F', txd: '#706C64', g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7' }
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
 
-interface Lancamento { data: string; descricao: string; valor: number; categoria: string; fornecedor: string; tipo: string }
-interface Alerta { tipo: string; descricao: string; risco: 'alto' | 'medio' | 'baixo'; itens: Lancamento[]; valor: number }
+interface Lanc { id: string; data: string; desc: string; valor: number; cat: string; forn: string; codForn: string; tipo: string; nfe: string; nossoNum: string; codBarras: string; banco: string; score: number; flags: string[] }
 
-function extractLancamentos(imports: any[]): Lancamento[] {
-  const rows: Lancamento[] = []
-  const clienteNomes: Record<string, string> = {}
+function extract(imports: any[]): { lancs: Lanc[]; fornCadastrados: Set<string>; fornHistorico: Record<string, number[]>; fornPrimeiro: Record<string, string> } {
+  const lancs: Lanc[] = []
+  const nomes: Record<string, string> = {}
+  const fornCadastrados = new Set<string>()
+  const fornHistorico: Record<string, number[]> = {}
+  const fornPrimeiro: Record<string, string> = {}
+  let idx = 0
 
+  // Build name map + fornecedor registry
   for (const imp of imports) {
     if (imp.import_type === 'clientes') {
       const cls = imp.import_data?.clientes_cadastro || []
-      if (Array.isArray(cls)) {
-        for (const c of cls) {
-          const cod = String(c.codigo_cliente_omie || c.codigo_cliente || c.codigo || '')
-          clienteNomes[cod] = c.nome_fantasia || c.razao_social || c.nome || ''
-        }
+      if (Array.isArray(cls)) for (const c of cls) {
+        const cod = String(c.codigo_cliente_omie || c.codigo_cliente || c.codigo || '')
+        nomes[cod] = c.nome_fantasia || c.razao_social || c.nome || ''
+        fornCadastrados.add(cod)
       }
     }
   }
 
   for (const imp of imports) {
-    if (imp.import_type === 'contas_receber') {
-      const regs = imp.import_data?.conta_receber_cadastro || []
-      if (!Array.isArray(regs)) continue
-      for (const r of regs) {
-        const st = (r.status_titulo || '').toUpperCase().trim()
-        if (STATUS_EXCL.has(st)) continue
-        const v = Number(r.valor_documento) || 0
-        if (v <= 0) continue
-        const codCF = String(r.codigo_cliente_fornecedor || '')
-        rows.push({
-          data: r.data_emissao || r.data_vencimento || '',
-          descricao: r.observacao || r.descricao_categoria || '',
-          valor: v,
-          categoria: r.descricao_categoria || r.codigo_categoria || '',
-          fornecedor: clienteNomes[codCF] || 'Cliente ' + codCF,
-          tipo: 'receita',
-        })
-      }
-    }
     if (imp.import_type === 'contas_pagar') {
       const regs = imp.import_data?.conta_pagar_cadastro || []
       if (!Array.isArray(regs)) continue
       for (const r of regs) {
         const st = (r.status_titulo || '').toUpperCase().trim()
         if (STATUS_EXCL.has(st)) continue
-        const v = Number(r.valor_documento) || 0
-        if (v <= 0) continue
+        const v = Number(r.valor_documento) || 0; if (v <= 0) continue
         const codCF = String(r.codigo_cliente_fornecedor || r.codigo_fornecedor || '')
-        rows.push({
-          data: r.data_emissao || r.data_vencimento || '',
-          descricao: r.observacao || r.descricao_categoria || '',
+        const dataE = r.data_emissao || r.data_vencimento || ''
+
+        // Track historical values per supplier
+        if (!fornHistorico[codCF]) fornHistorico[codCF] = []
+        fornHistorico[codCF].push(v)
+        if (!fornPrimeiro[codCF] || dataE < fornPrimeiro[codCF]) fornPrimeiro[codCF] = dataE
+
+        lancs.push({
+          id: 'P' + (idx++),
+          data: dataE,
+          desc: r.observacao || r.descricao_categoria || '',
           valor: -v,
-          categoria: r.descricao_categoria || r.codigo_categoria || '',
-          fornecedor: clienteNomes[codCF] || r.observacao || 'Fornecedor ' + codCF,
+          cat: r.descricao_categoria || r.codigo_categoria || '',
+          forn: nomes[codCF] || r.observacao || 'Fornecedor ' + codCF,
+          codForn: codCF,
           tipo: 'despesa',
+          nfe: r.numero_documento_fiscal || r.nsu || '',
+          nossoNum: r.numero_pedido || r.numero_documento || '',
+          codBarras: r.codigo_barras_ficha_compensacao || '',
+          banco: r.codigo_tipo_documento || '',
+          score: 100,
+          flags: [],
         })
       }
     }
-    // Support imported CSV data
-    if (imp.import_type === 'import_csv') {
-      const regs = imp.import_data?.registros || []
-      if (Array.isArray(regs)) {
-        for (const r of regs) {
-          rows.push({
-            data: r.data || '',
-            descricao: r.descricao || '',
-            valor: Number(r.valor) || 0,
-            categoria: r.categoria || '',
-            fornecedor: r.fornecedor || '',
-            tipo: (Number(r.valor) || 0) >= 0 ? 'receita' : 'despesa',
-          })
-        }
+    if (imp.import_type === 'contas_receber') {
+      const regs = imp.import_data?.conta_receber_cadastro || []
+      if (!Array.isArray(regs)) continue
+      for (const r of regs) {
+        const st = (r.status_titulo || '').toUpperCase().trim()
+        if (STATUS_EXCL.has(st)) continue
+        const v = Number(r.valor_documento) || 0; if (v <= 0) continue
+        const codCF = String(r.codigo_cliente_fornecedor || '')
+        lancs.push({
+          id: 'R' + (idx++),
+          data: r.data_emissao || r.data_vencimento || '',
+          desc: r.observacao || r.descricao_categoria || '',
+          valor: v,
+          cat: r.descricao_categoria || r.codigo_categoria || '',
+          forn: nomes[codCF] || 'Cliente ' + codCF,
+          codForn: codCF,
+          tipo: 'receita',
+          nfe: r.numero_documento_fiscal || '',
+          nossoNum: r.numero_pedido || '',
+          codBarras: '',
+          banco: '',
+          score: 100,
+          flags: [],
+        })
       }
     }
   }
-  return rows.sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+  return { lancs: lancs.sort((a, b) => (b.data || '').localeCompare(a.data || '')), fornCadastrados, fornHistorico, fornPrimeiro }
+}
+
+function runDetection(lancs: Lanc[], fornCad: Set<string>, fornHist: Record<string, number[]>, fornPrim: Record<string, string>) {
+  const despesas = lancs.filter(l => l.tipo === 'despesa')
+  const vals = despesas.map(l => Math.abs(l.valor)).filter(v => v > 0)
+  const media = vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
+
+  for (const l of despesas) {
+    const v = Math.abs(l.valor)
+    let penalty = 0
+
+    // 1. Fornecedor cadastrado?
+    if (l.codForn && !fornCad.has(l.codForn)) {
+      l.flags.push('Fornecedor NAO cadastrado no ERP')
+      penalty += 25
+    }
+
+    // 2. Valor dentro da faixa historica?
+    const hist = fornHist[l.codForn]
+    if (hist && hist.length >= 3) {
+      const avgForn = hist.reduce((s, x) => s + x, 0) / hist.length
+      if (v > avgForn * 2.5) {
+        l.flags.push('Valor ' + (v / avgForn).toFixed(1) + 'x acima da media do fornecedor')
+        penalty += 15
+      }
+    }
+
+    // 3. Tempo de relacionamento
+    const prim = fornPrim[l.codForn]
+    if (prim) {
+      const diff = Math.abs(new Date(l.data || '2026-01-01').getTime() - new Date(prim).getTime())
+      const dias = diff / (1000 * 60 * 60 * 24)
+      if (dias < 30) {
+        l.flags.push('Fornecedor com menos de 30 dias de relacionamento')
+        penalty += 10
+      }
+    }
+
+    // 4. NF-e vinculada?
+    if (!l.nfe || l.nfe.trim() === '' || l.nfe === '0') {
+      if (v > 1000) {
+        l.flags.push('Sem NF-e vinculada (valor > R$1K)')
+        penalty += 12
+      }
+    }
+
+    // 5. Nosso Numero / Pedido valido?
+    if (!l.nossoNum || l.nossoNum.trim() === '' || l.nossoNum === '0') {
+      if (v > 5000) {
+        l.flags.push('Sem numero de pedido/documento')
+        penalty += 8
+      }
+    }
+
+    // 6. Valor redondo suspeito
+    if (v >= 10000 && v % 1000 === 0) {
+      l.flags.push('Valor redondo suspeito (R$ ' + v.toLocaleString('pt-BR') + ')')
+      penalty += 10
+    }
+
+    // 7. Duplicata potencial
+    const dupes = despesas.filter(d => d.id !== l.id && Math.abs(Math.abs(d.valor) - v) < 0.01 && d.data === l.data)
+    if (dupes.length > 0) {
+      l.flags.push('Possivel duplicata (' + (dupes.length + 1) + ' lancamentos iguais)')
+      penalty += 20
+    }
+
+    // 8. CNPJ padrao suspeito (via codForn)
+    const cod = parseInt(l.codForn || '0')
+    if (cod > 0 && cod < 100) {
+      l.flags.push('Codigo fornecedor muito baixo (possivel cadastro generico)')
+      penalty += 5
+    }
+
+    // 9. Outlier (3x media geral)
+    if (v > media * 3 && v > 5000) {
+      l.flags.push('Valor atipico: ' + (v / media).toFixed(1) + 'x acima da media geral')
+      penalty += 15
+    }
+
+    // 10. Lancamento em fim de semana
+    if (l.data) {
+      const d = new Date(l.data.includes('/') ? l.data.split('/').reverse().join('-') : l.data)
+      if (d.getDay() === 0 || d.getDay() === 6) {
+        l.flags.push('Lancamento em fim de semana')
+        penalty += 5
+      }
+    }
+
+    // 11. Sem descricao
+    if (!l.desc || l.desc.trim().length < 3) {
+      l.flags.push('Sem descricao adequada')
+      penalty += 5
+    }
+
+    l.score = Math.max(0, 100 - penalty)
+  }
+
+  return lancs
 }
 
 export default function AntiFraudePage() {
   const [empresas, setEmpresas] = useState<any[]>([])
   const [empresaSel, setEmpresaSel] = useState('')
-  const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
-  const [alertas, setAlertas] = useState<Alerta[]>([])
-  const [loading, setLoading] = useState(true)
+  const [lancs, setLancs] = useState<Lanc[]>([])
+  const [loading, setLoading] = useState(false)
   const [analisado, setAnalisado] = useState(false)
+  const [filtroScore, setFiltroScore] = useState<'todos' | 'critico' | 'suspeito' | 'atencao' | 'seguro'>('todos')
+  const [expandido, setExpandido] = useState<string | null>(null)
 
   useEffect(() => {
-    const load = async () => {
+    (async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       const { data: up } = await supabase.from('users').select('role').eq('id', user.id).single()
       let comps: any[] = []
       if (up?.role === 'adm' || up?.role === 'acesso_total') {
         const { data } = await supabase.from('companies').select('id, nome_fantasia, razao_social').order('nome_fantasia')
-        comps = data || []
+        comps = (data || []).map(c => ({ id: c.id, nome: c.nome_fantasia || c.razao_social }))
       } else {
         const { data: uc } = await supabase.from('user_companies').select('companies(id, nome_fantasia, razao_social)').eq('user_id', user.id)
-        comps = (uc || []).map((u: any) => u.companies).filter(Boolean)
+        comps = (uc || []).map((u: any) => u.companies).filter(Boolean).map((c: any) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social }))
       }
-      const mapped = comps.map((c: any) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || 'Sem nome' }))
-      if (mapped.length > 0) { setEmpresas(mapped); setEmpresaSel(mapped[0].id) }
-      setLoading(false)
-    }
-    load()
+      setEmpresas(comps)
+      if (comps.length === 1) setEmpresaSel(comps[0].id)
+    })()
   }, [])
 
   const analisar = useCallback(async () => {
     if (!empresaSel) return
     setLoading(true); setAnalisado(false)
-
     const { data: imports } = await supabase.from('omie_imports').select('import_type, import_data').eq('company_id', empresaSel)
-    const rows = extractLancamentos(imports || [])
-    setLancamentos(rows)
-
-    const alerts: Alerta[] = []
-
-    // 1. Duplicatas exatas
-    const seen = new Map<string, Lancamento[]>()
-    rows.forEach(l => {
-      const key = l.data + '|' + Math.abs(l.valor) + '|' + (l.descricao || '').toLowerCase().trim()
-      if (!seen.has(key)) seen.set(key, [])
-      seen.get(key)!.push(l)
-    })
-    const dupes = Array.from(seen.values()).filter(g => g.length > 1)
-    if (dupes.length > 0) {
-      const items = dupes.flat()
-      alerts.push({ tipo: 'Lancamentos Duplicados', descricao: dupes.length + ' grupos com mesma data, valor e descricao', risco: 'alto', itens: items, valor: items.reduce((s, l) => s + Math.abs(l.valor || 0), 0) })
-    }
-
-    // 2. Valores redondos
-    const redondos = rows.filter(l => Math.abs(l.valor || 0) >= 10000 && Math.abs(l.valor) % 1000 === 0)
-    if (redondos.length > 0) {
-      alerts.push({ tipo: 'Valores Redondos Altos', descricao: redondos.length + ' lancamentos acima de R$10K com valor redondo', risco: 'medio', itens: redondos, valor: redondos.reduce((s, l) => s + Math.abs(l.valor || 0), 0) })
-    }
-
-    // 3. Finais de semana
-    const weekends = rows.filter(l => {
-      if (!l.data) return false
-      const d = new Date(l.data + 'T12:00:00')
-      return d.getDay() === 0 || d.getDay() === 6
-    })
-    if (weekends.length > 0) {
-      alerts.push({ tipo: 'Lancamentos em Fim de Semana', descricao: weekends.length + ' lancamentos em sabado ou domingo', risco: 'medio', itens: weekends, valor: weekends.reduce((s, l) => s + Math.abs(l.valor || 0), 0) })
-    }
-
-    // 4. Sem descricao
-    const semDesc = rows.filter(l => !l.descricao || l.descricao.trim().length < 3)
-    if (semDesc.length > 0) {
-      alerts.push({ tipo: 'Sem Descricao', descricao: semDesc.length + ' lancamentos sem descricao adequada', risco: 'medio', itens: semDesc, valor: semDesc.reduce((s, l) => s + Math.abs(l.valor || 0), 0) })
-    }
-
-    // 5. Valor repetido
-    const valCount = new Map<number, Lancamento[]>()
-    rows.forEach(l => {
-      const v = Math.abs(l.valor || 0)
-      if (v > 100) {
-        if (!valCount.has(v)) valCount.set(v, [])
-        valCount.get(v)!.push(l)
-      }
-    })
-    const repetidos = Array.from(valCount.entries()).filter(([, g]) => g.length >= 5)
-    repetidos.forEach(([val, items]) => {
-      alerts.push({ tipo: 'Valor Repetido ' + items.length + 'x', descricao: 'R$ ' + val.toFixed(2) + ' aparece ' + items.length + ' vezes', risco: 'medio', itens: items, valor: val * items.length })
-    })
-
-    // 6. Outliers
-    const vals = rows.map(l => Math.abs(l.valor || 0)).filter(v => v > 0)
-    const media = vals.reduce((s, v) => s + v, 0) / (vals.length || 1)
-    const outliers = rows.filter(l => Math.abs(l.valor || 0) > media * 3 && Math.abs(l.valor || 0) > 1000)
-    if (outliers.length > 0) {
-      alerts.push({ tipo: 'Valores Atipicos', descricao: outliers.length + ' lancamentos com valor superior a 3x a media (R$' + media.toFixed(0) + ')', risco: 'alto', itens: outliers, valor: outliers.reduce((s, l) => s + Math.abs(l.valor || 0), 0) })
-    }
-
-    setAlertas(alerts.sort((a, b) => (a.risco === 'alto' ? 0 : a.risco === 'medio' ? 1 : 2) - (b.risco === 'alto' ? 0 : b.risco === 'medio' ? 1 : 2)))
+    const { lancs: raw, fornCadastrados, fornHistorico, fornPrimeiro } = extract(imports || [])
+    const scored = runDetection(raw, fornCadastrados, fornHistorico, fornPrimeiro)
+    setLancs(scored)
     setLoading(false)
     setAnalisado(true)
   }, [empresaSel])
 
-  const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  const fmtDate = (d: string) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : '-'
-  const riscoColor = (r: string) => r === 'alto' ? C.red : r === 'medio' ? C.yellow : C.green
-  const riscoIcon = (r: string) => r === 'alto' ? '!!' : r === 'medio' ? '!' : ''
-  const inputStyle: React.CSSProperties = { background: C.card, border: '1px solid ' + C.border, color: C.text, padding: '8px 12px', borderRadius: 6, fontSize: 13 }
+  const despesas = lancs.filter(l => l.tipo === 'despesa')
+  const filtradas = filtroScore === 'todos' ? despesas :
+    filtroScore === 'critico' ? despesas.filter(l => l.score < 30) :
+    filtroScore === 'suspeito' ? despesas.filter(l => l.score >= 30 && l.score < 60) :
+    filtroScore === 'atencao' ? despesas.filter(l => l.score >= 60 && l.score < 80) :
+    despesas.filter(l => l.score >= 80)
 
-  const altos = alertas.filter(a => a.risco === 'alto').length
-  const medios = alertas.filter(a => a.risco === 'medio').length
+  const stats = {
+    total: despesas.length,
+    critico: despesas.filter(l => l.score < 30).length,
+    suspeito: despesas.filter(l => l.score >= 30 && l.score < 60).length,
+    atencao: despesas.filter(l => l.score >= 60 && l.score < 80).length,
+    seguro: despesas.filter(l => l.score >= 80).length,
+    valorRisco: despesas.filter(l => l.score < 60).reduce((s, l) => s + Math.abs(l.valor), 0),
+    scoreMedia: despesas.length > 0 ? Math.round(despesas.reduce((s, l) => s + l.score, 0) / despesas.length) : 0,
+  }
+
+  const scoreColor = (s: number) => s >= 80 ? C.g : s >= 60 ? C.y : s >= 30 ? '#F97316' : C.r
+  const fmt = (v: number) => 'R$ ' + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 
   return (
-    <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, marginBottom: 16 }}>Anti-Fraude - Deteccao de Anomalias</h1>
+    <div style={{ padding: '16px 16px 40px', minHeight: '100vh', background: C.bg, color: C.tx }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 9, color: C.r, letterSpacing: 2, textTransform: 'uppercase' }}>Motor Proprietario</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: C.tx, margin: '2px 0 0' }}>Anti-Fraude — 11 Camadas</h1>
+          <div style={{ fontSize: 11, color: C.txd }}>Score 0-100 por pagamento | Dados reais do Omie | Patente INPI</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select value={empresaSel} onChange={e => { setEmpresaSel(e.target.value); setAnalisado(false) }} style={{ background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+            <option value="">Selecione empresa</option>
+            {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+          </select>
+          <button onClick={analisar} disabled={loading || !empresaSel} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: loading ? C.bd : C.r, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
+            {loading ? 'Analisando...' : 'Executar Anti-Fraude'}
+          </button>
+        </div>
+      </div>
 
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-        <select value={empresaSel} onChange={e => setEmpresaSel(e.target.value)} style={inputStyle}>
-          {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-        </select>
-        <button onClick={analisar} style={{ background: C.gold, color: '#3D2314', border: 'none', padding: '10px 24px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
-          ANALISAR LANCAMENTOS
-        </button>
-        <a href="/dashboard/bpo" style={{ padding: '10px 16px', border: '1px solid ' + C.border, borderRadius: 6, color: C.text, textDecoration: 'none', fontSize: 12, display: 'flex', alignItems: 'center' }}>BPO</a>
+      {/* 11 CAMADAS */}
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 14 }}>
+        {['Fornecedor cadastrado', 'Faixa historica', 'Tempo relacionamento', 'NF-e vinculada', 'Pedido/Documento', 'Valor redondo', 'Duplicatas', 'CNPJ suspeito', 'Outlier', 'Fim de semana', 'Sem descricao'].map((cam, i) => (
+          <span key={i} style={{ fontSize: 8, padding: '3px 8px', borderRadius: 4, background: C.r + '15', color: C.r, fontWeight: 600, border: '1px solid ' + C.r + '30' }}>{(i + 1).toString().padStart(2, '0')} {cam}</span>
+        ))}
       </div>
 
       {analisado && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
-          <div style={{ background: C.card, borderRadius: 8, padding: 14, borderTop: '3px solid ' + C.blue }}>
-            <div style={{ fontSize: 11, color: C.muted }}>Analisados</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.blue }}>{lancamentos.length}</div>
+        <>
+          {/* SCORECARD */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 6, marginBottom: 14 }}>
+            {[
+              { l: 'Score Medio', v: String(stats.scoreMedia), c: scoreColor(stats.scoreMedia) },
+              { l: 'Total Despesas', v: String(stats.total), c: C.b },
+              { l: 'Critico (<30)', v: String(stats.critico), c: C.r },
+              { l: 'Suspeito (30-59)', v: String(stats.suspeito), c: '#F97316' },
+              { l: 'Atencao (60-79)', v: String(stats.atencao), c: C.y },
+              { l: 'Seguro (80+)', v: String(stats.seguro), c: C.g },
+              { l: 'Valor em Risco', v: fmt(stats.valorRisco), c: C.r },
+            ].map((k, i) => (
+              <div key={i} style={{ background: C.card, borderRadius: 7, padding: '8px 10px', borderLeft: '3px solid ' + k.c }}>
+                <div style={{ fontSize: 7, color: C.txd, textTransform: 'uppercase', letterSpacing: 0.3 }}>{k.l}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: k.c, marginTop: 1 }}>{k.v}</div>
+              </div>
+            ))}
           </div>
-          <div style={{ background: C.card, borderRadius: 8, padding: 14, borderTop: '3px solid ' + C.red }}>
-            <div style={{ fontSize: 11, color: C.muted }}>Risco Alto</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.red }}>{altos}</div>
+
+          {/* FILTROS */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+            {([['todos', 'Todos (' + stats.total + ')', C.b], ['critico', 'Critico (' + stats.critico + ')', C.r], ['suspeito', 'Suspeito (' + stats.suspeito + ')', '#F97316'], ['atencao', 'Atencao (' + stats.atencao + ')', C.y], ['seguro', 'Seguro (' + stats.seguro + ')', C.g]] as const).map(([k, label, cor]) => (
+              <button key={k} onClick={() => setFiltroScore(k)} style={{ padding: '5px 12px', borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: 'pointer', border: filtroScore === k ? '1px solid ' + cor : '1px solid ' + C.bd, background: filtroScore === k ? cor + '15' : 'transparent', color: filtroScore === k ? cor : C.txm }}>{label}</button>
+            ))}
           </div>
-          <div style={{ background: C.card, borderRadius: 8, padding: 14, borderTop: '3px solid ' + C.yellow }}>
-            <div style={{ fontSize: 11, color: C.muted }}>Risco Medio</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.yellow }}>{medios}</div>
+
+          {/* TABELA */}
+          <div style={{ background: C.card, borderRadius: 8, overflow: 'hidden', border: '1px solid ' + C.bd }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid ' + C.bd }}>
+                  {['Score', 'Data', 'Fornecedor', 'Descricao', 'Valor', 'Flags'].map(h => (
+                    <th key={h} style={{ padding: '8px 6px', textAlign: h === 'Valor' ? 'right' : 'left', color: C.go, fontSize: 9, fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtradas.slice(0, 50).map(l => (
+                  <React.Fragment key={l.id}>
+                    <tr onClick={() => setExpandido(expandido === l.id ? null : l.id)} style={{ borderBottom: '0.5px solid ' + C.bd + '40', cursor: l.flags.length > 0 ? 'pointer' : 'default', background: expandido === l.id ? C.card2 : 'transparent' }}>
+                      <td style={{ padding: '6px', width: 55 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(l.score), padding: '2px 8px', borderRadius: 4, background: scoreColor(l.score) + '15' }}>{l.score}</span>
+                      </td>
+                      <td style={{ padding: '6px', fontSize: 10, color: C.txm, whiteSpace: 'nowrap' }}>{l.data}</td>
+                      <td style={{ padding: '6px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.forn}</td>
+                      <td style={{ padding: '6px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', color: C.txm }}>{l.desc}</td>
+                      <td style={{ padding: '6px', textAlign: 'right', fontWeight: 600, color: C.r }}>{fmt(l.valor)}</td>
+                      <td style={{ padding: '6px' }}>
+                        {l.flags.length > 0 && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: scoreColor(l.score) + '15', color: scoreColor(l.score), fontWeight: 600 }}>{l.flags.length} flag{l.flags.length > 1 ? 's' : ''}</span>}
+                      </td>
+                    </tr>
+                    {expandido === l.id && l.flags.length > 0 && (
+                      <tr><td colSpan={6} style={{ padding: '4px 6px 10px 60px', background: C.card2 }}>
+                        {l.flags.map((f, i) => (
+                          <div key={i} style={{ fontSize: 10, color: scoreColor(l.score), padding: '2px 0', borderLeft: '2px solid ' + scoreColor(l.score), paddingLeft: 8, marginBottom: 2 }}>{f}</div>
+                        ))}
+                        <div style={{ fontSize: 9, color: C.txd, marginTop: 4 }}>Cat: {l.cat || 'N/I'} | NF-e: {l.nfe || 'Sem'} | Doc: {l.nossoNum || 'Sem'} | Cod.Forn: {l.codForn}</div>
+                      </td></tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+            {filtradas.length > 50 && <div style={{ padding: 10, textAlign: 'center', fontSize: 10, color: C.txd }}>Mostrando 50 de {filtradas.length} lancamentos</div>}
+            {filtradas.length === 0 && <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: C.txm }}>Nenhum lancamento com esse filtro</div>}
           </div>
-          <div style={{ background: C.card, borderRadius: 8, padding: 14, borderTop: '3px solid ' + (altos === 0 ? C.green : C.red) }}>
-            <div style={{ fontSize: 11, color: C.muted }}>Status</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: altos === 0 ? C.green : C.red }}>{altos === 0 ? 'OK' : 'Atencao'}</div>
-          </div>
-        </div>
+
+          <div style={{ fontSize: 8, color: C.txd, textAlign: 'center', marginTop: 16 }}>PS Gestao e Capital — Motor Anti-Fraude v2.0 | 11 Camadas | Score 0-100 | Patente INPI</div>
+        </>
       )}
 
-      {loading && !analisado && <div style={{ textAlign: 'center', padding: 40, color: C.muted }}>Carregando empresas...</div>}
-
-      {alertas.map((a, i) => (
-        <div key={i} style={{ background: C.card, borderRadius: 8, padding: 14, marginBottom: 10, borderLeft: '4px solid ' + riscoColor(a.risco) }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{riscoIcon(a.risco)} {a.tipo}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: riscoColor(a.risco) }}>{fmt(a.valor)}</div>
-          </div>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>{a.descricao}</div>
-          <details>
-            <summary style={{ cursor: 'pointer', fontSize: 11, color: C.gold }}>Ver {a.itens.length} lancamentos</summary>
-            <div style={{ marginTop: 8, maxHeight: 200, overflow: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead><tr>{['Data', 'Descricao', 'Fornecedor', 'Valor'].map(h => <th key={h} style={{ padding: '4px 8px', textAlign: 'left', color: C.gold }}>{h}</th>)}</tr></thead>
-                <tbody>{a.itens.slice(0, 50).map((l, j) => (
-                  <tr key={j} style={{ borderTop: '1px solid ' + C.border }}>
-                    <td style={{ padding: '4px 8px' }}>{fmtDate(l.data)}</td>
-                    <td style={{ padding: '4px 8px' }}>{l.descricao || '-'}</td>
-                    <td style={{ padding: '4px 8px' }}>{l.fornecedor || '-'}</td>
-                    <td style={{ padding: '4px 8px', color: l.valor >= 0 ? C.green : C.red }}>{fmt(l.valor || 0)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          </details>
-        </div>
-      ))}
-
-      {analisado && alertas.length === 0 && (
-        <div style={{ background: C.card, borderRadius: 8, padding: 30, textAlign: 'center', borderLeft: '4px solid ' + C.green }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>OK</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: C.green }}>Nenhuma anomalia detectada</div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{lancamentos.length} lancamentos analisados</div>
+      {!analisado && !loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: C.txm }}>
+          <div style={{ fontSize: 48, marginBottom: 10 }}>🛡️</div>
+          <div style={{ fontSize: 14 }}>Selecione uma empresa e clique Executar Anti-Fraude</div>
+          <div style={{ fontSize: 11, color: C.txd, marginTop: 6 }}>11 camadas de verificacao | Score 0-100 por pagamento | Dados reais do Omie</div>
         </div>
       )}
-
-      <div style={{ fontSize: 10, color: C.muted, textAlign: 'center', marginTop: 20 }}>
-        PS Gestao e Capital - Anti-Fraude v8.5.1 | Fonte: omie_imports + import_csv | Conectado ao BPO
-      </div>
     </div>
   )
 }
