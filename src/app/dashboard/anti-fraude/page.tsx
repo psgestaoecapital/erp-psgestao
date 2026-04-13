@@ -194,6 +194,7 @@ function runDetection(lancs: Lanc[], fornCad: Set<string>, fornHist: Record<stri
 
 export default function AntiFraudePage() {
   const [empresas, setEmpresas] = useState<any[]>([])
+  const [grupos, setGrupos] = useState<any[]>([])
   const [empresaSel, setEmpresaSel] = useState('')
   const [lancs, setLancs] = useState<Lanc[]>([])
   const [loading, setLoading] = useState(false)
@@ -208,27 +209,37 @@ export default function AntiFraudePage() {
       const { data: up } = await supabase.from('users').select('role').eq('id', user.id).single()
       let comps: any[] = []
       if (up?.role === 'adm' || up?.role === 'acesso_total') {
-        const { data } = await supabase.from('companies').select('id, nome_fantasia, razao_social').order('nome_fantasia')
-        comps = (data || []).map(c => ({ id: c.id, nome: c.nome_fantasia || c.razao_social }))
+        const { data } = await supabase.from('companies').select('id, nome_fantasia, razao_social, group_id').order('nome_fantasia')
+        comps = (data || []).map(c => ({ id: c.id, nome: c.nome_fantasia || c.razao_social, group_id: c.group_id }))
+        const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
+        setGrupos(grps || [])
       } else {
-        const { data: uc } = await supabase.from('user_companies').select('companies(id, nome_fantasia, razao_social)').eq('user_id', user.id)
-        comps = (uc || []).map((u: any) => u.companies).filter(Boolean).map((c: any) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social }))
+        const { data: uc } = await supabase.from('user_companies').select('companies(id, nome_fantasia, razao_social, group_id)').eq('user_id', user.id)
+        comps = (uc || []).map((u: any) => u.companies).filter(Boolean).map((c: any) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social, group_id: c.group_id }))
       }
       setEmpresas(comps)
       if (comps.length === 1) setEmpresaSel(comps[0].id)
+      else if (comps.length > 1) setEmpresaSel('consolidado')
     })()
   }, [])
 
   const analisar = useCallback(async () => {
     if (!empresaSel) return
     setLoading(true); setAnalisado(false)
-    const { data: imports } = await supabase.from('omie_imports').select('import_type, import_data').eq('company_id', empresaSel)
-    const { lancs: raw, fornCadastrados, fornHistorico, fornPrimeiro } = extract(imports || [])
+    const compIds = empresaSel === 'consolidado' ? empresas.map(c => c.id) :
+      empresaSel.startsWith('group_') ? empresas.filter(c => c.group_id === empresaSel.replace('group_', '')).map(c => c.id) :
+      [empresaSel]
+    let allImports: any[] = []
+    for (const cid of compIds) {
+      const { data } = await supabase.from('omie_imports').select('import_type, import_data').eq('company_id', cid)
+      if (data) allImports.push(...data)
+    }
+    const { lancs: raw, fornCadastrados, fornHistorico, fornPrimeiro } = extract(allImports)
     const scored = runDetection(raw, fornCadastrados, fornHistorico, fornPrimeiro)
     setLancs(scored)
     setLoading(false)
     setAnalisado(true)
-  }, [empresaSel])
+  }, [empresaSel, empresas])
 
   const despesas = lancs.filter(l => l.tipo === 'despesa')
   const filtradas = filtroScore === 'todos' ? despesas :
@@ -259,9 +270,22 @@ export default function AntiFraudePage() {
           <div style={{ fontSize: 11, color: C.txd }}>Score 0-100 por pagamento | Dados reais do Omie | Patente INPI</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select value={empresaSel} onChange={e => { setEmpresaSel(e.target.value); setAnalisado(false) }} style={{ background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+          <select value={empresaSel} onChange={e => { setEmpresaSel(e.target.value); setAnalisado(false) }} style={{ background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12, maxWidth: 250 }}>
             <option value="">Selecione empresa</option>
-            {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+            {empresas.length > 1 && <option value="consolidado">📊 Todas ({empresas.length})</option>}
+            {grupos.map(g => {
+              const emps = empresas.filter(c => c.group_id === g.id)
+              if (emps.length === 0) return null
+              return (
+                <optgroup key={g.id} label={'📁 ' + g.nome}>
+                  <option value={'group_' + g.id}>📁 {g.nome} (grupo)</option>
+                  {emps.map(e => <option key={e.id} value={e.id}>└ {e.nome}</option>)}
+                </optgroup>
+              )
+            })}
+            {empresas.filter(c => !c.group_id || !grupos.find(g => g.id === c.group_id)).map(e => (
+              <option key={e.id} value={e.id}>{e.nome}</option>
+            ))}
           </select>
           <button onClick={analisar} disabled={loading || !empresaSel} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: loading ? C.bd : C.r, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
             {loading ? 'Analisando...' : 'Executar Anti-Fraude'}
