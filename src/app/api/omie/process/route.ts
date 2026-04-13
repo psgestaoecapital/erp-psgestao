@@ -13,12 +13,12 @@ function parseMesAno(dt: string): string | null {
     const mes = parseInt(p1[2]);
     let ano = parseInt(p1[3]);
     if (p1[3].length === 2) ano = 2000 + ano;
-    if (ano >= 2020 && ano <= 2030 && mes >= 1 && mes <= 12) return `${ano}-${String(mes).padStart(2, "0")}`;
+    if (ano >= 2015 && ano <= 2035 && mes >= 1 && mes <= 12) return `${ano}-${String(mes).padStart(2, "0")}`;
   }
   const p2 = dt.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   if (p2) {
     const ano = parseInt(p2[1]); const mes = parseInt(p2[2]);
-    if (ano >= 2020 && ano <= 2030 && mes >= 1 && mes <= 12) return `${ano}-${String(mes).padStart(2, "0")}`;
+    if (ano >= 2015 && ano <= 2035 && mes >= 1 && mes <= 12) return `${ano}-${String(mes).padStart(2, "0")}`;
   }
   return null;
 }
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     const duplicatasRemovidas = rawImports.length - imports.length;
 
     const pInicio = periodo_inicio || "2020-01";
-    const pFim = periodo_fim || "2030-12";
+    const pFim = periodo_fim || "2035-12";
 
     const catMap: Record<string, string> = {};
     for (const cat of imports.filter((i: any) => i.import_type === "categorias")) {
