@@ -1,239 +1,226 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+"use client";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
-const STATUS_EXCL = new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
-const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22C55E",R="#EF4444",Y="#FACC15",BL="#3B82F6",
+    BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#918C82",PU="#A855F7";
 
-function toISO(d: string): string {
-  if (!d) return "";
-  if (d.includes("/")) { const p = d.split("/"); if (p.length === 3 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`; }
-  return d;
-}
+const fmtBRL=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
-function extractAll(imports: any[]) {
-  const pagar: any[] = [], receber: any[] = [], nomes: Record<string, string> = {};
-  for (const imp of imports) {
-    if (imp.import_type === "clientes") {
-      const cls = imp.import_data?.clientes_cadastro || [];
-      if (Array.isArray(cls)) for (const c of cls) nomes[String(c.codigo_cliente_omie || c.codigo_cliente || c.codigo || "")] = c.nome_fantasia || c.razao_social || "";
+type ClientData = {
+  id:string; nome:string; cnpj:string; cidade:string; 
+  receita:number; despesa:number; resultado:number; margem:number;
+  status:"critico"|"atencao"|"saudavel"|"sem_dados";
+  alertas:string[]; ultimoSync:string; diasSemSync:number;
+  totalTitulos:number; vencidos:number; totalVencido:number;
+};
+
+export default function BPOPage(){
+  const [clients,setClients]=useState<ClientData[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [filtro,setFiltro]=useState("todos");
+  const [busca,setBusca]=useState("");
+  const [running,setRunning]=useState(false);
+  const [execResult,setExecResult]=useState<any>(null);
+
+  useEffect(()=>{loadBPOData();},[]);
+
+  const rodarDia=async()=>{
+    setRunning(true);setExecResult(null);
+    const results:any[]=[];
+    for(const c of clients){
+      try{
+        const r=await fetch("/api/bpo/executar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:c.id})});
+        const d=await r.json();
+        results.push({nome:c.nome,success:d.success,alertas:d.alertas_gerados||0,resumo:d.resumo_ia||"",resultados:d.resultados||{}});
+      }catch(e:any){results.push({nome:c.nome,success:false,error:e.message});}
     }
-  }
-  for (const imp of imports) {
-    const tipo = imp.import_type;
-    if (tipo !== "contas_pagar" && tipo !== "contas_receber") continue;
-    const key = tipo === "contas_receber" ? "conta_receber_cadastro" : "conta_pagar_cadastro";
-    const regs = imp.import_data?.[key] || [];
-    if (!Array.isArray(regs)) continue;
-    for (const r of regs) {
-      const st = (r.status_titulo || "").toUpperCase().trim();
-      if (STATUS_EXCL.has(st)) continue;
-      const v = Number(r.valor_documento) || 0; if (v <= 0) continue;
-      const codCF = String(r.codigo_cliente_fornecedor || r.codigo_fornecedor || "");
-      const item = { valor: v, data: toISO(r.data_emissao || r.data_vencimento || ""), vencimento: toISO(r.data_vencimento || ""), status: st, nome: nomes[codCF] || r.observacao || codCF, cat: r.descricao_categoria || r.codigo_categoria || "", doc: r.numero_documento || "", obs: r.observacao || "" };
-      if (tipo === "contas_pagar") pagar.push(item); else receber.push(item);
-    }
-  }
-  return { pagar, receber, nomes };
-}
+    setExecResult(results);setRunning(false);
+  };
 
-export async function POST(req: Request) {
-  const startTime = Date.now();
-  try {
-    const { company_id, modulos } = await req.json();
-    if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+  const loadBPOData=async()=>{
+    setLoading(true);
+    const{data:{user}}=await supabase.auth.getUser();
+    if(!user){setLoading(false);return;}
+    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
+    let companies:any[]=[];
+    if(up?.role==="adm"||up?.role==="acesso_total"){const{data}=await supabase.from("companies").select("*").order("created_at");companies=data||[];}
+    else{const{data:uc}=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);companies=(uc||[]).map((u:any)=>u.companies).filter(Boolean);}
+    if(companies.length===0){setLoading(false);return;}
 
-    const { data: company } = await supabase.from("companies").select("*").eq("id", company_id).single();
-    if (!company) return NextResponse.json({ error: "Empresa nao encontrada" }, { status: 404 });
+    const compIds=companies.map(c=>c.id);
+    const{data:allImports}=await supabase.from("omie_imports").select("company_id,import_type,import_data,record_count,imported_at").in("company_id",compIds);
+    const{data:bpoClass}=await supabase.from("bpo_classificacoes").select("company_id,status").in("company_id",compIds);
 
-    let { data: contrato } = await supabase.from("bpo_contratos").select("*").eq("company_id", company_id).single();
-    if (!contrato) { const { data: nc } = await supabase.from("bpo_contratos").insert({ company_id, classificacao_ia: true, dre_mensal: true, relatorio_ia: true }).select().single(); contrato = nc; }
+    const results:ClientData[]=[];
+    const now=new Date();
 
-    const { data: imports } = await supabase.from("omie_imports").select("import_type,import_data,record_count").eq("company_id", company_id);
-    const { pagar, receber } = extractAll(imports || []);
+    for(const comp of companies){
+      const compImports=(allImports||[]).filter((i:any)=>i.company_id===comp.id);
+      const hasData=compImports.length>0;
+      const lastSyncDate=compImports.length>0?new Date(compImports.sort((a:any,b:any)=>new Date(b.imported_at).getTime()-new Date(a.imported_at).getTime())[0]?.imported_at):null;
+      const diasSemSync=lastSyncDate?Math.floor((now.getTime()-lastSyncDate.getTime())/(1000*60*60*24)):999;
 
-    const { data: execucao } = await supabase.from("bpo_execucoes").insert({ company_id, status: "executando" }).select().single();
-    const execId = execucao?.id;
+      let receita=0,despesa=0,totalTitulos=0,vencidos=0,totalVencido=0;
+      const alertas:string[]=[];
+      let status:"critico"|"atencao"|"saudavel"|"sem_dados"="sem_dados";
 
-    const alertas: any[] = [];
-    const resultados: Record<string, any> = {};
-    const hoje = new Date().toISOString().split("T")[0];
+      if(hasData){
+        for(const imp of compImports){
+          if(imp.import_type==="contas_receber"){
+            const regs=imp.import_data?.conta_receber_cadastro||[];
+            if(!Array.isArray(regs))continue;
+            for(const r of regs){receita+=Number(r.valor_documento)||0;totalTitulos++;const st=(r.status_titulo||"").toUpperCase();if(st==="VENCIDO"||st==="ATRASADO"){vencidos++;totalVencido+=Number(r.valor_documento)||0;}}
+          }
+          if(imp.import_type==="contas_pagar"){
+            const regs=imp.import_data?.conta_pagar_cadastro||[];
+            if(!Array.isArray(regs))continue;
+            for(const r of regs){despesa+=Number(r.valor_documento)||0;totalTitulos++;}
+          }
+        }
+        const resultado=receita-despesa;
+        const margem=receita>0?Math.round((resultado/receita)*1000)/10:0;
 
-    // ═══════════════════════════════════════════════════════
-    // 1. ANOMALIAS — Duplicatas + outliers
-    // ═══════════════════════════════════════════════════════
-    {
-      let anom = 0;
-      const seen = new Map<string, any>();
-      for (const r of [...pagar, ...receber]) {
-        const fp = `${r.valor}|${r.data}|${r.nome}`;
-        if (seen.has(fp)) { anom++; alertas.push({ tipo: "anomalia", severidade: "alta", titulo: `Duplicidade: ${fmtR(r.valor)} - ${r.nome}`, descricao: `Mesmo valor, data e fornecedor. Docs: ${r.doc} e ${seen.get(fp).doc}`, acao_sugerida: "Verificar no Omie" }); }
-        seen.set(fp, r);
+        if(resultado<0) alertas.push("Resultado negativo");
+        if(margem<5&&margem>=0) alertas.push("Margem muito baixa");
+        if(vencidos>0) alertas.push(`${vencidos} título(s) vencido(s): ${fmtBRL(totalVencido)}`);
+        if(diasSemSync>30) alertas.push(`Sem sincronizar há ${diasSemSync} dias`);
+        const pendentes=(bpoClass||[]).filter((b:any)=>b.company_id===comp.id&&b.status==="pendente").length;
+        if(pendentes>0) alertas.push(`${pendentes} classificação(ões) pendente(s)`);
+
+        if(resultado<0||margem<-10) status="critico";
+        else if(margem<10||alertas.length>1) status="atencao";
+        else status="saudavel";
+
+        results.push({id:comp.id,nome:comp.nome_fantasia||comp.razao_social||"Sem nome",cnpj:comp.cnpj||"",cidade:comp.cidade_estado||"",receita,despesa,resultado,margem,status,alertas,totalTitulos,vencidos,totalVencido,ultimoSync:lastSyncDate?lastSyncDate.toLocaleDateString("pt-BR"):"Nunca",diasSemSync});
+      }else{
+        alertas.push("Nenhum dado importado");
+        results.push({id:comp.id,nome:comp.nome_fantasia||comp.razao_social||"Sem nome",cnpj:comp.cnpj||"",cidade:comp.cidade_estado||"",receita:0,despesa:0,resultado:0,margem:0,status:"sem_dados",alertas,totalTitulos:0,vencidos:0,totalVencido:0,ultimoSync:"Nunca",diasSemSync:999});
       }
-      const vals = pagar.map(r => r.valor).filter(v => v > 0);
-      const avg = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-      for (const r of pagar) { if (r.valor > avg * 5 && r.valor > 10000) { anom++; alertas.push({ tipo: "anomalia", severidade: "media", titulo: `Valor atipico: ${fmtR(r.valor)}`, descricao: `${r.nome}: ${(r.valor / avg).toFixed(1)}x acima da media`, acao_sugerida: "Verificar legitimidade" }); } }
-      resultados.anomalias = { detectadas: anom };
     }
+    results.sort((a,b)=>{const o={critico:0,atencao:1,saudavel:2,sem_dados:3};return o[a.status]-o[b.status];});
+    setClients(results);setLoading(false);
+  };
 
-    // ═══════════════════════════════════════════════════════
-    // 2. COBRANCA — Vencidos + inadimplencia
-    // ═══════════════════════════════════════════════════════
-    {
-      const vencidos = receber.filter(r => r.status === "VENCIDO" || r.status === "ATRASADO" || (r.vencimento && r.vencimento < hoje && r.status !== "LIQUIDADO" && r.status !== "PAGO"));
-      const totalVencido = vencidos.reduce((s, r) => s + r.valor, 0);
-      if (vencidos.length > 0) {
-        alertas.push({ tipo: "cobranca", severidade: totalVencido > 50000 ? "critica" : "alta", titulo: `${vencidos.length} titulo(s) vencido(s): ${fmtR(totalVencido)}`, descricao: `Top devedores: ${vencidos.sort((a, b) => b.valor - a.valor).slice(0, 3).map(v => v.nome + " " + fmtR(v.valor)).join(", ")}`, acao_sugerida: "Acionar cobranca" });
-      }
-      resultados.cobranca = { vencidos: vencidos.length, valor_vencido: totalVencido, top_devedores: vencidos.sort((a, b) => b.valor - a.valor).slice(0, 10).map(v => ({ nome: v.nome, valor: v.valor, vencimento: v.vencimento })) };
-    }
+  const statusCor=(s:string)=>s==="critico"?R:s==="atencao"?Y:s==="saudavel"?G:TXD;
+  const statusLabel=(s:string)=>s==="critico"?"Crítico":s==="atencao"?"Atenção":s==="saudavel"?"Saudável":"Sem dados";
+  const statusIcon=(s:string)=>s==="critico"?"🔴":s==="atencao"?"🟡":s==="saudavel"?"🟢":"⚪";
+  const filtered=clients.filter(c=>filtro==="todos"||c.status===filtro).filter(c=>!busca||c.nome.toLowerCase().includes(busca.toLowerCase())||c.cnpj.includes(busca));
 
-    // ═══════════════════════════════════════════════════════
-    // 3. CONTAS A PAGAR — Proximos 7 dias
-    // ═══════════════════════════════════════════════════════
-    {
-      const em7d = new Date(); em7d.setDate(em7d.getDate() + 7);
-      const sem7 = em7d.toISOString().split("T")[0];
-      const proximos = pagar.filter(r => r.vencimento >= hoje && r.vencimento <= sem7 && r.status !== "LIQUIDADO" && r.status !== "PAGO");
-      const totalProx = proximos.reduce((s, r) => s + r.valor, 0);
-      if (proximos.length > 0) {
-        alertas.push({ tipo: "contas_pagar", severidade: totalProx > 100000 ? "alta" : "media", titulo: `${proximos.length} pagamentos esta semana: ${fmtR(totalProx)}`, descricao: `Vencimentos de ${hoje} a ${sem7}`, acao_sugerida: "Programar pagamentos no banco" });
-      }
-      const atrasados = pagar.filter(r => r.vencimento && r.vencimento < hoje && r.status !== "LIQUIDADO" && r.status !== "PAGO");
-      if (atrasados.length > 0) {
-        const totalAtr = atrasados.reduce((s, r) => s + r.valor, 0);
-        alertas.push({ tipo: "contas_pagar", severidade: "critica", titulo: `${atrasados.length} pagamento(s) ATRASADO(S): ${fmtR(totalAtr)}`, descricao: `Fornecedores: ${atrasados.slice(0, 3).map(a => a.nome).join(", ")}`, acao_sugerida: "Pagar imediatamente para evitar juros" });
-      }
-      resultados.contas_pagar = { proximos_7d: proximos.length, valor_7d: totalProx, atrasados: atrasados.length, valor_atrasado: atrasados.reduce((s, r) => s + r.valor, 0) };
-    }
+  const totalClients=clients.length;const criticos=clients.filter(c=>c.status==="critico").length;const atencaoN=clients.filter(c=>c.status==="atencao").length;const saudaveis=clients.filter(c=>c.status==="saudavel").length;
+  const totalAlertas=clients.reduce((a,c)=>a+c.alertas.length,0);const totalReceita=clients.reduce((a,c)=>a+c.receita,0);
 
-    // ═══════════════════════════════════════════════════════
-    // 4. FLUXO DE CAIXA — Projecao 30/60/90 dias
-    // ═══════════════════════════════════════════════════════
-    {
-      const proj = [30, 60, 90].map(dias => {
-        const limite = new Date(); limite.setDate(limite.getDate() + dias);
-        const lim = limite.toISOString().split("T")[0];
-        const entradas = receber.filter(r => r.vencimento >= hoje && r.vencimento <= lim).reduce((s, r) => s + r.valor, 0);
-        const saidas = pagar.filter(r => r.vencimento >= hoje && r.vencimento <= lim).reduce((s, r) => s + r.valor, 0);
-        return { dias, entradas, saidas, saldo: entradas - saidas };
-      });
-      const negativo = proj.find(p => p.saldo < 0);
-      if (negativo) {
-        alertas.push({ tipo: "fluxo_caixa", severidade: "alta", titulo: `Fluxo negativo em ${negativo.dias} dias: ${fmtR(negativo.saldo)}`, descricao: `Entradas: ${fmtR(negativo.entradas)} | Saidas: ${fmtR(negativo.saidas)}`, acao_sugerida: "Acelerar recebimentos ou renegociar prazos" });
-      }
-      resultados.fluxo_caixa = proj;
-    }
+  return(
+  <div style={{padding:20,maxWidth:1200,margin:"0 auto",background:BG,minHeight:"100vh"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+      <div><div style={{fontSize:22,fontWeight:700,color:GOL}}>BPO Inteligente</div><div style={{fontSize:11,color:TXM}}>9 modulos ativos • Anti-Fraude integrado • Retroalimentacao automatica • v8.7.3</div></div>
+      <div style={{display:"flex",gap:6}}>
+        <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
+        <button onClick={rodarDia} disabled={running||clients.length===0} style={{padding:"8px 18px",borderRadius:8,background:running?BD:`linear-gradient(135deg,${R},#F97316)`,color:"#fff",fontSize:11,fontWeight:700,border:"none",cursor:running?"wait":"pointer"}}>{running?`⏳ Analisando ${clients.length} empresas...`:"🚀 Rodar BPO do Dia"}</button>
+        <button onClick={loadBPOData} style={{padding:"8px 16px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>↻ Atualizar</button>
+      </div>
+    </div>
 
-    // ═══════════════════════════════════════════════════════
-    // 5. DRE MENSAL — Receita x Despesa por mes
-    // ═══════════════════════════════════════════════════════
-    {
-      const meses: Record<string, { rec: number; desp: number }> = {};
-      for (const r of receber) { const ym = r.data?.substring(0, 7); if (ym) { if (!meses[ym]) meses[ym] = { rec: 0, desp: 0 }; meses[ym].rec += r.valor; } }
-      for (const r of pagar) { const ym = r.data?.substring(0, 7); if (ym) { if (!meses[ym]) meses[ym] = { rec: 0, desp: 0 }; meses[ym].desp += r.valor; } }
-      const dreArr = Object.entries(meses).map(([mes, v]) => ({ mes, receita: v.rec, despesa: v.desp, resultado: v.rec - v.desp, margem: v.rec > 0 ? ((v.rec - v.desp) / v.rec * 100) : 0 })).sort((a, b) => b.mes.localeCompare(a.mes)).slice(0, 6);
-      if (dreArr.length > 0 && dreArr[0].resultado < 0) {
-        alertas.push({ tipo: "dre", severidade: "alta", titulo: `Ultimo mes com resultado negativo: ${fmtR(dreArr[0].resultado)}`, descricao: `${dreArr[0].mes}: Receita ${fmtR(dreArr[0].receita)} - Despesa ${fmtR(dreArr[0].despesa)}`, acao_sugerida: "Revisar custos e acelerar faturamento" });
-      }
-      resultados.dre_mensal = dreArr;
-    }
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:16}}>
+      {[
+        {href:"/dashboard/bpo/supervisor",icon:"👥",nome:"Supervisor",desc:"Atribuir empresas a operadores",cor:GO},
+        {href:"/dashboard/bpo/automacao",icon:"🤖",nome:"Automação IA",desc:"Auto-classificação + score anti-fraude",cor:G},
+        {href:"/dashboard/anti-fraude",icon:"🛡️",nome:"Anti-Fraude",desc:"11 camadas • Score 0-100 • Patente INPI",cor:R},
+        {href:"/dashboard/bpo/conciliacao",icon:"💳",nome:"Conciliação",desc:"OFX/CSV matching",cor:BL},
+        {href:"/dashboard/bpo/rotinas",icon:"📋",nome:"Rotinas",desc:"14 rotinas automáticas",cor:PU},
+        {href:"/dashboard/importar",icon:"📥",nome:"Importar",desc:"Upload planilha de dados",cor:Y},
+        {href:"/dashboard/consultor",icon:"🧠",nome:"Consultor IA",desc:"Análise de documentos",cor:GOL},
+      ].map((m,i)=>(
+        <a key={i} href={m.href} style={{background:BG2,borderRadius:12,padding:"12px",border:`1px solid ${BD}`,textDecoration:"none",display:"block",borderLeft:`4px solid ${m.cor}`,transition:"all 0.2s"}}
+          onMouseEnter={e=>(e.currentTarget.style.background="#1E1E1B")} onMouseLeave={e=>(e.currentTarget.style.background=BG2)}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{fontSize:20}}>{m.icon}</div>
+            <div><div style={{fontSize:12,fontWeight:600,color:TX}}>{m.nome}</div><div style={{fontSize:9,color:TXM}}>{m.desc}</div></div>
+          </div>
+        </a>
+      ))}
+    </div>
 
-    // ═══════════════════════════════════════════════════════
-    // 6. FECHAMENTO — Pendencias do periodo
-    // ═══════════════════════════════════════════════════════
-    {
-      const semCat = [...pagar, ...receber].filter(r => !r.cat || r.cat === "sem_cat" || r.cat === "0" || r.cat === "SEM CATEGORIA");
-      const pendClass = semCat.length;
-      const { data: classifPend } = await supabase.from("bpo_classificacoes").select("id").eq("company_id", company_id).eq("status", "pendente");
-      const pendAprov = classifPend?.length || 0;
-      if (pendClass > 0 || pendAprov > 0) {
-        alertas.push({ tipo: "fechamento", severidade: "media", titulo: `Pendencias: ${pendClass} sem categoria, ${pendAprov} aguardando aprovacao`, descricao: "Itens pendentes impedem fechamento preciso do periodo", acao_sugerida: "Classificar e aprovar antes do fechamento" });
-      }
-      resultados.fechamento = { sem_categoria: pendClass, aguardando_aprovacao: pendAprov, total_lancamentos: pagar.length + receber.length };
-    }
+    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:16}}>
+      {[{l:"Total clientes",v:totalClients.toString(),c:GOL,icon:"🏢"},{l:"Críticos",v:criticos.toString(),c:R,icon:"🔴"},{l:"Atenção",v:atencaoN.toString(),c:Y,icon:"🟡"},{l:"Saudáveis",v:saudaveis.toString(),c:G,icon:"🟢"},{l:"Alertas reais",v:totalAlertas.toString(),c:R,icon:"⚠️"},{l:"Receita total",v:fmtBRL(totalReceita),c:G,icon:"💰"}].map((k,i)=>(
+        <div key={i} style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${k.c}`,border:`1px solid ${BD}`}}>
+          <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.4}}>{k.icon} {k.l}</div>
+          <div style={{fontSize:20,fontWeight:700,color:k.c,marginTop:2}}>{k.v}</div>
+        </div>
+      ))}
+    </div>
 
-    // ═══════════════════════════════════════════════════════
-    // 7. OBRIGACOES FISCAIS — Calendario
-    // ═══════════════════════════════════════════════════════
-    {
-      const mesAtual = new Date().getMonth() + 1;
-      const anoAtual = new Date().getFullYear();
-      const obrigacoes = [
-        { nome: "DAS (Simples Nacional)", dia: 20, regimes: ["simples"] },
-        { nome: "DARF PIS", dia: 25, regimes: ["lucro_presumido", "lucro_real"] },
-        { nome: "DARF COFINS", dia: 25, regimes: ["lucro_presumido", "lucro_real"] },
-        { nome: "DARF IRPJ", dia: 30, regimes: ["lucro_presumido", "lucro_real"] },
-        { nome: "DARF CSLL", dia: 30, regimes: ["lucro_presumido", "lucro_real"] },
-        { nome: "GFIP/SEFIP", dia: 7, regimes: ["todos"] },
-        { nome: "FGTS", dia: 7, regimes: ["todos"] },
-        { nome: "INSS", dia: 20, regimes: ["todos"] },
-      ];
-      const proximas = obrigacoes.map(o => {
-        const venc = new Date(anoAtual, mesAtual - 1, o.dia);
-        if (venc < new Date()) venc.setMonth(venc.getMonth() + 1);
-        const dias = Math.ceil((venc.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        return { ...o, vencimento: venc.toISOString().split("T")[0], dias_restantes: dias };
-      }).sort((a, b) => a.dias_restantes - b.dias_restantes);
-      const urgentes = proximas.filter(o => o.dias_restantes <= 5);
-      if (urgentes.length > 0) {
-        alertas.push({ tipo: "obrigacoes", severidade: "critica", titulo: `${urgentes.length} obrigacao(oes) vence(m) em ate 5 dias`, descricao: urgentes.map(o => `${o.nome} (${o.dias_restantes}d)`).join(", "), acao_sugerida: "Gerar guias imediatamente" });
-      }
-      resultados.obrigacoes = proximas;
-    }
+    {/* EXECUTION RESULTS */}
+    {execResult&&(
+      <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14,marginBottom:16}}>
+        <div style={{fontSize:14,fontWeight:700,color:GOL,marginBottom:10}}>📋 Resultado BPO do Dia — {execResult.length} empresa(s)</div>
+        {execResult.map((r:any,i:number)=>(
+          <div key={i} style={{background:BG3,borderRadius:8,padding:10,marginBottom:6,borderLeft:`3px solid ${r.success?G:R}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:12,fontWeight:600,color:TX}}>{r.nome}</span>
+              <span style={{fontSize:9,color:r.alertas>5?R:r.alertas>0?Y:G,fontWeight:600}}>{r.alertas} alertas</span>
+            </div>
+            {r.resumo&&<div style={{fontSize:10,color:TXM,marginTop:4,lineHeight:1.5}}>{r.resumo}</div>}
+            {r.resultados?.fluxo_caixa&&(
+              <div style={{display:"flex",gap:8,marginTop:6}}>
+                {r.resultados.fluxo_caixa.map((f:any)=>(
+                  <span key={f.dias} style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:f.saldo>=0?G+"15":R+"15",color:f.saldo>=0?G:R}}>{f.dias}d: {f.saldo>=0?"+":""}R${(f.saldo/1000).toFixed(0)}K</span>
+                ))}
+              </div>
+            )}
+            {r.error&&<div style={{fontSize:10,color:R,marginTop:4}}>Erro: {r.error}</div>}
+          </div>
+        ))}
+      </div>
+    )}
 
-    // ═══════════════════════════════════════════════════════
-    // 8. BALANCO / INDICADORES
-    // ═══════════════════════════════════════════════════════
-    {
-      const totalRec = receber.reduce((s, r) => s + r.valor, 0);
-      const totalPag = pagar.reduce((s, r) => s + r.valor, 0);
-      const resultado = totalRec - totalPag;
-      const margem = totalRec > 0 ? (resultado / totalRec * 100) : 0;
-      const ticketMedio = receber.length > 0 ? totalRec / receber.length : 0;
-      const inadimplencia = receber.filter(r => r.status === "VENCIDO" || r.status === "ATRASADO").reduce((s, r) => s + r.valor, 0);
-      const pctInad = totalRec > 0 ? (inadimplencia / totalRec * 100) : 0;
-      resultados.indicadores = { receita_total: totalRec, despesa_total: totalPag, resultado, margem: margem.toFixed(1) + "%", ticket_medio: ticketMedio, inadimplencia, pct_inadimplencia: pctInad.toFixed(1) + "%", total_clientes: new Set(receber.map(r => r.nome)).size, total_fornecedores: new Set(pagar.map(r => r.nome)).size };
-    }
+    <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center"}}>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar cliente por nome ou CNPJ..." style={{flex:1,background:BG2,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"8px 12px",fontSize:12,outline:"none"}}/>
+      <div style={{display:"flex",gap:4}}>
+        {[{id:"todos",n:"Todos",c:GOL},{id:"critico",n:"Críticos",c:R},{id:"atencao",n:"Atenção",c:Y},{id:"saudavel",n:"Saudáveis",c:G},{id:"sem_dados",n:"Sem dados",c:TXD}].map(f=>(
+          <button key={f.id} onClick={()=>setFiltro(f.id)} style={{padding:"6px 12px",borderRadius:20,fontSize:10,border:`1px solid ${filtro===f.id?f.c:BD}`,background:filtro===f.id?f.c+"18":"transparent",color:filtro===f.id?f.c:TXM,fontWeight:filtro===f.id?600:400,cursor:"pointer"}}>{f.n}</button>
+        ))}
+      </div>
+    </div>
 
-    // ═══════════════════════════════════════════════════════
-    // 9. RESUMO IA DO DIA
-    // ═══════════════════════════════════════════════════════
-    let resumoIA = "";
-    if (apiKey && alertas.length > 0) {
-      try {
-        const alertasTxt = alertas.slice(0, 10).map(a => `[${a.severidade}] ${a.titulo}: ${a.descricao}`).join("\n");
-        const aiRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: "Voce e o assistente BPO da PS Gestao. Resuma os alertas do dia em 3-5 linhas, priorizando o que o operador precisa resolver primeiro. Seja direto e pratico.", messages: [{ role: "user", content: `Empresa: ${company.nome_fantasia || company.razao_social}\nAlertas:\n${alertasTxt}\n\nResumo:` }] }) });
-        const aiData = await aiRes.json();
-        resumoIA = aiData.content?.[0]?.text || "";
-      } catch { }
-    }
+    {loading&&<div style={{textAlign:"center",padding:60}}><div style={{fontSize:28,marginBottom:12}}>⏳</div><div style={{fontSize:14,color:GOL,fontWeight:600}}>Analisando clientes...</div></div>}
 
-    // ═══════════════════════════════════════════════════════
-    // SAVE & RETURN
-    // ═══════════════════════════════════════════════════════
-    if (alertas.length > 0 && execId) {
-      for (const a of alertas.slice(0, 30)) { await supabase.from("bpo_alertas").insert({ company_id, execucao_id: execId, ...a }); }
-    }
+    {!loading&&(
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:10}}>
+        {filtered.map(client=>(
+          <div key={client.id} style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden",cursor:"pointer",transition:"transform 0.2s"}}
+            onClick={()=>window.location.href=`/dashboard?empresa=${client.id}`}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";}} onMouseLeave={e=>{e.currentTarget.style.transform="none";}}>
+            <div style={{height:3,background:statusCor(client.status)}}/>
+            <div style={{padding:"12px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div><div style={{fontSize:14,fontWeight:600,color:TX}}>{client.nome}</div><div style={{fontSize:10,color:TXD}}>{client.cnpj}{client.cidade?` • ${client.cidade}`:""}</div></div>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:statusCor(client.status)+"20",color:statusCor(client.status),fontWeight:600}}>{statusIcon(client.status)} {statusLabel(client.status)}</span>
+              </div>
+              {client.status!=="sem_dados"?(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+                  {[{l:"Receita",v:fmtBRL(client.receita),c:G},{l:"Despesa",v:fmtBRL(client.despesa),c:Y},{l:"Resultado",v:fmtBRL(client.resultado),c:client.resultado>=0?G:R}].map((k,i)=>(
+                    <div key={i} style={{background:BG3,borderRadius:6,padding:"6px 8px",textAlign:"center"}}><div style={{fontSize:8,color:TXD}}>{k.l}</div><div style={{fontSize:12,fontWeight:700,color:k.c}}>{k.v}</div></div>
+                  ))}
+                </div>
+              ):(
+                <div style={{background:BG3,borderRadius:6,padding:"12px 8px",textAlign:"center",marginBottom:8}}><div style={{fontSize:11,color:TXD}}>Nenhum dado importado</div></div>
+              )}
+              {client.alertas.length>0&&<div style={{marginBottom:6}}>{client.alertas.slice(0,3).map((a,i)=><div key={i} style={{fontSize:9,color:R,padding:"1px 0"}}>⚠️ {a}</div>)}{client.alertas.length>3&&<div style={{fontSize:9,color:TXD}}>+{client.alertas.length-3} alerta(s)</div>}</div>}
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TXD}}>
+                <span>{client.margem!==0&&`Margem: ${client.margem}% • `}{client.totalTitulos} títulos</span>
+                <span style={{color:client.diasSemSync>30?Y:TXD}}>Sync: {client.ultimoSync}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
 
-    const duracao = Date.now() - startTime;
-    if (execId) {
-      await supabase.from("bpo_execucoes").update({ status: "concluido", anomalias_detectadas: resultados.anomalias?.detectadas || 0, cobrancas_enviadas: resultados.cobranca?.vencidos || 0, alertas_gerados: alertas.length, resumo_ia: resumoIA, duracao_ms: duracao, resultados: JSON.stringify(resultados) }).eq("id", execId);
-    }
-    await supabase.from("bpo_contratos").update({ updated_at: new Date().toISOString() }).eq("company_id", company_id);
+    {!loading&&filtered.length===0&&<div style={{textAlign:"center",padding:40,background:BG2,borderRadius:12,border:`1px solid ${BD}`}}><div style={{fontSize:14,color:TXM}}>Nenhum cliente encontrado</div></div>}
 
-    return NextResponse.json({
-      success: true,
-      duracao_ms: duracao,
-      alertas_gerados: alertas.length,
-      alertas: alertas.slice(0, 20),
-      resumo_ia: resumoIA,
-      resultados,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
+    <div style={{fontSize:10,color:TXD,textAlign:"center",marginTop:20,padding:12,background:BG2,borderRadius:8,border:`1px solid ${BD}`}}>
+      PS Gestão e Capital — BPO Inteligente v8.7.3 | {totalClients} empresa(s) | 9 módulos ativos
+    </div>
+  </div>);
 }
