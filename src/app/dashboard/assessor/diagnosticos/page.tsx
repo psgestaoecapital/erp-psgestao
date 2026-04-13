@@ -93,7 +93,7 @@ function calcDiag(rows: Row[]) {
 
   const topCli = Object.entries(cliMap).map(([nome, valor]) => ({ nome, valor, pct: totalRec > 0 ? (valor / totalRec) * 100 : 0 })).sort((a, b) => b.valor - a.valor).slice(0, 15)
   const topForn = Object.entries(fornMap).map(([nome, valor]) => ({ nome, valor, pct: totalDesp > 0 ? (valor / totalDesp) * 100 : 0 })).sort((a, b) => b.valor - a.valor).slice(0, 15)
-  const topCat = Object.entries(catMap).map(([nome, v]) => ({ nome, receita: v.rec, despesa: v.desp })).sort((a, b) => b.desp - a.desp).slice(0, 15)
+  const topCat = Object.entries(catMap).map(([nome, v]) => ({ nome, receita: v.rec, despesa: v.desp })).sort((a, b) => b.despesa - a.despesa).slice(0, 15)
   const dfcl = Object.entries(mesMap).map(([mes, v]) => ({ mes, rec: v.rec, desp: v.desp, saldo: v.rec - v.desp })).sort((a, b) => a.mes.localeCompare(b.mes))
 
   const c3 = topCli.slice(0, 3).reduce((s, c) => s + c.pct, 0)
