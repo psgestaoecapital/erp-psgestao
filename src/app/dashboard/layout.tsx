@@ -123,7 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </span>
         )}
 
-        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.6.2</span>
+        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.7.0</span>
 
         <button onClick={signOut} style={{
           fontSize:10, color:'#B0AB9F', background:'transparent',
@@ -133,10 +133,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </header>
 
       {demo && (
-        <style dangerouslySetInnerHTML={{ __html: '.demo-hide{filter:blur(4px)!important}' }} />
+        <style dangerouslySetInnerHTML={{ __html: `.ps-demo td:not(:first-child){filter:blur(5px)!important}.ps-demo th{filter:none!important}.ps-demo option{filter:blur(4px)!important}.ps-demo select{filter:blur(4px)!important}.ps-demo .demo-hide{filter:blur(5px)!important}` }} />
       )}
 
-      <main>{children}</main>
+      <main className={demo ? 'ps-demo' : ''}>{children}</main>
       <HelpWidget />
     </div>
   )
