@@ -90,6 +90,18 @@ export default function BPOAutoPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  const retroalimentar=async()=>{
+    if(!selectedComp)return;
+    setMsg("Aplicando classificações ao Dashboard...");
+    try{
+      const r=await fetch("/api/bpo/retroalimentar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:selectedComp})});
+      const d=await r.json();
+      if(d.error){setMsg("❌ "+d.error);}
+      else{setMsg(`✅ ${d.aplicados} classificações aplicadas ao Dashboard. ${d.nao_encontrados>0?d.nao_encontrados+" não encontrados.":""}`);}
+    }catch(e:any){setMsg("❌ Erro: "+e.message);}
+    setTimeout(()=>setMsg(""),5000);
+  };
+
   const toggleSelect=(id:string)=>{
     const s=new Set(selected);
     if(s.has(id))s.delete(id);else s.add(id);
@@ -187,6 +199,7 @@ export default function BPOAutoPage(){
               <button onClick={aprovarSelecionados} style={{padding:"6px 14px",borderRadius:8,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:11,fontWeight:600,cursor:"pointer"}}>✅ Aprovar {selected.size} selecionados</button>
             )}
             <button onClick={aprovarTodos} style={{padding:"6px 14px",borderRadius:8,background:GO+"15",border:`1px solid ${GO}30`,color:GOL,fontSize:11,fontWeight:600,cursor:"pointer"}}>✅ Aprovar Todos ({counts.pendente})</button>
+            <button onClick={retroalimentar} style={{padding:"6px 14px",borderRadius:8,background:G+"15",border:`1px solid ${G}30`,color:G,fontSize:11,fontWeight:600,cursor:"pointer"}}>🔄 Aplicar ao Dashboard ({counts.aprovado})</button>
           </div>
         )}
       </div>
