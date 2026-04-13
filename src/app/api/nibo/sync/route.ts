@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     // ═══ 3. DEBITOS (Contas a Pagar) ═══
     if (types.includes("debitos") || types.includes("pagamentos")) {
       try {
-        const items = await niboFetchAll("/schedules/debit", apiToken, "dueDate");
+        const items = await niboFetchAll("/schedules/debit", apiToken, "dueDate desc", 50);
         const mapped = items.map((p: any) => ({
           codigo_lancamento_omie: p.id || p.scheduleId || "",
           valor_documento: p.value || p.amount || 0,
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
     // ═══ 4. CREDITOS (Contas a Receber) ═══
     if (types.includes("creditos") || types.includes("recebimentos")) {
       try {
-        const items = await niboFetchAll("/schedules/credit", apiToken, "dueDate");
+        const items = await niboFetchAll("/schedules/credit", apiToken, "dueDate desc", 50);
         const mapped = items.map((r: any) => ({
           codigo_lancamento_omie: r.id || r.scheduleId || "",
           valor_documento: r.value || r.amount || 0,
