@@ -68,10 +68,12 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
     setTimeout(()=>setMsg(""),2000);
   };
 
+  const [editFinId, setEditFinId] = useState<string|null>(null);
+
   const salvarFinanciamento = async () => {
     const f = newFin;
     if(!f.banco||!f.saldoDevedor)return;
-    await supabase.from("financiamentos").insert({
+    const data = {
       company_id:empresaId, banco:f.banco, tipo:f.tipo||"Empréstimo",
       operacao:f.operacao||"", contrato:f.contrato||"",
       valor_original:f.valorOriginal||0, valor_liquido:f.valorLiquido||0,
@@ -81,12 +83,26 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
       valor_parcela:f.valorParcela||0, ultima_parcela:f.ultimaParcela||0,
       vencimento:f.vencimento||"",
       garantia:f.garantia||"", situacao:f.situacao||"Normal", status:"ativo"
-    });
-    setShowAddFin(false);setNewFin({});setMsg("Financiamento cadastrado!");loadData();
+    };
+    if(editFinId){
+      await supabase.from("financiamentos").update(data).eq("id",editFinId);
+      setMsg("Financiamento atualizado!");
+    }else{
+      await supabase.from("financiamentos").insert(data);
+      setMsg("Financiamento cadastrado!");
+    }
+    setShowAddFin(false);setNewFin({});setEditFinId(null);loadData();
     setTimeout(()=>setMsg(""),2000);
   };
 
+  const editarFinanciamento = (f:Financiamento) => {
+    setNewFin({banco:f.banco,tipo:f.tipo,operacao:f.operacao,contrato:f.contrato,valorOriginal:f.valorOriginal,valorLiquido:f.valorLiquido,saldoDevedor:f.saldoDevedor,taxaMensal:f.taxaMensal,parcelas:f.parcelas,parcelasRestantes:f.parcelasRestantes,valorParcela:f.valorParcela,ultimaParcela:f.ultimaParcela,vencimento:f.vencimento,garantia:f.garantia,situacao:f.situacao,status:f.status});
+    setEditFinId(f.id);
+    setShowAddFin(true);
+  };
+
   const excluirFinanciamento = async (id:string) => {
+    if(!confirm("Tem certeza que deseja excluir este financiamento?")) return;
     await supabase.from("financiamentos").delete().eq("id",id);
     setMsg("Excluído.");loadData();setTimeout(()=>setMsg(""),2000);
   };
@@ -256,8 +272,8 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
               ))}
             </div>
             <div style={{marginTop:10,display:"flex",gap:8}}>
-              <button onClick={salvarFinanciamento} style={{padding:"8px 16px",borderRadius:8,background:GO,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Salvar</button>
-              <button onClick={()=>setShowAddFin(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={salvarFinanciamento} style={{padding:"8px 16px",borderRadius:8,background:GO,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>{editFinId?"Atualizar":"Salvar"}</button>
+              <button onClick={()=>{setShowAddFin(false);setEditFinId(null);setNewFin({})}} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
             </div>
           </div>
         )}
@@ -289,7 +305,8 @@ export default function BalancoPatrimonial({ empresaId, periodoFim }: { empresaI
                       <td style={{padding:"8px",color:TXM,textAlign:"center"}}>{f.parcelasRestantes}/{f.parcelas}</td>
                       <td style={{padding:"8px",color:TXD}}>{f.vencimento}</td>
                       <td style={{padding:"8px",color:TXD}}>{f.garantia||"—"}</td>
-                      <td style={{padding:"8px"}}>
+                      <td style={{padding:"8px",display:"flex",gap:4}}>
+                        <button onClick={()=>editarFinanciamento(f)} style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${GO}30`,background:"transparent",color:GO,fontSize:10,cursor:"pointer"}}>✏️</button>
                         <button onClick={()=>excluirFinanciamento(f.id)} style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${R}30`,background:"transparent",color:R,fontSize:10,cursor:"pointer"}}>🗑</button>
                       </td>
                     </tr>
