@@ -40,6 +40,7 @@ export default function AdminPage(){
   const [newEmp,setNewEmp]=useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",group_id:""});
   const [msg,setMsg]=useState("");
   const [userComps,setUserComps]=useState<any[]>([]);
+  const [accessConfigs,setAccessConfigs]=useState<any[]>([]);
   const [editingUser,setEditingUser]=useState<string|null>(null);
   const [isAuthorized,setIsAuthorized]=useState(false);
   const [checkingAuth,setCheckingAuth]=useState(true);
@@ -76,6 +77,8 @@ export default function AdminPage(){
     if(uc)setUserComps(uc);
     const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
     if(grps)setGrupos(grps);
+    const{data:ac}=await supabase.from("access_config").select("*").order("role");
+    if(ac)setAccessConfigs(ac);
   };
 
   const getUserCompIds=(uid:string)=>userComps.filter(uc=>uc.user_id===uid).map(uc=>uc.company_id);
@@ -223,7 +226,7 @@ export default function AdminPage(){
     {msg&&<div style={{background:G+"20",border:`1px solid ${G}`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:G}} onClick={()=>setMsg("")}>{msg}</div>}
 
     <div style={{display:"flex",gap:4,marginBottom:16}}>
-      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"}].map(t=>(
+      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"}].map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:20,fontSize:11,border:`1px solid ${tab===t.id?GO:BD}`,background:tab===t.id?GO+"18":"transparent",color:tab===t.id?GOL:TXM,fontWeight:tab===t.id?600:400,cursor:"pointer"}}>{t.n}</button>
       ))}
     </div>
@@ -665,6 +668,142 @@ export default function AdminPage(){
             </div>
           );
         })}
+      </div>
+    </div>)}
+
+    {/* HORÁRIOS & SEGURANÇA */}
+    {tab==="seguranca"&&(<div>
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:14}}>Restrições de Horário e Segurança por Role</div>
+
+      {/* Default configs for all roles */}
+      <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden",marginBottom:16}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead><tr style={{borderBottom:`2px solid ${BD}`}}>
+            <th style={{padding:"10px 12px",textAlign:"left",color:GOL,fontSize:10}}>Role</th>
+            <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Horário</th>
+            <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Dias</th>
+            <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Timeout</th>
+            <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Ativo</th>
+            <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Ações</th>
+          </tr></thead>
+          <tbody>
+            {ROLES.map(r=>{
+              const cfg=accessConfigs.find((a:any)=>a.role===r.role);
+              const inicio=cfg?.horario_inicio||"00:00";
+              const fim=cfg?.horario_fim||"23:59";
+              const dias=(cfg?.dias_semana||["seg","ter","qua","qui","sex","sab","dom"]).join(",");
+              const timeout=cfg?.timeout_minutos||30;
+              const ativo=cfg?.ativo!==false;
+              const isAdmRole=r.role==="adm"||r.role==="adm_investimentos"||r.role==="acesso_total";
+              return(
+                <tr key={r.role} style={{borderBottom:`0.5px solid ${BD}30`,opacity:isAdmRole?0.5:1}}>
+                  <td style={{padding:"8px 12px"}}>
+                    <span style={{color:r.cor,marginRight:6}}>{r.icon}</span>
+                    <span style={{fontWeight:500,color:TX}}>{r.nome}</span>
+                    {isAdmRole&&<span style={{fontSize:8,color:TXD,marginLeft:6}}>(sem restrição)</span>}
+                  </td>
+                  <td style={{padding:6,textAlign:"center"}}>
+                    {!isAdmRole?(
+                      <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
+                        <input type="time" defaultValue={inicio} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:10,width:70}} data-role={r.role} data-field="horario_inicio"/>
+                        <span style={{color:TXD,fontSize:9}}>-</span>
+                        <input type="time" defaultValue={fim} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:10,width:70}} data-role={r.role} data-field="horario_fim"/>
+                      </div>
+                    ):<span style={{color:TXD,fontSize:10}}>24h</span>}
+                  </td>
+                  <td style={{padding:6,textAlign:"center"}}>
+                    {!isAdmRole?(
+                      <select defaultValue={dias} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:9}} data-role={r.role} data-field="dias_semana">
+                        <option value="seg,ter,qua,qui,sex">Seg-Sex</option>
+                        <option value="seg,ter,qua,qui,sex,sab">Seg-Sáb</option>
+                        <option value="seg,ter,qua,qui,sex,sab,dom">Todos</option>
+                      </select>
+                    ):<span style={{color:TXD,fontSize:10}}>7 dias</span>}
+                  </td>
+                  <td style={{padding:6,textAlign:"center"}}>
+                    {!isAdmRole?(
+                      <select defaultValue={String(timeout)} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:9}} data-role={r.role} data-field="timeout_minutos">
+                        <option value="0">Sem timeout</option>
+                        <option value="15">15 min</option>
+                        <option value="30">30 min</option>
+                        <option value="60">1 hora</option>
+                        <option value="120">2 horas</option>
+                        <option value="480">8 horas</option>
+                      </select>
+                    ):<span style={{color:TXD,fontSize:10}}>Nunca</span>}
+                  </td>
+                  <td style={{padding:6,textAlign:"center"}}>
+                    {!isAdmRole&&(
+                      <div onClick={async()=>{
+                        const newAtivo=!ativo;
+                        if(cfg){
+                          await supabase.from("access_config").update({ativo:newAtivo}).eq("id",cfg.id);
+                        }else{
+                          await supabase.from("access_config").insert({role:r.role,ativo:newAtivo});
+                        }
+                        loadData();
+                      }} style={{width:36,height:20,borderRadius:10,background:ativo?G:BD,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+                        <div style={{width:16,height:16,borderRadius:8,background:"white",position:"absolute",top:2,left:ativo?18:2,transition:"left 0.2s"}}/>
+                      </div>
+                    )}
+                  </td>
+                  <td style={{padding:6,textAlign:"center"}}>
+                    {!isAdmRole&&(
+                      <button onClick={async()=>{
+                        const row=document.querySelector(`[data-role="${r.role}"][data-field="horario_inicio"]`) as HTMLInputElement;
+                        const row2=document.querySelector(`[data-role="${r.role}"][data-field="horario_fim"]`) as HTMLInputElement;
+                        const row3=document.querySelector(`[data-role="${r.role}"][data-field="dias_semana"]`) as HTMLSelectElement;
+                        const row4=document.querySelector(`[data-role="${r.role}"][data-field="timeout_minutos"]`) as HTMLSelectElement;
+                        const data={
+                          role:r.role,
+                          horario_inicio:row?.value||"00:00",
+                          horario_fim:row2?.value||"23:59",
+                          dias_semana:(row3?.value||"seg,ter,qua,qui,sex,sab,dom").split(","),
+                          timeout_minutos:parseInt(row4?.value||"30"),
+                          ativo:true,
+                        };
+                        if(cfg){
+                          await supabase.from("access_config").update(data).eq("id",cfg.id);
+                        }else{
+                          await supabase.from("access_config").insert(data);
+                        }
+                        setMsg("Regra salva para "+r.nome);
+                        loadData();
+                      }} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:GO+"18",border:`1px solid ${GO}30`,color:GOL,cursor:"pointer"}}>Salvar</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Security settings */}
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>Configurações de Segurança Global</div>
+      <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
+        {[
+          {label:"Bloqueio após tentativas erradas",desc:"Conta bloqueada após 3 tentativas com senha errada",key:"block_attempts",def:true},
+          {label:"Notificar admin em login fora do horário",desc:"Email para admin quando tentativa fora do permitido",key:"notify_outside",def:true},
+          {label:"Exigir senha forte",desc:"Mínimo 8 caracteres, letra maiúscula, número e símbolo",key:"strong_pass",def:false},
+          {label:"Log de auditoria ativo",desc:"Registrar todas as ações de todos os usuários",key:"audit_log",def:true},
+        ].map((item,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<3?`0.5px solid ${BD}30`:"none"}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:500,color:TX}}>{item.label}</div>
+              <div style={{fontSize:9,color:TXD}}>{item.desc}</div>
+            </div>
+            <div style={{width:36,height:20,borderRadius:10,background:item.def?G:BD,cursor:"pointer",position:"relative"}} onClick={(e)=>{
+              const el=e.currentTarget;
+              const isOn=el.style.background===G;
+              el.style.background=isOn?BD:G;
+              const dot=el.firstChild as HTMLElement;
+              if(dot)dot.style.left=isOn?"2px":"18px";
+            }}>
+              <div style={{width:16,height:16,borderRadius:8,background:"white",position:"absolute",top:2,left:item.def?18:2,transition:"left 0.2s"}}/>
+            </div>
+          </div>
+        ))}
       </div>
     </div>)}
   </div>);
