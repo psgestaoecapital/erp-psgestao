@@ -6,6 +6,7 @@ const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22
     BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#918C82";
 
 const ROLES = [
+  {role:"adm_investimentos",nome:"Admin Investimentos",desc:"Acesso IRRESTRITO a todos os modulos, planos e configuracoes. PS Gestao e Capital.",cor:"#D4AF37",icon:"🏆",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
   {role:"adm",nome:"Administrador",desc:"Acesso total. Gestão de empresas, usuários e configurações.",cor:GOL,icon:"👑",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
   {role:"socio",nome:"Sócio / CEO",desc:"Dashboard completo, relatórios, indicadores, plano de ação.",cor:GO,icon:"💼",tabs:["geral","negocios","resultado","financeiro","precos","relatorio"]},
   {role:"diretor_industrial",nome:"Diretor Industrial",desc:"Gestão industrial, produção, custos e indicadores operacionais.",cor:"#F59E0B",icon:"🏭",tabs:["geral","negocios","resultado","financeiro","precos"]},
@@ -56,7 +57,7 @@ export default function AdminPage(){
     const{data:{user}}=await supabase.auth.getUser();
     if(!user){setCheckingAuth(false);return;}
     const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    if(up?.role==="adm"||up?.role==="acesso_total"){
+    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){
       setIsAuthorized(true);
       loadData();
     }
