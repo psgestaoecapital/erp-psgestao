@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
         if (regimeCaixa && status !== "PAGO" && status !== "LIQUIDADO" && status !== "BAIXADO") continue;
         audit.registros_pagar_validos++;
         const cat = r.codigo_categoria || "sem_cat";
-        const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_emissao || r.data_vencimento || "") : (r.data_vencimento || r.data_previsao || r.data_emissao || "");
+        const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_vencimento || r.data_previsao || r.data_emissao || "") : (r.data_previsao || r.data_vencimento || r.data_emissao || "");
         const ma = parseMesAno(dt);
         if (!ma) audit.registros_sem_data++;
         if (ma && (ma < pInicio || ma > pFim)) continue;
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
         if (regimeCaixa && statusRec !== "RECEBIDO" && statusRec !== "LIQUIDADO" && statusRec !== "BAIXADO") continue;
         audit.registros_receber_validos++;
         const cat = r.codigo_categoria || "sem_cat";
-        const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_recebimento || r.data_emissao || r.data_vencimento || "") : (r.data_vencimento || r.data_previsao || r.data_emissao || "");
+        const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_recebimento || r.data_vencimento || r.data_previsao || r.data_emissao || "") : (r.data_previsao || r.data_vencimento || r.data_emissao || "");
         const ma = parseMesAno(dt);
         if (!ma) audit.registros_sem_data++;
         if (ma && (ma < pInicio || ma > pFim)) continue;
