@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
     const divLiq = (passC + passNC) - ativoC;
     const divEbitda = ebitda > 0 ? divLiq / (ebitda * 12) : 0;
 
-    const indicText = `Liquidez Corrente: ${liqCorr.toFixed(2)} ${liqCorr >= 1 ? "🟢" : liqCorr >= 0.8 ? "🟡" : "🔴"}\nCapital de Giro: ${fmtR(cg)} ${cg >= 0 ? "🟢" : "🔴"}\nAtivo Total: ${fmtR(ativoT)} | Passivo Total: ${fmtR(passT)} | PL: ${fmtR(pl)}\nEBITDA (período): ${fmtR(ebitda)} | Margem EBITDA: ${margEbitda.toFixed(1)}% ${margEbitda >= 15 ? "🟢" : margEbitda >= 8 ? "🟡" : "🔴"}\nROE: ${roe.toFixed(1)}% ${roe >= 15 ? "🟢" : roe >= 5 ? "🟡" : "🔴"} | ROA: ${roa.toFixed(1)}%\nDívida Líq/EBITDA: ${divEbitda.toFixed(2)}x ${divEbitda <= 2 ? "🟢" : divEbitda <= 3.5 ? "🟡" : "🔴"}\nInadimplência: ${fmtR(totalVencido)} (${pct(totalVencido, totalRec)})`;
+    const indicText = `Liquidez Corrente: ${liqCorr.toFixed(2)} ${liqCorr >= 1 ? "🟢" : liqCorr >= 0.8 ? "🟡" : "🔴"}\nCapital de Giro: ${fmtR(cg)} ${cg >= 0 ? "🟢" : "🔴"}\nAtivo Total: ${fmtR(ativoT)} | Passivo Total: ${fmtR(passT)} | PL: ${fmtR(pl)}\nMargem Bruta: ${pct(margemBruta, totalRec)} ${margemBruta / totalRec >= 0.3 ? "🟢" : margemBruta / totalRec >= 0.15 ? "🟡" : "🔴"}\nEBITDA (período): ${fmtR(lucroOp)} | Margem EBITDA: ${totalRec > 0 ? (lucroOp / totalRec * 100).toFixed(1) : "0"}% ${lucroOp / totalRec >= 0.15 ? "🟢" : lucroOp / totalRec >= 0.08 ? "🟡" : "🔴"}\nROE: ${roe.toFixed(1)}% ${roe >= 15 ? "🟢" : roe >= 5 ? "🟡" : "🔴"} | ROA: ${roa.toFixed(1)}%\nDívida Líq/EBITDA: ${divEbitda.toFixed(2)}x ${divEbitda <= 2 ? "🟢" : divEbitda <= 3.5 ? "🟡" : "🔴"}\nInadimplência: ${fmtR(totalVencido)} (${pct(totalVencido, totalRec)})\nLucro Final: ${fmtR(lucroFinal)} (${pct(lucroFinal, totalRec)}) ${lucroFinal >= 0 ? "🟢" : "🔴"}\nBurn Rate Diário: ${fmtR(totalDesp / 30)}`;
 
     // 5. FINANCIAMENTOS
     const { data: finData } = await supabase.from("financiamentos").select("*").in("company_id", compIds);
@@ -252,6 +252,59 @@ export async function POST(req: NextRequest) {
     // MONTAGEM DOS BLOCOS
     // ══════════════════════════════════
 
+    // ── DRE CLASSIFICADO (Custos Diretos / Despesas Adm / Financeiro / Investimento) ──
+    const dreClassificado: Record<string, { nome: string; valor: number; grupo: string }[]> = { custo_direto: [], despesa_adm: [], financeiro: [], investimento: [], outros: [] };
+    for (const [desc, valor] of Object.entries(despCats)) {
+      const cat = Object.keys(catRefMap).find(k => {
+        const catDesc = imports?.find(i => i.import_type === "categorias")?.import_data?.categoria_cadastro?.find((c: any) => (c.codigo || c.cCodigo) === k)?.descricao;
+        return catDesc === desc;
+      });
+      const ref = cat ? catRefMap[cat] : "";
+      let grupo = "outros";
+      if (ref === "2") grupo = "custo_direto";
+      else if (ref === "3") grupo = "despesa_adm";
+      else if (ref === "4") grupo = "investimento";
+      else if (ref === "5") grupo = "financeiro";
+      else {
+        const d = desc.toLowerCase();
+        if (d.includes("compra") || d.includes("mercadoria") || d.includes("insumo") || d.includes("materia") || d.includes("frete") || d.includes("montagem") || d.includes("icms") || d.includes("pis") || d.includes("cofins") || d.includes("iss")) grupo = "custo_direto";
+        else if (d.includes("emprestimo") || d.includes("empréstimo") || d.includes("financiamento") || d.includes("consórcio") || d.includes("consorcio") || d.includes("parcelado") || d.includes("juros")) grupo = "financeiro";
+        else if (d.includes("imobilizado") || d.includes("veiculo") || d.includes("veículo") || d.includes("computador") || d.includes("melhoria")) grupo = "investimento";
+        else grupo = "despesa_adm";
+      }
+      dreClassificado[grupo].push({ nome: desc, valor: valor as number, grupo });
+    }
+    const totalCD = dreClassificado.custo_direto.reduce((s, d) => s + d.valor, 0);
+    const totalDA = dreClassificado.despesa_adm.reduce((s, d) => s + d.valor, 0);
+    const totalFin = dreClassificado.financeiro.reduce((s, d) => s + d.valor, 0);
+    const totalInv = dreClassificado.investimento.reduce((s, d) => s + d.valor, 0);
+    const margemBruta = totalRec - totalCD;
+    const lucroOp = margemBruta - totalDA;
+    const lucroFinal = lucroOp - totalFin - totalInv;
+
+    const dreClassText = `RECEITA BRUTA: ${fmtR(totalRec)}
+(-) CUSTOS DIRETOS: ${fmtR(totalCD)} (${pct(totalCD, totalRec)})
+= MARGEM BRUTA: ${fmtR(margemBruta)} (${pct(margemBruta, totalRec)}) ${margemBruta >= 0 ? "🟢" : "🔴"}
+(-) DESPESAS ADMINISTRATIVAS: ${fmtR(totalDA)} (${pct(totalDA, totalRec)})
+= LUCRO OPERACIONAL: ${fmtR(lucroOp)} (${pct(lucroOp, totalRec)}) ${lucroOp >= 0 ? "🟢" : "🔴"}
+(-) RESULTADO FINANCEIRO: ${fmtR(totalFin)} (${pct(totalFin, totalRec)})
+(-) INVESTIMENTOS: ${fmtR(totalInv)} (${pct(totalInv, totalRec)})
+= LUCRO FINAL: ${fmtR(lucroFinal)} (${pct(lucroFinal, totalRec)}) ${lucroFinal >= 0 ? "🟢" : "🔴"}
+
+CUSTOS DIRETOS (detalhamento):
+${dreClassificado.custo_direto.sort((a, b) => b.valor - a.valor).map((d, i) => `${i + 1}. ${d.nome}: ${fmtR(d.valor)} (${pct(d.valor, totalRec)})`).join("\n") || "Sem dados"}
+
+DESPESAS ADMINISTRATIVAS (detalhamento):
+${dreClassificado.despesa_adm.sort((a, b) => b.valor - a.valor).map((d, i) => `${i + 1}. ${d.nome}: ${fmtR(d.valor)} (${pct(d.valor, totalRec)})`).join("\n") || "Sem dados"}
+
+RESULTADO FINANCEIRO (detalhamento):
+${dreClassificado.financeiro.sort((a, b) => b.valor - a.valor).map((d, i) => `${i + 1}. ${d.nome}: ${fmtR(d.valor)} (${pct(d.valor, totalRec)})`).join("\n") || "Sem dados"}
+
+INVESTIMENTOS (detalhamento):
+${dreClassificado.investimento.sort((a, b) => b.valor - a.valor).map((d, i) => `${i + 1}. ${d.nome}: ${fmtR(d.valor)} (${pct(d.valor, totalRec)})`).join("\n") || "Sem dados"}
+
+Empréstimos/Financiamentos excluídos da receita: ${fmtR(totalEmp)}`;
+
     const blocos = `
 ═══ DADOS COMPLETOS DO ERP PS GESTÃO ═══
 Período: ${periodo_inicio || "N/I"} a ${periodo_fim || "N/I"} | Gerado: ${new Date().toLocaleDateString("pt-BR")}
@@ -262,20 +315,11 @@ ${compInfo} | Grupo: ${compIds.length} empresa(s) | ${totalClientes} clientes | 
 [BLOCO 1] CONTEXTO DO EMPRESÁRIO
 ${ctxText || "Não preenchido."}
 
-[BLOCO 2] DRE CONSOLIDADO (fonte: ${fonteReceita} para receitas, ${fonteDespesa} para despesas)
-Receita Operacional: ${fmtR(totalRec)}${totalOrcReceita > 0 ? ` | Orçada: ${fmtR(totalOrcReceita)} | Var: ${((totalRec / totalOrcReceita - 1) * 100).toFixed(1)}%` : ""} 
-Empréstimos: ${fmtR(totalEmp)}
-Despesas: ${fmtR(totalDesp)}${totalOrcDespesa > 0 ? ` | Orçadas: ${fmtR(totalOrcDespesa)} | Var: ${((totalDesp / totalOrcDespesa - 1) * 100).toFixed(1)}%` : ""}
-${recManual > 0 && totalRec !== recManual ? `Receitas manuais (linhas de negócio): ${fmtR(recManual)}` : ""}
-${despManual > 0 && totalDesp !== despManual ? `Despesas manuais (linhas + sede): ${fmtR(despManual)}` : ""}
-RESULTADO: ${fmtR(resultado)} ${resultado >= 0 ? "🟢" : "🔴"} | Margem: ${margem}%
-${totalOrcReceita > 0 && totalOrcDespesa > 0 ? `Resultado Orçado: ${fmtR(totalOrcReceita - totalOrcDespesa)} | Desvio do resultado: ${fmtR(resultado - (totalOrcReceita - totalOrcDespesa))}` : ""}
+[BLOCO 2] DRE ANALÍTICO CLASSIFICADO (fonte: ${fonteReceita} para receitas, ${fonteDespesa} para despesas)
+${dreClassText}
 
-TOP 20 RECEITAS (Real | Orçado | Variação):
+RECEITAS POR CATEGORIA (Top 20):
 ${topRec.map(([n, v], i) => { const orc = orcLookup[n] || 0; const varP = orc > 0 ? `Var ${((v as number / orc - 1) * 100).toFixed(1)}% ${v as number <= orc ? "🟢" : v as number <= orc * 1.1 ? "🟡" : "🔴"}` : "Sem orçamento"; return `${i + 1}. ${n}: Real ${fmtR(v as number)} (${pct(v as number, totalRec)}) | Orçado ${orc > 0 ? fmtR(orc) : "—"} | ${varP}`; }).join("\n") || "Sem dados"}
-
-TOP 20 DESPESAS (Real | Orçado | Variação):
-${topDesp.map(([n, v], i) => { const orc = orcLookup[n] || 0; const varP = orc > 0 ? `Var ${((v as number / orc - 1) * 100).toFixed(1)}% ${v as number <= orc ? "🟢" : v as number <= orc * 1.1 ? "🟡" : "🔴"}` : "Sem orçamento"; return `${i + 1}. ${n}: Real ${fmtR(v as number)} (${pct(v as number, totalDesp)}) | Orçado ${orc > 0 ? fmtR(orc) : "—"} | ${varP}`; }).join("\n") || "Sem dados"}
 
 [BLOCO 3] LINHAS DE NEGÓCIO
 ${blText}
@@ -320,48 +364,65 @@ Múltiplos: Serviços 5-8x, Comércio 4-6x, Indústria 6-10x, Tech 10-15x EBITDA
 `;
 
     // ══════════════════════════════════
-    // PROMPT V19 → CLAUDE API
+    // PROMPT V20 — CEO EDITION → CLAUDE API
     // ══════════════════════════════════
 
-    const systemPrompt = `PROMPT MESTRE V19 — CEO EDITION — PS GESTÃO E CAPITAL
-RELATÓRIO DE INTELIGÊNCIA EMPRESARIAL — 18 SLIDES EXECUTIVOS
+    const systemPrompt = `PROMPT MESTRE V20 — COMÉRCIO E SERVIÇO EDITION — PS GESTÃO E CAPITAL
+PAINEL DE INTELIGÊNCIA EMPRESARIAL COMPLETA — 20 SLIDES EXECUTIVOS
+15 Módulos | 12 Linhas de Negócio | Rateio Proporcional por Receita
 
-Você é o Conselheiro de Administração e CFO Sênior. 25 anos de experiência em PMEs brasileiras.
-Tom: formal, técnico, direto, corajoso. Se é ruim, diga que é ruim. Se é crítico, chame de crítico.
-PROIBIDO: termos em inglês sem tradução, dados inventados, frases vagas, eufemismos.
-USE EXCLUSIVAMENTE os dados dos BLOCOS fornecidos. Se ausente: [DADO NÃO DISPONÍVEL].
+[PROTOCOLO 0 — ISOLAMENTO E IDENTIDADE]
+Desconsidere qualquer dado de conversas anteriores. Dados válidos: EXCLUSIVAMENTE os BLOCOS fornecidos.
+Você é o Conselheiro de Administração e CFO Sênior da empresa analisada. 25 anos de experiência em reestruturação, M&A e governança de empresas de comércio e serviço no Brasil.
+Você conhece profundamente: gestão de múltiplas linhas de negócio, rateio de custos compartilhados, precificação por markup e ficha técnica, gestão de estoque e curva ABC, ciclo financeiro do varejo e serviço, canais de venda (loja física, e-commerce, marketplace, representantes), sazonalidade comercial, capital de giro intensivo em comércio, e análise de rentabilidade real por unidade de negócio.
+Você não apenas analisa — você DECIDE, COBRA e RESPONSABILIZA.
+DIFERENCIAL V20: Método de RATEIO PROPORCIONAL POR RECEITA da PS Gestão e Capital. Custo total sede distribuído a cada LN proporcionalmente à sua participação na receita total. Revela o LUCRO OPERACIONAL REAL de cada LN.
 
-Cada slide: --- [SLIDE X — TÍTULO] ---
-Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao final de cada slide.
+[PROTOCOLO 1 — TOM EXECUTIVO INQUEBRÁVEL]
+Tom: formal, técnico, direto, corajoso. Sem eufemismos. PROIBIDO: termos em inglês sem tradução, gírias, frases vagas. Se é ruim, diga que é ruim. Se é crítico, chame de crítico. O cliente paga por verdade, não por conforto.
 
-18 SLIDES (máx 600 palavras cada):
-1. PAINEL CEO — KPIs (receita, despesa, resultado, margem, EBITDA, clientes). Semáforo geral.
-2. DRE ANALÍTICO — Receita, custos, margem bruta, despesas, EBITDA, resultado. Tabela + análise.
-3. LINHAS DE NEGÓCIO — Faturamento, custo, margem por linha. Ranking rentabilidade. Usar BLOCOS 3.
-4. MAPA DE CUSTOS — Top 20 despesas, % sobre receita, ABC. COMPARAR CADA DESPESA COM O ORÇADO (dados no BLOCO 2 e BLOCO 10). Semáforo: 🟢 dentro do orçado, 🟡 até 10% acima, 🔴 mais de 10% acima. Oportunidades de redução com R$.
-5. CAPITAL DE GIRO — AC vs PC, liquidez corrente/seca, NCG, ciclo financeiro. Usar BLOCO 5 e 6.
-6. FLUXO DE CAIXA — Receber vs pagar, projeção 30/60/90d, inadimplência, burn rate. BLOCO 8.
-7. INDICADORES — PE, EBITDA, ROE, ROA, Dív/EBITDA, Liquidez. Semáforo cada. BLOCO 6.
-8. ENDIVIDAMENTO — Perfil dívida, custo, capacidade pagamento, dívida/PL. BLOCO 7.
-9. CLIENTES — Top 10, concentração, inadimplência, ticket médio, risco dependência. BLOCO 9.
-10. PREÇOS — Markup, margem por produto (fichas técnicas), PE por linha. BLOCOS 3 e 12.
-11. PARETO RECEITAS — 20% que gera 80%. Mix ideal. Oportunidades upsell.
-12. MATRIZ DE RISCOS — 10 riscos dos dados. Probabilidade, impacto, mitigação.
-13. ESG — Governança, social, ambiental inferidos. Oportunidades e riscos.
-14. VALUATION — 3 métodos: múltiplo EBITDA, receita, FCD simples. Faixa de valor. BLOCO 15.
-15. ORÇAMENTO vs REAL — Tabela: cada categoria com Real, Orçado, Variação R$ e %. Semáforo por linha. Top 5 maiores desvios. Aderência geral. Usar BLOCOS 2 e 10.
-16. PLANO DE AÇÃO — Revisar existente (BLOCO 11) + 10 novas ações com prazo, responsável, R$.
-17. METAS 90 DIAS — 10 metas SMART com indicador e checkpoint mensal.
-18. CARTA AO ACIONISTA — 1 página formal. Diagnóstico honesto. Integrar contexto do empresário (BLOCO 1). Preocupações + avanços + recomendações. Assinar "PS — Conselheiro Digital".`;
+[PROTOCOLO 2 — PRECISÃO MATEMÁTICA]
+REGRA 1: Receita Bruta = APENAS faturamento operacional. REGRA 2: Antecipação de recebíveis NÃO é receita. REGRA 3: Serviço da Dívida = Principal + Juros + Consórcio. REGRA 4: EBITDA = Lucro antes de Juros, IR, Depreciação e Amortização. REGRA 5: CGL = AC - PC. REGRA 6: NCG(dias) = PMR + PME - PMP. REGRA 7: Dívida Líquida = Dívida Bruta - Caixa. REGRA 8: VL Acionista = Valor Empresa - Dívida Líquida. REGRA 9: ROIC = EBIT(1-t)/(PL+DL). REGRA 10: Burn Rate = Custos Mensais/30. REGRA 11: Nunca interpolar dados ausentes sem sinalizar. REGRA 12: Campo ausente = sinalizar lacuna + quantificar impacto.
+REGRA 13: Rateio LN = Custo Sede × (Receita LN / Receita Total). REGRA 14: Lucro Operacional LN = MC LN - Rateio Sede LN. REGRA 15: CMV% ideal: Comércio 40-60%, Serviço <20%. REGRA 16: Markup Real = (Preço - Custo Total c/ rateio) / Custo Total × 100. REGRA 17: Receita/m² benchmark: R$800-2.500/m²/mês. REGRA 18: Taxa Conversão: Varejo >25%, Serviço >35%. REGRA 19: Ciclo Financeiro = PMR + PME - PMP + Prazo Cartão. REGRA 20: LTV = Ticket × Frequência × Permanência.
+
+[PROTOCOLO 3 — 8 CRUZAMENTOS OBRIGATÓRIOS]
+1. DRE vs Orçado: desvio R$ e %. 2. DRE vs Balanço: lucro DRE = variação PL. 3. DRE vs DFC: EBITDA > FCO = caixa se dissipa onde? 4. Qualitativo vs Quantitativo. 5. Atual vs Período Anterior. 6. Empresa vs Benchmarks Setoriais. 7. MC vs Lucro Real por LN (após rateio). 8. Canal de Venda vs Rentabilidade.
+
+[PROTOCOLO 4 — FORMATAÇÃO]
+Cada slide: --- [SLIDE X — TÍTULO] --- Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas Markdown. Mínimo 4 linhas análise real por parecer. VEREDICTO ao final de cada slide.
+
+ESTRUTURA DOS 20 SLIDES:
+1. PAINEL EXECUTIVO CEO — KPIs gerenciais com Realizado/Orçado/Benchmark. Semáforo (3 positivos, 3 atenção, 3 críticos). Veredicto e 3 alertas prioritários.
+2. DESEMPENHO COMERCIAL E BCG — Tabela por LN (Fat/Ticket/Volume/MC/Rateio/Lucro Real/BCG). Concentração clientes. Funil. LTV/CAC. 5 alavancas de receita.
+3. BALANÇO PATRIMONIAL — AC/ANC/PC/PNC/PL. Aging recebíveis. Estoques por LN. Endividamento geral. 3 principais movimentos patrimoniais.
+4. DRE ANALÍTICO COMPLETO — Linha a linha: Receita por LN → Deduções → ROL → CMV → MOD → MC → Custo Sede (rateado) → EBITDA → EBIT → Resultado. Desvio vs orçado. PE operacional.
+5. CAPITAL DE GIRO E CICLO FINANCEIRO — PMR/PME/PMP/NCG/CGL/Liquidez/Burn Rate. Mix formas pagamento. Impacto cartão crédito na NCG. 3 ações otimização.
+6. FLUXO DE CAIXA — FCO/FCI/FCF. EBITDA vs FCO. Qualidade do resultado. Projeção 3 meses.
+7. ESTRUTURA DE CAPITAL — 12 indicadores risco. Dívida/EBITDA. Cobertura. Taxa média. Plano passivo bancário (5 ações).
+8. PESSOAS E PRODUTIVIDADE — Por LN + retaguarda. HC/Receita/Custo por colab. Turnover. Produtividade vendedor. 5 pontos cegos.
+9. PARETO DE CUSTOS — Top 10 ofensores. Agrupamento macro. Orçamento teto. Normalizar custo/R$ receita por LN.
+10. RADAR CONFORMIDADE 360° — Governança, tributário, CDC, LGPD, estoque, documentação. Semáforo cada item. Ação corretiva para cada 🔴.
+11. INTELIGÊNCIA ESTRATÉGICA — SWOT profundo com evidência numérica. Barreiras entrada. 3 OKRs trimestre.
+12. ESG — Ambiental/Social/Governança. Score. Plano ESG 3 trimestres.
+13. TECNOLOGIA E DIGITAL — Maturidade digital 1-5. ERP, CRM, e-commerce, automação. Roadmap 12 meses.
+14. MATRIZ DE RISCO — 12 dimensões incluindo estoque obsoleto e dependência fornecedor. Score ponderado. Top 3 com contingência.
+15. VALUATION — 5 métodos: EBITDA, Receita, Patrimonial, Carteira, Marca. ROE/ROA/ROIC/WACC. Valor Líquido Acionista.
+16. CANAIS, OPERAÇÃO E RENTABILIDADE POR LN — SLIDE MAIS IMPORTANTE. Tabela: LN/Receita/CMV/MC/Rateio Sede/Lucro Real/%. Para cada LN com lucro negativo: 3 opções (repricing, reestruturação, descontinuação). Ranking contribuição real.
+17. FORMAÇÃO DE PREÇO E COMPETITIVIDADE — Markup real por LN (incluindo rateio). CMV% por LN. Curva ABC. Sensibilidade preço/CMV/volume.
+18. PLANO DE AÇÃO E REESTRUTURAÇÃO — Mínimo 25 ações com prazo, responsável e impacto R$. Incluir ações de TODOS os slides anteriores.
+19. CARTA AO ACIONISTA — Carta formal. Diagnóstico honesto. Referência ao rateio. 3 decisões urgentes ESTA SEMANA. Visão 24 meses. Assinar "PS — Conselheiro Digital".
+20. METAS E PRÓXIMOS 90 DIAS — Tabela: KPI/Meta Mínima/Ideal/Ousada. 3 OKRs. Ritmo reuniões. KPIs semanais.
+
+REGRA FINAL: Gere TODOS os 20 slides sem exceção. Nunca pule. Nunca resuma. Se dado ausente: sinalize lacuna com impacto. Mínimo 4 linhas análise real por parecer. Escreva como quem tem assento no Conselho e responde pelo resultado. O empresário NUNCA recebeu algo assim antes. A Carta ao Acionista é o slide que gera indicação — escreva como se estivesse assinando com sua reputação.`;
 
     // ═══ CALL CLAUDE (com retry automático) ═══
     let data: any = null;
     let lastError = "";
     const reqBody = JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 16000,
+      max_tokens: 24000,
       system: systemPrompt,
-      messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 18 SLIDES EXECUTIVOS:\n\n${blocos}` }],
+      messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 20 SLIDES EXECUTIVOS V20:\n\n${blocos}` }],
     });
 
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -399,9 +460,9 @@ Emojis: 🟢 bom 🟡 atenção 🔴 crítico. Tabelas em Markdown. VEREDICTO ao
     try {
       await supabase.from("ai_reports").insert({
         company_id: compIds[0],
-        report_type: "v19_ceo",
+        report_type: "v20_ceo",
         report_content: reportText,
-        metadata: { empresa: empresa_nome, periodo: `${periodo_inicio} a ${periodo_fim}`, slides: 18, fontes: 17, generated_at: new Date().toISOString() },
+        metadata: { empresa: empresa_nome, periodo: `${periodo_inicio} a ${periodo_fim}`, slides: 20, fontes: 17, generated_at: new Date().toISOString() },
       });
     } catch {}
 
