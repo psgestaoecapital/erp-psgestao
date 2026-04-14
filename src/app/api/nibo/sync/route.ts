@@ -89,7 +89,8 @@ export async function POST(req: NextRequest) {
           codigo: c.id || c.categoryId || "",
           descricao: c.name || c.description || "",
           tipo: c.type || "",
-          grupo: c.parentName || c.group || "",
+          grupo: c.group?.name || c.parentName || "",
+          grupo_ref: c.group?.referenceCode || "",
         }));
         
         await supabase.from("omie_imports").delete().eq("company_id", company_id).eq("import_type", "categorias");
