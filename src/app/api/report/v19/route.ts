@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 const pct = (v: number, t: number) => t > 0 ? (v / t * 100).toFixed(1) + "%" : "0%";
 
@@ -43,11 +43,22 @@ export async function POST(req: NextRequest) {
     const recCats: Record<string, number> = {};
     const despCats: Record<string, number> = {};
     const clienteNomes: Record<string, string> = {};
+    const catRefMap: Record<string, string> = {};
     const contasReceber: any[] = [];
     const contasPagar: any[] = [];
     let estoqueText = "Não importado.", vendasText = "Não importado.";
 
     if (imports) {
+      // Build catRefMap from categorias (for Nibo referenceCode)
+      for (const imp of imports) {
+        if (imp.import_type === "categorias") {
+          const cats = imp.import_data?.categoria_cadastro || [];
+          if (Array.isArray(cats)) for (const c of cats) {
+            const cod = c.codigo || c.cCodigo || "";
+            if (cod && c.grupo_ref) catRefMap[cod] = c.grupo_ref;
+          }
+        }
+      }
       for (const imp of imports) {
         if (imp.import_type === "clientes") {
           const cls = imp.import_data?.clientes_cadastro || [];
@@ -59,11 +70,11 @@ export async function POST(req: NextRequest) {
         }
         if (imp.import_type === "contas_receber") {
           const regs = imp.import_data?.conta_receber_cadastro || [];
-          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; if (v <= 0) continue; const st = (r.status_titulo || "").toUpperCase().trim(); if (STATUS_EXCL.has(st)) continue; const cat = r.codigo_categoria || "sem_cat"; const desc = r.descricao_categoria || cat; const status = r.status_titulo || ""; const descL = desc.toLowerCase(); if (cat.startsWith("4.") || cat.startsWith("5.") || descL.includes("empréstimo") || descL.includes("financiamento") || descL.includes("aporte") || descL.includes("transferência")) { totalEmp += v; } else { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; } contasReceber.push({ valor: v, vencimento: r.data_vencimento, status, cliente: clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
+          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; if (v <= 0) continue; const st = (r.status_titulo || "").toUpperCase().trim(); if (STATUS_EXCL.has(st)) continue; const cat = r.codigo_categoria || "sem_cat"; const desc = r.descricao_categoria || cat; const status = r.status_titulo || ""; const descL = desc.toLowerCase(); const ref = catRefMap[cat] || ""; const isFinanceiro = cat.startsWith("4.") || cat.startsWith("5.") || ref === "4" || ref === "5" || descL.includes("empréstimo") || descL.includes("financiamento") || descL.includes("aporte") || descL.includes("transferência") || descL.includes("contratação de emprestimo"); if (isFinanceiro) { totalEmp += v; } else { totalRec += v; recCats[desc] = (recCats[desc] || 0) + v; } contasReceber.push({ valor: v, vencimento: r.data_vencimento, status, cliente: clienteNomes[String(r.codigo_cliente_fornecedor)] || r.nome_cliente || "N/I", categoria: desc }); } }
         }
         if (imp.import_type === "contas_pagar") {
           const regs = imp.import_data?.conta_pagar_cadastro || [];
-          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; if (v <= 0) continue; const st = (r.status_titulo || "").toUpperCase().trim(); if (STATUS_EXCL.has(st)) continue; const desc = r.descricao_categoria || r.codigo_categoria || "sem_cat"; totalDesp += v; despCats[desc] = (despCats[desc] || 0) + v; contasPagar.push({ valor: v, vencimento: r.data_vencimento, status: r.status_titulo || "", fornecedor: r.observacao || clienteNomes[String(r.codigo_cliente_fornecedor)] || "N/I", categoria: desc }); } }
+          if (Array.isArray(regs)) { for (const r of regs) { const v = Number(r.valor_documento) || 0; if (v <= 0) continue; const st = (r.status_titulo || "").toUpperCase().trim(); if (STATUS_EXCL.has(st)) continue; const desc = r.descricao_categoria || r.codigo_categoria || "sem_cat"; totalDesp += v; despCats[desc] = (despCats[desc] || 0) + v; contasPagar.push({ valor: v, vencimento: r.data_vencimento, status: r.status_titulo || "", fornecedor: r.nome_fornecedor || clienteNomes[String(r.codigo_cliente_fornecedor)] || r.observacao || "N/I", categoria: desc }); } }
         }
         if (imp.import_type === "estoque") {
           const est = imp.import_data?.produtos || imp.import_data || [];
@@ -117,7 +128,16 @@ export async function POST(req: NextRequest) {
     const margem = totalRec > 0 ? (resultado / totalRec * 100).toFixed(1) : "0";
     const topRec = Object.entries(recCats).sort((a, b) => b[1] - a[1]).slice(0, 20);
     const topDesp = Object.entries(despCats).sort((a, b) => b[1] - a[1]).slice(0, 20);
-    const vencidas = contasReceber.filter(c => c.status !== "RECEBIDO" && c.status !== "PAGO" && c.vencimento && new Date(c.vencimento.split("/").reverse().join("-")) < new Date());
+    const vencidas = contasReceber.filter(c => {
+      if (c.status === "RECEBIDO" || c.status === "PAGO") return false;
+      if (!c.vencimento) return false;
+      let dt: Date;
+      const v = String(c.vencimento);
+      if (v.includes("T")) dt = new Date(v.split("T")[0]);
+      else if (v.includes("/")) dt = new Date(v.split("/").reverse().join("-"));
+      else dt = new Date(v);
+      return !isNaN(dt.getTime()) && dt < new Date();
+    });
     const totalVencido = vencidas.reduce((s: number, c: any) => s + c.valor, 0);
     const clienteFat: Record<string, number> = {};
     contasReceber.forEach(c => { if (c.cliente !== "N/I") clienteFat[c.cliente] = (clienteFat[c.cliente] || 0) + c.valor; });
