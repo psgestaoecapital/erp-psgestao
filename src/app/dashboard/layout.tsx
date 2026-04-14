@@ -50,12 +50,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
       setEmail(session.user.email || '')
-      setRole(session.user.user_metadata?.role || 'viewer')
+      // Read role from users table (not user_metadata)
+      const { data: up } = await supabase.from('users').select('role').eq('id', session.user.id).single()
+      setRole(up?.role || session.user.user_metadata?.role || 'viewer')
     })
   }, [router])
+
+  const isAdm = role === 'adm' || role === 'admin' || role === 'acesso_total' || role === 'adm_investimentos'
 
   const signOut = async () => { await supabase.auth.signOut(); router.push('/login') }
 
@@ -96,7 +100,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </a>
         ))}
 
-        {(role === 'admin' || role === 'acesso_total') && (
+        {isAdm && (
           <a href='/dashboard/admin' style={st(active('/dashboard/admin'))}
             onClick={e => { e.preventDefault(); router.push('/dashboard/admin') }}>
             <span style={{ fontSize: 16 }}>⚙️</span>
@@ -104,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </a>
         )}
 
-        {(role === 'admin' || role === 'acesso_total' || role === 'dev') && (
+        {isAdm && (
           <a href='/dashboard/dev' style={st(active('/dashboard/dev'))}
             onClick={e => { e.preventDefault(); router.push('/dashboard/dev') }}>
             <span style={{ fontSize: 16 }}>🛠️</span>
@@ -113,7 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         {/* PS Assessor */}
-        {(role === 'admin' || role === 'acesso_total' || role === 'assessor_admin' || role === 'assessor_usuario') && (
+        {(isAdm || role === 'assessor_admin' || role === 'assessor_usuario' || role === 'consultor') && (
           <a href='/dashboard/assessor' style={st(active('/dashboard/assessor'))}
             onClick={e => { e.preventDefault(); router.push('/dashboard/assessor') }}>
             <span style={{ fontSize: 16 }}>🤝</span>
@@ -138,7 +142,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </span>
         )}
 
-        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.7.1</span>
+        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.7.5</span>
 
         <button onClick={signOut} style={{
           fontSize:10, color:'#B0AB9F', background:'transparent',
