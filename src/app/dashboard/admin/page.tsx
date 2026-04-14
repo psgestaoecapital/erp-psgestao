@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
 
 const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22C55E",R="#EF4444",Y="#FACC15",BL="#3B82F6",
     BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#918C82";
@@ -521,40 +522,150 @@ export default function AdminPage(){
       ))}
     </div>)}
 
-    {/* MAPA DE PERMISSÕES */}
+    {/* MAPA DE PERMISSÕES — FASE 1 TOGGLES */}
     {tab==="niveis"&&(<div>
-      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>Mapa de Permissões por Nível</div>
-      <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`,overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:700}}>
-          <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
-            <th style={{padding:8,textAlign:"left",color:GOL,fontSize:9}}>Funcionalidade</th>
-            {ROLES.map(r=><th key={r.role} style={{padding:8,textAlign:"center",color:r.cor,fontSize:8,lineHeight:1.3}}>{r.icon}<br/>{r.nome.split("/")[0].split(" ")[0]}</th>)}
-          </tr></thead>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:14,fontWeight:600,color:TX}}>Permissões por Plano — Módulos e Roles</div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+        {(Object.entries(PLANOS) as [Plano,any][]).map(([k,p])=>(
+          <div key={k} style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${p.cor}`}}>
+            <div style={{fontSize:9,color:TXD}}>{p.nome}</div>
+            <div style={{fontSize:13,fontWeight:600,color:p.cor}}>{p.preco.split("/")[0]}</div>
+            <div style={{fontSize:8,color:TXM}}>{Object.values(PLANO_MODULOS).filter(m=>m[k]==="full").length} módulos</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Modules matrix */}
+      <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+          <thead>
+            <tr style={{borderBottom:`2px solid ${BD}`}}>
+              <th style={{padding:"10px 12px",textAlign:"left",color:GOL,fontSize:10,width:200}}>Módulo</th>
+              {(Object.entries(PLANOS) as [Plano,any][]).map(([k,p])=>(
+                <th key={k} style={{padding:"8px 6px",textAlign:"center",color:p.cor,fontSize:8,lineHeight:1.3,width:90}}>{p.nome.split(" ").slice(0,2).join(" ")}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
             {[
-              {f:"Painel Geral",p:[1,1,1,1,1,1,1]},
-              {f:"Negócios",p:[1,1,0,1,1,1,0]},
-              {f:"Resultado (DRE)",p:[1,1,1,0,0,1,0]},
-              {f:"Financeiro",p:[1,1,1,0,0,1,0]},
-              {f:"Preços",p:[1,1,1,1,0,1,0]},
-              {f:"Relatório PS",p:[1,1,0,0,0,1,0]},
-              {f:"Fale com o PS",p:[1,1,0,0,0,1,0]},
-              {f:"Entrada de Dados",p:[1,1,1,0,0,0,0]},
-              {f:"Plano de Ação",p:[1,1,1,0,1,1,0]},
-              {f:"Ver custos detalhados",p:[1,1,1,0,0,1,0]},
-              {f:"Drill-down",p:[1,1,1,1,0,1,0]},
-              {f:"Admin (esta tela)",p:[1,0,0,0,0,0,0]},
-              {f:"Convidar usuários",p:[1,0,0,0,0,0,0]},
-            ].map((row,i)=>(
-              <tr key={i} style={{borderBottom:`0.5px solid ${BD}40`}}>
-                <td style={{padding:"6px 8px",color:TX,fontWeight:500}}>{row.f}</td>
-                {row.p.map((p,j)=><td key={j} style={{padding:6,textAlign:"center",fontSize:14,color:p?G:R}}>{p?"✓":"✕"}</td>)}
-              </tr>
-            ))}
+              {section:"DASHBOARD"},
+              {mod:"visao-diaria",nome:"Visão Diária",desc:"DRE, KPIs, gráficos"},
+              {mod:"dados",nome:"Dados (Hub)",desc:"API, Excel, Manual"},
+              {mod:"rateio",nome:"Rateio",desc:"Centro de custo"},
+              {mod:"orcamento",nome:"Orçamento",desc:"Budget vs Actual"},
+              {mod:"viabilidade",nome:"Viabilidade",desc:"Análise projetos"},
+              {section:"RELATÓRIOS"},
+              {mod:"consultor-ia",nome:"Consultor IA",desc:"Análise com IA"},
+              {section:"ENTRADA DE DADOS"},
+              {mod:"conectores",nome:"Conectores",desc:"Omie, Nibo, ContaAzul"},
+              {mod:"importar",nome:"Importar",desc:"CSV, OFX"},
+              {section:"ANTI-FRAUDE"},
+              {mod:"anti-fraude-basico",nome:"Anti-Fraude (6 cam)",desc:"Duplicatas, outliers"},
+              {mod:"anti-fraude-full",nome:"Anti-Fraude (11 cam)",desc:"Score 0-100, parecer"},
+              {mod:"anti-fraude-bpo",nome:"Score BPO",desc:"Bloqueio aprovação"},
+              {section:"BPO"},
+              {mod:"bpo",nome:"BPO Central",desc:"9 módulos + Rodar Dia"},
+              {mod:"bpo-automacao",nome:"BPO Automação",desc:"Classificação IA"},
+              {mod:"bpo-rotinas",nome:"BPO Rotinas",desc:"14 rotinas"},
+              {mod:"bpo-conciliacao",nome:"BPO Conciliação",desc:"OFX bancário"},
+              {mod:"bpo-supervisor",nome:"BPO Supervisor",desc:"Operadores"},
+              {section:"INDUSTRIAL / CUSTO"},
+              {mod:"custo",nome:"Custo CPC 16",desc:"13 grupos absorção"},
+              {mod:"ficha-tecnica",nome:"Ficha Técnica",desc:"Explosão insumos"},
+              {mod:"industrial",nome:"Industrial",desc:"Fábricas + CEO"},
+              {mod:"operacional",nome:"Operacional",desc:"Gestão operacional"},
+              {section:"ASSESSORIA"},
+              {mod:"assessor",nome:"PS Assessor",desc:"5 Pilares + Health Score"},
+              {mod:"plano-acao",nome:"Plano de Ação",desc:"Conectado diagnóstico"},
+              {section:"OUTROS"},
+              {mod:"wealth",nome:"Wealth MFO",desc:"Multi Family Office"},
+              {mod:"noc",nome:"NOC",desc:"Monitoramento"},
+              {mod:"contador",nome:"Contador",desc:"Portal contábil"},
+              {mod:"admin",nome:"Admin",desc:"Gestão usuários"},
+              {mod:"ajuda",nome:"Ajuda",desc:"Tutoriais"},
+            ].map((row,i)=>{
+              if("section" in row) return(
+                <tr key={i}><td colSpan={6} style={{padding:"8px 12px",fontSize:9,fontWeight:700,color:GOL,background:BG3,borderTop:`1px solid ${BD}`,borderBottom:`1px solid ${BD}`,letterSpacing:"0.05em"}}>{row.section}</td></tr>
+              );
+              const perms = PLANO_MODULOS[row.mod!] || {};
+              return(
+                <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
+                  <td style={{padding:"6px 12px"}}>
+                    <div style={{fontWeight:500,color:TX,fontSize:11}}>{row.nome}</div>
+                    <div style={{fontSize:8,color:TXD}}>{row.desc}</div>
+                  </td>
+                  {(Object.keys(PLANOS) as Plano[]).map(plan=>{
+                    const access = perms[plan] || "none";
+                    const bg = access==="full"?"#22C55E18":access==="addon"?"#FACC1518":"#EF444410";
+                    const color = access==="full"?G:access==="addon"?Y:R;
+                    const label = access==="full"?"✓":access==="addon"?"🔒":"✕";
+                    return(
+                      <td key={plan} style={{padding:6,textAlign:"center"}}>
+                        <span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:12,fontWeight:600,background:bg,color,minWidth:28}}>{label}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:8}}>✓ Acesso permitido | ✕ Sem acesso | Configure na aba "Usuários & Níveis"</div>
+      <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:8}}>✓ Incluso | 🔒 Addon (compra separada) | ✕ Não disponível</div>
+
+      {/* Roles by Plan */}
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginTop:24,marginBottom:12}}>Roles disponíveis por Plano</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:10}}>
+        {(Object.entries(ROLES_POR_PLANO) as [Plano,string[]][]).map(([plan,roles])=>{
+          const p = PLANOS[plan];
+          return(
+            <div key={plan} style={{background:BG2,borderRadius:12,padding:14,border:`1px solid ${BD}`,borderTop:`3px solid ${p.cor}`}}>
+              <div style={{fontSize:12,fontWeight:600,color:p.cor,marginBottom:8}}>{p.nome}</div>
+              {roles.map(r=>(
+                <div key={r} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}30`}}>
+                  <div>
+                    <span style={{fontSize:11,fontWeight:500,color:TX}}>{ROLE_NAMES[r]||r}</span>
+                    <span style={{fontSize:8,color:TXD,marginLeft:6}}>{r}</span>
+                  </div>
+                  <span style={{fontSize:8,color:TXM}}>{(ROLE_TABS[r]||[]).length} abas</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Company plans */}
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginTop:24,marginBottom:12}}>Plano por Empresa</div>
+      <div style={{background:BG2,borderRadius:12,padding:14,border:`1px solid ${BD}`}}>
+        {empresas.map((c:any)=>{
+          const plan = c.plano || "erp_cs";
+          const p = PLANOS[plan as Plano] || PLANOS.erp_cs;
+          return(
+            <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`0.5px solid ${BD}30`}}>
+              <div>
+                <span style={{fontSize:12,fontWeight:500,color:TX}}>{c.nome_fantasia||c.razao_social}</span>
+                <span style={{fontSize:9,color:TXD,marginLeft:8}}>{c.cnpj}</span>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:p.cor+"18",color:p.cor,fontWeight:600}}>{p.nome}</span>
+                <select value={plan} onChange={async(e)=>{
+                  await supabase.from("companies").update({plano:e.target.value}).eq("id",c.id);
+                  loadData();
+                }} style={{fontSize:10,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`}}>
+                  {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(
+                    <option key={k} value={k}>{v.nome}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>)}
   </div>);
 }
