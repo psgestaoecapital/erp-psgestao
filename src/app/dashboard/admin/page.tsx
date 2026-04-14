@@ -41,6 +41,9 @@ export default function AdminPage(){
   const [msg,setMsg]=useState("");
   const [userComps,setUserComps]=useState<any[]>([]);
   const [accessConfigs,setAccessConfigs]=useState<any[]>([]);
+  const [auditLogs,setAuditLogs]=useState<any[]>([]);
+  const [sessions,setSessions]=useState<any[]>([]);
+  const [auditFilter,setAuditFilter]=useState("");
   const [editingUser,setEditingUser]=useState<string|null>(null);
   const [isAuthorized,setIsAuthorized]=useState(false);
   const [checkingAuth,setCheckingAuth]=useState(true);
@@ -79,6 +82,12 @@ export default function AdminPage(){
     if(grps)setGrupos(grps);
     const{data:ac}=await supabase.from("access_config").select("*").order("role");
     if(ac)setAccessConfigs(ac);
+    // Load audit log
+    try{
+      const res=await fetch("/api/audit?limit=100");
+      const d=await res.json();
+      if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}
+    }catch{}
   };
 
   const getUserCompIds=(uid:string)=>userComps.filter(uc=>uc.user_id===uid).map(uc=>uc.company_id);
@@ -226,7 +235,7 @@ export default function AdminPage(){
     {msg&&<div style={{background:G+"20",border:`1px solid ${G}`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:G}} onClick={()=>setMsg("")}>{msg}</div>}
 
     <div style={{display:"flex",gap:4,marginBottom:16}}>
-      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"}].map(t=>(
+      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"}].map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:20,fontSize:11,border:`1px solid ${tab===t.id?GO:BD}`,background:tab===t.id?GO+"18":"transparent",color:tab===t.id?GOL:TXM,fontWeight:tab===t.id?600:400,cursor:"pointer"}}>{t.n}</button>
       ))}
     </div>
@@ -805,6 +814,110 @@ export default function AdminPage(){
           </div>
         ))}
       </div>
+    </div>)}
+
+    {/* SESSÕES & AUDITORIA */}
+    {tab==="auditoria"&&(<div>
+      {/* Active Sessions */}
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>Sessões Ativas</div>
+      <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,marginBottom:20,overflow:"hidden"}}>
+        {sessions.length===0?(
+          <div style={{padding:20,textAlign:"center",color:TXD,fontSize:12}}>Nenhuma sessão ativa detectada. Recarregue para atualizar.</div>
+        ):(
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            <thead><tr style={{borderBottom:`2px solid ${BD}`}}>
+              <th style={{padding:"10px 12px",textAlign:"left",color:GOL,fontSize:10}}>Usuário</th>
+              <th style={{padding:8,textAlign:"left",color:GOL,fontSize:10}}>Dispositivo</th>
+              <th style={{padding:8,textAlign:"left",color:GOL,fontSize:10}}>IP</th>
+              <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Status</th>
+              <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Login</th>
+              <th style={{padding:8,textAlign:"center",color:GOL,fontSize:10}}>Ação</th>
+            </tr></thead>
+            <tbody>
+              {sessions.map((s:any,i:number)=>(
+                <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`}}>
+                  <td style={{padding:"8px 12px",fontWeight:500,color:TX}}>{s.user_email?.split("@")[0]||"?"}</td>
+                  <td style={{padding:8,color:TXM,fontSize:10}}>{s.device||"?"}</td>
+                  <td style={{padding:8,color:TXD,fontSize:10}}>{s.ip_address||"?"}</td>
+                  <td style={{padding:8,textAlign:"center"}}>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,fontWeight:600,
+                      background:s.status==="ativo"?G+"18":s.status==="inativo"?Y+"18":R+"18",
+                      color:s.status==="ativo"?G:s.status==="inativo"?Y:R,
+                    }}>{s.status==="ativo"?"Ativo agora":s.status==="inativo"?`Inativo ${s.minutes_ago} min`:"Expirado"}</span>
+                  </td>
+                  <td style={{padding:8,textAlign:"center",color:TXD,fontSize:10}}>
+                    {new Date(s.created_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
+                  </td>
+                  <td style={{padding:8,textAlign:"center"}}>
+                    {s.user_email!==email&&(
+                      <button onClick={async()=>{
+                        if(!confirm("Encerrar sessão de "+s.user_email+"?"))return;
+                        await fetch("/api/audit",{method:"POST",headers:{"Content-Type":"application/json"},
+                          body:JSON.stringify({user_email:email,action:"force_logout",detail:`Admin encerrou sessão de ${s.user_email}`})
+                        });
+                        setMsg("Sessão encerrada (o usuário será deslogado no próximo check)");
+                      }} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"15",border:`1px solid ${R}30`,color:R,cursor:"pointer"}}>Encerrar</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Audit Log */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:14,fontWeight:600,color:TX}}>Log de Auditoria</div>
+        <div style={{display:"flex",gap:6}}>
+          {["","login","logout","page_visit","access_blocked","sync","force_logout"].map(f=>(
+            <button key={f} onClick={()=>setAuditFilter(f)} style={{
+              fontSize:9,padding:"4px 10px",borderRadius:6,cursor:"pointer",
+              background:auditFilter===f?GO+"18":"transparent",
+              border:`1px solid ${auditFilter===f?GO:BD}`,
+              color:auditFilter===f?GOL:TXM,
+            }}>{f||"Todos"}</button>
+          ))}
+          <button onClick={loadData} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:BL+"15",border:`1px solid ${BL}30`,color:BL,cursor:"pointer"}}>Atualizar</button>
+        </div>
+      </div>
+      <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden",maxHeight:500,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+          <thead style={{position:"sticky",top:0,background:BG2,zIndex:1}}><tr style={{borderBottom:`2px solid ${BD}`}}>
+            <th style={{padding:"8px 12px",textAlign:"left",color:GOL,fontSize:9,width:70}}>Hora</th>
+            <th style={{padding:8,textAlign:"left",color:GOL,fontSize:9}}>Usuário</th>
+            <th style={{padding:8,textAlign:"left",color:GOL,fontSize:9}}>Ação</th>
+            <th style={{padding:8,textAlign:"left",color:GOL,fontSize:9}}>Detalhe</th>
+            <th style={{padding:8,textAlign:"left",color:GOL,fontSize:9}}>Dispositivo</th>
+            <th style={{padding:8,textAlign:"left",color:GOL,fontSize:9}}>IP</th>
+          </tr></thead>
+          <tbody>
+            {auditLogs.filter((l:any)=>!auditFilter||l.action===auditFilter).map((l:any,i:number)=>{
+              const actionColors:any={"login":G,"logout":Y,"page_visit":BL,"access_blocked":R,"sync":GOL,"force_logout":R};
+              const actionLabels:any={"login":"Login","logout":"Logout","page_visit":"Página","access_blocked":"Bloqueado","sync":"Sync","force_logout":"Forçar Logout"};
+              return(
+                <tr key={i} style={{borderBottom:`0.5px solid ${BD}20`}}>
+                  <td style={{padding:"6px 12px",color:TXD,fontSize:10,whiteSpace:"nowrap"}}>
+                    {new Date(l.created_at).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}{" "}
+                    {new Date(l.created_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
+                  </td>
+                  <td style={{padding:6,color:BL,fontWeight:500,fontSize:10}}>{l.user_email?.split("@")[0]||"sistema"}</td>
+                  <td style={{padding:6}}>
+                    <span style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:(actionColors[l.action]||TXD)+"18",color:actionColors[l.action]||TXD,fontWeight:600}}>
+                      {actionLabels[l.action]||l.action}
+                    </span>
+                  </td>
+                  <td style={{padding:6,color:TXM,fontSize:9,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.detail||l.module||"—"}</td>
+                  <td style={{padding:6,color:TXD,fontSize:9}}>{l.device||"—"}</td>
+                  <td style={{padding:6,color:TXD,fontSize:9}}>{l.ip_address||"—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {auditLogs.length===0&&<div style={{padding:20,textAlign:"center",color:TXD,fontSize:12}}>Nenhum registro de auditoria. Navegue pelo ERP para gerar logs.</div>}
+      </div>
+      <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:8}}>Mostrando últimos {auditLogs.filter((l:any)=>!auditFilter||l.action===auditFilter).length} registros {auditFilter?`(filtro: ${auditFilter})`:""}</div>
     </div>)}
   </div>);
 }
