@@ -44,6 +44,7 @@ export default function AdminPage(){
   const [auditLogs,setAuditLogs]=useState<any[]>([]);
   const [sessions,setSessions]=useState<any[]>([]);
   const [auditFilter,setAuditFilter]=useState("");
+  const [currentEmail,setCurrentEmail]=useState("");
   const [editingUser,setEditingUser]=useState<string|null>(null);
   const [isAuthorized,setIsAuthorized]=useState(false);
   const [checkingAuth,setCheckingAuth]=useState(true);
@@ -144,6 +145,7 @@ export default function AdminPage(){
     e.preventDefault();
     const{data:{user}}=await supabase.auth.getUser();
     if(!user)return;
+    setCurrentEmail(user.email||"");
     let{data:up}=await supabase.from("users").select("org_id").eq("id",user.id).single();
     let orgId=up?.org_id;
     if(!orgId){
@@ -849,11 +851,11 @@ export default function AdminPage(){
                     {new Date(s.created_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
                   </td>
                   <td style={{padding:8,textAlign:"center"}}>
-                    {s.user_email!==email&&(
+                    {s.user_email!==currentEmail&&(
                       <button onClick={async()=>{
                         if(!confirm("Encerrar sessão de "+s.user_email+"?"))return;
                         await fetch("/api/audit",{method:"POST",headers:{"Content-Type":"application/json"},
-                          body:JSON.stringify({user_email:email,action:"force_logout",detail:`Admin encerrou sessão de ${s.user_email}`})
+                          body:JSON.stringify({user_email:currentEmail,action:"force_logout",detail:`Admin encerrou sessão de ${s.user_email}`})
                         });
                         setMsg("Sessão encerrada (o usuário será deslogado no próximo check)");
                       }} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"15",border:`1px solid ${R}30`,color:R,cursor:"pointer"}}>Encerrar</button>
