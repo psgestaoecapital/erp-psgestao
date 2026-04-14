@@ -7,6 +7,16 @@ export const maxDuration = 120;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://horsymhsinqcimflrtjo.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
 
+// Fallback: quando Omie tem rateio, codigo_categoria é null e categorias[] tem a divisão
+function getCategoriaOmie(r) {
+  if (r.codigo_categoria) return r.codigo_categoria;
+  if (Array.isArray(r.categorias) && r.categorias.length > 0) {
+    const sorted = [...r.categorias].sort((a, b) => (b.percentual || 0) - (a.percentual || 0));
+    if (sorted[0] && sorted[0].codigo_categoria) return sorted[0].codigo_categoria;
+  }
+  return "";
+}
+
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   try {
@@ -44,7 +54,7 @@ export async function POST(req: NextRequest) {
         const regs = imp.import_data?.conta_receber_cadastro || [];
         if (!Array.isArray(regs)) continue;
         for (const r of regs) {
-          const cat = r.codigo_categoria || "";
+          const cat = getCategoriaOmie(r);
           const desc = r.descricao_categoria || "";
           if (cat && cat !== "sem_cat" && cat !== "0") {
             catMap[`${cat}|${desc}`] = { count: (catMap[`${cat}|${desc}`]?.count || 0) + 1, tipo: "receita" };
@@ -54,7 +64,7 @@ export async function POST(req: NextRequest) {
             unclassified.push({
               tipo_conta: "receber",
               documento: r.numero_documento || r.numero_documento_fiscal || "",
-              data: r.data_emissao || r.data_vencimento || "",
+              data: r.data_previsao || r.data_vencimento || r.data_emissao || "",
               valor: Number(r.valor_documento) || 0,
               nome_cf: clienteNomes[codCF] || "Cliente " + codCF,
               categoria_atual: cat ? `${cat} — ${desc}` : "SEM CATEGORIA",
@@ -70,7 +80,7 @@ export async function POST(req: NextRequest) {
         const regs = imp.import_data?.conta_pagar_cadastro || [];
         if (!Array.isArray(regs)) continue;
         for (const r of regs) {
-          const cat = r.codigo_categoria || "";
+          const cat = getCategoriaOmie(r);
           const desc = r.descricao_categoria || "";
           if (cat && cat !== "sem_cat" && cat !== "0") {
             catMap[`${cat}|${desc}`] = { count: (catMap[`${cat}|${desc}`]?.count || 0) + 1, tipo: "despesa" };
@@ -80,7 +90,7 @@ export async function POST(req: NextRequest) {
             unclassified.push({
               tipo_conta: "pagar",
               documento: r.numero_documento || r.numero_documento_fiscal || "",
-              data: r.data_emissao || r.data_vencimento || "",
+              data: r.data_previsao || r.data_vencimento || r.data_emissao || "",
               valor: Number(r.valor_documento) || 0,
               nome_cf: clienteNomes[codCF] || r.observacao || "Fornecedor " + codCF,
               categoria_atual: "SEM CATEGORIA",
