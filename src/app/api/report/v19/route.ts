@@ -161,7 +161,37 @@ export async function POST(req: NextRequest) {
       bpText = Object.entries(grupos).map(([g, itens]) => { const total = itens.reduce((s, i) => s + i.valor, 0); return `${g} (${fmtR(total)}):\n${itens.filter(i => i.valor !== 0).map(i => `  ${i.nome}: ${fmtR(i.valor)}`).join("\n")}`; }).join("\n\n");
     }
 
-    // 4. INDICADORES CALCULADOS
+    // 4. DRE CLASSIFICADO (deve vir ANTES dos indicadores)
+    const dreClassificado: Record<string, { nome: string; valor: number; grupo: string }[]> = { custo_direto: [], despesa_adm: [], financeiro: [], investimento: [], outros: [] };
+    for (const [desc, valor] of Object.entries(despCats)) {
+      const cat = Object.keys(catRefMap).find(k => {
+        const catDesc = imports?.find(i => i.import_type === "categorias")?.import_data?.categoria_cadastro?.find((c: any) => (c.codigo || c.cCodigo) === k)?.descricao;
+        return catDesc === desc;
+      });
+      const ref = cat ? catRefMap[cat] : "";
+      let grupo = "outros";
+      if (ref === "2") grupo = "custo_direto";
+      else if (ref === "3") grupo = "despesa_adm";
+      else if (ref === "4") grupo = "investimento";
+      else if (ref === "5") grupo = "financeiro";
+      else {
+        const d = desc.toLowerCase();
+        if (d.includes("compra") || d.includes("mercadoria") || d.includes("insumo") || d.includes("materia") || d.includes("frete") || d.includes("montagem") || d.includes("icms") || d.includes("pis") || d.includes("cofins") || d.includes("iss")) grupo = "custo_direto";
+        else if (d.includes("emprestimo") || d.includes("empréstimo") || d.includes("financiamento") || d.includes("consórcio") || d.includes("consorcio") || d.includes("parcelado") || d.includes("juros")) grupo = "financeiro";
+        else if (d.includes("imobilizado") || d.includes("veiculo") || d.includes("veículo") || d.includes("computador") || d.includes("melhoria")) grupo = "investimento";
+        else grupo = "despesa_adm";
+      }
+      dreClassificado[grupo].push({ nome: desc, valor: valor as number, grupo });
+    }
+    const totalCD = dreClassificado.custo_direto.reduce((s, d) => s + d.valor, 0);
+    const totalDA = dreClassificado.despesa_adm.reduce((s, d) => s + d.valor, 0);
+    const totalFin = dreClassificado.financeiro.reduce((s, d) => s + d.valor, 0);
+    const totalInv = dreClassificado.investimento.reduce((s, d) => s + d.valor, 0);
+    const margemBruta = totalRec - totalCD;
+    const lucroOp = margemBruta - totalDA;
+    const lucroFinal = lucroOp - totalFin - totalInv;
+
+    // 5. INDICADORES CALCULADOS
     const ativoT = ativoC + ativoNC; const passT = passC + passNC;
     const cg = ativoC - passC; const liqCorr = passC > 0 ? ativoC / passC : 0;
     const ebitda = resultado + (totalDesp * 0.03);
@@ -252,36 +282,7 @@ export async function POST(req: NextRequest) {
     // MONTAGEM DOS BLOCOS
     // ══════════════════════════════════
 
-    // ── DRE CLASSIFICADO (Custos Diretos / Despesas Adm / Financeiro / Investimento) ──
-    const dreClassificado: Record<string, { nome: string; valor: number; grupo: string }[]> = { custo_direto: [], despesa_adm: [], financeiro: [], investimento: [], outros: [] };
-    for (const [desc, valor] of Object.entries(despCats)) {
-      const cat = Object.keys(catRefMap).find(k => {
-        const catDesc = imports?.find(i => i.import_type === "categorias")?.import_data?.categoria_cadastro?.find((c: any) => (c.codigo || c.cCodigo) === k)?.descricao;
-        return catDesc === desc;
-      });
-      const ref = cat ? catRefMap[cat] : "";
-      let grupo = "outros";
-      if (ref === "2") grupo = "custo_direto";
-      else if (ref === "3") grupo = "despesa_adm";
-      else if (ref === "4") grupo = "investimento";
-      else if (ref === "5") grupo = "financeiro";
-      else {
-        const d = desc.toLowerCase();
-        if (d.includes("compra") || d.includes("mercadoria") || d.includes("insumo") || d.includes("materia") || d.includes("frete") || d.includes("montagem") || d.includes("icms") || d.includes("pis") || d.includes("cofins") || d.includes("iss")) grupo = "custo_direto";
-        else if (d.includes("emprestimo") || d.includes("empréstimo") || d.includes("financiamento") || d.includes("consórcio") || d.includes("consorcio") || d.includes("parcelado") || d.includes("juros")) grupo = "financeiro";
-        else if (d.includes("imobilizado") || d.includes("veiculo") || d.includes("veículo") || d.includes("computador") || d.includes("melhoria")) grupo = "investimento";
-        else grupo = "despesa_adm";
-      }
-      dreClassificado[grupo].push({ nome: desc, valor: valor as number, grupo });
-    }
-    const totalCD = dreClassificado.custo_direto.reduce((s, d) => s + d.valor, 0);
-    const totalDA = dreClassificado.despesa_adm.reduce((s, d) => s + d.valor, 0);
-    const totalFin = dreClassificado.financeiro.reduce((s, d) => s + d.valor, 0);
-    const totalInv = dreClassificado.investimento.reduce((s, d) => s + d.valor, 0);
-    const margemBruta = totalRec - totalCD;
-    const lucroOp = margemBruta - totalDA;
-    const lucroFinal = lucroOp - totalFin - totalInv;
-
+    // ── DRE CLASSIFICADO TEXT (uses variables computed above) ──
     const dreClassText = `RECEITA BRUTA: ${fmtR(totalRec)}
 (-) CUSTOS DIRETOS: ${fmtR(totalCD)} (${pct(totalCD, totalRec)})
 = MARGEM BRUTA: ${fmtR(margemBruta)} (${pct(margemBruta, totalRec)}) ${margemBruta >= 0 ? "🟢" : "🔴"}
