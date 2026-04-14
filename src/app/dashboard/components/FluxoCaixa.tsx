@@ -82,11 +82,11 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
           if(status==="CANCELADO") continue;
           // Pagos: usar data_pagamento (histórico real). Pendentes: usar data_vencimento (projeção)
           const isPago=status==="PAGO"||status==="RECEBIDO"||status==="LIQUIDADO";
-          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||"");
+          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||r.data_emissao||"");
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_cliente||"");
           lancs.push({
             data:dataRef,valor:Number(r.valor_documento)||0,tipo:"entrada",
-            nome:clienteNomes[codCF]||"Cliente "+codCF,
+            nome:r.nome_cliente||clienteNomes[codCF]||"Cliente "+codCF,
             doc:r.numero_documento||r.numero_documento_fiscal||"",
             status:isPago?"RECEBIDO":status,vencimento:r.data_vencimento||r.data_previsao||"",
           });
@@ -104,11 +104,11 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
           const status=r.status_titulo||"";
           if(status==="CANCELADO") continue;
           const isPago=status==="PAGO"||status==="LIQUIDADO";
-          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||"");
+          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_vencimento||r.data_previsao||r.data_emissao||"");
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_fornecedor||"");
           lancs.push({
             data:dataRef,valor:Number(r.valor_documento)||0,tipo:"saida",
-            nome:clienteNomes[codCF]||r.observacao||"Fornecedor "+codCF,
+            nome:r.nome_fornecedor||clienteNomes[codCF]||r.observacao||"Fornecedor "+codCF,
             doc:r.numero_documento||r.numero_documento_fiscal||"",
             status:isPago?"PAGO":status,vencimento:r.data_vencimento||r.data_previsao||"",
           });
