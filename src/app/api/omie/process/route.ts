@@ -61,6 +61,17 @@ function isStatusValido(status: string): boolean {
   return !STATUS_EXCLUIDOS.has((status || "").toUpperCase().trim());
 }
 
+// Fallback: quando Omie tem rateio, codigo_categoria é null e categorias[] tem a divisão
+function getCategoriaOmie(r: any): string {
+  if (r.codigo_categoria) return r.codigo_categoria;
+  if (Array.isArray(r.categorias) && r.categorias.length > 0) {
+    // Usa a categoria com maior percentual
+    const sorted = [...r.categorias].sort((a: any, b: any) => (b.percentual || 0) - (a.percentual || 0));
+    if (sorted[0]?.codigo_categoria) return sorted[0].codigo_categoria;
+  }
+  return "sem_cat";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { company_ids, periodo_inicio, periodo_fim, regime } = await req.json();
@@ -114,7 +125,7 @@ export async function POST(req: NextRequest) {
         if (!isStatusValido(status)) { audit.registros_pagar_cancelados++; continue; }
         if (regimeCaixa && status !== "PAGO" && status !== "LIQUIDADO" && status !== "BAIXADO") continue;
         audit.registros_pagar_validos++;
-        const cat = r.codigo_categoria || "sem_cat";
+        const cat = getCategoriaOmie(r);
         const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_vencimento || r.data_previsao || r.data_emissao || "") : (r.data_previsao || r.data_vencimento || r.data_emissao || "");
         const ma = parseMesAno(dt);
         if (!ma) audit.registros_sem_data++;
@@ -148,7 +159,7 @@ export async function POST(req: NextRequest) {
         if (!isStatusValido(statusRec)) { audit.registros_receber_cancelados++; continue; }
         if (regimeCaixa && statusRec !== "RECEBIDO" && statusRec !== "LIQUIDADO" && statusRec !== "BAIXADO") continue;
         audit.registros_receber_validos++;
-        const cat = r.codigo_categoria || "sem_cat";
+        const cat = getCategoriaOmie(r);
         const dt = regimeCaixa ? (r.data_pagamento || r.data_baixa || r.data_recebimento || r.data_vencimento || r.data_previsao || r.data_emissao || "") : (r.data_previsao || r.data_vencimento || r.data_emissao || "");
         const ma = parseMesAno(dt);
         if (!ma) audit.registros_sem_data++;
