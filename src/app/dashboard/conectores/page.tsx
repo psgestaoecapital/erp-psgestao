@@ -20,7 +20,7 @@ const CATS = [
 
 const CONNECTORS = [
   { id: 'omie', nome: 'Omie', cat: 'erp_financeiro', status: 'ativo', cor: '#22C55E', campos: [{ k: 'omie_app_key', l: 'App Key', p: 'Chave do aplicativo Omie' }, { k: 'omie_app_secret', l: 'App Secret', p: 'Secret do aplicativo Omie', secret: true }], syncApi: '/api/omie/sync' },
-  { id: 'contaazul', nome: 'ContaAzul', cat: 'erp_financeiro', status: 'em_breve', cor: '#0EA5E9', campos: [{ k: 'contaazul_token', l: 'Token', p: 'Token OAuth' }] },
+  { id: 'contaazul', nome: 'ContaAzul', cat: 'erp_financeiro', status: 'ativo', cor: '#0EA5E9', campos: [{ k: 'contaazul_client_id', l: 'Client ID', p: 'Client ID do ContaAzul' }, { k: 'contaazul_client_secret', l: 'Client Secret', p: 'Client Secret do ContaAzul', secret: true }], syncApi: '/api/contaazul/sync', oauth: true },
   { id: 'bling', nome: 'Bling', cat: 'erp_financeiro', status: 'em_breve', cor: '#8B5CF6', campos: [{ k: 'bling_api_key', l: 'API Key', p: 'Chave API v3' }] },
   { id: 'nibo', nome: 'Nibo', cat: 'erp_financeiro', status: 'ativo', cor: '#3B82F6', campos: [{ k: 'nibo_api_key', l: 'API Key', p: 'API Key do Nibo' }, { k: 'nibo_api_secret', l: 'API Secret', p: 'API Secret do Nibo', secret: true }, { k: 'nibo_org_id', l: 'ID da Empresa', p: 'UUID da empresa no Nibo' }], syncApi: '/api/nibo/sync' },
   { id: 'granatum', nome: 'Granatum', cat: 'erp_financeiro', status: 'planejado', cor: '#EAB308', campos: [] },
@@ -153,8 +153,29 @@ export default function ConectoresPage() {
         const data = await res.json()
         setMsg(data.error ? 'Erro Nibo: ' + data.error : 'Conexao Nibo OK! ' + (data.results?.categorias?.total || 0) + ' categorias encontradas.')
       } catch (e: any) { setMsg('Erro: ' + e.message) }
-    } else { setMsg('Teste disponivel para Omie e Nibo') }
+    } else if (conId === 'contaazul') {
+      const token = empresa.contaazul_token
+      if (!token) { setMsg('Conecte o ContaAzul primeiro (botao Conectar)'); return }
+      try {
+        const res = await fetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, token, sync_types: ['categorias'] }) })
+        const data = await res.json()
+        setMsg(data.error ? 'Erro ContaAzul: ' + data.error : 'Conexao ContaAzul OK! ' + (data.results?.categorias?.total || 0) + ' categorias.')
+      } catch (e: any) { setMsg('Erro: ' + e.message) }
+    } else { setMsg('Teste disponivel para Omie, Nibo e ContaAzul') }
     setTimeout(() => setMsg(''), 5000)
+  }
+
+  const conectarOAuth = (conId: string) => {
+    if (!empresa) return
+    if (conId === 'contaazul') {
+      const clientId = configs['contaazul_client_id']
+      const clientSecret = configs['contaazul_client_secret']
+      if (!clientId || !clientSecret) { setMsg('Salve Client ID e Client Secret primeiro'); return }
+      const state = btoa(JSON.stringify({ ci: clientId, cs: clientSecret, cid: empresa.id }))
+      const redirectUri = encodeURIComponent(window.location.origin + '/api/contaazul/callback')
+      const url = `https://api.contaazul.com/auth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${encodeURIComponent(state)}&scope=accounting`
+      window.location.href = url
+    }
   }
 
   const sincronizar = async (conId: string) => {
@@ -175,7 +196,14 @@ export default function ConectoresPage() {
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
         else { setMsg(data.message || 'Nibo sync OK!'); loadEmpresa(empresa) }
-      } else { setMsg('Sync disponivel para Omie e Nibo') }
+      } else if (conId === 'contaazul') {
+        const token = empresa.contaazul_token
+        if (!token) { setMsg('Conecte o ContaAzul primeiro'); setSyncing(false); return }
+        const res = await fetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, token }) })
+        const data = await res.json()
+        if (data.error) setMsg('Erro: ' + data.error)
+        else { setMsg(data.message || 'ContaAzul sync OK!'); loadEmpresa(empresa) }
+      } else { setMsg('Sync disponivel para Omie, Nibo e ContaAzul') }
     } catch (e: any) { setMsg('Erro: ' + e.message) }
     setSyncing(false); setTimeout(() => setMsg(''), 8000)
   }
@@ -264,6 +292,7 @@ export default function ConectoresPage() {
                       </button>
                       {con.status === 'ativo' && (
                         <>
+                          {(con as any).oauth && <button onClick={() => conectarOAuth(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#0EA5E9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🔗 Conectar</button>}
                           <button onClick={() => testar(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid ' + C.b, background: 'transparent', color: C.b, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Testar</button>
                           <button onClick={() => sincronizar(con.id)} disabled={syncing} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: syncing ? C.bd : C.g, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                             {syncing ? 'Sincronizando...' : 'Sincronizar Agora'}
