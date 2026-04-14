@@ -162,13 +162,21 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. DRE CLASSIFICADO (deve vir ANTES dos indicadores)
+    // Pre-build descricao→referenceCode map for O(1) lookup
+    const descRefMap: Record<string, string> = {};
+    if (imports) for (const imp of imports) {
+      if (imp.import_type === "categorias") {
+        const cats = imp.import_data?.categoria_cadastro || [];
+        if (Array.isArray(cats)) for (const c of cats) {
+          const desc = c.descricao || "";
+          const cod = c.codigo || c.cCodigo || "";
+          if (desc && cod && catRefMap[cod]) descRefMap[desc] = catRefMap[cod];
+        }
+      }
+    }
     const dreClassificado: Record<string, { nome: string; valor: number; grupo: string }[]> = { custo_direto: [], despesa_adm: [], financeiro: [], investimento: [], outros: [] };
     for (const [desc, valor] of Object.entries(despCats)) {
-      const cat = Object.keys(catRefMap).find(k => {
-        const catDesc = imports?.find(i => i.import_type === "categorias")?.import_data?.categoria_cadastro?.find((c: any) => (c.codigo || c.cCodigo) === k)?.descricao;
-        return catDesc === desc;
-      });
-      const ref = cat ? catRefMap[cat] : "";
+      const ref = descRefMap[desc] || "";
       let grupo = "outros";
       if (ref === "2") grupo = "custo_direto";
       else if (ref === "3") grupo = "despesa_adm";
@@ -416,42 +424,47 @@ ESTRUTURA DOS 20 SLIDES:
 
 REGRA FINAL: Gere TODOS os 20 slides sem exceção. Nunca pule. Nunca resuma. Se dado ausente: sinalize lacuna com impacto. Mínimo 4 linhas análise real por parecer. Escreva como quem tem assento no Conselho e responde pelo resultado. O empresário NUNCA recebeu algo assim antes. A Carta ao Acionista é o slide que gera indicação — escreva como se estivesse assinando com sua reputação.`;
 
-    // ═══ CALL CLAUDE (com retry automático) ═══
+    // ═══ CALL CLAUDE (com timeout e retry) ═══
     let data: any = null;
     let lastError = "";
     const reqBody = JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 24000,
+      max_tokens: 16000,
       system: systemPrompt,
       messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 20 SLIDES EXECUTIVOS V20:\n\n${blocos}` }],
     });
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 240000); // 240s timeout
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
           body: reqBody,
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
         data = await response.json();
         if (data.error) {
           const msg = data.error?.message || JSON.stringify(data.error);
-          if ((msg.includes("Overloaded") || msg.includes("overloaded") || msg.includes("529")) && attempt < 3) {
+          if ((msg.includes("Overloaded") || msg.includes("overloaded") || msg.includes("529")) && attempt < 2) {
             lastError = msg;
-            await new Promise(r => setTimeout(r, 5000 * attempt));
+            await new Promise(r => setTimeout(r, 3000));
             continue;
           }
           lastError = msg;
         } else { break; }
-      } catch (e: any) { lastError = e.message; if (attempt < 3) await new Promise(r => setTimeout(r, 3000)); }
+      } catch (e: any) { lastError = e.message; if (attempt < 2) await new Promise(r => setTimeout(r, 3000)); }
     }
 
     if (!data || data.error) {
       const msg = lastError || "Erro desconhecido";
       let friendly = "";
-      if (msg.includes("Overloaded") || msg.includes("overloaded")) friendly = "O servidor de IA está temporariamente sobrecarregado. Tentamos 3 vezes. Aguarde 2-3 minutos e tente novamente.";
+      if (msg.includes("Overloaded") || msg.includes("overloaded")) friendly = "O servidor de IA está temporariamente sobrecarregado. Aguarde 2-3 minutos e tente novamente.";
       else if (msg.includes("rate")) friendly = "Muitas solicitações. Aguarde 1 minuto.";
-      else friendly = "Erro temporário na IA. Tente novamente em alguns minutos.";
+      else if (msg.includes("abort")) friendly = "O servidor de IA demorou demais para responder (>4min). Tente novamente.";
+      else friendly = `Erro temporário na IA: ${msg.substring(0, 100)}. Tente novamente.`;
       return NextResponse.json({ error: `⚠️ ${friendly}` }, { status: 503 });
     }
 
