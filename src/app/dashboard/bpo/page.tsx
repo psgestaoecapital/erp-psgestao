@@ -22,13 +22,15 @@ export default function BPOPage(){
   const [busca,setBusca]=useState("");
   const [running,setRunning]=useState(false);
   const [execResult,setExecResult]=useState<any>(null);
+  const [selectedCompany,setSelectedCompany]=useState<string>("todas");
 
   useEffect(()=>{loadBPOData();},[]);
 
   const rodarDia=async()=>{
     setRunning(true);setExecResult(null);
     const results:any[]=[];
-    for(const c of clients){
+    const targetClients=selectedCompany==="todas"?clients:clients.filter(c=>c.id===selectedCompany);
+    for(const c of targetClients){
       try{
         const r=await fetch("/api/bpo/executar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:c.id})});
         const d=await r.json();
@@ -105,10 +107,11 @@ export default function BPOPage(){
   const statusCor=(s:string)=>s==="critico"?R:s==="atencao"?Y:s==="saudavel"?G:TXD;
   const statusLabel=(s:string)=>s==="critico"?"Crítico":s==="atencao"?"Atenção":s==="saudavel"?"Saudável":"Sem dados";
   const statusIcon=(s:string)=>s==="critico"?"🔴":s==="atencao"?"🟡":s==="saudavel"?"🟢":"⚪";
-  const filtered=clients.filter(c=>filtro==="todos"||c.status===filtro).filter(c=>!busca||c.nome.toLowerCase().includes(busca.toLowerCase())||c.cnpj.includes(busca));
+  const activeClients=selectedCompany==="todas"?clients:clients.filter(c=>c.id===selectedCompany);
+  const filtered=activeClients.filter(c=>filtro==="todos"||c.status===filtro).filter(c=>!busca||c.nome.toLowerCase().includes(busca.toLowerCase())||c.cnpj.includes(busca));
 
-  const totalClients=clients.length;const criticos=clients.filter(c=>c.status==="critico").length;const atencaoN=clients.filter(c=>c.status==="atencao").length;const saudaveis=clients.filter(c=>c.status==="saudavel").length;
-  const totalAlertas=clients.reduce((a,c)=>a+c.alertas.length,0);const totalReceita=clients.reduce((a,c)=>a+c.receita,0);
+  const totalClients=activeClients.length;const criticos=activeClients.filter(c=>c.status==="critico").length;const atencaoN=activeClients.filter(c=>c.status==="atencao").length;const saudaveis=activeClients.filter(c=>c.status==="saudavel").length;
+  const totalAlertas=activeClients.reduce((a,c)=>a+c.alertas.length,0);const totalReceita=activeClients.reduce((a,c)=>a+c.receita,0);
 
   return(
   <div style={{padding:20,maxWidth:1200,margin:"0 auto",background:BG,minHeight:"100vh"}}>
@@ -116,9 +119,22 @@ export default function BPOPage(){
       <div><div style={{fontSize:22,fontWeight:700,color:GOL}}>BPO Inteligente</div><div style={{fontSize:11,color:TXM}}>9 modulos ativos • Anti-Fraude integrado • Retroalimentacao automatica • v8.7.3</div></div>
       <div style={{display:"flex",gap:6}}>
         <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
-        <button onClick={rodarDia} disabled={running||clients.length===0} style={{padding:"8px 18px",borderRadius:8,background:running?BD:`linear-gradient(135deg,${R},#F97316)`,color:"#fff",fontSize:11,fontWeight:700,border:"none",cursor:running?"wait":"pointer"}}>{running?`⏳ Analisando ${clients.length} empresas...`:"🚀 Rodar BPO do Dia"}</button>
+        <button onClick={rodarDia} disabled={running||clients.length===0} style={{padding:"8px 18px",borderRadius:8,background:running?BD:`linear-gradient(135deg,${R},#F97316)`,color:"#fff",fontSize:11,fontWeight:700,border:"none",cursor:running?"wait":"pointer"}}>{running?`⏳ Analisando...`:(selectedCompany==="todas"?"🚀 Rodar BPO — Todas Empresas":`🚀 Rodar BPO — ${clients.find(c=>c.id===selectedCompany)?.nome||"Empresa"}`)}</button>
         <button onClick={loadBPOData} style={{padding:"8px 16px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>↻ Atualizar</button>
       </div>
+    </div>
+
+    {/* SELETOR DE EMPRESA */}
+    <div style={{background:BG2,borderRadius:12,padding:"12px 16px",border:`1px solid ${BD}`,marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:16}}>🏢</span>
+        <span style={{fontSize:12,fontWeight:600,color:GOL}}>Empresa:</span>
+      </div>
+      <select value={selectedCompany} onChange={e=>setSelectedCompany(e.target.value)} style={{flex:1,minWidth:200,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"8px 12px",fontSize:13,outline:"none",cursor:"pointer",fontFamily:"inherit"}}>
+        <option value="todas">📊 Todas as empresas ({clients.length})</option>
+        {clients.map(c=><option key={c.id} value={c.id}>{statusIcon(c.status)} {c.nome}{c.cnpj?` — ${c.cnpj}`:""}</option>)}
+      </select>
+      {selectedCompany!=="todas"&&<button onClick={()=>setSelectedCompany("todas")} style={{padding:"6px 12px",borderRadius:6,background:"transparent",border:`1px solid ${BD}`,color:TXM,fontSize:10,cursor:"pointer"}}>✕ Limpar filtro</button>}
     </div>
 
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:16}}>
