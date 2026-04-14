@@ -115,13 +115,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return true
   }
 
+  // Audit helper
+  const logAudit = useCallback(async (action: string, detail?: string, mod?: string) => {
+    try {
+      await fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: null, user_email: email, action, detail, module: mod })
+      })
+    } catch {}
+  }, [email])
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
-      setEmail(session.user.email || '')
+      const userEmail = session.user.email || ''
+      setEmail(userEmail)
       const { data: up } = await supabase.from('users').select('role').eq('id', session.user.id).single()
       const userRole = up?.role || session.user.user_metadata?.role || 'viewer'
       setRole(userRole)
+
+      // Log login
+      fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'login', detail: `Role: ${userRole}` })
+      }).catch(() => {})
 
       // Load access config for this role
       if (!isAdminRole(userRole)) {
@@ -130,6 +145,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           timeoutMinutes.current = config.timeout_minutos || 30
           if (!checkTimeRestriction(config)) {
             setBlocked(true)
+            fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'access_blocked', detail: blockMsg })
+            }).catch(() => {})
           }
         }
         // Read company plan
@@ -160,6 +178,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => clearInterval(interval)
   }, [role, blocked])
 
+  // Log page visits (debounced — only when pathname changes)
+  const lastPath = useRef('')
+  useEffect(() => {
+    if (email && pathname && pathname !== lastPath.current) {
+      lastPath.current = pathname
+      const mod = pathname.replace('/dashboard/', '').replace('/dashboard', 'home').split('/')[0]
+      logAudit('page_visit', pathname, mod)
+    }
+  }, [pathname, email, logAudit])
+
   const isAdm = isAdminRole(role)
 
   const visibleMenu = MENU.filter(item => {
@@ -170,7 +198,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return access === 'full' || access === 'addon'
   })
 
-  const signOut = async () => { await supabase.auth.signOut(); router.push('/login') }
+  const signOut = async () => { logAudit('logout'); await supabase.auth.signOut(); router.push('/login') }
 
   const active = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : !!pathname?.startsWith(href)
