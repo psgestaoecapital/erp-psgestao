@@ -8,6 +8,7 @@ const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDig
 
 function toISO(d: string): string {
   if (!d) return "";
+  if (d.includes("T")) return d.split("T")[0]; // ISO: 2025-10-08T00:00:00Z → 2025-10-08
   if (d.includes("/")) { const p = d.split("/"); if (p.length === 3 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`; }
   return d;
 }
@@ -31,7 +32,7 @@ function extractAll(imports: any[]) {
       if (STATUS_EXCL.has(st)) continue;
       const v = Number(r.valor_documento) || 0; if (v <= 0) continue;
       const codCF = String(r.codigo_cliente_fornecedor || r.codigo_fornecedor || "");
-      const item = { valor: v, data: toISO(r.data_emissao || r.data_vencimento || ""), vencimento: toISO(r.data_vencimento || ""), status: st, nome: nomes[codCF] || r.observacao || codCF, cat: r.descricao_categoria || r.codigo_categoria || "", doc: r.numero_documento || "", obs: r.observacao || "" };
+      const item = { valor: v, data: toISO(r.data_emissao || r.data_vencimento || ""), vencimento: toISO(r.data_vencimento || ""), status: st, nome: nomes[codCF] || r.nome_fornecedor || r.nome_cliente || r.observacao || codCF, cat: r.descricao_categoria || r.codigo_categoria || "", doc: r.numero_documento || "", obs: r.observacao || "" };
       if (tipo === "contas_pagar") pagar.push(item); else receber.push(item);
     }
   }
