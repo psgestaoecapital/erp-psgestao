@@ -29,13 +29,25 @@ function fmtMes(key: string): string {
   return `${n[parseInt(m) - 1]}/${a.slice(2)}`;
 }
 
-function classifyCat(cod: string): string {
+function classifyCat(cod: string, catRefMap?: Record<string, string>): string {
   if (!cod) return "outros";
-  if (cod.startsWith("1.")) return "receita";
-  if (cod.startsWith("3.")) return "deducao";
-  if (cod.startsWith("2.01") || cod.startsWith("2.02") || cod.startsWith("2.03")) return "custo_direto";
-  if (cod.startsWith("2.")) return "despesa_adm";
-  if (cod.startsWith("4.") || cod.startsWith("5.")) return "financeiro";
+  // Omie format: starts with digit + dot (e.g. "1.01", "2.03")
+  if (/^\d\./.test(cod)) {
+    if (cod.startsWith("1.")) return "receita";
+    if (cod.startsWith("3.")) return "deducao";
+    if (cod.startsWith("2.01") || cod.startsWith("2.02") || cod.startsWith("2.03")) return "custo_direto";
+    if (cod.startsWith("2.")) return "despesa_adm";
+    if (cod.startsWith("4.") || cod.startsWith("5.")) return "financeiro";
+  }
+  // Nibo format: UUID — look up referenceCode
+  if (catRefMap && catRefMap[cod]) {
+    const ref = catRefMap[cod];
+    if (ref === "1") return "receita";
+    if (ref === "2") return "custo_direto";
+    if (ref === "3") return "despesa_adm";
+    if (ref === "4") return "investimento";
+    if (ref === "5") return "financeiro";
+  }
   return "outros";
 }
 
@@ -74,12 +86,14 @@ export async function POST(req: NextRequest) {
     const pFim = periodo_fim || "2035-12";
 
     const catMap: Record<string, string> = {};
+    const catRefMap: Record<string, string> = {};
     for (const cat of imports.filter((i: any) => i.import_type === "categorias")) {
       const regs = cat.import_data?.categoria_cadastro || (Array.isArray(cat.import_data) ? cat.import_data : []);
       if (Array.isArray(regs)) for (const c of regs) {
         const cod = c.codigo || c.cCodigo || c.cCodCateg || "";
         const desc = c.descricao || c.cDescricao || c.cDescrCateg || "";
         if (cod) catMap[cod] = desc || cod;
+        if (cod && c.grupo_ref) catRefMap[cod] = c.grupo_ref;
       }
     }
 
@@ -105,7 +119,7 @@ export async function POST(req: NextRequest) {
         const ma = parseMesAno(dt);
         if (!ma) audit.registros_sem_data++;
         if (ma && (ma < pInicio || ma > pFim)) continue;
-        const tipo = classifyCat(cat);
+        const tipo = classifyCat(cat, catRefMap);
         totalDesp += v;
         if (!despPorCat[cat]) despPorCat[cat] = { nome: catMap[cat] || cat, valor: 0, tipo, meses: {} };
         despPorCat[cat].valor += v;
@@ -163,8 +177,8 @@ export async function POST(req: NextRequest) {
     const dreMensal = pastM.map(m => {
       const d = despPorMes[m] || {};
       const rec = recOperacionalPorMes[m] || 0;
-      const cd = d.custo_direto || 0; const da = d.despesa_adm || 0; const dd = d.deducao || 0; const df = d.financeiro || 0; const dout = d.outros || 0;
-      return { mes: m, mesLabel: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd, despesas_adm: da, financeiro: df, outros: dout, margem: rec - cd - dd, lucro_op: rec - cd - dd - da, lucro_final: rec - cd - dd - da - df - dout };
+      const cd = d.custo_direto || 0; const da = d.despesa_adm || 0; const dd = d.deducao || 0; const df = d.financeiro || 0; const di = d.investimento || 0; const dout = d.outros || 0;
+      return { mes: m, mesLabel: fmtMes(m), receita: rec, deducoes: dd, custos_diretos: cd, despesas_adm: da, financeiro: df, investimentos: di, outros: dout, margem: rec - cd - dd, lucro_op: rec - cd - dd - da, lucro_final: rec - cd - dd - da - df - di - dout };
     });
 
     const chartMensal = pastM.slice(-12).map(m => ({
@@ -179,7 +193,7 @@ export async function POST(req: NextRequest) {
 
     const gruposCusto: Record<string, { nome: string; total: number; contas: any[] }> = {};
     for (const info of Object.values(despPorCat)) {
-      const g = info.tipo === "custo_direto" ? "Custos Diretos" : info.tipo === "despesa_adm" ? "Despesas Administrativas" : info.tipo === "deducao" ? "Deduções e Impostos" : info.tipo === "financeiro" ? "Resultado Financeiro" : "Outros";
+      const g = info.tipo === "custo_direto" ? "Custos Diretos" : info.tipo === "despesa_adm" ? "Despesas Administrativas" : info.tipo === "deducao" ? "Deduções e Impostos" : info.tipo === "financeiro" ? "Resultado Financeiro" : info.tipo === "investimento" ? "Investimentos" : "Outros";
       if (!gruposCusto[g]) gruposCusto[g] = { nome: g, total: 0, contas: [] };
       gruposCusto[g].total += info.valor;
       gruposCusto[g].contas.push({ nome: info.nome, valor: info.valor, meses: info.meses });
