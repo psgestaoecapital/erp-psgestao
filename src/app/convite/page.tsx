@@ -42,8 +42,27 @@ function ConviteForm() {
     if (password.length < 6) { setError("A senha deve ter no mínimo 6 caracteres."); return; }
     setLoading(true);
 
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
-    if (authError) { setError(authError.message); setLoading(false); return; }
+    // Tenta criar conta - se ja existe, faz login
+    let authData: any = null;
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+    if (signUpError) {
+      // Se usuario ja existe no Auth, tenta fazer login
+      if (signUpError.message.includes("already") || signUpError.message.includes("exists") || signUpError.message.includes("registered")) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) {
+          setError("Este e-mail ja possui conta. Use a senha cadastrada anteriormente ou clique em Esqueci a Senha na tela de login.");
+          setLoading(false);
+          return;
+        }
+        authData = signInData;
+      } else {
+        setError(signUpError.message);
+        setLoading(false);
+        return;
+      }
+    } else {
+      authData = signUpData;
+    }
 
     if (authData.user) {
       // Mark invite as used
@@ -148,7 +167,7 @@ function ConviteForm() {
                 {invite.companies.nome_fantasia || invite.companies.razao_social}
               </div>
               <div style={{ fontSize: 10, color: "#A8A498", marginTop: 2 }}>
-                Perfil: {invite.role === "adm" ? "Administrador" : invite.role === "financeiro" ? "Financeiro" : invite.role === "conselheiro" ? "Conselheiro" : "Visualização"}
+                Perfil: {invite.role === "adm" ? "Administrador" : invite.role === "financeiro" ? "Financeiro" : invite.role ? invite.role.charAt(0).toUpperCase() + invite.role.slice(1).replace('_', ' ') : "Visualização"}
               </div>
             </div>
           )}
