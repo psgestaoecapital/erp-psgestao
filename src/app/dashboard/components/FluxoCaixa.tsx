@@ -1,3 +1,4 @@
+// FluxoCaixa v8.7.6 — data_previsao primária, sem data_emissao em pendentes
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
@@ -82,7 +83,7 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
           if(status==="CANCELADO") continue;
           // Pagos: usar data_pagamento (histórico real). Pendentes: usar data_vencimento (projeção)
           const isPago=status==="PAGO"||status==="RECEBIDO"||status==="LIQUIDADO";
-          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_previsao||r.data_vencimento||r.data_emissao||"");
+          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_previsao||r.data_vencimento||"");
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_cliente||"");
           lancs.push({
             data:dataRef,valor:Number(r.valor_documento)||0,tipo:"entrada",
@@ -104,7 +105,7 @@ export default function FluxoCaixa({companyIds}:{companyIds:string[]}){
           const status=r.status_titulo||"";
           if(status==="CANCELADO") continue;
           const isPago=status==="PAGO"||status==="LIQUIDADO";
-          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_previsao||r.data_vencimento||r.data_emissao||"");
+          const dataRef=isPago?(r.data_pagamento||r.data_baixa||r.data_vencimento||r.data_previsao||""):(r.data_previsao||r.data_vencimento||"");
           const codCF=String(r.codigo_cliente_fornecedor||r.codigo_fornecedor||"");
           lancs.push({
             data:dataRef,valor:Number(r.valor_documento)||0,tipo:"saida",
