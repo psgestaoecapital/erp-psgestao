@@ -13,7 +13,7 @@ type Lanc = {id?:string;tipo:string;nome_pessoa?:string;cliente_id?:string;forne
 export default function OperacionalPage(){
   const [empresas,setEmpresas]=useState<any[]>([])
   const [sel,setSel]=useState('')
-  const [tab,setTab]=useState<'receber'|'pagar'|'clientes'|'fornecedores'>('receber')
+  const [tab,setTab]=useState<'receber'|'pagar'|'clientes'|'fornecedores'|'plano'>('receber')
   const [loading,setLoading]=useState(true)
   const [msg,setMsg]=useState('')
 
@@ -41,6 +41,14 @@ export default function OperacionalPage(){
   const [suggestions,setSuggestions]=useState<Pessoa[]>([])
   const [showSugg,setShowSugg]=useState(false)
 
+  // Plano de Contas
+  const [plano,setPlano]=useState<any[]>([])
+  const [catSearch,setCatSearch]=useState('')
+  const [showCatDrop,setShowCatDrop]=useState(false)
+  const [formPC,setFormPC]=useState({codigo:'',descricao:'',grupo:'despesa',tipo:'despesa' as string,pai_codigo:'',nivel:3})
+  const [showFormPC,setShowFormPC]=useState(false)
+  const [editPC,setEditPC]=useState<string|null>(null)
+
   useEffect(()=>{
     (async()=>{
       const{data:{user}}=await supabase.auth.getUser();if(!user)return
@@ -67,6 +75,9 @@ export default function OperacionalPage(){
     // Fornecedores
     const{data:fd}=await supabase.from('erp_fornecedores').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
     setFornecedores(fd||[])
+    // Plano de Contas (global + empresa)
+    const{data:pc}=await supabase.from('erp_plano_contas').select('*').or(`company_id.is.null,company_id.eq.${sel}`).eq('ativo',true).order('codigo')
+    setPlano(pc||[])
     setLoading(false)
   },[sel])
 
@@ -226,6 +237,7 @@ export default function OperacionalPage(){
         {id:'pagar' as const,label:'📤 Contas a Pagar',color:C.red},
         {id:'clientes' as const,label:'👥 Clientes',color:C.blue},
         {id:'fornecedores' as const,label:'🏭 Fornecedores',color:C.purple},
+        {id:'plano' as const,label:'📑 Plano de Contas',color:C.gold},
       ]).map(t=>(
         <button key={t.id} onClick={()=>{setTab(t.id);setShowForm(false);setEditId(null);setFiltro('');setFiltroStatus('')}} style={{
           padding:'10px 18px',borderRadius:8,fontSize:12,fontWeight:tab===t.id?700:400,cursor:'pointer',
@@ -235,7 +247,9 @@ export default function OperacionalPage(){
           <span style={{marginLeft:6,fontSize:10,opacity:0.7}}>
             {t.id==='receber'?lancs.filter(l=>l.tipo==='receber').length:
              t.id==='pagar'?lancs.filter(l=>l.tipo==='pagar').length:
-             t.id==='clientes'?clientes.length:fornecedores.length}
+             t.id==='clientes'?clientes.length:
+             t.id==='fornecedores'?fornecedores.length:
+             t.id==='plano'?plano.length:0}
           </span>
         </button>
       ))}
@@ -261,7 +275,7 @@ export default function OperacionalPage(){
 
       {/* Toolbar */}
       <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
-        <button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setShowForm(!showForm)}} style={{
+        <button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setCatSearch('');setShowForm(!showForm)}} style={{
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:C.text
         }}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>
@@ -340,9 +354,42 @@ export default function OperacionalPage(){
                 <input value={formL.data_pagamento||''} onChange={e=>setFormL({...formL,data_pagamento:e.target.value})} placeholder="DD/MM/AAAA" style={inp}/>
               </div>
             )}
-            <div style={{gridColumn:'span 2'}}>
+            <div style={{gridColumn:'span 2',position:'relative'}}>
               <div style={{fontSize:10,color:C.muted,marginBottom:3}}>CATEGORIA</div>
-              <input value={formL.categoria||''} onChange={e=>setFormL({...formL,categoria:e.target.value})} placeholder="Ex: DESPESAS ADM > Aluguel" style={inp}/>
+              <input value={catSearch||formL.categoria||''} onChange={e=>{setCatSearch(e.target.value);setShowCatDrop(true)}}
+                onFocus={()=>setShowCatDrop(true)} placeholder="Buscar por código ou nome..." style={inp}/>
+              {showCatDrop&&(
+                <div style={{position:'absolute',top:'100%',left:0,right:0,background:C.card2,border:`1px solid ${C.gold}`,borderRadius:6,zIndex:10,maxHeight:250,overflowY:'auto'}}>
+                  {plano.filter(p=>p.nivel>=2).filter(p=>{
+                    if(!catSearch)return true
+                    const s=catSearch.toLowerCase()
+                    return p.codigo.toLowerCase().includes(s)||p.descricao.toLowerCase().includes(s)
+                  }).slice(0,15).map(p=>{
+                    const isGroup=p.nivel===2
+                    return(
+                      <div key={p.id} onClick={()=>{
+                        if(isGroup)return
+                        setFormL({...formL,categoria:p.codigo+' '+p.descricao,subcategoria:p.descricao})
+                        setCatSearch(p.codigo+' '+p.descricao)
+                        setShowCatDrop(false)
+                      }} style={{
+                        padding:isGroup?'6px 10px':'6px 10px 6px 24px',cursor:isGroup?'default':'pointer',
+                        borderBottom:`1px solid ${C.border}`,fontSize:isGroup?10:11,
+                        fontWeight:isGroup?700:400,color:isGroup?C.gold:C.text,
+                        background:isGroup?C.bg+'80':'transparent',
+                      }}
+                        onMouseEnter={e=>{if(!isGroup)e.currentTarget.style.background=C.gold+'15'}}
+                        onMouseLeave={e=>{if(!isGroup)e.currentTarget.style.background='transparent'}}>
+                        <span style={{color:C.dim,marginRight:6,fontSize:9}}>{p.codigo}</span>{p.descricao}
+                      </div>
+                    )
+                  })}
+                  {plano.filter(p=>p.nivel>=2).filter(p=>catSearch?(p.codigo+p.descricao).toLowerCase().includes(catSearch.toLowerCase()):true).length===0&&(
+                    <div style={{padding:10,textAlign:'center',color:C.dim,fontSize:11}}>Nenhuma categoria encontrada</div>
+                  )}
+                  <div onClick={()=>setShowCatDrop(false)} style={{padding:'6px 10px',cursor:'pointer',color:C.dim,fontSize:10,borderTop:`1px solid ${C.gold}30`,textAlign:'center'}}>Fechar</div>
+                </div>
+              )}
             </div>
             <div style={{gridColumn:'span 2'}}>
               <div style={{fontSize:10,color:C.muted,marginBottom:3}}>DESCRIÇÃO</div>
@@ -497,6 +544,101 @@ export default function OperacionalPage(){
             ))}
           </tbody>
         </table>}
+      </div>
+    </>)}
+
+    {/* ═══ PLANO DE CONTAS ═══ */}
+    {tab==='plano'&&(<>
+      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+        <button onClick={()=>{setEditPC(null);setFormPC({codigo:'',descricao:'',grupo:'despesa',tipo:'despesa',pai_codigo:'',nivel:3});setShowFormPC(!showFormPC)}} style={{
+          padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
+          background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:C.bg
+        }}>+ Nova Categoria</button>
+        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar por código ou nome..." style={{...inp,flex:1,minWidth:180}}/>
+        <div style={{fontSize:11,color:C.dim}}>{plano.length} categorias</div>
+      </div>
+
+      {showFormPC&&(
+        <div style={{background:C.card,borderRadius:12,padding:20,marginBottom:14,border:`1px solid ${C.gold}40`}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.gold,marginBottom:12}}>{editPC?'Editar':'Nova'} Categoria</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
+            <div>
+              <div style={{fontSize:10,color:C.gold,marginBottom:3,fontWeight:600}}>CÓDIGO *</div>
+              <input value={formPC.codigo} onChange={e=>setFormPC({...formPC,codigo:e.target.value})} placeholder="Ex: 3.01.14" style={inp}/>
+            </div>
+            <div style={{gridColumn:'span 2'}}>
+              <div style={{fontSize:10,color:C.gold,marginBottom:3,fontWeight:600}}>DESCRIÇÃO *</div>
+              <input value={formPC.descricao} onChange={e=>setFormPC({...formPC,descricao:e.target.value})} placeholder="Nome da categoria" style={inp}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>TIPO</div>
+              <select value={formPC.tipo} onChange={e=>setFormPC({...formPC,tipo:e.target.value,grupo:e.target.value})} style={{...inp,cursor:'pointer'}}>
+                <option value="receita">Receita</option>
+                <option value="custo">Custo</option>
+                <option value="despesa">Despesa</option>
+                <option value="financeiro">Financeiro</option>
+                <option value="investimento">Investimento</option>
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>CATEGORIA PAI</div>
+              <select value={formPC.pai_codigo} onChange={e=>setFormPC({...formPC,pai_codigo:e.target.value})} style={{...inp,cursor:'pointer'}}>
+                <option value="">Nenhuma (raiz)</option>
+                {plano.filter(p=>p.nivel<=2).map(p=><option key={p.id} value={p.codigo}>{p.codigo} {p.descricao}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:8,marginTop:14}}>
+            <button onClick={async()=>{
+              if(!formPC.codigo||!formPC.descricao){setMsg('❌ Código e descrição obrigatórios');return}
+              setSaving(true)
+              const nivel=formPC.codigo.split('.').length
+              const record={company_id:sel,codigo:formPC.codigo,descricao:formPC.descricao,grupo:formPC.grupo,tipo:formPC.tipo,pai_codigo:formPC.pai_codigo||null,nivel}
+              let err:any
+              if(editPC){const r=await supabase.from('erp_plano_contas').update(record).eq('id',editPC);err=r.error}
+              else{const r=await supabase.from('erp_plano_contas').insert(record);err=r.error}
+              if(err)setMsg('❌ '+err.message)
+              else{setMsg('✅ Categoria salva!');setShowFormPC(false);await loadAll()}
+              setSaving(false);setTimeout(()=>setMsg(''),3000)
+            }} disabled={saving} style={{padding:'10px 24px',borderRadius:8,fontWeight:700,fontSize:13,cursor:'pointer',border:'none',background:saving?C.border:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:C.bg}}>
+              💾 Salvar
+            </button>
+            <button onClick={()=>setShowFormPC(false)} style={{padding:'10px 16px',borderRadius:8,fontSize:12,cursor:'pointer',border:`1px solid ${C.border}`,background:'transparent',color:C.text}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,overflow:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,minWidth:600}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.gold}40`}}>
+            {['Código','Descrição','Tipo','Grupo','Escopo','Ações'].map(h=>
+              <th key={h} style={{padding:'10px 8px',textAlign:h==='Ações'?'right':'left',color:C.gold,fontSize:9,fontWeight:600,position:'sticky',top:0,background:C.card}}>{h}</th>
+            )}
+          </tr></thead>
+          <tbody>
+            {plano.filter(p=>!filtro||(p.codigo+p.descricao).toLowerCase().includes(filtro.toLowerCase())).map(p=>{
+              const isN1=p.nivel===1,isN2=p.nivel===2
+              const tipoCor:Record<string,string>={receita:C.green,custo:C.yellow,despesa:C.red,financeiro:C.blue,investimento:C.purple}
+              return(
+                <tr key={p.id} style={{borderBottom:`0.5px solid ${C.border}30`,background:isN1?C.gold+'08':isN2?C.card2:'transparent'}}
+                  onMouseEnter={e=>{if(!isN1)e.currentTarget.style.background=C.card2+'cc'}} onMouseLeave={e=>{e.currentTarget.style.background=isN1?C.gold+'08':isN2?C.card2:'transparent'}}>
+                  <td style={{padding:'8px',fontWeight:isN1?700:isN2?600:400,color:isN1?C.gold:C.text,fontSize:isN1?12:11}}>{p.codigo}</td>
+                  <td style={{padding:'8px',paddingLeft:isN1?8:isN2?20:36,fontWeight:isN1?700:isN2?600:400,color:isN1?C.gold:isN2?C.goldL:C.text}}>{p.descricao}</td>
+                  <td style={{padding:8}}><span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:(tipoCor[p.tipo]||C.dim)+'18',color:tipoCor[p.tipo]||C.dim}}>{p.tipo}</span></td>
+                  <td style={{padding:8,color:C.muted,fontSize:10}}>{p.grupo}</td>
+                  <td style={{padding:8}}><span style={{fontSize:8,padding:'2px 6px',borderRadius:4,background:p.company_id?C.blue+'18':C.green+'18',color:p.company_id?C.blue:C.green}}>{p.company_id?'Empresa':'Global'}</span></td>
+                  <td style={{padding:8,textAlign:'right'}}>
+                    {p.company_id&&<>
+                      <button onClick={()=>{setFormPC({codigo:p.codigo,descricao:p.descricao,grupo:p.grupo,tipo:p.tipo,pai_codigo:p.pai_codigo||'',nivel:p.nivel});setEditPC(p.id);setShowFormPC(true)}} style={{fontSize:9,padding:'3px 8px',borderRadius:4,background:C.blue+'15',border:`1px solid ${C.blue}30`,color:C.blue,cursor:'pointer',marginRight:4}}>✏️</button>
+                      <button onClick={async()=>{if(!confirm('Excluir?'))return;await supabase.from('erp_plano_contas').delete().eq('id',p.id);setMsg('✅ Excluída');await loadAll();setTimeout(()=>setMsg(''),3000)}} style={{fontSize:9,padding:'3px 8px',borderRadius:4,background:C.red+'15',border:`1px solid ${C.red}30`,color:C.red,cursor:'pointer'}}>🗑</button>
+                    </>}
+                    {!p.company_id&&<span style={{fontSize:8,color:C.dim}}>padrão</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </>)}
 
