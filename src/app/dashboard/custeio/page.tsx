@@ -21,7 +21,7 @@ export default function CusteioPage(){
   const [loading,setLoading]=useState(true);
   const [processing,setProcessing]=useState(false);
   const [result,setResult]=useState<any>(null);
-  const [tab,setTab]=useState<"absorcao"|"variavel"|"detalhes">("absorcao");
+  const [tab,setTab]=useState<"absorcao"|"variavel"|"detalhes"|"como_usar">("absorcao");
   const [detalhes,setDetalhes]=useState<any[]>([]);
   const [detLoading,setDetLoading]=useState(false);
 
@@ -197,7 +197,7 @@ export default function CusteioPage(){
 
           {/* TABS */}
           <div style={{display:"flex",gap:4,marginBottom:12}}>
-            {([["absorcao","📊 Custeio por Absorção"],["variavel","📈 Margem de Contribuição"],["detalhes","📋 Detalhes"]] as const).map(([id,label])=>(
+            {([["absorcao","📊 Custeio por Absorção"],["variavel","📈 Margem de Contribuição"],["detalhes","📋 Detalhes"],["como_usar","❓ Como Usar"]] as const).map(([id,label])=>(
               <button key={id} onClick={()=>{setTab(id);if(id==="detalhes"&&detalhes.length===0)loadDetalhes();}} style={{
                 padding:"8px 16px",borderRadius:8,fontSize:11,fontWeight:tab===id?700:400,
                 border:tab===id?`1px solid ${GO}50`:`1px solid ${BD}`,
@@ -341,6 +341,112 @@ export default function CusteioPage(){
                 </table>
               )}
               {!detLoading&&detalhes.length===0&&<div style={{padding:20,textAlign:"center",color:TXM}}>Nenhum detalhe encontrado</div>}
+            </div>
+          )}
+
+          {/* TAB: COMO USAR */}
+          {tab==="como_usar"&&(
+            <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:20,lineHeight:1.8}}>
+              <div style={{fontSize:16,fontWeight:700,color:GOL,marginBottom:16}}>📘 Como Usar o Módulo de Custeio por Absorção</div>
+
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>O que é Custeio por Absorção?</div>
+                <div style={{fontSize:11,color:TXM}}>
+                  O custeio por absorção é o único método aceito pela legislação brasileira (CPC 16, Lei 6.404/76) para fins fiscais e demonstrações contábeis externas. Ele consiste em alocar TODOS os custos de produção (diretos e indiretos, fixos e variáveis) aos produtos ou serviços da empresa. Isso permite conhecer o custo real de cada linha de negócio e calcular margens precisas.
+                </div>
+              </div>
+
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>Como funciona a alocação de custos?</div>
+                <div style={{fontSize:11,color:TXM,marginBottom:8}}>O sistema usa 5 camadas de alocação, em ordem de prioridade:</div>
+                <div style={{background:BG3,borderRadius:8,padding:12}}>
+                  <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-start"}}>
+                    <span style={{background:G+"20",color:G,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 1</span>
+                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>Distribuição do ERP (Omie)</div><div style={{fontSize:10,color:TXD}}>Se o lançamento tem departamento no Omie (campo distribuicao[]), usa o percentual exato definido lá. É a forma mais precisa.</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-start"}}>
+                    <span style={{background:B+"20",color:B,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 2</span>
+                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>Categoria Contábil</div><div style={{fontSize:10,color:TXD}}>Se a categoria do lançamento (ex: 2.01.96) tem regra de mapeamento, usa essa regra.</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-start"}}>
+                    <span style={{background:Y+"20",color:Y,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 3</span>
+                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>Empresa de Origem (CNPJ)</div><div style={{fontSize:10,color:TXD}}>Se a empresa que gerou o custo tem regra de fallback (ex: M.m Serviços → 50% Gesso Oeste + 50% Litoral), aplica esse rateio.</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-start"}}>
+                    <span style={{background:P+"20",color:P,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 4</span>
+                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>CNPJ do Fornecedor</div><div style={{fontSize:10,color:TXD}}>Se o fornecedor tem regra específica de rateio, aplica.</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span style={{background:R+"20",color:R,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 5</span>
+                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>Não Alocado</div><div style={{fontSize:10,color:TXD}}>Se nenhuma regra se aplica, o custo fica como "Não Alocado" até que uma regra seja configurada.</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>As duas visões do resultado</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div style={{background:BG3,borderRadius:8,padding:12,borderLeft:`4px solid ${G}`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:4}}>📊 Custeio por Absorção</div>
+                    <div style={{fontSize:10,color:TXM}}>Obrigatório pela legislação (CPC 16). Todos os custos (fixos + variáveis) são alocados ao produto. Mostra o custo total real de cada linha de negócio. Use para: balanço patrimonial, demonstrações fiscais, IR, formação de preço de venda.</div>
+                  </div>
+                  <div style={{background:BG3,borderRadius:8,padding:12,borderLeft:`4px solid ${B}`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:B,marginBottom:4}}>📈 Margem de Contribuição</div>
+                    <div style={{fontSize:10,color:TXM}}>Visão gerencial. Só custos variáveis vão pro produto — fixos ficam no período. Mostra quanto cada linha contribui para cobrir custos fixos e gerar lucro. Use para: decisões de manter/cortar linhas, definir prioridades, análise de curto prazo.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>Classificação dos custos</div>
+                <div style={{fontSize:11,color:TXM,marginBottom:8}}>O sistema classifica cada custo automaticamente em duas dimensões:</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div style={{background:BG3,borderRadius:8,padding:12}}>
+                    <div style={{fontSize:11,fontWeight:600,color:TX,marginBottom:4}}>Por natureza</div>
+                    <div style={{fontSize:10,color:G,marginBottom:2}}>Direto — rastreável ao produto (matéria-prima, MOD)</div>
+                    <div style={{fontSize:10,color:P}}>Indireto — não rastreável (aluguel, energia, supervisão)</div>
+                  </div>
+                  <div style={{background:BG3,borderRadius:8,padding:12}}>
+                    <div style={{fontSize:11,fontWeight:600,color:TX,marginBottom:4}}>Por comportamento</div>
+                    <div style={{fontSize:10,color:Y,marginBottom:2}}>Variável — varia com produção (matéria-prima, comissão)</div>
+                    <div style={{fontSize:10,color:B}}>Fixo — não varia no curto prazo (aluguel, salário)</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>Reforma Tributária 2026-2033</div>
+                <div style={{fontSize:11,color:TXM}}>
+                  O sistema já está preparado para a transição tributária (LC 214/2025). Durante o período 2026-2033, PIS/COFINS/ICMS/ISS coexistem com CBS/IBS. O módulo suporta ambos os regimes e classifica tributos novos separadamente (grupo "CBS/IBS") para que o contador possa gerar demonstrações nos dois modelos. O split payment (retenção automática de IBS/CBS no Pix/cartão) afeta o fluxo de caixa e está refletido na análise.
+                </div>
+              </div>
+
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>Fontes de dados suportadas</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {["Omie","Nibo","ContaAzul","Bling","Entrada Manual","Módulo Industrial"].map(s=>(
+                    <span key={s} style={{padding:"4px 10px",borderRadius:6,background:GO+"15",color:GOL,fontSize:10,fontWeight:500}}>{s}</span>
+                  ))}
+                </div>
+                <div style={{fontSize:10,color:TXD,marginTop:6}}>O mapeamento de departamentos funciona por NOME (não por código), permitindo que empresas diferentes usem os mesmos nomes de departamento com códigos diferentes.</div>
+              </div>
+
+              <div style={{background:`${GO}10`,borderRadius:8,padding:12,border:`1px solid ${GO}30`}}>
+                <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:6}}>🎯 Passo a passo</div>
+                <div style={{fontSize:10,color:TXM,lineHeight:2}}>
+                  1. Selecione a empresa no seletor acima<br/>
+                  2. Escolha o período (mês/ano)<br/>
+                  3. Clique em "Processar Período" — o sistema analisa todos os lançamentos<br/>
+                  4. Veja o DRE por Absorção na primeira aba<br/>
+                  5. Compare com a Margem de Contribuição na segunda aba<br/>
+                  6. Use a aba Detalhes para drill-down nos lançamentos individuais<br/>
+                  7. Custos "Não Alocados" precisam de regras de mapeamento — solicite ao administrador
+                </div>
+              </div>
+
+              <div style={{fontSize:9,color:TXD,marginTop:16,textAlign:"center"}}>
+                Base legal: CPC 16 (R2) Estoques | Lei 6.404/76 Art. 177 | CFC NBC TG 16 | LC 214/2025 (Reforma Tributária) | Decreto 9.580/2018 (RIR)
+              </div>
             </div>
           )}
 
