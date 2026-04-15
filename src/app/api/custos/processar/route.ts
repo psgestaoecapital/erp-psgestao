@@ -143,8 +143,13 @@ function resolveAllocation(
   record: any,
   companyId: string,
   centerMaps: CostCenterMap[],
-  catMap: Record<string, string>
+  catMap: Record<string, string>,
+  costGroup?: string
 ): { business_line_id: string | null; allocation_pct: number; source: string }[] {
+
+  // Helper: filtra regras por cost_scope (match 'todos' ou o grupo específico)
+  const scopeMatch = (m: CostCenterMap) =>
+    m.cost_scope === "todos" || !costGroup || m.cost_scope === costGroup;
 
   // CAMADA 1: distribuicao[] do Omie (mais preciso)
   if (Array.isArray(record.distribuicao) && record.distribuicao.length > 0) {
@@ -154,7 +159,6 @@ function resolveAllocation(
       const depName = (dist.cDesDep || "").toUpperCase().trim();
       const pct = dist.nPerDep || 0;
 
-      // Busca no cost_center_map por nome de departamento
       const mapping = centerMaps.find(
         m => m.source_type === "omie_departamento" &&
           m.source_key.toUpperCase().trim() === depName
@@ -167,7 +171,6 @@ function resolveAllocation(
           source: "omie_distribuicao",
         });
       } else {
-        // Departamento sem mapeamento — vai pra "Não Alocado" com a %
         allocations.push({
           business_line_id: null,
           allocation_pct: pct,
@@ -182,9 +185,8 @@ function resolveAllocation(
   // CAMADA 2: Categoria Omie
   const cat = getCategoriaOmie(record);
   if (cat && cat !== "sem_cat") {
-    const catDesc = catMap[cat] || "";
     const catMappings = centerMaps
-      .filter(m => m.source_type === "omie_categoria" && m.source_key === cat)
+      .filter(m => m.source_type === "omie_categoria" && m.source_key === cat && scopeMatch(m))
       .sort((a, b) => a.priority - b.priority);
 
     if (catMappings.length > 0) {
@@ -196,11 +198,25 @@ function resolveAllocation(
     }
   }
 
-  // CAMADA 3: CNPJ do fornecedor/cliente (fallback)
+  // CAMADA 3: Company ID (empresa de origem do lançamento)
+  // Verifica se a empresa que gerou o custo tem regra de rateio
+  const companyMappings = centerMaps
+    .filter(m => m.source_type === "cnpj" && m.source_key === companyId && scopeMatch(m))
+    .sort((a, b) => a.priority - b.priority);
+
+  if (companyMappings.length > 0) {
+    return companyMappings.map(m => ({
+      business_line_id: m.business_line_id,
+      allocation_pct: m.allocation_pct,
+      source: "empresa_fallback",
+    }));
+  }
+
+  // CAMADA 4: CNPJ do fornecedor/cliente
   const cnpj = record.cnpj_fornecedor || record.cnpj_cliente || "";
   if (cnpj) {
     const cnpjMappings = centerMaps
-      .filter(m => m.source_type === "cnpj" && m.source_key === cnpj)
+      .filter(m => m.source_type === "cnpj" && m.source_key === cnpj && scopeMatch(m))
       .sort((a, b) => a.priority - b.priority);
 
     if (cnpjMappings.length > 0) {
@@ -212,7 +228,7 @@ function resolveAllocation(
     }
   }
 
-  // CAMADA 4: Não alocado
+  // CAMADA 5: Não alocado
   return [{ business_line_id: null, allocation_pct: 100, source: "nao_alocado" }];
 }
 
@@ -397,7 +413,7 @@ export async function POST(req: NextRequest) {
         const classification = classifyCost(cat, catDesc, rules);
 
         // Resolver alocação por linha de negócio
-        const allocations = resolveAllocation(r, imp.company_id, centerMaps, catMap);
+        const allocations = resolveAllocation(r, imp.company_id, centerMaps, catMap, classification.cost_group);
 
         const hasDistrib = Array.isArray(r.distribuicao) && r.distribuicao.length > 0;
         if (hasDistrib) audit.com_distribuicao++;
@@ -487,7 +503,7 @@ export async function POST(req: NextRequest) {
         const cliente = r.nome_cliente || nomeMap[codCF] || `Cliente ${codCF}`;
 
         // Receitas: alocar por linha de negócio via distribuição
-        const allocations = resolveAllocation(r, imp.company_id, centerMaps, catMap);
+        const allocations = resolveAllocation(r, imp.company_id, centerMaps, catMap, "receita");
 
         for (const alloc of allocations) {
           const valorAlocado = valor * (alloc.allocation_pct / 100);
