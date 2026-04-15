@@ -201,7 +201,7 @@ export default function AdminPage(){
     }
     const{error}=await supabase.from("invites").insert(inviteData);
     if(error){setMsg("Erro: "+error.message);return;}
-    setGeneratedLink(window.location.origin+"/convite?code="+code);setCopied(false);loadData();
+    setGeneratedLink("https://erp-psgestao.vercel.app/convite?code="+code);setCopied(false);loadData();
   };
 
   const atualizarRole=async(uid:string,nr:string)=>{
