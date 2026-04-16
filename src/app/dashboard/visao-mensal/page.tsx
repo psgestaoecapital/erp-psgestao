@@ -287,7 +287,7 @@ function VisaoMensalPageInner(){
   };
 
   const ss:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
-  const mxF=Math.max(...fluxo.map(f=>Math.abs(f.acum)),1);
+  const mxF=Math.max(...fluxo.map(f=>Math.max(f.ent,f.sai,Math.abs(f.acum))),1);
   const tDesp=totals.imp+totals.cst+totals.dsp+totals.fin;
   const resultado=totals.rec-tDesp;
 
@@ -352,10 +352,14 @@ function VisaoMensalPageInner(){
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:16}}>
           <div style={{fontSize:13,fontWeight:700,color:GOL,marginBottom:12}}>💵 Fluxo de Caixa — {nMes(mesAno)}</div>
           <div style={{display:"flex",gap:0,alignItems:"flex-end",height:100,marginBottom:8,borderBottom:`1px solid ${BD}`}}>
-            {fluxo.map((f,i)=>{const h=mxF>0?Math.abs(f.acum)/mxF*100:0;
-              return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end"}}
-                onMouseEnter={(e)=>showTip(e,[{dia:f.dia,valor:f.acum,doc:`Entrada: ${fmtRFull(f.ent)}`,obs:`Saída: ${fmtRFull(f.sai)}`,cliente:`Saldo: ${fmtRFull(f.ent-f.sai)}`,categoria:`Acum: ${fmtRFull(f.acum)}`,catCod:"",status:"",venc:"",emis:""}])} onMouseLeave={()=>setTip(null)}>
-                <div style={{width:"60%",height:`${Math.max(h,2)}%`,background:f.acum>=0?G+"50":R+"50",borderRadius:"2px 2px 0 0",border:f.dia===dHj?`1px solid ${GOL}`:"none"}}/></div>;
+            {fluxo.map((f,i)=>{const hEnt=mxF>0?f.ent/mxF*100:0;const hSai=mxF>0?f.sai/mxF*100:0;
+              return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:1,position:"relative"}}
+                onMouseEnter={(e)=>showTip(e,[{dia:f.dia,valor:f.acum,doc:`Entrada: ${fmtRFull(f.ent)}`,obs:`Saída: ${fmtRFull(f.sai)}`,cliente:`Saldo dia: ${fmtRFull(f.ent-f.sai)}`,categoria:`Acum: ${fmtRFull(f.acum)}`,catCod:"",status:"",venc:"",emis:""}])} onMouseLeave={()=>setTip(null)}>
+                <div style={{display:"flex",gap:1,width:"80%",height:"100%",alignItems:"flex-end",justifyContent:"center"}}>
+                  <div style={{flex:1,height:`${Math.max(hEnt,f.ent>0?3:0)}%`,background:G,borderRadius:"2px 2px 0 0",minHeight:f.ent>0?3:0,border:f.dia===dHj?`1px solid ${GOL}`:"none"}} title={`Entrada: ${fmtRFull(f.ent)}`}/>
+                  <div style={{flex:1,height:`${Math.max(hSai,f.sai>0?3:0)}%`,background:R,borderRadius:"2px 2px 0 0",minHeight:f.sai>0?3:0,border:f.dia===dHj?`1px solid ${GOL}`:"none"}} title={`Saída: ${fmtRFull(f.sai)}`}/>
+                </div>
+              </div>;
             })}
           </div>
           <div style={{display:"flex"}}>{fluxo.map((f,i)=><div key={i} style={{flex:1,textAlign:"center",fontSize:7,color:f.dia===dHj?GOL:TXD}}>{f.dia}</div>)}</div>
