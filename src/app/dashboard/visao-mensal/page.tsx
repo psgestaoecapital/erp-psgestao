@@ -145,7 +145,7 @@ function VisaoMensalPageInner(){
     if(erpRec)for(const r of erpRec){
       const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
-      const nome=r.nome_pessoa||"PS Gestão";const catN=r.categoria||"Outros";
+      const nome=r.nome_pessoa||"Cliente";const catN=r.subcategoria||r.categoria||"Outros";
       let lnId="geral";for(const ln of lns){if(catN.toLowerCase().includes(ln.nome.toLowerCase())){lnId=ln.id;break;}}
       if(!recByLn[lnId])recByLn[lnId]={};
       if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
@@ -196,9 +196,9 @@ function VisaoMensalPageInner(){
     if(erpPag)for(const r of erpPag){
       const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
-      const catN=r.categoria||r.descricao||"Outros";
-      const forn=r.nome_pessoa||r.descricao||"PS Gestão";
-      const cls=classifyDesp("",catN);
+      const catN=r.subcategoria||r.categoria||"Outros";
+      const forn=r.nome_pessoa||"Fornecedor";
+      const cls=classifyDesp(r.categoria||"",catN);
       const gk=catN;
       if(!grpData[cls][gk])grpData[cls][gk]={t:0,d:{},l:{}};
       grpData[cls][gk].t+=v;addDia(grpData[cls][gk].d,dia,v);
