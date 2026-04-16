@@ -103,7 +103,7 @@ function VisaoMensalPageInner(){
 
     const[{data:imports},{data:blData},{data:orcData}]=await Promise.all([
       supabase.from("omie_imports").select("import_type,import_data").in("company_id",cIds),
-      supabase.from("business_lines").select("*").in("company_id",cIds).order("ln_number"),
+      supabase.from("business_lines").select("*,business_line_keywords(keyword,prioridade)").in("company_id",cIds).order("ln_number"),
       supabase.from("orcamento").select("*").in("company_id",cIds).eq("periodo",mesAno),
     ]);
 
@@ -116,7 +116,7 @@ function VisaoMensalPageInner(){
     const orcLk:Record<string,number>={};let oRec=0,oImp=0,oCst=0,oDsp=0,oFin=0;
     if(orcData)for(const o of orcData){const k=(o.categoria||"").toLowerCase().trim();orcLk[k]=Number(o.valor_orcado)||0;if(o.tipo==="receita")oRec+=orcLk[k];else{const cls=classifyDesp("",k);if(cls==="impostos")oImp+=orcLk[k];else if(cls==="custos")oCst+=orcLk[k];else if(cls==="financeiro")oFin+=orcLk[k];else oDsp+=orcLk[k];}}
 
-    const lns=(blData||[]).map(b=>({id:b.id,nome:b.name||b.nome||""}));
+    const lns=(blData||[]).map((b:any)=>({id:b.id,nome:b.name||b.nome||"",keywords:(b.business_line_keywords||[]).map((k:any)=>({kw:(k.keyword||"").toLowerCase(),pr:k.prioridade||1})).sort((a:any,b:any)=>b.pr-a.pr)}));
     const addDia=(obj:Record<number,number>,d:number,v:number)=>{obj[d]=(obj[d]||0)+v;};
     const addLanc=(obj:Record<number,Lanc[]>,d:number,l:Lanc)=>{if(!obj[d])obj[d]=[];obj[d].push(l);};
 
@@ -132,7 +132,7 @@ function VisaoMensalPageInner(){
         const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
         const cf=String(r.codigo_cliente_fornecedor||"");const nome=cliMap[cf]||`Cliente ${cf}`;
         const cat=r.codigo_categoria||"";const catN=catMap[cat]||r.descricao_categoria||cat;
-        let lnId="geral";for(const ln of lns){if(catN.toLowerCase().includes(ln.nome.toLowerCase())||ln.nome.toLowerCase().includes(catN.toLowerCase())){lnId=ln.id;break;}}
+        let lnId="geral";let bestScore=0;for(const ln of lns){const catLow=catN.toLowerCase();let score=0;for(const k of (ln.keywords||[])){if(catLow.includes(k.kw)){score=k.pr;break;}}if(score===0&&ln.nome&&(catLow.includes(ln.nome.toLowerCase())||ln.nome.toLowerCase().includes(catLow)))score=1;if(score>bestScore){bestScore=score;lnId=ln.id;}}
         if(!recByLn[lnId])recByLn[lnId]={};
         if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
         recByLn[lnId][nome].t+=v;addDia(recByLn[lnId][nome].d,dia,v);
@@ -147,7 +147,7 @@ function VisaoMensalPageInner(){
       const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
       const nome=r.nome_pessoa||"Cliente";const catN=r.subcategoria||r.categoria||"Outros";
-      let lnId="geral";for(const ln of lns){if(catN.toLowerCase().includes(ln.nome.toLowerCase())){lnId=ln.id;break;}}
+      let lnId="geral";let bestScore=0;for(const ln of lns){const catLow=catN.toLowerCase();let score=0;for(const k of (ln.keywords||[])){if(catLow.includes(k.kw)){score=k.pr;break;}}if(score===0&&ln.nome&&catLow.includes(ln.nome.toLowerCase()))score=1;if(score>bestScore){bestScore=score;lnId=ln.id;}}
       if(!recByLn[lnId])recByLn[lnId]={};
       if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
       recByLn[lnId][nome].t+=v;addDia(recByLn[lnId][nome].d,dia,v);
