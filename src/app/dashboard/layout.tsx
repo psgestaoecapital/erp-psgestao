@@ -16,6 +16,7 @@ const MENU: { href: string; label: string; icon: string; modKey: string }[] = [
   { href: '/dashboard/ajuda',        label: 'Ajuda',         icon: '❓', modKey: 'ajuda' },
   { href: '/dashboard/industrial',   label: 'Industrial',    icon: '🏭', modKey: 'industrial' },
   { href: '/dashboard/custo',        label: 'Custo',         icon: '💲', modKey: 'custo' },
+  { href: '/dashboard/custeio',      label: 'Custeio',       icon: '🎯', modKey: 'custeio' },
   { href: '/dashboard/anti-fraude',  label: 'Anti-Fraude',   icon: '🛡️', modKey: 'anti-fraude-basico' },
   { href: '/dashboard/operacional',  label: 'Operacional',   icon: '⚙️', modKey: 'operacional' },
   { href: '/dashboard/importar',     label: 'Importar',      icon: '📥', modKey: 'importar' },
