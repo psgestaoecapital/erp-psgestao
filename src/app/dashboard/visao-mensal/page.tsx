@@ -244,15 +244,15 @@ function VisaoMensalPageInner(){
     const coletaRec:Lanc[]=[];const coletaPag:Lanc[]=[];
     // Coletar de recFilhos (receitas)
     const walkRec=(r:Row)=>{
-      if(r.lancs){for(const[d,items]of Object.entries(r.lancs))for(const it of items)if(Number(d)>=hojeD&&Number(d)<=ate)coletaRec.push({...it,dia:Number(d)});}
-      if(r.filhos)for(const f of r.filhos)walkRec(f);
+      if(r.filhos&&r.filhos.length>0){for(const f of r.filhos)walkRec(f);}
+      else if(r.lancs){for(const[d,items]of Object.entries(r.lancs))for(const it of items)if(Number(d)>=hojeD&&Number(d)<=ate)coletaRec.push({...it,dia:Number(d)});}
     };
     // recRow.filhos contem os lancamentos de receitas
     if(recRow.filhos)for(const f of recRow.filhos)walkRec(f);
     // Coletar de despesas
     const walkPag=(r:Row)=>{
-      if(r.lancs){for(const[d,items]of Object.entries(r.lancs))for(const it of items)if(Number(d)>=hojeD&&Number(d)<=ate)coletaPag.push({...it,dia:Number(d)});}
-      if(r.filhos)for(const f of r.filhos)walkPag(f);
+      if(r.filhos&&r.filhos.length>0){for(const f of r.filhos)walkPag(f);}
+      else if(r.lancs){for(const[d,items]of Object.entries(r.lancs))for(const it of items)if(Number(d)>=hojeD&&Number(d)<=ate)coletaPag.push({...it,dia:Number(d)});}
     };
     if(impRow.filhos)for(const f of impRow.filhos)walkPag(f);
     if(cstRow.filhos)for(const f of cstRow.filhos)walkPag(f);
