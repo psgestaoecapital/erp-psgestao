@@ -12,6 +12,18 @@ const fmtRFull=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits
 type Lanc={dia:number;valor:number;doc:string;obs:string;cliente:string;categoria:string;catCod:string;status:string;venc:string;emis:string;};
 type Row={id:string;nome:string;grp:string;total:number;orc:number;dias:Record<number,number>;lancs:Record<number,Lanc[]>;filhos?:Row[];};
 
+// ═══ DEDUP — Remove lançamentos duplicados por chave composta ═══
+const dedupLancs=(arr:Lanc[]):Lanc[]=>{
+  if(!arr||arr.length===0)return[];
+  const seen=new Set<string>();
+  return arr.filter(l=>{
+    const key=`${l.dia}|${(l.cliente||"").trim().toLowerCase()}|${String(l.valor)}|${(l.doc||"").trim().toLowerCase()}|${(l.obs||l.categoria||"").trim().toLowerCase().slice(0,40)}`;
+    if(seen.has(key))return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 // ═══ STATUS VISUAL — Realizado / No Prazo / Atrasado ═══
 const statusInfo=(l:Lanc):{cor:string;label:string;icon:string}=>{
   const st=(l.status||"").toUpperCase();
@@ -238,7 +250,7 @@ function VisaoMensalPageInner(){
 
     let ac=0;setFluxo(dias.map(d=>{const e=entD[d]||0;const s=saiD[d]||0;ac+=e-s;return{dia:d,ent:e,sai:s,acum:ac};}));
 
-    // Proximos 5 dias (hoje + 4)
+    // ═══ Proximos 5 dias (hoje + 4) — COM DEDUP ═══
     const hojeD=dHj||1;
     const ate=hojeD+4;
     const coletaRec:Lanc[]=[];const coletaPag:Lanc[]=[];
@@ -259,9 +271,12 @@ function VisaoMensalPageInner(){
     if(dspRow.filhos)for(const f of dspRow.filhos)walkPag(f);
     if(finRow.filhos)for(const f of finRow.filhos)walkPag(f);
 
-    coletaRec.sort((a,b)=>a.dia-b.dia);
-    coletaPag.sort((a,b)=>a.dia-b.dia);
-    setProxLancs({rec:coletaRec,pag:coletaPag});
+    // ✅ FIX v8.8.0: Dedup + sort antes de setar estado
+    const recDedup = dedupLancs(coletaRec);
+    const pagDedup = dedupLancs(coletaPag);
+    recDedup.sort((a,b)=>a.dia-b.dia);
+    pagDedup.sort((a,b)=>a.dia-b.dia);
+    setProxLancs({rec:recDedup,pag:pagDedup});
     setLoading(false);
   };
 
@@ -520,7 +535,7 @@ function VisaoMensalPageInner(){
         </div>
       )}
 
-      <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:12}}>PS Gestão e Capital — Visão Diária v8.7.7</div>
+      <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:12}}>PS Gestão e Capital — Visão Diária v8.8.0</div>
     </div>
   );
 }
