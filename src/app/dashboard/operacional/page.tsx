@@ -31,18 +31,25 @@ type Pessoa={id?:string;nome_fantasia:string;razao_social?:string;cnpj_cpf?:stri
 type ContaBancaria={id?:string;nome:string;banco?:string;agencia?:string;conta?:string;tipo?:string;saldo_inicial?:number;ativo?:boolean}
 type Lanc={id?:string;tipo:string;nome_pessoa?:string;cliente_id?:string;fornecedor_id?:string;data_emissao?:string;data_vencimento:string;data_previsao?:string;data_pagamento?:string;valor_documento:number;status:string;categoria?:string;subcategoria?:string;numero_documento?:string;descricao?:string;parcela_atual?:number;total_parcelas?:number;forma_pagamento?:string;conta_bancaria_id?:string;juros?:number;multa?:number;desconto?:number;observacao_interna?:string;tags?:string[];intervalo_dias?:number;recorrente?:boolean;frequencia?:string}
 
-// Date input component - with mask + native picker
+// Date input component - with mask + native picker (entire field clickable)
 function DateInput({value,onChange,label,required,color}:{value:string;onChange:(v:string)=>void;label?:string;required?:boolean;color?:string}){
   const dateToISO=(br:string)=>{const m=br.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return m?`${m[3]}-${m[2]}-${m[1]}`:''}
   const isoToBR=(iso:string)=>{const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?`${m[3]}/${m[2]}/${m[1]}`:''}
+  const dateRef=React.useRef<HTMLInputElement>(null)
+  const openPicker=()=>{
+    if(dateRef.current){
+      try{(dateRef.current as any).showPicker()}catch{dateRef.current.click()}
+    }
+  }
   return(
     <div style={{position:'relative'}}>
       {label&&<div style={{fontSize:10,color:color||C.muted,marginBottom:3,fontWeight:required?600:400}}>{label}{required&&' *'}</div>}
-      <div style={{position:'relative'}}>
+      <div style={{position:'relative',display:'flex',alignItems:'center'}}>
         <input value={value||''} onChange={e=>onChange(maskDate(e.target.value))} placeholder="DD/MM/AAAA" maxLength={10}
-          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:'8px 34px 8px 10px',fontSize:12,outline:'none',width:'100%',fontFamily:'Arial'}}/>
-        <input type="date" value={dateToISO(value||'')} onChange={e=>onChange(isoToBR(e.target.value))}
-          style={{position:'absolute',right:4,top:4,width:26,height:26,opacity:0.7,cursor:'pointer',background:'transparent',border:'none',colorScheme:'dark'}}/>
+          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:'8px 40px 8px 10px',fontSize:12,outline:'none',width:'100%',fontFamily:'Arial'}}/>
+        <button type="button" onClick={openPicker} style={{position:'absolute',right:4,top:'50%',transform:'translateY(-50%)',width:30,height:26,cursor:'pointer',background:C.gold+'20',border:`1px solid ${C.gold}40`,borderRadius:4,color:C.gold,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>📅</button>
+        <input ref={dateRef} type="date" value={dateToISO(value||'')} onChange={e=>{const newVal=isoToBR(e.target.value);onChange(newVal)}}
+          style={{position:'absolute',right:4,top:4,width:30,height:26,opacity:0,cursor:'pointer',pointerEvents:'none',colorScheme:'dark'}}/>
       </div>
     </div>
   )
