@@ -1,6 +1,7 @@
 'use client'
 
 import HelpWidget from '@/components/HelpWidget'
+import LgpdConsentModal from '@/components/LgpdConsentModal'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -309,6 +310,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <main className={demo ? 'ps-demo' : ''}>{children}</main>
       <HelpWidget />
+      <LgpdConsentModal />
+      {/* Footer LGPD */}
+      <div style={{textAlign:'center',padding:'12px 16px',borderTop:'1px solid #2A2822',background:'#1A1410',fontSize:10,color:'#918C82'}}>
+        <a href='/termos' target='_blank' style={{color:'#C8941A',textDecoration:'none',margin:'0 8px'}}>Termos de Uso</a>
+        ·
+        <a href='/privacidade' target='_blank' style={{color:'#C8941A',textDecoration:'none',margin:'0 8px'}}>Política de Privacidade</a>
+        ·
+        <a href='mailto:paravizi-salvi@gpconsultoriadeinvestimentos.com' style={{color:'#C8941A',textDecoration:'none',margin:'0 8px'}}>DPO</a>
+        <div style={{marginTop:4,fontSize:9,color:'#706C64'}}>PS Gestão e Capital LTDA · CNPJ 60.866.510/0001-78 · São Miguel do Oeste/SC</div>
+      </div>
     </div>
   )
 }
