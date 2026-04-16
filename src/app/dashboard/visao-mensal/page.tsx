@@ -40,7 +40,7 @@ const STATUS_EXCL=new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVO
 
 function classifyDesp(cat:string,nome:string):string{
   const c=cat.toLowerCase();const n=nome.toLowerCase();
-  if(c.startsWith("3.")||n.includes("imposto")||n.includes("icms")||n.includes("iss")||n.includes("pis")||n.includes("cofins")||n.includes("das")||n.includes("irpj")||n.includes("csll")||n.includes("simples")||n.includes("darf")||n.includes("tribut"))return"impostos";
+  if(c.startsWith("3.04")||n.includes("imposto")||n.includes("icms")||n.includes("iss")||n.includes("pis")||n.includes("cofins")||n.includes("das")||n.includes("irpj")||n.includes("csll")||n.includes("simples")||n.includes("darf")||n.includes("tribut"))return"impostos";
   if(c.startsWith("4.")||c.startsWith("5.")||n.includes("juros")||n.includes("financiamento")||n.includes("parcela")||n.includes("empréstimo")||n.includes("emprestimo")||n.includes("pronampe")||n.includes("fampe")||n.includes("peac")||n.includes("bndes")||n.includes("taxa bancária")||n.includes("iof"))return"financeiro";
   if(c.startsWith("2.01")||c.startsWith("2.02")||c.startsWith("2.03")||n.includes("cmv")||n.includes("matéria")||n.includes("material")||n.includes("insumo")||n.includes("mercadoria")||n.includes("mão de obra")||n.includes("mao de obra")||n.includes("folha")||n.includes("salário")||n.includes("salario")||n.includes("encargo")||n.includes("fgts")||n.includes("inss")||n.includes("férias")||n.includes("13")||n.includes("gps"))return"custos";
   return"despesas";
@@ -141,11 +141,11 @@ function VisaoMensalPageInner(){
     }
 
     // ═══ DADOS erp_receber (digitados no PS Gestão) ═══
-    const{data:erpRec}=await supabase.from("erp_receber").select("*").in("company_id",cIds).neq("status","cancelado");
+    const{data:erpRec}=await supabase.from("erp_lancamentos").select("*").eq("tipo","receber").in("company_id",cIds).neq("status","CANCELADO");
     if(erpRec)for(const r of erpRec){
-      const v=Number(r.valor)||0;if(v<=0)continue;
+      const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
-      const nome=r.cliente_nome||"PS Gestão";const catN=r.categoria||"Outros";
+      const nome=r.nome_pessoa||"PS Gestão";const catN=r.categoria||"Outros";
       let lnId="geral";for(const ln of lns){if(catN.toLowerCase().includes(ln.nome.toLowerCase())){lnId=ln.id;break;}}
       if(!recByLn[lnId])recByLn[lnId]={};
       if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
@@ -192,12 +192,12 @@ function VisaoMensalPageInner(){
     }
 
     // ═══ DADOS erp_pagar (digitados no PS Gestão) ═══
-    const{data:erpPag}=await supabase.from("erp_pagar").select("*").in("company_id",cIds).neq("status","cancelado");
+    const{data:erpPag}=await supabase.from("erp_lancamentos").select("*").eq("tipo","pagar").in("company_id",cIds).neq("status","CANCELADO");
     if(erpPag)for(const r of erpPag){
-      const v=Number(r.valor)||0;if(v<=0)continue;
+      const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
       const catN=r.categoria||r.descricao||"Outros";
-      const forn=r.fornecedor_nome||r.descricao||"PS Gestão";
+      const forn=r.nome_pessoa||r.descricao||"PS Gestão";
       const cls=classifyDesp("",catN);
       const gk=catN;
       if(!grpData[cls][gk])grpData[cls][gk]={t:0,d:{},l:{}};
