@@ -196,8 +196,7 @@ export default function OperacionalPage(){
     if(err){setMsg('❌ '+err.message)}
     else{
       setMsg(editId?'✅ Atualizado!':totalParcelas>1?`✅ ${totalParcelas} parcelas cadastradas!`:'✅ Cadastrado!')
-      // Sync to omie_imports
-      await syncToOmie(baseRecord,tipo,formL)
+      // NOTA: Não sincronizamos mais para omie_imports — dashboard lê direto de erp_lancamentos
       setShowForm(false);setEditId(null);setFormL({...emptyLanc,tipo});setCatSearch('');await loadAll()
     }
     setSaving(false);setTimeout(()=>setMsg(''),3000)
