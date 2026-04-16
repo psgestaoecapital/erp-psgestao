@@ -351,16 +351,36 @@ function VisaoMensalPageInner(){
       {!loading&&fluxo.length>0&&(
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:16}}>
           <div style={{fontSize:13,fontWeight:700,color:GOL,marginBottom:12}}>💵 Fluxo de Caixa — {nMes(mesAno)}</div>
-          <div style={{display:"flex",gap:0,alignItems:"flex-end",height:100,marginBottom:8,borderBottom:`1px solid ${BD}`}}>
-            {fluxo.map((f,i)=>{const hEnt=mxF>0?f.ent/mxF*100:0;const hSai=mxF>0?f.sai/mxF*100:0;
-              return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:1,position:"relative"}}
-                onMouseEnter={(e)=>showTip(e,[{dia:f.dia,valor:f.acum,doc:`Entrada: ${fmtRFull(f.ent)}`,obs:`Saída: ${fmtRFull(f.sai)}`,cliente:`Saldo dia: ${fmtRFull(f.ent-f.sai)}`,categoria:`Acum: ${fmtRFull(f.acum)}`,catCod:"",status:"",venc:"",emis:""}])} onMouseLeave={()=>setTip(null)}>
-                <div style={{display:"flex",gap:1,width:"80%",height:"100%",alignItems:"flex-end",justifyContent:"center"}}>
-                  <div style={{flex:1,height:`${Math.max(hEnt,f.ent>0?3:0)}%`,background:G,borderRadius:"2px 2px 0 0",minHeight:f.ent>0?3:0,border:f.dia===dHj?`1px solid ${GOL}`:"none"}} title={`Entrada: ${fmtRFull(f.ent)}`}/>
-                  <div style={{flex:1,height:`${Math.max(hSai,f.sai>0?3:0)}%`,background:R,borderRadius:"2px 2px 0 0",minHeight:f.sai>0?3:0,border:f.dia===dHj?`1px solid ${GOL}`:"none"}} title={`Saída: ${fmtRFull(f.sai)}`}/>
-                </div>
-              </div>;
-            })}
+          <div style={{position:"relative",height:140,marginBottom:8,borderTop:`1px solid ${BD}`,borderBottom:`1px solid ${BD}`}}>
+            {/* Linha do zero */}
+            {(()=>{
+              const vals=fluxo.map(f=>f.acum);
+              const mxP=Math.max(...vals,0);
+              const mxN=Math.min(...vals,0);
+              const range=mxP-mxN||1;
+              const zeroY=(mxP/range)*100;
+              return(
+                <>
+                  <div style={{position:"absolute",left:0,right:0,top:`${zeroY}%`,borderTop:`1px dashed ${GOL}60`,zIndex:1}}/>
+                  <div style={{position:"absolute",left:0,top:`calc(${zeroY}% - 14px)`,fontSize:8,color:GOL,zIndex:2,padding:"0 4px",background:BG2}}>R$ 0</div>
+                  <div style={{position:"absolute",right:0,top:2,fontSize:8,color:G,fontWeight:600}}>{fmtR(mxP)}</div>
+                  <div style={{position:"absolute",right:0,bottom:2,fontSize:8,color:R,fontWeight:600}}>{fmtR(mxN)}</div>
+                  <div style={{display:"flex",gap:0,height:"100%",alignItems:"stretch"}}>
+                    {fluxo.map((f,i)=>{
+                      const hPos=f.acum>0?(f.acum/range)*100:0;
+                      const hNeg=f.acum<0?(Math.abs(f.acum)/range)*100:0;
+                      return(
+                        <div key={i} style={{flex:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center"}}
+                          onMouseEnter={(e)=>showTip(e,[{dia:f.dia,valor:f.acum,doc:`Entrada: ${fmtRFull(f.ent)}`,obs:`Sa\u00edda: ${fmtRFull(f.sai)}`,cliente:`Saldo dia: ${fmtRFull(f.ent-f.sai)}`,categoria:`Acum: ${fmtRFull(f.acum)}`,catCod:"",status:"",venc:"",emis:""}])} onMouseLeave={()=>setTip(null)}>
+                          {f.acum>0&&<div style={{width:"70%",height:`${hPos}%`,background:`linear-gradient(180deg,${G},${G}80)`,borderRadius:"2px 2px 0 0",position:"absolute",bottom:`${100-zeroY}%`,border:f.dia===dHj?`1px solid ${GOL}`:"none",cursor:"help"}}/>}
+                          {f.acum<0&&<div style={{width:"70%",height:`${hNeg}%`,background:`linear-gradient(0deg,${R},${R}80)`,borderRadius:"0 0 2px 2px",position:"absolute",top:`${zeroY}%`,border:f.dia===dHj?`1px solid ${GOL}`:"none",cursor:"help"}}/>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
           <div style={{display:"flex"}}>{fluxo.map((f,i)=><div key={i} style={{flex:1,textAlign:"center",fontSize:7,color:f.dia===dHj?GOL:TXD}}>{f.dia}</div>)}</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginTop:12}}>
