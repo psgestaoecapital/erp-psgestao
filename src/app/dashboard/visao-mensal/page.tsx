@@ -59,6 +59,7 @@ function VisaoMensalPageInner(){
   const [tip,setTip]=useState<{x:number;y:number;items:Lanc[]}|null>(null);
   const [totals,setTotals]=useState({rec:0,imp:0,cst:0,dsp:0,fin:0,orcRec:0,orcImp:0,orcCst:0,orcDsp:0,orcFin:0});
   const [fluxo,setFluxo]=useState<{dia:number;ent:number;sai:number;acum:number}[]>([]);
+  const [proxLancs,setProxLancs]=useState<{rec:Lanc[];pag:Lanc[]}>({rec:[],pag:[]});
 
   const [ano,mes]=mesAno.split("-").map(Number);
   const diasN=new Date(ano,mes,0).getDate();
@@ -236,6 +237,31 @@ function VisaoMensalPageInner(){
     setTotals({rec:tRec,imp:tImp,cst:tCst,dsp:tDsp,fin:tFin,orcRec:oRec,orcImp:oImp,orcCst:oCst,orcDsp:oDsp,orcFin:oFin});
 
     let ac=0;setFluxo(dias.map(d=>{const e=entD[d]||0;const s=saiD[d]||0;ac+=e-s;return{dia:d,ent:e,sai:s,acum:ac};}));
+
+    // Proximos 5 dias (hoje + 4)
+    const hojeD=dHj||1;
+    const ate=hojeD+4;
+    const coletaRec:Lanc[]=[];const coletaPag:Lanc[]=[];
+    // Coletar de recFilhos (receitas)
+    const walkRec=(r:Row)=>{
+      if(r.lancs){for(const[d,items]of Object.entries(r.lancs))for(const it of items)if(Number(d)>=hojeD&&Number(d)<=ate)coletaRec.push({...it,dia:Number(d)});}
+      if(r.filhos)for(const f of r.filhos)walkRec(f);
+    };
+    // recRow.filhos contem os lancamentos de receitas
+    if(recRow.filhos)for(const f of recRow.filhos)walkRec(f);
+    // Coletar de despesas
+    const walkPag=(r:Row)=>{
+      if(r.lancs){for(const[d,items]of Object.entries(r.lancs))for(const it of items)if(Number(d)>=hojeD&&Number(d)<=ate)coletaPag.push({...it,dia:Number(d)});}
+      if(r.filhos)for(const f of r.filhos)walkPag(f);
+    };
+    if(impRow.filhos)for(const f of impRow.filhos)walkPag(f);
+    if(cstRow.filhos)for(const f of cstRow.filhos)walkPag(f);
+    if(dspRow.filhos)for(const f of dspRow.filhos)walkPag(f);
+    if(finRow.filhos)for(const f of finRow.filhos)walkPag(f);
+
+    coletaRec.sort((a,b)=>a.dia-b.dia);
+    coletaPag.sort((a,b)=>a.dia-b.dia);
+    setProxLancs({rec:coletaRec,pag:coletaPag});
     setLoading(false);
   };
 
@@ -415,6 +441,85 @@ function VisaoMensalPageInner(){
           {tip.items.length>5&&<div style={{fontSize:9,color:TXD}}>+{tip.items.length-5} mais</div>}
         </div>
       )}
+      {/* TABELAS DETALHE 5 DIAS */}
+      {!loading&&(proxLancs.rec.length>0||proxLancs.pag.length>0)&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:16}}>
+          {/* CONTAS A RECEBER */}
+          <div style={{background:BG2,borderRadius:12,border:`1px solid ${G}30`,padding:16}}>
+            <div style={{fontSize:13,fontWeight:700,color:G,marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+              📥 Contas a Receber — Próximos 5 dias
+              <span style={{fontSize:10,color:TXD,fontWeight:400}}>({proxLancs.rec.length} lanç.)</span>
+              <span style={{marginLeft:"auto",fontSize:12,color:G}}>{fmtR(proxLancs.rec.reduce((s,l)=>s+l.valor,0))}</span>
+            </div>
+            {proxLancs.rec.length===0?(
+              <div style={{padding:20,textAlign:"center",fontSize:11,color:TXD}}>Nenhuma receita nos próximos 5 dias</div>
+            ):(
+              <div style={{overflowY:"auto",maxHeight:320}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                  <thead style={{position:"sticky",top:0,background:BG2,zIndex:1}}>
+                    <tr style={{borderBottom:`1px solid ${G}40`}}>
+                      <th style={{padding:"6px 4px",textAlign:"left",fontSize:8,color:G}}>Dia</th>
+                      <th style={{padding:"6px 4px",textAlign:"left",fontSize:8,color:G}}>Cliente</th>
+                      <th style={{padding:"6px 4px",textAlign:"left",fontSize:8,color:G}}>Descrição</th>
+                      <th style={{padding:"6px 4px",textAlign:"right",fontSize:8,color:G}}>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {proxLancs.rec.map((l,i)=>{const si=statusInfo(l);return(
+                      <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`,borderLeft:`2px solid ${si.cor}`}}>
+                        <td style={{padding:"5px 4px",fontWeight:l.dia===dHj?700:400,color:l.dia===dHj?GOL:TX,whiteSpace:"nowrap"}}>
+                          {l.dia===dHj?"HOJE":`${String(l.dia).padStart(2,"0")}/${String(mes).padStart(2,"0")}`}
+                        </td>
+                        <td style={{padding:"5px 4px",color:TX,maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={l.cliente}>{l.cliente}</td>
+                        <td style={{padding:"5px 4px",color:TXM,fontSize:9,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={l.obs||l.categoria}>{l.obs||l.categoria}</td>
+                        <td style={{padding:"5px 4px",textAlign:"right",color:G,fontWeight:600,whiteSpace:"nowrap"}}>{fmtR(l.valor)}</td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* CONTAS A PAGAR */}
+          <div style={{background:BG2,borderRadius:12,border:`1px solid ${R}30`,padding:16}}>
+            <div style={{fontSize:13,fontWeight:700,color:R,marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+              📤 Contas a Pagar — Próximos 5 dias
+              <span style={{fontSize:10,color:TXD,fontWeight:400}}>({proxLancs.pag.length} lanç.)</span>
+              <span style={{marginLeft:"auto",fontSize:12,color:R}}>{fmtR(proxLancs.pag.reduce((s,l)=>s+l.valor,0))}</span>
+            </div>
+            {proxLancs.pag.length===0?(
+              <div style={{padding:20,textAlign:"center",fontSize:11,color:TXD}}>Nenhuma despesa nos próximos 5 dias</div>
+            ):(
+              <div style={{overflowY:"auto",maxHeight:320}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                  <thead style={{position:"sticky",top:0,background:BG2,zIndex:1}}>
+                    <tr style={{borderBottom:`1px solid ${R}40`}}>
+                      <th style={{padding:"6px 4px",textAlign:"left",fontSize:8,color:R}}>Dia</th>
+                      <th style={{padding:"6px 4px",textAlign:"left",fontSize:8,color:R}}>Fornecedor</th>
+                      <th style={{padding:"6px 4px",textAlign:"left",fontSize:8,color:R}}>Descrição</th>
+                      <th style={{padding:"6px 4px",textAlign:"right",fontSize:8,color:R}}>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {proxLancs.pag.map((l,i)=>{const si=statusInfo(l);return(
+                      <tr key={i} style={{borderBottom:`0.5px solid ${BD}30`,borderLeft:`2px solid ${si.cor}`}}>
+                        <td style={{padding:"5px 4px",fontWeight:l.dia===dHj?700:400,color:l.dia===dHj?GOL:TX,whiteSpace:"nowrap"}}>
+                          {l.dia===dHj?"HOJE":`${String(l.dia).padStart(2,"0")}/${String(mes).padStart(2,"0")}`}
+                        </td>
+                        <td style={{padding:"5px 4px",color:TX,maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={l.cliente}>{l.cliente}</td>
+                        <td style={{padding:"5px 4px",color:TXM,fontSize:9,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={l.obs||l.categoria}>{l.obs||l.categoria}</td>
+                        <td style={{padding:"5px 4px",textAlign:"right",color:R,fontWeight:600,whiteSpace:"nowrap"}}>{fmtR(l.valor)}</td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:12}}>PS Gestão e Capital — Visão Diária v8.7.7</div>
     </div>
   );
