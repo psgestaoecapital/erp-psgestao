@@ -3,10 +3,9 @@
  * PS GESTÃO ERP — dataFilters.ts
  * FONTE ÚNICA DE VERDADE para todas as regras de filtragem
  * 
- * REGRA: Nenhum módulo filtra dados por conta própria.
- * Todos importam daqui. Se a regra muda, muda num lugar só.
- * 
- * v1.1 — 17/04/2026 (com alias applyStandardFilters)
+ * v1.2 — 17/04/2026
+ * Inclui aliases de compatibilidade para código existente:
+ * applyStandardFilters, applyBPOFilters, filterSummary, Lancamento
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -256,10 +255,72 @@ export function filtrarRegistros<T extends DedupRecord & { status?: string; stat
   };
 }
 
-// ═══ 8. COMPATIBILIDADE — Alias para código existente ═══
-// As API routes dashboard, dre, fluxo-caixa e linhas-negocio/dre
-// importam applyStandardFilters. Este alias garante compatibilidade.
+// ═══════════════════════════════════════════════════════════════
+// 8. COMPATIBILIDADE — Aliases para código existente
+// Garante que módulos antigos continuam funcionando sem alteração
+// ═══════════════════════════════════════════════════════════════
+
+// Tipo Lancamento usado por useBPOData.ts e outros
+export interface Lancamento {
+  id?: string | number;
+  omie_id?: string | number;
+  nome_pessoa?: string;
+  fornecedor?: string;
+  cliente?: string;
+  descricao?: string;
+  observacao?: string;
+  valor?: number;
+  valor_documento?: number;
+  data_previsao?: string;
+  data_vencimento?: string;
+  data_emissao?: string;
+  numero_documento?: string;
+  status?: string;
+  status_titulo?: string;
+  tipo?: string;
+  categoria?: string;
+  subcategoria?: string;
+  descricao_categoria?: string;
+  codigo_categoria?: string;
+  company_id?: string;
+  [key: string]: any;
+}
+
+// Usado por: src/app/api/dashboard/route.ts, dre/route.ts,
+// fluxo-caixa/route.ts, linhas-negocio/dre/route.ts
 export function applyStandardFilters<T extends DedupRecord>(registros: T[]): T[] {
   const resultado = filtrarRegistros(registros);
   return resultado.registros;
+}
+
+// Usado por: src/hooks/useBPOData.ts
+export function applyBPOFilters<T extends DedupRecord>(registros: T[]): T[] {
+  const resultado = filtrarRegistros(registros, {
+    excluirCancelados: true,
+    excluirDuplicados: true,
+    separarEmprestimos: true,
+  });
+  return resultado.registros;
+}
+
+// Usado por: src/hooks/useBPOData.ts
+export function filterSummary<T extends DedupRecord>(registros: T[]): {
+  total: number;
+  ativos: number;
+  cancelados: number;
+  duplicados: number;
+  emprestimos: number;
+} {
+  const resultado = filtrarRegistros(registros, {
+    excluirCancelados: true,
+    excluirDuplicados: true,
+    separarEmprestimos: true,
+  });
+  return {
+    total: resultado.total_original,
+    ativos: resultado.registros.length,
+    cancelados: resultado.excluidos,
+    duplicados: resultado.duplicados,
+    emprestimos: resultado.emprestimos.length,
+  };
 }
