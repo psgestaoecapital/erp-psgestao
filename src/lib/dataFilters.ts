@@ -169,13 +169,11 @@ export function filtrarRegistros<T extends DedupRecord>(registros: T[], opcoes: 
   let excluidos = 0;
   let duplicados = 0;
   const emprestimos: T[] = [];
-
   if (excluirCancelados) {
     const antes = resultado.length;
     resultado = resultado.filter((r: any) => !isExcluido(r.status || r.status_titulo || ""));
     excluidos = antes - resultado.length;
   }
-
   if (separarEmprestimos) {
     const limpos: T[] = [];
     for (const r of resultado) {
@@ -186,33 +184,25 @@ export function filtrarRegistros<T extends DedupRecord>(registros: T[], opcoes: 
     }
     resultado = limpos;
   }
-
   if (excluirDuplicados) {
     const antes = resultado.length;
     resultado = deduplicar(resultado);
     duplicados = antes - resultado.length;
   }
-
   return { registros: resultado, emprestimos, excluidos, duplicados, total_original: totalOriginal };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// 9. ALIASES DE COMPATIBILIDADE
-// Garante que TODOS os módulos existentes continuam funcionando
-// ═══════════════════════════════════════════════════════════════
+// ═══ 9. ALIASES DE COMPATIBILIDADE ═══
 
-// Usado por: dashboard/route.ts, dre/route.ts, fluxo-caixa/route.ts, linhas-negocio/dre/route.ts
 export function applyStandardFilters<T extends DedupRecord>(registros: T[]): T[] {
   return filtrarRegistros(registros).registros;
 }
 
-// Usado por: hooks/useBPOData.ts
 export function applyBPOFilters<T extends DedupRecord>(registros: T[]): T[] {
   return filtrarRegistros(registros, { excluirCancelados: true, excluirDuplicados: true, separarEmprestimos: true }).registros;
 }
 
-// Usado por: hooks/useBPOData.ts, components/bpo/BPODashboard.tsx
-export function filterSummary<T extends DedupRecord>(registros: T[]): {
+export function filterSummary<T extends DedupRecord>(registros: T[], filtrados?: T[]): {
   total: number;
   ativos: number;
   cancelados: number;
@@ -222,6 +212,19 @@ export function filterSummary<T extends DedupRecord>(registros: T[]): {
   total_original: number;
   excluidos: number;
 } {
+  if (filtrados) {
+    const cancelados = registros.filter((r: any) => isExcluido(r.status || r.status_titulo || "")).length;
+    return {
+      total: registros.length,
+      ativos: filtrados.length,
+      cancelados,
+      duplicados: registros.length - cancelados - filtrados.length,
+      emprestimos: 0,
+      total_filtrado: filtrados.length,
+      total_original: registros.length,
+      excluidos: registros.length - filtrados.length,
+    };
+  }
   const r = filtrarRegistros(registros, { excluirCancelados: true, excluirDuplicados: true, separarEmprestimos: true });
   return {
     total: r.total_original,
