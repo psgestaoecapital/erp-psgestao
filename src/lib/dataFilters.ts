@@ -1,69 +1,288 @@
 /**
- * dataFilters.ts — PS Gestão v1.4
- * Filtros padrão unificados + filtro por linha de negócio
+ * ═══════════════════════════════════════════════════════════════
+ * PS GESTÃO ERP — dataFilters.ts
+ * FONTE ÚNICA DE VERDADE para todas as regras de filtragem
+ * 
+ * REGRA: Nenhum módulo filtra dados por conta própria.
+ * Todos importam daqui. Se a regra muda, muda num lugar só.
+ * 
+ * v1.0 — 17/04/2026
+ * ═══════════════════════════════════════════════════════════════
  */
 
-export interface Lancamento {
-  id: string
-  status?: string
-  tipo?: string
-  is_duplicate?: boolean
-  categoria?: string
-  linha_negocio_id?: string
-  rateio_percentual?: number
-  valor?: number | string
-  [key: string]: unknown
+// ═══ 1. STATUS DE EXCLUSÃO ═══
+// Registros com estes status são EXCLUÍDOS de qualquer cálculo financeiro.
+// Usados tanto para dados Omie (status_titulo) quanto ERP (status).
+export const STATUS_EXCLUIDOS = new Set([
+  "CANCELADO", "CANCELADA",
+  "ESTORNADO", "ESTORNADA",
+  "DEVOLVIDO", "DEVOLVIDA",
+  "ANULADO", "ANULADA",
+  "DUPLICADO_REMOVIDO",
+]);
+
+// Função para checar exclusão (case-insensitive)
+export function isExcluido(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return STATUS_EXCLUIDOS.has(status.toUpperCase().trim());
 }
 
-/** Remove cancelados, duplicatas e empréstimos — padrão do dashboard */
-export function applyStandardFilters(data: Lancamento[]): Lancamento[] {
-  const seen = new Set<string>()
-  const excluded = ['emprestimo', 'transferencia_interna', 'aporte_socio']
-  return data.filter(item => {
-    if (item.status === 'cancelado') return false
-    if (item.is_duplicate === true) return false
-    if (item.tipo && excluded.includes(item.tipo)) return false
-    if (seen.has(item.id)) return false
-    seen.add(item.id)
-    return true
-  })
+// ═══ 2. DETECÇÃO DE EMPRÉSTIMOS ═══
+// Empréstimos NÃO devem ser contados como receita/despesa operacional.
+// São separados na categoria "Financeiro" da DRE.
+const EMPRESTIMO_KEYWORDS = [
+  "emprestimo", "empréstimo",
+  "financiamento",
+  "pronampe", "fampe", "peac", "bndes",
+  "contrato sicoob", "contrato sicredi", "contrato caixa",
+  "parcela contrato",
+];
+
+export function isEmprestimo(descricao: string, categoria: string, obs: string): boolean {
+  const texto = `${descricao} ${categoria} ${obs}`.toLowerCase();
+  return EMPRESTIMO_KEYWORDS.some(kw => texto.includes(kw));
 }
 
-/** Filtro por linha de negócio específica */
-export function applyLinhaFilter(data: Lancamento[], linhaId: string): Lancamento[] {
-  return applyStandardFilters(data).filter(item => item.linha_negocio_id === linhaId)
+// ═══ 3. DEDUPLICAÇÃO ═══
+// Remove registros duplicados por chave composta.
+// Estratégia: ID único > omie_id > chave composta (nome+valor+data+doc)
+export interface DedupRecord {
+  id?: string | number;
+  omie_id?: string | number;
+  nome_pessoa?: string;
+  fornecedor?: string;
+  cliente?: string;
+  descricao?: string;
+  valor?: number;
+  valor_documento?: number;
+  data_previsao?: string;
+  data_vencimento?: string;
+  data_emissao?: string;
+  numero_documento?: string;
+  [key: string]: any;
 }
 
-/** Retorna lançamentos sem linha atribuída (útil para identificar não categorizados) */
-export function applyNaoCategorizadoFilter(data: Lancamento[]): Lancamento[] {
-  return applyStandardFilters(data).filter(item => !item.linha_negocio_id)
-}
+export function deduplicar<T extends DedupRecord>(registros: T[]): T[] {
+  if (!registros || registros.length === 0) return [];
 
-/** Aplica rateio percentual ao valor do lançamento */
-export function aplicarRateio(lancamento: Lancamento): number {
-  const valor = Number(lancamento.valor ?? 0)
-  const rateio = Number(lancamento.rateio_percentual ?? 100) / 100
-  return valor * rateio
-}
+  const seen = new Set<string>();
+  const result: T[] = [];
 
-/** Filtro BPO: igual ao padrão + exclui entradas sem categoria */
-export function applyBPOFilters(data: Lancamento[]): Lancamento[] {
-  return applyStandardFilters(data).filter(item =>
-    item.categoria && String(item.categoria).trim() !== ''
-  )
-}
+  for (const r of registros) {
+    // Camada 1: ID único do banco
+    if (r.id) {
+      const key = `id:${String(r.id)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(r);
+      continue;
+    }
 
-/** Filtro V19 / Consultor IA: igual ao padrão */
-export function applyV19Filters(data: Lancamento[]): Lancamento[] {
-  return applyStandardFilters(data)
-}
+    // Camada 2: omie_id
+    if (r.omie_id) {
+      const key = `omie:${String(r.omie_id)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(r);
+      continue;
+    }
 
-/** Resumo de filtro para debug */
-export function filterSummary(original: Lancamento[], filtered: Lancamento[]) {
-  return {
-    total_original: original.length,
-    total_filtrado: filtered.length,
-    excluidos: original.length - filtered.length,
-    sem_linha: filtered.filter(l => !l.linha_negocio_id).length,
+    // Camada 3: chave composta
+    const nome = (r.nome_pessoa || r.fornecedor || r.cliente || "").trim().toLowerCase();
+    const valor = String(r.valor || r.valor_documento || 0);
+    const data = r.data_previsao || r.data_vencimento || r.data_emissao || "";
+    const doc = (r.numero_documento || r.descricao || "").trim().toLowerCase().slice(0, 30);
+    const compositeKey = `comp:${nome}|${valor}|${data}|${doc}`;
+
+    if (seen.has(compositeKey)) continue;
+    seen.add(compositeKey);
+    result.push(r);
   }
+
+  return result;
+}
+
+// ═══ 4. CLASSIFICAÇÃO DRE ═══
+// Classifica uma despesa em: impostos | custos | despesas | financeiro
+// Usada pela Visão Diária, Consultor IA, V19/V20, BPO
+export type ClasseDRE = "impostos" | "custos" | "despesas" | "financeiro";
+
+export function classificarDespesa(categoria: string, nome: string): ClasseDRE {
+  const c = (categoria || "").toLowerCase();
+  const n = (nome || "").toLowerCase();
+
+  // Impostos e tributos
+  if (
+    c.startsWith("3.04") ||
+    n.includes("imposto") || n.includes("icms") || n.includes("iss") ||
+    n.includes("pis") || n.includes("cofins") || n.includes("das") ||
+    n.includes("irpj") || n.includes("csll") || n.includes("simples") ||
+    n.includes("darf") || n.includes("tribut") ||
+    n.includes("cbs") || n.includes("ibs")  // Reforma tributária
+  ) return "impostos";
+
+  // Financeiro (juros, empréstimos, taxas bancárias)
+  if (
+    c.startsWith("4.") || c.startsWith("5.") ||
+    n.includes("juros") || n.includes("financiamento") ||
+    n.includes("parcela") || n.includes("empréstimo") || n.includes("emprestimo") ||
+    n.includes("pronampe") || n.includes("fampe") || n.includes("peac") ||
+    n.includes("bndes") || n.includes("taxa bancária") || n.includes("taxa bancaria") ||
+    n.includes("iof") || n.includes("tarifa bancária") || n.includes("tarifa bancaria")
+  ) return "financeiro";
+
+  // Custos diretos (CMV, matéria-prima, mão de obra direta)
+  if (
+    c.startsWith("2.01") || c.startsWith("2.02") || c.startsWith("2.03") ||
+    n.includes("cmv") || n.includes("matéria") || n.includes("materia") ||
+    n.includes("material") || n.includes("insumo") || n.includes("mercadoria") ||
+    n.includes("mão de obra") || n.includes("mao de obra") ||
+    n.includes("folha") || n.includes("salário") || n.includes("salario") ||
+    n.includes("encargo") || n.includes("fgts") || n.includes("inss") ||
+    n.includes("férias") || n.includes("ferias") || n.includes("13") || n.includes("gps")
+  ) return "custos";
+
+  // Despesas operacionais (tudo que sobra)
+  return "despesas";
+}
+
+// ═══ 5. PARSING DE DATA ═══
+// Unifica o parsing de datas que vêm do Omie em formatos variados
+export function parseData(dt: string | null | undefined): Date | null {
+  if (!dt) return null;
+
+  // Formato dd/mm/yyyy ou dd-mm-yyyy
+  const p1 = dt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (p1) {
+    let ano = parseInt(p1[3]);
+    if (p1[3].length === 2) ano += 2000;
+    return new Date(ano, parseInt(p1[2]) - 1, parseInt(p1[1]));
+  }
+
+  // Formato yyyy-mm-dd ou yyyy/mm/dd (ISO)
+  const p2 = dt.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (p2) return new Date(parseInt(p2[1]), parseInt(p2[2]) - 1, parseInt(p2[3]));
+
+  // Tentar parse nativo como fallback
+  const d = new Date(dt);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Extrair dia do mês de uma data, dado ano/mês de referência
+export function parseDia(dt: string, ano: number, mes: number): number | null {
+  const d = parseData(dt);
+  if (!d) return null;
+  if (d.getFullYear() === ano && d.getMonth() + 1 === mes) return d.getDate();
+  return null;
+}
+
+// ═══ 6. STATUS VISUAL ═══
+// Determina a cor/label de status para um lançamento
+export type StatusVisual = { cor: string; label: string; };
+
+export function getStatusVisual(
+  status: string,
+  dataVencimento: string | null,
+  cores: { verde: string; vermelho: string; azul: string; cinza: string }
+): StatusVisual {
+  const st = (status || "").toUpperCase();
+
+  // Realizado (pago/recebido)
+  if (st.includes("RECEBIDO") || st.includes("PAGO") || st.includes("LIQUIDADO") || st === "PAGO") {
+    return { cor: cores.verde, label: "Realizado" };
+  }
+
+  // Cancelado
+  if (st.includes("CANCEL")) {
+    return { cor: cores.cinza, label: "Cancelado" };
+  }
+
+  // Verificar vencimento
+  if (dataVencimento) {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const dtVenc = parseData(dataVencimento);
+    if (dtVenc && dtVenc < hoje && !st.includes("CANCEL")) {
+      return { cor: cores.vermelho, label: "Atrasado" };
+    }
+  }
+
+  if (st.includes("VENCIDO") || st === "VENCIDO") {
+    return { cor: cores.vermelho, label: "Atrasado" };
+  }
+
+  // No prazo
+  return { cor: cores.azul, label: "No Prazo" };
+}
+
+// ═══ 7. FILTRO MESTRE ═══
+// Aplica TODOS os filtros padrão a um array de registros.
+// Este é o ponto de entrada que todos os módulos devem usar.
+export interface FiltroOpcoes {
+  excluirCancelados?: boolean;   // default: true
+  excluirDuplicados?: boolean;   // default: true
+  separarEmprestimos?: boolean;  // default: false (quando true, retorna em campo separado)
+}
+
+export interface ResultadoFiltrado<T> {
+  registros: T[];                // Registros limpos
+  emprestimos: T[];              // Empréstimos separados (se separarEmprestimos=true)
+  excluidos: number;             // Quantos foram excluídos
+  duplicados: number;            // Quantos duplicados removidos
+  total_original: number;        // Total antes de filtrar
+}
+
+export function filtrarRegistros<T extends DedupRecord & { status?: string; status_titulo?: string; observacao?: string; descricao?: string; descricao_categoria?: string; codigo_categoria?: string }>(
+  registros: T[],
+  opcoes: FiltroOpcoes = {}
+): ResultadoFiltrado<T> {
+  const {
+    excluirCancelados = true,
+    excluirDuplicados = true,
+    separarEmprestimos = false,
+  } = opcoes;
+
+  const totalOriginal = registros.length;
+  let resultado = [...registros];
+  let excluidos = 0;
+  let duplicados = 0;
+  const emprestimos: T[] = [];
+
+  // Passo 1: Remover cancelados
+  if (excluirCancelados) {
+    const antes = resultado.length;
+    resultado = resultado.filter(r => !isExcluido(r.status || r.status_titulo || ""));
+    excluidos = antes - resultado.length;
+  }
+
+  // Passo 2: Separar empréstimos
+  if (separarEmprestimos) {
+    const limpos: T[] = [];
+    for (const r of resultado) {
+      const desc = r.descricao || r.observacao || "";
+      const cat = r.descricao_categoria || r.codigo_categoria || "";
+      const obs = r.observacao || "";
+      if (isEmprestimo(desc, cat, obs)) {
+        emprestimos.push(r);
+      } else {
+        limpos.push(r);
+      }
+    }
+    resultado = limpos;
+  }
+
+  // Passo 3: Deduplicar
+  if (excluirDuplicados) {
+    const antes = resultado.length;
+    resultado = deduplicar(resultado);
+    duplicados = antes - resultado.length;
+  }
+
+  return {
+    registros: resultado,
+    emprestimos,
+    excluidos,
+    duplicados,
+    total_original: totalOriginal,
+  };
 }
