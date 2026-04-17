@@ -6,13 +6,11 @@
  * REGRA: Nenhum módulo filtra dados por conta própria.
  * Todos importam daqui. Se a regra muda, muda num lugar só.
  * 
- * v1.0 — 17/04/2026
+ * v1.1 — 17/04/2026 (com alias applyStandardFilters)
  * ═══════════════════════════════════════════════════════════════
  */
 
 // ═══ 1. STATUS DE EXCLUSÃO ═══
-// Registros com estes status são EXCLUÍDOS de qualquer cálculo financeiro.
-// Usados tanto para dados Omie (status_titulo) quanto ERP (status).
 export const STATUS_EXCLUIDOS = new Set([
   "CANCELADO", "CANCELADA",
   "ESTORNADO", "ESTORNADA",
@@ -21,15 +19,12 @@ export const STATUS_EXCLUIDOS = new Set([
   "DUPLICADO_REMOVIDO",
 ]);
 
-// Função para checar exclusão (case-insensitive)
 export function isExcluido(status: string | null | undefined): boolean {
   if (!status) return false;
   return STATUS_EXCLUIDOS.has(status.toUpperCase().trim());
 }
 
 // ═══ 2. DETECÇÃO DE EMPRÉSTIMOS ═══
-// Empréstimos NÃO devem ser contados como receita/despesa operacional.
-// São separados na categoria "Financeiro" da DRE.
 const EMPRESTIMO_KEYWORDS = [
   "emprestimo", "empréstimo",
   "financiamento",
@@ -44,8 +39,6 @@ export function isEmprestimo(descricao: string, categoria: string, obs: string):
 }
 
 // ═══ 3. DEDUPLICAÇÃO ═══
-// Remove registros duplicados por chave composta.
-// Estratégia: ID único > omie_id > chave composta (nome+valor+data+doc)
 export interface DedupRecord {
   id?: string | number;
   omie_id?: string | number;
@@ -69,7 +62,6 @@ export function deduplicar<T extends DedupRecord>(registros: T[]): T[] {
   const result: T[] = [];
 
   for (const r of registros) {
-    // Camada 1: ID único do banco
     if (r.id) {
       const key = `id:${String(r.id)}`;
       if (seen.has(key)) continue;
@@ -78,7 +70,6 @@ export function deduplicar<T extends DedupRecord>(registros: T[]): T[] {
       continue;
     }
 
-    // Camada 2: omie_id
     if (r.omie_id) {
       const key = `omie:${String(r.omie_id)}`;
       if (seen.has(key)) continue;
@@ -87,7 +78,6 @@ export function deduplicar<T extends DedupRecord>(registros: T[]): T[] {
       continue;
     }
 
-    // Camada 3: chave composta
     const nome = (r.nome_pessoa || r.fornecedor || r.cliente || "").trim().toLowerCase();
     const valor = String(r.valor || r.valor_documento || 0);
     const data = r.data_previsao || r.data_vencimento || r.data_emissao || "";
@@ -103,25 +93,21 @@ export function deduplicar<T extends DedupRecord>(registros: T[]): T[] {
 }
 
 // ═══ 4. CLASSIFICAÇÃO DRE ═══
-// Classifica uma despesa em: impostos | custos | despesas | financeiro
-// Usada pela Visão Diária, Consultor IA, V19/V20, BPO
 export type ClasseDRE = "impostos" | "custos" | "despesas" | "financeiro";
 
 export function classificarDespesa(categoria: string, nome: string): ClasseDRE {
   const c = (categoria || "").toLowerCase();
   const n = (nome || "").toLowerCase();
 
-  // Impostos e tributos
   if (
     c.startsWith("3.04") ||
     n.includes("imposto") || n.includes("icms") || n.includes("iss") ||
     n.includes("pis") || n.includes("cofins") || n.includes("das") ||
     n.includes("irpj") || n.includes("csll") || n.includes("simples") ||
     n.includes("darf") || n.includes("tribut") ||
-    n.includes("cbs") || n.includes("ibs")  // Reforma tributária
+    n.includes("cbs") || n.includes("ibs")
   ) return "impostos";
 
-  // Financeiro (juros, empréstimos, taxas bancárias)
   if (
     c.startsWith("4.") || c.startsWith("5.") ||
     n.includes("juros") || n.includes("financiamento") ||
@@ -131,7 +117,6 @@ export function classificarDespesa(categoria: string, nome: string): ClasseDRE {
     n.includes("iof") || n.includes("tarifa bancária") || n.includes("tarifa bancaria")
   ) return "financeiro";
 
-  // Custos diretos (CMV, matéria-prima, mão de obra direta)
   if (
     c.startsWith("2.01") || c.startsWith("2.02") || c.startsWith("2.03") ||
     n.includes("cmv") || n.includes("matéria") || n.includes("materia") ||
@@ -142,16 +127,13 @@ export function classificarDespesa(categoria: string, nome: string): ClasseDRE {
     n.includes("férias") || n.includes("ferias") || n.includes("13") || n.includes("gps")
   ) return "custos";
 
-  // Despesas operacionais (tudo que sobra)
   return "despesas";
 }
 
 // ═══ 5. PARSING DE DATA ═══
-// Unifica o parsing de datas que vêm do Omie em formatos variados
 export function parseData(dt: string | null | undefined): Date | null {
   if (!dt) return null;
 
-  // Formato dd/mm/yyyy ou dd-mm-yyyy
   const p1 = dt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (p1) {
     let ano = parseInt(p1[3]);
@@ -159,16 +141,13 @@ export function parseData(dt: string | null | undefined): Date | null {
     return new Date(ano, parseInt(p1[2]) - 1, parseInt(p1[1]));
   }
 
-  // Formato yyyy-mm-dd ou yyyy/mm/dd (ISO)
   const p2 = dt.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   if (p2) return new Date(parseInt(p2[1]), parseInt(p2[2]) - 1, parseInt(p2[3]));
 
-  // Tentar parse nativo como fallback
   const d = new Date(dt);
   return isNaN(d.getTime()) ? null : d;
 }
 
-// Extrair dia do mês de uma data, dado ano/mês de referência
 export function parseDia(dt: string, ano: number, mes: number): number | null {
   const d = parseData(dt);
   if (!d) return null;
@@ -177,7 +156,6 @@ export function parseDia(dt: string, ano: number, mes: number): number | null {
 }
 
 // ═══ 6. STATUS VISUAL ═══
-// Determina a cor/label de status para um lançamento
 export type StatusVisual = { cor: string; label: string; };
 
 export function getStatusVisual(
@@ -187,17 +165,14 @@ export function getStatusVisual(
 ): StatusVisual {
   const st = (status || "").toUpperCase();
 
-  // Realizado (pago/recebido)
   if (st.includes("RECEBIDO") || st.includes("PAGO") || st.includes("LIQUIDADO") || st === "PAGO") {
     return { cor: cores.verde, label: "Realizado" };
   }
 
-  // Cancelado
   if (st.includes("CANCEL")) {
     return { cor: cores.cinza, label: "Cancelado" };
   }
 
-  // Verificar vencimento
   if (dataVencimento) {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
@@ -211,25 +186,22 @@ export function getStatusVisual(
     return { cor: cores.vermelho, label: "Atrasado" };
   }
 
-  // No prazo
   return { cor: cores.azul, label: "No Prazo" };
 }
 
 // ═══ 7. FILTRO MESTRE ═══
-// Aplica TODOS os filtros padrão a um array de registros.
-// Este é o ponto de entrada que todos os módulos devem usar.
 export interface FiltroOpcoes {
-  excluirCancelados?: boolean;   // default: true
-  excluirDuplicados?: boolean;   // default: true
-  separarEmprestimos?: boolean;  // default: false (quando true, retorna em campo separado)
+  excluirCancelados?: boolean;
+  excluirDuplicados?: boolean;
+  separarEmprestimos?: boolean;
 }
 
 export interface ResultadoFiltrado<T> {
-  registros: T[];                // Registros limpos
-  emprestimos: T[];              // Empréstimos separados (se separarEmprestimos=true)
-  excluidos: number;             // Quantos foram excluídos
-  duplicados: number;            // Quantos duplicados removidos
-  total_original: number;        // Total antes de filtrar
+  registros: T[];
+  emprestimos: T[];
+  excluidos: number;
+  duplicados: number;
+  total_original: number;
 }
 
 export function filtrarRegistros<T extends DedupRecord & { status?: string; status_titulo?: string; observacao?: string; descricao?: string; descricao_categoria?: string; codigo_categoria?: string }>(
@@ -248,14 +220,12 @@ export function filtrarRegistros<T extends DedupRecord & { status?: string; stat
   let duplicados = 0;
   const emprestimos: T[] = [];
 
-  // Passo 1: Remover cancelados
   if (excluirCancelados) {
     const antes = resultado.length;
     resultado = resultado.filter(r => !isExcluido(r.status || r.status_titulo || ""));
     excluidos = antes - resultado.length;
   }
 
-  // Passo 2: Separar empréstimos
   if (separarEmprestimos) {
     const limpos: T[] = [];
     for (const r of resultado) {
@@ -271,7 +241,6 @@ export function filtrarRegistros<T extends DedupRecord & { status?: string; stat
     resultado = limpos;
   }
 
-  // Passo 3: Deduplicar
   if (excluirDuplicados) {
     const antes = resultado.length;
     resultado = deduplicar(resultado);
@@ -285,4 +254,12 @@ export function filtrarRegistros<T extends DedupRecord & { status?: string; stat
     duplicados,
     total_original: totalOriginal,
   };
+}
+
+// ═══ 8. COMPATIBILIDADE — Alias para código existente ═══
+// As API routes dashboard, dre, fluxo-caixa e linhas-negocio/dre
+// importam applyStandardFilters. Este alias garante compatibilidade.
+export function applyStandardFilters<T extends DedupRecord>(registros: T[]): T[] {
+  const resultado = filtrarRegistros(registros);
+  return resultado.registros;
 }
