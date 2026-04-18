@@ -224,7 +224,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const visibleNucleo = NUCLEO.filter(item => canSee(item.modKey))
-
   const visibleBoxes = PLAN_BOXES.map(box => ({
     ...box,
     items: box.items.filter(item => canSee(item.modKey)),
@@ -245,10 +244,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fontWeight: on ? 600 : 400, transition: 'all 0.15s',
   })
 
-  const navigateTo = (href: string) => {
-    router.push(href)
-    setOpenBox(null)
-  }
+  const navigateTo = (href: string) => { router.push(href); setOpenBox(null) }
 
   if (blocked) return (
     <div style={{ minHeight: '100vh', background: '#0F0F0F', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -271,65 +267,74 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
 
-      <header style={{
-        position: 'sticky', top: timeoutWarning ? 33 : 0, zIndex: 50,
-        background: '#1A1410', borderBottom: '1px solid #2A2822',
-        padding: '4px 10px', display: 'flex', alignItems: 'center',
-        gap: 3, overflowX: 'auto',
-      }}>
-        {/* Logo */}
-        <a href='/dashboard' style={{
-          ...iconSt(false), minWidth: 48, marginRight: 4,
-          color: '#C6973F', fontWeight: 700, fontSize: 9, letterSpacing: '0.06em'
-        }}>
-          <span style={{ fontSize: 15, fontWeight: 900 }}>PS</span>
-          <span>GESTÃO</span>
-        </a>
+      <header style={{ position: 'sticky', top: timeoutWarning ? 33 : 0, zIndex: 50, background: '#1A1410', borderBottom: '1px solid #2A2822' }}>
 
-        {/* ═══ Núcleo modules ═══ */}
-        {visibleNucleo.map(item => (
-          <a key={item.href} href={item.href} style={iconSt(active(item.href))}
-            onClick={e => { e.preventDefault(); navigateTo(item.href) }}>
-            <span style={{ fontSize: 14 }}>{item.icon}</span>
-            <span style={{ fontSize: 9 }}>{item.label}</span>
+        {/* ═══ LINHA 1: Logo + Núcleo + User ═══ */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 10px', overflowX: 'auto' }}>
+          <a href='/dashboard' style={{ ...iconSt(false), minWidth: 48, marginRight: 2, color: '#C6973F', fontWeight: 700, fontSize: 9, letterSpacing: '0.06em' }}>
+            <span style={{ fontSize: 15, fontWeight: 900 }}>PS</span>
+            <span>GESTÃO</span>
           </a>
-        ))}
 
-        <div style={{ width: 1, height: 24, background: '#C6973F40', margin: '0 3px', flexShrink: 0 }} />
+          <span style={{ fontSize: 8, color: '#C6973F80', padding: '2px 6px', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', flexShrink: 0 }}>Núcleo</span>
 
-        {/* ═══ Plan boxes ═══ */}
-        {visibleBoxes.map(box => {
-          const isOpen = openBox === box.plano
-          const hasActiveChild = box.items.some(i => active(i.href))
-          return (
-            <div key={box.plano} style={{ position: 'relative' }}>
-              <button
-                onClick={() => setOpenBox(isOpen ? null : box.plano)}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
-                  minWidth: 46, padding: '3px 6px', borderRadius: 6, cursor: 'pointer',
-                  background: isOpen ? box.info.cor + '18' : hasActiveChild ? box.info.cor + '10' : 'transparent',
-                  border: isOpen ? `1px solid ${box.info.cor}40` : hasActiveChild ? `1px solid ${box.info.cor}25` : '1px solid transparent',
-                  color: isOpen || hasActiveChild ? box.info.cor : '#B0AB9F',
-                  fontSize: 9, fontWeight: isOpen || hasActiveChild ? 600 : 400,
-                  transition: 'all 0.15s',
-                }}
-              >
-                <span style={{ fontSize: 14 }}>{box.info.icon}</span>
-                <span style={{ whiteSpace: 'nowrap' }}>{box.info.nome.replace('ERP ', '').replace('PS ', '')}</span>
-              </button>
+          {visibleNucleo.map(item => (
+            <a key={item.href} href={item.href} style={iconSt(active(item.href))}
+              onClick={e => { e.preventDefault(); navigateTo(item.href) }}>
+              <span style={{ fontSize: 14 }}>{item.icon}</span>
+              <span style={{ fontSize: 9 }}>{item.label}</span>
+            </a>
+          ))}
 
-              {isOpen && (
-                <div style={{
-                  position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-                  marginTop: 6, background: '#1E1E1B', border: `1px solid ${box.info.cor}40`,
-                  borderRadius: 10, padding: 10, zIndex: 999, minWidth: 160,
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: box.info.cor, marginBottom: 8, textAlign: 'center', whiteSpace: 'nowrap', borderBottom: `1px solid ${box.info.cor}20`, paddingBottom: 6 }}>
-                    {box.info.icon} {box.info.nome}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ flex: 1 }} />
+
+          {email && (
+            <span style={{ fontSize: 9, color: '#6B6560', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>
+              {email.split('@')[0]}
+            </span>
+          )}
+          <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.8.0</span>
+          <button onClick={signOut} style={{ fontSize: 10, color: '#B0AB9F', background: 'transparent', border: '1px solid #2A2822', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
+        </div>
+
+        {/* ═══ LINHA 2: Planos + Admin ═══ */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '3px 10px', borderTop: '1px solid #2A2822', overflowX: 'auto' }}>
+          <span style={{ fontSize: 8, color: '#C6973F', padding: '2px 6px', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', flexShrink: 0, background: '#C6973F10', borderRadius: 3, fontWeight: 600 }}>Planos</span>
+
+          {visibleBoxes.map(box => {
+            const isOpen = openBox === box.plano
+            const hasActiveChild = box.items.some(i => active(i.href))
+            return (
+              <div key={box.plano} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => {
+                    if (box.items.length === 1) { navigateTo(box.items[0].href); return }
+                    setOpenBox(isOpen ? null : box.plano)
+                  }}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                    minWidth: 48, padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+                    background: isOpen || hasActiveChild ? box.info.cor + '15' : 'transparent',
+                    border: `1px solid ${isOpen || hasActiveChild ? box.info.cor + '40' : box.info.cor + '20'}`,
+                    color: isOpen || hasActiveChild ? box.info.cor : '#B0AB9F',
+                    fontSize: 9, fontWeight: isOpen || hasActiveChild ? 600 : 400,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>{box.info.icon}</span>
+                  <span style={{ whiteSpace: 'nowrap' }}>{box.info.nome.replace('ERP ', '').replace('PS ', '')}</span>
+                </button>
+
+                {isOpen && box.items.length > 1 && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+                    marginTop: 6, background: '#1E1E1B', border: `1px solid ${box.info.cor}40`,
+                    borderRadius: 10, padding: 10, zIndex: 999, minWidth: 170,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: box.info.cor, marginBottom: 8, textAlign: 'center', whiteSpace: 'nowrap', borderBottom: `1px solid ${box.info.cor}20`, paddingBottom: 6 }}>
+                      {box.info.icon} {box.info.nome}
+                    </div>
                     {box.items.map(item => (
                       <a key={item.href} href={item.href}
                         onClick={e => { e.preventDefault(); navigateTo(item.href) }}
@@ -340,62 +345,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           border: active(item.href) ? `1px solid ${box.info.cor}30` : '1px solid transparent',
                           color: active(item.href) ? box.info.cor : '#B0AB9F',
                           fontSize: 12, fontWeight: active(item.href) ? 600 : 400,
-                          transition: 'background 0.15s', cursor: 'pointer', whiteSpace: 'nowrap',
+                          cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: 2,
                         }}
                       >
                         <span style={{ fontSize: 14 }}>{item.icon}</span>
                         <span>{item.label}</span>
                       </a>
                     ))}
+                    <div style={{ fontSize: 8, color: '#706C64', marginTop: 6, textAlign: 'center', borderTop: '1px solid #2A282240', paddingTop: 5 }}>{box.info.preco}</div>
                   </div>
-                  <div style={{ fontSize: 8, color: '#706C64', marginTop: 8, textAlign: 'center', borderTop: `1px solid #2A282240`, paddingTop: 5 }}>{box.info.preco}</div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+                )}
+              </div>
+            )
+          })}
 
-        <div style={{ width: 1, height: 24, background: '#2A2822', margin: '0 3px', flexShrink: 0 }} />
+          <div style={{ width: 1, height: 20, background: '#2A2822', margin: '0 3px', flexShrink: 0 }} />
 
-        {/* Admin */}
-        {isAdm && (
-          <a href='/dashboard/admin' style={iconSt(active('/dashboard/admin'))}
-            onClick={e => { e.preventDefault(); navigateTo('/dashboard/admin') }}>
-            <span style={{ fontSize: 14 }}>⚙️</span>
-            <span style={{ fontSize: 9 }}>Admin</span>
-          </a>
-        )}
-        {isAdm && (
-          <a href='/dashboard/dev' style={iconSt(active('/dashboard/dev'))}
-            onClick={e => { e.preventDefault(); navigateTo('/dashboard/dev') }}>
-            <span style={{ fontSize: 14 }}>🛠️</span>
-            <span style={{ fontSize: 9 }}>Dev</span>
-          </a>
-        )}
+          {isAdm && (
+            <a href='/dashboard/admin' style={iconSt(active('/dashboard/admin'))}
+              onClick={e => { e.preventDefault(); navigateTo('/dashboard/admin') }}>
+              <span style={{ fontSize: 14 }}>⚙️</span>
+              <span style={{ fontSize: 9 }}>Admin</span>
+            </a>
+          )}
+          {isAdm && (
+            <a href='/dashboard/dev' style={iconSt(active('/dashboard/dev'))}
+              onClick={e => { e.preventDefault(); navigateTo('/dashboard/dev') }}>
+              <span style={{ fontSize: 14 }}>🛠️</span>
+              <span style={{ fontSize: 9 }}>Dev</span>
+            </a>
+          )}
 
-        <button onClick={toggleDemo} style={{ ...iconSt(demo), cursor: 'pointer' }}>
-          <span style={{ fontSize: 14 }}>🎭</span>
-          <span style={{ fontSize: 9, color: demo ? '#C6973F' : '#B0AB9F' }}>{demo ? 'Demo ON' : 'Demo'}</span>
-        </button>
-
-        <div style={{ flex: 1 }} />
-
-        {email && (
-          <span style={{ fontSize: 9, color: '#6B6560', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>
-            {email.split('@')[0]}
-          </span>
-        )}
-
-        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.8.0</span>
-
-        <button onClick={signOut} style={{
-          fontSize: 10, color: '#B0AB9F', background: 'transparent',
-          border: '1px solid #2A2822', borderRadius: 6, cursor: 'pointer',
-          padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0,
-        }}>Sair</button>
+          <button onClick={toggleDemo} style={{ ...iconSt(demo), cursor: 'pointer' }}>
+            <span style={{ fontSize: 14 }}>🎭</span>
+            <span style={{ fontSize: 9, color: demo ? '#C6973F' : '#B0AB9F' }}>{demo ? 'Demo ON' : 'Demo'}</span>
+          </button>
+        </div>
       </header>
 
-      {/* Overlay to close dropdown */}
       {openBox && <div onClick={() => setOpenBox(null)} style={{ position: 'fixed', inset: 0, zIndex: 48 }} />}
 
       {demo && (
