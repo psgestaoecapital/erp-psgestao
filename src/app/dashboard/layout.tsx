@@ -16,7 +16,6 @@ const THEME_LIGHT = `
   --ps-text-m: #6B5D4F;
   --ps-text-d: #9C8E80;
   --ps-border: #E0D8CC;
-  --ps-border2: #D0C8BC;
   --ps-gold: #C8941A;
   --ps-gold-bg: #C8941A12;
   --ps-gold-border: #C8941A30;
@@ -32,7 +31,6 @@ const THEME_DARK = `
   --ps-text-m: #B0AB9F;
   --ps-text-d: #706C64;
   --ps-border: #2A2822;
-  --ps-border2: #3A3830;
   --ps-gold: #C6973F;
   --ps-gold-bg: #C6973F12;
   --ps-gold-border: #C6973F30;
@@ -41,62 +39,60 @@ const THEME_DARK = `
   --ps-header-border: #2A2822;
 `
 
-// ═══ NÚCLEO ═══
+// ═══ NÚCLEO (4 módulos — todos os planos) ═══
 const NUCLEO = [
-  { href: '/dashboard',              label: 'Visão Diária',  icon: '📅', modKey: 'visao-diaria' },
-  { href: '/dashboard/dados',        label: 'Dados',         icon: '📊', modKey: 'dados' },
-  { href: '/dashboard/operacional',  label: 'Operacional',   icon: '⚙️', modKey: 'operacional' },
-  { href: '/dashboard/rateio',       label: 'Rateio',        icon: '⚗️', modKey: 'rateio' },
-  { href: '/dashboard/orcamento',    label: 'Orçamento',     icon: '💰', modKey: 'orcamento' },
-  { href: '/dashboard/importar',     label: 'Importar',      icon: '📥', modKey: 'importar' },
-  { href: '/dashboard/ajuda',        label: 'Ajuda',         icon: '❓', modKey: 'ajuda' },
-  { href: '/dashboard/consultor-ia', label: 'Consultor IA',  icon: '🤖', modKey: 'consultor-ia' },
-  { href: '/dashboard/contador',     label: 'Contador',      icon: '📒', modKey: 'contador' },
-  { href: '/dashboard/assessor',     label: 'PS Assessor',   icon: '🤝', modKey: 'assessor' },
-  { href: '/dashboard/anti-fraude',  label: 'Anti-Fraude',   icon: '🛡️', modKey: 'anti-fraude-basico' },
-  { href: '/dashboard/custeio',      label: 'Custeio',       icon: '🎯', modKey: 'custeio' },
+  { href: '/dashboard',          label: 'Visão Diária', icon: '📅', modKey: 'visao-diaria' },
+  { href: '/dashboard/dados',    label: 'Dados',        icon: '📊', modKey: 'dados' },
+  { href: '/dashboard/importar', label: 'Importar',     icon: '📥', modKey: 'importar' },
+  { href: '/dashboard/ajuda',    label: 'Ajuda',        icon: '❓', modKey: 'ajuda' },
 ]
 
-// ═══ BOXES POR PLANO ═══
-const PLAN_BOXES: { plano: Plano; items: { href: string; label: string; icon: string; modKey: string }[] }[] = [
+// ═══ ITEM HELPER (reutilizado entre boxes) ═══
+type MenuItem = { href: string; label: string; icon: string; modKey: string }
+
+const I = {
+  operacional:  { href: '/dashboard/operacional',  label: 'Operacional',  icon: '⚙️', modKey: 'operacional' } as MenuItem,
+  rateio:       { href: '/dashboard/rateio',       label: 'Rateio',       icon: '⚗️', modKey: 'rateio' } as MenuItem,
+  orcamento:    { href: '/dashboard/orcamento',    label: 'Orçamento',    icon: '💰', modKey: 'orcamento' } as MenuItem,
+  viabilidade:  { href: '/dashboard/viabilidade',  label: 'Viabilidade',  icon: '📈', modKey: 'viabilidade' } as MenuItem,
+  consultorIa:  { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: '🤖', modKey: 'consultor-ia' } as MenuItem,
+  contador:     { href: '/dashboard/contador',     label: 'Contador',     icon: '📒', modKey: 'contador' } as MenuItem,
+  assessor:     { href: '/dashboard/assessor',     label: 'PS Assessor',  icon: '🤝', modKey: 'assessor' } as MenuItem,
+  antiFraude:   { href: '/dashboard/anti-fraude',  label: 'Anti-Fraude',  icon: '🛡️', modKey: 'anti-fraude-basico' } as MenuItem,
+  custeio:      { href: '/dashboard/custeio',      label: 'Custeio',      icon: '🎯', modKey: 'custeio' } as MenuItem,
+  fichaTecnica: { href: '/dashboard/ficha-tecnica',label: 'Ficha Técnica',icon: '📋', modKey: 'ficha-tecnica' } as MenuItem,
+  industrial:   { href: '/dashboard/industrial',   label: 'Industrial',   icon: '🏭', modKey: 'industrial' } as MenuItem,
+  custo:        { href: '/dashboard/custo',        label: 'Custo',        icon: '💲', modKey: 'custo' } as MenuItem,
+  noc:          { href: '/dashboard/noc',          label: 'NOC',          icon: '📡', modKey: 'noc' } as MenuItem,
+  wealth:       { href: '/dashboard/wealth',       label: 'Wealth',       icon: '🏰', modKey: 'wealth' } as MenuItem,
+  producao:     { href: '/dashboard/producao',     label: 'Produção',     icon: '🎨', modKey: 'producao' } as MenuItem,
+}
+
+// ═══ BOXES: conforme planilha editada por Gilberto 18/04 ═══
+const PLAN_BOXES: { plano: Plano; items: MenuItem[] }[] = [
   {
     plano: 'erp_cs',
-    items: [
-      { href: '/dashboard/viabilidade',  label: 'Viabilidade',     icon: '📈', modKey: 'viabilidade' },
-    ],
+    items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio],
   },
   {
     plano: 'industrial',
-    items: [
-      { href: '/dashboard/ficha-tecnica',label: 'Ficha Técnica',   icon: '📋', modKey: 'ficha-tecnica' },
-      { href: '/dashboard/industrial',   label: 'Industrial',      icon: '🏭', modKey: 'industrial' },
-      { href: '/dashboard/viabilidade',  label: 'Viabilidade',     icon: '📈', modKey: 'viabilidade' },
-      { href: '/dashboard/custo',        label: 'Custo',           icon: '💲', modKey: 'custo' },
-    ],
+    items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo],
   },
   {
     plano: 'agro',
-    items: [
-      { href: '/dashboard/viabilidade',  label: 'Viabilidade',     icon: '📈', modKey: 'viabilidade' },
-    ],
+    items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio],
   },
   {
     plano: 'bpo',
-    items: [
-      { href: '/dashboard/noc',          label: 'NOC',             icon: '📡', modKey: 'noc' },
-    ],
+    items: [I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc],
   },
   {
     plano: 'wealth',
-    items: [
-      { href: '/dashboard/wealth',       label: 'Wealth',          icon: '🏰', modKey: 'wealth' },
-    ],
+    items: [I.wealth],
   },
   {
     plano: 'producao',
-    items: [
-      { href: '/dashboard/producao',     label: 'Produção',        icon: '🎨', modKey: 'producao' },
-    ],
+    items: [I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao],
   },
 ]
 
@@ -116,13 +112,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [timeoutSeconds, setTimeoutSeconds] = useState(0)
   const lastActivity = useRef(Date.now())
   const timeoutMinutes = useRef(30)
-
   const isDark = theme === 'dark'
 
-  const updateActivity = useCallback(() => {
-    lastActivity.current = Date.now()
-    setTimeoutWarning(false)
-  }, [])
+  const updateActivity = useCallback(() => { lastActivity.current = Date.now(); setTimeoutWarning(false) }, [])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -136,21 +128,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => events.forEach(e => window.removeEventListener(e, updateActivity))
   }, [updateActivity])
 
-  const toggleDemo = () => {
-    setDemo(d => {
-      const next = !d
-      if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(next))
-      return next
-    })
-  }
-
-  const toggleTheme = () => {
-    setTheme(t => {
-      const next = t === 'light' ? 'dark' : 'light'
-      if (typeof window !== 'undefined') localStorage.setItem('ps_theme', next)
-      return next
-    })
-  }
+  const toggleDemo = () => { setDemo(d => { const n = !d; if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(n)); return n }) }
+  const toggleTheme = () => { setTheme(t => { const n = t === 'light' ? 'dark' : 'light'; if (typeof window !== 'undefined') localStorage.setItem('ps_theme', n); return n }) }
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -158,84 +137,46 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const elapsed = (Date.now() - lastActivity.current) / 1000 / 60
       const limit = timeoutMinutes.current
       if (limit <= 0) return
-      if (elapsed >= limit) {
-        supabase.auth.signOut().then(() => router.push('/login'))
-        return
-      }
-      if (elapsed >= limit - 2) {
-        setTimeoutWarning(true)
-        setTimeoutSeconds(Math.round((limit - elapsed) * 60))
-      } else {
-        setTimeoutWarning(false)
-      }
+      if (elapsed >= limit) { supabase.auth.signOut().then(() => router.push('/login')); return }
+      if (elapsed >= limit - 2) { setTimeoutWarning(true); setTimeoutSeconds(Math.round((limit - elapsed) * 60)) }
+      else setTimeoutWarning(false)
     }, 15000)
     return () => clearInterval(interval)
   }, [role, router])
 
   function checkTimeRestriction(config: any) {
     if (!config || !config.ativo) return true
-    const now = new Date()
-    const dia = now.getDay()
-    const hora = now.getHours() * 100 + now.getMinutes()
+    const now = new Date(); const dia = now.getDay(); const hora = now.getHours() * 100 + now.getMinutes()
     const diasPermitidos = config.dias_semana || ['seg','ter','qua','qui','sex','sab','dom']
     const diaHoje = Object.entries(DIAS_MAP).find(([, v]) => v === dia)?.[0] || ''
-    if (!diasPermitidos.includes(diaHoje)) {
-      setBlockMsg(`Acesso permitido apenas nos dias: ${diasPermitidos.join(', ').toUpperCase()}`)
-      return false
-    }
+    if (!diasPermitidos.includes(diaHoje)) { setBlockMsg(`Acesso permitido apenas nos dias: ${diasPermitidos.join(', ').toUpperCase()}`); return false }
     const inicio = parseInt((config.horario_inicio || '00:00').replace(':', ''))
     const fim = parseInt((config.horario_fim || '23:59').replace(':', ''))
-    if (hora < inicio || hora > fim) {
-      setBlockMsg(`Acesso permitido apenas das ${config.horario_inicio} às ${config.horario_fim}`)
-      return false
-    }
+    if (hora < inicio || hora > fim) { setBlockMsg(`Acesso permitido apenas das ${config.horario_inicio} às ${config.horario_fim}`); return false }
     return true
   }
 
   const logAudit = useCallback(async (action: string, detail?: string, mod?: string) => {
-    try {
-      await fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: null, user_email: email, action, detail, module: mod })
-      })
-    } catch {}
+    try { await fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: null, user_email: email, action, detail, module: mod }) }) } catch {}
   }, [email])
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
-      const userEmail = session.user.email || ''
-      setEmail(userEmail)
+      const userEmail = session.user.email || ''; setEmail(userEmail)
       const { data: up } = await supabase.from('users').select('role').eq('id', session.user.id).single()
-      const userRole = up?.role || session.user.user_metadata?.role || 'viewer'
-      setRole(userRole)
-
-      fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'login', detail: `Role: ${userRole}` })
-      }).catch(() => {})
-
+      const userRole = up?.role || session.user.user_metadata?.role || 'viewer'; setRole(userRole)
+      fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'login', detail: `Role: ${userRole}` }) }).catch(() => {})
       if (!isAdminRole(userRole)) {
         const { data: config } = await supabase.from('access_config').select('*').eq('role', userRole).eq('ativo', true).single()
-        if (config) {
-          timeoutMinutes.current = config.timeout_minutos || 30
-          if (!checkTimeRestriction(config)) {
-            setBlocked(true)
-            fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'access_blocked', detail: blockMsg })
-            }).catch(() => {})
-          }
-        }
+        if (config) { timeoutMinutes.current = config.timeout_minutos || 30; if (!checkTimeRestriction(config)) { setBlocked(true); fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'access_blocked', detail: blockMsg }) }).catch(() => {}) } }
         const empresaSel = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
         if (empresaSel && empresaSel !== 'consolidado' && !empresaSel.startsWith('group_')) {
           const { data: comp } = await supabase.from('companies').select('plano').eq('id', empresaSel).single()
           if (comp?.plano) setPlano(comp.plano)
         } else {
           const { data: uc } = await supabase.from('user_companies').select('company_id').eq('user_id', session.user.id)
-          if (uc?.length) {
-            const { data: comps } = await supabase.from('companies').select('plano').in('id', uc.map(u => u.company_id))
-            const planOrder = ['wealth', 'assessoria', 'producao', 'industrial', 'agro', 'bpo', 'erp_cs']
-            const bestPlan = comps?.map(c => c.plano || 'erp_cs').sort((a, b) => planOrder.indexOf(a) - planOrder.indexOf(b))[0] || 'erp_cs'
-            setPlano(bestPlan)
-          }
+          if (uc?.length) { const { data: comps } = await supabase.from('companies').select('plano').in('id', uc.map(u => u.company_id)); const planOrder = ['wealth','assessoria','producao','industrial','agro','bpo','erp_cs']; const bestPlan = comps?.map(c => c.plano || 'erp_cs').sort((a, b) => planOrder.indexOf(a) - planOrder.indexOf(b))[0] || 'erp_cs'; setPlano(bestPlan) }
         }
       }
     })
@@ -243,43 +184,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (isAdminRole(role) || blocked) return
-    const interval = setInterval(async () => {
-      const { data: config } = await supabase.from('access_config').select('*').eq('role', role).eq('ativo', true).single()
-      if (config && !checkTimeRestriction(config)) setBlocked(true)
-    }, 300000)
+    const interval = setInterval(async () => { const { data: config } = await supabase.from('access_config').select('*').eq('role', role).eq('ativo', true).single(); if (config && !checkTimeRestriction(config)) setBlocked(true) }, 300000)
     return () => clearInterval(interval)
   }, [role, blocked])
 
   const lastPath = useRef('')
   useEffect(() => {
-    if (email && pathname && pathname !== lastPath.current) {
-      lastPath.current = pathname
-      const mod = pathname.replace('/dashboard/', '').replace('/dashboard', 'home').split('/')[0]
-      logAudit('page_visit', pathname, mod)
-    }
+    if (email && pathname && pathname !== lastPath.current) { lastPath.current = pathname; const mod = pathname.replace('/dashboard/', '').replace('/dashboard', 'home').split('/')[0]; logAudit('page_visit', pathname, mod) }
   }, [pathname, email, logAudit])
 
   const isAdm = isAdminRole(role)
-
-  const canSee = (modKey: string) => {
-    if (isAdm) return true
-    const modPerms = PLANO_MODULOS[modKey]
-    if (!modPerms) return true
-    const access = modPerms[plano as Plano]
-    return access === 'full' || access === 'addon'
-  }
-
+  const canSee = (modKey: string) => { if (isAdm) return true; const m = PLANO_MODULOS[modKey]; if (!m) return true; const a = m[plano as Plano]; return a === 'full' || a === 'addon' }
   const visibleNucleo = NUCLEO.filter(item => canSee(item.modKey))
-  const visibleBoxes = PLAN_BOXES.map(box => ({
-    ...box,
-    items: box.items.filter(item => canSee(item.modKey)),
-    info: PLANOS[box.plano],
-  })).filter(box => isAdm || box.items.length > 0)
+  const visibleBoxes = PLAN_BOXES.map(box => ({ ...box, items: box.items.filter(item => canSee(item.modKey)), info: PLANOS[box.plano] })).filter(box => isAdm || box.items.length > 0)
 
   const signOut = async () => { logAudit('logout'); await supabase.auth.signOut(); router.push('/login') }
-
-  const active = (href: string) =>
-    href === '/dashboard' ? pathname === '/dashboard' : !!pathname?.startsWith(href)
+  const active = (href: string) => href === '/dashboard' ? pathname === '/dashboard' : !!pathname?.startsWith(href)
+  const navigateTo = (href: string) => router.push(href)
 
   const iconSt = (on: boolean): React.CSSProperties => ({
     fontSize: 10, color: on ? 'var(--ps-gold)' : 'var(--ps-text-m)', textDecoration: 'none',
@@ -290,8 +211,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fontWeight: on ? 600 : 400, transition: 'all 0.15s',
   })
 
-  const navigateTo = (href: string) => { router.push(href) }
-
   if (blocked) return (
     <div style={{ minHeight: '100vh', background: 'var(--ps-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <style dangerouslySetInnerHTML={{ __html: `:root { ${THEME_LIGHT} }` }} />
@@ -299,7 +218,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: '#EF4444', marginBottom: 8 }}>Acesso Restrito</div>
         <div style={{ fontSize: 13, color: 'var(--ps-text-m)', marginBottom: 20 }}>{blockMsg}</div>
-        <div style={{ fontSize: 11, color: 'var(--ps-text-d)', marginBottom: 16 }}>Contate o administrador se precisar de acesso fora do horário.</div>
         <button onClick={signOut} style={{ padding: '10px 24px', borderRadius: 8, background: '#C8941A', color: '#FFF', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>Sair</button>
       </div>
     </div>
@@ -337,52 +255,47 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div style={{ flex: 1 }} />
 
-          {/* Toggle tema */}
           <button onClick={toggleTheme} style={{ ...iconSt(false), cursor: 'pointer', minWidth: 32 }} title={isDark ? 'Modo claro' : 'Modo escuro'}>
             <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span>
             <span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
           </button>
 
-          {email && (
-            <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>
-              {email.split('@')[0]}
-            </span>
-          )}
+          {email && <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>{email.split('@')[0]}</span>}
           <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v8.9.0</span>
           <button onClick={signOut} style={{ fontSize: 10, color: 'var(--ps-text-m)', background: 'transparent', border: '1px solid var(--ps-border)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
         </div>
 
-        {/* ═══ LINHA 2: Boxes de plano (retângulos reais) + Admin ═══ */}
-        <div style={{ display: 'flex', alignItems: 'stretch', gap: 6, padding: '5px 10px', borderTop: '1px solid var(--ps-border)', overflowX: 'auto' }}>
+        {/* ═══ LINHA 2: Boxes de plano (retângulos com ícones dentro) ═══ */}
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 6, padding: '4px 10px', borderTop: '1px solid var(--ps-border)', overflowX: 'auto' }}>
 
           {visibleBoxes.map(box => {
             const hasActiveChild = box.items.some(i => active(i.href))
             return (
               <div key={box.plano} style={{
-                borderRadius: 8, overflow: 'hidden', flexShrink: 0,
-                border: `1px solid ${hasActiveChild ? box.info.cor + '60' : box.info.cor + '30'}`,
-                background: hasActiveChild ? box.info.cor + '08' : 'transparent',
+                borderRadius: 10, overflow: 'hidden', flexShrink: 0,
+                border: `1.5px solid ${hasActiveChild ? box.info.cor + '70' : box.info.cor + '35'}`,
+                background: hasActiveChild ? box.info.cor + '06' : 'transparent',
                 transition: 'all 0.15s',
               }}>
-                {/* Header do box com nome do plano */}
+                {/* Header do box */}
                 <div style={{
-                  background: box.info.cor + (isDark ? '25' : '15'),
-                  padding: '2px 10px',
+                  background: box.info.cor + (isDark ? '30' : '18'),
+                  padding: '2px 8px',
                   fontSize: 8, fontWeight: 700, color: box.info.cor,
-                  textTransform: 'uppercase', letterSpacing: 0.5,
+                  textTransform: 'uppercase', letterSpacing: 0.4,
                   textAlign: 'center', whiteSpace: 'nowrap',
-                  borderBottom: `1px solid ${box.info.cor}20`,
+                  borderBottom: `1px solid ${box.info.cor}25`,
                 }}>
                   {box.info.icon} {box.info.nome.replace('ERP ', '').replace('PS ', '')}
                 </div>
                 {/* Ícones dentro do box */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '3px 4px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, padding: '2px 3px', maxWidth: 220 }}>
                   {box.items.map(item => (
-                    <a key={item.href} href={item.href}
+                    <a key={`${box.plano}-${item.modKey}`} href={item.href}
                       onClick={e => { e.preventDefault(); navigateTo(item.href) }}
                       style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
-                        minWidth: 38, padding: '2px 3px', borderRadius: 5, textDecoration: 'none',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
+                        width: 36, padding: '2px 1px', borderRadius: 5, textDecoration: 'none',
                         cursor: 'pointer', transition: 'all 0.15s',
                         background: active(item.href) ? box.info.cor + '18' : 'transparent',
                         border: active(item.href) ? `1px solid ${box.info.cor}35` : '1px solid transparent',
@@ -390,8 +303,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         fontWeight: active(item.href) ? 600 : 400,
                       }}
                     >
-                      <span style={{ fontSize: 13 }}>{item.icon}</span>
-                      <span style={{ fontSize: 8, whiteSpace: 'nowrap' }}>{item.label}</span>
+                      <span style={{ fontSize: 12 }}>{item.icon}</span>
+                      <span style={{ fontSize: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 34, textAlign: 'center' }}>{item.label}</span>
                     </a>
                   ))}
                 </div>
@@ -399,49 +312,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )
           })}
 
-          <div style={{ width: 1, height: 'auto', background: 'var(--ps-border)', margin: '0 2px', flexShrink: 0, alignSelf: 'stretch' }} />
+          <div style={{ width: 1, background: 'var(--ps-border)', margin: '0 2px', flexShrink: 0, alignSelf: 'stretch' }} />
 
           {/* Admin / Dev / Demo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            {isAdm && (
-              <a href='/dashboard/admin' style={iconSt(active('/dashboard/admin'))}
-                onClick={e => { e.preventDefault(); navigateTo('/dashboard/admin') }}>
-                <span style={{ fontSize: 14 }}>⚙️</span>
-                <span style={{ fontSize: 9 }}>Admin</span>
-              </a>
-            )}
-            {isAdm && (
-              <a href='/dashboard/dev' style={iconSt(active('/dashboard/dev'))}
-                onClick={e => { e.preventDefault(); navigateTo('/dashboard/dev') }}>
-                <span style={{ fontSize: 14 }}>🛠️</span>
-                <span style={{ fontSize: 9 }}>Dev</span>
-              </a>
-            )}
-            <button onClick={toggleDemo} style={{ ...iconSt(demo), cursor: 'pointer' }}>
-              <span style={{ fontSize: 14 }}>🎭</span>
-              <span style={{ fontSize: 9, color: demo ? 'var(--ps-gold)' : 'var(--ps-text-m)' }}>{demo ? 'Demo ON' : 'Demo'}</span>
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+            {isAdm && <a href='/dashboard/admin' style={iconSt(active('/dashboard/admin'))} onClick={e => { e.preventDefault(); navigateTo('/dashboard/admin') }}><span style={{ fontSize: 14 }}>⚙️</span><span style={{ fontSize: 9 }}>Admin</span></a>}
+            {isAdm && <a href='/dashboard/dev' style={iconSt(active('/dashboard/dev'))} onClick={e => { e.preventDefault(); navigateTo('/dashboard/dev') }}><span style={{ fontSize: 14 }}>🛠️</span><span style={{ fontSize: 9 }}>Dev</span></a>}
+            <button onClick={toggleDemo} style={{ ...iconSt(demo), cursor: 'pointer' }}><span style={{ fontSize: 14 }}>🎭</span><span style={{ fontSize: 9, color: demo ? 'var(--ps-gold)' : 'var(--ps-text-m)' }}>{demo ? 'Demo ON' : 'Demo'}</span></button>
           </div>
         </div>
       </header>
 
-      {demo && (
-        <style dangerouslySetInnerHTML={{ __html: [
-          '.ps-demo .ps-blur{filter:blur(8px)!important;user-select:none!important}',
-          '.ps-demo .demo-hide{filter:blur(8px)!important;user-select:none!important}',
-          '.ps-demo td:not(:first-child){color:transparent!important;text-shadow:0 0 10px currentColor!important}',
-        ].join('') }} />
-      )}
+      {demo && <style dangerouslySetInnerHTML={{ __html: '.ps-demo .ps-blur{filter:blur(8px)!important;user-select:none!important}.ps-demo .demo-hide{filter:blur(8px)!important;user-select:none!important}.ps-demo td:not(:first-child){color:transparent!important;text-shadow:0 0 10px currentColor!important}' }} />}
 
       <main className={demo ? 'ps-demo' : ''}>{children}</main>
       <HelpWidget />
       <LgpdConsentModal />
       <div style={{ textAlign: 'center', padding: '12px 16px', borderTop: '1px solid var(--ps-border)', background: 'var(--ps-header)', fontSize: 10, color: 'var(--ps-text-d)', transition: 'background 0.3s' }}>
-        <a href='/termos' target='_blank' style={{ color: 'var(--ps-gold)', textDecoration: 'none', margin: '0 8px' }}>Termos de Uso</a>
-        ·
-        <a href='/privacidade' target='_blank' style={{ color: 'var(--ps-gold)', textDecoration: 'none', margin: '0 8px' }}>Política de Privacidade</a>
-        ·
-        <a href='mailto:paravizi-salvi@gpconsultoriadeinvestimentos.com' style={{ color: 'var(--ps-gold)', textDecoration: 'none', margin: '0 8px' }}>DPO</a>
+        <a href='/termos' target='_blank' style={{ color: 'var(--ps-gold)', textDecoration: 'none', margin: '0 8px' }}>Termos de Uso</a> · <a href='/privacidade' target='_blank' style={{ color: 'var(--ps-gold)', textDecoration: 'none', margin: '0 8px' }}>Política de Privacidade</a> · <a href='mailto:paravizi-salvi@gpconsultoriadeinvestimentos.com' style={{ color: 'var(--ps-gold)', textDecoration: 'none', margin: '0 8px' }}>DPO</a>
         <div style={{ marginTop: 4, fontSize: 9, color: 'var(--ps-text-d)' }}>PS Gestão e Capital LTDA · CNPJ 60.866.510/0001-78 · São Miguel do Oeste/SC</div>
       </div>
     </div>
