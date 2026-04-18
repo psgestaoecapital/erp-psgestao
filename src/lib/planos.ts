@@ -1,8 +1,7 @@
 // ═══════════════════════════════════════════════════
-// PS GESTÃO E CAPITAL — SISTEMA DE PERMISSÕES v2.0
+// PS GESTÃO E CAPITAL — SISTEMA DE PERMISSÕES v2.1
 // 6 planos independentes + núcleo comum
-// Camada 1: Plano da empresa → módulos disponíveis
-// Camada 2: Role do usuário → o que vê dentro do plano
+// Atualizado: 18/04/2026 — edições Gilberto aplicadas
 // ═══════════════════════════════════════════════════
 
 export type Plano = 'erp_cs' | 'bpo' | 'industrial' | 'agro' | 'wealth' | 'producao' | 'assessoria';
@@ -18,34 +17,35 @@ export const PLANOS: Record<Plano, { nome: string; cor: string; preco: string; i
 };
 
 // ═══ CAMADA 1: Plano → Módulos ═══
-// ✅ = incluso | 🔒 = addon | ❌ = não disponível
-// Mapeado como: 'full' | 'addon' | 'none'
 type Acesso = 'full' | 'addon' | 'none';
 
 export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
-  // ═══ NÚCLEO (incluso em todos) ═══
-  'visao-diaria':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'visao-mensal':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-geral':    { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-negocios': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-resultado':{ erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-balanco':  { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-indicadores':{ erp_cs:'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-financeiro':{ erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'dashboard-precos':   { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  // ═══ NÚCLEO (incluso em TODOS) ═══
+  'visao-diaria':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'visao-mensal':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-geral':    { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-negocios': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-resultado':{ erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-balanco':  { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-indicadores':{ erp_cs:'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-financeiro':{ erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'dashboard-precos':   { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'dados':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'conectores':         { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'importar':           { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'importar-universal': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'ajuda':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
-  'rateio':             { erp_cs: 'full', bpo: 'addon', industrial: 'full', agro: 'full', wealth: 'none', producao: 'addon', assessoria: 'addon' },
-  'orcamento':          { erp_cs: 'full', bpo: 'addon', industrial: 'full', agro: 'full', wealth: 'none', producao: 'addon', assessoria: 'addon' },
+
+  // ═══ MÓDULOS DISTRIBUÍDOS (conforme planilha editada) ═══
   'operacional':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'none' },
-  'consultor-ia':       { erp_cs: 'addon', bpo: 'addon', industrial: 'full', agro: 'addon', wealth: 'none', producao: 'addon', assessoria: 'full' },
-  'contador':           { erp_cs: 'full', bpo: 'full', industrial: 'addon', agro: 'addon', wealth: 'addon', producao: 'addon', assessoria: 'addon' },
-  'assessor':           { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'addon', producao: 'none', assessoria: 'full' },
+  'rateio':             { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
+  'orcamento':          { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
+  'viabilidade':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'full' },
+  'consultor-ia':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'full' },
+  'contador':           { erp_cs: 'full', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'addon' },
+  'assessor':           { erp_cs: 'full', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'full' },
   'anti-fraude-basico': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
-  'custeio':            { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'custeio':            { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'full' },
 
   // ═══ RELATÓRIOS IA ═══
   'relatorio-rapido':   { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
@@ -56,7 +56,6 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'anti-fraude-bpo':    { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
 
   // ═══ ERP COMÉRCIO & SERVIÇOS ═══
-  'viabilidade':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'full' },
   'plano-acao':         { erp_cs: 'full', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'full' },
   'onboarding':         { erp_cs: 'full', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'full' },
 
@@ -90,7 +89,7 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'producao-propostas': { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
 
   // ═══ ADMIN / NOC ═══
-  'noc':                { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'noc':                { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
   'admin':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'addon', producao: 'full', assessoria: 'full' },
 };
 
@@ -170,7 +169,6 @@ export const ROLE_NAMES: Record<string, string> = {
   visualizador: 'Visualizador',
 };
 
-// ═══ Roles disponíveis por plano (para convites) ═══
 export const ROLES_POR_PLANO: Record<Plano, string[]> = {
   erp_cs:     ['adm','socio','financeiro','comercial','operacional','contador','visualizador'],
   bpo:        ['adm','operador_bpo','supervisor_bpo','socio','contador'],
