@@ -26,6 +26,7 @@ const MENU: { href: string; label: string; icon: string; modKey: string }[] = [
   { href: '/dashboard/consultor-ia', label: 'Consultor IA',  icon: '🤖', modKey: 'consultor-ia' },
   { href: '/dashboard/contador',     label: 'Contador',      icon: '📈', modKey: 'contador' },
   { href: '/dashboard/assessor',     label: 'PS Assessor',   icon: '🤝', modKey: 'assessor' },
+  { href: '/dashboard/producao',     label: 'Produção',      icon: '🎨', modKey: 'producao' },
 ]
 
 const DIAS_MAP: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 }
@@ -42,9 +43,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [timeoutWarning, setTimeoutWarning] = useState(false)
   const [timeoutSeconds, setTimeoutSeconds] = useState(0)
   const lastActivity = useRef(Date.now())
-  const timeoutMinutes = useRef(30) // default 30 min
+  const timeoutMinutes = useRef(30)
 
-  // Track user activity
   const updateActivity = useCallback(() => {
     lastActivity.current = Date.now()
     setTimeoutWarning(false)
@@ -55,7 +55,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const saved = localStorage.getItem('ps_demo_mode')
       if (saved === 'true') setDemo(true)
     }
-    // Activity listeners
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']
     events.forEach(e => window.addEventListener(e, updateActivity, { passive: true }))
     return () => events.forEach(e => window.removeEventListener(e, updateActivity))
@@ -69,19 +68,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     })
   }
 
-  // Session timeout checker — runs every 15s
   useEffect(() => {
     const interval = setInterval(() => {
-      if (isAdminRole(role)) return // admin never times out
+      if (isAdminRole(role)) return
       const elapsed = (Date.now() - lastActivity.current) / 1000 / 60
       const limit = timeoutMinutes.current
-      if (limit <= 0) return // no timeout configured
-      
+      if (limit <= 0) return
       if (elapsed >= limit) {
         supabase.auth.signOut().then(() => router.push('/login'))
         return
       }
-      // Warning at 2 min before timeout
       if (elapsed >= limit - 2) {
         setTimeoutWarning(true)
         setTimeoutSeconds(Math.round((limit - elapsed) * 60))
@@ -92,22 +88,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => clearInterval(interval)
   }, [role, router])
 
-  // Time restriction checker
   function checkTimeRestriction(config: any) {
     if (!config || !config.ativo) return true
     const now = new Date()
-    const dia = now.getDay() // 0=dom, 1=seg...
+    const dia = now.getDay()
     const hora = now.getHours() * 100 + now.getMinutes()
-    
-    // Check day
     const diasPermitidos = config.dias_semana || ['seg','ter','qua','qui','sex','sab','dom']
     const diaHoje = Object.entries(DIAS_MAP).find(([, v]) => v === dia)?.[0] || ''
     if (!diasPermitidos.includes(diaHoje)) {
       setBlockMsg(`Acesso permitido apenas nos dias: ${diasPermitidos.join(', ').toUpperCase()}`)
       return false
     }
-    
-    // Check hour
     const inicio = parseInt((config.horario_inicio || '00:00').replace(':', ''))
     const fim = parseInt((config.horario_fim || '23:59').replace(':', ''))
     if (hora < inicio || hora > fim) {
@@ -117,7 +108,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return true
   }
 
-  // Audit helper
   const logAudit = useCallback(async (action: string, detail?: string, mod?: string) => {
     try {
       await fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -135,12 +125,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const userRole = up?.role || session.user.user_metadata?.role || 'viewer'
       setRole(userRole)
 
-      // Log login
       fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'login', detail: `Role: ${userRole}` })
       }).catch(() => {})
 
-      // Load access config for this role
       if (!isAdminRole(userRole)) {
         const { data: config } = await supabase.from('access_config').select('*').eq('role', userRole).eq('ativo', true).single()
         if (config) {
@@ -152,7 +140,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             }).catch(() => {})
           }
         }
-        // Read company plan
         const empresaSel = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
         if (empresaSel && empresaSel !== 'consolidado' && !empresaSel.startsWith('group_')) {
           const { data: comp } = await supabase.from('companies').select('plano').eq('id', empresaSel).single()
@@ -161,7 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const { data: uc } = await supabase.from('user_companies').select('company_id').eq('user_id', session.user.id)
           if (uc?.length) {
             const { data: comps } = await supabase.from('companies').select('plano').in('id', uc.map(u => u.company_id))
-            const planOrder = ['wealth', 'assessoria', 'industrial', 'bpo', 'erp_cs']
+            const planOrder = ['wealth', 'assessoria', 'producao', 'industrial', 'agro', 'bpo', 'erp_cs']
             const bestPlan = comps?.map(c => c.plano || 'erp_cs').sort((a, b) => planOrder.indexOf(a) - planOrder.indexOf(b))[0] || 'erp_cs'
             setPlano(bestPlan)
           }
@@ -170,17 +157,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     })
   }, [router])
 
-  // Re-check time restriction every 5 min
   useEffect(() => {
     if (isAdminRole(role) || blocked) return
     const interval = setInterval(async () => {
       const { data: config } = await supabase.from('access_config').select('*').eq('role', role).eq('ativo', true).single()
       if (config && !checkTimeRestriction(config)) setBlocked(true)
-    }, 300000) // 5 min
+    }, 300000)
     return () => clearInterval(interval)
   }, [role, blocked])
 
-  // Log page visits (debounced — only when pathname changes)
   const lastPath = useRef('')
   useEffect(() => {
     if (email && pathname && pathname !== lastPath.current) {
@@ -214,7 +199,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fontWeight: on ? 600 : 400,
   })
 
-  // Blocked screen
   if (blocked) return (
     <div style={{ minHeight: '100vh', background: '#0F0F0F', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#1A1410', borderRadius: 16, padding: 40, border: '1px solid #2A2822', textAlign: 'center', maxWidth: 400 }}>
@@ -229,7 +213,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div style={{ minHeight: '100vh', background: '#0F0F0F', color: '#FAF7F2' }}>
-      {/* Timeout warning banner */}
       {timeoutWarning && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, background: '#EF444420', borderBottom: '1px solid #EF444440', padding: '6px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: '#EF4444', fontWeight: 600 }}>Sessão expira em {timeoutSeconds}s por inatividade</span>
@@ -291,7 +274,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </span>
         )}
 
-        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.7.5</span>
+        <span style={{ fontSize: 9, color: '#C8941A', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: '#C8941A15', borderRadius: 4, marginRight: 4 }}>v8.8.0</span>
 
         <button onClick={signOut} style={{
           fontSize:10, color:'#B0AB9F', background:'transparent',
@@ -311,7 +294,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className={demo ? 'ps-demo' : ''}>{children}</main>
       <HelpWidget />
       <LgpdConsentModal />
-      {/* Footer LGPD */}
       <div style={{textAlign:'center',padding:'12px 16px',borderTop:'1px solid #2A2822',background:'#1A1410',fontSize:10,color:'#918C82'}}>
         <a href='/termos' target='_blank' style={{color:'#C8941A',textDecoration:'none',margin:'0 8px'}}>Termos de Uso</a>
         ·
