@@ -1,17 +1,20 @@
 // ═══════════════════════════════════════════════════
-// PS GESTÃO E CAPITAL — SISTEMA DE PERMISSÕES
+// PS GESTÃO E CAPITAL — SISTEMA DE PERMISSÕES v2.0
+// 6 planos independentes + núcleo comum
 // Camada 1: Plano da empresa → módulos disponíveis
 // Camada 2: Role do usuário → o que vê dentro do plano
 // ═══════════════════════════════════════════════════
 
-export type Plano = 'erp_cs' | 'bpo' | 'industrial' | 'assessoria' | 'wealth';
+export type Plano = 'erp_cs' | 'bpo' | 'industrial' | 'agro' | 'wealth' | 'producao' | 'assessoria';
 
-export const PLANOS: Record<Plano, { nome: string; cor: string; preco: string }> = {
-  erp_cs: { nome: 'ERP Comércio & Serviço', cor: '#22C55E', preco: 'R$ 297-497/mês' },
-  bpo: { nome: 'BPO Financeiro', cor: '#3B82F6', preco: 'R$ 997-2.497/mês' },
-  industrial: { nome: 'Industrial', cor: '#F97316', preco: 'R$ 1.497-4.997/mês' },
-  assessoria: { nome: 'Assessoria Empresarial', cor: '#A855F7', preco: 'R$ 2.997-9.997/mês' },
-  wealth: { nome: 'PS Wealth MFO', cor: '#D4AF37', preco: 'R$ 2K-200K/mês' },
+export const PLANOS: Record<Plano, { nome: string; cor: string; preco: string; icon: string }> = {
+  erp_cs:    { nome: 'ERP Comércio & Serviços', cor: '#22C55E', preco: 'R$ 297-497/mês', icon: '🏪' },
+  industrial:{ nome: 'ERP Industrial',          cor: '#F97316', preco: 'R$ 1.497-4.997/mês', icon: '🏭' },
+  agro:      { nome: 'ERP Agro',                cor: '#EF4444', preco: 'R$ 997-2.997/mês', icon: '🌾' },
+  bpo:       { nome: 'BPO Financeiro',          cor: '#3B82F6', preco: 'R$ 997-2.497/mês', icon: '💼' },
+  wealth:    { nome: 'PS Wealth MFO',           cor: '#D4AF37', preco: 'R$ 2K-200K/mês', icon: '💰' },
+  producao:  { nome: 'Produção Marketing',      cor: '#A855F7', preco: 'R$ 497-997/mês', icon: '🎨' },
+  assessoria:{ nome: 'Assessoria Empresarial',   cor: '#A855F7', preco: 'R$ 2.997-9.997/mês', icon: '📊' },
 };
 
 // ═══ CAMADA 1: Plano → Módulos ═══
@@ -20,55 +23,75 @@ export const PLANOS: Record<Plano, { nome: string; cor: string; preco: string }>
 type Acesso = 'full' | 'addon' | 'none';
 
 export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
-  // DASHBOARD
-  'visao-diaria':       { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'visao-mensal':       { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-geral':    { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-negocios': { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-resultado':{ erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-balanco':  { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-indicadores':{ erp_cs:'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-financeiro':{ erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'dashboard-precos':   { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  // RELATÓRIOS IA
-  'relatorio-rapido':   { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'relatorio-v19':      { erp_cs: 'addon', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'consultor-ia':       { erp_cs: 'addon', bpo: 'addon', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  // ENTRADA DE DADOS
-  'dados':              { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'full' },
-  'conectores':         { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'full' },
-  'importar':           { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'full' },
-  'importar-universal': { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'full' },
-  // ANTI-FRAUDE
-  'anti-fraude-basico': { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  'anti-fraude-full':   { erp_cs: 'addon', bpo: 'full', industrial: 'addon', assessoria: 'addon', wealth: 'none' },
-  'anti-fraude-bpo':    { erp_cs: 'none', bpo: 'full', industrial: 'none', assessoria: 'none', wealth: 'none' },
-  // BPO
-  'bpo':                { erp_cs: 'none', bpo: 'full', industrial: 'none', assessoria: 'addon', wealth: 'none' },
-  'bpo-automacao':      { erp_cs: 'none', bpo: 'full', industrial: 'none', assessoria: 'addon', wealth: 'none' },
-  'bpo-rotinas':        { erp_cs: 'none', bpo: 'full', industrial: 'none', assessoria: 'none', wealth: 'none' },
-  'bpo-conciliacao':    { erp_cs: 'none', bpo: 'full', industrial: 'none', assessoria: 'none', wealth: 'none' },
-  'bpo-supervisor':     { erp_cs: 'none', bpo: 'full', industrial: 'none', assessoria: 'none', wealth: 'none' },
-  // INDUSTRIAL / CUSTO
-  'custo':              { erp_cs: 'none', bpo: 'none', industrial: 'full', assessoria: 'addon', wealth: 'none' },
-  'ficha-tecnica':      { erp_cs: 'none', bpo: 'none', industrial: 'full', assessoria: 'none', wealth: 'none' },
-  'industrial':         { erp_cs: 'none', bpo: 'none', industrial: 'full', assessoria: 'none', wealth: 'none' },
-  'industrial-ceo':     { erp_cs: 'none', bpo: 'none', industrial: 'full', assessoria: 'none', wealth: 'none' },
-  'rateio':             { erp_cs: 'full', bpo: 'addon', industrial: 'full', assessoria: 'addon', wealth: 'none' },
-  'orcamento':          { erp_cs: 'full', bpo: 'addon', industrial: 'full', assessoria: 'addon', wealth: 'none' },
-  'operacional':        { erp_cs: 'full', bpo: 'none', industrial: 'full', assessoria: 'none', wealth: 'none' },
-  'viabilidade':        { erp_cs: 'full', bpo: 'none', industrial: 'full', assessoria: 'full', wealth: 'none' },
-  // ASSESSORIA
-  'assessor':           { erp_cs: 'none', bpo: 'none', industrial: 'none', assessoria: 'full', wealth: 'addon' },
-  'assessor-ceo':       { erp_cs: 'none', bpo: 'none', industrial: 'none', assessoria: 'full', wealth: 'addon' },
-  'plano-acao':         { erp_cs: 'full', bpo: 'none', industrial: 'none', assessoria: 'full', wealth: 'none' },
-  'onboarding':         { erp_cs: 'full', bpo: 'full', industrial: 'none', assessoria: 'full', wealth: 'none' },
-  // OUTROS
-  'wealth':             { erp_cs: 'none', bpo: 'none', industrial: 'none', assessoria: 'addon', wealth: 'full' },
-  'noc':                { erp_cs: 'none', bpo: 'none', industrial: 'none', assessoria: 'none', wealth: 'none' },
-  'contador':           { erp_cs: 'full', bpo: 'full', industrial: 'addon', assessoria: 'addon', wealth: 'addon' },
-  'admin':              { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'addon' },
-  'ajuda':              { erp_cs: 'full', bpo: 'full', industrial: 'full', assessoria: 'full', wealth: 'full' },
+  // ═══ NÚCLEO (incluso em todos) ═══
+  'visao-diaria':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'visao-mensal':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-geral':    { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-negocios': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-resultado':{ erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-balanco':  { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-indicadores':{ erp_cs:'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-financeiro':{ erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dashboard-precos':   { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'dados':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'conectores':         { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'importar':           { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'importar-universal': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'ajuda':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
+  'rateio':             { erp_cs: 'full', bpo: 'addon', industrial: 'full', agro: 'full', wealth: 'none', producao: 'addon', assessoria: 'addon' },
+  'orcamento':          { erp_cs: 'full', bpo: 'addon', industrial: 'full', agro: 'full', wealth: 'none', producao: 'addon', assessoria: 'addon' },
+  'operacional':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'none' },
+  'consultor-ia':       { erp_cs: 'addon', bpo: 'addon', industrial: 'full', agro: 'addon', wealth: 'none', producao: 'addon', assessoria: 'full' },
+  'contador':           { erp_cs: 'full', bpo: 'full', industrial: 'addon', agro: 'addon', wealth: 'addon', producao: 'addon', assessoria: 'addon' },
+  'assessor':           { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'addon', producao: 'none', assessoria: 'full' },
+  'anti-fraude-basico': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'custeio':            { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+
+  // ═══ RELATÓRIOS IA ═══
+  'relatorio-rapido':   { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
+  'relatorio-v19':      { erp_cs: 'addon', bpo: 'full', industrial: 'full', agro: 'addon', wealth: 'none', producao: 'addon', assessoria: 'full' },
+
+  // ═══ ANTI-FRAUDE (avançado) ═══
+  'anti-fraude-full':   { erp_cs: 'addon', bpo: 'full', industrial: 'addon', agro: 'addon', wealth: 'none', producao: 'none', assessoria: 'addon' },
+  'anti-fraude-bpo':    { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+
+  // ═══ ERP COMÉRCIO & SERVIÇOS ═══
+  'viabilidade':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'full' },
+  'plano-acao':         { erp_cs: 'full', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'full' },
+  'onboarding':         { erp_cs: 'full', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'full' },
+
+  // ═══ BPO FINANCEIRO ═══
+  'bpo':                { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'addon' },
+  'bpo-automacao':      { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'addon' },
+  'bpo-rotinas':        { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'bpo-conciliacao':    { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'bpo-supervisor':     { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+
+  // ═══ INDUSTRIAL ═══
+  'custo':              { erp_cs: 'none', bpo: 'none', industrial: 'full', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'addon' },
+  'ficha-tecnica':      { erp_cs: 'none', bpo: 'none', industrial: 'full', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'industrial':         { erp_cs: 'none', bpo: 'none', industrial: 'full', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'industrial-ceo':     { erp_cs: 'none', bpo: 'none', industrial: 'full', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+
+  // ═══ AGRO ═══
+  'agro-rebanho':       { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'agro-manejo':        { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'agro-novilho':       { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'full', wealth: 'none', producao: 'none', assessoria: 'none' },
+
+  // ═══ WEALTH ═══
+  'wealth':             { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'full', producao: 'none', assessoria: 'addon' },
+  'assessor-ceo':       { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'addon', producao: 'none', assessoria: 'full' },
+
+  // ═══ PRODUÇÃO MARKETING ═══
+  'producao':           { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
+  'producao-jobs':      { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
+  'producao-timesheet': { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
+  'producao-briefing':  { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
+  'producao-propostas': { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
+
+  // ═══ ADMIN / NOC ═══
+  'noc':                { erp_cs: 'none', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
+  'admin':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'addon', producao: 'full', assessoria: 'full' },
 };
 
 // ═══ CAMADA 2: Role → Abas do Dashboard ═══
@@ -91,15 +114,17 @@ export const ROLE_TABS: Record<string, string[]> = {
   gestor_mfo:        ['geral','visao_diaria','negocios','resultado','balanco','indicadores','financeiro','precos','relatorio'],
   analista:          ['geral','visao_diaria','resultado','indicadores'],
   contador:          ['geral','resultado','balanco','indicadores'],
+  atendimento:       ['geral','visao_diaria','negocios'],
+  designer:          ['geral'],
   visualizador:      ['geral'],
 };
 
 // ═══ CAMADA 2: Role → Módulos do menu ═══
 export const ROLE_MODULOS: Record<string, string[]> = {
-  adm_investimentos: ['*'], // acesso irrestrito
+  adm_investimentos: ['*'],
   adm:               ['*'],
   acesso_total:      ['*'],
-  socio:             ['dashboard','dados','conectores','importar','anti-fraude','rateio','orcamento','viabilidade','relatorio','consultor-ia','ajuda'],
+  socio:             ['dashboard','dados','conectores','importar','anti-fraude','rateio','orcamento','viabilidade','relatorio','consultor-ia','producao','ajuda'],
   diretor_industrial:['dashboard','industrial','custo','ficha-tecnica','operacional','rateio','orcamento','ajuda'],
   gerente_planta:    ['dashboard','industrial','custo','operacional','ajuda'],
   financeiro:        ['dashboard','dados','conectores','importar','anti-fraude','rateio','orcamento','contador','ajuda'],
@@ -114,6 +139,8 @@ export const ROLE_MODULOS: Record<string, string[]> = {
   gestor_mfo:        ['dashboard','wealth','dados','anti-fraude','relatorio','ajuda'],
   analista:          ['dashboard','wealth','ajuda'],
   contador:          ['dashboard','contador','ajuda'],
+  atendimento:       ['dashboard','producao','ajuda'],
+  designer:          ['dashboard','producao','ajuda'],
   visualizador:      ['dashboard','ajuda'],
 };
 
@@ -136,6 +163,8 @@ export const ROLE_NAMES: Record<string, string> = {
   gestor_mfo: 'Gestor MFO',
   analista: 'Analista',
   contador: 'Contador',
+  atendimento: 'Atendimento',
+  designer: 'Designer',
   cliente_pf: 'Cliente PF/PJ',
   compliance: 'Compliance',
   visualizador: 'Visualizador',
@@ -146,8 +175,10 @@ export const ROLES_POR_PLANO: Record<Plano, string[]> = {
   erp_cs:     ['adm','socio','financeiro','comercial','operacional','contador','visualizador'],
   bpo:        ['adm','operador_bpo','supervisor_bpo','socio','contador'],
   industrial: ['adm','diretor_industrial','gerente_planta','supervisor','operacional','socio'],
-  assessoria: ['adm','consultor','socio','conselheiro'],
+  agro:       ['adm','socio','operacional','financeiro','visualizador'],
   wealth:     ['adm','gestor_mfo','analista','cliente_pf','compliance'],
+  producao:   ['adm','socio','atendimento','designer','operacional','visualizador'],
+  assessoria: ['adm','consultor','socio','conselheiro'],
 };
 
 // ═══ Helper functions ═══
@@ -162,14 +193,10 @@ export function canAccessModule(plano: Plano | string, modulo: string): Acesso {
 }
 
 export function getMenuItems(plano: Plano | string, role: string) {
-  // Admin investimentos vê tudo
   if (isAdminRole(role)) return 'all';
-
   const roleModulos = ROLE_MODULOS[role];
   if (!roleModulos) return [];
   if (roleModulos.includes('*')) return 'all';
-
-  // Filter by plan + role
   return roleModulos.filter(mod => {
     const access = canAccessModule(plano, mod);
     return access === 'full' || access === 'addon';
