@@ -92,7 +92,6 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
         { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
-        { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
       ],
     },
     {
@@ -124,7 +123,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/score', label: 'Score de Inadimplência', icon: <Icon.TrendingDown />, badge: 'IA' },
         { href: '/dashboard/previsao', label: 'Previsão de Caixa', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/consultor', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+        { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
       ],
     },
     {
@@ -132,7 +131,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/contador', label: 'Portal Contador', icon: <Icon.Calculator /> },
         { href: '/dashboard/assessor', label: 'PS Assessor', icon: <Icon.Briefcase /> },
-        { href: '/dashboard/antifraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
         { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
       ],
     },
@@ -159,10 +158,10 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     {
       label: 'PRODUÇÃO INDUSTRIAL',
       items: [
-        { href: '/dashboard/fichatecnica', label: 'Ficha Técnica', icon: <Icon.BookOpen /> },
+        { href: '/dashboard/ficha-tecnica', label: 'Ficha Técnica', icon: <Icon.BookOpen /> },
         { href: '/dashboard/industrial', label: 'Industrial', icon: <Icon.Factory /> },
         { href: '/dashboard/custeio', label: 'Custeio Absorção', icon: <Icon.Calculator /> },
-        { href: '/dashboard/custo', label: 'Custo', icon: <Icon.PieChart /> },
+        { href: '/dashboard/custo-industrial', label: 'Custo', icon: <Icon.PieChart /> },
       ],
     },
     {
@@ -181,8 +180,8 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
         { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/consultor', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
-        { href: '/dashboard/antifraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+        { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
       ],
     },
   ],
@@ -222,7 +221,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
         { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/antifraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
       ],
     },
   ],
@@ -249,8 +248,8 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/score', label: 'Score IA', icon: <Icon.TrendingDown />, badge: 'IA' },
         { href: '/dashboard/previsao', label: 'Previsão IA', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/consultor', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
-        { href: '/dashboard/antifraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+        { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
       ],
     },
     {
@@ -284,7 +283,6 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
         { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
-        { href: '/dashboard/os', label: 'OS', icon: <Icon.ClipboardList /> },
         { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
         { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
         { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
@@ -311,7 +309,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
         { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/antifraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
       ],
     },
     {
@@ -748,10 +746,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onClick={() => setMobileMenuOpen(false)}
             />
             <NavItem
-              href="/dashboard/visao-diaria"
-              label="Visão Diária"
+              href="/dashboard/visao-mensal"
+              label="Visão Mensal"
               icon={<Icon.Calendar />}
-              active={pathname === '/dashboard/visao-diaria' || pathname === '/dashboard/visao_diaria'}
+              active={pathname === '/dashboard/visao-mensal'}
               collapsed={sidebarCollapsed}
               onClick={() => setMobileMenuOpen(false)}
             />
