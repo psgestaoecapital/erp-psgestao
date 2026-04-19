@@ -39,7 +39,41 @@ const THEME_DARK = `
   --ps-header-border: #2A2822;
 `
 
-// ═══ NÚCLEO (4 módulos — todos os planos) ═══
+// ═══ THEME ENFORCER — converte cores escuras → claras automaticamente ═══
+const DARK_BG_MAP: [string[], string][] = [
+  [['rgb(15, 15, 15)','rgb(12, 12, 10)','rgb(26, 26, 46)'], '#FAF7F2'],
+  [['rgb(26, 20, 16)','rgb(22, 22, 20)','rgb(22, 33, 62)','rgb(13, 17, 23)'], '#FFFFFF'],
+  [['rgb(30, 30, 27)'], '#F0ECE3'],
+];
+const DARK_TEXT_MAP: [string[], string][] = [
+  [['rgb(250, 247, 242)','rgb(240, 236, 227)','rgb(224, 224, 224)'], '#3D2314'],
+  [['rgb(176, 171, 159)'], '#6B5D4F'],
+  [['rgb(145, 140, 130)','rgb(112, 108, 100)','rgb(107, 101, 96)'], '#9C8E80'],
+  [['rgb(232, 200, 114)'], '#8B6512'],
+];
+const DARK_BORDER_MAP: [string[], string][] = [
+  [['rgb(42, 40, 34)','rgb(58, 56, 48)','rgb(48, 54, 61)'], '#E0D8CC'],
+];
+
+function enforceLight(container: HTMLElement) {
+  const els = container.querySelectorAll<HTMLElement>('[style]');
+  els.forEach(el => {
+    const s = el.style;
+    // Backgrounds
+    const bg = s.backgroundColor;
+    if (bg) for (const [darks, light] of DARK_BG_MAP) { if (darks.includes(bg)) { s.backgroundColor = light; break; } }
+    // Text
+    const c = s.color;
+    if (c) for (const [darks, light] of DARK_TEXT_MAP) { if (darks.includes(c)) { s.color = light; break; } }
+    // Borders (all sides)
+    for (const prop of ['borderColor','borderTopColor','borderBottomColor','borderLeftColor','borderRightColor'] as const) {
+      const v = (s as any)[prop];
+      if (v) for (const [darks, light] of DARK_BORDER_MAP) { if (darks.includes(v)) { (s as any)[prop] = light; break; } }
+    }
+  });
+}
+
+// ═══ NÚCLEO ═══
 const NUCLEO = [
   { href: '/dashboard',          label: 'Visão Diária', icon: '📅', modKey: 'visao-diaria' },
   { href: '/dashboard/dados',    label: 'Dados',        icon: '📊', modKey: 'dados' },
@@ -47,9 +81,7 @@ const NUCLEO = [
   { href: '/dashboard/ajuda',    label: 'Ajuda',        icon: '❓', modKey: 'ajuda' },
 ]
 
-// ═══ ITEM HELPER (reutilizado entre boxes) ═══
 type MenuItem = { href: string; label: string; icon: string; modKey: string }
-
 const I = {
   operacional:  { href: '/dashboard/operacional',  label: 'Operacional',  icon: '⚙️', modKey: 'operacional' } as MenuItem,
   rateio:       { href: '/dashboard/rateio',       label: 'Rateio',       icon: '⚗️', modKey: 'rateio' } as MenuItem,
@@ -68,32 +100,13 @@ const I = {
   producao:     { href: '/dashboard/producao',     label: 'Produção',     icon: '🎨', modKey: 'producao' } as MenuItem,
 }
 
-// ═══ BOXES: conforme planilha editada por Gilberto 18/04 ═══
 const PLAN_BOXES: { plano: Plano; items: MenuItem[] }[] = [
-  {
-    plano: 'erp_cs',
-    items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio],
-  },
-  {
-    plano: 'industrial',
-    items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo],
-  },
-  {
-    plano: 'agro',
-    items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio],
-  },
-  {
-    plano: 'bpo',
-    items: [I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc],
-  },
-  {
-    plano: 'wealth',
-    items: [I.wealth],
-  },
-  {
-    plano: 'producao',
-    items: [I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao],
-  },
+  { plano: 'erp_cs', items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
+  { plano: 'industrial', items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
+  { plano: 'agro', items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio] },
+  { plano: 'bpo', items: [I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc] },
+  { plano: 'wealth', items: [I.wealth] },
+  { plano: 'producao', items: [I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao] },
 ]
 
 const DIAS_MAP: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 }
@@ -101,6 +114,7 @@ const DIAS_MAP: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const mainRef = useRef<HTMLDivElement>(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('')
   const [plano, setPlano] = useState<string>('erp_cs')
@@ -130,6 +144,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const toggleDemo = () => { setDemo(d => { const n = !d; if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(n)); return n }) }
   const toggleTheme = () => { setTheme(t => { const n = t === 'light' ? 'dark' : 'light'; if (typeof window !== 'undefined') localStorage.setItem('ps_theme', n); return n }) }
+
+  // ═══ THEME ENFORCER — converte páginas escuras quando tema é claro ═══
+  useEffect(() => {
+    if (isDark || !mainRef.current) return;
+    const run = () => { if (mainRef.current) enforceLight(mainRef.current); };
+    const t1 = setTimeout(run, 80);
+    const t2 = setTimeout(run, 400);
+    const t3 = setTimeout(run, 1200);
+    const observer = new MutationObserver(() => setTimeout(run, 30));
+    observer.observe(mainRef.current, { childList: true, subtree: true });
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); observer.disconnect(); };
+  }, [isDark, pathname])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -235,74 +261,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       <header style={{ position: 'sticky', top: timeoutWarning ? 33 : 0, zIndex: 50, background: 'var(--ps-header)', borderBottom: '1px solid var(--ps-header-border)', transition: 'background 0.3s' }}>
-
         {/* ═══ LINHA 1: Logo + Núcleo + User ═══ */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 10px', overflowX: 'auto' }}>
           <a href='/dashboard' style={{ ...iconSt(false), minWidth: 48, marginRight: 2, color: 'var(--ps-gold)', fontWeight: 700, fontSize: 9, letterSpacing: '0.06em' }}>
             <span style={{ fontSize: 15, fontWeight: 900 }}>PS</span>
             <span>GESTÃO</span>
           </a>
-
           <span style={{ fontSize: 8, color: 'var(--ps-gold)', opacity: 0.5, padding: '2px 6px', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', flexShrink: 0 }}>Núcleo</span>
-
           {visibleNucleo.map(item => (
-            <a key={item.href} href={item.href} style={iconSt(active(item.href))}
-              onClick={e => { e.preventDefault(); navigateTo(item.href) }}>
+            <a key={item.href} href={item.href} style={iconSt(active(item.href))} onClick={e => { e.preventDefault(); navigateTo(item.href) }}>
               <span style={{ fontSize: 14 }}>{item.icon}</span>
               <span style={{ fontSize: 9 }}>{item.label}</span>
             </a>
           ))}
-
           <div style={{ flex: 1 }} />
-
           <button onClick={toggleTheme} style={{ ...iconSt(false), cursor: 'pointer', minWidth: 32 }} title={isDark ? 'Modo claro' : 'Modo escuro'}>
             <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span>
             <span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
           </button>
-
           {email && <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>{email.split('@')[0]}</span>}
-          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v8.9.0</span>
+          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.0</span>
           <button onClick={signOut} style={{ fontSize: 10, color: 'var(--ps-text-m)', background: 'transparent', border: '1px solid var(--ps-border)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
         </div>
 
-        {/* ═══ LINHA 2: Boxes de plano (retângulos com ícones dentro) ═══ */}
+        {/* ═══ LINHA 2: Boxes de plano ═══ */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 6, padding: '4px 10px', borderTop: '1px solid var(--ps-border)', overflowX: 'auto' }}>
-
           {visibleBoxes.map(box => {
             const hasActiveChild = box.items.some(i => active(i.href))
             return (
-              <div key={box.plano} style={{
-                borderRadius: 10, overflow: 'hidden', flexShrink: 0,
-                border: `1.5px solid ${hasActiveChild ? box.info.cor + '70' : box.info.cor + '35'}`,
-                background: hasActiveChild ? box.info.cor + '06' : 'transparent',
-                transition: 'all 0.15s',
-              }}>
-                {/* Header do box */}
-                <div style={{
-                  background: box.info.cor + (isDark ? '30' : '18'),
-                  padding: '2px 8px',
-                  fontSize: 8, fontWeight: 700, color: box.info.cor,
-                  textTransform: 'uppercase', letterSpacing: 0.4,
-                  textAlign: 'center', whiteSpace: 'nowrap',
-                  borderBottom: `1px solid ${box.info.cor}25`,
-                }}>
+              <div key={box.plano} style={{ borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: `1.5px solid ${hasActiveChild ? box.info.cor + '70' : box.info.cor + '35'}`, background: hasActiveChild ? box.info.cor + '06' : 'transparent', transition: 'all 0.15s' }}>
+                <div style={{ background: box.info.cor + (isDark ? '30' : '18'), padding: '2px 8px', fontSize: 8, fontWeight: 700, color: box.info.cor, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'center', whiteSpace: 'nowrap', borderBottom: `1px solid ${box.info.cor}25` }}>
                   {box.info.icon} {box.info.nome.replace('ERP ', '').replace('PS ', '')}
                 </div>
-                {/* Ícones dentro do box */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, padding: '2px 3px', maxWidth: 220 }}>
                   {box.items.map(item => (
-                    <a key={`${box.plano}-${item.modKey}`} href={item.href}
-                      onClick={e => { e.preventDefault(); navigateTo(item.href) }}
-                      style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
-                        width: 36, padding: '2px 1px', borderRadius: 5, textDecoration: 'none',
-                        cursor: 'pointer', transition: 'all 0.15s',
-                        background: active(item.href) ? box.info.cor + '18' : 'transparent',
-                        border: active(item.href) ? `1px solid ${box.info.cor}35` : '1px solid transparent',
-                        color: active(item.href) ? box.info.cor : 'var(--ps-text-m)',
-                        fontWeight: active(item.href) ? 600 : 400,
-                      }}
-                    >
+                    <a key={`${box.plano}-${item.modKey}`} href={item.href} onClick={e => { e.preventDefault(); navigateTo(item.href) }}
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, width: 36, padding: '2px 1px', borderRadius: 5, textDecoration: 'none', cursor: 'pointer', transition: 'all 0.15s', background: active(item.href) ? box.info.cor + '18' : 'transparent', border: active(item.href) ? `1px solid ${box.info.cor}35` : '1px solid transparent', color: active(item.href) ? box.info.cor : 'var(--ps-text-m)', fontWeight: active(item.href) ? 600 : 400 }}>
                       <span style={{ fontSize: 12 }}>{item.icon}</span>
                       <span style={{ fontSize: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 34, textAlign: 'center' }}>{item.label}</span>
                     </a>
@@ -311,10 +305,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             )
           })}
-
           <div style={{ width: 1, background: 'var(--ps-border)', margin: '0 2px', flexShrink: 0, alignSelf: 'stretch' }} />
-
-          {/* Admin / Dev / Demo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
             {isAdm && <a href='/dashboard/admin' style={iconSt(active('/dashboard/admin'))} onClick={e => { e.preventDefault(); navigateTo('/dashboard/admin') }}><span style={{ fontSize: 14 }}>⚙️</span><span style={{ fontSize: 9 }}>Admin</span></a>}
             {isAdm && <a href='/dashboard/dev' style={iconSt(active('/dashboard/dev'))} onClick={e => { e.preventDefault(); navigateTo('/dashboard/dev') }}><span style={{ fontSize: 14 }}>🛠️</span><span style={{ fontSize: 9 }}>Dev</span></a>}
@@ -325,7 +316,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {demo && <style dangerouslySetInnerHTML={{ __html: '.ps-demo .ps-blur{filter:blur(8px)!important;user-select:none!important}.ps-demo .demo-hide{filter:blur(8px)!important;user-select:none!important}.ps-demo td:not(:first-child){color:transparent!important;text-shadow:0 0 10px currentColor!important}' }} />}
 
-      <main className={demo ? 'ps-demo' : ''}>{children}</main>
+      <main ref={mainRef} className={demo ? 'ps-demo' : ''}>{children}</main>
       <HelpWidget />
       <LgpdConsentModal />
       <div style={{ textAlign: 'center', padding: '12px 16px', borderTop: '1px solid var(--ps-border)', background: 'var(--ps-header)', fontSize: 10, color: 'var(--ps-text-d)', transition: 'background 0.3s' }}>
