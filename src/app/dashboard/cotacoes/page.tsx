@@ -417,11 +417,11 @@ export default function CotacoesPage(){
                 <tbody>
                   {dadosComparar.itens.map((item:any)=>{
                     // Encontra o menor preço entre as propostas
-                    const propostas=dadosComparar.fornecedores.map((f:any)=>{
+                    const propostas:any[]=dadosComparar.fornecedores.map((f:any)=>{
                       const p=dadosComparar.propostas.find((p:any)=>p.cotacao_fornecedor_id===f.id&&p.cotacao_item_id===item.id);
                       return{fornecedor:f,proposta:p};
                     });
-                    const precos=propostas.filter(p=>p.proposta&&Number(p.proposta.preco_unitario)>0).map(p=>Number(p.proposta!.preco_unitario));
+                    const precos=propostas.filter((p:any)=>p.proposta&&Number(p.proposta.preco_unitario)>0).map((p:any)=>Number(p.proposta.preco_unitario));
                     const menorPreco=precos.length>0?Math.min(...precos):0;
                     
                     return(
@@ -431,7 +431,7 @@ export default function CotacoesPage(){
                           {item.produto_codigo&&<div style={{fontSize:9,color:TXD,fontFamily:"monospace"}}>{item.produto_codigo}</div>}
                         </td>
                         <td style={{padding:"8px",textAlign:"center",color:TXM,background:BG2}}>{fmtQ(item.quantidade)} {item.unidade}</td>
-                        {propostas.map(({fornecedor,proposta})=>{
+                        {propostas.map(({fornecedor,proposta}:{fornecedor:any,proposta:any})=>{
                           const preco=Number(proposta?.preco_unitario||0);
                           const isMelhor=preco>0&&preco===menorPreco&&precos.length>1;
                           return(
