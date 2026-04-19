@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const sbAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+// Lazy init pra evitar erro de build se env var faltar
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Credenciais Supabase não configuradas no servidor');
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 // GET: retorna dados do orçamento para exibir ao cliente
-export async function GET(req: NextRequest, { params }: { params: { hash: string } }) {
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ hash: string }> }
+) {
   try {
-    const { hash } = params;
+    const { hash } = await context.params;
     if (!hash || hash.length < 8) {
       return NextResponse.json({ error: 'Hash inválido' }, { status: 400 });
     }
+
+    const sbAdmin = getAdmin();
 
     const { data: orc, error } = await sbAdmin
       .from('erp_orcamentos')
@@ -25,24 +32,21 @@ export async function GET(req: NextRequest, { params }: { params: { hash: string
       return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 });
     }
 
-    // Busca itens
     const { data: itens } = await sbAdmin
       .from('erp_orcamentos_itens')
       .select('*')
       .eq('orcamento_id', orc.id)
       .order('ordem');
 
-    // Busca dados da empresa emitente
     const { data: empresa } = await sbAdmin
       .from('companies')
       .select('razao_social, nome_fantasia, cnpj, cidade_estado')
       .eq('id', orc.company_id)
       .maybeSingle();
 
-    // Auto-registra visualização (se ainda não foi visto)
     const now = new Date().toISOString();
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || '';
-    
+
     if (orc.status === 'enviado') {
       await sbAdmin.from('erp_orcamentos').update({
         status: 'visualizado',
@@ -67,8 +71,7 @@ export async function GET(req: NextRequest, { params }: { params: { hash: string
       }).eq('id', orc.id);
     }
 
-    // Verifica se está expirado
-    const expirado = orc.data_validade && new Date(orc.data_validade) < new Date() && 
+    const expirado = orc.data_validade && new Date(orc.data_validade) < new Date() &&
                      !['aprovado', 'recusado', 'convertido'].includes(orc.status);
 
     return NextResponse.json({
@@ -78,20 +81,24 @@ export async function GET(req: NextRequest, { params }: { params: { hash: string
       expirado,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message || 'Erro interno' }, { status: 500 });
   }
 }
 
-// POST: registra aprovação ou recusa
-export async function POST(req: NextRequest, { params }: { params: { hash: string } }) {
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ hash: string }> }
+) {
   try {
-    const { hash } = params;
+    const { hash } = await context.params;
     const body = await req.json();
     const { acao, nome_aprovador, comentario } = body;
 
     if (!['aprovar', 'recusar'].includes(acao)) {
       return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });
     }
+
+    const sbAdmin = getAdmin();
 
     const { data: orc } = await sbAdmin
       .from('erp_orcamentos')
@@ -103,7 +110,6 @@ export async function POST(req: NextRequest, { params }: { params: { hash: strin
       return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 });
     }
 
-    // Verifica se já foi aprovado/recusado ou expirou
     if (['aprovado', 'recusado', 'convertido'].includes(orc.status)) {
       return NextResponse.json({ error: `Este orçamento já foi ${orc.status}` }, { status: 400 });
     }
@@ -132,14 +138,14 @@ export async function POST(req: NextRequest, { params }: { params: { hash: strin
       metadata: { acao, nome_aprovador, comentario, via: 'link_publico' },
     });
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       status: novoStatus,
-      message: acao === 'aprovar' 
-        ? 'Orçamento aprovado com sucesso!' 
+      message: acao === 'aprovar'
+        ? 'Orçamento aprovado com sucesso!'
         : 'Orçamento recusado. Obrigado pelo retorno.'
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message || 'Erro interno' }, { status: 500 });
   }
 }
