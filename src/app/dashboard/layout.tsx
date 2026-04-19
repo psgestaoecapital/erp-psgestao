@@ -525,6 +525,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         /* Transitions globais sutis */
         a, button { transition: all 0.15s ease-out; }
+
+        /* ═══ RESPONSIVE ═══ */
+        @media (max-width: 1024px) {
+          .ps-sidebar {
+            transform: translateX(-100%);
+            width: var(--sidebar-width) !important;
+          }
+          .ps-sidebar.open {
+            transform: translateX(0) !important;
+          }
+          .ps-main {
+            margin-left: 0 !important;
+          }
+          .ps-mobile-menu {
+            display: flex !important;
+          }
+          .ps-mobile-close {
+            display: flex !important;
+          }
+        }
+        @media (max-width: 640px) {
+          .ps-breadcrumb {
+            display: none;
+          }
+        }
       `}</style>
 
       <div style={{ minHeight: '100vh', background: 'var(--ps-bg)', display: 'flex' }}>
@@ -546,7 +571,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             transition: 'width 0.2s ease-out, transform 0.2s ease-out',
             transform: mobileMenuOpen ? 'translateX(0)' : undefined,
           }}
-          className="ps-sidebar"
+          className={`ps-sidebar ${mobileMenuOpen ? 'open' : ''}`}
         >
           {/* Logo / Brand */}
           <div
@@ -1108,30 +1133,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {children}
           </main>
         </div>
-
-        {/* Responsive styles */}
-        <style jsx>{`
-          @media (max-width: 1024px) {
-            :global(.ps-sidebar) {
-              transform: translateX(-100%);
-              width: var(--sidebar-width) !important;
-            }
-            :global(.ps-main) {
-              margin-left: 0 !important;
-            }
-            :global(.ps-mobile-menu) {
-              display: flex !important;
-            }
-            :global(.ps-mobile-close) {
-              display: flex !important;
-            }
-          }
-          @media (max-width: 640px) {
-            :global(.ps-breadcrumb) {
-              display: none;
-            }
-          }
-        `}</style>
       </div>
     </>
   )
