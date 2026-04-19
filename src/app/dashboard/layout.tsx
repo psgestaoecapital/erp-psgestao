@@ -8,68 +8,74 @@ import { supabase } from '@/lib/supabase'
 import { PLANO_MODULOS, PLANOS, isAdminRole, type Plano } from '@/lib/planos'
 
 // ═══ TEMA ═══
-const THEME_LIGHT = `
-  --ps-bg: #FAF7F2;
-  --ps-bg2: #FFFFFF;
-  --ps-bg3: #F0ECE3;
-  --ps-text: #3D2314;
-  --ps-text-m: #6B5D4F;
-  --ps-text-d: #9C8E80;
-  --ps-border: #E0D8CC;
-  --ps-gold: #C8941A;
-  --ps-gold-bg: #C8941A12;
-  --ps-gold-border: #C8941A30;
-  --ps-gold-text: #8B6512;
-  --ps-header: #FFFFFF;
-  --ps-header-border: #E8E0D4;
-`
-const THEME_DARK = `
-  --ps-bg: #0F0F0F;
-  --ps-bg2: #1A1410;
-  --ps-bg3: #1E1E1B;
-  --ps-text: #FAF7F2;
-  --ps-text-m: #B0AB9F;
-  --ps-text-d: #706C64;
-  --ps-border: #2A2822;
-  --ps-gold: #C6973F;
-  --ps-gold-bg: #C6973F12;
-  --ps-gold-border: #C6973F30;
-  --ps-gold-text: #C6973F;
-  --ps-header: #1A1410;
-  --ps-header-border: #2A2822;
-`
+const THEME_LIGHT = `--ps-bg:#FAF7F2;--ps-bg2:#FFFFFF;--ps-bg3:#F0ECE3;--ps-text:#3D2314;--ps-text-m:#6B5D4F;--ps-text-d:#9C8E80;--ps-border:#E0D8CC;--ps-gold:#C8941A;--ps-gold-bg:#C8941A12;--ps-gold-border:#C8941A30;--ps-gold-text:#8B6512;--ps-header:#FFFFFF;--ps-header-border:#E8E0D4;`
+const THEME_DARK = `--ps-bg:#0F0F0F;--ps-bg2:#1A1410;--ps-bg3:#1E1E1B;--ps-text:#FAF7F2;--ps-text-m:#B0AB9F;--ps-text-d:#706C64;--ps-border:#2A2822;--ps-gold:#C6973F;--ps-gold-bg:#C6973F12;--ps-gold-border:#C6973F30;--ps-gold-text:#C6973F;--ps-header:#1A1410;--ps-header-border:#2A2822;`
 
-// ═══ THEME ENFORCER — converte cores escuras → claras automaticamente ═══
-const DARK_BG_MAP: [string[], string][] = [
-  [['rgb(15, 15, 15)','rgb(12, 12, 10)','rgb(26, 26, 46)'], '#FAF7F2'],
-  [['rgb(26, 20, 16)','rgb(22, 22, 20)','rgb(22, 33, 62)','rgb(13, 17, 23)'], '#FFFFFF'],
-  [['rgb(30, 30, 27)'], '#F0ECE3'],
-];
-const DARK_TEXT_MAP: [string[], string][] = [
-  [['rgb(250, 247, 242)','rgb(240, 236, 227)','rgb(224, 224, 224)'], '#3D2314'],
-  [['rgb(176, 171, 159)'], '#6B5D4F'],
-  [['rgb(145, 140, 130)','rgb(112, 108, 100)','rgb(107, 101, 96)'], '#9C8E80'],
-  [['rgb(232, 200, 114)'], '#8B6512'],
-];
-const DARK_BORDER_MAP: [string[], string][] = [
-  [['rgb(42, 40, 34)','rgb(58, 56, 48)','rgb(48, 54, 61)'], '#E0D8CC'],
-];
-
+// ═══ THEME ENFORCER v2 — substituição de cores na string do style ═══
 function enforceLight(container: HTMLElement) {
   const els = container.querySelectorAll<HTMLElement>('[style]');
   els.forEach(el => {
-    const s = el.style;
-    // Backgrounds
-    const bg = s.backgroundColor;
-    if (bg) for (const [darks, light] of DARK_BG_MAP) { if (darks.includes(bg)) { s.backgroundColor = light; break; } }
-    // Text
-    const c = s.color;
-    if (c) for (const [darks, light] of DARK_TEXT_MAP) { if (darks.includes(c)) { s.color = light; break; } }
-    // Borders (all sides)
-    for (const prop of ['borderColor','borderTopColor','borderBottomColor','borderLeftColor','borderRightColor'] as const) {
-      const v = (s as any)[prop];
-      if (v) for (const [darks, light] of DARK_BORDER_MAP) { if (darks.includes(v)) { (s as any)[prop] = light; break; } }
-    }
+    const s = el.getAttribute('style');
+    if (!s) return;
+    let n = s;
+
+    // ══ PASSO 1: Texto (claro-no-escuro → escuro-no-claro) ══
+    // DEVE rodar ANTES dos backgrounds pra evitar conflito
+    // Hex
+    n=n.replaceAll('#FAF7F2','#3D2314').replaceAll('#faf7f2','#3D2314');
+    n=n.replaceAll('#F0ECE3','#4A3525').replaceAll('#f0ece3','#4A3525');
+    n=n.replaceAll('#E8C872','#8B6512').replaceAll('#e8c872','#8B6512');
+    n=n.replaceAll('#B0AB9F','#6B5D4F').replaceAll('#b0ab9f','#6B5D4F');
+    n=n.replaceAll('#918C82','#8C7E70').replaceAll('#918c82','#8C7E70');
+    n=n.replaceAll('#706C64','#9C8E80').replaceAll('#706c64','#9C8E80');
+    n=n.replaceAll('#6B6560','#9C8E80').replaceAll('#6b6560','#9C8E80');
+    n=n.replaceAll('#e0e0e0','#3D2314').replaceAll('#E0E0E0','#3D2314');
+    // RGB
+    n=n.replace(/rgb\(250,\s*247,\s*242\)/gi,'#3D2314');
+    n=n.replace(/rgb\(240,\s*236,\s*227\)/gi,'#4A3525');
+    n=n.replace(/rgb\(232,\s*200,\s*114\)/gi,'#8B6512');
+    n=n.replace(/rgb\(176,\s*171,\s*159\)/gi,'#6B5D4F');
+    n=n.replace(/rgb\(145,\s*140,\s*130\)/gi,'#8C7E70');
+    n=n.replace(/rgb\(112,\s*108,\s*100\)/gi,'#9C8E80');
+    n=n.replace(/rgb\(107,\s*101,\s*96\)/gi,'#9C8E80');
+    n=n.replace(/rgb\(224,\s*224,\s*224\)/gi,'#3D2314');
+
+    // ══ PASSO 2: Backgrounds (escuro → claro) ══
+    // Hex
+    n=n.replaceAll('#0F0F0F','#FAF7F2').replaceAll('#0f0f0f','#FAF7F2');
+    n=n.replaceAll('#0C0C0A','#FAF7F2').replaceAll('#0c0c0a','#FAF7F2');
+    n=n.replaceAll('#1A1410','#FFFFFF').replaceAll('#1a1410','#FFFFFF');
+    n=n.replaceAll('#161614','#FFFFFF').replaceAll('#161614','#FFFFFF');
+    n=n.replaceAll('#1E1E1B','#F0ECE3').replaceAll('#1e1e1b','#F0ECE3');
+    n=n.replaceAll('#16213e','#FFFFFF').replaceAll('#16213E','#FFFFFF');
+    n=n.replaceAll('#1a1a2e','#FAF7F2').replaceAll('#1A1A2E','#FAF7F2');
+    n=n.replaceAll('#0d1117','#FFFFFF').replaceAll('#0D1117','#FFFFFF');
+    n=n.replaceAll('#161b22','#F5F2EC').replaceAll('#161B22','#F5F2EC');
+    // RGB
+    n=n.replace(/rgb\(15,\s*15,\s*15\)/gi,'#FAF7F2');
+    n=n.replace(/rgb\(12,\s*12,\s*10\)/gi,'#FAF7F2');
+    n=n.replace(/rgb\(26,\s*20,\s*16\)/gi,'#FFFFFF');
+    n=n.replace(/rgb\(22,\s*22,\s*20\)/gi,'#FFFFFF');
+    n=n.replace(/rgb\(30,\s*30,\s*27\)/gi,'#F0ECE3');
+    n=n.replace(/rgb\(22,\s*33,\s*62\)/gi,'#FFFFFF');
+    n=n.replace(/rgb\(26,\s*26,\s*46\)/gi,'#FAF7F2');
+    n=n.replace(/rgb\(13,\s*17,\s*23\)/gi,'#FFFFFF');
+    n=n.replace(/rgb\(22,\s*27,\s*34\)/gi,'#F5F2EC');
+
+    // ══ PASSO 3: Bordas (escuro → claro) ══
+    n=n.replaceAll('#2A2822','#E0D8CC').replaceAll('#2a2822','#E0D8CC');
+    n=n.replaceAll('#3A3830','#D0C8BC').replaceAll('#3a3830','#D0C8BC');
+    n=n.replaceAll('#30363d','#E0D8CC').replaceAll('#30363D','#E0D8CC');
+    n=n.replace(/rgb\(42,\s*40,\s*34\)/gi,'#E0D8CC');
+    n=n.replace(/rgb\(58,\s*56,\s*48\)/gi,'#D0C8BC');
+    n=n.replace(/rgb\(48,\s*54,\s*61\)/gi,'#E0D8CC');
+
+    // ══ PASSO 4: Sombras escuras → claras ══
+    n=n.replace(/rgba\(0,\s*0,\s*0,\s*0\.6\)/gi,'rgba(0,0,0,0.08)');
+    n=n.replace(/rgba\(0,\s*0,\s*0,\s*0\.4\)/gi,'rgba(0,0,0,0.06)');
+    n=n.replace(/rgba\(0,\s*0,\s*0,\s*0\.3\)/gi,'rgba(0,0,0,0.05)');
+
+    if (n !== s) el.setAttribute('style', n);
   });
 }
 
@@ -132,10 +138,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('ps_demo_mode')
-      if (saved === 'true') setDemo(true)
-      const savedTheme = localStorage.getItem('ps_theme')
-      if (savedTheme === 'dark' || savedTheme === 'light') setTheme(savedTheme)
+      const saved = localStorage.getItem('ps_demo_mode'); if (saved === 'true') setDemo(true)
+      const savedTheme = localStorage.getItem('ps_theme'); if (savedTheme === 'dark' || savedTheme === 'light') setTheme(savedTheme)
     }
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']
     events.forEach(e => window.addEventListener(e, updateActivity, { passive: true }))
@@ -145,24 +149,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const toggleDemo = () => { setDemo(d => { const n = !d; if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(n)); return n }) }
   const toggleTheme = () => { setTheme(t => { const n = t === 'light' ? 'dark' : 'light'; if (typeof window !== 'undefined') localStorage.setItem('ps_theme', n); return n }) }
 
-  // ═══ THEME ENFORCER — converte páginas escuras quando tema é claro ═══
+  // ═══ THEME ENFORCER v2 — roda em múltiplos intervalos + MutationObserver ═══
   useEffect(() => {
     if (isDark || !mainRef.current) return;
     const run = () => { if (mainRef.current) enforceLight(mainRef.current); };
-    const t1 = setTimeout(run, 80);
-    const t2 = setTimeout(run, 400);
-    const t3 = setTimeout(run, 1200);
-    const observer = new MutationObserver(() => setTimeout(run, 30));
-    observer.observe(mainRef.current, { childList: true, subtree: true });
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); observer.disconnect(); };
+    // Múltiplos delays pra pegar conteúdo que carrega async
+    const timers = [50, 150, 400, 800, 1500, 3000].map(ms => setTimeout(run, ms));
+    // Observer pra pegar React re-renders e dados async
+    const observer = new MutationObserver(() => { requestAnimationFrame(run); });
+    observer.observe(mainRef.current, { childList: true, subtree: true, characterData: true });
+    return () => { timers.forEach(clearTimeout); observer.disconnect(); };
   }, [isDark, pathname])
 
   useEffect(() => {
     const interval = setInterval(() => {
       if (isAdminRole(role)) return
       const elapsed = (Date.now() - lastActivity.current) / 1000 / 60
-      const limit = timeoutMinutes.current
-      if (limit <= 0) return
+      const limit = timeoutMinutes.current; if (limit <= 0) return
       if (elapsed >= limit) { supabase.auth.signOut().then(() => router.push('/login')); return }
       if (elapsed >= limit - 2) { setTimeoutWarning(true); setTimeoutSeconds(Math.round((limit - elapsed) * 60)) }
       else setTimeoutWarning(false)
@@ -195,7 +198,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'login', detail: `Role: ${userRole}` }) }).catch(() => {})
       if (!isAdminRole(userRole)) {
         const { data: config } = await supabase.from('access_config').select('*').eq('role', userRole).eq('ativo', true).single()
-        if (config) { timeoutMinutes.current = config.timeout_minutos || 30; if (!checkTimeRestriction(config)) { setBlocked(true); fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: session.user.id, user_email: userEmail, action: 'access_blocked', detail: blockMsg }) }).catch(() => {}) } }
+        if (config) { timeoutMinutes.current = config.timeout_minutos || 30; if (!checkTimeRestriction(config)) { setBlocked(true) } }
         const empresaSel = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
         if (empresaSel && empresaSel !== 'consolidado' && !empresaSel.startsWith('group_')) {
           const { data: comp } = await supabase.from('companies').select('plano').eq('id', empresaSel).single()
@@ -239,7 +242,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (blocked) return (
     <div style={{ minHeight: '100vh', background: 'var(--ps-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <style dangerouslySetInnerHTML={{ __html: `:root { ${THEME_LIGHT} }` }} />
+      <style dangerouslySetInnerHTML={{ __html: `:root{${THEME_LIGHT}}` }} />
       <div style={{ background: 'var(--ps-bg2)', borderRadius: 16, padding: 40, border: '1px solid var(--ps-border)', textAlign: 'center', maxWidth: 400 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: '#EF4444', marginBottom: 8 }}>Acesso Restrito</div>
@@ -251,7 +254,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--ps-bg)', color: 'var(--ps-text)', transition: 'background 0.3s, color 0.3s' }}>
-      <style dangerouslySetInnerHTML={{ __html: `:root { ${isDark ? THEME_DARK : THEME_LIGHT} }` }} />
+      <style dangerouslySetInnerHTML={{ __html: `:root{${isDark ? THEME_DARK : THEME_LIGHT}}` }} />
 
       {timeoutWarning && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, background: '#EF444420', borderBottom: '1px solid #EF444440', padding: '6px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
@@ -261,30 +264,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       <header style={{ position: 'sticky', top: timeoutWarning ? 33 : 0, zIndex: 50, background: 'var(--ps-header)', borderBottom: '1px solid var(--ps-header-border)', transition: 'background 0.3s' }}>
-        {/* ═══ LINHA 1: Logo + Núcleo + User ═══ */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 10px', overflowX: 'auto' }}>
           <a href='/dashboard' style={{ ...iconSt(false), minWidth: 48, marginRight: 2, color: 'var(--ps-gold)', fontWeight: 700, fontSize: 9, letterSpacing: '0.06em' }}>
-            <span style={{ fontSize: 15, fontWeight: 900 }}>PS</span>
-            <span>GESTÃO</span>
+            <span style={{ fontSize: 15, fontWeight: 900 }}>PS</span><span>GESTÃO</span>
           </a>
           <span style={{ fontSize: 8, color: 'var(--ps-gold)', opacity: 0.5, padding: '2px 6px', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', flexShrink: 0 }}>Núcleo</span>
           {visibleNucleo.map(item => (
             <a key={item.href} href={item.href} style={iconSt(active(item.href))} onClick={e => { e.preventDefault(); navigateTo(item.href) }}>
-              <span style={{ fontSize: 14 }}>{item.icon}</span>
-              <span style={{ fontSize: 9 }}>{item.label}</span>
+              <span style={{ fontSize: 14 }}>{item.icon}</span><span style={{ fontSize: 9 }}>{item.label}</span>
             </a>
           ))}
           <div style={{ flex: 1 }} />
           <button onClick={toggleTheme} style={{ ...iconSt(false), cursor: 'pointer', minWidth: 32 }} title={isDark ? 'Modo claro' : 'Modo escuro'}>
-            <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span>
-            <span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
+            <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span><span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
           </button>
           {email && <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>{email.split('@')[0]}</span>}
           <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.0</span>
           <button onClick={signOut} style={{ fontSize: 10, color: 'var(--ps-text-m)', background: 'transparent', border: '1px solid var(--ps-border)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
         </div>
 
-        {/* ═══ LINHA 2: Boxes de plano ═══ */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 6, padding: '4px 10px', borderTop: '1px solid var(--ps-border)', overflowX: 'auto' }}>
           {visibleBoxes.map(box => {
             const hasActiveChild = box.items.some(i => active(i.href))
