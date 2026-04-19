@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════
-// PS GESTÃO E CAPITAL — SISTEMA DE PERMISSÕES v2.1
-// 6 planos independentes + núcleo comum
-// Atualizado: 18/04/2026 — edições Gilberto aplicadas
+// PS GESTÃO E CAPITAL — SISTEMA DE PERMISSÕES v2.2
+// 6 planos + módulo Produtos adicionado
+// Atualizado: 19/04/2026
 // ═══════════════════════════════════════════════════
 
 export type Plano = 'erp_cs' | 'bpo' | 'industrial' | 'agro' | 'wealth' | 'producao' | 'assessoria';
@@ -16,11 +16,10 @@ export const PLANOS: Record<Plano, { nome: string; cor: string; preco: string; i
   assessoria:{ nome: 'Assessoria Empresarial',   cor: '#A855F7', preco: 'R$ 2.997-9.997/mês', icon: '📊' },
 };
 
-// ═══ CAMADA 1: Plano → Módulos ═══
 type Acesso = 'full' | 'addon' | 'none';
 
 export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
-  // ═══ NÚCLEO (incluso em TODOS) ═══
+  // ═══ NÚCLEO ═══
   'visao-diaria':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'visao-mensal':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'dashboard-geral':    { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
@@ -36,7 +35,10 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'importar-universal': { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
   'ajuda':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'full', producao: 'full', assessoria: 'full' },
 
-  // ═══ MÓDULOS DISTRIBUÍDOS (conforme planilha editada) ═══
+  // ═══ NOVO: PRODUTOS ═══
+  'produtos':           { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
+
+  // ═══ MÓDULOS DISTRIBUÍDOS ═══
   'operacional':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'none' },
   'rateio':             { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
   'orcamento':          { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
@@ -51,7 +53,7 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'relatorio-rapido':   { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'full' },
   'relatorio-v19':      { erp_cs: 'addon', bpo: 'full', industrial: 'full', agro: 'addon', wealth: 'none', producao: 'addon', assessoria: 'full' },
 
-  // ═══ ANTI-FRAUDE (avançado) ═══
+  // ═══ ANTI-FRAUDE ═══
   'anti-fraude-full':   { erp_cs: 'addon', bpo: 'full', industrial: 'addon', agro: 'addon', wealth: 'none', producao: 'none', assessoria: 'addon' },
   'anti-fraude-bpo':    { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
 
@@ -59,7 +61,7 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'plano-acao':         { erp_cs: 'full', bpo: 'none', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'full' },
   'onboarding':         { erp_cs: 'full', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'full' },
 
-  // ═══ BPO FINANCEIRO ═══
+  // ═══ BPO ═══
   'bpo':                { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'addon' },
   'bpo-automacao':      { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'addon' },
   'bpo-rotinas':        { erp_cs: 'none', bpo: 'full', industrial: 'none', agro: 'none', wealth: 'none', producao: 'none', assessoria: 'none' },
@@ -93,7 +95,6 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'admin':              { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'addon', producao: 'full', assessoria: 'full' },
 };
 
-// ═══ CAMADA 2: Role → Abas do Dashboard ═══
 export const ROLE_TABS: Record<string, string[]> = {
   adm_investimentos: ['geral','visao_diaria','negocios','resultado','balanco','indicadores','financeiro','precos','relatorio'],
   adm:               ['geral','visao_diaria','negocios','resultado','balanco','indicadores','financeiro','precos','relatorio'],
@@ -118,19 +119,18 @@ export const ROLE_TABS: Record<string, string[]> = {
   visualizador:      ['geral'],
 };
 
-// ═══ CAMADA 2: Role → Módulos do menu ═══
 export const ROLE_MODULOS: Record<string, string[]> = {
   adm_investimentos: ['*'],
   adm:               ['*'],
   acesso_total:      ['*'],
-  socio:             ['dashboard','dados','conectores','importar','anti-fraude','rateio','orcamento','viabilidade','relatorio','consultor-ia','producao','ajuda'],
-  diretor_industrial:['dashboard','industrial','custo','ficha-tecnica','operacional','rateio','orcamento','ajuda'],
-  gerente_planta:    ['dashboard','industrial','custo','operacional','ajuda'],
+  socio:             ['dashboard','dados','conectores','importar','anti-fraude','rateio','orcamento','viabilidade','relatorio','consultor-ia','producao','produtos','ajuda'],
+  diretor_industrial:['dashboard','industrial','custo','ficha-tecnica','operacional','rateio','orcamento','produtos','ajuda'],
+  gerente_planta:    ['dashboard','industrial','custo','operacional','produtos','ajuda'],
   financeiro:        ['dashboard','dados','conectores','importar','anti-fraude','rateio','orcamento','contador','ajuda'],
-  comercial:         ['dashboard','ajuda'],
-  supervisor:        ['dashboard','industrial','operacional','ajuda'],
-  coordenador:       ['dashboard','operacional','ajuda'],
-  operacional:       ['dashboard','operacional','ajuda'],
+  comercial:         ['dashboard','produtos','ajuda'],
+  supervisor:        ['dashboard','industrial','operacional','produtos','ajuda'],
+  coordenador:       ['dashboard','operacional','produtos','ajuda'],
+  operacional:       ['dashboard','operacional','produtos','ajuda'],
   consultor:         ['dashboard','dados','anti-fraude','consultor-ia','assessor','relatorio','ajuda'],
   conselheiro:       ['dashboard','relatorio','ajuda'],
   operador_bpo:      ['dashboard','bpo','anti-fraude','dados','conectores','importar','ajuda'],
@@ -138,7 +138,7 @@ export const ROLE_MODULOS: Record<string, string[]> = {
   gestor_mfo:        ['dashboard','wealth','dados','anti-fraude','relatorio','ajuda'],
   analista:          ['dashboard','wealth','ajuda'],
   contador:          ['dashboard','contador','ajuda'],
-  atendimento:       ['dashboard','producao','ajuda'],
+  atendimento:       ['dashboard','producao','produtos','ajuda'],
   designer:          ['dashboard','producao','ajuda'],
   visualizador:      ['dashboard','ajuda'],
 };
@@ -178,8 +178,6 @@ export const ROLES_POR_PLANO: Record<Plano, string[]> = {
   producao:   ['adm','socio','atendimento','designer','operacional','visualizador'],
   assessoria: ['adm','consultor','socio','conselheiro'],
 };
-
-// ═══ Helper functions ═══
 
 export function isAdminRole(role: string): boolean {
   return role === 'adm' || role === 'admin' || role === 'acesso_total' || role === 'adm_investimentos';
