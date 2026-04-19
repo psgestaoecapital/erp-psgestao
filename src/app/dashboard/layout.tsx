@@ -230,6 +230,12 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
   ],
   bpo: [
     {
+      label: 'BPO',
+      items: [
+        { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase />, badge: 'BPO' },
+      ],
+    },
+    {
       label: 'CLIENTES BPO',
       items: [
         { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
@@ -350,6 +356,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [companies, setCompanies] = useState<any[]>([])
+  const [groups, setGroups] = useState<any[]>([])
   const [selCompany, setSelCompany] = useState('')
   const [currentPlano, setCurrentPlano] = useState<PlanoTipo>('comercio')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -357,6 +364,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showCompanyMenu, setShowCompanyMenu] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showPlanoMenu, setShowPlanoMenu] = useState(false)
+  const [buscaEmpresa, setBuscaEmpresa] = useState('')
 
   useEffect(() => {
     loadUser()
@@ -377,6 +385,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     setUser(u)
     const { data: up } = await supabase.from('users').select('*').eq('id', u.id).single()
+
+    // Carrega grupos
+    const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
+    setGroups(grps || [])
+
     let d: any[] = []
     if (up?.role === 'adm' || up?.role === 'acesso_total' || up?.role === 'adm_investimentos') {
       const r = await supabase.from('companies').select('*').order('nome_fantasia')
@@ -388,8 +401,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setCompanies(d)
     if (d.length > 0) {
       const saved = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
-      const match = saved ? d.find((c: any) => c.id === saved) : null
-      setSelCompany(match ? match.id : d[0].id)
+      // Aceita "consolidado", "group_xxx", ou UUID de empresa existente
+      if (saved === 'consolidado' || saved?.startsWith('group_')) {
+        setSelCompany(saved)
+      } else {
+        const match = saved ? d.find((c: any) => c.id === saved) : null
+        // Default: consolidado se tiver múltiplas empresas, senão a primeira
+        setSelCompany(match ? match.id : (d.length > 1 ? 'consolidado' : d[0].id))
+      }
     }
   }
 
@@ -397,6 +416,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setSelCompany(id)
     if (typeof window !== 'undefined') localStorage.setItem('ps_empresa_sel', id)
     setShowCompanyMenu(false)
+    setBuscaEmpresa('')
   }
 
   const selectPlano = (p: PlanoTipo) => {
@@ -437,7 +457,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const currentCompany = companies.find(c => c.id === selCompany)
   const userInitials = user?.email ? user.email.slice(0, 2).toUpperCase() : '??'
-  const groups = MENU[currentPlano] || []
+  const menuGroups = MENU[currentPlano] || []
+
+  // Grupos empresariais para o seletor
+  const gruposComEmpresas = React.useMemo(() => {
+    return groups
+      .map((g: any) => ({ ...g, empresas: companies.filter((c: any) => c.group_id === g.id) }))
+      .filter((g: any) => g.empresas.length > 0)
+  }, [groups, companies])
+
+  const empresasSemGrupo = React.useMemo(() => {
+    return companies.filter((c: any) => !c.group_id || !groups.find((g: any) => g.id === c.group_id))
+  }, [companies, groups])
+
+  // Busca
+  const empresasFiltradasBusca = React.useMemo(() => {
+    if (!buscaEmpresa.trim()) return []
+    const b = buscaEmpresa.toLowerCase()
+    const bNum = buscaEmpresa.replace(/\D/g, '')
+    return companies.filter((c: any) =>
+      (c.nome_fantasia || '').toLowerCase().includes(b) ||
+      (c.razao_social || '').toLowerCase().includes(b) ||
+      (c.cnpj || '').includes(bNum)
+    ).slice(0, 20)
+  }, [buscaEmpresa, companies])
+
+  // Label descritivo da seleção atual
+  const selLabel = React.useMemo(() => {
+    if (selCompany === 'consolidado') {
+      return { icon: '📊', label: 'Todas as Empresas', sub: `${companies.length} empresas · Consolidado` }
+    }
+    if (selCompany.startsWith('group_')) {
+      const gid = selCompany.replace('group_', '')
+      const grp = groups.find((g: any) => g.id === gid)
+      const emps = companies.filter((c: any) => c.group_id === gid)
+      return { icon: '📁', label: grp?.nome || 'Grupo', sub: `${emps.length} empresas · Grupo` }
+    }
+    const c = companies.find(c => c.id === selCompany)
+    return { icon: '🏢', label: c?.nome_fantasia || c?.razao_social || 'Selecionar', sub: '' }
+  }, [selCompany, companies, groups])
 
   return (
     <>
@@ -760,7 +818,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             />
 
             {/* Grupos de menu */}
-            {groups.map((group, idx) => (
+            {menuGroups.map((group, idx) => (
               <div key={idx} style={{ marginTop: 18 }}>
                 {!sidebarCollapsed && (
                   <div
@@ -1034,7 +1092,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             {/* Ações topo */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* Seletor de empresa */}
+              {/* Seletor de empresa/grupo/consolidado */}
               <div style={{ position: 'relative' }}>
                 <button
                   onClick={() => setShowCompanyMenu(!showCompanyMenu)}
@@ -1050,17 +1108,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     color: 'var(--ps-text)',
                     fontSize: 13,
                     fontWeight: 500,
-                    minWidth: 0,
-                    maxWidth: 280,
+                    minWidth: 220,
+                    maxWidth: 320,
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--ps-bg4)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'var(--ps-bg3)')}
                 >
-                  <div style={{ color: 'var(--ps-gold)', flexShrink: 0 }}>
-                    <Icon.Building />
-                  </div>
-                  <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0 }}>
-                    {currentCompany?.nome_fantasia || currentCompany?.razao_social || 'Selecionar empresa'}
+                  <span style={{ fontSize: 14, flexShrink: 0 }}>{selLabel.icon}</span>
+                  <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0, flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}>{selLabel.label}</div>
+                    {selLabel.sub && <div style={{ fontSize: 9, color: 'var(--ps-text-d)', fontWeight: 500 }}>{selLabel.sub}</div>}
                   </div>
                   <div style={{ color: 'var(--ps-text-d)', flexShrink: 0 }}>
                     <Icon.ChevronDown />
@@ -1075,8 +1132,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         position: 'absolute',
                         top: 'calc(100% + 4px)',
                         right: 0,
-                        width: 320,
-                        maxHeight: 420,
+                        width: 380,
+                        maxHeight: 480,
                         overflowY: 'auto',
                         background: 'var(--ps-bg2)',
                         border: '1px solid var(--ps-border)',
@@ -1085,37 +1142,118 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         zIndex: 50,
                       }}
                     >
-                      <div style={{ padding: '10px 14px', fontSize: 10, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.1em', textTransform: 'uppercase', borderBottom: '1px solid var(--ps-border-l)' }}>
-                        Suas Empresas ({companies.length})
-                      </div>
-                      {companies.map(c => (
-                        <button
-                          key={c.id}
-                          onClick={() => selectCompany(c.id)}
-                          style={{
-                            width: '100%',
-                            display: 'block',
-                            padding: '10px 14px',
-                            background: selCompany === c.id ? 'var(--ps-gold-bg)' : 'transparent',
-                            border: 'none',
-                            borderBottom: '1px solid var(--ps-border-l)',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            color: selCompany === c.id ? 'var(--ps-gold-d)' : 'var(--ps-text)',
-                          }}
-                          onMouseEnter={e => { if (selCompany !== c.id) e.currentTarget.style.background = 'var(--ps-bg3)' }}
-                          onMouseLeave={e => { if (selCompany !== c.id) e.currentTarget.style.background = 'transparent' }}
-                        >
-                          <div style={{ fontSize: 13, fontWeight: selCompany === c.id ? 600 : 500 }}>
-                            {c.nome_fantasia || c.razao_social}
+                      {/* Busca */}
+                      {companies.length > 5 && (
+                        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--ps-border-l)', position: 'sticky', top: 0, background: 'var(--ps-bg2)', zIndex: 1 }}>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={buscaEmpresa}
+                            onChange={e => setBuscaEmpresa(e.target.value)}
+                            placeholder="🔍 Buscar por nome ou CNPJ..."
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              background: 'var(--ps-bg3)',
+                              border: '1px solid var(--ps-border-l)',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              outline: 'none',
+                              color: 'var(--ps-text)',
+                              fontFamily: 'inherit',
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Resultado da busca (se tem busca) */}
+                      {buscaEmpresa.trim() ? (
+                        <div>
+                          <div style={{ padding: '6px 14px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.1em', textTransform: 'uppercase', background: 'var(--ps-bg3)' }}>
+                            {empresasFiltradasBusca.length} resultado(s)
                           </div>
-                          {c.cnpj && (
-                            <div style={{ fontSize: 10, color: 'var(--ps-text-d)', fontFamily: 'var(--ps-font-mono)', marginTop: 2 }}>
-                              {c.cnpj}
+                          {empresasFiltradasBusca.map((c: any) => (
+                            <CompanyItem
+                              key={c.id}
+                              ativo={selCompany === c.id}
+                              onClick={() => { selectCompany(c.id); setBuscaEmpresa(''); }}
+                              label={c.nome_fantasia || c.razao_social}
+                              sublabel={c.cnpj}
+                              icon="🏢"
+                            />
+                          ))}
+                          {empresasFiltradasBusca.length === 0 && (
+                            <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12, color: 'var(--ps-text-d)' }}>
+                              Nenhuma empresa encontrada
                             </div>
                           )}
-                        </button>
-                      ))}
+                        </div>
+                      ) : (
+                        <>
+                          {/* Consolidado Total */}
+                          {companies.length > 1 && (
+                            <CompanyItem
+                              ativo={selCompany === 'consolidado'}
+                              onClick={() => selectCompany('consolidado')}
+                              label="Todas as Empresas"
+                              sublabel={`${companies.length} empresas · Consolidado total`}
+                              icon="📊"
+                              destaque
+                            />
+                          )}
+
+                          {/* Grupos Empresariais */}
+                          {gruposComEmpresas.length > 0 && (
+                            <>
+                              <div style={{ padding: '10px 14px 4px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'var(--ps-bg3)', borderTop: '1px solid var(--ps-border-l)' }}>
+                                Grupos Empresariais ({gruposComEmpresas.length})
+                              </div>
+                              {gruposComEmpresas.map((g: any) => (
+                                <React.Fragment key={g.id}>
+                                  <CompanyItem
+                                    ativo={selCompany === `group_${g.id}`}
+                                    onClick={() => selectCompany(`group_${g.id}`)}
+                                    label={g.nome}
+                                    sublabel={`${g.empresas.length} empresas · Consolidado do grupo`}
+                                    icon="📁"
+                                    destaque
+                                  />
+                                  {g.empresas.map((c: any) => (
+                                    <CompanyItem
+                                      key={c.id}
+                                      ativo={selCompany === c.id}
+                                      onClick={() => selectCompany(c.id)}
+                                      label={c.nome_fantasia || c.razao_social}
+                                      sublabel={c.cnpj}
+                                      icon="└"
+                                      indent
+                                    />
+                                  ))}
+                                </React.Fragment>
+                              ))}
+                            </>
+                          )}
+
+                          {/* Empresas sem grupo */}
+                          {empresasSemGrupo.length > 0 && (
+                            <>
+                              <div style={{ padding: '10px 14px 4px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'var(--ps-bg3)', borderTop: '1px solid var(--ps-border-l)' }}>
+                                {gruposComEmpresas.length > 0 ? 'Outras Empresas' : 'Empresas'} ({empresasSemGrupo.length})
+                              </div>
+                              {empresasSemGrupo.map((c: any) => (
+                                <CompanyItem
+                                  key={c.id}
+                                  ativo={selCompany === c.id}
+                                  onClick={() => selectCompany(c.id)}
+                                  label={c.nome_fantasia || c.razao_social}
+                                  sublabel={c.cnpj}
+                                  icon="🏢"
+                                />
+                              ))}
+                            </>
+                          )}
+                        </>
+                      )}
                     </div>
                   </>
                 )}
@@ -1123,6 +1261,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {/* Separador */}
               <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
+
 
               {/* Botões ações */}
               <TopButton icon={<Icon.Upload />} label="Importar" onClick={() => router.push('/dashboard/importar')} />
@@ -1253,6 +1392,79 @@ function TopButton({ icon, label, onClick }: { icon: React.ReactNode; label: str
       }}
     >
       {icon}
+    </button>
+  )
+}
+
+function CompanyItem({
+  ativo,
+  onClick,
+  label,
+  sublabel,
+  icon,
+  indent,
+  destaque,
+}: {
+  ativo: boolean
+  onClick: () => void
+  label: string
+  sublabel?: string
+  icon?: string
+  indent?: boolean
+  destaque?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: `10px ${indent ? 28 : 14}px`,
+        background: ativo ? 'var(--ps-gold-bg)' : 'transparent',
+        border: 'none',
+        borderBottom: '1px solid var(--ps-border-l)',
+        cursor: 'pointer',
+        textAlign: 'left',
+        color: ativo ? 'var(--ps-gold-d)' : 'var(--ps-text)',
+        borderLeft: ativo ? '3px solid var(--ps-gold)' : '3px solid transparent',
+      }}
+      onMouseEnter={e => { if (!ativo) e.currentTarget.style.background = 'var(--ps-bg3)' }}
+      onMouseLeave={e => { if (!ativo) e.currentTarget.style.background = 'transparent' }}
+    >
+      {icon && (
+        <span style={{
+          fontSize: indent ? 10 : 14,
+          flexShrink: 0,
+          color: indent ? 'var(--ps-text-d)' : undefined,
+          width: indent ? 12 : 20,
+          textAlign: 'center',
+        }}>
+          {icon}
+        </span>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13,
+          fontWeight: ativo || destaque ? 600 : 500,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {label}
+        </div>
+        {sublabel && (
+          <div style={{
+            fontSize: 10,
+            color: 'var(--ps-text-d)',
+            fontFamily: sublabel.match(/^\d/) ? 'var(--ps-font-mono)' : 'inherit',
+            marginTop: 2,
+          }}>
+            {sublabel}
+          </div>
+        )}
+      </div>
     </button>
   )
 }
