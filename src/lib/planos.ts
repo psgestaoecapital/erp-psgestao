@@ -40,6 +40,8 @@ export const PLANO_MODULOS: Record<string, Record<Plano, Acesso>> = {
   'clientes':           { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
   'fornecedores':       { erp_cs: 'full', bpo: 'full', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
   'orcamentos':         { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
+  'pedidos':            { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'addon' },
+  'os':                 { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'none', wealth: 'none', producao: 'full', assessoria: 'none' },
 
   // ═══ MÓDULOS DISTRIBUÍDOS ═══
   'operacional':        { erp_cs: 'full', bpo: 'none', industrial: 'full', agro: 'full', wealth: 'none', producao: 'full', assessoria: 'none' },
