@@ -45,6 +45,7 @@ const I = {
   os:           { href: '/dashboard/os',           label: 'OS',           icon: '📋', modKey: 'os' } as MenuItem,
   conciliacao:  { href: '/dashboard/conciliacao',  label: 'Conciliação',  icon: '🏦', modKey: 'conciliacao' } as MenuItem,
   contas:       { href: '/dashboard/contas',       label: 'Contas',       icon: '💳', modKey: 'contas' } as MenuItem,
+  estoque:      { href: '/dashboard/estoque',      label: 'Estoque',      icon: '🗃️', modKey: 'estoque' } as MenuItem,
   rateio:       { href: '/dashboard/rateio',       label: 'Rateio',       icon: '⚗️', modKey: 'rateio' } as MenuItem,
   budget:       { href: '/dashboard/orcamento',    label: 'Budget',       icon: '📈', modKey: 'orcamento' } as MenuItem,
   viabilidade:  { href: '/dashboard/viabilidade',  label: 'Viabilidade',  icon: '🎯', modKey: 'viabilidade' } as MenuItem,
@@ -62,12 +63,12 @@ const I = {
 }
 
 const PLAN_BOXES: { plano: Plano; items: MenuItem[] }[] = [
-  { plano: 'erp_cs', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.os, I.rateio, I.budget, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
-  { plano: 'industrial', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.rateio, I.budget, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
-  { plano: 'agro', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.rateio, I.budget, I.viabilidade, I.antiFraude, I.custeio] },
+  { plano: 'erp_cs', items: [I.produtos, I.estoque, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.os, I.rateio, I.budget, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
+  { plano: 'industrial', items: [I.produtos, I.estoque, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.rateio, I.budget, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
+  { plano: 'agro', items: [I.produtos, I.estoque, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.rateio, I.budget, I.viabilidade, I.antiFraude, I.custeio] },
   { plano: 'bpo', items: [I.clientes, I.fornecedores, I.contas, I.conciliacao, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc] },
   { plano: 'wealth', items: [I.wealth] },
-  { plano: 'producao', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.os, I.rateio, I.budget, I.contador, I.antiFraude, I.producao] },
+  { plano: 'producao', items: [I.produtos, I.estoque, I.clientes, I.fornecedores, I.operacional, I.contas, I.conciliacao, I.orcamentos, I.pedidos, I.os, I.rateio, I.budget, I.contador, I.antiFraude, I.producao] },
 ]
 
 const DIAS_MAP: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 }
@@ -231,7 +232,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span><span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
           </button>
           {email && <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>{email.split('@')[0]}</span>}
-          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.6</span>
+          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.7</span>
           <button onClick={signOut} style={{ fontSize: 10, color: 'var(--ps-text-m)', background: 'transparent', border: '1px solid var(--ps-border)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
         </div>
 
