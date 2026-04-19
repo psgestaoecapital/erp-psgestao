@@ -110,6 +110,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     {
       label: 'FINANCEIRO',
       items: [
+        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
         { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
         { href: '/dashboard/contas', label: 'Contas a Pagar/Receber', icon: <Icon.Wallet /> },
         { href: '/dashboard/conciliacao', label: 'Conciliação Bancária', icon: <Icon.Landmark /> },
@@ -167,6 +168,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     {
       label: 'FINANCEIRO',
       items: [
+        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
         { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
         { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
         { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
@@ -207,6 +209,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     {
       label: 'FINANCEIRO',
       items: [
+        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
         { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
         { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
         { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
@@ -237,6 +240,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     {
       label: 'OPERAÇÃO FINANCEIRA',
       items: [
+        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
         { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
         { href: '/dashboard/conciliacao', label: 'Conciliação OFX', icon: <Icon.Landmark /> },
         { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
@@ -297,6 +301,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     {
       label: 'FINANCEIRO',
       items: [
+        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
         { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
         { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
         { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
