@@ -38,6 +38,8 @@ type MenuItem = { href: string; label: string; icon: string; modKey: string }
 const I = {
   operacional:  { href: '/dashboard/operacional',  label: 'Operacional',  icon: '⚙️', modKey: 'operacional' } as MenuItem,
   produtos:     { href: '/dashboard/produtos',     label: 'Produtos',     icon: '📦', modKey: 'produtos' } as MenuItem,
+  clientes:     { href: '/dashboard/clientes',     label: 'Clientes',     icon: '👥', modKey: 'clientes' } as MenuItem,
+  fornecedores: { href: '/dashboard/fornecedores', label: 'Fornec.',      icon: '🚚', modKey: 'fornecedores' } as MenuItem,
   rateio:       { href: '/dashboard/rateio',       label: 'Rateio',       icon: '⚗️', modKey: 'rateio' } as MenuItem,
   orcamento:    { href: '/dashboard/orcamento',    label: 'Orçamento',    icon: '💰', modKey: 'orcamento' } as MenuItem,
   viabilidade:  { href: '/dashboard/viabilidade',  label: 'Viabilidade',  icon: '📈', modKey: 'viabilidade' } as MenuItem,
@@ -55,12 +57,12 @@ const I = {
 }
 
 const PLAN_BOXES: { plano: Plano; items: MenuItem[] }[] = [
-  { plano: 'erp_cs', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
-  { plano: 'industrial', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
-  { plano: 'agro', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio] },
-  { plano: 'bpo', items: [I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc] },
+  { plano: 'erp_cs', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
+  { plano: 'industrial', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
+  { plano: 'agro', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio] },
+  { plano: 'bpo', items: [I.clientes, I.fornecedores, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc] },
   { plano: 'wealth', items: [I.wealth] },
-  { plano: 'producao', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao] },
+  { plano: 'producao', items: [I.produtos, I.clientes, I.fornecedores, I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao] },
 ]
 
 const DIAS_MAP: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 }
@@ -224,7 +226,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span><span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
           </button>
           {email && <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>{email.split('@')[0]}</span>}
-          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.1</span>
+          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.2</span>
           <button onClick={signOut} style={{ fontSize: 10, color: 'var(--ps-text-m)', background: 'transparent', border: '1px solid var(--ps-border)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
         </div>
 
