@@ -10,76 +10,23 @@ import { PLANO_MODULOS, PLANOS, isAdminRole, type Plano } from '@/lib/planos'
 const THEME_LIGHT = `--ps-bg:#FAF7F2;--ps-bg2:#FFFFFF;--ps-bg3:#F0ECE3;--ps-text:#3D2314;--ps-text-m:#6B5D4F;--ps-text-d:#9C8E80;--ps-border:#E0D8CC;--ps-gold:#C8941A;--ps-gold-bg:#C8941A12;--ps-gold-border:#C8941A30;--ps-gold-text:#8B6512;--ps-header:#FFFFFF;--ps-header-border:#E8E0D4;`
 const THEME_DARK = `--ps-bg:#0F0F0F;--ps-bg2:#1A1410;--ps-bg3:#1E1E1B;--ps-text:#FAF7F2;--ps-text-m:#B0AB9F;--ps-text-d:#706C64;--ps-border:#2A2822;--ps-gold:#C6973F;--ps-gold-bg:#C6973F12;--ps-gold-border:#C6973F30;--ps-gold-text:#C6973F;--ps-header:#1A1410;--ps-header-border:#2A2822;`
 
-// ═══ THEME ENFORCER v3 — detecção por brilho ═══
-// Se background é escuro → fica claro. Se texto é claro → fica escuro.
-// Preserva cores semânticas (verde/vermelho/azul/dourado) porque pelo menos 1 canal RGB é alto.
 function parseRGB(val: string): [number, number, number] | null {
   const m = val.match(/(\d+),\s*(\d+),\s*(\d+)/);
   return m ? [+m[1], +m[2], +m[3]] : null;
 }
-
 function enforceLight(container: HTMLElement) {
   const els = container.querySelectorAll<HTMLElement>('[style]');
   els.forEach(el => {
-    // ══ BACKGROUND ══
     const bg = el.style.backgroundColor;
-    if (bg) {
-      const rgb = parseRGB(bg);
-      if (rgb) {
-        const mx = Math.max(...rgb);
-        if (mx < 20) el.style.backgroundColor = '#FAF7F2';       // quase preto → off-white
-        else if (mx < 65) el.style.backgroundColor = '#FFFFFF';   // escuro → branco
-      }
-    }
-    // background shorthand (se backgroundColor não foi setado)
-    if (!bg && el.style.background) {
-      const rgb = parseRGB(el.style.background);
-      if (rgb) {
-        const mx = Math.max(...rgb);
-        if (mx < 20) el.style.background = '#FAF7F2';
-        else if (mx < 65) el.style.background = '#FFFFFF';
-      }
-    }
-
-    // ══ TEXTO ══
+    if (bg) { const rgb = parseRGB(bg); if (rgb) { const mx = Math.max(...rgb); if (mx < 20) el.style.backgroundColor = '#FAF7F2'; else if (mx < 65) el.style.backgroundColor = '#FFFFFF'; } }
+    if (!bg && el.style.background) { const rgb = parseRGB(el.style.background); if (rgb) { const mx = Math.max(...rgb); if (mx < 20) el.style.background = '#FAF7F2'; else if (mx < 65) el.style.background = '#FFFFFF'; } }
     const color = el.style.color;
-    if (color) {
-      const rgb = parseRGB(color);
-      if (rgb) {
-        const mn = Math.min(...rgb);
-        const mx = Math.max(...rgb);
-        const spread = mx - mn;
-        // Só muda texto cinza/branco (spread baixo = sem matiz forte)
-        if (mn > 210 && spread < 30) el.style.color = '#3D2314';       // branco/quase-branco → marrom
-        else if (mn > 150 && spread < 40) el.style.color = '#6B5D4F';  // cinza claro → muted
-        else if (mn > 85 && mx < 160 && spread < 30) el.style.color = '#9C8E80'; // cinza médio → dim
-      }
-    }
-
-    // ══ BORDAS ══
-    const borderProps = ['borderColor','borderTopColor','borderBottomColor','borderLeftColor','borderRightColor'] as const;
-    borderProps.forEach(prop => {
-      const val = (el.style as any)[prop];
-      if (val) {
-        const rgb = parseRGB(val);
-        if (rgb) {
-          const mx = Math.max(...rgb);
-          const spread = mx - Math.min(...rgb);
-          if (mx < 70 && spread < 20) (el.style as any)[prop] = '#E0D8CC'; // borda escura → clara
-        }
-      }
-    });
-
-    // ══ BOX-SHADOW com preto forte → suave ══
-    if (el.style.boxShadow && el.style.boxShadow.includes('rgba(0')) {
-      el.style.boxShadow = el.style.boxShadow
-        .replace(/rgba\(0,\s*0,\s*0,\s*0\.[3-9]\d*\)/g, 'rgba(0,0,0,0.06)')
-        .replace(/rgba\(0,\s*0,\s*0,\s*1\)/g, 'rgba(0,0,0,0.08)');
-    }
+    if (color) { const rgb = parseRGB(color); if (rgb) { const mn = Math.min(...rgb); const mx = Math.max(...rgb); const spread = mx - mn; if (mn > 210 && spread < 30) el.style.color = '#3D2314'; else if (mn > 150 && spread < 40) el.style.color = '#6B5D4F'; else if (mn > 85 && mx < 160 && spread < 30) el.style.color = '#9C8E80'; } }
+    ['borderColor','borderTopColor','borderBottomColor','borderLeftColor','borderRightColor'].forEach(prop => { const val = (el.style as any)[prop]; if (val) { const rgb = parseRGB(val); if (rgb) { const mx = Math.max(...rgb); const spread = mx - Math.min(...rgb); if (mx < 70 && spread < 20) (el.style as any)[prop] = '#E0D8CC'; } } });
+    if (el.style.boxShadow && el.style.boxShadow.includes('rgba(0')) { el.style.boxShadow = el.style.boxShadow.replace(/rgba\(0,\s*0,\s*0,\s*0\.[3-9]\d*\)/g, 'rgba(0,0,0,0.06)').replace(/rgba\(0,\s*0,\s*0,\s*1\)/g, 'rgba(0,0,0,0.08)'); }
   });
 }
 
-// ═══ NÚCLEO ═══
 const NUCLEO = [
   { href: '/dashboard',          label: 'Visão Diária', icon: '📅', modKey: 'visao-diaria' },
   { href: '/dashboard/dados',    label: 'Dados',        icon: '📊', modKey: 'dados' },
@@ -90,6 +37,7 @@ const NUCLEO = [
 type MenuItem = { href: string; label: string; icon: string; modKey: string }
 const I = {
   operacional:  { href: '/dashboard/operacional',  label: 'Operacional',  icon: '⚙️', modKey: 'operacional' } as MenuItem,
+  produtos:     { href: '/dashboard/produtos',     label: 'Produtos',     icon: '📦', modKey: 'produtos' } as MenuItem,
   rateio:       { href: '/dashboard/rateio',       label: 'Rateio',       icon: '⚗️', modKey: 'rateio' } as MenuItem,
   orcamento:    { href: '/dashboard/orcamento',    label: 'Orçamento',    icon: '💰', modKey: 'orcamento' } as MenuItem,
   viabilidade:  { href: '/dashboard/viabilidade',  label: 'Viabilidade',  icon: '📈', modKey: 'viabilidade' } as MenuItem,
@@ -107,12 +55,12 @@ const I = {
 }
 
 const PLAN_BOXES: { plano: Plano; items: MenuItem[] }[] = [
-  { plano: 'erp_cs', items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
-  { plano: 'industrial', items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
-  { plano: 'agro', items: [I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio] },
+  { plano: 'erp_cs', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio] },
+  { plano: 'industrial', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.consultorIa, I.antiFraude, I.custeio, I.fichaTecnica, I.industrial, I.custo] },
+  { plano: 'agro', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.viabilidade, I.antiFraude, I.custeio] },
   { plano: 'bpo', items: [I.consultorIa, I.contador, I.assessor, I.antiFraude, I.custeio, I.noc] },
   { plano: 'wealth', items: [I.wealth] },
-  { plano: 'producao', items: [I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao] },
+  { plano: 'producao', items: [I.produtos, I.operacional, I.rateio, I.orcamento, I.contador, I.antiFraude, I.producao] },
 ]
 
 const DIAS_MAP: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 }
@@ -149,7 +97,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const toggleDemo = () => { setDemo(d => { const n = !d; if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(n)); return n }) }
   const toggleTheme = () => { setTheme(t => { const n = t === 'light' ? 'dark' : 'light'; if (typeof window !== 'undefined') localStorage.setItem('ps_theme', n); return n }) }
 
-  // ═══ THEME ENFORCER v3 ═══
   useEffect(() => {
     if (isDark || !mainRef.current) return;
     const run = () => { if (mainRef.current) enforceLight(mainRef.current); };
@@ -277,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span style={{ fontSize: 14 }}>{isDark ? '☀️' : '🌙'}</span><span style={{ fontSize: 8 }}>{isDark ? 'Claro' : 'Escuro'}</span>
           </button>
           {email && <span style={{ fontSize: 9, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', marginRight: 4, filter: demo ? 'blur(6px)' : 'none' }}>{email.split('@')[0]}</span>}
-          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.0</span>
+          <span style={{ fontSize: 9, color: 'var(--ps-gold)', fontWeight: 600, whiteSpace: 'nowrap', padding: '2px 6px', background: 'var(--ps-gold-bg)', borderRadius: 4, marginRight: 4 }}>v9.1</span>
           <button onClick={signOut} style={{ fontSize: 10, color: 'var(--ps-text-m)', background: 'transparent', border: '1px solid var(--ps-border)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>Sair</button>
         </div>
 
@@ -289,7 +236,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div style={{ background: box.info.cor + (isDark ? '30' : '18'), padding: '2px 8px', fontSize: 8, fontWeight: 700, color: box.info.cor, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'center', whiteSpace: 'nowrap', borderBottom: `1px solid ${box.info.cor}25` }}>
                   {box.info.icon} {box.info.nome.replace('ERP ', '').replace('PS ', '')}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, padding: '2px 3px', maxWidth: 220 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, padding: '2px 3px', maxWidth: 240 }}>
                   {box.items.map(item => (
                     <a key={`${box.plano}-${item.modKey}`} href={item.href} onClick={e => { e.preventDefault(); navigateTo(item.href) }}
                       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, width: 36, padding: '2px 1px', borderRadius: 5, textDecoration: 'none', cursor: 'pointer', transition: 'all 0.15s', background: active(item.href) ? box.info.cor + '18' : 'transparent', border: active(item.href) ? `1px solid ${box.info.cor}35` : '1px solid transparent', color: active(item.href) ? box.info.cor : 'var(--ps-text-m)', fontWeight: active(item.href) ? 600 : 400 }}>
