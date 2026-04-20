@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -53,9 +54,8 @@ const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.
 const EMPTY_ITEM:ItemOrc = {ordem:0,produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 
 export default function OrcamentosPage(){
+  const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [orcamentos,setOrcamentos]=useState<Orcamento[]>([]);
-  const [companies,setCompanies]=useState<any[]>([]);
-  const [sel,setSel]=useState("");
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
@@ -75,16 +75,26 @@ export default function OrcamentosPage(){
   const [buscaProduto,setBuscaProduto]=useState<{idx:number;termo:string}|null>(null);
   const [produtosBusca,setProdutosBusca]=useState<any[]>([]);
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(sel){loadOrcamentos();loadProdutos();}},[sel]);
+  // Empresa individual para novos orçamentos
+  const companyIdParaCadastro = useMemo(()=>{
+    if(sel && !sel.startsWith("group_") && sel!=="consolidado") return sel;
+    return companyIds[0] || "";
+  },[sel, companyIds]);
+
+  useEffect(()=>{
+    if(companyIds.length>0){loadOrcamentos();loadProdutos();}
+  },[companyIds.join(",")]);
+
   useEffect(()=>{
     if(buscaCliente.length<2){setClientesBusca([]);return;}
+    if(companyIds.length===0)return;
     const t=setTimeout(async()=>{
-      const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,cpf_cnpj,email,telefone").eq("company_id",sel).eq("ativo",true).or(`razao_social.ilike.%${buscaCliente}%,nome_fantasia.ilike.%${buscaCliente}%,cpf_cnpj.ilike.%${buscaCliente.replace(/\D/g,'')}%`).limit(8);
+      const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id").in("company_id",companyIds).eq("ativo",true).or(`razao_social.ilike.%${buscaCliente}%,nome_fantasia.ilike.%${buscaCliente}%,cpf_cnpj.ilike.%${buscaCliente.replace(/\D/g,'')}%`).limit(8);
       setClientesBusca(data||[]);
     },250);
     return()=>clearTimeout(t);
-  },[buscaCliente,sel]);
+  },[buscaCliente,companyIds.join(",")]);
+
   useEffect(()=>{
     if(!buscaProduto||buscaProduto.termo.length<1){setProdutosBusca([]);return;}
     const termo=buscaProduto.termo.toLowerCase();
@@ -92,33 +102,32 @@ export default function OrcamentosPage(){
     setProdutosBusca(r);
   },[buscaProduto,produtosCache]);
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let d:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=(typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"")||"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
-    setLoading(false);
-  };
-
   const loadOrcamentos=async()=>{
+    if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_orcamentos").select("*").eq("company_id",sel).order("data_emissao",{ascending:false}).limit(100);
+    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
   };
 
   const loadProdutos=async()=>{
-    const{data}=await supabase.from("erp_produtos").select("id,codigo,nome,unidade,preco_venda,preco_custo").eq("company_id",sel).eq("ativo",true).limit(1000);
+    if(companyIds.length===0)return;
+    const{data}=await supabase.from("erp_produtos").select("id,codigo,nome,unidade,preco_venda,preco_custo,company_id").in("company_id",companyIds).eq("ativo",true).limit(1000);
     if(data)setProdutosCache(data);
   };
 
   const abrirNovo=async()=>{
+    if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}
+    
+    if(sel==="consolidado" || sel.startsWith("group_")){
+      const empresaNome = companies.find(c=>c.id===companyIdParaCadastro)?.nome_fantasia || "primeira empresa";
+      if(!confirm(`Novo orçamento será criado em "${empresaNome}". Continuar?`))return;
+    }
+    
     setEditing(null);
     // Gera número automático
-    const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:sel});
+    const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
     setForm({
       numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),
@@ -182,8 +191,14 @@ export default function OrcamentosPage(){
     if(!form.cliente_id&&!form.cliente_nome){setMsg("❌ Selecione um cliente.");return;}
     if(itens.length===0||!itens.some(i=>i.produto_nome)){setMsg("❌ Adicione pelo menos um item.");return;}
 
+    // Em modo consolidado, usa a empresa do cliente selecionado (se tiver) ou a primeira
+    const clienteSel = clientesBusca.find(c=>c.id===form.cliente_id);
+    const companyIdOrc = editing?.company_id || clienteSel?.company_id || companyIdParaCadastro;
+    
+    if(!companyIdOrc){setMsg("❌ Não foi possível determinar a empresa.");return;}
+
     const dadosOrc={
-      company_id:sel,
+      company_id:companyIdOrc,
       numero:form.numero,
       versao:form.versao||1,
       cliente_id:form.cliente_id,cliente_nome:form.cliente_nome,cliente_cnpj:(form.cliente_cnpj||'').replace(/\D/g,''),
@@ -215,7 +230,7 @@ export default function OrcamentosPage(){
     if(orcId){
       await supabase.from("erp_orcamentos_itens").delete().eq("orcamento_id",orcId);
       const itensValidos=itens.filter(i=>i.produto_nome).map((i,idx)=>({
-        orcamento_id:orcId,company_id:sel,ordem:idx+1,
+        orcamento_id:orcId,company_id:companyIdOrc,ordem:idx+1,
         produto_id:i.produto_id,produto_codigo:i.produto_codigo,produto_nome:i.produto_nome,produto_descricao:i.produto_descricao,
         unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
         desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
@@ -226,7 +241,7 @@ export default function OrcamentosPage(){
 
     // Log no histórico
     await supabase.from("erp_orcamento_historico").insert({
-      orcamento_id:orcId,company_id:sel,
+      orcamento_id:orcId,company_id:companyIdOrc,
       evento:editing?'editado':'criado',
       detalhe:`${editing?'Atualizado':'Criado'} — Total ${fmtR(totalFinal)}`,
     });
@@ -242,7 +257,7 @@ export default function OrcamentosPage(){
     if(novoStatus==='recusado')update.data_recusa=new Date().toISOString();
     await supabase.from("erp_orcamentos").update(update).eq("id",o.id);
     await supabase.from("erp_orcamento_historico").insert({
-      orcamento_id:o.id,company_id:sel,evento:`status_${novoStatus}`,detalhe:`Status alterado para ${STATUS_CFG[novoStatus]?.label}`
+      orcamento_id:o.id,company_id:o.company_id,evento:`status_${novoStatus}`,detalhe:`Status alterado para ${STATUS_CFG[novoStatus]?.label}`
     });
     setMsg(`✅ Status alterado para ${STATUS_CFG[novoStatus]?.label}`);
     loadOrcamentos();
@@ -257,7 +272,7 @@ export default function OrcamentosPage(){
   };
 
   const duplicar=async(o:Orcamento)=>{
-    const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:sel});
+    const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:o.company_id});
     const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
     const{data:novo,error}=await supabase.from("erp_orcamentos").insert(novoOrc).select().single();
     if(error){setMsg("Erro: "+error.message);return;}
@@ -288,7 +303,6 @@ export default function OrcamentosPage(){
   const kpiValorPendente=orcamentos.filter(o=>['enviado','visualizado','rascunho'].includes(o.status)).reduce((s,o)=>s+Number(o.total||0),0);
   const kpiTaxaConversao=kpiTotal>0?(kpiAprovados/kpiTotal)*100:0;
 
-  const selSt:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   return(
@@ -296,12 +310,16 @@ export default function OrcamentosPage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:TX}}>💰 Orçamentos</div>
-          <div style={{fontSize:11,color:TXD}}>Ciclo de vendas — propostas comerciais com aprovação digital</div>
+          <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
+            <span>Ciclo de vendas — propostas comerciais com aprovação digital</span>
+            <span>·</span>
+            <span style={{fontWeight:600,color:selInfo.isGroup?GO:TXM}}>
+              {selInfo.tipo==='consolidado'?'📊 Todas':selInfo.tipo==='grupo'?'📁 Grupo':'🏢'} {selInfo.nome}
+              {selInfo.isGroup&&` (${selInfo.count})`}
+            </span>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
         </div>
       </div>
