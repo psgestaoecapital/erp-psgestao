@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     console.log(`[SYNC-CLI] Iniciando — company_id: ${company_id}`)
     const inicio = Date.now()
 
-    const todos = await omiePaginate(
+    const todos: any[] = await omiePaginate<any>(
       auth,
       'ListarClientes',
       (pagina) => ({
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     let erros = 0
     const errosDetalhes: string[] = []
 
-    for (const omie of todos) {
+    for (const omie of todos as any[]) {
       try {
         const dados = mapOmieCliente(omie, company_id)
         if (!dados.razao_social) continue
