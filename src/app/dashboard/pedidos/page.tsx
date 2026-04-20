@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -41,10 +42,9 @@ const fmtR=(v:any)=>`R$ ${(Number(v)||0).toLocaleString("pt-BR",{minimumFraction
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 
 export default function PedidosPage(){
+  const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [pedidos,setPedidos]=useState<Pedido[]>([]);
-  const [companies,setCompanies]=useState<any[]>([]);
   const [orcamentosAprovados,setOrcamentosAprovados]=useState<any[]>([]);
-  const [sel,setSel]=useState("");
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
@@ -54,29 +54,22 @@ export default function PedidosPage(){
   const [itensDetalhe,setItensDetalhe]=useState<any[]>([]);
   const [showGerarTitulos,setShowGerarTitulos]=useState<Pedido|null>(null);
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(sel){loadPedidos();loadOrcamentosAprovados();}},[sel]);
-
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let d:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=(typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"")||"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
-    setLoading(false);
-  };
+  useEffect(()=>{
+    if(companyIds.length>0){loadPedidos();loadOrcamentosAprovados();}
+  },[companyIds.join(",")]);
 
   const loadPedidos=async()=>{
+    if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_pedidos").select("*").eq("company_id",sel).order("data_pedido",{ascending:false}).limit(200);
+    const{data,error}=await supabase.from("erp_pedidos").select("*").in("company_id",companyIds).order("data_pedido",{ascending:false}).limit(200);
     if(data)setPedidos(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
   };
 
   const loadOrcamentosAprovados=async()=>{
-    const{data}=await supabase.from("erp_orcamentos").select("*").eq("company_id",sel).eq("status","aprovado").order("data_aprovacao",{ascending:false}).limit(50);
+    if(companyIds.length===0)return;
+    const{data}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).eq("status","aprovado").order("data_aprovacao",{ascending:false}).limit(50);
     if(data)setOrcamentosAprovados(data);
   };
 
@@ -121,7 +114,7 @@ export default function PedidosPage(){
       const valorFinal=i===parcelas-1?Math.round((total-(valorParcela*(parcelas-1)))*100)/100:valorParcela;
       
       lancamentos.push({
-        company_id:sel,
+        company_id:p.company_id,
         tipo:'receita',
         descricao:`Pedido ${p.numero} - ${p.cliente_nome}${parcelas>1?` (${i+1}/${parcelas})`:''}`,
         valor:valorFinal,
@@ -163,7 +156,6 @@ export default function PedidosPage(){
   const kpiValorAberto=pedidos.filter(p=>!['cancelado','concluido'].includes(p.status)).reduce((s,p)=>s+Number(p.total||0),0);
   const kpiFaturado30d=pedidos.filter(p=>{if(!p.data_faturamento)return false;const d=new Date(p.data_faturamento);return(Date.now()-d.getTime())<30*24*60*60*1000;}).reduce((s,p)=>s+Number(p.total||0),0);
 
-  const selSt:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   return(
@@ -171,12 +163,16 @@ export default function PedidosPage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:TX}}>🎯 Pedidos de Venda</div>
-          <div style={{fontSize:11,color:TXD}}>Gestão completa: do pedido à entrega e faturamento</div>
+          <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
+            <span>Gestão completa: do pedido à entrega e faturamento</span>
+            <span>·</span>
+            <span style={{fontWeight:600,color:selInfo.isGroup?GO:TXM}}>
+              {selInfo.tipo==='consolidado'?'📊 Todas':selInfo.tipo==='grupo'?'📁 Grupo':'🏢'} {selInfo.nome}
+              {selInfo.isGroup&&` (${selInfo.count})`}
+            </span>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
           {orcamentosAprovados.length>0&&(
             <button onClick={()=>setShowConverter(true)} style={{padding:"8px 16px",borderRadius:8,background:G+"15",color:G,fontSize:12,fontWeight:600,border:`1px solid ${G}40`,cursor:"pointer"}}>✅ Converter Orçamento ({orcamentosAprovados.length})</button>
           )}
