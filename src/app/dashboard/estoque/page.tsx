@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -26,8 +27,7 @@ const fmtD=(v:string)=>v?new Date(v).toLocaleDateString("pt-BR"):'—';
 const fmtDT=(v:string)=>v?new Date(v).toLocaleString("pt-BR",{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
 
 export default function EstoquePage(){
-  const [companies,setCompanies]=useState<any[]>([]);
-  const [sel,setSel]=useState("");
+  const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [tab,setTab]=useState<'saldos'|'movimentacoes'|'inventario'>('saldos');
   const [produtos,setProdutos]=useState<any[]>([]);
   const [movs,setMovs]=useState<any[]>([]);
@@ -43,42 +43,48 @@ export default function EstoquePage(){
   const [invAtivo,setInvAtivo]=useState<any>(null);
   const [invItens,setInvItens]=useState<any[]>([]);
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(sel){loadProdutos();loadMovs();loadInvs();}},[sel]);
+  // Empresa individual para movimentações/inventários (primeiro da lista quando consolidado/grupo)
+  const companyIdParaOperacao = useMemo(()=>{
+    if(sel && !sel.startsWith("group_") && sel!=="consolidado") return sel;
+    return companyIds[0] || "";
+  },[sel, companyIds]);
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let d:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=(typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"")||"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
-    setLoading(false);
-  };
+  useEffect(()=>{
+    if(companyIds.length>0){loadProdutos();loadMovs();loadInvs();}
+  },[companyIds.join(",")]);
 
   const loadProdutos=async()=>{
-    const{data}=await supabase.from("erp_produtos").select("*").eq("company_id",sel).eq("ativo",true).neq("tipo","servico").order("nome");
+    if(companyIds.length===0)return;
+    const{data}=await supabase.from("erp_produtos").select("*").in("company_id",companyIds).eq("ativo",true).neq("tipo","servico").order("nome");
     if(data)setProdutos(data);
   };
 
   const loadMovs=async()=>{
+    if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data}=await supabase.from("erp_estoque_movimentacoes").select("*, produto:produto_id(nome,codigo)").eq("company_id",sel).order("data_movimento",{ascending:false}).limit(200);
+    const{data}=await supabase.from("erp_estoque_movimentacoes").select("*, produto:produto_id(nome,codigo)").in("company_id",companyIds).order("data_movimento",{ascending:false}).limit(200);
     if(data)setMovs(data);
     setLoading(false);
   };
 
   const loadInvs=async()=>{
-    const{data}=await supabase.from("erp_inventarios").select("*").eq("company_id",sel).order("data_inicio",{ascending:false}).limit(20);
+    if(companyIds.length===0)return;
+    const{data}=await supabase.from("erp_inventarios").select("*").in("company_id",companyIds).order("data_inicio",{ascending:false}).limit(20);
     if(data)setInvs(data);
   };
 
   const registrarMovimento=async()=>{
     if(!novoMov.produto_id){setMsg("❌ Selecione um produto");return;}
     if(!novoMov.quantidade||Number(novoMov.quantidade)<=0){setMsg("❌ Informe a quantidade");return;}
+    if(!companyIdParaOperacao){setMsg("❌ Selecione uma empresa");return;}
+    
+    // Ao operar em modo consolidado/grupo, usa a empresa do produto selecionado
+    const produtoSel = produtos.find(p=>p.id===novoMov.produto_id);
+    const companyIdMov = produtoSel?.company_id || companyIdParaOperacao;
+    
     const{data:{user}}=await supabase.auth.getUser();
     const{error}=await supabase.rpc('registrar_movimento_estoque',{
-      p_company_id:sel,
+      p_company_id:companyIdMov,
       p_produto_id:novoMov.produto_id,
       p_tipo:novoMov.tipo,
       p_quantidade:Number(novoMov.quantidade),
@@ -96,27 +102,37 @@ export default function EstoquePage(){
   };
 
   const iniciarInventario=async()=>{
-    if(!confirm("Iniciar novo inventário? Todos os produtos ativos serão incluídos para contagem."))return;
+    if(!companyIdParaOperacao){setMsg("❌ Selecione uma empresa");return;}
+    
+    const empresaNome = companies.find(c=>c.id===companyIdParaOperacao)?.nome_fantasia || "primeira empresa";
+    const msgConfirma = (sel==="consolidado"||sel.startsWith("group_"))
+      ? `Iniciar novo inventário em "${empresaNome}"? Todos os produtos ativos dessa empresa serão incluídos para contagem.`
+      : "Iniciar novo inventário? Todos os produtos ativos serão incluídos para contagem.";
+    if(!confirm(msgConfirma))return;
+    
+    // Filtra só os produtos da empresa onde o inventário será criado
+    const produtosEmpresa = produtos.filter(p=>p.company_id===companyIdParaOperacao);
+    
     const{data:{user}}=await supabase.auth.getUser();
-    const{data:numero}=await supabase.rpc('next_inventario_numero',{p_company_id:sel});
+    const{data:numero}=await supabase.rpc('next_inventario_numero',{p_company_id:companyIdParaOperacao});
     const{data:inv,error}=await supabase.from("erp_inventarios").insert({
-      company_id:sel,
+      company_id:companyIdParaOperacao,
       numero,
       responsavel:user?.email||'',
-      total_produtos:produtos.length,
+      total_produtos:produtosEmpresa.length,
       created_by:user?.id,
     }).select().single();
     if(error){setMsg("❌ "+error.message);return;}
     // Inserir itens de inventário
-    const itens=produtos.map(p=>({
+    const itens=produtosEmpresa.map(p=>({
       inventario_id:inv.id,
-      company_id:sel,
+      company_id:companyIdParaOperacao,
       produto_id:p.id,
       quantidade_sistema:Number(p.estoque_atual)||0,
       custo_unitario:Number(p.preco_custo_medio||p.preco_custo)||0,
     }));
     await supabase.from("erp_inventario_itens").insert(itens);
-    setMsg(`✅ Inventário ${numero} criado com ${produtos.length} produtos`);
+    setMsg(`✅ Inventário ${numero} criado com ${produtosEmpresa.length} produtos`);
     await abrirInventario(inv.id);
     loadInvs();
     setTimeout(()=>setMsg(""),3000);
@@ -184,7 +200,6 @@ export default function EstoquePage(){
     movs30d: movs.filter(m=>{const d=new Date(m.data_movimento);return(Date.now()-d.getTime())<30*24*60*60*1000;}).length,
   };
 
-  const selSt:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   return(
@@ -192,12 +207,16 @@ export default function EstoquePage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:TX}}>📦 Estoque</div>
-          <div style={{fontSize:11,color:TXD}}>Saldos · Movimentações · Inventário · Custo médio ponderado</div>
+          <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
+            <span>Saldos · Movimentações · Inventário · Custo médio ponderado</span>
+            <span>·</span>
+            <span style={{fontWeight:600,color:selInfo.isGroup?GO:TXM}}>
+              {selInfo.tipo==='consolidado'?'📊 Todas':selInfo.tipo==='grupo'?'📁 Grupo':'🏢'} {selInfo.nome}
+              {selInfo.isGroup&&` (${selInfo.count})`}
+            </span>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
           <button onClick={()=>setShowMovimento(true)} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Movimento</button>
         </div>
       </div>
