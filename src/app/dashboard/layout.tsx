@@ -70,6 +70,9 @@ const Icon = {
   Gem: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/></svg>,
   Monitor: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>,
   Megaphone: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>,
+  Database: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>,
+  Wrench: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
+  DollarSign: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
 }
 
 // ═══ ESTRUTURA DE MENU HIERÁRQUICA ═══
@@ -92,6 +95,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
         { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
+        { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
       ],
     },
     {
@@ -162,7 +166,8 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
         { href: '/dashboard/ficha-tecnica', label: 'Ficha Técnica', icon: <Icon.BookOpen /> },
         { href: '/dashboard/industrial', label: 'Industrial', icon: <Icon.Factory /> },
         { href: '/dashboard/custeio', label: 'Custeio Absorção', icon: <Icon.Calculator /> },
-        { href: '/dashboard/custo-industrial', label: 'Custo', icon: <Icon.PieChart /> },
+        { href: '/dashboard/custo-industrial', label: 'Custo Industrial', icon: <Icon.PieChart /> },
+        { href: '/dashboard/custo', label: 'Custo Simples', icon: <Icon.DollarSign /> },
       ],
     },
     {
@@ -293,6 +298,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       items: [
         { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
         { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
+        { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
         { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
         { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
         { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
@@ -355,6 +361,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
+  const [userRole, setUserRole] = useState<string>('')
   const [companies, setCompanies] = useState<any[]>([])
   const [groups, setGroups] = useState<any[]>([])
   const [selCompany, setSelCompany] = useState('')
@@ -365,6 +372,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showPlanoMenu, setShowPlanoMenu] = useState(false)
   const [buscaEmpresa, setBuscaEmpresa] = useState('')
+  const [demoMode, setDemoMode] = useState(false)
 
   useEffect(() => {
     loadUser()
@@ -375,7 +383,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (saved && saved in MENU) setCurrentPlano(saved as PlanoTipo)
     const collapsed = typeof window !== 'undefined' ? localStorage.getItem('ps_sidebar_collapsed') : null
     if (collapsed === '1') setSidebarCollapsed(true)
+    const demo = typeof window !== 'undefined' ? localStorage.getItem('ps_demo_mode') : null
+    if (demo === 'true') setDemoMode(true)
   }, [])
+
+  const toggleDemo = () => {
+    setDemoMode(d => {
+      const n = !d
+      if (typeof window !== 'undefined') localStorage.setItem('ps_demo_mode', String(n))
+      return n
+    })
+  }
 
   const loadUser = async () => {
     const { data: { user: u } } = await supabase.auth.getUser()
@@ -385,6 +403,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     setUser(u)
     const { data: up } = await supabase.from('users').select('*').eq('id', u.id).single()
+    if (up?.role) setUserRole(up.role)
 
     // Carrega grupos
     const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
@@ -496,6 +515,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const c = companies.find(c => c.id === selCompany)
     return { icon: '🏢', label: c?.nome_fantasia || c?.razao_social || 'Selecionar', sub: '' }
   }, [selCompany, companies, groups])
+
+  // Helper: usuário é admin?
+  const isAdmin = userRole === 'adm' || userRole === 'acesso_total' || userRole === 'adm_investimentos'
 
   return (
     <>
@@ -924,6 +946,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       overflow: 'hidden',
                     }}
                   >
+                    {isAdmin && (
+                      <Link
+                        href="/dashboard/admin"
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', color: 'var(--ps-gold-d)', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid var(--ps-border-l)', background: 'var(--ps-gold-bg)', fontWeight: 600 }}
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <Icon.Settings />
+                        <span>Painel Administrativo</span>
+                      </Link>
+                    )}
                     <Link
                       href="/dashboard/ajuda"
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', color: 'var(--ps-text)', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid var(--ps-border-l)' }}
@@ -1264,14 +1296,104 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 
               {/* Botões ações */}
+              <TopButton icon={<Icon.Database />} label="Dados / Conectores" onClick={() => router.push('/dashboard/dados')} />
               <TopButton icon={<Icon.Upload />} label="Importar" onClick={() => router.push('/dashboard/importar')} />
               <TopButton icon={<Icon.Bell />} label="Notificações" />
               <TopButton icon={<Icon.HelpCircle />} label="Ajuda" onClick={() => router.push('/dashboard/ajuda')} />
+
+              {/* Toggle Modo Demo — visível pra todos (útil em apresentações) */}
+              <button
+                onClick={toggleDemo}
+                title={demoMode ? 'Modo Demo ATIVO — valores ocultados' : 'Ativar modo Demo (oculta valores sensíveis)'}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 10px',
+                  background: demoMode ? 'var(--ps-gold-bg)' : 'transparent',
+                  border: `1px solid ${demoMode ? 'var(--ps-gold)' : 'transparent'}`,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  color: demoMode ? 'var(--ps-gold-d)' : 'var(--ps-text-m)',
+                  fontSize: 11,
+                  fontWeight: demoMode ? 600 : 400,
+                }}
+                onMouseEnter={e => { if (!demoMode) { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; } }}
+                onMouseLeave={e => { if (!demoMode) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; } }}
+              >
+                <span style={{ fontSize: 13 }}>🎭</span>
+                <span>{demoMode ? 'Demo ON' : 'Demo'}</span>
+              </button>
+
+              {/* Admin + Dev — só visível para administradores */}
+              {isAdmin && (
+                <>
+                  <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
+                  <button
+                    onClick={() => router.push('/dashboard/dev')}
+                    title="Central de Desenvolvimento"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 10px',
+                      background: 'transparent',
+                      border: '1px solid transparent',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      color: 'var(--ps-text-m)',
+                      fontSize: 11,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}
+                  >
+                    <span style={{ fontSize: 13 }}>🛠️</span>
+                    <span>Dev</span>
+                  </button>
+                  <button
+                    onClick={() => router.push('/dashboard/admin')}
+                    title="Painel Administrativo"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 12px',
+                      background: 'var(--ps-gold-bg)',
+                      border: '1px solid var(--ps-gold)',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      color: 'var(--ps-gold-d)',
+                      fontSize: 11,
+                      fontWeight: 600,
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'var(--ps-gold)'
+                      e.currentTarget.style.color = 'var(--ps-bg)'
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = 'var(--ps-gold-bg)'
+                      e.currentTarget.style.color = 'var(--ps-gold-d)'
+                    }}
+                  >
+                    <Icon.Settings />
+                    <span>Admin</span>
+                  </button>
+                </>
+              )}
             </div>
           </header>
 
+          {/* CSS pro modo demo */}
+          {demoMode && (
+            <style dangerouslySetInnerHTML={{ __html: `
+              .ps-demo .ps-blur{filter:blur(8px)!important;user-select:none!important}
+              .ps-demo .demo-hide{filter:blur(8px)!important;user-select:none!important}
+              .ps-demo td:not(:first-child){color:transparent!important;text-shadow:0 0 10px currentColor!important}
+            `}}/>
+          )}
+
           {/* Conteúdo das páginas */}
-          <main style={{ padding: '24px', minHeight: 'calc(100vh - var(--topbar-height))' }}>
+          <main className={demoMode ? 'ps-demo' : ''} style={{ padding: '24px', minHeight: 'calc(100vh - var(--topbar-height))' }}>
             {children}
           </main>
         </div>
