@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -61,9 +62,8 @@ const Stars=({value}:{value:number})=>(
 );
 
 export default function FornecedoresPage(){
+  const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [fornecedores,setFornecedores]=useState<Fornecedor[]>([]);
-  const [companies,setCompanies]=useState<any[]>([]);
-  const [sel,setSel]=useState("");
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroCategoria,setFiltroCategoria]=useState<string>("todas");
@@ -76,22 +76,20 @@ export default function FornecedoresPage(){
   const [cepLoading,setCepLoading]=useState(false);
   const [showImport,setShowImport]=useState(false);
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(sel)loadFornecedores();},[sel]);
+  // Empresa individual para novos cadastros
+  const companyIdParaCadastro = useMemo(()=>{
+    if(sel && !sel.startsWith("group_") && sel!=="consolidado") return sel;
+    return companyIds[0] || "";
+  },[sel, companyIds]);
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let d:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=(typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"")||"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
-    setLoading(false);
-  };
+  useEffect(()=>{
+    if(companyIds.length>0)loadFornecedores();
+  },[companyIds.join(",")]);
 
   const loadFornecedores=async()=>{
+    if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_fornecedores").select("*").eq("company_id",sel).order("razao_social");
+    const{data,error}=await supabase.from("erp_fornecedores").select("*").in("company_id",companyIds).order("razao_social");
     if(data)setFornecedores(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
@@ -138,8 +136,15 @@ export default function FornecedoresPage(){
 
   const salvar=async()=>{
     if(!form.razao_social?.trim()){setMsg("❌ Razão Social é obrigatória.");return;}
+    if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa para cadastrar.");return;}
+    
+    if(!editing && (sel==="consolidado" || sel.startsWith("group_"))){
+      const empresaNome = companies.find(c=>c.id===companyIdParaCadastro)?.nome_fantasia || "primeira empresa";
+      if(!confirm(`Você está em modo consolidado. O novo fornecedor será cadastrado em "${empresaNome}". Continuar?`))return;
+    }
+    
     const aval=((form.avaliacao_qualidade||0)+(form.avaliacao_prazo||0)+(form.avaliacao_preco||0))/3;
-    const dados={...form,company_id:sel,
+    const dados={...form,company_id:editing?editing.company_id:companyIdParaCadastro,
       prazo_entrega_dias:Number(form.prazo_entrega_dias)||0,
       valor_minimo_pedido:Number(form.valor_minimo_pedido)||0,
       avaliacao_geral:Math.round(aval*10)/10,
@@ -188,7 +193,6 @@ export default function FornecedoresPage(){
   const kpiTotalCompras=fornecedores.reduce((s,f)=>s+(Number(f.total_compras)||0),0);
   const kpiMediaNota=fornecedores.filter(f=>f.avaliacao_geral>0).reduce((s,f)=>s+Number(f.avaliacao_geral),0)/(fornecedores.filter(f=>f.avaliacao_geral>0).length||1);
 
-  const selSt:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   return(
@@ -196,12 +200,16 @@ export default function FornecedoresPage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:TX}}>🚚 Fornecedores</div>
-          <div style={{fontSize:11,color:TXD}}>Cadastro com avaliação 360° — qualidade, prazo, preço</div>
+          <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
+            <span>Cadastro com avaliação 360° — qualidade, prazo, preço</span>
+            <span>·</span>
+            <span style={{fontWeight:600,color:selInfo.isGroup?GO:TXM}}>
+              {selInfo.tipo==='consolidado'?'📊 Todas':selInfo.tipo==='grupo'?'📁 Grupo':'🏢'} {selInfo.nome}
+              {selInfo.isGroup&&` (${selInfo.count})`}
+            </span>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
           <button onClick={()=>setShowImport(true)} style={{padding:"8px 14px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar</button>
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo</button>
         </div>
