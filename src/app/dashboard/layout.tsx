@@ -387,6 +387,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (demo === 'true') setDemoMode(true)
   }, [])
 
+  // Aplica blur em valores monetários quando Demo estiver ativo
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!demoMode) return
+
+    const applyBlur = () => {
+      const main = document.querySelector('main')
+      if (!main) return
+      const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, null)
+      const toMark = new Set<HTMLElement>()
+      let node: Node | null
+      while ((node = walker.nextNode())) {
+        const txt = node.nodeValue || ''
+        // Detecta padrões de valores: "R$", números com vírgula, % com números, "1.234,56"
+        if (/R\$|\d+[\.,]\d{2}|^\s*\d{1,3}([\.,]\d{3})+/.test(txt)) {
+          let el = node.parentElement
+          // Sobe 1-2 níveis pra pegar o container com o valor inteiro
+          if (el && el.tagName !== 'MAIN') toMark.add(el)
+        }
+      }
+      toMark.forEach(el => el.classList.add('ps-blur'))
+    }
+
+    // Aplica imediatamente e observa mudanças
+    applyBlur()
+    const observer = new MutationObserver(applyBlur)
+    const main = document.querySelector('main')
+    if (main) observer.observe(main, { childList: true, subtree: true, characterData: true })
+
+    return () => {
+      observer.disconnect()
+      // Remove blur ao desligar
+      document.querySelectorAll('.ps-blur').forEach(el => el.classList.remove('ps-blur'))
+    }
+  }, [demoMode])
+
   const toggleDemo = () => {
     setDemoMode(d => {
       const n = !d
@@ -1383,12 +1419,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </header>
 
-          {/* CSS pro modo demo */}
+          {/* CSS pro modo demo — aplica blur automático em valores detectados via JS */}
           {demoMode && (
             <style dangerouslySetInnerHTML={{ __html: `
-              .ps-demo .ps-blur{filter:blur(8px)!important;user-select:none!important}
-              .ps-demo .demo-hide{filter:blur(8px)!important;user-select:none!important}
-              .ps-demo td:not(:first-child){color:transparent!important;text-shadow:0 0 10px currentColor!important}
+              .ps-demo main::before {
+                content: '🎭 MODO DEMO — valores ocultados';
+                position: fixed;
+                top: 76px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: var(--ps-gold);
+                color: #FFFFFF;
+                padding: 6px 16px;
+                border-radius: 20px;
+                font-size: 11px;
+                font-weight: 700;
+                z-index: 9999;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                pointer-events: none;
+                letter-spacing: 0.3px;
+              }
+              .ps-blur {
+                filter: blur(8px) !important;
+                user-select: none !important;
+                transition: filter 0.2s;
+              }
+              .ps-demo .demo-hide {
+                filter: blur(8px) !important;
+                user-select: none !important;
+              }
             `}}/>
           )}
 
