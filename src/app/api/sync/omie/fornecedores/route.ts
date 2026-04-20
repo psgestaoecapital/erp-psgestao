@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     const inicio = Date.now()
 
     // Busca todos fornecedores da Omie (filtra tag "Fornecedor")
-    const todos = await omiePaginate(
+    const todos: any[] = await omiePaginate<any>(
       auth,
       'ListarClientes',
       (pagina) => ({
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     let erros = 0
     const errosDetalhes: string[] = []
 
-    for (const omie of todos) {
+    for (const omie of todos as any[]) {
       try {
         const dados = mapOmieFornecedor(omie, company_id)
         if (!dados.razao_social) continue
