@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -25,9 +26,8 @@ const fmtR=(v:number)=>v===0?"—":`R$ ${v.toLocaleString("pt-BR",{minimumFracti
 const fmtQ=(v:number)=>v===0?"0":v.toLocaleString("pt-BR",{maximumFractionDigits:1});
 
 export default function ProdutosPage(){
+  const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [produtos,setProdutos]=useState<Produto[]>([]);
-  const [companies,setCompanies]=useState<any[]>([]);
-  const [sel,setSel]=useState("");
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroTipo,setFiltroTipo]=useState<string>("todos");
@@ -40,22 +40,21 @@ export default function ProdutosPage(){
   const [sortDir,setSortDir]=useState<"asc"|"desc">("asc");
   const [tab,setTab]=useState<string>("lista");
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(sel)loadProdutos();},[sel]);
+  // Empresa individual para novos cadastros (primeiro da lista quando consolidado/grupo)
+  const companyIdParaCadastro = useMemo(()=>{
+    if(sel && !sel.startsWith("group_") && sel!=="consolidado") return sel;
+    // Em modo consolidado/grupo, pega a primeira empresa disponível
+    return companyIds[0] || "";
+  },[sel, companyIds]);
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let d:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=(typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"")||"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
-    setLoading(false);
-  };
+  useEffect(()=>{
+    if(companyIds.length>0)loadProdutos();
+  },[companyIds.join(",")]);
 
   const loadProdutos=async()=>{
+    if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_produtos").select("*").eq("company_id",sel).order("nome");
+    const{data,error}=await supabase.from("erp_produtos").select("*").in("company_id",companyIds).order("nome");
     if(data)setProdutos(data);
     if(error)setMsg("Erro ao carregar: "+error.message);
     setLoading(false);
@@ -64,9 +63,16 @@ export default function ProdutosPage(){
   const salvar=async()=>{
     if(!form.nome?.trim()){setMsg("Nome é obrigatório.");return;}
     if(!form.codigo?.trim()){setMsg("Código é obrigatório.");return;}
+    if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa específica para cadastrar.");return;}
     
-    const dados={...form,company_id:sel,preco_venda:Number(form.preco_venda)||0,preco_custo:Number(form.preco_custo)||0,estoque_atual:Number(form.estoque_atual)||0,estoque_minimo:Number(form.estoque_minimo)||0,comissao_percentual:Number(form.comissao_percentual)||0};
-    delete (dados as any).margem_percentual; // campo calculado, não enviar
+    // Se estiver em modo consolidado/grupo ao cadastrar, avisa
+    if(!editing && (sel==="consolidado" || sel.startsWith("group_"))){
+      const empresaNome = companies.find(c=>c.id===companyIdParaCadastro)?.nome_fantasia || "primeira empresa";
+      if(!confirm(`Você está em modo consolidado. O novo produto será cadastrado em "${empresaNome}". Continuar?`))return;
+    }
+    
+    const dados={...form,company_id:editing?editing.company_id:companyIdParaCadastro,preco_venda:Number(form.preco_venda)||0,preco_custo:Number(form.preco_custo)||0,estoque_atual:Number(form.estoque_atual)||0,estoque_minimo:Number(form.estoque_minimo)||0,comissao_percentual:Number(form.comissao_percentual)||0};
+    delete (dados as any).margem_percentual;
     delete (dados as any).preco_custo_medio;
     delete (dados as any).id;
     delete (dados as any).created_at;
@@ -131,7 +137,7 @@ export default function ProdutosPage(){
   const doSort=(col:string)=>{if(sortBy===col)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortBy(col);setSortDir("asc");}};
   const sortIcon=(col:string)=>sortBy===col?(sortDir==="asc"?"↑":"↓"):"";
 
-  const selSt:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
+
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   return(
@@ -140,12 +146,16 @@ export default function ProdutosPage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:TX}}>📦 Produtos & Serviços</div>
-          <div style={{fontSize:11,color:TXD}}>Cadastro completo — preços, fiscal, estoque, fornecedores</div>
+          <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
+            <span>Cadastro completo — preços, fiscal, estoque, fornecedores</span>
+            <span style={{color:TXD}}>·</span>
+            <span style={{fontWeight:600,color:selInfo.isGroup?GO:TXM}}>
+              {selInfo.tipo==='consolidado'?'📊 Todas':selInfo.tipo==='grupo'?'📁 Grupo':'🏢'} {selInfo.nome}
+              {selInfo.isGroup&&` (${selInfo.count})`}
+            </span>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo</button>
         </div>
       </div>
