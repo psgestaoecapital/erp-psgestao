@@ -7,6 +7,18 @@ export const maxDuration = 120;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
+// Headers CORS — permite chamada de qualquer origem (incl. file:// e outras páginas)
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+// Preflight CORS — o navegador chama OPTIONS antes de POST cross-origin
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
+}
+
 async function omieCall(app_key: string, app_secret: string, endpoint: string, method: string, params: any = {}) {
   const res = await fetch(`https://app.omie.com.br/api/v1/${endpoint}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -36,7 +48,7 @@ export async function POST(req: NextRequest) {
     const { app_key, app_secret, sync_type, company_id } = await req.json();
 
     if (!app_key || !app_secret) {
-      return NextResponse.json({ error: "Chaves do Omie nao fornecidas" }, { status: 400 });
+      return NextResponse.json({ error: "Chaves do Omie nao fornecidas" }, { status: 400, headers: corsHeaders });
     }
 
     const supabase = company_id ? createClient(supabaseUrl, supabaseKey) : null;
@@ -126,8 +138,8 @@ export async function POST(req: NextRequest) {
       } catch (e) { results.resumo_error = String(e); }
     }
 
-    return NextResponse.json({ success: true, counts, company_id: company_id || null });
+    return NextResponse.json({ success: true, counts, company_id: company_id || null }, { headers: corsHeaders });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
   }
 }
