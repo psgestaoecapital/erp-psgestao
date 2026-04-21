@@ -9,22 +9,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --espresso: #3D2314;
-    --espresso-dk: #2A1810;
-    --offwhite: #FAF7F2;
-    --offwhite-dk: #F0EBE0;
-    --dourado: #C8941A;
-    --dourado-dk: #A67814;
-    --verde: #2E7D32;
-    --amarelo: #F57C00;
-    --vermelho: #C62828;
+    --espresso: #3D2314; --espresso-dk: #2A1810;
+    --offwhite: #FAF7F2; --offwhite-dk: #F0EBE0;
+    --dourado: #C8941A; --dourado-dk: #A67814;
+    --verde: #2E7D32; --amarelo: #F57C00; --vermelho: #C62828;
     --cinza-label: #8B7355;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--offwhite); color: var(--espresso); font-family: 'Fraunces', serif; -webkit-font-smoothing: antialiased; }
   body {
-    min-height: 100vh;
-    padding: 40px 20px;
+    min-height: 100vh; padding: 40px 20px;
     background-image:
       radial-gradient(circle at 15% 20%, rgba(200,148,26,0.04) 0%, transparent 40%),
       radial-gradient(circle at 85% 80%, rgba(61,35,20,0.04) 0%, transparent 40%);
@@ -36,10 +30,7 @@
     border-bottom: 2px solid var(--espresso);
     padding-bottom: 20px; margin-bottom: 40px;
   }
-  .brand {
-    font-family: 'Fraunces', serif; font-weight: 900;
-    font-size: 32px; letter-spacing: -0.02em;
-  }
+  .brand { font-family: 'Fraunces', serif; font-weight: 900; font-size: 32px; letter-spacing: -0.02em; }
   .brand span { color: var(--dourado); font-style: italic; font-weight: 400; }
   .meta {
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
@@ -50,92 +41,75 @@
 
   .op-title {
     font-family: 'Fraunces', serif; font-weight: 300;
-    font-size: 48px; letter-spacing: -0.03em; line-height: 1.05;
-    margin-bottom: 8px;
+    font-size: 48px; letter-spacing: -0.03em; line-height: 1.05; margin-bottom: 8px;
   }
   .op-title em { font-style: italic; color: var(--dourado); font-weight: 400; }
-  .op-sub {
-    font-size: 14px; color: var(--cinza-label);
-    margin-bottom: 40px; max-width: 680px; line-height: 1.5;
-  }
+  .op-sub { font-size: 14px; color: var(--cinza-label); margin-bottom: 40px; max-width: 680px; line-height: 1.5; }
 
-  .status-bar {
-    background: var(--offwhite-dk); padding: 12px 20px;
-    margin-bottom: 30px; border-left: 3px solid var(--dourado);
+  /* Banner de status do endpoint */
+  .health {
+    padding: 16px 20px; margin-bottom: 30px;
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; align-items: center; gap: 14px;
+    border-left: 4px solid var(--cinza-label);
+    background: var(--offwhite-dk);
   }
-  .status-bar .host-label { color: var(--cinza-label); }
-  .status-bar .host-value { color: var(--espresso); font-weight: 700; }
+  .health.ok      { border-color: var(--verde);    background: #EDFAEE; }
+  .health.warn    { border-color: var(--amarelo); background: #FFF7E6; }
+  .health.error   { border-color: var(--vermelho); background: #FDEBEB; }
+  .health .ico {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--cinza-label); flex-shrink: 0;
+  }
+  .health.ok .ico    { background: var(--verde); animation: none; }
+  .health.warn .ico  { background: var(--amarelo); }
+  .health.error .ico { background: var(--vermelho); }
+  .health.checking .ico { background: var(--dourado); animation: pulse 0.8s infinite; }
+  .health .txt { flex: 1; }
+  .health .txt b { font-weight: 700; color: var(--espresso); }
+  .health a { color: var(--espresso); text-decoration: underline; }
 
   .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
   @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } }
 
   .card {
-    background: #fff;
-    border: 1px solid var(--offwhite-dk);
-    border-radius: 2px;
-    padding: 28px;
-    position: relative;
+    background: #fff; border: 1px solid var(--offwhite-dk);
+    border-radius: 2px; padding: 28px; position: relative;
     transition: all 0.25s ease;
   }
+  .card.disabled { opacity: 0.5; pointer-events: none; }
   .card.running { border-color: var(--amarelo); box-shadow: 0 0 0 1px var(--amarelo); }
   .card.success { border-color: var(--verde);   box-shadow: 0 0 0 1px var(--verde); }
   .card.error   { border-color: var(--vermelho);box-shadow: 0 0 0 1px var(--vermelho); }
 
   .card-num {
     position: absolute; top: 20px; right: 20px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--cinza-label);
-    letter-spacing: 0.1em;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--cinza-label); letter-spacing: 0.1em;
   }
   .card-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    letter-spacing: 0.15em; text-transform: uppercase;
     color: var(--cinza-label); margin-bottom: 6px;
   }
-  .card-title {
-    font-family: 'Fraunces', serif; font-weight: 700;
-    font-size: 22px; letter-spacing: -0.01em;
-    margin-bottom: 14px; line-height: 1.1;
-  }
-  .card-cnpj {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--espresso); opacity: 0.6;
-    margin-bottom: 22px;
-  }
-  .card-expect {
-    display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 10px; margin-bottom: 22px;
-    padding: 14px 0; border-top: 1px dotted var(--offwhite-dk);
-    border-bottom: 1px dotted var(--offwhite-dk);
-  }
+  .card-title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22px; letter-spacing: -0.01em; margin-bottom: 14px; line-height: 1.1; }
+  .card-cnpj { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--espresso); opacity: 0.6; margin-bottom: 22px; }
+  .card-expect { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 22px; padding: 14px 0; border-top: 1px dotted var(--offwhite-dk); border-bottom: 1px dotted var(--offwhite-dk); }
   .expect-item { text-align: center; }
-  .expect-val {
-    font-family: 'JetBrains Mono', monospace; font-weight: 700;
-    font-size: 18px; color: var(--espresso);
-  }
-  .expect-lab {
-    font-family: 'JetBrains Mono', monospace; font-size: 9px;
-    letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--cinza-label); margin-top: 2px;
-  }
+  .expect-val { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px; color: var(--espresso); }
+  .expect-lab { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cinza-label); margin-top: 2px; }
 
   .btn {
     width: 100%; padding: 16px; cursor: pointer;
     background: var(--espresso); color: var(--offwhite);
     font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px;
-    letter-spacing: 0.02em;
-    border: none; border-radius: 1px;
+    letter-spacing: 0.02em; border: none; border-radius: 1px;
     transition: all 0.2s ease;
     display: flex; align-items: center; justify-content: center; gap: 10px;
   }
   .btn:hover:not(:disabled) { background: var(--espresso-dk); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--dourado); display: inline-block;
-  }
+  .btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dourado); display: inline-block; }
   .btn.running .dot { background: var(--amarelo); animation: pulse 0.8s infinite; }
   .btn.success { background: var(--verde); }
   .btn.success .dot { background: var(--offwhite); }
@@ -146,8 +120,8 @@
 
   .log-section { margin-top: 40px; }
   .log-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    letter-spacing: 0.15em; text-transform: uppercase;
     color: var(--cinza-label); margin-bottom: 12px;
     display: flex; justify-content: space-between;
   }
@@ -175,17 +149,10 @@
   }
   footer b { color: var(--espresso); }
 
-  .result {
-    margin-top: 18px; padding-top: 18px;
-    border-top: 1px solid var(--offwhite-dk);
-    display: none;
-  }
+  .result { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--offwhite-dk); display: none; }
   .result.show { display: block; animation: fadeIn 0.4s ease; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .result-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 4px 0; font-size: 13px;
-  }
+  .result-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; font-size: 13px; }
   .result-row .lab { color: var(--cinza-label); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.05em; }
   .result-row .val { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
   .result-row.warn .val { color: var(--amarelo); }
@@ -197,10 +164,7 @@
 
   <header>
     <div class="brand">PS Gestão<span> e Capital</span></div>
-    <div class="meta">
-      Deploy Batch<br>
-      <b>21/04/2026</b> · Grupo Tryo
-    </div>
+    <div class="meta">Deploy Batch<br><b>21/04/2026</b> · Grupo Tryo</div>
   </header>
 
   <h1 class="op-title">Sincronização <em>Omie</em> — M.m &amp; R.R</h1>
@@ -210,14 +174,15 @@
     Dispare os dois botões em sequência — aguarde cada um concluir antes do próximo.
   </p>
 
-  <div class="status-bar">
-    <span><span class="host-label">endpoint:</span> <span class="host-value">/api/omie/sync</span></span>
-    <span><span class="host-label">servido de:</span> <span class="host-value" id="hostDisplay">—</span></span>
+  <!-- Health banner -->
+  <div class="health checking" id="health">
+    <span class="ico"></span>
+    <span class="txt" id="healthTxt">Verificando saúde do endpoint <b>/api/omie/sync</b>...</span>
   </div>
 
   <div class="cards">
 
-    <div class="card" id="card-mm">
+    <div class="card disabled" id="card-mm">
       <div class="card-num">01 · Resync</div>
       <div class="card-label">CNPJ · 51.513.484/0001-03</div>
       <div class="card-title">M.m Serviços<br>e Acabamentos</div>
@@ -228,13 +193,13 @@
         <div class="expect-item"><div class="expect-val">541</div><div class="expect-lab">A Pagar</div></div>
         <div class="expect-item"><div class="expect-val">105</div><div class="expect-lab">A Receber</div></div>
       </div>
-      <button class="btn" id="btn-mm" onclick="runSync('mm')">
+      <button class="btn" id="btn-mm" onclick="runSync('mm')" disabled>
         <span class="dot"></span> Executar Sync M.m
       </button>
       <div class="result" id="result-mm"></div>
     </div>
 
-    <div class="card" id="card-rr">
+    <div class="card disabled" id="card-rr">
       <div class="card-num">02 · Primeiro sync</div>
       <div class="card-label">CNPJ · 51.513.485/0001-58</div>
       <div class="card-title">R.R Serviços<br>e Acabamentos</div>
@@ -245,7 +210,7 @@
         <div class="expect-item"><div class="expect-val">?</div><div class="expect-lab">A Pagar</div></div>
         <div class="expect-item"><div class="expect-val">?</div><div class="expect-lab">A Receber</div></div>
       </div>
-      <button class="btn" id="btn-rr" onclick="runSync('rr')">
+      <button class="btn" id="btn-rr" onclick="runSync('rr')" disabled>
         <span class="dot"></span> Executar Sync R.R
       </button>
       <div class="result" id="result-rr"></div>
@@ -258,7 +223,7 @@
       <span>Log de Execução</span>
       <span id="clock">—</span>
     </div>
-    <div class="log" id="log"><span class="info">> Aguardando execução.</span></div>
+    <div class="log" id="log"></div>
   </div>
 
   <footer>
@@ -284,23 +249,71 @@
     }
   };
 
-  document.getElementById('hostDisplay').textContent = window.location.host || 'file://';
-
-  function ts() {
-    const d = new Date();
-    return d.toTimeString().slice(0,8);
-  }
-
-  function log(msg, type = 'info') {
+  function ts() { return new Date().toTimeString().slice(0,8); }
+  function log(msg, type='info') {
     const el = document.getElementById('log');
     el.innerHTML += `\n<span class="ts">[${ts()}]</span> <span class="${type}">${msg}</span>`;
     el.scrollTop = el.scrollHeight;
   }
-
-  function setClock() {
-    document.getElementById('clock').textContent = ts();
-  }
+  function setClock() { document.getElementById('clock').textContent = ts(); }
   setInterval(setClock, 1000); setClock();
+
+  function setHealth(state, msg) {
+    const h = document.getElementById('health');
+    const t = document.getElementById('healthTxt');
+    h.classList.remove('checking','ok','warn','error');
+    h.classList.add(state);
+    t.innerHTML = msg;
+    const enabled = (state === 'ok');
+    document.querySelectorAll('.card').forEach(c => c.classList.toggle('disabled', !enabled));
+    document.querySelectorAll('.btn').forEach(b => b.disabled = !enabled);
+  }
+
+  // Health-check: tenta OPTIONS (preflight) primeiro — se responder 204 ou 200, é OK
+  async function healthCheck() {
+    log('Iniciando verificação de saúde...', 'info');
+    if (window.location.protocol === 'file:') {
+      setHealth('error', '<b>Arquivo aberto via file://</b> — precisa abrir pela URL do Vercel: <a href="https://erp-psgestao.vercel.app/deploy_batch.html">https://erp-psgestao.vercel.app/deploy_batch.html</a>');
+      log('⚠ Protocolo file:// detectado. Host correto é erp-psgestao.vercel.app.', 'err');
+      return;
+    }
+
+    try {
+      // GET no endpoint: se devolve 405, a rota existe e está saudável
+      const r = await fetch('/api/omie/sync', { method: 'GET', cache: 'no-store' });
+      const ct = r.headers.get('content-type') || '';
+      log(`GET /api/omie/sync → HTTP ${r.status}, content-type: ${ct}`, 'info');
+
+      if (r.status === 405) {
+        setHealth('ok', `<b>Endpoint saudável</b> · pronto para sincronizar (405 esperado em GET)`);
+        log('✓ Endpoint OK. Botões liberados.', 'ok');
+        return;
+      }
+      if (r.status === 401 || r.status === 403) {
+        setHealth('warn', `<b>Deployment Protection ativo</b> (HTTP ${r.status}) · desabilite em Vercel → Settings → Deployment Protection → Production: None`);
+        log(`⚠ Protection ainda ativo (${r.status}). Desabilite no Vercel Dashboard.`, 'warn');
+        return;
+      }
+      if (r.status === 404) {
+        setHealth('error', `<b>Endpoint 404</b> · a rota /api/omie/sync não existe no build atual. Verifique se route.ts está em src/app/api/omie/sync/`);
+        log('✗ Rota não encontrada (404). Confira se o deploy incluiu route.ts.', 'err');
+        return;
+      }
+      // Outro status: tenta parsear como JSON
+      const body = await r.text();
+      if (body.trim().startsWith('<')) {
+        setHealth('warn', `<b>Endpoint respondeu HTML</b> em vez de JSON. Pode ser Deployment Protection ou middleware bloqueando.`);
+        log(`⚠ Resposta HTML (primeiros 200 chars): ${body.substring(0, 200)}`, 'warn');
+        return;
+      }
+      // Resposta estranha mas JSON — libera mesmo assim
+      setHealth('ok', `<b>Endpoint respondeu</b> HTTP ${r.status} (resposta parece OK)`);
+      log('✓ Resposta parece saudável, liberando botões.', 'ok');
+    } catch (err) {
+      setHealth('error', `<b>Falha ao alcançar endpoint</b>: ${err.message}`);
+      log(`✗ ${err.message}`, 'err');
+    }
+  }
 
   async function runSync(key) {
     const s = syncs[key];
@@ -309,38 +322,32 @@
     const result = document.getElementById('result-' + key);
 
     btn.disabled = true;
-    card.classList.remove('success', 'error');
-    card.classList.add('running');
-    btn.classList.remove('success', 'error');
-    btn.classList.add('running');
+    card.classList.remove('success', 'error'); card.classList.add('running');
+    btn.classList.remove('success', 'error');  btn.classList.add('running');
     btn.innerHTML = `<span class="dot"></span> Executando... (pode levar até 2min)`;
     result.classList.remove('show');
 
-    const payload = {
-      app_key:    s.app_key,
-      app_secret: s.app_secret,
-      sync_type:  'all',
-      company_id: s.company_id
-    };
+    const payload = { app_key: s.app_key, app_secret: s.app_secret, sync_type: 'all', company_id: s.company_id };
 
     log(`→ POST /api/omie/sync`, 'info');
-    log(`  sync ${s.label} · company_id ${s.company_id.substring(0,8)}...`, 'info');
+    log(`  ${s.label} · company_id ${s.company_id.substring(0,8)}...`, 'info');
 
     const start = Date.now();
-
     try {
       const res = await fetch(`/api/omie/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-      const data = await res.json();
+      const ct = res.headers.get('content-type') || '';
 
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+      if (!ct.includes('json')) {
+        const text = await res.text();
+        throw new Error(`Resposta não-JSON (HTTP ${res.status}): ${text.substring(0, 150)}`);
       }
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
 
       log(`← ${s.label} · ${elapsed}s · HTTP ${res.status}`, 'ok');
 
@@ -348,46 +355,34 @@
         renderResult(result, data.counts, s.expected);
         const totals = Object.values(data.counts).reduce((a,b) => a + (Number(b)||0), 0);
         log(`  counts: ${JSON.stringify(data.counts)}`, 'info');
-        log(`  total processado: ${totals} registros`, 'ok');
+        log(`  total: ${totals} registros`, 'ok');
 
         if (s.expected) {
-          const truncFields = [];
-          for (const [k, v] of Object.entries(s.expected)) {
-            if (data.counts[k] !== undefined && data.counts[k] < v) {
-              truncFields.push(`${k}:${data.counts[k]}/${v}`);
-            }
+          const trunc = [];
+          for (const [k,v] of Object.entries(s.expected)) {
+            if (data.counts[k] !== undefined && data.counts[k] < v) trunc.push(`${k}:${data.counts[k]}/${v}`);
           }
-          if (truncFields.length > 0) {
-            log(`  ⚠ ATENÇÃO: valores abaixo do esperado — ${truncFields.join(', ')}`, 'warn');
+          if (trunc.length > 0) {
+            log(`  ⚠ Truncado: ${trunc.join(', ')}`, 'warn');
             btn.classList.remove('running'); btn.classList.add('error');
             card.classList.remove('running'); card.classList.add('error');
-            btn.innerHTML = `<span class="dot"></span> Truncamento — ver log`;
+            btn.innerHTML = `<span class="dot"></span> Truncamento — avisar Claude`;
           } else {
-            log(`  ✓ todos os tipos dentro do esperado`, 'ok');
+            log(`  ✓ Completo.`, 'ok');
             btn.classList.remove('running'); btn.classList.add('success');
             card.classList.remove('running'); card.classList.add('success');
-            btn.innerHTML = `<span class="dot"></span> Sucesso — avisar o Claude`;
+            btn.innerHTML = `<span class="dot"></span> Sucesso — avisar Claude`;
           }
         } else {
           btn.classList.remove('running'); btn.classList.add('success');
           card.classList.remove('running'); card.classList.add('success');
-          btn.innerHTML = `<span class="dot"></span> Sucesso — avisar o Claude`;
+          btn.innerHTML = `<span class="dot"></span> Sucesso — avisar Claude`;
         }
-      } else {
-        log(`  resposta sem campo 'counts'`, 'warn');
-        btn.classList.remove('running'); btn.classList.add('success');
-        card.classList.remove('running'); card.classList.add('success');
-        btn.innerHTML = `<span class="dot"></span> Resposta recebida`;
       }
-
       result.classList.add('show');
-
     } catch (err) {
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);
       log(`✗ ${s.label} falhou após ${elapsed}s: ${err.message}`, 'err');
-      if (err.message === 'Failed to fetch') {
-        log(`  ℹ 'Failed to fetch' rápido = CORS/bloqueio. Esta página DEVE ser acessada via https://erp-psgestao.vercel.app/deploy_batch.html (NÃO via file://)`, 'warn');
-      }
       btn.classList.remove('running'); btn.classList.add('error');
       card.classList.remove('running'); card.classList.add('error');
       btn.innerHTML = `<span class="dot"></span> Falha — ver log`;
@@ -396,29 +391,24 @@
   }
 
   function renderResult(el, counts, expected) {
-    const types = ['empresa', 'categorias', 'clientes', 'contas_pagar', 'contas_receber', 'produtos', 'vendas', 'estoque', 'resumo'];
+    const types = ['empresa','categorias','clientes','contas_pagar','contas_receber','produtos','vendas','estoque','resumo'];
     let html = '';
     for (const t of types) {
       const v = counts[t];
       if (v === undefined) continue;
       const exp = expected ? expected[t] : null;
-      let cls = '';
-      let suffix = '';
+      let cls = '', suffix = '';
       if (exp !== null && exp !== undefined) {
         if (v < exp) { cls = 'warn'; suffix = ` / ${exp} esperado`; }
-        else if (v >= exp) { cls = 'ok'; }
+        else if (v >= exp) cls = 'ok';
       }
       html += `<div class="result-row ${cls}"><span class="lab">${t}</span><span class="val">${v}${suffix}</span></div>`;
     }
     el.innerHTML = html;
   }
 
-  if (window.location.protocol === 'file:') {
-    log('⚠ Esta página está rodando via file:// — chamadas para Vercel serão bloqueadas por CORS.', 'warn');
-    log('  Faça upload deste arquivo em public/ do repo e acesse via https://erp-psgestao.vercel.app/deploy_batch.html', 'warn');
-  } else {
-    log(`Interface carregada em ${window.location.host}. Pronto para sincronização.`, 'ok');
-  }
+  // Roda o health check ao carregar
+  healthCheck();
 </script>
 </body>
 </html>
