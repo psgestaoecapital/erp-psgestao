@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
@@ -15,29 +15,69 @@ const styles = {
 }
 
 const fmtR = (v: any) => `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-const fmtRk = (v: any) => {
-  const n = Number(v) || 0
-  if (Math.abs(n) >= 1000000) return `R$ ${(n / 1000000).toFixed(1)}M`
-  if (Math.abs(n) >= 1000) return `R$ ${(n / 1000).toFixed(1)}k`
-  return `R$ ${n.toFixed(0)}`
-}
+
+// ═══════════════════════════════════════════════════════════════
+// DASHBOARD v12.0 — lê erp_pagar + erp_receber
+// Entende 3 modos do seletor: UUID empresa | group_xxx | consolidado
+// Reage ao trocar empresa no topbar (listener storage + polling leve)
+// ═══════════════════════════════════════════════════════════════
 
 export default function DashboardHome() {
   const [user, setUser] = useState<any>(null)
   const [sel, setSel] = useState('')
   const [companies, setCompanies] = useState<any[]>([])
+  const [groups, setGroups] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [kpis, setKpis] = useState<any>({ aReceber: 0, aPagar: 0, mrr: 0, saldoBancos: 0 })
   const [atividade, setAtividade] = useState<any[]>([])
   const [vencimentos, setVencimentos] = useState<any[]>([])
+  const [escopoLabel, setEscopoLabel] = useState('')
 
-  useEffect(() => { load() }, [])
-  useEffect(() => { if (sel) loadDados() }, [sel])
+  // ═══ Carrega lista de empresas e grupos (1x) ═══
+  useEffect(() => {
+    load()
+  }, [])
+
+  // ═══ Listener: detecta troca de empresa no seletor do layout ═══
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    // onStorage dispara em ABAS DIFERENTES, não na mesma.
+    // Para reagir na mesma aba, fazemos polling leve do localStorage a cada 400ms.
+    const checkSel = () => {
+      const saved = localStorage.getItem('ps_empresa_sel')
+      if (saved && saved !== sel) {
+        setSel(saved)
+      }
+    }
+    const interval = setInterval(checkSel, 400)
+
+    // Bonus: também escuta storage event (caso outra aba mude)
+    window.addEventListener('storage', checkSel)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', checkSel)
+    }
+  }, [sel])
+
+  // ═══ Recarrega dados quando `sel` ou `companies` mudam ═══
+  useEffect(() => {
+    if (sel && companies.length > 0) {
+      loadDados()
+    }
+  }, [sel, companies])
 
   const load = async () => {
     const { data: { user: u } } = await supabase.auth.getUser()
     if (u) setUser(u)
+
     const { data: up } = await supabase.from('users').select('role').eq('id', u?.id).single()
+
+    // Carrega grupos
+    const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
+    setGroups(grps || [])
+
     let d: any[] = []
     if (up?.role === 'adm' || up?.role === 'acesso_total' || up?.role === 'adm_investimentos') {
       const r = await supabase.from('companies').select('*').order('nome_fantasia')
@@ -47,48 +87,176 @@ export default function DashboardHome() {
       d = (r.data || []).map((u: any) => u.companies).filter(Boolean)
     }
     setCompanies(d)
+
     if (d.length > 0) {
       const saved = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
-      const m = saved ? d.find((c: any) => c.id === saved) : null
-      setSel(m ? m.id : d[0].id)
+      if (saved === 'consolidado' || saved?.startsWith('group_')) {
+        setSel(saved)
+      } else {
+        const m = saved ? d.find((c: any) => c.id === saved) : null
+        setSel(m ? m.id : (d.length > 1 ? 'consolidado' : d[0].id))
+      }
     }
     setLoading(false)
   }
 
+  // ═══ Resolve a lista de company_ids a partir do `sel` ═══
+  const resolveCompanyIds = useCallback((): string[] => {
+    if (!sel) return []
+
+    if (sel === 'consolidado') {
+      return companies.map((c: any) => c.id)
+    }
+
+    if (sel.startsWith('group_')) {
+      const gid = sel.replace('group_', '')
+      return companies.filter((c: any) => c.group_id === gid).map((c: any) => c.id)
+    }
+
+    // UUID de empresa individual
+    return [sel]
+  }, [sel, companies])
+
+  // ═══ Label descritivo do escopo atual ═══
+  const computeEscopoLabel = useCallback((): string => {
+    if (sel === 'consolidado') {
+      return `${companies.length} empresas · Consolidado`
+    }
+    if (sel.startsWith('group_')) {
+      const gid = sel.replace('group_', '')
+      const grp = groups.find((g: any) => g.id === gid)
+      const emps = companies.filter((c: any) => c.group_id === gid)
+      return `${grp?.nome || 'Grupo'} · ${emps.length} empresas`
+    }
+    const c = companies.find((c: any) => c.id === sel)
+    return c?.nome_fantasia || c?.razao_social || ''
+  }, [sel, companies, groups])
+
   const loadDados = async () => {
     try {
-      // KPIs financeiros (com tratamento defensivo)
-      const [{ data: l }, { data: b }, { data: c }] = await Promise.all([
-        supabase.from('erp_lancamentos').select('tipo, valor, status, data_vencimento, cliente_nome, fornecedor_nome, descricao, created_at').eq('company_id', sel).order('created_at', { ascending: false }).limit(50),
-        supabase.from('erp_banco_contas').select('saldo_atual').eq('company_id', sel).eq('ativo', true),
-        supabase.from('erp_contratos').select('valor_atual, valor_mensal, periodicidade').eq('company_id', sel).eq('status', 'ativo'),
-      ])
+      const ids = resolveCompanyIds()
+      if (ids.length === 0) {
+        setKpis({ aReceber: 0, aPagar: 0, mrr: 0, saldoBancos: 0 })
+        setAtividade([])
+        setVencimentos([])
+        return
+      }
 
-      const aReceber = (l || []).filter((x: any) => ['receita','entrada','receber'].includes(x.tipo) && ['pendente','aberto'].includes(x.status)).reduce((s: number, x: any) => s + Number(x.valor || 0), 0)
-      const aPagar = (l || []).filter((x: any) => ['despesa','saida','pagar'].includes(x.tipo) && ['pendente','aberto'].includes(x.status)).reduce((s: number, x: any) => s + Number(x.valor || 0), 0)
-      const saldoBancos = (b || []).reduce((s: number, x: any) => s + Number(x.saldo_atual || 0), 0)
-      const mrr = (c || []).reduce((s: number, x: any) => {
-        const v = Number(x.valor_atual || x.valor_mensal || 0)
-        const mult = x.periodicidade === 'anual' ? 1/12 : x.periodicidade === 'semestral' ? 1/6 : x.periodicidade === 'trimestral' ? 1/3 : x.periodicidade === 'bimestral' ? 1/2 : 1
-        return s + v * mult
-      }, 0)
-      setKpis({ aReceber, aPagar, mrr, saldoBancos })
+      setEscopoLabel(computeEscopoLabel())
 
-      // Atividade recente (últimos 6 lançamentos)
-      setAtividade((l || []).slice(0, 6))
-
-      // Próximos vencimentos (7 dias)
+      // Datas para próximos 7 dias
       const hoje = new Date().toISOString().slice(0, 10)
       const d7 = new Date()
       d7.setDate(d7.getDate() + 7)
       const d7s = d7.toISOString().slice(0, 10)
-      const vencs = (l || [])
-        .filter((x: any) => ['pendente','aberto'].includes(x.status) && x.data_vencimento >= hoje && x.data_vencimento <= d7s)
-        .sort((a: any, b: any) => a.data_vencimento.localeCompare(b.data_vencimento))
+
+      // Buscas paralelas
+      const [
+        { data: receberAbertos },
+        { data: pagarAbertos },
+        { data: receberVenc },
+        { data: pagarVenc },
+        { data: receberRecent },
+        { data: pagarRecent },
+        { data: bancos },
+        { data: contratos },
+      ] = await Promise.all([
+        // A RECEBER: somatório de status='aberto'
+        supabase
+          .from('erp_receber')
+          .select('valor')
+          .in('company_id', ids)
+          .eq('status', 'aberto'),
+        // A PAGAR: somatório de status='aberto'
+        supabase
+          .from('erp_pagar')
+          .select('valor')
+          .in('company_id', ids)
+          .eq('status', 'aberto'),
+        // Receber - próximos 7 dias
+        supabase
+          .from('erp_receber')
+          .select('id, cliente_nome, descricao, valor, data_vencimento, status')
+          .in('company_id', ids)
+          .eq('status', 'aberto')
+          .gte('data_vencimento', hoje)
+          .lte('data_vencimento', d7s)
+          .order('data_vencimento', { ascending: true })
+          .limit(20),
+        // Pagar - próximos 7 dias
+        supabase
+          .from('erp_pagar')
+          .select('id, fornecedor_nome, descricao, valor, data_vencimento, status')
+          .in('company_id', ids)
+          .eq('status', 'aberto')
+          .gte('data_vencimento', hoje)
+          .lte('data_vencimento', d7s)
+          .order('data_vencimento', { ascending: true })
+          .limit(20),
+        // Atividade recente - últimos receber
+        supabase
+          .from('erp_receber')
+          .select('id, cliente_nome, descricao, valor, data_vencimento, status, created_at')
+          .in('company_id', ids)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        // Atividade recente - últimos pagar
+        supabase
+          .from('erp_pagar')
+          .select('id, fornecedor_nome, descricao, valor, data_vencimento, status, created_at')
+          .in('company_id', ids)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        // Bancos (se tabela existe)
+        supabase
+          .from('erp_banco_contas')
+          .select('saldo_atual')
+          .in('company_id', ids)
+          .eq('ativo', true)
+          .then(r => r, () => ({ data: [] })),
+        // Contratos (se tabela existe)
+        supabase
+          .from('erp_contratos')
+          .select('valor_atual, valor_mensal, periodicidade')
+          .in('company_id', ids)
+          .eq('status', 'ativo')
+          .then(r => r, () => ({ data: [] })),
+      ])
+
+      const aReceber = (receberAbertos || []).reduce((s: number, x: any) => s + Number(x.valor || 0), 0)
+      const aPagar = (pagarAbertos || []).reduce((s: number, x: any) => s + Number(x.valor || 0), 0)
+      const saldoBancos = (bancos || []).reduce((s: number, x: any) => s + Number(x.saldo_atual || 0), 0)
+      const mrr = (contratos || []).reduce((s: number, x: any) => {
+        const v = Number(x.valor_atual || x.valor_mensal || 0)
+        const mult = x.periodicidade === 'anual' ? 1 / 12
+                   : x.periodicidade === 'semestral' ? 1 / 6
+                   : x.periodicidade === 'trimestral' ? 1 / 3
+                   : x.periodicidade === 'bimestral' ? 1 / 2
+                   : 1
+        return s + v * mult
+      }, 0)
+      setKpis({ aReceber, aPagar, mrr, saldoBancos })
+
+      // Próximos vencimentos (unifica receber + pagar, ordena por data)
+      const vencsUnified = [
+        ...(receberVenc || []).map((x: any) => ({ ...x, tipo: 'receita', pessoa: x.cliente_nome })),
+        ...(pagarVenc || []).map((x: any) => ({ ...x, tipo: 'despesa', pessoa: x.fornecedor_nome })),
+      ]
+        .sort((a, b) => (a.data_vencimento || '').localeCompare(b.data_vencimento || ''))
         .slice(0, 8)
-      setVencimentos(vencs)
+      setVencimentos(vencsUnified)
+
+      // Atividade recente
+      const atividadeUnified = [
+        ...(receberRecent || []).map((x: any) => ({ ...x, tipo: 'receita', pessoa: x.cliente_nome })),
+        ...(pagarRecent || []).map((x: any) => ({ ...x, tipo: 'despesa', pessoa: x.fornecedor_nome })),
+      ]
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, 6)
+      setAtividade(atividadeUnified)
+
     } catch (e) {
-      // Silencioso - tabelas podem não existir ainda em alguns ambientes
+      console.error('Erro ao carregar dashboard:', e)
     }
   }
 
@@ -103,9 +271,7 @@ export default function DashboardHome() {
   const nomeCapitalizado = primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1)
 
   if (loading) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: 'var(--ps-text-d)' }}>Carregando...</div>
-    )
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--ps-text-d)' }}>Carregando...</div>
   }
 
   return (
@@ -137,8 +303,13 @@ export default function DashboardHome() {
         >
           {saudacao()}, <em style={{ fontStyle: 'italic', color: 'var(--ps-gold-d)', fontWeight: 600 }}>{nomeCapitalizado}</em>.
         </h1>
-        <p style={{ fontSize: 15, color: 'var(--ps-text-m)', marginTop: 8, marginBottom: 0, maxWidth: 580 }}>
+        <p style={{ fontSize: 15, color: 'var(--ps-text-m)', marginTop: 8, marginBottom: 0, maxWidth: 680 }}>
           Aqui está o panorama de hoje. Seus módulos e inteligência PS estão prontos para atuar.
+          {escopoLabel && (
+            <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--ps-gold-d)', fontWeight: 600 }}>
+              · {escopoLabel}
+            </span>
+          )}
         </p>
       </div>
 
@@ -204,10 +375,10 @@ export default function DashboardHome() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {vencimentos.map((v: any, i: number) => {
-                const isReceita = ['receita','entrada','receber'].includes(v.tipo)
+                const isReceita = v.tipo === 'receita'
                 return (
                   <div
-                    key={i}
+                    key={`${v.tipo}-${v.id || i}`}
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -221,7 +392,7 @@ export default function DashboardHome() {
                         {v.descricao}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--ps-text-d)', marginTop: 2 }}>
-                        {v.cliente_nome || v.fornecedor_nome || '—'} · {new Date(v.data_vencimento + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                        {v.pessoa || '—'} · {new Date(v.data_vencimento + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
                       </div>
                     </div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: isReceita ? 'var(--ps-green)' : 'var(--ps-red)', fontFamily: 'var(--ps-font-mono)', whiteSpace: 'nowrap' }}>
@@ -244,10 +415,10 @@ export default function DashboardHome() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {atividade.map((a: any, i: number) => {
-                const isReceita = ['receita','entrada','receber'].includes(a.tipo)
+                const isReceita = a.tipo === 'receita'
                 return (
                   <div
-                    key={i}
+                    key={`${a.tipo}-${a.id || i}`}
                     style={{
                       display: 'flex',
                       gap: 12,
@@ -270,11 +441,11 @@ export default function DashboardHome() {
                         {a.descricao}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--ps-text-d)', marginTop: 2 }}>
-                        {new Date(a.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {a.pessoa || '—'} · {a.created_at ? new Date(a.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                       </div>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ps-text-m)', fontFamily: 'var(--ps-font-mono)' }}>
-                      {fmtR(a.valor)}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: isReceita ? 'var(--ps-green)' : 'var(--ps-red)', fontFamily: 'var(--ps-font-mono)' }}>
+                      {isReceita ? '+' : '−'}{fmtR(a.valor)}
                     </div>
                   </div>
                 )
@@ -300,7 +471,7 @@ export default function DashboardHome() {
       >
         <div>
           <div style={{ fontSize: 11, color: 'var(--ps-text-d)', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            PS Gestão ERP v11.0
+            PS Gestão ERP v12.0
           </div>
           <div style={{ fontSize: 13, color: 'var(--ps-text-m)', marginTop: 4 }}>
             22 módulos · 3 sistemas com IA · Ciclo completo de comércio, compras e finanças
