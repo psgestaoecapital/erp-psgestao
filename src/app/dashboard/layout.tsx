@@ -6,10 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 /* ═══════════════════════════════════════════════════════════════
-   PS GESTÃO ERP — LAYOUT v11.0 PREMIUM
-   Sidebar hierárquica · Top bar profissional · Breadcrumb dinâmico
-   Paleta: Marrom Espresso #3D2314 · Off-white #FAF7F2 · Dourado #C8941A
-   Tipografia: Fraunces (display) + Inter (body)
+   PS GESTÃO ERP — LAYOUT v11.1
+   Botões Sync e Contexto adicionados no topbar (admin)
    ═══════════════════════════════════════════════════════════════ */
 
 type MenuItem = {
@@ -25,7 +23,6 @@ type MenuGroup = {
   items: MenuItem[]
 }
 
-// ═══ ÍCONES LUCIDE INLINE (sem dependência externa) ═══
 const Icon = {
   Home: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   Calendar: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>,
@@ -75,270 +72,183 @@ const Icon = {
   DollarSign: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
 }
 
-// ═══ ESTRUTURA DE MENU HIERÁRQUICA ═══
-// Cada grupo tem um "plano" associado (controle de permissões)
 type PlanoTipo = 'comercio' | 'industrial' | 'agro' | 'bpo' | 'wealth' | 'producao'
 
 const MENU: Record<PlanoTipo, MenuGroup[]> = {
   comercio: [
-    {
-      label: 'CADASTROS',
-      items: [
-        { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
-        { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
-        { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
-        { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
-      ],
-    },
-    {
-      label: 'VENDAS',
-      items: [
-        { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
-        { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
-        { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
-      ],
-    },
-    {
-      label: 'COMPRAS',
-      items: [
-        { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
-        { href: '/dashboard/compras', label: 'Pedidos de Compra', icon: <Icon.ShoppingCart /> },
-      ],
-    },
-    {
-      label: 'ESTOQUE',
-      items: [
-        { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
-      ],
-    },
-    {
-      label: 'FINANCEIRO',
-      items: [
-        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
-        { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
-        { href: '/dashboard/contas', label: 'Contas a Pagar/Receber', icon: <Icon.Wallet /> },
-        { href: '/dashboard/conciliacao', label: 'Conciliação Bancária', icon: <Icon.Landmark /> },
-        { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
-        { href: '/dashboard/orcamento', label: 'Budget Anual', icon: <Icon.BarChart /> },
-        { href: '/dashboard/viabilidade', label: 'Viabilidade', icon: <Icon.Target /> },
-      ],
-    },
-    {
-      label: 'INTELIGÊNCIA',
-      items: [
-        { href: '/dashboard/score', label: 'Score de Inadimplência', icon: <Icon.TrendingDown />, badge: 'IA' },
-        { href: '/dashboard/previsao', label: 'Previsão de Caixa', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
-      ],
-    },
-    {
-      label: 'SERVIÇOS PS',
-      items: [
-        { href: '/dashboard/contador', label: 'Portal Contador', icon: <Icon.Calculator /> },
-        { href: '/dashboard/assessor', label: 'PS Assessor', icon: <Icon.Briefcase /> },
-        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
-        { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
-      ],
-    },
+    { label: 'CADASTROS', items: [
+      { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
+      { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
+      { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
+      { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
+    ]},
+    { label: 'VENDAS', items: [
+      { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
+      { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
+      { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
+    ]},
+    { label: 'COMPRAS', items: [
+      { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
+      { href: '/dashboard/compras', label: 'Pedidos de Compra', icon: <Icon.ShoppingCart /> },
+    ]},
+    { label: 'ESTOQUE', items: [
+      { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
+    ]},
+    { label: 'FINANCEIRO', items: [
+      { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
+      { href: '/dashboard/contas', label: 'Contas a Pagar/Receber', icon: <Icon.Wallet /> },
+      { href: '/dashboard/conciliacao', label: 'Conciliação Bancária', icon: <Icon.Landmark /> },
+      { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
+      { href: '/dashboard/orcamento', label: 'Budget Anual', icon: <Icon.BarChart /> },
+      { href: '/dashboard/viabilidade', label: 'Viabilidade', icon: <Icon.Target /> },
+    ]},
+    { label: 'INTELIGÊNCIA', items: [
+      { href: '/dashboard/score', label: 'Score de Inadimplência', icon: <Icon.TrendingDown />, badge: 'IA' },
+      { href: '/dashboard/previsao', label: 'Previsão de Caixa', icon: <Icon.TrendingUp />, badge: 'IA' },
+      { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+    ]},
+    { label: 'SERVIÇOS PS', items: [
+      { href: '/dashboard/contador', label: 'Portal Contador', icon: <Icon.Calculator /> },
+      { href: '/dashboard/assessor', label: 'PS Assessor', icon: <Icon.Briefcase /> },
+      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+      { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
+    ]},
   ],
   industrial: [
-    {
-      label: 'CADASTROS',
-      items: [
-        { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
-        { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
-        { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
-      ],
-    },
-    {
-      label: 'OPERAÇÃO',
-      items: [
-        { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
-        { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
-        { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
-        { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
-        { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
-      ],
-    },
-    {
-      label: 'PRODUÇÃO INDUSTRIAL',
-      items: [
-        { href: '/dashboard/ficha-tecnica', label: 'Ficha Técnica', icon: <Icon.BookOpen /> },
-        { href: '/dashboard/industrial', label: 'Industrial', icon: <Icon.Factory /> },
-        { href: '/dashboard/custeio', label: 'Custeio Absorção', icon: <Icon.Calculator /> },
-        { href: '/dashboard/custo-industrial', label: 'Custo Industrial', icon: <Icon.PieChart /> },
-        { href: '/dashboard/custo', label: 'Custo Simples', icon: <Icon.DollarSign /> },
-      ],
-    },
-    {
-      label: 'FINANCEIRO',
-      items: [
-        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
-        { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
-        { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
-        { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
-        { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
-        { href: '/dashboard/orcamento', label: 'Budget', icon: <Icon.BarChart /> },
-        { href: '/dashboard/viabilidade', label: 'Viabilidade', icon: <Icon.Target /> },
-      ],
-    },
-    {
-      label: 'INTELIGÊNCIA',
-      items: [
-        { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
-        { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
-        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
-      ],
-    },
+    { label: 'CADASTROS', items: [
+      { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
+      { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
+      { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
+    ]},
+    { label: 'OPERAÇÃO', items: [
+      { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
+      { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
+      { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
+      { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
+      { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
+    ]},
+    { label: 'PRODUÇÃO INDUSTRIAL', items: [
+      { href: '/dashboard/ficha-tecnica', label: 'Ficha Técnica', icon: <Icon.BookOpen /> },
+      { href: '/dashboard/industrial', label: 'Industrial', icon: <Icon.Factory /> },
+      { href: '/dashboard/custeio', label: 'Custeio Absorção', icon: <Icon.Calculator /> },
+      { href: '/dashboard/custo-industrial', label: 'Custo Industrial', icon: <Icon.PieChart /> },
+      { href: '/dashboard/custo', label: 'Custo Simples', icon: <Icon.DollarSign /> },
+    ]},
+    { label: 'FINANCEIRO', items: [
+      { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
+      { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
+      { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
+      { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
+      { href: '/dashboard/orcamento', label: 'Budget', icon: <Icon.BarChart /> },
+      { href: '/dashboard/viabilidade', label: 'Viabilidade', icon: <Icon.Target /> },
+    ]},
+    { label: 'INTELIGÊNCIA', items: [
+      { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
+      { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
+      { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+    ]},
   ],
   agro: [
-    {
-      label: 'CADASTROS',
-      items: [
-        { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
-        { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
-        { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
-      ],
-    },
-    {
-      label: 'OPERAÇÃO',
-      items: [
-        { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
-        { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
-        { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
-        { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
-        { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
-      ],
-    },
-    {
-      label: 'FINANCEIRO',
-      items: [
-        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
-        { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
-        { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
-        { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
-        { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
-        { href: '/dashboard/orcamento', label: 'Budget', icon: <Icon.BarChart /> },
-        { href: '/dashboard/viabilidade', label: 'Viabilidade', icon: <Icon.Target /> },
-        { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.Calculator /> },
-      ],
-    },
-    {
-      label: 'INTELIGÊNCIA',
-      items: [
-        { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
-        { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
-      ],
-    },
+    { label: 'CADASTROS', items: [
+      { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
+      { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
+      { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
+    ]},
+    { label: 'OPERAÇÃO', items: [
+      { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
+      { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
+      { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
+      { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
+      { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
+    ]},
+    { label: 'FINANCEIRO', items: [
+      { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
+      { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
+      { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
+      { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
+      { href: '/dashboard/orcamento', label: 'Budget', icon: <Icon.BarChart /> },
+      { href: '/dashboard/viabilidade', label: 'Viabilidade', icon: <Icon.Target /> },
+      { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.Calculator /> },
+    ]},
+    { label: 'INTELIGÊNCIA', items: [
+      { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
+      { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
+      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+    ]},
   ],
   bpo: [
-    {
-      label: 'BPO',
-      items: [
-        { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase />, badge: 'BPO' },
-      ],
-    },
-    {
-      label: 'CLIENTES BPO',
-      items: [
-        { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
-        { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
-        { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
-      ],
-    },
-    {
-      label: 'OPERAÇÃO FINANCEIRA',
-      items: [
-        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
-        { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
-        { href: '/dashboard/conciliacao', label: 'Conciliação OFX', icon: <Icon.Landmark /> },
-        { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
-        { href: '/dashboard/noc', label: 'NOC', icon: <Icon.Monitor /> },
-      ],
-    },
-    {
-      label: 'INTELIGÊNCIA',
-      items: [
-        { href: '/dashboard/score', label: 'Score IA', icon: <Icon.TrendingDown />, badge: 'IA' },
-        { href: '/dashboard/previsao', label: 'Previsão IA', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
-        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
-      ],
-    },
-    {
-      label: 'SERVIÇOS',
-      items: [
-        { href: '/dashboard/contador', label: 'Contador', icon: <Icon.Calculator /> },
-        { href: '/dashboard/assessor', label: 'PS Assessor', icon: <Icon.Briefcase /> },
-      ],
-    },
+    { label: 'BPO', items: [
+      { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase />, badge: 'BPO' },
+    ]},
+    { label: 'CLIENTES BPO', items: [
+      { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
+      { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
+      { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
+    ]},
+    { label: 'OPERAÇÃO FINANCEIRA', items: [
+      { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
+      { href: '/dashboard/conciliacao', label: 'Conciliação OFX', icon: <Icon.Landmark /> },
+      { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
+      { href: '/dashboard/noc', label: 'NOC', icon: <Icon.Monitor /> },
+    ]},
+    { label: 'INTELIGÊNCIA', items: [
+      { href: '/dashboard/score', label: 'Score IA', icon: <Icon.TrendingDown />, badge: 'IA' },
+      { href: '/dashboard/previsao', label: 'Previsão IA', icon: <Icon.TrendingUp />, badge: 'IA' },
+      { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+    ]},
+    { label: 'SERVIÇOS', items: [
+      { href: '/dashboard/contador', label: 'Contador', icon: <Icon.Calculator /> },
+      { href: '/dashboard/assessor', label: 'PS Assessor', icon: <Icon.Briefcase /> },
+    ]},
   ],
   wealth: [
-    {
-      label: 'WEALTH MFO',
-      items: [
-        { href: '/dashboard/wealth', label: 'PS Wealth', icon: <Icon.Gem />, badge: 'MFO' },
-      ],
-    },
+    { label: 'WEALTH MFO', items: [
+      { href: '/dashboard/wealth', label: 'PS Wealth', icon: <Icon.Gem />, badge: 'MFO' },
+    ]},
   ],
   producao: [
-    {
-      label: 'CADASTROS',
-      items: [
-        { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: <Icon.Package /> },
-        { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
-        { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
-        { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
-      ],
-    },
-    {
-      label: 'OPERAÇÃO',
-      items: [
-        { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
-        { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
-        { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
-        { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
-        { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
-        { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
-      ],
-    },
-    {
-      label: 'PRODUÇÃO',
-      items: [
-        { href: '/dashboard/producao', label: 'Produção Marketing', icon: <Icon.Megaphone /> },
-      ],
-    },
-    {
-      label: 'FINANCEIRO',
-      items: [
-        { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
-        { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
-        { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
-        { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
-        { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
-        { href: '/dashboard/orcamento', label: 'Budget', icon: <Icon.BarChart /> },
-      ],
-    },
-    {
-      label: 'INTELIGÊNCIA',
-      items: [
-        { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
-        { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
-        { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
-      ],
-    },
-    {
-      label: 'SERVIÇOS',
-      items: [
-        { href: '/dashboard/contador', label: 'Contador', icon: <Icon.Calculator /> },
-      ],
-    },
+    { label: 'CADASTROS', items: [
+      { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: <Icon.Package /> },
+      { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
+      { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
+      { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
+    ]},
+    { label: 'OPERAÇÃO', items: [
+      { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: <Icon.FileText /> },
+      { href: '/dashboard/pedidos', label: 'Pedidos', icon: <Icon.Target /> },
+      { href: '/dashboard/os', label: 'Ordens de Serviço', icon: <Icon.ClipboardList /> },
+      { href: '/dashboard/cotacoes', label: 'Cotações', icon: <Icon.BarChart /> },
+      { href: '/dashboard/compras', label: 'Compras', icon: <Icon.ShoppingCart /> },
+      { href: '/dashboard/estoque', label: 'Estoque', icon: <Icon.Warehouse /> },
+    ]},
+    { label: 'PRODUÇÃO', items: [
+      { href: '/dashboard/producao', label: 'Produção Marketing', icon: <Icon.Megaphone /> },
+    ]},
+    { label: 'FINANCEIRO', items: [
+      { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
+      { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
+      { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
+      { href: '/dashboard/rateio', label: 'Rateio', icon: <Icon.FlaskConical /> },
+      { href: '/dashboard/orcamento', label: 'Budget', icon: <Icon.BarChart /> },
+    ]},
+    { label: 'INTELIGÊNCIA', items: [
+      { href: '/dashboard/score', label: 'Score', icon: <Icon.TrendingDown />, badge: 'IA' },
+      { href: '/dashboard/previsao', label: 'Previsão', icon: <Icon.TrendingUp />, badge: 'IA' },
+      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
+    ]},
+    { label: 'SERVIÇOS', items: [
+      { href: '/dashboard/contador', label: 'Contador', icon: <Icon.Calculator /> },
+    ]},
   ],
 }
 
-// Label humano dos planos
 const PLANO_LABEL: Record<PlanoTipo, string> = {
   comercio: 'Comércio & Serviços',
   industrial: 'Industrial',
@@ -374,9 +284,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [buscaEmpresa, setBuscaEmpresa] = useState('')
   const [demoMode, setDemoMode] = useState(false)
 
-  useEffect(() => {
-    loadUser()
-  }, [])
+  useEffect(() => { loadUser() }, [])
 
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('ps_plano_atual') : null
@@ -387,11 +295,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (demo === 'true') setDemoMode(true)
   }, [])
 
-  // Aplica blur em valores monetários quando Demo estiver ativo
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!demoMode) return
-
     const applyBlur = () => {
       const main = document.querySelector('main')
       if (!main) return
@@ -400,25 +306,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       let node: Node | null
       while ((node = walker.nextNode())) {
         const txt = node.nodeValue || ''
-        // Detecta padrões de valores: "R$", números com vírgula, % com números, "1.234,56"
         if (/R\$|\d+[\.,]\d{2}|^\s*\d{1,3}([\.,]\d{3})+/.test(txt)) {
           let el = node.parentElement
-          // Sobe 1-2 níveis pra pegar o container com o valor inteiro
           if (el && el.tagName !== 'MAIN') toMark.add(el)
         }
       }
       toMark.forEach(el => el.classList.add('ps-blur'))
     }
-
-    // Aplica imediatamente e observa mudanças
     applyBlur()
     const observer = new MutationObserver(applyBlur)
     const main = document.querySelector('main')
     if (main) observer.observe(main, { childList: true, subtree: true, characterData: true })
-
     return () => {
       observer.disconnect()
-      // Remove blur ao desligar
       document.querySelectorAll('.ps-blur').forEach(el => el.classList.remove('ps-blur'))
     }
   }, [demoMode])
@@ -433,18 +333,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const loadUser = async () => {
     const { data: { user: u } } = await supabase.auth.getUser()
-    if (!u) {
-      router.push('/login')
-      return
-    }
+    if (!u) { router.push('/login'); return }
     setUser(u)
     const { data: up } = await supabase.from('users').select('*').eq('id', u.id).single()
     if (up?.role) setUserRole(up.role)
-
-    // Carrega grupos
     const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
     setGroups(grps || [])
-
     let d: any[] = []
     if (up?.role === 'adm' || up?.role === 'acesso_total' || up?.role === 'adm_investimentos') {
       const r = await supabase.from('companies').select('*').order('nome_fantasia')
@@ -456,12 +350,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setCompanies(d)
     if (d.length > 0) {
       const saved = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
-      // Aceita "consolidado", "group_xxx", ou UUID de empresa existente
       if (saved === 'consolidado' || saved?.startsWith('group_')) {
         setSelCompany(saved)
       } else {
         const match = saved ? d.find((c: any) => c.id === saved) : null
-        // Default: consolidado se tiver múltiplas empresas, senão a primeira
         setSelCompany(match ? match.id : (d.length > 1 ? 'consolidado' : d[0].id))
       }
     }
@@ -492,7 +384,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push('/login')
   }
 
-  // Breadcrumb automático
   const breadcrumb = React.useMemo(() => {
     if (!pathname) return []
     const groups = MENU[currentPlano] || []
@@ -514,7 +405,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const userInitials = user?.email ? user.email.slice(0, 2).toUpperCase() : '??'
   const menuGroups = MENU[currentPlano] || []
 
-  // Grupos empresariais para o seletor
   const gruposComEmpresas = React.useMemo(() => {
     return groups
       .map((g: any) => ({ ...g, empresas: companies.filter((c: any) => c.group_id === g.id) }))
@@ -525,7 +415,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return companies.filter((c: any) => !c.group_id || !groups.find((g: any) => g.id === c.group_id))
   }, [companies, groups])
 
-  // Busca
   const empresasFiltradasBusca = React.useMemo(() => {
     if (!buscaEmpresa.trim()) return []
     const b = buscaEmpresa.toLowerCase()
@@ -537,7 +426,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     ).slice(0, 20)
   }, [buscaEmpresa, companies])
 
-  // Label descritivo da seleção atual
   const selLabel = React.useMemo(() => {
     if (selCompany === 'consolidado') {
       return { icon: '📊', label: 'Todas as Empresas', sub: `${companies.length} empresas · Consolidado` }
@@ -552,300 +440,110 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return { icon: '🏢', label: c?.nome_fantasia || c?.razao_social || 'Selecionar', sub: '' }
   }, [selCompany, companies, groups])
 
-  // Helper: usuário é admin?
   const isAdmin = userRole === 'adm' || userRole === 'acesso_total' || userRole === 'adm_investimentos'
 
   return (
     <>
       <style jsx global>{`
         :root {
-          /* ═══ PALETA PS GESTÃO — CANÔNICA ═══ */
-          --ps-bg: #FAF7F2;           /* Off-white de fundo */
-          --ps-bg2: #FFFFFF;          /* Branco puro — cards */
-          --ps-bg3: #F0ECE3;          /* Creme — secciones secundárias */
-          --ps-bg4: #E8E1D3;          /* Creme mais escuro — divisores */
-          --ps-text: #3D2314;         /* Marrom Espresso — estrutura */
-          --ps-text-m: #6B5D4F;       /* Marrom médio — texto secundário */
-          --ps-text-d: #9C8E80;       /* Marrom claro — texto terciário */
-          --ps-border: #E0D8CC;       /* Borda padrão */
-          --ps-border-l: #EDE7DA;     /* Borda leve */
-          --ps-gold: #C8941A;         /* Dourado — destaque */
-          --ps-gold-d: #A57A15;       /* Dourado escuro */
-          --ps-gold-l: #E8B84E;       /* Dourado claro */
-          --ps-gold-bg: #FDF7E8;      /* Dourado de fundo muito sutil */
-
-          /* ═══ CORES FUNCIONAIS (mantidas só para sinalização de performance) ═══ */
-          --ps-green: #2D7A3E;        /* Positivo (mais sóbrio que #22C55E) */
+          --ps-bg: #FAF7F2;
+          --ps-bg2: #FFFFFF;
+          --ps-bg3: #F0ECE3;
+          --ps-bg4: #E8E1D3;
+          --ps-text: #3D2314;
+          --ps-text-m: #6B5D4F;
+          --ps-text-d: #9C8E80;
+          --ps-border: #E0D8CC;
+          --ps-border-l: #EDE7DA;
+          --ps-gold: #C8941A;
+          --ps-gold-d: #A57A15;
+          --ps-gold-l: #E8B84E;
+          --ps-gold-bg: #FDF7E8;
+          --ps-green: #2D7A3E;
           --ps-green-bg: #EBF3ED;
-          --ps-red: #B83B3B;          /* Negativo (mais sóbrio que #EF4444) */
+          --ps-red: #B83B3B;
           --ps-red-bg: #F6E8E8;
-          --ps-amber: #C88A1A;        /* Atenção */
+          --ps-amber: #C88A1A;
           --ps-amber-bg: #FAF0DF;
-          --ps-blue: #2C5282;         /* Informação */
+          --ps-blue: #2C5282;
           --ps-blue-bg: #E7EDF5;
-
-          /* ═══ TIPOGRAFIA ═══ */
           --ps-font-display: 'Fraunces', Georgia, serif;
           --ps-font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
           --ps-font-mono: 'JetBrains Mono', 'Courier New', monospace;
-
-          /* ═══ ESPAÇAMENTO ═══ */
           --ps-radius-sm: 6px;
           --ps-radius: 10px;
           --ps-radius-lg: 14px;
           --ps-shadow-sm: 0 1px 2px rgba(61, 35, 20, 0.04);
           --ps-shadow: 0 2px 8px rgba(61, 35, 20, 0.06), 0 1px 2px rgba(61, 35, 20, 0.04);
           --ps-shadow-lg: 0 10px 32px rgba(61, 35, 20, 0.08), 0 2px 6px rgba(61, 35, 20, 0.04);
-
-          /* ═══ MEDIDAS DO LAYOUT ═══ */
           --sidebar-width: 260px;
           --sidebar-collapsed: 68px;
           --topbar-height: 64px;
         }
-
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
         * { box-sizing: border-box; }
-
-        html, body {
-          margin: 0;
-          padding: 0;
-          background: var(--ps-bg);
-          color: var(--ps-text);
-          font-family: var(--ps-font-body);
-          font-size: 14px;
-          line-height: 1.5;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-        }
-
+        html, body { margin: 0; padding: 0; background: var(--ps-bg); color: var(--ps-text); font-family: var(--ps-font-body); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
         body { overflow-x: hidden; }
-
-        h1, h2, h3, h4, h5, h6 {
-          font-family: var(--ps-font-display);
-          font-weight: 600;
-          letter-spacing: -0.01em;
-          color: var(--ps-text);
-        }
-
-        button, input, select, textarea {
-          font-family: inherit;
-        }
-
-        /* Scrollbar custom */
+        h1, h2, h3, h4, h5, h6 { font-family: var(--ps-font-display); font-weight: 600; letter-spacing: -0.01em; color: var(--ps-text); }
+        button, input, select, textarea { font-family: inherit; }
         ::-webkit-scrollbar { width: 10px; height: 10px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb {
-          background: var(--ps-border);
-          border-radius: 10px;
-          border: 2px solid var(--ps-bg);
-        }
+        ::-webkit-scrollbar-thumb { background: var(--ps-border); border-radius: 10px; border: 2px solid var(--ps-bg); }
         ::-webkit-scrollbar-thumb:hover { background: var(--ps-text-d); }
-
-        /* Transitions globais sutis */
         a, button { transition: all 0.15s ease-out; }
-
-        /* ═══ RESPONSIVE ═══ */
         @media (max-width: 1024px) {
-          .ps-sidebar {
-            transform: translateX(-100%);
-            width: var(--sidebar-width) !important;
-          }
-          .ps-sidebar.open {
-            transform: translateX(0) !important;
-          }
-          .ps-main {
-            margin-left: 0 !important;
-          }
-          .ps-mobile-menu {
-            display: flex !important;
-          }
-          .ps-mobile-close {
-            display: flex !important;
-          }
+          .ps-sidebar { transform: translateX(-100%); width: var(--sidebar-width) !important; }
+          .ps-sidebar.open { transform: translateX(0) !important; }
+          .ps-main { margin-left: 0 !important; }
+          .ps-mobile-menu { display: flex !important; }
+          .ps-mobile-close { display: flex !important; }
         }
         @media (max-width: 640px) {
-          .ps-breadcrumb {
-            display: none;
-          }
+          .ps-breadcrumb { display: none; }
         }
       `}</style>
 
       <div style={{ minHeight: '100vh', background: 'var(--ps-bg)', display: 'flex' }}>
-        {/* ═══════════════════════════════════════════════ */}
-        {/* SIDEBAR */}
-        {/* ═══════════════════════════════════════════════ */}
         <aside
           style={{
-            position: 'fixed',
-            top: 0,
-            left: mobileMenuOpen ? 0 : undefined,
-            bottom: 0,
+            position: 'fixed', top: 0, left: mobileMenuOpen ? 0 : undefined, bottom: 0,
             width: sidebarCollapsed ? 'var(--sidebar-collapsed)' : 'var(--sidebar-width)',
-            background: 'var(--ps-bg2)',
-            borderRight: '1px solid var(--ps-border)',
-            display: 'flex',
-            flexDirection: 'column',
-            zIndex: 40,
+            background: 'var(--ps-bg2)', borderRight: '1px solid var(--ps-border)',
+            display: 'flex', flexDirection: 'column', zIndex: 40,
             transition: 'width 0.2s ease-out, transform 0.2s ease-out',
             transform: mobileMenuOpen ? 'translateX(0)' : undefined,
           }}
           className={`ps-sidebar ${mobileMenuOpen ? 'open' : ''}`}
         >
-          {/* Logo / Brand */}
-          <div
-            style={{
-              padding: sidebarCollapsed ? '20px 0' : '20px 24px',
-              borderBottom: '1px solid var(--ps-border-l)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: sidebarCollapsed ? 'center' : 'space-between',
-              gap: 12,
-              minHeight: 'var(--topbar-height)',
-            }}
-          >
-            <Link
-              href="/dashboard"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                textDecoration: 'none',
-                color: 'var(--ps-text)',
-              }}
-            >
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
-                  background: 'linear-gradient(135deg, var(--ps-text) 0%, #5A3A28 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--ps-gold)',
-                  fontFamily: 'var(--ps-font-display)',
-                  fontSize: 18,
-                  fontWeight: 700,
-                  letterSpacing: '-0.02em',
-                  boxShadow: '0 2px 6px rgba(61,35,20,0.2)',
-                  flexShrink: 0,
-                }}
-              >
-                PS
-              </div>
+          <div style={{ padding: sidebarCollapsed ? '20px 0' : '20px 24px', borderBottom: '1px solid var(--ps-border-l)', display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 12, minHeight: 'var(--topbar-height)' }}>
+            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'var(--ps-text)' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg, var(--ps-text) 0%, #5A3A28 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ps-gold)', fontFamily: 'var(--ps-font-display)', fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', boxShadow: '0 2px 6px rgba(61,35,20,0.2)', flexShrink: 0 }}>PS</div>
               {!sidebarCollapsed && (
                 <div style={{ overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--ps-font-display)',
-                      fontSize: 17,
-                      fontWeight: 700,
-                      letterSpacing: '-0.02em',
-                      lineHeight: 1.1,
-                    }}
-                  >
-                    PS Gestão
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: 'var(--ps-text-d)',
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                      marginTop: 2,
-                    }}
-                  >
-                    Capital & ERP
-                  </div>
+                  <div style={{ fontFamily: 'var(--ps-font-display)', fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1 }}>PS Gestão</div>
+                  <div style={{ fontSize: 10, color: 'var(--ps-text-d)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>Capital & ERP</div>
                 </div>
               )}
             </Link>
-
-            <button
-              className="ps-mobile-close"
-              onClick={() => setMobileMenuOpen(false)}
-              style={{
-                display: 'none',
-                background: 'none',
-                border: 'none',
-                color: 'var(--ps-text-m)',
-                cursor: 'pointer',
-                padding: 4,
-              }}
-            >
+            <button className="ps-mobile-close" onClick={() => setMobileMenuOpen(false)} style={{ display: 'none', background: 'none', border: 'none', color: 'var(--ps-text-m)', cursor: 'pointer', padding: 4 }}>
               <Icon.X />
             </button>
           </div>
 
-          {/* Seletor de Plano (topo sidebar) */}
           {!sidebarCollapsed && (
             <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--ps-border-l)', position: 'relative' }}>
-              <button
-                onClick={() => setShowPlanoMenu(!showPlanoMenu)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 12px',
-                  background: 'var(--ps-bg3)',
-                  border: '1px solid var(--ps-border-l)',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  color: 'var(--ps-text)',
-                }}
-              >
+              <button onClick={() => setShowPlanoMenu(!showPlanoMenu)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--ps-bg3)', border: '1px solid var(--ps-border-l)', borderRadius: 8, cursor: 'pointer', textAlign: 'left', color: 'var(--ps-text)' }}>
                 <div style={{ color: 'var(--ps-gold)', flexShrink: 0 }}>{PLANO_ICON[currentPlano]}</div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <div style={{ fontSize: 9, color: 'var(--ps-text-d)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Área</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ps-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {PLANO_LABEL[currentPlano]}
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ps-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{PLANO_LABEL[currentPlano]}</div>
                 </div>
-                <div style={{ color: 'var(--ps-text-d)', transform: showPlanoMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
-                  <Icon.ChevronDown />
-                </div>
+                <div style={{ color: 'var(--ps-text-d)', transform: showPlanoMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><Icon.ChevronDown /></div>
               </button>
-
               {showPlanoMenu && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% - 2px)',
-                    left: 16,
-                    right: 16,
-                    background: 'var(--ps-bg2)',
-                    border: '1px solid var(--ps-border)',
-                    borderRadius: 10,
-                    boxShadow: 'var(--ps-shadow-lg)',
-                    zIndex: 50,
-                    overflow: 'hidden',
-                    marginTop: 4,
-                  }}
-                >
+                <div style={{ position: 'absolute', top: 'calc(100% - 2px)', left: 16, right: 16, background: 'var(--ps-bg2)', border: '1px solid var(--ps-border)', borderRadius: 10, boxShadow: 'var(--ps-shadow-lg)', zIndex: 50, overflow: 'hidden', marginTop: 4 }}>
                   {(Object.keys(MENU) as PlanoTipo[]).map(p => (
-                    <button
-                      key={p}
-                      onClick={() => selectPlano(p)}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '10px 14px',
-                        background: currentPlano === p ? 'var(--ps-gold-bg)' : 'transparent',
-                        border: 'none',
-                        borderBottom: '1px solid var(--ps-border-l)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        color: currentPlano === p ? 'var(--ps-gold-d)' : 'var(--ps-text)',
-                        fontWeight: currentPlano === p ? 600 : 400,
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = currentPlano === p ? 'var(--ps-gold-bg)' : 'var(--ps-bg3)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = currentPlano === p ? 'var(--ps-gold-bg)' : 'transparent')}
-                    >
+                    <button key={p} onClick={() => selectPlano(p)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: currentPlano === p ? 'var(--ps-gold-bg)' : 'transparent', border: 'none', borderBottom: '1px solid var(--ps-border-l)', cursor: 'pointer', textAlign: 'left', color: currentPlano === p ? 'var(--ps-gold-d)' : 'var(--ps-text)', fontWeight: currentPlano === p ? 600 : 400 }} onMouseEnter={e => (e.currentTarget.style.background = currentPlano === p ? 'var(--ps-gold-bg)' : 'var(--ps-bg3)')} onMouseLeave={e => (e.currentTarget.style.background = currentPlano === p ? 'var(--ps-gold-bg)' : 'transparent')}>
                       <div style={{ color: currentPlano === p ? 'var(--ps-gold)' : 'var(--ps-text-d)' }}>{PLANO_ICON[p]}</div>
                       <span style={{ fontSize: 13 }}>{PLANO_LABEL[p]}</span>
                     </button>
@@ -855,155 +553,59 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           )}
 
-          {/* Navegação principal */}
           <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-            {/* Item: Dashboard */}
-            <NavItem
-              href="/dashboard"
-              label="Dashboard"
-              icon={<Icon.Home />}
-              active={pathname === '/dashboard'}
-              collapsed={sidebarCollapsed}
-              onClick={() => setMobileMenuOpen(false)}
-            />
-            <NavItem
-              href="/dashboard/visao-mensal"
-              label="Visão Mensal"
-              icon={<Icon.Calendar />}
-              active={pathname === '/dashboard/visao-mensal'}
-              collapsed={sidebarCollapsed}
-              onClick={() => setMobileMenuOpen(false)}
-            />
+            <NavItem href="/dashboard" label="Dashboard" icon={<Icon.Home />} active={pathname === '/dashboard'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+            <NavItem href="/dashboard/visao-mensal" label="Visão Mensal" icon={<Icon.Calendar />} active={pathname === '/dashboard/visao-mensal'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
 
-            {/* Grupos de menu */}
             {menuGroups.map((group, idx) => (
               <div key={idx} style={{ marginTop: 18 }}>
                 {!sidebarCollapsed && (
-                  <div
-                    style={{
-                      padding: '0 20px 6px',
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: 'var(--ps-text-d)',
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {group.label}
-                  </div>
+                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{group.label}</div>
                 )}
-                {sidebarCollapsed && idx > 0 && (
-                  <div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />
-                )}
+                {sidebarCollapsed && idx > 0 && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
                 {group.items.map(item => (
-                  <NavItem
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    badge={item.badge}
-                    active={pathname === item.href || pathname.startsWith(item.href + '/')}
-                    collapsed={sidebarCollapsed}
-                    onClick={() => setMobileMenuOpen(false)}
-                  />
+                  <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} badge={item.badge} active={pathname === item.href || pathname.startsWith(item.href + '/')} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
                 ))}
               </div>
             ))}
+
+            {/* Seção ADMINISTRAÇÃO — só para admins */}
+            {isAdmin && (
+              <div style={{ marginTop: 18 }}>
+                {!sidebarCollapsed && (
+                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>ADMINISTRAÇÃO</div>
+                )}
+                {sidebarCollapsed && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
+                <NavItem href="/admin/sync-status" label="Status Sync Omie" icon={<Icon.RefreshCw />} active={pathname === '/admin/sync-status'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+                <NavItem href="/admin/projeto" label="Contexto do Projeto" icon={<Icon.BookOpen />} active={pathname === '/admin/projeto'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+              </div>
+            )}
           </nav>
 
-          {/* Footer sidebar: user + collapse */}
-          <div
-            style={{
-              borderTop: '1px solid var(--ps-border-l)',
-              padding: sidebarCollapsed ? '12px 8px' : '12px 16px',
-            }}
-          >
+          <div style={{ borderTop: '1px solid var(--ps-border-l)', padding: sidebarCollapsed ? '12px 8px' : '12px 16px' }}>
             {!sidebarCollapsed ? (
               <div style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '8px 10px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    color: 'var(--ps-text)',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--ps-bg3)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <div
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 8,
-                      background: 'var(--ps-gold)',
-                      color: 'var(--ps-text)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {userInitials}
-                  </div>
+                <button onClick={() => setShowUserMenu(!showUserMenu)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'transparent', border: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', color: 'var(--ps-text)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--ps-bg3)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--ps-gold)', color: 'var(--ps-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{userInitials}</div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {user?.email?.split('@')[0] || 'Usuário'}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {user?.email || ''}
-                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email?.split('@')[0] || 'Usuário'}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ps-text-d)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email || ''}</div>
                   </div>
-                  <div style={{ color: 'var(--ps-text-d)' }}>
-                    <Icon.ChevronDown />
-                  </div>
+                  <div style={{ color: 'var(--ps-text-d)' }}><Icon.ChevronDown /></div>
                 </button>
-
                 {showUserMenu && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: 'calc(100% + 4px)',
-                      left: 0,
-                      right: 0,
-                      background: 'var(--ps-bg2)',
-                      border: '1px solid var(--ps-border)',
-                      borderRadius: 10,
-                      boxShadow: 'var(--ps-shadow-lg)',
-                      overflow: 'hidden',
-                    }}
-                  >
+                  <div style={{ position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--ps-bg2)', border: '1px solid var(--ps-border)', borderRadius: 10, boxShadow: 'var(--ps-shadow-lg)', overflow: 'hidden' }}>
                     {isAdmin && (
-                      <Link
-                        href="/dashboard/admin"
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', color: 'var(--ps-gold-d)', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid var(--ps-border-l)', background: 'var(--ps-gold-bg)', fontWeight: 600 }}
-                        onClick={() => setShowUserMenu(false)}
-                      >
+                      <Link href="/dashboard/admin" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', color: 'var(--ps-gold-d)', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid var(--ps-border-l)', background: 'var(--ps-gold-bg)', fontWeight: 600 }} onClick={() => setShowUserMenu(false)}>
                         <Icon.Settings />
                         <span>Painel Administrativo</span>
                       </Link>
                     )}
-                    <Link
-                      href="/dashboard/ajuda"
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', color: 'var(--ps-text)', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid var(--ps-border-l)' }}
-                      onClick={() => setShowUserMenu(false)}
-                    >
+                    <Link href="/dashboard/ajuda" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', color: 'var(--ps-text)', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid var(--ps-border-l)' }} onClick={() => setShowUserMenu(false)}>
                       <Icon.HelpCircle />
                       <span>Ajuda</span>
                     </Link>
-                    <button
-                      onClick={signOut}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'none', border: 'none', color: 'var(--ps-red)', cursor: 'pointer', fontSize: 13, textAlign: 'left' }}
-                    >
+                    <button onClick={signOut} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'none', border: 'none', color: 'var(--ps-red)', cursor: 'pointer', fontSize: 13, textAlign: 'left' }}>
                       <Icon.LogOut />
                       <span>Sair</span>
                     </button>
@@ -1011,313 +613,81 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
             ) : (
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                title={user?.email}
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 8,
-                  background: 'var(--ps-gold)',
-                  color: 'var(--ps-text)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  margin: '0 auto',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
+              <button onClick={() => setSidebarCollapsed(false)} title={user?.email} style={{ width: 48, height: 48, borderRadius: 8, background: 'var(--ps-gold)', color: 'var(--ps-text)', border: 'none', cursor: 'pointer', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>
                 {userInitials}
               </button>
             )}
-
-            <button
-              onClick={toggleSidebar}
-              style={{
-                width: '100%',
-                marginTop: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                padding: '6px 10px',
-                background: 'transparent',
-                border: '1px solid var(--ps-border-l)',
-                borderRadius: 6,
-                cursor: 'pointer',
-                color: 'var(--ps-text-d)',
-                fontSize: 11,
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'var(--ps-bg3)'
-                e.currentTarget.style.color = 'var(--ps-text)'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.color = 'var(--ps-text-d)'
-              }}
-              title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-            >
-              <div style={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', display: 'flex' }}>
-                <Icon.ChevronRight />
-              </div>
+            <button onClick={toggleSidebar} style={{ width: '100%', marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid var(--ps-border-l)', borderRadius: 6, cursor: 'pointer', color: 'var(--ps-text-d)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)' }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-d)' }} title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}>
+              <div style={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', display: 'flex' }}><Icon.ChevronRight /></div>
               {!sidebarCollapsed && <span>Recolher</span>}
             </button>
           </div>
         </aside>
 
-        {/* Overlay mobile */}
-        {mobileMenuOpen && (
-          <div
-            className="ps-overlay"
-            onClick={() => setMobileMenuOpen(false)}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(61,35,20,0.5)',
-              zIndex: 35,
-            }}
-          />
-        )}
+        {mobileMenuOpen && (<div className="ps-overlay" onClick={() => setMobileMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 35 }} />)}
 
-        {/* ═══════════════════════════════════════════════ */}
-        {/* ÁREA PRINCIPAL */}
-        {/* ═══════════════════════════════════════════════ */}
-        <div
-          style={{
-            flex: 1,
-            marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed)' : 'var(--sidebar-width)',
-            minWidth: 0,
-            transition: 'margin-left 0.2s ease-out',
-          }}
-          className="ps-main"
-        >
-          {/* TOP BAR */}
-          <header
-            style={{
-              height: 'var(--topbar-height)',
-              background: 'var(--ps-bg2)',
-              borderBottom: '1px solid var(--ps-border)',
-              display: 'flex',
-              alignItems: 'center',
-              padding: '0 24px',
-              gap: 16,
-              position: 'sticky',
-              top: 0,
-              zIndex: 30,
-              backdropFilter: 'blur(8px)',
-              backgroundColor: 'rgba(255,255,255,0.92)',
-            }}
-          >
-            <button
-              className="ps-mobile-menu"
-              onClick={() => setMobileMenuOpen(true)}
-              style={{
-                display: 'none',
-                background: 'none',
-                border: 'none',
-                color: 'var(--ps-text)',
-                cursor: 'pointer',
-                padding: 6,
-              }}
-            >
-              <Icon.Menu />
-            </button>
+        <div style={{ flex: 1, marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed)' : 'var(--sidebar-width)', minWidth: 0, transition: 'margin-left 0.2s ease-out' }} className="ps-main">
+          <header style={{ height: 'var(--topbar-height)', background: 'var(--ps-bg2)', borderBottom: '1px solid var(--ps-border)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 16, position: 'sticky', top: 0, zIndex: 30, backdropFilter: 'blur(8px)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
+            <button className="ps-mobile-menu" onClick={() => setMobileMenuOpen(true)} style={{ display: 'none', background: 'none', border: 'none', color: 'var(--ps-text)', cursor: 'pointer', padding: 6 }}><Icon.Menu /></button>
 
-            {/* Breadcrumb */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, overflow: 'hidden' }} className="ps-breadcrumb">
               {breadcrumb.map((crumb, i) => (
                 <React.Fragment key={i}>
-                  {i > 0 && (
-                    <div style={{ color: 'var(--ps-text-d)', display: 'flex' }}>
-                      <Icon.ChevronRight />
-                    </div>
-                  )}
+                  {i > 0 && (<div style={{ color: 'var(--ps-text-d)', display: 'flex' }}><Icon.ChevronRight /></div>)}
                   {crumb.href ? (
-                    <Link
-                      href={crumb.href}
-                      style={{
-                        fontSize: 13,
-                        color: i === breadcrumb.length - 1 ? 'var(--ps-text)' : 'var(--ps-text-m)',
-                        textDecoration: 'none',
-                        fontWeight: i === breadcrumb.length - 1 ? 600 : 500,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {crumb.label}
-                    </Link>
+                    <Link href={crumb.href} style={{ fontSize: 13, color: i === breadcrumb.length - 1 ? 'var(--ps-text)' : 'var(--ps-text-m)', textDecoration: 'none', fontWeight: i === breadcrumb.length - 1 ? 600 : 500, whiteSpace: 'nowrap' }}>{crumb.label}</Link>
                   ) : (
-                    <span style={{ fontSize: 13, color: 'var(--ps-text-d)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {crumb.label}
-                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--ps-text-d)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, whiteSpace: 'nowrap' }}>{crumb.label}</span>
                   )}
                 </React.Fragment>
               ))}
             </div>
 
-            {/* Ações topo */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* Seletor de empresa/grupo/consolidado */}
               <div style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setShowCompanyMenu(!showCompanyMenu)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '8px 14px',
-                    background: 'var(--ps-bg3)',
-                    border: '1px solid var(--ps-border-l)',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    color: 'var(--ps-text)',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    minWidth: 220,
-                    maxWidth: 320,
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--ps-bg4)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--ps-bg3)')}
-                >
+                <button onClick={() => setShowCompanyMenu(!showCompanyMenu)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: 'var(--ps-bg3)', border: '1px solid var(--ps-border-l)', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text)', fontSize: 13, fontWeight: 500, minWidth: 220, maxWidth: 320 }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--ps-bg4)')} onMouseLeave={e => (e.currentTarget.style.background = 'var(--ps-bg3)')}>
                   <span style={{ fontSize: 14, flexShrink: 0 }}>{selLabel.icon}</span>
                   <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0, flex: 1, textAlign: 'left' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}>{selLabel.label}</div>
                     {selLabel.sub && <div style={{ fontSize: 9, color: 'var(--ps-text-d)', fontWeight: 500 }}>{selLabel.sub}</div>}
                   </div>
-                  <div style={{ color: 'var(--ps-text-d)', flexShrink: 0 }}>
-                    <Icon.ChevronDown />
-                  </div>
+                  <div style={{ color: 'var(--ps-text-d)', flexShrink: 0 }}><Icon.ChevronDown /></div>
                 </button>
-
                 {showCompanyMenu && (
                   <>
                     <div onClick={() => setShowCompanyMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 'calc(100% + 4px)',
-                        right: 0,
-                        width: 380,
-                        maxHeight: 480,
-                        overflowY: 'auto',
-                        background: 'var(--ps-bg2)',
-                        border: '1px solid var(--ps-border)',
-                        borderRadius: 10,
-                        boxShadow: 'var(--ps-shadow-lg)',
-                        zIndex: 50,
-                      }}
-                    >
-                      {/* Busca */}
+                    <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, width: 380, maxHeight: 480, overflowY: 'auto', background: 'var(--ps-bg2)', border: '1px solid var(--ps-border)', borderRadius: 10, boxShadow: 'var(--ps-shadow-lg)', zIndex: 50 }}>
                       {companies.length > 5 && (
                         <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--ps-border-l)', position: 'sticky', top: 0, background: 'var(--ps-bg2)', zIndex: 1 }}>
-                          <input
-                            type="text"
-                            autoFocus
-                            value={buscaEmpresa}
-                            onChange={e => setBuscaEmpresa(e.target.value)}
-                            placeholder="🔍 Buscar por nome ou CNPJ..."
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              background: 'var(--ps-bg3)',
-                              border: '1px solid var(--ps-border-l)',
-                              borderRadius: 6,
-                              fontSize: 12,
-                              outline: 'none',
-                              color: 'var(--ps-text)',
-                              fontFamily: 'inherit',
-                            }}
-                          />
+                          <input type="text" autoFocus value={buscaEmpresa} onChange={e => setBuscaEmpresa(e.target.value)} placeholder="🔍 Buscar por nome ou CNPJ..." style={{ width: '100%', padding: '8px 12px', background: 'var(--ps-bg3)', border: '1px solid var(--ps-border-l)', borderRadius: 6, fontSize: 12, outline: 'none', color: 'var(--ps-text)', fontFamily: 'inherit' }} />
                         </div>
                       )}
-
-                      {/* Resultado da busca (se tem busca) */}
                       {buscaEmpresa.trim() ? (
                         <div>
-                          <div style={{ padding: '6px 14px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.1em', textTransform: 'uppercase', background: 'var(--ps-bg3)' }}>
-                            {empresasFiltradasBusca.length} resultado(s)
-                          </div>
+                          <div style={{ padding: '6px 14px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.1em', textTransform: 'uppercase', background: 'var(--ps-bg3)' }}>{empresasFiltradasBusca.length} resultado(s)</div>
                           {empresasFiltradasBusca.map((c: any) => (
-                            <CompanyItem
-                              key={c.id}
-                              ativo={selCompany === c.id}
-                              onClick={() => { selectCompany(c.id); setBuscaEmpresa(''); }}
-                              label={c.nome_fantasia || c.razao_social}
-                              sublabel={c.cnpj}
-                              icon="🏢"
-                            />
+                            <CompanyItem key={c.id} ativo={selCompany === c.id} onClick={() => { selectCompany(c.id); setBuscaEmpresa(''); }} label={c.nome_fantasia || c.razao_social} sublabel={c.cnpj} icon="🏢" />
                           ))}
-                          {empresasFiltradasBusca.length === 0 && (
-                            <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12, color: 'var(--ps-text-d)' }}>
-                              Nenhuma empresa encontrada
-                            </div>
-                          )}
+                          {empresasFiltradasBusca.length === 0 && (<div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12, color: 'var(--ps-text-d)' }}>Nenhuma empresa encontrada</div>)}
                         </div>
                       ) : (
                         <>
-                          {/* Consolidado Total */}
-                          {companies.length > 1 && (
-                            <CompanyItem
-                              ativo={selCompany === 'consolidado'}
-                              onClick={() => selectCompany('consolidado')}
-                              label="Todas as Empresas"
-                              sublabel={`${companies.length} empresas · Consolidado total`}
-                              icon="📊"
-                              destaque
-                            />
-                          )}
-
-                          {/* Grupos Empresariais */}
+                          {companies.length > 1 && (<CompanyItem ativo={selCompany === 'consolidado'} onClick={() => selectCompany('consolidado')} label="Todas as Empresas" sublabel={`${companies.length} empresas · Consolidado total`} icon="📊" destaque />)}
                           {gruposComEmpresas.length > 0 && (
                             <>
-                              <div style={{ padding: '10px 14px 4px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'var(--ps-bg3)', borderTop: '1px solid var(--ps-border-l)' }}>
-                                Grupos Empresariais ({gruposComEmpresas.length})
-                              </div>
+                              <div style={{ padding: '10px 14px 4px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'var(--ps-bg3)', borderTop: '1px solid var(--ps-border-l)' }}>Grupos Empresariais ({gruposComEmpresas.length})</div>
                               {gruposComEmpresas.map((g: any) => (
                                 <React.Fragment key={g.id}>
-                                  <CompanyItem
-                                    ativo={selCompany === `group_${g.id}`}
-                                    onClick={() => selectCompany(`group_${g.id}`)}
-                                    label={g.nome}
-                                    sublabel={`${g.empresas.length} empresas · Consolidado do grupo`}
-                                    icon="📁"
-                                    destaque
-                                  />
-                                  {g.empresas.map((c: any) => (
-                                    <CompanyItem
-                                      key={c.id}
-                                      ativo={selCompany === c.id}
-                                      onClick={() => selectCompany(c.id)}
-                                      label={c.nome_fantasia || c.razao_social}
-                                      sublabel={c.cnpj}
-                                      icon="└"
-                                      indent
-                                    />
-                                  ))}
+                                  <CompanyItem ativo={selCompany === `group_${g.id}`} onClick={() => selectCompany(`group_${g.id}`)} label={g.nome} sublabel={`${g.empresas.length} empresas · Consolidado do grupo`} icon="📁" destaque />
+                                  {g.empresas.map((c: any) => (<CompanyItem key={c.id} ativo={selCompany === c.id} onClick={() => selectCompany(c.id)} label={c.nome_fantasia || c.razao_social} sublabel={c.cnpj} icon="└" indent />))}
                                 </React.Fragment>
                               ))}
                             </>
                           )}
-
-                          {/* Empresas sem grupo */}
                           {empresasSemGrupo.length > 0 && (
                             <>
-                              <div style={{ padding: '10px 14px 4px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'var(--ps-bg3)', borderTop: '1px solid var(--ps-border-l)' }}>
-                                {gruposComEmpresas.length > 0 ? 'Outras Empresas' : 'Empresas'} ({empresasSemGrupo.length})
-                              </div>
-                              {empresasSemGrupo.map((c: any) => (
-                                <CompanyItem
-                                  key={c.id}
-                                  ativo={selCompany === c.id}
-                                  onClick={() => selectCompany(c.id)}
-                                  label={c.nome_fantasia || c.razao_social}
-                                  sublabel={c.cnpj}
-                                  icon="🏢"
-                                />
-                              ))}
+                              <div style={{ padding: '10px 14px 4px', fontSize: 9, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase', background: 'var(--ps-bg3)', borderTop: '1px solid var(--ps-border-l)' }}>{gruposComEmpresas.length > 0 ? 'Outras Empresas' : 'Empresas'} ({empresasSemGrupo.length})</div>
+                              {empresasSemGrupo.map((c: any) => (<CompanyItem key={c.id} ativo={selCompany === c.id} onClick={() => selectCompany(c.id)} label={c.nome_fantasia || c.razao_social} sublabel={c.cnpj} icon="🏢" />))}
                             </>
                           )}
                         </>
@@ -1327,90 +697,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
 
-              {/* Separador */}
               <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
 
-
-              {/* Botões ações */}
               <TopButton icon={<Icon.Database />} label="Dados / Conectores" onClick={() => router.push('/dashboard/dados')} />
               <TopButton icon={<Icon.Upload />} label="Importar" onClick={() => router.push('/dashboard/importar')} />
               <TopButton icon={<Icon.Bell />} label="Notificações" />
               <TopButton icon={<Icon.HelpCircle />} label="Ajuda" onClick={() => router.push('/dashboard/ajuda')} />
 
-              {/* Toggle Modo Demo — visível pra todos (útil em apresentações) */}
-              <button
-                onClick={toggleDemo}
-                title={demoMode ? 'Modo Demo ATIVO — valores ocultados' : 'Ativar modo Demo (oculta valores sensíveis)'}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 10px',
-                  background: demoMode ? 'var(--ps-gold-bg)' : 'transparent',
-                  border: `1px solid ${demoMode ? 'var(--ps-gold)' : 'transparent'}`,
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  color: demoMode ? 'var(--ps-gold-d)' : 'var(--ps-text-m)',
-                  fontSize: 11,
-                  fontWeight: demoMode ? 600 : 400,
-                }}
-                onMouseEnter={e => { if (!demoMode) { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; } }}
-                onMouseLeave={e => { if (!demoMode) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; } }}
-              >
+              <button onClick={toggleDemo} title={demoMode ? 'Modo Demo ATIVO — valores ocultados' : 'Ativar modo Demo (oculta valores sensíveis)'} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: demoMode ? 'var(--ps-gold-bg)' : 'transparent', border: `1px solid ${demoMode ? 'var(--ps-gold)' : 'transparent'}`, borderRadius: 8, cursor: 'pointer', color: demoMode ? 'var(--ps-gold-d)' : 'var(--ps-text-m)', fontSize: 11, fontWeight: demoMode ? 600 : 400 }} onMouseEnter={e => { if (!demoMode) { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; } }} onMouseLeave={e => { if (!demoMode) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; } }}>
                 <span style={{ fontSize: 13 }}>🎭</span>
                 <span>{demoMode ? 'Demo ON' : 'Demo'}</span>
               </button>
 
-              {/* Admin + Dev — só visível para administradores */}
               {isAdmin && (
                 <>
                   <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
-                  <button
-                    onClick={() => router.push('/dashboard/dev')}
-                    title="Central de Desenvolvimento"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '6px 10px',
-                      background: 'transparent',
-                      border: '1px solid transparent',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      color: 'var(--ps-text-m)',
-                      fontSize: 11,
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}
-                  >
+                  <button onClick={() => window.location.href = '/admin/sync-status'} title="Status de Sincronização Omie" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
+                    <span style={{ fontSize: 13 }}>🔄</span>
+                    <span>Sync</span>
+                  </button>
+                  <button onClick={() => window.location.href = '/admin/projeto'} title="Contexto do Projeto" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
+                    <span style={{ fontSize: 13 }}>📋</span>
+                    <span>Contexto</span>
+                  </button>
+                  <button onClick={() => router.push('/dashboard/dev')} title="Central de Desenvolvimento" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
                     <span style={{ fontSize: 13 }}>🛠️</span>
                     <span>Dev</span>
                   </button>
-                  <button
-                    onClick={() => router.push('/dashboard/admin')}
-                    title="Painel Administrativo"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '6px 12px',
-                      background: 'var(--ps-gold-bg)',
-                      border: '1px solid var(--ps-gold)',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      color: 'var(--ps-gold-d)',
-                      fontSize: 11,
-                      fontWeight: 600,
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.background = 'var(--ps-gold)'
-                      e.currentTarget.style.color = 'var(--ps-bg)'
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = 'var(--ps-gold-bg)'
-                      e.currentTarget.style.color = 'var(--ps-gold-d)'
-                    }}
-                  >
+                  <button onClick={() => router.push('/dashboard/admin')} title="Painel Administrativo" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--ps-gold-bg)', border: '1px solid var(--ps-gold)', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-gold-d)', fontSize: 11, fontWeight: 600 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-gold)'; e.currentTarget.style.color = 'var(--ps-bg)' }} onMouseLeave={e => { e.currentTarget.style.background = 'var(--ps-gold-bg)'; e.currentTarget.style.color = 'var(--ps-gold-d)' }}>
                     <Icon.Settings />
                     <span>Admin</span>
                   </button>
@@ -1419,39 +733,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </header>
 
-          {/* CSS pro modo demo — aplica blur automático em valores detectados via JS */}
           {demoMode && (
             <style dangerouslySetInnerHTML={{ __html: `
               .ps-demo main::before {
                 content: '🎭 MODO DEMO — valores ocultados';
-                position: fixed;
-                top: 76px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: var(--ps-gold);
-                color: #FFFFFF;
-                padding: 6px 16px;
-                border-radius: 20px;
-                font-size: 11px;
-                font-weight: 700;
-                z-index: 9999;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                pointer-events: none;
-                letter-spacing: 0.3px;
+                position: fixed; top: 76px; left: 50%; transform: translateX(-50%);
+                background: var(--ps-gold); color: #FFFFFF; padding: 6px 16px;
+                border-radius: 20px; font-size: 11px; font-weight: 700;
+                z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                pointer-events: none; letter-spacing: 0.3px;
               }
-              .ps-blur {
-                filter: blur(8px) !important;
-                user-select: none !important;
-                transition: filter 0.2s;
-              }
-              .ps-demo .demo-hide {
-                filter: blur(8px) !important;
-                user-select: none !important;
-              }
+              .ps-blur { filter: blur(8px) !important; user-select: none !important; transition: filter 0.2s; }
+              .ps-demo .demo-hide { filter: blur(8px) !important; user-select: none !important; }
             `}}/>
           )}
 
-          {/* Conteúdo das páginas */}
           <main className={demoMode ? 'ps-demo' : ''} style={{ padding: '24px', minHeight: 'calc(100vh - var(--topbar-height))' }}>
             {children}
           </main>
@@ -1461,83 +757,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   )
 }
 
-// ═══════════════════════════════════════════════════════════
-// COMPONENTES AUXILIARES
-// ═══════════════════════════════════════════════════════════
-
-function NavItem({
-  href,
-  label,
-  icon,
-  active,
-  collapsed,
-  badge,
-  onClick,
-}: {
-  href: string
-  label: string
-  icon: React.ReactNode
-  active: boolean
-  collapsed: boolean
-  badge?: string
-  onClick?: () => void
-}) {
+function NavItem({ href, label, icon, active, collapsed, badge, onClick }: { href: string; label: string; icon: React.ReactNode; active: boolean; collapsed: boolean; badge?: string; onClick?: () => void }) {
   return (
-    <Link
-      href={href}
-      onClick={onClick}
-      title={collapsed ? label : undefined}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: collapsed ? '10px 24px' : '9px 20px',
-        margin: collapsed ? '2px 10px' : '1px 12px',
-        color: active ? 'var(--ps-text)' : 'var(--ps-text-m)',
-        textDecoration: 'none',
-        fontSize: 13,
-        fontWeight: active ? 600 : 500,
-        borderRadius: 8,
-        background: active ? 'var(--ps-gold-bg)' : 'transparent',
-        borderLeft: active && !collapsed ? '2px solid var(--ps-gold)' : '2px solid transparent',
-        position: 'relative',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-      }}
-      onMouseEnter={e => {
-        if (!active) {
-          e.currentTarget.style.background = 'var(--ps-bg3)'
-          e.currentTarget.style.color = 'var(--ps-text)'
-        }
-      }}
-      onMouseLeave={e => {
-        if (!active) {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--ps-text-m)'
-        }
-      }}
-    >
-      <div style={{ color: active ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0, display: 'flex' }}>
-        {icon}
-      </div>
+    <Link href={href} onClick={onClick} title={collapsed ? label : undefined} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: collapsed ? '10px 24px' : '9px 20px', margin: collapsed ? '2px 10px' : '1px 12px', color: active ? 'var(--ps-text)' : 'var(--ps-text-m)', textDecoration: 'none', fontSize: 13, fontWeight: active ? 600 : 500, borderRadius: 8, background: active ? 'var(--ps-gold-bg)' : 'transparent', borderLeft: active && !collapsed ? '2px solid var(--ps-gold)' : '2px solid transparent', position: 'relative', whiteSpace: 'nowrap', overflow: 'hidden' }} onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)' } }} onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)' } }}>
+      <div style={{ color: active ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0, display: 'flex' }}>{icon}</div>
       {!collapsed && (
         <>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-          {badge && (
-            <span
-              style={{
-                fontSize: 9,
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'var(--ps-gold)',
-                color: 'var(--ps-text)',
-                letterSpacing: '0.05em',
-              }}
-            >
-              {badge}
-            </span>
-          )}
+          {badge && (<span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'var(--ps-gold)', color: 'var(--ps-text)', letterSpacing: '0.05em' }}>{badge}</span>)}
         </>
       )}
     </Link>
@@ -1546,105 +773,19 @@ function NavItem({
 
 function TopButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      title={label}
-      style={{
-        width: 36,
-        height: 36,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'transparent',
-        border: '1px solid transparent',
-        borderRadius: 8,
-        cursor: 'pointer',
-        color: 'var(--ps-text-m)',
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.background = 'var(--ps-bg3)'
-        e.currentTarget.style.borderColor = 'var(--ps-border-l)'
-        e.currentTarget.style.color = 'var(--ps-text)'
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.background = 'transparent'
-        e.currentTarget.style.borderColor = 'transparent'
-        e.currentTarget.style.color = 'var(--ps-text-m)'
-      }}
-    >
+    <button onClick={onClick} title={label} style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.borderColor = 'var(--ps-border-l)'; e.currentTarget.style.color = 'var(--ps-text)' }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)' }}>
       {icon}
     </button>
   )
 }
 
-function CompanyItem({
-  ativo,
-  onClick,
-  label,
-  sublabel,
-  icon,
-  indent,
-  destaque,
-}: {
-  ativo: boolean
-  onClick: () => void
-  label: string
-  sublabel?: string
-  icon?: string
-  indent?: boolean
-  destaque?: boolean
-}) {
+function CompanyItem({ ativo, onClick, label, sublabel, icon, indent, destaque }: { ativo: boolean; onClick: () => void; label: string; sublabel?: string; icon?: string; indent?: boolean; destaque?: boolean }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: `10px ${indent ? 28 : 14}px`,
-        background: ativo ? 'var(--ps-gold-bg)' : 'transparent',
-        border: 'none',
-        borderBottom: '1px solid var(--ps-border-l)',
-        cursor: 'pointer',
-        textAlign: 'left',
-        color: ativo ? 'var(--ps-gold-d)' : 'var(--ps-text)',
-        borderLeft: ativo ? '3px solid var(--ps-gold)' : '3px solid transparent',
-      }}
-      onMouseEnter={e => { if (!ativo) e.currentTarget.style.background = 'var(--ps-bg3)' }}
-      onMouseLeave={e => { if (!ativo) e.currentTarget.style.background = 'transparent' }}
-    >
-      {icon && (
-        <span style={{
-          fontSize: indent ? 10 : 14,
-          flexShrink: 0,
-          color: indent ? 'var(--ps-text-d)' : undefined,
-          width: indent ? 12 : 20,
-          textAlign: 'center',
-        }}>
-          {icon}
-        </span>
-      )}
+    <button onClick={onClick} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: `10px ${indent ? 28 : 14}px`, background: ativo ? 'var(--ps-gold-bg)' : 'transparent', border: 'none', borderBottom: '1px solid var(--ps-border-l)', cursor: 'pointer', textAlign: 'left', color: ativo ? 'var(--ps-gold-d)' : 'var(--ps-text)', borderLeft: ativo ? '3px solid var(--ps-gold)' : '3px solid transparent' }} onMouseEnter={e => { if (!ativo) e.currentTarget.style.background = 'var(--ps-bg3)' }} onMouseLeave={e => { if (!ativo) e.currentTarget.style.background = 'transparent' }}>
+      {icon && (<span style={{ fontSize: indent ? 10 : 14, flexShrink: 0, color: indent ? 'var(--ps-text-d)' : undefined, width: indent ? 12 : 20, textAlign: 'center' }}>{icon}</span>)}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 13,
-          fontWeight: ativo || destaque ? 600 : 500,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}>
-          {label}
-        </div>
-        {sublabel && (
-          <div style={{
-            fontSize: 10,
-            color: 'var(--ps-text-d)',
-            fontFamily: sublabel.match(/^\d/) ? 'var(--ps-font-mono)' : 'inherit',
-            marginTop: 2,
-          }}>
-            {sublabel}
-          </div>
-        )}
+        <div style={{ fontSize: 13, fontWeight: ativo || destaque ? 600 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+        {sublabel && (<div style={{ fontSize: 10, color: 'var(--ps-text-d)', fontFamily: sublabel.match(/^\d/) ? 'var(--ps-font-mono)' : 'inherit', marginTop: 2 }}>{sublabel}</div>)}
       </div>
     </button>
   )
