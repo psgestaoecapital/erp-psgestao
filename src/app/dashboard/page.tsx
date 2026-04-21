@@ -17,9 +17,9 @@ const styles = {
 const fmtR = (v: any) => `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 
 // ═══════════════════════════════════════════════════════════════
-// DASHBOARD v12.0 — lê erp_pagar + erp_receber
-// Entende 3 modos do seletor: UUID empresa | group_xxx | consolidado
-// Reage ao trocar empresa no topbar (listener storage + polling leve)
+// DASHBOARD v12.1 — RPC fn_dashboard_kpis para agregação servidor-side
+// Corrige bug de limit=1000 do Supabase JS em grandes volumes
+// Listas limitadas continuam via .limit() no client (ok, são 8 itens)
 // ═══════════════════════════════════════════════════════════════
 
 export default function DashboardHome() {
@@ -28,7 +28,7 @@ export default function DashboardHome() {
   const [companies, setCompanies] = useState<any[]>([])
   const [groups, setGroups] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [kpis, setKpis] = useState<any>({ aReceber: 0, aPagar: 0, mrr: 0, saldoBancos: 0 })
+  const [kpis, setKpis] = useState<any>({ aReceber: 0, aPagar: 0, mrr: 0, saldoBancos: 0, aReceberQtd: 0, aPagarQtd: 0 })
   const [atividade, setAtividade] = useState<any[]>([])
   const [vencimentos, setVencimentos] = useState<any[]>([])
   const [escopoLabel, setEscopoLabel] = useState('')
@@ -42,8 +42,6 @@ export default function DashboardHome() {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    // onStorage dispara em ABAS DIFERENTES, não na mesma.
-    // Para reagir na mesma aba, fazemos polling leve do localStorage a cada 400ms.
     const checkSel = () => {
       const saved = localStorage.getItem('ps_empresa_sel')
       if (saved && saved !== sel) {
@@ -51,8 +49,6 @@ export default function DashboardHome() {
       }
     }
     const interval = setInterval(checkSel, 400)
-
-    // Bonus: também escuta storage event (caso outra aba mude)
     window.addEventListener('storage', checkSel)
 
     return () => {
@@ -74,7 +70,6 @@ export default function DashboardHome() {
 
     const { data: up } = await supabase.from('users').select('role').eq('id', u?.id).single()
 
-    // Carrega grupos
     const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
     setGroups(grps || [])
 
@@ -100,28 +95,18 @@ export default function DashboardHome() {
     setLoading(false)
   }
 
-  // ═══ Resolve a lista de company_ids a partir do `sel` ═══
   const resolveCompanyIds = useCallback((): string[] => {
     if (!sel) return []
-
-    if (sel === 'consolidado') {
-      return companies.map((c: any) => c.id)
-    }
-
+    if (sel === 'consolidado') return companies.map((c: any) => c.id)
     if (sel.startsWith('group_')) {
       const gid = sel.replace('group_', '')
       return companies.filter((c: any) => c.group_id === gid).map((c: any) => c.id)
     }
-
-    // UUID de empresa individual
     return [sel]
   }, [sel, companies])
 
-  // ═══ Label descritivo do escopo atual ═══
   const computeEscopoLabel = useCallback((): string => {
-    if (sel === 'consolidado') {
-      return `${companies.length} empresas · Consolidado`
-    }
+    if (sel === 'consolidado') return `${companies.length} empresas · Consolidado`
     if (sel.startsWith('group_')) {
       const gid = sel.replace('group_', '')
       const grp = groups.find((g: any) => g.id === gid)
@@ -136,7 +121,7 @@ export default function DashboardHome() {
     try {
       const ids = resolveCompanyIds()
       if (ids.length === 0) {
-        setKpis({ aReceber: 0, aPagar: 0, mrr: 0, saldoBancos: 0 })
+        setKpis({ aReceber: 0, aPagar: 0, mrr: 0, saldoBancos: 0, aReceberQtd: 0, aPagarQtd: 0 })
         setAtividade([])
         setVencimentos([])
         return
@@ -144,98 +129,83 @@ export default function DashboardHome() {
 
       setEscopoLabel(computeEscopoLabel())
 
-      // Datas para próximos 7 dias
       const hoje = new Date().toISOString().slice(0, 10)
       const d7 = new Date()
       d7.setDate(d7.getDate() + 7)
       const d7s = d7.toISOString().slice(0, 10)
 
-      // Buscas paralelas
+      // KPIs via RPC (agregação servidor-side, sem problema de limit)
+      const kpisPromise = supabase.rpc('fn_dashboard_kpis', { p_company_ids: ids })
+
+      // Listas (limit baixo, sem problema de 1000)
+      const vencsReceberPromise = supabase
+        .from('erp_receber')
+        .select('id, cliente_nome, descricao, valor, data_vencimento, status')
+        .in('company_id', ids)
+        .eq('status', 'aberto')
+        .gte('data_vencimento', hoje)
+        .lte('data_vencimento', d7s)
+        .order('data_vencimento', { ascending: true })
+        .limit(20)
+
+      const vencsPagarPromise = supabase
+        .from('erp_pagar')
+        .select('id, fornecedor_nome, descricao, valor, data_vencimento, status')
+        .in('company_id', ids)
+        .eq('status', 'aberto')
+        .gte('data_vencimento', hoje)
+        .lte('data_vencimento', d7s)
+        .order('data_vencimento', { ascending: true })
+        .limit(20)
+
+      const recentReceberPromise = supabase
+        .from('erp_receber')
+        .select('id, cliente_nome, descricao, valor, data_vencimento, status, created_at')
+        .in('company_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      const recentPagarPromise = supabase
+        .from('erp_pagar')
+        .select('id, fornecedor_nome, descricao, valor, data_vencimento, status, created_at')
+        .in('company_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
       const [
-        { data: receberAbertos },
-        { data: pagarAbertos },
+        { data: kpisData, error: kpisErr },
         { data: receberVenc },
         { data: pagarVenc },
         { data: receberRecent },
         { data: pagarRecent },
-        { data: bancos },
-        { data: contratos },
-      ] = await Promise.all([
-        // A RECEBER: somatório de status='aberto'
-        supabase
-          .from('erp_receber')
-          .select('valor')
-          .in('company_id', ids)
-          .eq('status', 'aberto'),
-        // A PAGAR: somatório de status='aberto'
-        supabase
-          .from('erp_pagar')
-          .select('valor')
-          .in('company_id', ids)
-          .eq('status', 'aberto'),
-        // Receber - próximos 7 dias
-        supabase
-          .from('erp_receber')
-          .select('id, cliente_nome, descricao, valor, data_vencimento, status')
-          .in('company_id', ids)
-          .eq('status', 'aberto')
-          .gte('data_vencimento', hoje)
-          .lte('data_vencimento', d7s)
-          .order('data_vencimento', { ascending: true })
-          .limit(20),
-        // Pagar - próximos 7 dias
-        supabase
-          .from('erp_pagar')
-          .select('id, fornecedor_nome, descricao, valor, data_vencimento, status')
-          .in('company_id', ids)
-          .eq('status', 'aberto')
-          .gte('data_vencimento', hoje)
-          .lte('data_vencimento', d7s)
-          .order('data_vencimento', { ascending: true })
-          .limit(20),
-        // Atividade recente - últimos receber
-        supabase
-          .from('erp_receber')
-          .select('id, cliente_nome, descricao, valor, data_vencimento, status, created_at')
-          .in('company_id', ids)
-          .order('created_at', { ascending: false })
-          .limit(10),
-        // Atividade recente - últimos pagar
-        supabase
-          .from('erp_pagar')
-          .select('id, fornecedor_nome, descricao, valor, data_vencimento, status, created_at')
-          .in('company_id', ids)
-          .order('created_at', { ascending: false })
-          .limit(10),
-        // Bancos (se tabela existe)
-        supabase
-          .from('erp_banco_contas')
-          .select('saldo_atual')
-          .in('company_id', ids)
-          .eq('ativo', true)
-          .then(r => r, () => ({ data: [] })),
-        // Contratos (se tabela existe)
-        supabase
-          .from('erp_contratos')
-          .select('valor_atual, valor_mensal, periodicidade')
-          .in('company_id', ids)
-          .eq('status', 'ativo')
-          .then(r => r, () => ({ data: [] })),
-      ])
+      ] = await Promise.all([kpisPromise, vencsReceberPromise, vencsPagarPromise, recentReceberPromise, recentPagarPromise])
 
-      const aReceber = (receberAbertos || []).reduce((s: number, x: any) => s + Number(x.valor || 0), 0)
-      const aPagar = (pagarAbertos || []).reduce((s: number, x: any) => s + Number(x.valor || 0), 0)
-      const saldoBancos = (bancos || []).reduce((s: number, x: any) => s + Number(x.saldo_atual || 0), 0)
-      const mrr = (contratos || []).reduce((s: number, x: any) => {
-        const v = Number(x.valor_atual || x.valor_mensal || 0)
-        const mult = x.periodicidade === 'anual' ? 1 / 12
-                   : x.periodicidade === 'semestral' ? 1 / 6
-                   : x.periodicidade === 'trimestral' ? 1 / 3
-                   : x.periodicidade === 'bimestral' ? 1 / 2
-                   : 1
-        return s + v * mult
-      }, 0)
-      setKpis({ aReceber, aPagar, mrr, saldoBancos })
+      if (kpisErr) {
+        console.warn('RPC fn_dashboard_kpis falhou, usando fallback:', kpisErr)
+        // Fallback: caso a RPC não exista ainda, voltamos ao método antigo (com limit=1000, imperfeito mas não quebra)
+        const [receberAb, pagarAb] = await Promise.all([
+          supabase.from('erp_receber').select('valor').in('company_id', ids).eq('status', 'aberto'),
+          supabase.from('erp_pagar').select('valor').in('company_id', ids).eq('status', 'aberto'),
+        ])
+        setKpis({
+          aReceber: (receberAb.data || []).reduce((s: number, x: any) => s + Number(x.valor || 0), 0),
+          aPagar:   (pagarAb.data || []).reduce((s: number, x: any) => s + Number(x.valor || 0), 0),
+          mrr: 0,
+          saldoBancos: 0,
+          aReceberQtd: (receberAb.data || []).length,
+          aPagarQtd: (pagarAb.data || []).length,
+        })
+      } else {
+        const k = kpisData?.[0] || {}
+        setKpis({
+          aReceber: Number(k.a_receber_valor || 0),
+          aPagar: Number(k.a_pagar_valor || 0),
+          mrr: Number(k.mrr_mensal || 0),
+          saldoBancos: Number(k.saldo_bancos || 0),
+          aReceberQtd: Number(k.a_receber_qtd || 0),
+          aPagarQtd: Number(k.a_pagar_qtd || 0),
+        })
+      }
 
       // Próximos vencimentos (unifica receber + pagar, ordena por data)
       const vencsUnified = [
@@ -319,14 +289,14 @@ export default function DashboardHome() {
           label="A Receber"
           value={fmtR(kpis.aReceber)}
           accent="green"
-          desc="Títulos em aberto"
+          desc={`${kpis.aReceberQtd} títulos em aberto`}
           href="/dashboard/contas?tipo=receber"
         />
         <KPICard
           label="A Pagar"
           value={fmtR(kpis.aPagar)}
           accent="red"
-          desc="Títulos em aberto"
+          desc={`${kpis.aPagarQtd} títulos em aberto`}
           href="/dashboard/contas?tipo=pagar"
         />
         <KPICard
@@ -471,7 +441,7 @@ export default function DashboardHome() {
       >
         <div>
           <div style={{ fontSize: 11, color: 'var(--ps-text-d)', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            PS Gestão ERP v12.0
+            PS Gestão ERP v12.1
           </div>
           <div style={{ fontSize: 13, color: 'var(--ps-text-m)', marginTop: 4 }}>
             22 módulos · 3 sistemas com IA · Ciclo completo de comércio, compras e finanças
