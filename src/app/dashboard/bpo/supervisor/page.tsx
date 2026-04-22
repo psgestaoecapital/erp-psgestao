@@ -1,12 +1,7 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
 
 const C = {
   espresso: '#3D2314',
@@ -23,46 +18,46 @@ const C = {
   ok: '#4A7C4A',
   verde: '#4A7C4A',
   vermelho: '#B85042',
-};
+}
 
 type DashboardRow = {
-  empresa: string;
-  company_id: string;
-  total_itens: number;
-  urgentes: number;
-  atrasados: number;
-  hoje: number;
-  sem_operador: number;
-  concluidos_hoje: number;
-};
+  empresa: string
+  company_id: string
+  total_itens: number
+  urgentes: number
+  atrasados: number
+  hoje: number
+  sem_operador: number
+  concluidos_hoje: number
+}
 
 type OperadorStats = {
-  user_id: string;
-  full_name: string;
-  empresas_acesso: number;
-  itens_pendentes: number;
-  itens_atrasados: number;
-  concluidos_hoje: number;
-};
+  user_id: string
+  full_name: string
+  empresas_acesso: number
+  itens_pendentes: number
+  itens_atrasados: number
+  concluidos_hoje: number
+}
 
 export default function SupervisorDashboardPage() {
-  const [rows, setRows] = useState<DashboardRow[]>([]);
-  const [operadores, setOperadores] = useState<OperadorStats[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<DashboardRow[]>([])
+  const [operadores, setOperadores] = useState<OperadorStats[]>([])
+  const [loading, setLoading] = useState(true)
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    setLoading(true);
-    
+    setLoading(true)
+
     const [dashRes, opsRes] = await Promise.all([
       supabase.rpc('fn_supervisor_dashboard'),
       supabase.rpc('fn_operadores_stats'),
-    ]);
-    
-    if (dashRes.data) setRows(dashRes.data);
-    if (opsRes.data) setOperadores(opsRes.data);
-    setLoading(false);
+    ])
+
+    if (dashRes.data) setRows(dashRes.data)
+    if (opsRes.data) setOperadores(opsRes.data)
+    setLoading(false)
   }
 
   const totals = rows.reduce((acc, r) => ({
@@ -72,24 +67,24 @@ export default function SupervisorDashboardPage() {
     hoje: acc.hoje + r.hoje,
     sem_operador: acc.sem_operador + r.sem_operador,
     concluidos: acc.concluidos + r.concluidos_hoje,
-  }), { total: 0, urgentes: 0, atrasados: 0, hoje: 0, sem_operador: 0, concluidos: 0 });
+  }), { total: 0, urgentes: 0, atrasados: 0, hoje: 0, sem_operador: 0, concluidos: 0 })
 
   return (
-    <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', fontFamily: 'Calibri, sans-serif' }}>
+    <div style={{ backgroundColor: C.offwhite, minHeight: 'calc(100vh - 64px)', margin: -24 }}>
       <div style={{ backgroundColor: C.espresso, padding: '24px 32px', color: C.offwhite }}>
-        <div style={{ fontSize: '11px', color: C.douradoClaro, fontWeight: 'bold', letterSpacing: '2px' }}>
+        <div style={{ fontSize: 11, color: C.douradoClaro, fontWeight: 'bold', letterSpacing: 2 }}>
           CENTRAL BPO PS GESTAO
         </div>
-        <h1 style={{ fontSize: '32px', fontFamily: 'Georgia, serif', margin: '4px 0 0 0', fontWeight: 'bold' }}>
+        <h1 style={{ fontSize: 32, fontFamily: 'Georgia, serif', margin: '4px 0 0 0', fontWeight: 'bold' }}>
           Supervisor Dashboard
         </h1>
-        <div style={{ fontSize: '13px', color: C.douradoClaro, marginTop: '4px' }}>
+        <div style={{ fontSize: 13, color: C.douradoClaro, marginTop: 4 }}>
           {rows.length} empresas ativas - {totals.total} itens totais - {totals.concluidos} concluidos hoje
         </div>
       </div>
 
       <div style={{ padding: '24px 32px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px', marginBottom: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
           <BigKpi label="Total" valor={totals.total} cor={C.espresso} />
           <BigKpi label="Atrasados" valor={totals.atrasados} cor={C.atrasado} />
           <BigKpi label="Urgentes" valor={totals.urgentes} cor={C.urgente} />
@@ -98,15 +93,15 @@ export default function SupervisorDashboardPage() {
           <BigKpi label="Concluidos hoje" valor={totals.concluidos} cor={C.ok} />
         </div>
 
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px 24px', marginBottom: '20px' }}>
-          <div style={{ fontSize: '12px', fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '20px 24px', marginBottom: 20, overflowX: 'auto' }}>
+          <div style={{ fontSize: 12, fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>
             Visao por Empresa
           </div>
-          
+
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '30px', color: C.txtMedio }}>Carregando...</div>
+            <div style={{ textAlign: 'center', padding: 30, color: C.txtMedio }}>Carregando...</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${C.border}` }}>
                   <th style={thStyle()}>Empresa</th>
@@ -114,8 +109,8 @@ export default function SupervisorDashboardPage() {
                   <th style={thStyleRight()}>Atraso</th>
                   <th style={thStyleRight()}>Urgente</th>
                   <th style={thStyleRight()}>Hoje</th>
-                  <th style={thStyleRight()}>Sem operador</th>
-                  <th style={thStyleRight()}>OK Hoje</th>
+                  <th style={thStyleRight()}>Sem op.</th>
+                  <th style={thStyleRight()}>Concluidos</th>
                 </tr>
               </thead>
               <tbody>
@@ -146,21 +141,21 @@ export default function SupervisorDashboardPage() {
         </div>
 
         {operadores.length > 0 && (
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px 24px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '20px 24px' }}>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>
               Carga de Trabalho por Operador
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
               {operadores.map(op => (
-                <div key={op.user_id} style={{ padding: '14px', borderRadius: '8px', backgroundColor: C.offwhite, borderLeft: `4px solid ${op.itens_atrasados > 0 ? C.atrasado : C.verde}` }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: C.txt }}>{op.full_name}</div>
-                  <div style={{ fontSize: '11px', color: C.txtClaro, marginTop: '2px' }}>
+                <div key={op.user_id} style={{ padding: 14, borderRadius: 8, backgroundColor: C.offwhite, borderLeft: `4px solid ${op.itens_atrasados > 0 ? C.atrasado : C.verde}` }}>
+                  <div style={{ fontSize: 14, fontWeight: 'bold', color: C.txt }}>{op.full_name}</div>
+                  <div style={{ fontSize: 11, color: C.txtClaro, marginTop: 2 }}>
                     {op.empresas_acesso} empresas atribuidas
                   </div>
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
                     <SmallStat label="Pendentes" val={op.itens_pendentes} cor={C.dourado} />
                     <SmallStat label="Atrasados" val={op.itens_atrasados} cor={op.itens_atrasados > 0 ? C.atrasado : C.txtClaro} />
-                    <SmallStat label="Hoje OK" val={op.concluidos_hoje} cor={C.ok} />
+                    <SmallStat label="Concluidos" val={op.concluidos_hoje} cor={C.ok} />
                   </div>
                 </div>
               ))}
@@ -169,32 +164,28 @@ export default function SupervisorDashboardPage() {
         )}
       </div>
     </div>
-  );
+  )
 }
 
 function BigKpi({ label, valor, cor }: { label: string; valor: number; cor: string }) {
   return (
-    <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px', borderLeft: `4px solid ${cor}` }}>
-      <div style={{ fontSize: '11px', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>
-        {label}
-      </div>
-      <div style={{ fontSize: '32px', fontFamily: 'Georgia, serif', fontWeight: 'bold', color: cor, marginTop: '4px' }}>
-        {valor}
-      </div>
+    <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '16px 20px', borderLeft: `4px solid ${cor}` }}>
+      <div style={{ fontSize: 11, color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>{label}</div>
+      <div style={{ fontSize: 32, fontFamily: 'Georgia, serif', fontWeight: 'bold', color: cor, marginTop: 4 }}>{valor}</div>
     </div>
-  );
+  )
 }
 
 function SmallStat({ label, val, cor }: { label: string; val: number; cor: string }) {
   return (
     <div style={{ textAlign: 'center', flex: 1 }}>
-      <div style={{ fontSize: '18px', fontWeight: 'bold', color: cor, fontFamily: 'Georgia, serif' }}>{val}</div>
-      <div style={{ fontSize: '9px', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 'bold', color: cor, fontFamily: 'Georgia, serif' }}>{val}</div>
+      <div style={{ fontSize: 9, color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
     </div>
-  );
+  )
 }
 
-function thStyle() { return { textAlign: 'left' as const, padding: '10px 8px', fontSize: '11px', color: C.txtMedio, fontWeight: 'bold' as const, textTransform: 'uppercase' as const, letterSpacing: '1px' }; }
-function thStyleRight() { return { ...thStyle(), textAlign: 'right' as const }; }
-function tdStyle() { return { padding: '10px 8px', fontSize: '13px', color: C.txt }; }
-function tdStyleRight() { return { ...tdStyle(), textAlign: 'right' as const }; }
+function thStyle(): React.CSSProperties { return { textAlign: 'left', padding: '10px 8px', fontSize: 11, color: C.txtMedio, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 } }
+function thStyleRight(): React.CSSProperties { return { ...thStyle(), textAlign: 'right' } }
+function tdStyle(): React.CSSProperties { return { padding: '10px 8px', fontSize: 13, color: C.txt } }
+function tdStyleRight(): React.CSSProperties { return { ...tdStyle(), textAlign: 'right' } }
