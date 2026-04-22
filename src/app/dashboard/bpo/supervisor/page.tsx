@@ -21,6 +21,8 @@ const C = {
   urgente: '#D97706',
   hoje: '#FBBF24',
   ok: '#4A7C4A',
+  verde: '#4A7C4A',
+  vermelho: '#B85042',
 };
 
 type DashboardRow = {
@@ -76,17 +78,16 @@ export default function SupervisorDashboardPage() {
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', fontFamily: 'Calibri, sans-serif' }}>
       <div style={{ backgroundColor: C.espresso, padding: '24px 32px', color: C.offwhite }}>
         <div style={{ fontSize: '11px', color: C.douradoClaro, fontWeight: 'bold', letterSpacing: '2px' }}>
-          CENTRAL BPO PS GESTÃO
+          CENTRAL BPO PS GESTAO
         </div>
         <h1 style={{ fontSize: '32px', fontFamily: 'Georgia, serif', margin: '4px 0 0 0', fontWeight: 'bold' }}>
           Supervisor Dashboard
         </h1>
         <div style={{ fontSize: '13px', color: C.douradoClaro, marginTop: '4px' }}>
-          {rows.length} empresas ativas · {totals.total} itens totais · {totals.concluidos} concluídos hoje
+          {rows.length} empresas ativas - {totals.total} itens totais - {totals.concluidos} concluidos hoje
         </div>
       </div>
 
-      {/* KPIs GERAIS */}
       <div style={{ padding: '24px 32px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px', marginBottom: '24px' }}>
           <BigKpi label="Total" valor={totals.total} cor={C.espresso} />
@@ -94,13 +95,12 @@ export default function SupervisorDashboardPage() {
           <BigKpi label="Urgentes" valor={totals.urgentes} cor={C.urgente} />
           <BigKpi label="Hoje" valor={totals.hoje} cor={C.hoje} />
           <BigKpi label="Sem operador" valor={totals.sem_operador} cor={C.txtMedio} />
-          <BigKpi label="Concluídos hoje" valor={totals.concluidos} cor={C.ok} />
+          <BigKpi label="Concluidos hoje" valor={totals.concluidos} cor={C.ok} />
         </div>
 
-        {/* TABELA POR EMPRESA */}
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px 24px', marginBottom: '20px' }}>
           <div style={{ fontSize: '12px', fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>
-            Visão por Empresa
+            Visao por Empresa
           </div>
           
           {loading ? (
@@ -111,11 +111,11 @@ export default function SupervisorDashboardPage() {
                 <tr style={{ borderBottom: `2px solid ${C.border}` }}>
                   <th style={thStyle()}>Empresa</th>
                   <th style={thStyleRight()}>Total</th>
-                  <th style={thStyleRight()}>🔴 Atraso</th>
-                  <th style={thStyleRight()}>🟠 Urgente</th>
-                  <th style={thStyleRight()}>🟡 Hoje</th>
+                  <th style={thStyleRight()}>Atraso</th>
+                  <th style={thStyleRight()}>Urgente</th>
+                  <th style={thStyleRight()}>Hoje</th>
                   <th style={thStyleRight()}>Sem operador</th>
-                  <th style={thStyleRight()}>✓ Hoje</th>
+                  <th style={thStyleRight()}>OK Hoje</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,7 +145,6 @@ export default function SupervisorDashboardPage() {
           )}
         </div>
 
-        {/* PAINEL DE OPERADORES */}
         {operadores.length > 0 && (
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px 24px' }}>
             <div style={{ fontSize: '12px', fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>
@@ -156,12 +155,12 @@ export default function SupervisorDashboardPage() {
                 <div key={op.user_id} style={{ padding: '14px', borderRadius: '8px', backgroundColor: C.offwhite, borderLeft: `4px solid ${op.itens_atrasados > 0 ? C.atrasado : C.verde}` }}>
                   <div style={{ fontSize: '14px', fontWeight: 'bold', color: C.txt }}>{op.full_name}</div>
                   <div style={{ fontSize: '11px', color: C.txtClaro, marginTop: '2px' }}>
-                    {op.empresas_acesso} empresas atribuídas
+                    {op.empresas_acesso} empresas atribuidas
                   </div>
                   <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
                     <SmallStat label="Pendentes" val={op.itens_pendentes} cor={C.dourado} />
                     <SmallStat label="Atrasados" val={op.itens_atrasados} cor={op.itens_atrasados > 0 ? C.atrasado : C.txtClaro} />
-                    <SmallStat label="Hoje ✓" val={op.concluidos_hoje} cor={C.ok} />
+                    <SmallStat label="Hoje OK" val={op.concluidos_hoje} cor={C.ok} />
                   </div>
                 </div>
               ))}
