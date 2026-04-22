@@ -181,8 +181,13 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
   ],
   bpo: [
-    { label: 'BPO', items: [
+    { label: 'CENTRAL DE OPERAÇÕES', items: [
       { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase />, badge: 'BPO' },
+      { href: '/dashboard/bpo/inbox', label: 'Inbox do Operador', icon: <Icon.ClipboardList />, badge: 'NOVO' },
+      { href: '/dashboard/bpo/rotinas', label: 'Rotinas', icon: <Icon.Calendar /> },
+      { href: '/dashboard/bpo/automacao', label: 'Automações', icon: <Icon.Bot />, badge: 'IA' },
+      { href: '/dashboard/bpo/conciliacao', label: 'Conciliações', icon: <Icon.Landmark /> },
+      { href: '/dashboard/bpo/supervisor', label: 'Supervisor', icon: <Icon.Eye /> },
     ]},
     { label: 'CLIENTES BPO', items: [
       { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
@@ -191,20 +196,18 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
     { label: 'OPERAÇÃO FINANCEIRA', items: [
       { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
-      { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
-      { href: '/dashboard/conciliacao', label: 'Conciliação OFX', icon: <Icon.Landmark /> },
-      { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
+      { href: '/dashboard/contas', label: 'Contas a Pagar/Receber', icon: <Icon.Wallet /> },
+      { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.Calculator /> },
       { href: '/dashboard/noc', label: 'NOC', icon: <Icon.Monitor /> },
     ]},
-    { label: 'INTELIGÊNCIA', items: [
-      { href: '/dashboard/score', label: 'Score IA', icon: <Icon.TrendingDown />, badge: 'IA' },
-      { href: '/dashboard/previsao', label: 'Previsão IA', icon: <Icon.TrendingUp />, badge: 'IA' },
+    { label: 'INTELIGÊNCIA IA', items: [
       { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
+      { href: '/dashboard/score', label: 'Score Inadimplência', icon: <Icon.TrendingDown />, badge: 'IA' },
+      { href: '/dashboard/previsao', label: 'Previsão de Caixa', icon: <Icon.TrendingUp />, badge: 'IA' },
       { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
     ]},
-    { label: 'SERVIÇOS', items: [
-      { href: '/dashboard/contador', label: 'Contador', icon: <Icon.Calculator /> },
-      { href: '/dashboard/assessor', label: 'PS Assessor', icon: <Icon.Briefcase /> },
+    { label: 'ADMINISTRAÇÃO BPO', items: [
+      { href: '/admin/operadores', label: 'Operadores & Atribuições', icon: <Icon.Users />, badge: 'ADM' },
     ]},
   ],
   wealth: [
