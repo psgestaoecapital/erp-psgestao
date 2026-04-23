@@ -207,7 +207,10 @@ export async function reconcileCompany(
       error: `select company_data_sources: ${error.message}`,
     }
   }
-  const lista = (vinculos as Vinculo[] | null) ?? []
+  // Cast via `unknown` porque o tipo inferido de `data` em selects com
+  // embed (data_sources!inner(...)) inclui GenericStringError[] na union.
+  // Já tratamos o `error` acima — aqui sabemos que é Vinculo[] | null.
+  const lista = (vinculos as unknown as Vinculo[] | null) ?? []
   if (lista.length === 0) {
     return {
       company_id: companyId,
