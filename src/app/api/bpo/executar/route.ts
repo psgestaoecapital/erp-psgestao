@@ -216,8 +216,38 @@ export async function POST(req: Request) {
     // ═══════════════════════════════════════════════════════
     // SAVE & RETURN
     // ═══════════════════════════════════════════════════════
+    // Persiste todos os alertas em bpo_alertas (batch). O trigger
+    // fn_alerta_to_inbox cria o item correspondente em bpo_inbox_items
+    // automaticamente a cada INSERT.
+    let alertasInseridos = 0;
+    const errosInsert: string[] = [];
     if (alertas.length > 0 && execId) {
-      for (const a of alertas.slice(0, 30)) { await supabase.from("bpo_alertas").insert({ company_id, execucao_id: execId, ...a }); }
+      const rows = alertas.map((a) => ({
+        company_id,
+        execucao_id: execId,
+        tipo: a.tipo,
+        severidade: a.severidade,
+        titulo: a.titulo,
+        descricao: a.descricao,
+        acao_sugerida: a.acao_sugerida,
+        status: "pendente",
+      }));
+      for (let i = 0; i < rows.length; i += 100) {
+        const lote = rows.slice(i, i + 100);
+        const { error } = await supabase.from("bpo_alertas").insert(lote);
+        if (error) {
+          console.error("[BPO-EXECUTAR] insert bpo_alertas falhou:", error.message);
+          errosInsert.push(error.message);
+          // Fallback registro-a-registro pra não perder o lote inteiro.
+          for (const r of lote) {
+            const { error: e } = await supabase.from("bpo_alertas").insert(r);
+            if (e) errosInsert.push(`${r.tipo}/${r.titulo}: ${e.message}`);
+            else alertasInseridos++;
+          }
+        } else {
+          alertasInseridos += lote.length;
+        }
+      }
     }
 
     const duracao = Date.now() - startTime;
@@ -230,6 +260,8 @@ export async function POST(req: Request) {
       success: true,
       duracao_ms: duracao,
       alertas_gerados: alertas.length,
+      alertas_inseridos: alertasInseridos,
+      erros_insert: errosInsert.slice(0, 5),
       alertas: alertas.slice(0, 20),
       resumo_ia: resumoIA,
       resultados,
