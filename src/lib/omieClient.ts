@@ -27,6 +27,8 @@ const ENDPOINTS: Record<string, string> = {
   // Contas
   'ListarContasPagar': 'financas/contapagar/',
   'ListarContasReceber': 'financas/contareceber/',
+  // Categorias / Plano de Contas
+  'ListarCategorias': 'geral/categorias/',
   // Movimento
   'ListarEstoque': 'estoque/consulta/',
 }
