@@ -1,17 +1,18 @@
-// PS Gestão ERP — Endpoint genérico de reconciliação.
-// POST /api/connectors/reconcile
-// Body: { company_id: string, source_slug?: string }
+// PS Gestão ERP — Endpoint de reconciliação de conectores.
 //
-// Para cada vínculo ativo em company_data_sources (filtrado por slug se
-// fornecido), cria um run em data_source_runs, instancia o Connector via
-// registry e chama reconcileModule() pra cada módulo ativo. Atualiza
-// company_data_sources com paridade_status/paridade_detalhes e o run com
-// resultado/status.
+// POST /api/connectors/reconcile
+//   Body: { company_id: string, source_slug?: string }
+//   Executa reconciliação síncrona (módulos em SÉRIE, não paralelo).
+//   Gera bpo_alertas em divergências e detecta órfãos em clientes/pagar/receber.
+//
+// GET  /api/connectors/reconcile?company_id=X[&source_slug=Y]
+//   Lê apenas paridade_status / paridade_detalhes / ultima_reconciliacao_em
+//   de company_data_sources. Não dispara nenhuma chamada externa.
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getConnector } from '@/lib/connectors/base'
-// Side-effect: garante que os adapters estão registrados antes de getConnector.
+import { reconcileCompany, pegarSlug } from '@/lib/connectors/reconciler'
+// Side-effect: registra os adapters no registry.
 import '@/lib/connectors/registry'
 
 export const maxDuration = 300
@@ -21,25 +22,21 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-type Vinculo = {
-  id: string
-  modules_ativos: string[] | null
-  credentials_encrypted: Record<string, any> | null
-  data_sources: { slug: string; nome: string } | { slug: string; nome: string }[] | null
+function baseUrlFromRequest(req: Request): string {
+  const proto = req.headers.get('x-forwarded-proto') || 'https'
+  const host = req.headers.get('host') || 'localhost:3000'
+  return `${proto}://${host}`
 }
 
-function pegarSlug(v: Vinculo): string | null {
-  const ds = v.data_sources
-  if (!ds) return null
-  if (Array.isArray(ds)) return ds[0]?.slug ?? null
-  return ds.slug ?? null
-}
-
+// ─── POST — executa reconciliação ─────────────────────────────────────
 export async function POST(req: Request) {
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
-    const { company_id, source_slug } = body as { company_id?: string; source_slug?: string }
+    const { company_id, source_slug } = body as {
+      company_id?: string
+      source_slug?: string
+    }
     if (!company_id) {
       return NextResponse.json(
         { ok: false, error: 'company_id obrigatório' },
@@ -47,155 +44,79 @@ export async function POST(req: Request) {
       )
     }
 
-    let q = supabase
-      .from('company_data_sources')
-      .select('id, modules_ativos, credentials_encrypted, data_sources!inner(slug, nome)')
-      .eq('company_id', company_id)
-      .eq('ativo', true)
-    if (source_slug) {
-      q = q.eq('data_sources.slug', source_slug)
-    }
-    const { data: vinculos, error } = await q
-    if (error) throw new Error(`select company_data_sources: ${error.message}`)
-    const lista = (vinculos as Vinculo[] | null) ?? []
-    if (lista.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        reports: [],
-        paridade_geral: 'ok',
-        duracao_ms: Date.now() - inicio,
-        message: 'nenhum conector ativo encontrado para esta empresa',
-      })
-    }
-
-    // Origem da chamada para o fetch interno dentro de syncModule (sprint 2).
-    const proto = req.headers.get('x-forwarded-proto') || 'https'
-    const host = req.headers.get('host') || 'localhost:3000'
-    const baseUrl = `${proto}://${host}`
-
-    const reports: any[] = []
-    let paridadeGeral: 'ok' | 'divergencia' = 'ok'
-
-    for (const v of lista) {
-      const slug = pegarSlug(v)
-      const modules = v.modules_ativos ?? []
-      if (!slug || modules.length === 0) {
-        reports.push({
-          slug,
-          paridade_status: 'pulado',
-          motivo: !slug ? 'sem data_source vinculado' : 'modules_ativos vazio',
-        })
-        continue
-      }
-
-      const inicioRun = Date.now()
-      const { data: run } = await supabase
-        .from('data_source_runs')
-        .insert({
-          company_data_source_id: v.id,
-          company_id,
-          data_source_slug: slug,
-          tipo: 'reconcile',
-          status: 'executando',
-          trigger_type: 'manual',
-        })
-        .select('id')
-        .single()
-      const runId = (run as any)?.id ?? null
-
-      const connector = getConnector(slug, {
-        companyId: company_id,
-        companyDataSourceId: v.id,
-        credentials: v.credentials_encrypted ?? {},
-        supabase,
-        baseUrl,
-      })
-      if (!connector) {
-        const msg = `connector '${slug}' não registrado`
-        if (runId) {
-          await supabase
-            .from('data_source_runs')
-            .update({
-              status: 'erro',
-              erro_mensagem: msg,
-              finalizado_em: new Date().toISOString(),
-              duracao_ms: Date.now() - inicioRun,
-            })
-            .eq('id', runId)
-        }
-        reports.push({ slug, paridade_status: 'erro', motivo: msg })
-        paridadeGeral = 'divergencia'
-        continue
-      }
-
-      const reportsModulo: any[] = []
-      let erroFatal: string | null = null
-
-      for (const m of modules) {
-        try {
-          const r = await connector.reconcileModule(m)
-          reportsModulo.push(r)
-          if (!r.ok) paridadeGeral = 'divergencia'
-        } catch (e: any) {
-          reportsModulo.push({
-            module: m,
-            ok: false,
-            source_count: -1,
-            erp_count: -1,
-            details: e.message,
-          })
-          erroFatal = e.message
-          paridadeGeral = 'divergencia'
-        }
-      }
-
-      const paridadeStatus = reportsModulo.every((r) => r.ok) ? 'ok' : 'divergencia'
-
-      await supabase
-        .from('company_data_sources')
-        .update({
-          ultima_reconciliacao_em: new Date().toISOString(),
-          paridade_status: paridadeStatus,
-          paridade_detalhes: reportsModulo,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', v.id)
-
-      if (runId) {
-        await supabase
-          .from('data_source_runs')
-          .update({
-            status: erroFatal ? 'erro' : 'sucesso',
-            finalizado_em: new Date().toISOString(),
-            duracao_ms: Date.now() - inicioRun,
-            resultado: reportsModulo,
-            erro_mensagem: erroFatal,
-          })
-          .eq('id', runId)
-      }
-
-      reports.push({
-        slug,
-        paridade_status: paridadeStatus,
-        run_id: runId,
-        modulos: reportsModulo,
-      })
-    }
+    const baseUrl = baseUrlFromRequest(req)
+    const result = await reconcileCompany(company_id, source_slug ?? null, supabase, baseUrl)
 
     return NextResponse.json({
-      ok: true,
-      reports,
-      paridade_geral: paridadeGeral,
-      duracao_ms: Date.now() - inicio,
+      ok: result.ok,
+      reports: result.reports,
+      paridade_geral: result.paridade_geral,
+      duracao_ms: result.duracao_ms,
+      error: result.error,
     })
   } catch (e: any) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: e.message,
-        duracao_ms: Date.now() - inicio,
-      },
+      { ok: false, error: e.message, duracao_ms: Date.now() - inicio },
       { status: 500 }
     )
+  }
+}
+
+// ─── GET — só leitura do último status conhecido ──────────────────────
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url)
+    const companyId = url.searchParams.get('company_id')
+    const sourceSlug = url.searchParams.get('source_slug')
+    if (!companyId) {
+      return NextResponse.json(
+        { ok: false, error: 'company_id obrigatório (?company_id=...)' },
+        { status: 400 }
+      )
+    }
+
+    let q = supabase
+      .from('company_data_sources')
+      .select(
+        'id, modules_ativos, paridade_status, paridade_detalhes, ultima_reconciliacao_em, ' +
+          'ultimo_sync_em, ultimo_sync_status, data_sources!inner(slug, nome)'
+      )
+      .eq('company_id', companyId)
+      .eq('ativo', true)
+    if (sourceSlug) q = q.eq('data_sources.slug', sourceSlug)
+
+    const { data, error } = await q
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: `select company_data_sources: ${error.message}` },
+        { status: 500 }
+      )
+    }
+
+    const lista = (data as any[] | null) ?? []
+    const reports = lista.map((v: any) => ({
+      slug: pegarSlug(v),
+      modules_ativos: v.modules_ativos ?? [],
+      paridade_status: v.paridade_status ?? 'desconhecido',
+      ultima_reconciliacao_em: v.ultima_reconciliacao_em,
+      ultimo_sync_em: v.ultimo_sync_em,
+      ultimo_sync_status: v.ultimo_sync_status,
+      paridade_detalhes: v.paridade_detalhes,
+    }))
+
+    const paridadeGeral = reports.every(
+      (r) => r.paridade_status === 'ok' || r.paridade_status === 'desconhecido'
+    )
+      ? 'ok'
+      : 'divergencia'
+
+    return NextResponse.json({
+      ok: true,
+      company_id: companyId,
+      paridade_geral: paridadeGeral,
+      reports,
+    })
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 })
   }
 }
