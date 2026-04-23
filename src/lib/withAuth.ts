@@ -4,7 +4,8 @@ import type { NextRequest } from 'next/server'
 
 type AuthedHandler = (
   req: NextRequest,
-  context: { userId: string; userEmail?: string }
+  context: { userId: string; userEmail?: string },
+  routeCtx?: any
 ) => Promise<NextResponse | Response>
 
 /**
@@ -17,9 +18,13 @@ type AuthedHandler = (
  *   export const GET = withAuth(async (req, { userId }) => {
  *     return NextResponse.json({ userId })
  *   })
+ *
+ * Rotas dinâmicas ([id], [slug], ...) recebem o 3º argumento `routeCtx`,
+ * que é o objeto do Next contendo `params: Promise<{...}>`. Handlers
+ * antigos com 2 argumentos continuam funcionando — o 3º é opcional.
  */
 export function withAuth(handler: AuthedHandler) {
-  return async (req: NextRequest, _context: any) => {
+  return async (req: NextRequest, routeCtx: any) => {
     const authHeader = req.headers.get('authorization')
     const token = authHeader?.replace('Bearer ', '').trim()
 
@@ -44,6 +49,6 @@ export function withAuth(handler: AuthedHandler) {
       )
     }
 
-    return handler(req, { userId: user.id, userEmail: user.email })
+    return handler(req, { userId: user.id, userEmail: user.email }, routeCtx)
   }
 }
