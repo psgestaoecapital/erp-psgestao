@@ -1,6 +1,6 @@
 // src/app/api/omie/promote/route.ts
 // PS Gestão ERP — Promove dados brutos de omie_imports para as tabelas ERP
-// operacionais (erp_clientes, erp_pagar, erp_receber). Upsert por
+// operacionais (erp_clientes, erp_pagar, erp_receber). Upsert em lote por
 // ref_externa_id (código Omie).
 //
 // POST /api/omie/promote
@@ -18,6 +18,10 @@ const supabase = createClient(
 
 const IMPORT_TYPES_PADRAO = ['clientes', 'contas_pagar', 'contas_receber'] as const
 type ImportType = typeof IMPORT_TYPES_PADRAO[number]
+
+const BATCH_SIZE = 100       // linhas por insert/upsert
+const FETCH_PAGE = 1000      // linhas por página no SELECT inicial
+const ON_CONFLICT = 'company_id,ref_externa_sistema,ref_externa_id'
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 function parseOmieDate(val: any): string | null {
@@ -46,10 +50,6 @@ function mapStatusTitulo(status: any): string {
   return 'aberto'
 }
 
-// omie_imports.import_data guarda o payload bruto da Omie — o array de
-// registros fica numa chave específica (clientes_cadastro,
-// conta_pagar_cadastro, conta_receber_cadastro). Pegamos o primeiro array
-// encontrado pra ser tolerante a variações (Nibo/ContaAzul com fonte=...).
 function extrairRegistros(importData: any): any[] {
   if (!importData || typeof importData !== 'object') return []
   for (const k of Object.keys(importData)) {
@@ -59,9 +59,6 @@ function extrairRegistros(importData: any): any[] {
 }
 
 // ─── Mapeamentos Omie → ERP ────────────────────────────────────────────
-// Espelha o mapeamento de /api/sync/omie/clientes/route.ts pra manter
-// consistência entre a rota que sincroniza da API Omie e esta que promove
-// a partir do snapshot salvo em omie_imports.
 function mapCliente(omie: any, companyId: string) {
   return {
     company_id: companyId,
@@ -117,7 +114,7 @@ function mapTituloFinanceiro(r: any, companyId: string) {
   }
 }
 
-// ─── Promoção por tipo ─────────────────────────────────────────────────
+// ─── Acesso a dados em lote ────────────────────────────────────────────
 async function carregarImport(companyId: string, importType: string) {
   const { data } = await supabase
     .from('omie_imports')
@@ -130,36 +127,104 @@ async function carregarImport(companyId: string, importType: string) {
   return extrairRegistros(data?.import_data)
 }
 
-async function promoverClientes(companyId: string, errors: string[]): Promise<number> {
-  const registros = await carregarImport(companyId, 'clientes')
-  let processed = 0
+// Carrega todos os registros de uma tabela ERP que já têm ref_externa_id
+// Omie e retorna um Map<ref_externa_id, id>. Usado para:
+//   (1) detectar "novos vs existentes" antes do upsert
+//   (2) resolver FK cliente_id / fornecedor_id nos títulos financeiros
+async function carregarMapaRefExterna(
+  companyId: string,
+  tabela: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from(tabela)
+      .select('id, ref_externa_id')
+      .eq('company_id', companyId)
+      .eq('ref_externa_sistema', 'OMIE')
+      .not('ref_externa_id', 'is', null)
+      .range(from, from + FETCH_PAGE - 1)
+    if (error) throw new Error(`select ${tabela}: ${error.message}`)
+    if (!data || data.length === 0) break
+    for (const row of data) {
+      if (row.ref_externa_id) map.set(String(row.ref_externa_id), row.id as string)
+    }
+    if (data.length < FETCH_PAGE) break
+    from += FETCH_PAGE
+  }
+  return map
+}
 
-  for (const omie of registros) {
-    try {
-      const dados = mapCliente(omie, companyId)
-      if (!dados.razao_social || !dados.ref_externa_id) continue
+// Batch INSERT: tenta em lotes de BATCH_SIZE; se um lote falhar, cai pra
+// inserção individual só dos registros daquele lote pra não perder tudo.
+async function batchInsert(
+  tabela: string,
+  rows: any[],
+  errors: string[]
+): Promise<number> {
+  if (rows.length === 0) return 0
+  let ok = 0
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const lote = rows.slice(i, i + BATCH_SIZE)
+    const { error } = await supabase.from(tabela).insert(lote)
+    if (!error) { ok += lote.length; continue }
 
-      const { data: existing } = await supabase
-        .from('erp_clientes')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('ref_externa_sistema', 'OMIE')
-        .eq('ref_externa_id', dados.ref_externa_id)
-        .maybeSingle()
-
-      if (existing) {
-        const { error } = await supabase.from('erp_clientes').update(dados).eq('id', existing.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('erp_clientes').insert(dados)
-        if (error) throw error
-      }
-      processed++
-    } catch (err: any) {
-      errors.push(`clientes[${omie?.codigo_cliente_omie ?? '?'}]: ${err.message}`)
+    for (const r of lote) {
+      const { error: e } = await supabase.from(tabela).insert(r)
+      if (e) errors.push(`${tabela} insert[${r.ref_externa_id}]: ${e.message}`)
+      else ok++
     }
   }
-  return processed
+  return ok
+}
+
+// Batch UPSERT (UPDATE via ON CONFLICT) — usado para registros já existentes.
+// Depende do UNIQUE INDEX em (company_id, ref_externa_sistema, ref_externa_id).
+async function batchUpsert(
+  tabela: string,
+  rows: any[],
+  errors: string[]
+): Promise<number> {
+  if (rows.length === 0) return 0
+  let ok = 0
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const lote = rows.slice(i, i + BATCH_SIZE)
+    const { error } = await supabase
+      .from(tabela)
+      .upsert(lote, { onConflict: ON_CONFLICT })
+    if (!error) { ok += lote.length; continue }
+
+    for (const r of lote) {
+      const { error: e } = await supabase
+        .from(tabela)
+        .upsert(r, { onConflict: ON_CONFLICT })
+      if (e) errors.push(`${tabela} upsert[${r.ref_externa_id}]: ${e.message}`)
+      else ok++
+    }
+  }
+  return ok
+}
+
+// ─── Promoção por tipo ─────────────────────────────────────────────────
+async function promoverClientes(companyId: string, errors: string[]): Promise<number> {
+  const registros = await carregarImport(companyId, 'clientes')
+  if (registros.length === 0) return 0
+
+  const existentesMap = await carregarMapaRefExterna(companyId, 'erp_clientes')
+
+  const novos: any[] = []
+  const existentes: any[] = []
+  for (const omie of registros) {
+    const dados = mapCliente(omie, companyId)
+    if (!dados.razao_social || !dados.ref_externa_id) continue
+    if (existentesMap.has(dados.ref_externa_id)) existentes.push(dados)
+    else novos.push(dados)
+  }
+
+  const ins = await batchInsert('erp_clientes', novos, errors)
+  const upd = await batchUpsert('erp_clientes', existentes, errors)
+  return ins + upd
 }
 
 async function promoverTitulos(
@@ -173,60 +238,37 @@ async function promoverTitulos(
   const campoVinculoNome = importType === 'contas_pagar' ? 'fornecedor_nome' : 'cliente_nome'
 
   const registros = await carregarImport(companyId, importType)
-  let processed = 0
+  if (registros.length === 0) return 0
 
-  // Cache de lookup cliente/fornecedor → id (evita N queries no loop).
-  const vinculoCache = new Map<string, string | null>()
-  const resolverVinculo = async (refId: string): Promise<string | null> => {
-    if (!refId) return null
-    if (vinculoCache.has(refId)) return vinculoCache.get(refId) ?? null
-    const { data } = await supabase
-      .from(tabelaVinculo)
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('ref_externa_sistema', 'OMIE')
-      .eq('ref_externa_id', refId)
-      .maybeSingle()
-    const id = data?.id ?? null
-    vinculoCache.set(refId, id)
-    return id
-  }
+  // Dois selects em paralelo: títulos já existentes + mapa de vínculo (FK).
+  const [existentesMap, vinculoMap] = await Promise.all([
+    carregarMapaRefExterna(companyId, tabela),
+    carregarMapaRefExterna(companyId, tabelaVinculo),
+  ])
 
+  const novos: any[] = []
+  const existentes: any[] = []
   for (const r of registros) {
-    try {
-      const dados: Record<string, any> = mapTituloFinanceiro(r, companyId)
-      if (!dados.ref_externa_id) continue
+    const dados: Record<string, any> = mapTituloFinanceiro(r, companyId)
+    if (!dados.ref_externa_id) continue
 
-      const vinculoRefId = String(r.codigo_cliente_fornecedor || r.codigo_cliente || '')
-      const vinculoId = await resolverVinculo(vinculoRefId)
-      if (vinculoId) dados[campoVinculoId] = vinculoId
-      dados[campoVinculoNome] = r.nome_cliente || r.nome_fornecedor || ''
+    const vinculoRefId = String(r.codigo_cliente_fornecedor || r.codigo_cliente || '')
+    const vinculoId = vinculoRefId ? vinculoMap.get(vinculoRefId) : undefined
+    if (vinculoId) dados[campoVinculoId] = vinculoId
+    dados[campoVinculoNome] = r.nome_cliente || r.nome_fornecedor || ''
 
-      const { data: existing } = await supabase
-        .from(tabela)
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('ref_externa_sistema', 'OMIE')
-        .eq('ref_externa_id', dados.ref_externa_id)
-        .maybeSingle()
-
-      if (existing) {
-        const { error } = await supabase.from(tabela).update(dados).eq('id', existing.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from(tabela).insert(dados)
-        if (error) throw error
-      }
-      processed++
-    } catch (err: any) {
-      errors.push(`${importType}[${r?.codigo_lancamento_omie ?? '?'}]: ${err.message}`)
-    }
+    if (existentesMap.has(dados.ref_externa_id)) existentes.push(dados)
+    else novos.push(dados)
   }
-  return processed
+
+  const ins = await batchInsert(tabela, novos, errors)
+  const upd = await batchUpsert(tabela, existentes, errors)
+  return ins + upd
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
     const { company_id, import_types } = body as {
@@ -259,10 +301,21 @@ export async function POST(req: Request) {
       processed.receber = await promoverTitulos(company_id, 'contas_receber', errors)
     }
 
-    return NextResponse.json({ ok: true, processed, errors })
+    return NextResponse.json({
+      ok: true,
+      processed,
+      errors,
+      duracao_ms: Date.now() - inicio,
+    })
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err.message, processed: { clientes: 0, pagar: 0, receber: 0 }, errors: [err.message] },
+      {
+        ok: false,
+        error: err.message,
+        processed: { clientes: 0, pagar: 0, receber: 0 },
+        errors: [err.message],
+        duracao_ms: Date.now() - inicio,
+      },
       { status: 500 }
     )
   }
