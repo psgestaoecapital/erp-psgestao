@@ -44,6 +44,10 @@ export interface Connector {
   syncModule(module: string, since?: string): Promise<SyncReport>
   reconcileModule(module: string): Promise<ReconcileReport>
   fetchRaw(module: string, params?: Record<string, any>): Promise<any>
+  // Opcional: retorna os N identificadores mais recentes da fonte externa
+  // para o módulo dado (usado para detecção de órfãos na reconciliação).
+  // Implementar apenas nos módulos onde faz sentido; caller checa existência.
+  listSourceIds?(module: string, limit?: number): Promise<string[]>
 }
 
 export type ConnectorFactory = (ctx: ConnectorContext) => Connector
