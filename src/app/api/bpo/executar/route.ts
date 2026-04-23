@@ -221,6 +221,16 @@ export async function POST(req: Request) {
     // automaticamente a cada INSERT.
     let alertasInseridos = 0;
     const errosInsert: string[] = [];
+    const debugLog: any = {
+      company_id,
+      execId,
+      alertas_total: alertas.length,
+      supa_url: supabaseUrl,
+      service_key_len: (process.env.SUPABASE_SERVICE_ROLE_KEY || "").length,
+      anon_key_len: (process.env.SUPABASE_ANON_KEY || "").length,
+    };
+    console.error("[BPO_ALERTAS] pre-insert", JSON.stringify(debugLog));
+
     if (alertas.length > 0 && execId) {
       const rows = alertas.map((a) => ({
         company_id,
@@ -232,22 +242,61 @@ export async function POST(req: Request) {
         acao_sugerida: a.acao_sugerida,
         status: "pendente",
       }));
+
+      console.error(
+        "[BPO_ALERTAS] rows a inserir:",
+        JSON.stringify({ count: rows.length, first: rows[0], last: rows[rows.length - 1] })
+      );
+
       for (let i = 0; i < rows.length; i += 100) {
         const lote = rows.slice(i, i + 100);
-        const { error } = await supabase.from("bpo_alertas").insert(lote);
-        if (error) {
-          console.error("[BPO-EXECUTAR] insert bpo_alertas falhou:", error.message);
-          errosInsert.push(error.message);
+        const res = await supabase
+          .from("bpo_alertas")
+          .insert(lote)
+          .select("id"); // retorna os IDs realmente persistidos
+        console.error(
+          "[BPO_ALERTAS] batch",
+          i,
+          JSON.stringify({
+            enviados: lote.length,
+            error: res.error ? { message: res.error.message, code: (res.error as any).code, details: (res.error as any).details, hint: (res.error as any).hint } : null,
+            data_len: res.data?.length ?? null,
+          })
+        );
+
+        if (res.error) {
+          errosInsert.push(res.error.message);
           // Fallback registro-a-registro pra não perder o lote inteiro.
           for (const r of lote) {
-            const { error: e } = await supabase.from("bpo_alertas").insert(r);
-            if (e) errosInsert.push(`${r.tipo}/${r.titulo}: ${e.message}`);
-            else alertasInseridos++;
+            const single = await supabase.from("bpo_alertas").insert(r).select("id");
+            if (single.error) {
+              errosInsert.push(`${r.tipo}/${r.titulo}: ${single.error.message}`);
+              console.error("[BPO_ALERTAS] single-fail", JSON.stringify({ row: r, error: single.error.message }));
+            } else {
+              alertasInseridos += single.data?.length ?? 0;
+            }
           }
         } else {
-          alertasInseridos += lote.length;
+          alertasInseridos += res.data?.length ?? 0;
         }
       }
+
+      // Verificação final: conta real da tabela vs o que o código contou.
+      const { count: countReal, error: countErr } = await supabase
+        .from("bpo_alertas")
+        .select("id", { count: "exact", head: true })
+        .eq("execucao_id", execId);
+      console.error(
+        "[BPO_ALERTAS] pos-insert verificacao",
+        JSON.stringify({
+          contador_codigo: alertasInseridos,
+          count_real_db: countReal,
+          count_err: countErr?.message ?? null,
+          divergencia: alertasInseridos !== countReal,
+        })
+      );
+    } else {
+      console.error("[BPO_ALERTAS] skip (alertas=0 ou execId ausente)", JSON.stringify({ alertas: alertas.length, execId }));
     }
 
     const duracao = Date.now() - startTime;
