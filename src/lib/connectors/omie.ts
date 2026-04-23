@@ -3,7 +3,7 @@
 // interno (sem duplicar mapeamento/upsert). reconcileModule chama a API Omie
 // diretamente pra colher total_de_registros sem baixar todos os registros.
 
-import { omieCall, type OmieCallLog } from '@/lib/omieClient'
+import { omieCall, OmieRateLimitError, type OmieCallLog } from '@/lib/omieClient'
 import { logCall } from './callLog'
 import type {
   Connector,
@@ -115,11 +115,37 @@ export class OmieConnector implements Connector {
     }
   }
 
+  // Persiste o bloqueio explícito de rate-limit em company_data_sources.
+  // Chamado quando OmieRateLimitError é propagado (HTTP 425 ou
+  // MISUSE_API_PROCESS). Best-effort: falha de update não rethrow.
+  private async persistirBloqueio(err: OmieRateLimitError): Promise<void> {
+    try {
+      const bloqueadoAte = new Date(Date.now() + err.retryAfterSeconds * 1000).toISOString()
+      await this.ctx.supabase
+        .from('company_data_sources')
+        .update({
+          rate_limit_bloqueado_ate: bloqueadoAte,
+          rate_limit_motivo: (err.faultstring || err.message).slice(0, 2000),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', this.ctx.companyDataSourceId)
+      console.warn(
+        `[OmieConnector] bloqueio Omie persistido em company_data_sources ` +
+          `(bloqueado até ${bloqueadoAte})`
+      )
+    } catch (e: any) {
+      console.error('[OmieConnector] falha ao persistir bloqueio:', e?.message)
+    }
+  }
+
   // Wrapper de retry no nível do connector: 3 tentativas com backoff
   // 1s/3s/8s. Cada chamada a omieCall já tem seu próprio retry interno
   // (429/5xx); este loop adiciona resiliência a erros de aplicação/JS
   // não cobertos (ex.: parse error). Timeout explícito de 25s dá sinal
   // rápido pra UI.
+  //
+  // OmieRateLimitError (HTTP 425 / MISUSE_API_PROCESS) é um caso especial:
+  // NÃO retenta, persiste o bloqueio em company_data_sources e propaga.
   private async callWithRetry(
     cfg: OmieCallCfg,
     params: Record<string, any>
@@ -136,6 +162,10 @@ export class OmieConnector implements Connector {
         })
       } catch (err: any) {
         lastErr = err
+        if (err instanceof OmieRateLimitError) {
+          await this.persistirBloqueio(err)
+          throw err
+        }
         console.warn(
           `[OmieConnector] ${cfg.call} tentativa ${attempt + 1}/${MAX_ATTEMPTS} falhou: ${err.message}`
         )

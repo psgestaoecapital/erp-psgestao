@@ -30,9 +30,10 @@ export async function POST(req: Request) {
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
-    const { company_ids, source_slug } = body as {
+    const { company_ids, source_slug, force } = body as {
       company_ids?: string[]
       source_slug?: string
+      force?: boolean
     }
     if (!Array.isArray(company_ids) || company_ids.length === 0) {
       return NextResponse.json(
@@ -53,7 +54,13 @@ export async function POST(req: Request) {
 
     for (const companyId of company_ids) {
       try {
-        const r = await reconcileCompany(companyId, source_slug ?? null, supabase, baseUrl)
+        const r = await reconcileCompany(
+          companyId,
+          source_slug ?? null,
+          supabase,
+          baseUrl,
+          { force: force === true }
+        )
         results.push(r)
       } catch (e: any) {
         results.push({
