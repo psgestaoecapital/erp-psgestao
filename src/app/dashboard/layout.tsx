@@ -114,6 +114,12 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
       { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.PieChart /> },
     ]},
+    { label: 'COMPLIANCE', items: [
+      { href: '/dashboard/compliance', label: 'Dashboard Compliance', icon: <Icon.Shield /> },
+      { href: '/dashboard/compliance/funcionarios', label: 'Funcionários', icon: <Icon.Users /> },
+      { href: '/dashboard/compliance/empresa', label: 'Docs da Empresa', icon: <Icon.FileText /> },
+      { href: '/dashboard/compliance/matriz', label: 'Matriz de Conformidade', icon: <Icon.ClipboardList /> },
+    ]},
   ],
   industrial: [
     { label: 'CADASTROS', items: [
