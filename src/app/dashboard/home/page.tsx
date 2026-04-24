@@ -5,6 +5,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
+import { authFetch } from '@/lib/authFetch';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
@@ -72,7 +73,7 @@ function DashboardUniversalInner() {
   // Carrega grupos 1x
   useEffect(() => {
     (async () => {
-      const r = await fetch('/api/dashboard/grupos');
+      const r = await authFetch('/api/dashboard/grupos');
       const d = await r.json();
       setGrupos(d.grupos || []);
       setEmpresasDisp(d.empresas_disponiveis || []);
@@ -92,7 +93,7 @@ function DashboardUniversalInner() {
     else if (empresasSel.length > 1) params.set('company_ids', empresasSel.join(','));
     
     try {
-      const r = await fetch(`/api/dashboard/universal?${params}`);
+      const r = await authFetch(`/api/dashboard/universal?${params}`);
       const d = await r.json();
       setData(d);
     } catch (e) {
@@ -504,7 +505,7 @@ function ModalGerenciarGrupos({ onClose, empresas, grupos }: any) {
   async function salvar() {
     if (!nome || selEmpresas.length === 0) { alert('Nome e empresas obrigatórios'); return; }
     setSalvando(true);
-    await fetch('/api/dashboard/grupos', {
+    await authFetch('/api/dashboard/grupos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nome, icone, company_ids: selEmpresas, is_padrao: isPadrao })
     });
@@ -514,7 +515,7 @@ function ModalGerenciarGrupos({ onClose, empresas, grupos }: any) {
   
   async function remover(id: string) {
     if (!confirm('Remover este grupo?')) return;
-    await fetch(`/api/dashboard/grupos?id=${id}`, { method: 'DELETE' });
+    await authFetch(`/api/dashboard/grupos?id=${id}`, { method: 'DELETE' });
     onClose();
   }
   
@@ -579,7 +580,7 @@ function ModalGerenciarAtalhos({ onClose, plano, atuais }: any) {
   const [novo, setNovo] = useState<Atalho>({ nome: '', url: '', icone: '⭐', cor: '#C8941A', ordem: 0 });
   
   async function salvar() {
-    await fetch('/api/dashboard/atalhos', {
+    await authFetch('/api/dashboard/atalhos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plano, atalhos: atalhos.map((a, i) => ({ ...a, ordem: i })) })
     });
@@ -588,7 +589,7 @@ function ModalGerenciarAtalhos({ onClose, plano, atuais }: any) {
   
   async function reset() {
     if (!confirm('Resetar para atalhos padrão?')) return;
-    await fetch(`/api/dashboard/atalhos?plano=${plano}`, { method: 'DELETE' });
+    await authFetch(`/api/dashboard/atalhos?plano=${plano}`, { method: 'DELETE' });
     onClose();
   }
   

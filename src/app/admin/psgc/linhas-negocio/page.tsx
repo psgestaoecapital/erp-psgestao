@@ -2,6 +2,7 @@
 // Cadastro e gestão de Linhas de Negócio da empresa
 
 'use client';
+import { authFetch } from '@/lib/authFetch';
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -28,7 +29,7 @@ function LinhasNegocioInner() {
 
   async function carregar() {
     if (!companyId) { setLoading(false); return; }
-    const res = await fetch(`/api/psgc/linha-negocio?company_id=${companyId}`);
+    const res = await authFetch(`/api/psgc/linha-negocio?company_id=${companyId}`);
     const d = await res.json();
     setLns(d.linhas_negocio || []);
     setLoading(false);
@@ -45,7 +46,7 @@ function LinhasNegocioInner() {
         .map(s => s.trim().toLowerCase())
         .filter(s => s.length > 0);
       
-      const res = await fetch('/api/psgc/linha-negocio', {
+      const res = await authFetch('/api/psgc/linha-negocio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
