@@ -683,33 +683,93 @@ export async function POST(req: NextRequest) {
       const jaExistiamRec = recordsReceberUnique.length - novosRec.length;
       const jaExistiamPag = recordsPagarUnique.length - novosPag.length;
       
-      // 10) UPSERT em lotes de 100 (só os novos — o upsert com onConflict é plano B caso haja race)
+      // 10) INSERT dos NOVOS + UPDATE dos EXISTENTES com campos voláteis
+      //
+      // Regra: campos FIXOS (datas de emissão/vencimento, valor_documento, nome, descrição, 
+      // categoria, centro_custo) NUNCA mudam após importado — são a "identidade" do lançamento.
+      // Campos VOLÁTEIS (data_pagamento, valor_pago, status) podem mudar quando o SIGA atualiza
+      // o título (ex: de "Em aberto" pra "Quitado em 15/04"). A reimportação atualiza só esses.
       let impReceber = 0, impPagar = 0, impLanc = 0;
+      let updReceber = 0, updPagar = 0, updLanc = 0;
       let errReceber = 0, errPagar = 0, errLanc = 0;
       
+      // Helper: separar em (novos para INSERT) e (existentes para UPDATE)
+      const existentesRec = recordsReceberUnique.filter(r => hashesExistentesRec.has(r.import_hash));
+      const existentesPag = recordsPagarUnique.filter(r => hashesExistentesPag.has(r.import_hash));
+      
+      // Pra erp_lancamentos, precisamos consultar separadamente qual já existe
+      const hashesLanc = new Set<string>();
+      const allHashesLanc = Array.from(new Set(recordsLancamentosUnique.map(r => r.import_hash)));
+      for (let i = 0; i < allHashesLanc.length; i += 500) {
+        const batch = allHashesLanc.slice(i, i + 500);
+        const { data } = await sb.from("erp_lancamentos")
+          .select("import_hash")
+          .eq("company_id", companyId)
+          .in("import_hash", batch);
+        (data || []).forEach((r: any) => hashesLanc.add(r.import_hash));
+      }
+      const novosLanc = recordsLancamentosUnique.filter(r => !hashesLanc.has(r.import_hash));
+      const existentesLanc = recordsLancamentosUnique.filter(r => hashesLanc.has(r.import_hash));
+      
+      // ===== INSERTS dos novos =====
       for (let i = 0; i < novosRec.length; i += 100) {
         const batch = novosRec.slice(i, i + 100);
-        const { error } = await sb.from("erp_receber")
-          .upsert(batch, { onConflict: "company_id,import_hash", ignoreDuplicates: true });
-        if (error) { errReceber += batch.length; console.error("Erro erp_receber:", error.message); }
+        const { error } = await sb.from("erp_receber").insert(batch);
+        if (error) { errReceber += batch.length; console.error("Erro erp_receber insert:", error.message); }
         else impReceber += batch.length;
       }
-      
       for (let i = 0; i < novosPag.length; i += 100) {
         const batch = novosPag.slice(i, i + 100);
-        const { error } = await sb.from("erp_pagar")
-          .upsert(batch, { onConflict: "company_id,import_hash", ignoreDuplicates: true });
-        if (error) { errPagar += batch.length; console.error("Erro erp_pagar:", error.message); }
+        const { error } = await sb.from("erp_pagar").insert(batch);
+        if (error) { errPagar += batch.length; console.error("Erro erp_pagar insert:", error.message); }
         else impPagar += batch.length;
       }
-      
-      // Em erp_lancamentos: upserta TODOS os únicos (deixa o banco dedupar pelo unique index)
-      for (let i = 0; i < recordsLancamentosUnique.length; i += 100) {
-        const batch = recordsLancamentosUnique.slice(i, i + 100);
-        const { error } = await sb.from("erp_lancamentos")
-          .upsert(batch, { onConflict: "company_id,import_hash", ignoreDuplicates: true });
-        if (error) { errLanc += batch.length; console.error("Erro erp_lancamentos:", error.message); }
+      for (let i = 0; i < novosLanc.length; i += 100) {
+        const batch = novosLanc.slice(i, i + 100);
+        const { error } = await sb.from("erp_lancamentos").insert(batch);
+        if (error) { errLanc += batch.length; console.error("Erro erp_lancamentos insert:", error.message); }
         else impLanc += batch.length;
+      }
+      
+      // ===== UPDATES dos existentes (só campos voláteis) =====
+      // Campos voláteis: data_pagamento, valor_pago, status
+      // Updates individuais pra cada hash (Supabase não suporta update em lote com valores diferentes)
+      for (const rec of existentesRec) {
+        const { error } = await sb.from("erp_receber")
+          .update({
+            data_pagamento: rec.data_pagamento,
+            valor_pago: rec.valor_pago,
+            status: rec.status,
+          })
+          .eq("company_id", companyId)
+          .eq("import_hash", rec.import_hash);
+        if (error) { console.error("Erro update erp_receber:", error.message); }
+        else updReceber++;
+      }
+      for (const pag of existentesPag) {
+        const { error } = await sb.from("erp_pagar")
+          .update({
+            data_pagamento: pag.data_pagamento,
+            valor_pago: pag.valor_pago,
+            status: pag.status,
+          })
+          .eq("company_id", companyId)
+          .eq("import_hash", pag.import_hash);
+        if (error) { console.error("Erro update erp_pagar:", error.message); }
+        else updPagar++;
+      }
+      for (const lanc of existentesLanc) {
+        const { error } = await sb.from("erp_lancamentos")
+          .update({
+            data_pagamento: lanc.data_pagamento,
+            valor_pago: lanc.valor_pago,
+            status: lanc.status,
+          })
+          .eq("company_id", companyId)
+          .eq("import_hash", lanc.import_hash)
+          .eq("tipo", lanc.tipo);
+        if (error) { console.error("Erro update erp_lancamentos:", error.message); }
+        else updLanc++;
       }
       
       return NextResponse.json({
@@ -721,6 +781,9 @@ export async function POST(req: NextRequest) {
         impReceber,
         impPagar,
         impLanc,
+        updReceber,
+        updPagar,
+        updLanc,
         errors: errReceber + errPagar + errLanc,
         errReceber,
         errPagar,
@@ -730,9 +793,10 @@ export async function POST(req: NextRequest) {
         jaExistiamRec,
         jaExistiamPag,
         dupDentroImport,
-        message: `Importação SIGA: ${impReceber} novo(s) a receber + ${impPagar} novo(s) a pagar. ` +
-          (jaExistiamRec + jaExistiamPag > 0 ? `${jaExistiamRec + jaExistiamPag} já existia(m) (idempotência). ` : "") +
-          (dupDentroImport > 0 ? `${dupDentroImport} duplicata(s) ignorada(s) dentro da planilha. ` : "") +
+        message: 
+          `Importação SIGA: ${impReceber} novo(s) a receber + ${impPagar} novo(s) a pagar. ` +
+          (updReceber + updPagar > 0 ? `${updReceber + updPagar} lançamento(s) atualizado(s) (status/pagamento). ` : "") +
+          (dupDentroImport > 0 ? `${dupDentroImport} duplicata(s) inline ignorada(s). ` : "") +
           `${clientesNovos.size} cliente(s) e ${fornecNovos.size} fornecedor(es) novo(s).`,
       });
     }

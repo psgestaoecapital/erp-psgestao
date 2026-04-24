@@ -162,7 +162,7 @@ export default function ImportarUniversalPage(){
                 • <b>erp_pagar</b> (linhas com valor em Pagar)<br/>
                 • <b>erp_lancamentos</b> (todos, pra PSGC ver consolidado)<br/>
                 Clientes/fornecedores novos serão criados automaticamente.<br/>
-                <span style={{color:C.y,fontWeight:600}}>🛡️ Proteção anti-duplicata inteligente:</span> reimportar a mesma planilha NÃO duplica dados. Mas se você lançou o mesmo valor 2x intencionalmente (ex: 2 comissões iguais), <b>ambas são preservadas</b>.
+                <span style={{color:C.y,fontWeight:600}}>🛡️ Proteção anti-duplicata inteligente:</span> reimportar a mesma planilha <b>NÃO</b> duplica. Se um lançamento mudou de status (ex: ficou "Quitado"), os campos <b>data_pagamento, valor_pago e status</b> são atualizados automaticamente. Duplicatas intencionais (2 comissões iguais) são preservadas.
               </div>
               {analysis.stats && (
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
@@ -289,18 +289,18 @@ export default function ImportarUniversalPage(){
               </div>
             </div>
             
-            {/* Idempotência */}
-            {((result.jaExistiamRec||0)+(result.jaExistiamPag||0)+(result.dupDentroImport||0) > 0) && (
+            {/* Idempotência + Updates */}
+            {((result.jaExistiamRec||0)+(result.jaExistiamPag||0)+(result.dupDentroImport||0)+(result.updReceber||0)+(result.updPagar||0) > 0) && (
               <div style={{background:C.y+"15",border:`1px solid ${C.y}40`,borderRadius:8,padding:12,maxWidth:720,margin:"0 auto 20px"}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.y,marginBottom:6}}>🛡️ Proteção contra duplicatas ativa</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.y,marginBottom:6}}>🛡️ Proteção anti-duplicata + sincronização</div>
                 <div style={{fontSize:10,color:C.tx,lineHeight:1.5,textAlign:"left"}}>
-                  {(result.jaExistiamRec||0)+(result.jaExistiamPag||0) > 0 && (
-                    <div>• <b>{(result.jaExistiamRec||0)+(result.jaExistiamPag||0)} lançamento(s)</b> já existiam no banco e foram ignorados (safe).</div>
+                  {(result.updReceber||0)+(result.updPagar||0) > 0 && (
+                    <div>• <b style={{color:C.cy}}>{(result.updReceber||0)+(result.updPagar||0)} lançamento(s) atualizado(s)</b> (status, data de pagamento ou valor pago sincronizados com a origem).</div>
                   )}
                   {result.dupDentroImport > 0 && (
-                    <div>• <b>{result.dupDentroImport} duplicata(s)</b> dentro da própria planilha foram ignoradas.</div>
+                    <div>• <b>{result.dupDentroImport} duplicata(s)</b> inline (linhas idênticas) foram ignoradas.</div>
                   )}
-                  <div style={{color:C.txm,marginTop:4,fontSize:9}}>Você pode reimportar essa planilha à vontade — nada vai duplicar.</div>
+                  <div style={{color:C.txm,marginTop:4,fontSize:9}}>Você pode reimportar essa planilha à vontade — novos lançamentos entram, existentes são atualizados (status/pagamento), identidade do registro nunca muda.</div>
                 </div>
               </div>
             )}
