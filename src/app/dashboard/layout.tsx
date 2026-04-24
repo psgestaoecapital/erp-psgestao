@@ -76,6 +76,9 @@ type PlanoTipo = 'comercio' | 'industrial' | 'agro' | 'bpo' | 'wealth' | 'produc
 
 const MENU: Record<PlanoTipo, MenuGroup[]> = {
   comercio: [
+    { label: 'DADOS', items: [
+      { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
+    ]},
     { label: 'CADASTROS', items: [
       { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
       { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
@@ -122,6 +125,9 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
   ],
   industrial: [
+    { label: 'DADOS', items: [
+      { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
+    ]},
     { label: 'CADASTROS', items: [
       { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
       { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
@@ -158,6 +164,9 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
   ],
   agro: [
+    { label: 'DADOS', items: [
+      { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
+    ]},
     { label: 'CADASTROS', items: [
       { href: '/dashboard/produtos', label: 'Produtos', icon: <Icon.Package /> },
       { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
@@ -187,6 +196,9 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
   ],
   bpo: [
+    { label: 'DADOS', items: [
+      { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
+    ]},
     { label: 'CENTRAL DE OPERAÇÕES', items: [
       { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase />, badge: 'BPO' },
       { href: '/dashboard/bpo/inbox', label: 'Inbox do Operador', icon: <Icon.ClipboardList />, badge: 'NOVO' },
@@ -217,11 +229,17 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
   ],
   wealth: [
+    { label: 'DADOS', items: [
+      { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
+    ]},
     { label: 'WEALTH MFO', items: [
       { href: '/dashboard/wealth', label: 'PS Wealth', icon: <Icon.Gem />, badge: 'MFO' },
     ]},
   ],
   producao: [
+    { label: 'DADOS', items: [
+      { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
+    ]},
     { label: 'CADASTROS', items: [
       { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: <Icon.Package /> },
       { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
@@ -709,7 +727,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
 
               <TopButton icon={<Icon.Database />} label="Dados / Conectores" onClick={() => router.push('/dashboard/dados')} />
-              <TopButton icon={<Icon.Upload />} label="Importar" onClick={() => router.push('/dashboard/importar')} />
+              <TopButton icon={<Icon.Upload />} label="Importar" onClick={() => router.push('/dashboard/importar-universal')} />
               <TopButton icon={<Icon.Bell />} label="Notificações" />
               <TopButton icon={<Icon.HelpCircle />} label="Ajuda" onClick={() => router.push('/dashboard/ajuda')} />
 
