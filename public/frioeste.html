@@ -436,8 +436,10 @@ function renderEstrategico(el,fm,fornList,cidList,data){
   <div class="g2"><div class="card"><div class="card-t">Praças de Menor Custo (≥5 forn)</div><table class="tbl"><tr><th>Cidade</th><th class="r">PM</th><th class="r">Forn</th><th class="r">KG/Forn</th></tr>${cidB}</table></div><div class="card"><div class="card-t">Evolução Lote Médio</div><div class="scroll-tbl" style="max-height:300px"><table class="tbl"><tr><th>Mês</th><th class="r">Lote</th><th class="r">CB/NF</th><th class="r">Peso/CB</th></tr>${loteHtml}</table></div></div></div>`;
 }
 
-// Auto-load if URL saved
-if(localStorage.getItem('frioeste_sheet_url')) loadData();
+// Default Google Sheets URL (hardcoded para acesso direto)
+const DEFAULT_SHEET_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vRQKrKTorYmsLpIkk-ezqWmdxUlqt5cI6iqkZkoE9R8aw4XUb8aQBe3wvL-7aYwa2T-AKYhBf263tJV/pub?gid=467658870&single=true&output=csv';
+if(!localStorage.getItem('frioeste_sheet_url')) localStorage.setItem('frioeste_sheet_url',DEFAULT_SHEET_URL);
+loadData();
 </script>
 </body>
 </html>
