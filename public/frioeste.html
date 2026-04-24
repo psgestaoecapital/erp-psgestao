@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frioeste — Dashboard Compra de Gado (Live)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root{--esp:#3D2314;--esp-l:#5A3A28;--off:#FAF7F2;--off-d:#F0EAE0;--gold:#C8941A;--green:#2D8B4E;--red:#C0392B;--blue:#2471A3;--gray:#8B7355;--white:#fff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--off);color:var(--esp);font-size:13px}
+.hdr{background:var(--esp);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:99;flex-wrap:wrap;gap:8px}
+.hdr-left{display:flex;align-items:center;gap:12px}
+.logo{width:36px;height:36px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--esp);font-weight:800}
+.hdr h1{font-size:17px;color:var(--off);font-weight:600}
+.hdr .sub{font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:1.5px;margin-top:1px}
+.filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.filters label{color:var(--gold);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.filters select{background:rgba(255,255,255,.1);border:1px solid var(--gold);color:var(--off);padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer}
+.filters select option{color:#333;background:white}
+.btn-refresh{background:var(--gold);color:var(--esp);border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px}
+.btn-refresh:hover{opacity:.85}
+.wrap{max-width:1500px;margin:0 auto;padding:16px}
+.tabs{display:flex;gap:2px;background:var(--off-d);border-radius:10px;padding:3px;margin-bottom:16px;overflow-x:auto}
+.tab{padding:8px 18px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--gray);transition:all .2s;white-space:nowrap;user-select:none}
+.tab.active{background:var(--esp);color:var(--off)}
+.tab:hover:not(.active){background:rgba(200,148,26,.15)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.g5{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.card{background:white;border-radius:10px;padding:18px;box-shadow:0 1px 3px rgba(61,35,20,.06)}
+.card-t{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin-bottom:12px;font-weight:600}
+.kpi{text-align:center;padding:14px 10px;position:relative}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--gold);border-radius:10px 10px 0 0}
+.kpi.alert::before{background:var(--red)}
+.kpi .v{font-size:24px;font-weight:700;color:var(--esp);line-height:1}
+.kpi .l{font-size:9px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-weight:600}
+.kpi .d{font-size:11px;color:var(--gray);margin-top:4px}
+.pill{display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700}
+.pill-r{background:rgba(192,57,43,.1);color:var(--red)}
+.pill-g{background:rgba(45,139,78,.1);color:var(--green)}
+.tbl{width:100%;border-collapse:collapse;font-size:11px}
+.tbl th{text-align:left;padding:7px 8px;background:var(--off);color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:9px;border-bottom:2px solid var(--off-d);position:sticky;top:0}
+.tbl td{padding:7px 8px;border-bottom:1px solid var(--off)}
+.tbl tr:hover td{background:rgba(200,148,26,.04)}
+.tbl .r{text-align:right}.tbl .c{text-align:center}
+.sem-r{color:var(--red);font-weight:700}
+.sem-g{color:var(--green);font-weight:700}
+.bar-row{display:flex;align-items:center;margin-bottom:4px;gap:6px}
+.bar-lbl{font-size:10px;width:90px;text-align:right;color:var(--esp);font-weight:500;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-trk{flex:1;height:16px;background:var(--off);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .5s}
+.bar-val{font-size:10px;width:65px;text-align:right;color:var(--gray);font-weight:500;flex-shrink:0}
+.bar-pm{font-size:10px;width:50px;text-align:right;font-weight:700;flex-shrink:0}
+.insight{background:var(--esp);border-radius:10px;padding:18px;color:var(--off);margin-bottom:14px}
+.insight h3{font-size:14px;color:var(--gold);margin-bottom:8px;font-weight:600}
+.insight p{font-size:12px;line-height:1.6;color:rgba(250,247,242,.85);margin-bottom:6px}
+.insight strong{color:var(--gold)}
+.detail-panel{background:white;border:2px solid var(--gold);border-radius:10px;padding:18px;margin-bottom:14px;display:none}
+.detail-panel.open{display:block}
+.detail-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.detail-header h3{font-size:14px;color:var(--esp);font-weight:700}
+.btn-close{background:var(--esp);color:var(--off);border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600}
+.clickable{cursor:pointer;text-decoration:underline;text-decoration-color:var(--gold)}
+.clickable:hover{color:var(--gold)}
+.search{width:100%;padding:8px 12px;border:1px solid var(--off-d);border-radius:8px;font-size:12px;margin-bottom:12px;outline:none}
+.search:focus{border-color:var(--gold)}
+.scroll-tbl{max-height:500px;overflow-y:auto;border-radius:8px;border:1px solid var(--off-d)}
+.footer{text-align:center;padding:20px;font-size:10px;color:var(--gray);border-top:1px solid var(--off-d);margin-top:16px}
+.footer strong{color:var(--gold)}
+.setup-box{max-width:700px;margin:60px auto;padding:40px;background:white;border-radius:14px;box-shadow:0 4px 20px rgba(61,35,20,.1)}
+.setup-box h2{font-size:20px;margin-bottom:16px;color:var(--esp)}
+.setup-box p{font-size:13px;color:var(--gray);line-height:1.7;margin-bottom:12px}
+.setup-box ol{font-size:13px;color:var(--esp);line-height:2;margin:16px 0 20px 20px}
+.setup-box input{width:100%;padding:12px 16px;border:2px solid var(--off-d);border-radius:8px;font-size:14px;margin-bottom:12px}
+.setup-box input:focus{border-color:var(--gold);outline:none}
+.setup-box .btn-connect{background:var(--esp);color:var(--off);border:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;width:100%}
+.setup-box .btn-connect:hover{background:var(--gold);color:var(--esp)}
+.status-bar{background:var(--green);color:white;padding:8px 24px;font-size:12px;text-align:center;font-weight:600;display:none}
+.status-bar.error{background:var(--red)}
+.status-bar.loading{background:var(--gold);color:var(--esp)}
+.status-bar.show{display:block}
+@media(max-width:900px){.g2,.g3,.g5{grid-template-columns:1fr}.hdr{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+<div class="hdr-left"><div class="logo">PS</div><div><h1>Frioeste — Dashboard Compra de Gado</h1><div class="sub">Conectado ao Google Sheets &bull; PS Gestão e Capital</div></div></div>
+<div class="filters" id="filterBar" style="display:none">
+<label>De:</label><select id="mesInicio"></select>
+<label>Até:</label><select id="mesFim"></select>
+<button class="btn-refresh" onclick="loadData()">Atualizar</button>
+<span id="lastUpdate" style="color:var(--gold);font-size:10px"></span>
+</div>
+</div>
+<div id="statusBar" class="status-bar"></div>
+<div class="wrap">
+<div class="tabs" id="tabs" style="display:none">
+<div class="tab active" data-tab="painel">Painel Geral</div>
+<div class="tab" data-tab="evolucao">Evolução Mensal</div>
+<div class="tab" data-tab="fornecedores">Fornecedores</div>
+<div class="tab" data-tab="cidades">Praças</div>
+<div class="tab" data-tab="estrategico">Estratégico</div>
+</div>
+<div id="content">
+<!-- SETUP SCREEN -->
+<div class="setup-box" id="setupBox">
+<h2 style="color:var(--gold)">Conectar ao Google Sheets</h2>
+<p>Este dashboard puxa os dados de compra de gado diretamente de uma planilha no Google Drive. Configure uma vez e ele atualiza automaticamente.</p>
+<ol>
+<li>Abra a planilha <strong>FRIOESTE_COMPRA_GADO</strong> no Google Sheets</li>
+<li>Vá em <strong>Arquivo → Compartilhar → Publicar na web</strong></li>
+<li>Selecione a aba <strong>"BASE"</strong> e formato <strong>"Valores separados por vírgulas (.csv)"</strong></li>
+<li>Clique em <strong>Publicar</strong> e copie o link gerado</li>
+<li>Cole o link abaixo:</li>
+</ol>
+<input type="text" id="sheetUrl" placeholder="Cole aqui o link CSV publicado do Google Sheets...">
+<p style="font-size:11px;color:var(--gray)">O link deve ser algo como: https://docs.google.com/spreadsheets/d/e/2PACX.../pub?output=csv</p>
+<button class="btn-connect" onclick="connectSheet()">Conectar e Carregar Dados</button>
+<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--off-d)">
+<p style="font-size:12px;color:var(--gray);margin-bottom:8px"><strong style="color:var(--esp)">Alternativa:</strong> Se preferir, carregue o arquivo Excel direto do computador:</p>
+<input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="loadFromFile(event)" style="padding:8px;border:1px dashed var(--gold);border-radius:8px;background:var(--off)">
+</div>
+</div>
+</div>
+<div class="footer"><strong>PS Gestão e Capital</strong> &bull; Assessoria em Gestão Empresarial &bull; Dados ao vivo via Google Sheets</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+// ── GLOBALS ──
+let RAW=[], MESES=[], currentTab='painel', mesInicio='', mesFim='';
+const MN={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+function fmtMes(m){const[y,mo]=m.split('-');return (MN[mo]||mo)+'/'+y.slice(2)}
+function fmtN(n){return Math.round(n).toLocaleString('pt-BR')}
+function fmtR(n){return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmtPct(n){return (n>=0?'+':'')+n.toFixed(1)+'%'}
+
+function showStatus(msg,type){
+  const s=document.getElementById('statusBar');
+  s.textContent=msg;s.className='status-bar show '+(type||'');
+  if(type!=='loading') setTimeout(()=>s.classList.remove('show'),5000);
+}
+
+// ── CONNECT ──
+function connectSheet(){
+  const url=document.getElementById('sheetUrl').value.trim();
+  if(!url){alert('Cole o link CSV do Google Sheets');return}
+  localStorage.setItem('frioeste_sheet_url',url);
+  loadData();
+}
+
+function loadData(){
+  const url=localStorage.getItem('frioeste_sheet_url');
+  if(!url){document.getElementById('setupBox').style.display='block';return}
+  showStatus('Carregando dados do Google Sheets...','loading');
+  
+  const proxies=['https://corsproxy.io/?','https://api.allorigins.win/raw?url='];
+  let proxyIdx=0;
+
+  function tryFetch(rawUrl){
+    const directUrl=rawUrl+(rawUrl.includes('?')?'&':'?')+'_t='+Date.now();
+    // Try direct first, then proxies
+    const urlsToTry=[directUrl,...proxies.map(p=>p+encodeURIComponent(rawUrl))];
+    
+    function attempt(i){
+      if(i>=urlsToTry.length){showStatus('Erro: não conseguiu conectar. Tente "Escolher arquivo" como alternativa.','error');return}
+      showStatus('Conectando'+(i>0?' (proxy '+(i)+')':'')+'...','loading');
+      Papa.parse(urlsToTry[i],{
+        download:true, header:true, skipEmptyLines:true,
+        complete:function(results){
+          if(results.data.length<10){attempt(i+1);return}
+          processData(results.data);
+          showStatus('Dados carregados: '+results.data.length+' registros — '+new Date().toLocaleString('pt-BR'),'');
+          document.getElementById('lastUpdate').textContent='Atualizado '+new Date().toLocaleTimeString('pt-BR');
+        },
+        error:function(){attempt(i+1)}
+      });
+    }
+    attempt(0);
+  }
+  tryFetch(url);
+}
+
+function loadFromFile(event){
+  const file=event.target.files[0];
+  if(!file) return;
+  showStatus('Lendo arquivo '+file.name+'...','loading');
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      if(file.name.endsWith('.csv')){
+        Papa.parse(e.target.result,{header:true,skipEmptyLines:true,complete:function(r){processData(r.data);showStatus('Arquivo carregado: '+r.data.length+' registros','');}});
+      } else {
+        const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const data=XLSX.utils.sheet_to_json(ws,{defval:''});
+        processData(data);
+        showStatus('Arquivo carregado: '+data.length+' registros','');
+      }
+    }catch(err){showStatus('Erro ao ler arquivo: '+err.message,'error');}
+  };
+  if(file.name.endsWith('.csv')) reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
+// ── PROCESS ──
+function processData(data){
+  // Normalize column names
+  const colMap={};
+  if(data.length>0){
+    const keys=Object.keys(data[0]);
+    keys.forEach(k=>{
+      const kl=k.trim().toUpperCase();
+      if(kl.includes('TIPO_MV')||kl==='COD_TIPO_MV') colMap.tipo=k;
+      else if(kl.includes('NUM_DOCTO')||kl.includes('NUM_DOC')) colMap.doc=k;
+      else if(kl.includes('COD_CLI')||kl.includes('COD_FOR')) colMap.cod_forn=k;
+      else if(kl.includes('NOME_CADASTRO')||kl.includes('NOME')) colMap.nome=k;
+      else if(kl.includes('DATA')) colMap.data=k;
+      else if(kl.includes('COD_PRODUTO')||kl==='COD_PRODUTO') colMap.prod=k;
+      else if(kl.includes('DESC_PRODUTO')) colMap.desc_prod=k;
+      else if(kl==='QTDE_UND'||kl.includes('QTDE_UND')) colMap.kg=k;
+      else if(kl==='QTDE_AUX'||kl.includes('QTDE_AUX')) colMap.cb=k;
+      else if(kl.includes('VALOR_UNIT')) colMap.vlr_unit=k;
+      else if(kl.includes('VALOR_TOTAL')) colMap.vlr_total=k;
+      else if(kl.includes('CIDADE')) colMap.cidade=k;
+    });
+  }
+
+  RAW=[];
+  data.forEach(row=>{
+    const tipo=String(row[colMap.tipo]||'').trim();
+    if(tipo!=='T231') return;
+    let dt=row[colMap.data];
+    if(!dt) return;
+    if(dt instanceof Date){/* ok */}
+    else if(typeof dt==='number'){dt=new Date((dt-25569)*86400000)}
+    else{
+      const s=String(dt);
+      if(s.includes('/')) {
+        const p=s.split(/[\/ ]/);
+        if(p[2]&&p[2].length===4) dt=new Date(p[2],p[1]-1,p[0]);
+        else dt=new Date(s);
+      } else dt=new Date(s);
+    }
+    if(isNaN(dt)) return;
+    const kg=parseFloat(row[colMap.kg])||0;
+    const cb=parseFloat(row[colMap.cb])||0;
+    const vu=parseFloat(row[colMap.vlr_unit])||0;
+    const vt=parseFloat(row[colMap.vlr_total])||0;
+    if(kg<=0&&vt<=0) return;
+    const m=String(dt.getMonth()+1).padStart(2,'0');
+    const mes=dt.getFullYear()+'-'+m;
+    const sexo=String(row[colMap.desc_prod]||'').toUpperCase().includes('MACHO')?'Macho':'Fêmea';
+    const cidade=String(row[colMap.cidade]||'').trim().split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+    const nome=String(row[colMap.nome]||'').trim().split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+    RAW.push({doc:row[colMap.doc],cod_forn:row[colMap.cod_forn],nome,dt,mes,sexo,kg,cb,vu,vt,cidade,dow:dt.getDay()});
+  });
+
+  MESES=[...new Set(RAW.map(r=>r.mes))].sort();
+  if(!MESES.length){showStatus('Nenhum registro T231 encontrado nos dados.','error');return}
+  mesInicio=MESES[0];mesFim=MESES[MESES.length-1];
+
+  // populate selectors
+  const si=document.getElementById('mesInicio'),sf=document.getElementById('mesFim');
+  si.innerHTML='';sf.innerHTML='';
+  MESES.forEach(m=>{si.innerHTML+=`<option value="${m}">${fmtMes(m)}</option>`;sf.innerHTML+=`<option value="${m}">${fmtMes(m)}</option>`});
+  sf.value=mesFim;
+  si.onchange=e=>{mesInicio=e.target.value;render()};
+  sf.onchange=e=>{mesFim=e.target.value;render()};
+
+  document.getElementById('setupBox').style.display='none';
+  document.getElementById('tabs').style.display='flex';
+  document.getElementById('filterBar').style.display='flex';
+  render();
+}
+
+// ── FILTER & AGGREGATE ──
+function filtered(){return RAW.filter(r=>r.mes>=mesInicio&&r.mes<=mesFim)}
+
+function aggMensal(data){
+  const map={};
+  data.forEach(r=>{
+    if(!map[r.mes]) map[r.mes]={mes:r.mes,kg:0,cb:0,valor:0,nfs:new Set(),forn:new Set(),sexo:{}};
+    const m=map[r.mes];m.kg+=r.kg;m.cb+=r.cb;m.valor+=r.vt;m.nfs.add(r.doc);m.forn.add(r.cod_forn);
+    if(!m.sexo[r.sexo]) m.sexo[r.sexo]={kg:0,valor:0};
+    m.sexo[r.sexo].kg+=r.kg;m.sexo[r.sexo].valor+=r.vt;
+  });
+  return Object.values(map).sort((a,b)=>a.mes.localeCompare(b.mes)).map(m=>({
+    ...m,nfs:m.nfs.size,forn:m.forn.size,pm:m.kg>0?m.valor/m.kg:0,
+    peso_cb:m.cb>0?m.kg/m.cb:0,lote_medio:m.nfs.size>0?m.kg/m.nfs.size:0,
+    pm_m:m.sexo.Macho&&m.sexo.Macho.kg>0?m.sexo.Macho.valor/m.sexo.Macho.kg:0,
+    pm_f:m.sexo['Fêmea']&&m.sexo['Fêmea'].kg>0?m.sexo['Fêmea'].valor/m.sexo['Fêmea'].kg:0
+  }));
+}
+
+function aggForn(data){
+  const map={};
+  data.forEach(r=>{
+    if(!map[r.cod_forn]) map[r.cod_forn]={cod:r.cod_forn,nome:r.nome,cidade:r.cidade,kg:0,cb:0,valor:0,nfs:new Set(),meses:new Set()};
+    const f=map[r.cod_forn];f.kg+=r.kg;f.cb+=r.cb;f.valor+=r.vt;f.nfs.add(r.doc);f.meses.add(r.mes);
+  });
+  return Object.values(map).map(f=>({...f,nfs:f.nfs.size,meses:f.meses.size,pm:f.kg>0?f.valor/f.kg:0})).sort((a,b)=>b.valor-a.valor);
+}
+
+function aggCid(data){
+  const map={};
+  data.forEach(r=>{
+    if(!map[r.cidade]) map[r.cidade]={cidade:r.cidade,kg:0,cb:0,valor:0,forn:new Set(),nfs:new Set()};
+    const c=map[r.cidade];c.kg+=r.kg;c.cb+=r.cb;c.valor+=r.vt;c.forn.add(r.cod_forn);c.nfs.add(r.doc);
+  });
+  return Object.values(map).map(c=>({...c,forn:c.forn.size,nfs:c.nfs.size,pm:c.kg>0?c.valor/c.kg:0})).sort((a,b)=>b.valor-a.valor);
+}
+
+// ── TABS ──
+document.getElementById('tabs').addEventListener('click',e=>{
+  if(e.target.classList.contains('tab')){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    e.target.classList.add('active');currentTab=e.target.dataset.tab;render();
+  }
+});
+
+// ── RENDER ──
+function render(){
+  const el=document.getElementById('content'),data=filtered(),fm=aggMensal(data);
+  const totKg=data.reduce((s,r)=>s+r.kg,0),totCb=data.reduce((s,r)=>s+r.cb,0),totVal=data.reduce((s,r)=>s+r.vt,0);
+  const nfs=new Set(data.map(r=>r.doc)).size,nForn=new Set(data.map(r=>r.cod_forn)).size;
+  const pm=totKg>0?totVal/totKg:0,pesoCb=totCb>0?totKg/totCb:0;
+  const fornList=aggForn(data),cidList=aggCid(data);
+  if(currentTab==='painel') renderPainel(el,fm,totKg,totCb,totVal,nfs,pm,pesoCb,nForn,fornList,cidList);
+  else if(currentTab==='evolucao') renderEvolucao(el,fm);
+  else if(currentTab==='fornecedores') renderFornecedores(el,fornList,totVal,data);
+  else if(currentTab==='cidades') renderCidades(el,cidList,totVal,totKg,data);
+  else if(currentTab==='estrategico') renderEstrategico(el,fm,fornList,cidList,data);
+}
+
+function renderPainel(el,fm,totKg,totCb,totVal,nfs,pm,pesoCb,nForn,fornList,cidList){
+  const kmStr=totKg>=1e6?(totKg/1e6).toFixed(2)+' Mi':(totKg/1e3).toFixed(0)+'k';
+  const vStr=totVal>=1e6?'R$ '+(totVal/1e6).toFixed(1)+' Mi':'R$ '+(totVal/1e3).toFixed(0)+'k';
+  let comp='';
+  if(fm.length>=2){
+    const p=fm[fm.length-2],c=fm[fm.length-1];
+    const pK=p.kg>0?(c.kg-p.kg)/p.kg*100:0,pV=p.valor>0?(c.valor-p.valor)/p.valor*100:0,dP=c.pm-p.pm;
+    comp=`<div class="card-t" style="margin-top:12px">Comparativo ${fmtMes(p.mes)} → ${fmtMes(c.mes)}</div>
+    <div class="g3"><div style="text-align:center;padding:10px"><div style="font-size:10px;color:var(--gray)">Volume</div><div style="font-size:18px;font-weight:700">${fmtN(c.kg)} kg</div><span class="pill ${pK>0?'pill-r':'pill-g'}">${fmtPct(pK)}</span></div>
+    <div style="text-align:center;padding:10px"><div style="font-size:10px;color:var(--gray)">Valor</div><div style="font-size:18px;font-weight:700">${fmtR(c.valor)}</div><span class="pill ${pV>0?'pill-r':'pill-g'}">${fmtPct(pV)}</span></div>
+    <div style="text-align:center;padding:10px"><div style="font-size:10px;color:var(--gray)">PM R$/kg</div><div style="font-size:18px;font-weight:700">${fmtR(c.pm)}</div><span class="pill ${dP>0?'pill-r':'pill-g'}">${dP>=0?'+':''}${dP.toFixed(2)}</span></div></div>`;
+  }
+  const t5=fornList.slice(0,5).map((r,i)=>`<tr><td><strong>${i+1}.</strong> ${r.nome}</td><td class="r">${fmtN(r.kg)}</td><td class="r ${r.pm>21.5?'sem-r':r.pm<19.5?'sem-g':''}">${fmtR(r.pm)}</td><td class="r">${fmtR(r.valor)}</td></tr>`).join('');
+  const t5c=cidList.slice(0,5).map((r,i)=>`<tr><td><strong>${i+1}.</strong> ${r.cidade}</td><td class="r">${fmtN(r.kg)}</td><td class="r ${r.pm<19.5?'sem-g':r.pm>21?'sem-r':''}">${fmtR(r.pm)}</td><td class="r">${r.forn}</td></tr>`).join('');
+  el.innerHTML=`<div class="g5">
+    <div class="card kpi"><div class="l">Volume Total</div><div class="v">${kmStr} kg</div><div class="d">${fmtN(totCb)} cabeças</div></div>
+    <div class="card kpi"><div class="l">Valor Total</div><div class="v">${vStr}</div><div class="d">${fmtN(nfs)} NFs</div></div>
+    <div class="card kpi ${pm>21?'alert':''}"><div class="l">Preço Médio</div><div class="v">${fmtR(pm)}/kg</div><div class="d">Peso ${pesoCb.toFixed(0)} kg/cb</div></div>
+    <div class="card kpi"><div class="l">Fornecedores</div><div class="v">${fmtN(nForn)}</div><div class="d">${cidList.length} cidades</div></div>
+    <div class="card kpi"><div class="l">Lote Médio</div><div class="v">${nfs>0?fmtN(totKg/nfs):0} kg</div><div class="d">${nfs>0?(totCb/nfs).toFixed(1):0} cb/NF</div></div>
+  </div><div class="g2"><div class="card">${comp}<div class="card-t" style="margin-top:14px">Top 5 Fornecedores</div><table class="tbl"><tr><th>Nome</th><th class="r">KG</th><th class="r">PM</th><th class="r">Valor</th></tr>${t5}</table></div>
+  <div class="card"><div class="card-t">Top 5 Praças</div><table class="tbl"><tr><th>Cidade</th><th class="r">KG</th><th class="r">PM</th><th class="r">Forn.</th></tr>${t5c}</table></div></div>`;
+}
+
+function renderEvolucao(el,fm){
+  const maxKg=Math.max(...fm.map(r=>r.kg)),maxPm=Math.max(...fm.map(r=>r.pm)),minPm=Math.min(...fm.map(r=>r.pm));
+  const W=900,H=250,PL=60,PR=60,PT=30,PB=40,cw=W-PL-PR,ch=H-PT-PB;
+  const bw=Math.min(40,cw/fm.length*.7),gap=cw/fm.length;
+  let bars='',line='',dots='',labels='';
+  fm.forEach((r,i)=>{
+    const x=PL+i*gap+gap/2,bh=maxKg>0?r.kg/maxKg*ch:0;
+    bars+=`<rect x="${x-bw/2}" y="${PT+ch-bh}" width="${bw}" height="${bh}" rx="3" fill="var(--esp)" opacity=".8"><title>${fmtMes(r.mes)}: ${fmtN(r.kg)} kg</title></rect>`;
+    const range=maxPm-minPm||1;const pmY=PT+ch-(r.pm-minPm+.5)/(range+1)*ch;
+    line+=(i===0?'M':'L')+x+','+pmY;
+    dots+=`<circle cx="${x}" cy="${pmY}" r="4" fill="var(--gold)"><title>PM: ${fmtR(r.pm)}</title></circle>`;
+    if(fm.length<=12||i%(Math.ceil(fm.length/10))===0||i===fm.length-1) labels+=`<text x="${x}" y="${H-5}" text-anchor="middle" fill="var(--gray)" font-size="9">${fmtMes(r.mes)}</text>`;
+  });
+  const rows=fm.map(r=>`<tr><td><strong>${fmtMes(r.mes)}</strong></td><td class="r">${fmtN(r.kg)}</td><td class="r">${fmtN(r.cb)}</td><td class="r">${fmtR(r.valor)}</td><td class="r ${r.pm>21?'sem-r':r.pm<19.5?'sem-g':''}">${fmtR(r.pm)}</td><td class="r">${r.pm_m?fmtR(r.pm_m):'-'}</td><td class="r">${r.pm_f?fmtR(r.pm_f):'-'}</td><td class="r">${fmtN(r.nfs)}</td><td class="r">${fmtN(r.lote_medio)}</td><td class="r">${r.peso_cb.toFixed(1)}</td></tr>`).join('');
+  el.innerHTML=`<div class="card" style="margin-bottom:14px"><div class="card-t">Volume (barras) × Preço Médio (linha)</div>
+  <svg class="chart-svg" viewBox="0 0 ${W} ${H}" style="width:100%"><line x1="${PL}" y1="${PT+ch}" x2="${W-PR}" y2="${PT+ch}" stroke="var(--off-d)"/>${bars}<path d="${line}" fill="none" stroke="var(--gold)" stroke-width="2.5"/>${dots}${labels}</svg></div>
+  <div class="card"><div class="card-t">Dados Mensais Detalhados</div><div class="scroll-tbl"><table class="tbl"><tr><th>Mês</th><th class="r">KG</th><th class="r">CB</th><th class="r">Valor</th><th class="r">PM Geral</th><th class="r">PM Macho</th><th class="r">PM Fêmea</th><th class="r">NFs</th><th class="r">Lote Médio</th><th class="r">Peso/CB</th></tr>${rows}</table></div></div>`;
+}
+
+function renderFornecedores(el,fornList,totVal,data){
+  const rows=fornList.map((r,i)=>{const pct=totVal>0?r.valor/totVal*100:0;return`<tr class="forn-row" data-nome="${r.nome.toLowerCase()}" onclick="drillForn('${r.cod}')"><td><strong style="color:var(--gold)">${i+1}</strong></td><td class="clickable">${r.nome}</td><td>${r.cidade||'-'}</td><td class="r">${fmtR(r.valor)}</td><td class="r">${fmtN(r.kg)}</td><td class="c">${r.nfs}</td><td class="c">${r.meses}</td><td class="r ${r.pm>21.5?'sem-r':r.pm<19.5?'sem-g':''}">${fmtR(r.pm)}</td><td class="r">${pct.toFixed(1)}%</td></tr>`}).join('');
+  el.innerHTML=`<div id="drillPanel" class="detail-panel"></div><div class="card"><input class="search" id="sf" placeholder="Buscar fornecedor..." oninput="document.querySelectorAll('.forn-row').forEach(r=>r.style.display=r.dataset.nome.includes(this.value.toLowerCase())?'':'none')"><div class="card-t">${fornList.length} fornecedores — clique para detalhar</div><div class="scroll-tbl"><table class="tbl"><tr><th>#</th><th>Fornecedor</th><th>Cidade</th><th class="r">Valor</th><th class="r">KG</th><th class="c">NFs</th><th class="c">Meses</th><th class="r">PM</th><th class="r">%</th></tr>${rows}</table></div></div>`;
+}
+
+window.drillForn=function(cod){
+  const data=filtered().filter(r=>r.cod_forn==cod);if(!data.length)return;
+  const byMes={};data.forEach(r=>{if(!byMes[r.mes])byMes[r.mes]={kg:0,cb:0,valor:0,nfs:new Set()};byMes[r.mes].kg+=r.kg;byMes[r.mes].cb+=r.cb;byMes[r.mes].valor+=r.vt;byMes[r.mes].nfs.add(r.doc)});
+  const rows=Object.keys(byMes).sort().map(m=>{const r=byMes[m];const pm=r.kg>0?r.valor/r.kg:0;return`<tr><td>${fmtMes(m)}</td><td class="r">${fmtN(r.kg)}</td><td class="r">${fmtN(r.cb)}</td><td class="r">${fmtR(r.valor)}</td><td class="r ${pm>21.5?'sem-r':pm<19.5?'sem-g':''}">${fmtR(pm)}</td><td class="r">${r.nfs.size}</td></tr>`}).join('');
+  const totKg=data.reduce((s,r)=>s+r.kg,0),totVal=data.reduce((s,r)=>s+r.vt,0);
+  const p=document.getElementById('drillPanel');
+  p.innerHTML=`<div class="detail-header"><h3>${data[0].nome} — ${data[0].cidade}</h3><button class="btn-close" onclick="this.closest('.detail-panel').classList.remove('open')">✕</button></div>
+  <div class="g3" style="margin-bottom:10px"><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">KG</div><div style="font-size:20px;font-weight:700">${fmtN(totKg)}</div></div><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">R$</div><div style="font-size:20px;font-weight:700">${fmtR(totVal)}</div></div><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">PM</div><div style="font-size:20px;font-weight:700">${totKg>0?fmtR(totVal/totKg):'-'}</div></div></div>
+  <table class="tbl"><tr><th>Mês</th><th class="r">KG</th><th class="r">CB</th><th class="r">Valor</th><th class="r">PM</th><th class="r">NFs</th></tr>${rows}</table>`;
+  p.classList.add('open');p.scrollIntoView({behavior:'smooth'});
+};
+
+function renderCidades(el,cidList,totVal,totKg,data){
+  const rows=cidList.map((r,i)=>{const pct=totVal>0?r.valor/totVal*100:0;const kgF=r.forn>0?r.kg/r.forn:0;return`<tr class="cid-row" data-nome="${r.cidade.toLowerCase()}" onclick="drillCid('${r.cidade.replace(/'/g,"\\'")}')"><td><strong style="color:var(--gold)">${i+1}</strong></td><td class="clickable">${r.cidade}</td><td class="r">${fmtR(r.valor)}</td><td class="r">${fmtN(r.kg)}</td><td class="c">${r.forn}</td><td class="r ${r.pm<19.5?'sem-g':r.pm>21?'sem-r':''}">${fmtR(r.pm)}</td><td class="r">${fmtN(kgF)}</td><td class="r">${pct.toFixed(1)}%</td></tr>`}).join('');
+  el.innerHTML=`<div id="drillPanel" class="detail-panel"></div><div class="card"><input class="search" placeholder="Buscar cidade..." oninput="document.querySelectorAll('.cid-row').forEach(r=>r.style.display=r.dataset.nome.includes(this.value.toLowerCase())?'':'none')"><div class="card-t">${cidList.length} cidades — clique para ver fornecedores</div><div class="scroll-tbl"><table class="tbl"><tr><th>#</th><th>Cidade</th><th class="r">Valor</th><th class="r">KG</th><th class="c">Forn.</th><th class="r">PM</th><th class="r">KG/Forn</th><th class="r">%</th></tr>${rows}</table></div></div>`;
+}
+
+window.drillCid=function(cidade){
+  const data=filtered().filter(r=>r.cidade===cidade);
+  const fm={};data.forEach(r=>{if(!fm[r.cod_forn])fm[r.cod_forn]={nome:r.nome,kg:0,valor:0,nfs:new Set(),meses:new Set()};fm[r.cod_forn].kg+=r.kg;fm[r.cod_forn].valor+=r.vt;fm[r.cod_forn].nfs.add(r.doc);fm[r.cod_forn].meses.add(r.mes)});
+  const list=Object.values(fm).map(f=>({...f,nfs:f.nfs.size,meses:f.meses.size,pm:f.kg>0?f.valor/f.kg:0})).sort((a,b)=>b.valor-a.valor);
+  const rows=list.map((r,i)=>`<tr><td>${i+1}</td><td>${r.nome}</td><td class="r">${fmtN(r.kg)}</td><td class="r">${fmtR(r.valor)}</td><td class="r ${r.pm>21.5?'sem-r':r.pm<19.5?'sem-g':''}">${fmtR(r.pm)}</td><td class="c">${r.nfs}</td><td class="c">${r.meses}</td></tr>`).join('');
+  const totKg=list.reduce((s,r)=>s+r.kg,0),totVal=list.reduce((s,r)=>s+r.valor,0);
+  const p=document.getElementById('drillPanel');
+  p.innerHTML=`<div class="detail-header"><h3>${cidade} — ${list.length} fornecedores</h3><button class="btn-close" onclick="this.closest('.detail-panel').classList.remove('open')">✕</button></div>
+  <div class="g3" style="margin-bottom:10px"><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">KG</div><div style="font-size:20px;font-weight:700">${fmtN(totKg)}</div></div><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">R$</div><div style="font-size:20px;font-weight:700">${fmtR(totVal)}</div></div><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">PM</div><div style="font-size:20px;font-weight:700">${totKg>0?fmtR(totVal/totKg):'-'}</div></div></div>
+  <div class="scroll-tbl"><table class="tbl"><tr><th>#</th><th>Fornecedor</th><th class="r">KG</th><th class="r">Valor</th><th class="r">PM</th><th class="c">NFs</th><th class="c">Meses</th></tr>${rows}</table></div>`;
+  p.classList.add('open');p.scrollIntoView({behavior:'smooth'});
+};
+
+function renderEstrategico(el,fm,fornList,cidList,data){
+  const fornMeses={};data.forEach(r=>{if(!fornMeses[r.cod_forn])fornMeses[r.cod_forn]={m:new Set(),kg:0};fornMeses[r.cod_forn].m.add(r.mes);fornMeses[r.cod_forn].kg+=r.kg});
+  const buckets=[{l:'1 mês',a:1,b:1},{l:'2-3 meses',a:2,b:3},{l:'4-6 meses',a:4,b:6},{l:'7-12 meses',a:7,b:12},{l:'13+ meses',a:13,b:99}];
+  const totKgAll=Object.values(fornMeses).reduce((s,r)=>s+r.kg,0),totF=Object.keys(fornMeses).length;
+  const freqHtml=buckets.map(b=>{const items=Object.values(fornMeses).filter(r=>r.m.size>=b.a&&r.m.size<=b.b);const cnt=items.length,kg=items.reduce((s,r)=>s+r.kg,0);const pF=totF>0?cnt/totF*100:0,pK=totKgAll>0?kg/totKgAll*100:0;const color=b.a===1?'var(--red)':b.a<=3?'var(--gold)':b.a<=6?'var(--blue)':'var(--green)';return`<div class="bar-row"><div class="bar-lbl" style="width:80px">${b.l}</div><div class="bar-trk"><div class="bar-fill" style="width:${pF}%;background:${color}"></div></div><div class="bar-val">${cnt} forn</div><div class="bar-pm">${pK.toFixed(1)}%kg</div></div>`}).join('');
+
+  const dowMap={};data.forEach(r=>{const d=r.dow;if(!dowMap[d])dowMap[d]={kg:0,dias:new Set()};dowMap[d].kg+=r.kg;dowMap[d].dias.add(r.dt.toISOString().slice(0,10))});
+  const dowNames=['Dom','Segunda','Terça','Quarta','Quinta','Sexta','Sáb'];
+  const dowArr=[1,2,3,4,5].map(d=>({dow:dowNames[d],media:dowMap[d]?dowMap[d].kg/dowMap[d].dias.size:0}));
+  const maxDow=Math.max(...dowArr.map(r=>r.media));
+  const dowHtml=dowArr.map(r=>{const pct=maxDow>0?r.media/maxDow*100:0;const c=r.media<15000?'var(--red)':r.media>17000?'var(--green)':'var(--esp)';return`<div class="bar-row"><div class="bar-lbl" style="width:65px">${r.dow}</div><div class="bar-trk"><div class="bar-fill" style="width:${pct}%;background:${c}"></div></div><div class="bar-val">${fmtN(r.media)} kg</div></div>`}).join('');
+
+  const caros=fornList.filter(r=>r.kg>5000).sort((a,b)=>b.pm-a.pm).slice(0,8).map(r=>`<tr><td>${r.nome}</td><td class="r sem-r">${fmtR(r.pm)}</td><td class="r">${fmtN(r.kg)}</td><td>${r.cidade}</td></tr>`).join('');
+  const baratos=fornList.filter(r=>r.kg>5000).sort((a,b)=>a.pm-b.pm).slice(0,8).map(r=>`<tr><td>${r.nome}</td><td class="r sem-g">${fmtR(r.pm)}</td><td class="r">${fmtN(r.kg)}</td><td>${r.cidade}</td></tr>`).join('');
+  const cidB=cidList.filter(r=>r.forn>=5).sort((a,b)=>a.pm-b.pm).slice(0,8).map(r=>`<tr><td>${r.cidade}</td><td class="r sem-g">${fmtR(r.pm)}</td><td class="r">${r.forn}</td><td class="r">${fmtN(r.forn>0?r.kg/r.forn:0)}</td></tr>`).join('');
+  const loteHtml=fm.map(r=>`<tr><td>${fmtMes(r.mes)}</td><td class="r ${r.lote_medio<1100?'sem-r':''}">${fmtN(r.lote_medio)} kg</td><td class="r">${r.nfs>0?(r.cb/r.nfs).toFixed(1):'-'}</td><td class="r">${r.peso_cb.toFixed(1)}</td></tr>`).join('');
+
+  el.innerHTML=`<div class="insight"><h3>Visão Estratégica — Alavancas para Aumentar Volume</h3><p>Análise de retenção, eficiência operacional e oportunidades geográficas. Todos os dados reagem ao filtro de período selecionado.</p></div>
+  <div class="g2"><div class="card"><div class="card-t">Funil de Retenção</div>${freqHtml}</div><div class="card"><div class="card-t">Volume Médio por Dia da Semana</div>${dowHtml}</div></div>
+  <div class="g2"><div class="card"><div class="card-t">Fornecedores Mais Caros (>5t)</div><table class="tbl"><tr><th>Nome</th><th class="r">PM</th><th class="r">KG</th><th>Cidade</th></tr>${caros}</table></div><div class="card"><div class="card-t">Fornecedores Mais Baratos (>5t)</div><table class="tbl"><tr><th>Nome</th><th class="r">PM</th><th class="r">KG</th><th>Cidade</th></tr>${baratos}</table></div></div>
+  <div class="g2"><div class="card"><div class="card-t">Praças de Menor Custo (≥5 forn)</div><table class="tbl"><tr><th>Cidade</th><th class="r">PM</th><th class="r">Forn</th><th class="r">KG/Forn</th></tr>${cidB}</table></div><div class="card"><div class="card-t">Evolução Lote Médio</div><div class="scroll-tbl" style="max-height:300px"><table class="tbl"><tr><th>Mês</th><th class="r">Lote</th><th class="r">CB/NF</th><th class="r">Peso/CB</th></tr>${loteHtml}</table></div></div></div>`;
+}
+
+// Auto-load if URL saved
+if(localStorage.getItem('frioeste_sheet_url')) loadData();
+</script>
+</body>
+</html>
