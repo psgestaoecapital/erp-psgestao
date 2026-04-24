@@ -133,8 +133,8 @@ export default function DashboardUniversal() {
               empresasDisp={empresasDisp}
               grupoSel={grupoSel}
               empresasSel={empresasSel}
-              onSelecionaGrupo={(id) => { setGrupoSel(id); setEmpresasSel([]); }}
-              onSelecionaEmpresas={(ids) => { setEmpresasSel(ids); setGrupoSel(null); }}
+              onSelecionaGrupo={(id: string) => { setGrupoSel(id); setEmpresasSel([]); }}
+              onSelecionaEmpresas={(ids: string[]) => { setEmpresasSel(ids); setGrupoSel(null); }}
               onGerenciar={() => setShowGerenciarGrupos(true)}
             />
           </div>
