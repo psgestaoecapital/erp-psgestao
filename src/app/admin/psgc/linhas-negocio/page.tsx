@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface LN {
@@ -14,7 +14,7 @@ interface LN {
   keywords: { id: string; keyword: string; prioridade: number }[];
 }
 
-export default function LinhasNegocioPage() {
+function LinhasNegocioInner() {
   const [lns, setLns] = useState<LN[]>([]);
   const [loading, setLoading] = useState(true);
   const [novoNome, setNovoNome] = useState('');
@@ -204,3 +204,5 @@ export default function LinhasNegocioPage() {
     </div>
   );
 }
+
+export default function Page() { return <Suspense fallback={<div style={{padding:40,background:"#FAF7F2",minHeight:"100vh",color:"#3D2314"}}>Carregando...</div>}><LinhasNegocioInner /></Suspense>; }

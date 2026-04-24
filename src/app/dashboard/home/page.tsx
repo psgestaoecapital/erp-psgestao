@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
@@ -42,7 +42,7 @@ const PERIODOS = [
   { id: '6m', label: '6M' }, { id: 'ano', label: 'Ano' }
 ];
 
-export default function DashboardUniversal() {
+function DashboardUniversalInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -633,3 +633,5 @@ function ModalGerenciarAtalhos({ onClose, plano, atuais }: any) {
     </div>
   );
 }
+
+export default function Page() { return <Suspense fallback={<div style={{padding:40,background:"#FAF7F2",minHeight:"100vh",color:"#3D2314"}}>Carregando Dashboard...</div>}><DashboardUniversalInner /></Suspense>; }
