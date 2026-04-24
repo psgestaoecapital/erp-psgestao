@@ -3,7 +3,9 @@
 
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { apiFetch } from '@/lib/apiFetch';
+
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface LN {
@@ -14,7 +16,7 @@ interface LN {
   keywords: { id: string; keyword: string; prioridade: number }[];
 }
 
-function LinhasNegocioInner() {
+export default function LinhasNegocioPage() {
   const [lns, setLns] = useState<LN[]>([]);
   const [loading, setLoading] = useState(true);
   const [novoNome, setNovoNome] = useState('');
@@ -28,7 +30,7 @@ function LinhasNegocioInner() {
 
   async function carregar() {
     if (!companyId) { setLoading(false); return; }
-    const res = await fetch(`/api/psgc/linha-negocio?company_id=${companyId}`);
+    const res = await apiFetch(`/api/psgc/linha-negocio?company_id=${companyId}`);
     const d = await res.json();
     setLns(d.linhas_negocio || []);
     setLoading(false);
@@ -45,7 +47,7 @@ function LinhasNegocioInner() {
         .map(s => s.trim().toLowerCase())
         .filter(s => s.length > 0);
       
-      const res = await fetch('/api/psgc/linha-negocio', {
+      const res = await apiFetch('/api/psgc/linha-negocio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,5 +206,3 @@ function LinhasNegocioInner() {
     </div>
   );
 }
-
-export default function Page() { return <Suspense fallback={<div style={{padding:40,background:"#FAF7F2",minHeight:"100vh",color:"#3D2314"}}>Carregando...</div>}><LinhasNegocioInner /></Suspense>; }

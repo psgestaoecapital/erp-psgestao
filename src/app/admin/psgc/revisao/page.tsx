@@ -4,7 +4,9 @@
 
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { apiFetch } from '@/lib/apiFetch';
+
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface ContaRevisao {
@@ -29,7 +31,7 @@ interface PSGCConta {
   dre_grupo: string;
 }
 
-function PSGCRevisaoInner() {
+export default function PSGCRevisaoPage() {
   const [data, setData] = useState<{
     resumo: any;
     contas: ContaRevisao[];
@@ -45,7 +47,7 @@ function PSGCRevisaoInner() {
 
   async function carregar() {
     if (!companyId) { setLoading(false); return; }
-    const res = await fetch(`/api/psgc/revisao?company_id=${companyId}`);
+    const res = await apiFetch(`/api/psgc/revisao?company_id=${companyId}`);
     const d = await res.json();
     setData(d);
     setLoading(false);
@@ -56,7 +58,7 @@ function PSGCRevisaoInner() {
   async function corrigir(origem_codigo: string, psgc_codigo_correto: string) {
     setSaving(origem_codigo);
     try {
-      const res = await fetch('/api/psgc/corrigir', {
+      const res = await apiFetch('/api/psgc/corrigir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_id: companyId, origem_codigo, psgc_codigo_correto })
@@ -248,5 +250,3 @@ function SelectPSGC({ valorAtual, sugestao, opcoes, saving, onChange }: {
     </select>
   );
 }
-
-export default function Page() { return <Suspense fallback={<div style={{padding:40,background:"#FAF7F2",minHeight:"100vh",color:"#3D2314"}}>Carregando...</div>}><PSGCRevisaoInner /></Suspense>; }

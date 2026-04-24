@@ -4,7 +4,9 @@
 
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { apiFetch } from '@/lib/apiFetch';
+
+import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
@@ -42,7 +44,7 @@ const PERIODOS = [
   { id: '6m', label: '6M' }, { id: 'ano', label: 'Ano' }
 ];
 
-function DashboardUniversalInner() {
+export default function DashboardUniversal() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -72,7 +74,7 @@ function DashboardUniversalInner() {
   // Carrega grupos 1x
   useEffect(() => {
     (async () => {
-      const r = await fetch('/api/dashboard/grupos');
+      const r = await apiFetch('/api/dashboard/grupos');
       const d = await r.json();
       setGrupos(d.grupos || []);
       setEmpresasDisp(d.empresas_disponiveis || []);
@@ -92,7 +94,7 @@ function DashboardUniversalInner() {
     else if (empresasSel.length > 1) params.set('company_ids', empresasSel.join(','));
     
     try {
-      const r = await fetch(`/api/dashboard/universal?${params}`);
+      const r = await apiFetch(`/api/dashboard/universal?${params}`);
       const d = await r.json();
       setData(d);
     } catch (e) {
@@ -131,8 +133,8 @@ function DashboardUniversalInner() {
               empresasDisp={empresasDisp}
               grupoSel={grupoSel}
               empresasSel={empresasSel}
-              onSelecionaGrupo={(id: string) => { setGrupoSel(id); setEmpresasSel([]); }}
-              onSelecionaEmpresas={(ids: string[]) => { setEmpresasSel(ids); setGrupoSel(null); }}
+              onSelecionaGrupo={(id) => { setGrupoSel(id); setEmpresasSel([]); }}
+              onSelecionaEmpresas={(ids) => { setEmpresasSel(ids); setGrupoSel(null); }}
               onGerenciar={() => setShowGerenciarGrupos(true)}
             />
           </div>
@@ -504,7 +506,7 @@ function ModalGerenciarGrupos({ onClose, empresas, grupos }: any) {
   async function salvar() {
     if (!nome || selEmpresas.length === 0) { alert('Nome e empresas obrigatórios'); return; }
     setSalvando(true);
-    await fetch('/api/dashboard/grupos', {
+    await apiFetch('/api/dashboard/grupos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nome, icone, company_ids: selEmpresas, is_padrao: isPadrao })
     });
@@ -514,7 +516,7 @@ function ModalGerenciarGrupos({ onClose, empresas, grupos }: any) {
   
   async function remover(id: string) {
     if (!confirm('Remover este grupo?')) return;
-    await fetch(`/api/dashboard/grupos?id=${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/dashboard/grupos?id=${id}`, { method: 'DELETE' });
     onClose();
   }
   
@@ -579,7 +581,7 @@ function ModalGerenciarAtalhos({ onClose, plano, atuais }: any) {
   const [novo, setNovo] = useState<Atalho>({ nome: '', url: '', icone: '⭐', cor: '#C8941A', ordem: 0 });
   
   async function salvar() {
-    await fetch('/api/dashboard/atalhos', {
+    await apiFetch('/api/dashboard/atalhos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plano, atalhos: atalhos.map((a, i) => ({ ...a, ordem: i })) })
     });
@@ -588,7 +590,7 @@ function ModalGerenciarAtalhos({ onClose, plano, atuais }: any) {
   
   async function reset() {
     if (!confirm('Resetar para atalhos padrão?')) return;
-    await fetch(`/api/dashboard/atalhos?plano=${plano}`, { method: 'DELETE' });
+    await apiFetch(`/api/dashboard/atalhos?plano=${plano}`, { method: 'DELETE' });
     onClose();
   }
   
@@ -633,5 +635,3 @@ function ModalGerenciarAtalhos({ onClose, plano, atuais }: any) {
     </div>
   );
 }
-
-export default function Page() { return <Suspense fallback={<div style={{padding:40,background:"#FAF7F2",minHeight:"100vh",color:"#3D2314"}}>Carregando Dashboard...</div>}><DashboardUniversalInner /></Suspense>; }
