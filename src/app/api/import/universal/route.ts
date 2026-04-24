@@ -185,6 +185,41 @@ function normalizeStr(s: string): string {
 }
 
 // ==================================================================
+// HASH de idempotência (SHA-256 truncado)
+// Base: company_id + data_emissao + data_vencimento + valor + nome + descricao + numero_documento + centro_custo + seq
+//
+// IMPORTANTE: o parâmetro `seq` permite que duplicatas INTENCIONAIS (ex: comissão
+// Luzardo repetida pra fechar caixa) sejam preservadas. O chamador incrementa seq
+// a cada vez que uma chave base idêntica aparece na mesma planilha.
+// Quando reimportar a mesma planilha, os mesmos seq se repetem → nada duplica.
+// ==================================================================
+async function computeImportHash(
+  companyId: string,
+  dataEmissao: string | null,
+  dataVencimento: string | null,
+  valor: number,
+  nome: string,
+  descricao: string,
+  numeroDocumento: string | null,
+  centroCusto: string | null,
+  seq: number
+): Promise<string> {
+  const crypto = require("crypto");
+  const key = [
+    companyId || "",
+    dataEmissao || "",
+    dataVencimento || "",
+    valor.toFixed(2),
+    normalizeStr(nome),
+    normalizeStr(descricao),
+    normalizeStr(numeroDocumento || ""),
+    normalizeStr(centroCusto || ""),
+    String(seq),
+  ].join("|");
+  return crypto.createHash("sha256").update(key).digest("hex").slice(0, 32);
+}
+
+// ==================================================================
 // Processa 1 linha SIGA -> lançamento
 // ==================================================================
 function processarLinhaSIGA(row: any[], m: Record<string, number>): { tipo: "receber" | "pagar" | null; data: any } {
@@ -466,51 +501,55 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      // 5) Preparar registros em erp_receber (usa DATE, ref_externa_sistema)
-      const recordsReceber = lancReceber.map(l => ({
-        company_id: companyId,
-        cliente_id: clientesMap.get(l._nome_norm) || null,
-        cliente_nome: (l.nome_pessoa || "").slice(0, 250),
-        descricao: (l.descricao || "sem descricao").slice(0, 250),
-        valor: l.valor_documento,
-        valor_pago: l.valor_pago,
-        data_emissao: l.data_emissao,
-        data_vencimento: l.data_vencimento,
-        data_pagamento: l.data_pagamento,
-        status: l.status,
-        forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-        numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-        numero_nf: (l.numero_nf || "").slice(0, 100) || null,
-        categoria: (l.categoria_original || "").slice(0, 250) || null,
-        centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-        ref_externa_sistema: "siga",
-        importado_em: new Date().toISOString(),
-      }));
-      
-      // 6) Preparar registros em erp_pagar
-      const recordsPagar = lancPagar.map(l => ({
-        company_id: companyId,
-        fornecedor_id: fornecMap.get(l._nome_norm) || null,
-        fornecedor_nome: (l.nome_pessoa || "").slice(0, 250),
-        descricao: (l.descricao || "sem descricao").slice(0, 250),
-        valor: l.valor_documento,
-        valor_pago: l.valor_pago,
-        data_emissao: l.data_emissao,
-        data_vencimento: l.data_vencimento,
-        data_pagamento: l.data_pagamento,
-        status: l.status,
-        forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-        numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-        numero_nf: (l.numero_nf || "").slice(0, 100) || null,
-        categoria: (l.categoria_original || "").slice(0, 250) || null,
-        centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-        ref_externa_sistema: "siga",
-        importado_em: new Date().toISOString(),
-      }));
-      
-      // 7) Preparar registros em erp_lancamentos (DUPLA ESCRITA — padrão PSGC)
+      // 5-6-7) Preparar registros COM HASH pra idempotência
+      const recordsReceber: any[] = [];
+      const recordsPagar: any[] = [];
       const recordsLancamentos: any[] = [];
+      
+      // Contador de sequencial por chave base (pra permitir duplicatas intencionais)
+      const seqCounter = new Map<string, number>();
+      function nextSeq(base: string): number {
+        const n = (seqCounter.get(base) || 0) + 1;
+        seqCounter.set(base, n);
+        return n;
+      }
+      
       for (const l of lancReceber) {
+        const baseKey = `R|${l.data_emissao}|${l.data_vencimento}|${l.valor_documento.toFixed(2)}|${normalizeStr(l.nome_pessoa)}|${normalizeStr(l.descricao)}`;
+        const seq = nextSeq(baseKey);
+        const hash = await computeImportHash(
+          companyId,
+          l.data_emissao,
+          l.data_vencimento,
+          l.valor_documento,
+          l.nome_pessoa,
+          l.descricao,
+          l.numero_documento,
+          l.centro_custo_original,
+          seq
+        );
+        
+        recordsReceber.push({
+          company_id: companyId,
+          cliente_id: clientesMap.get(l._nome_norm) || null,
+          cliente_nome: (l.nome_pessoa || "").slice(0, 250),
+          descricao: (l.descricao || "sem descricao").slice(0, 250),
+          valor: l.valor_documento,
+          valor_pago: l.valor_pago,
+          data_emissao: l.data_emissao,
+          data_vencimento: l.data_vencimento,
+          data_pagamento: l.data_pagamento,
+          status: l.status,
+          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
+          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
+          numero_nf: (l.numero_nf || "").slice(0, 100) || null,
+          categoria: (l.categoria_original || "").slice(0, 250) || null,
+          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
+          ref_externa_sistema: "siga",
+          importado_em: new Date().toISOString(),
+          import_hash: hash,
+        });
+        
         recordsLancamentos.push({
           company_id: companyId,
           tipo: "receber",
@@ -527,9 +566,46 @@ export async function POST(req: NextRequest) {
           centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
           numero_documento: (l.numero_documento || "").slice(0, 100) || null,
           forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
+          import_hash: hash,
         });
       }
+      
       for (const l of lancPagar) {
+        const baseKey = `P|${l.data_emissao}|${l.data_vencimento}|${l.valor_documento.toFixed(2)}|${normalizeStr(l.nome_pessoa)}|${normalizeStr(l.descricao)}`;
+        const seq = nextSeq(baseKey);
+        const hash = await computeImportHash(
+          companyId,
+          l.data_emissao,
+          l.data_vencimento,
+          l.valor_documento,
+          l.nome_pessoa,
+          l.descricao,
+          l.numero_documento,
+          l.centro_custo_original,
+          seq
+        );
+        
+        recordsPagar.push({
+          company_id: companyId,
+          fornecedor_id: fornecMap.get(l._nome_norm) || null,
+          fornecedor_nome: (l.nome_pessoa || "").slice(0, 250),
+          descricao: (l.descricao || "sem descricao").slice(0, 250),
+          valor: l.valor_documento,
+          valor_pago: l.valor_pago,
+          data_emissao: l.data_emissao,
+          data_vencimento: l.data_vencimento,
+          data_pagamento: l.data_pagamento,
+          status: l.status,
+          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
+          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
+          numero_nf: (l.numero_nf || "").slice(0, 100) || null,
+          categoria: (l.categoria_original || "").slice(0, 250) || null,
+          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
+          ref_externa_sistema: "siga",
+          importado_em: new Date().toISOString(),
+          import_hash: hash,
+        });
+        
         recordsLancamentos.push({
           company_id: companyId,
           tipo: "pagar",
@@ -546,30 +622,92 @@ export async function POST(req: NextRequest) {
           centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
           numero_documento: (l.numero_documento || "").slice(0, 100) || null,
           forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
+          import_hash: hash,
         });
       }
       
-      // 8) Inserir em lotes de 100
+      // 8) DEDUPLICAÇÃO defensiva: remover hashes EXATAMENTE iguais dentro do mesmo import
+      // (com o seq, só acontece se a planilha tem linhas byte-a-byte idênticas — raro)
+      const seenRec = new Set<string>();
+      const recordsReceberUnique = recordsReceber.filter(r => {
+        if (seenRec.has(r.import_hash)) return false;
+        seenRec.add(r.import_hash);
+        return true;
+      });
+      const seenPag = new Set<string>();
+      const recordsPagarUnique = recordsPagar.filter(r => {
+        if (seenPag.has(r.import_hash)) return false;
+        seenPag.add(r.import_hash);
+        return true;
+      });
+      const seenLanc = new Set<string>();
+      const recordsLancamentosUnique = recordsLancamentos.filter(r => {
+        const k = r.tipo + ":" + r.import_hash;
+        if (seenLanc.has(k)) return false;
+        seenLanc.add(k);
+        return true;
+      });
+      
+      const dupDentroImport = 
+        (recordsReceber.length - recordsReceberUnique.length) +
+        (recordsPagar.length - recordsPagarUnique.length);
+      
+      // 9) Verificar quais hashes JÁ EXISTEM no banco
+      const allHashesRec = recordsReceberUnique.map(r => r.import_hash);
+      const allHashesPag = recordsPagarUnique.map(r => r.import_hash);
+      
+      const hashesExistentesRec = new Set<string>();
+      const hashesExistentesPag = new Set<string>();
+      
+      // Consulta em lotes de 500 IDs (limite de query GET)
+      for (let i = 0; i < allHashesRec.length; i += 500) {
+        const batch = allHashesRec.slice(i, i + 500);
+        const { data } = await sb.from("erp_receber")
+          .select("import_hash")
+          .eq("company_id", companyId)
+          .in("import_hash", batch);
+        (data || []).forEach((r: any) => hashesExistentesRec.add(r.import_hash));
+      }
+      for (let i = 0; i < allHashesPag.length; i += 500) {
+        const batch = allHashesPag.slice(i, i + 500);
+        const { data } = await sb.from("erp_pagar")
+          .select("import_hash")
+          .eq("company_id", companyId)
+          .in("import_hash", batch);
+        (data || []).forEach((r: any) => hashesExistentesPag.add(r.import_hash));
+      }
+      
+      // Contagens finais
+      const novosRec = recordsReceberUnique.filter(r => !hashesExistentesRec.has(r.import_hash));
+      const novosPag = recordsPagarUnique.filter(r => !hashesExistentesPag.has(r.import_hash));
+      const jaExistiamRec = recordsReceberUnique.length - novosRec.length;
+      const jaExistiamPag = recordsPagarUnique.length - novosPag.length;
+      
+      // 10) UPSERT em lotes de 100 (só os novos — o upsert com onConflict é plano B caso haja race)
       let impReceber = 0, impPagar = 0, impLanc = 0;
       let errReceber = 0, errPagar = 0, errLanc = 0;
       
-      for (let i = 0; i < recordsReceber.length; i += 100) {
-        const batch = recordsReceber.slice(i, i + 100);
-        const { error } = await sb.from("erp_receber").insert(batch);
+      for (let i = 0; i < novosRec.length; i += 100) {
+        const batch = novosRec.slice(i, i + 100);
+        const { error } = await sb.from("erp_receber")
+          .upsert(batch, { onConflict: "company_id,import_hash", ignoreDuplicates: true });
         if (error) { errReceber += batch.length; console.error("Erro erp_receber:", error.message); }
         else impReceber += batch.length;
       }
       
-      for (let i = 0; i < recordsPagar.length; i += 100) {
-        const batch = recordsPagar.slice(i, i + 100);
-        const { error } = await sb.from("erp_pagar").insert(batch);
+      for (let i = 0; i < novosPag.length; i += 100) {
+        const batch = novosPag.slice(i, i + 100);
+        const { error } = await sb.from("erp_pagar")
+          .upsert(batch, { onConflict: "company_id,import_hash", ignoreDuplicates: true });
         if (error) { errPagar += batch.length; console.error("Erro erp_pagar:", error.message); }
         else impPagar += batch.length;
       }
       
-      for (let i = 0; i < recordsLancamentos.length; i += 100) {
-        const batch = recordsLancamentos.slice(i, i + 100);
-        const { error } = await sb.from("erp_lancamentos").insert(batch);
+      // Em erp_lancamentos: upserta TODOS os únicos (deixa o banco dedupar pelo unique index)
+      for (let i = 0; i < recordsLancamentosUnique.length; i += 100) {
+        const batch = recordsLancamentosUnique.slice(i, i + 100);
+        const { error } = await sb.from("erp_lancamentos")
+          .upsert(batch, { onConflict: "company_id,import_hash", ignoreDuplicates: true });
         if (error) { errLanc += batch.length; console.error("Erro erp_lancamentos:", error.message); }
         else impLanc += batch.length;
       }
@@ -589,7 +727,13 @@ export async function POST(req: NextRequest) {
         errLanc,
         clientesNovos: clientesNovos.size,
         fornecNovos: fornecNovos.size,
-        message: `Importação SIGA: ${impReceber} a receber + ${impPagar} a pagar = ${impReceber + impPagar} lançamentos. ${impLanc} em erp_lancamentos (PSGC). ${clientesNovos.size} clientes e ${fornecNovos.size} fornecedores novos criados.`,
+        jaExistiamRec,
+        jaExistiamPag,
+        dupDentroImport,
+        message: `Importação SIGA: ${impReceber} novo(s) a receber + ${impPagar} novo(s) a pagar. ` +
+          (jaExistiamRec + jaExistiamPag > 0 ? `${jaExistiamRec + jaExistiamPag} já existia(m) (idempotência). ` : "") +
+          (dupDentroImport > 0 ? `${dupDentroImport} duplicata(s) ignorada(s) dentro da planilha. ` : "") +
+          `${clientesNovos.size} cliente(s) e ${fornecNovos.size} fornecedor(es) novo(s).`,
       });
     }
     

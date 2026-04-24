@@ -161,7 +161,8 @@ export default function ImportarUniversalPage(){
                 • <b>erp_receber</b> (linhas com valor em Receber)<br/>
                 • <b>erp_pagar</b> (linhas com valor em Pagar)<br/>
                 • <b>erp_lancamentos</b> (todos, pra PSGC ver consolidado)<br/>
-                Clientes/fornecedores novos serão criados automaticamente.
+                Clientes/fornecedores novos serão criados automaticamente.<br/>
+                <span style={{color:C.y,fontWeight:600}}>🛡️ Proteção anti-duplicata inteligente:</span> reimportar a mesma planilha NÃO duplica dados. Mas se você lançou o mesmo valor 2x intencionalmente (ex: 2 comissões iguais), <b>ambas são preservadas</b>.
               </div>
               {analysis.stats && (
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
@@ -263,17 +264,18 @@ export default function ImportarUniversalPage(){
           <div style={{fontSize:13,color:C.tx,marginBottom:16,maxWidth:700,margin:"0 auto 16px"}}>{result.message}</div>
           
           {result.preset==="siga" ? (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,maxWidth:720,margin:"0 auto 20px"}}>
+            <>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,maxWidth:720,margin:"0 auto 12px"}}>
               <div style={{background:C.bg3,borderRadius:8,padding:10}}>
                 <div style={{fontSize:7,color:C.txd}}>TOTAL LINHAS</div>
                 <div style={{fontSize:18,fontWeight:700,color:C.gol}}>{result.totalRows}</div>
               </div>
               <div style={{background:C.g+"15",borderRadius:8,padding:10,borderLeft:`2px solid ${C.g}`}}>
-                <div style={{fontSize:7,color:C.txd}}>A RECEBER</div>
+                <div style={{fontSize:7,color:C.txd}}>NOVOS A RECEBER</div>
                 <div style={{fontSize:18,fontWeight:700,color:C.g}}>{result.impReceber}</div>
               </div>
               <div style={{background:C.r+"15",borderRadius:8,padding:10,borderLeft:`2px solid ${C.r}`}}>
-                <div style={{fontSize:7,color:C.txd}}>A PAGAR</div>
+                <div style={{fontSize:7,color:C.txd}}>NOVOS A PAGAR</div>
                 <div style={{fontSize:18,fontWeight:700,color:C.r}}>{result.impPagar}</div>
               </div>
               <div style={{background:C.cy+"15",borderRadius:8,padding:10,borderLeft:`2px solid ${C.cy}`}}>
@@ -286,6 +288,23 @@ export default function ImportarUniversalPage(){
                 <div style={{fontSize:7,color:C.txd}}>{result.clientesNovos}c · {result.fornecNovos}f</div>
               </div>
             </div>
+            
+            {/* Idempotência */}
+            {((result.jaExistiamRec||0)+(result.jaExistiamPag||0)+(result.dupDentroImport||0) > 0) && (
+              <div style={{background:C.y+"15",border:`1px solid ${C.y}40`,borderRadius:8,padding:12,maxWidth:720,margin:"0 auto 20px"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.y,marginBottom:6}}>🛡️ Proteção contra duplicatas ativa</div>
+                <div style={{fontSize:10,color:C.tx,lineHeight:1.5,textAlign:"left"}}>
+                  {(result.jaExistiamRec||0)+(result.jaExistiamPag||0) > 0 && (
+                    <div>• <b>{(result.jaExistiamRec||0)+(result.jaExistiamPag||0)} lançamento(s)</b> já existiam no banco e foram ignorados (safe).</div>
+                  )}
+                  {result.dupDentroImport > 0 && (
+                    <div>• <b>{result.dupDentroImport} duplicata(s)</b> dentro da própria planilha foram ignoradas.</div>
+                  )}
+                  <div style={{color:C.txm,marginTop:4,fontSize:9}}>Você pode reimportar essa planilha à vontade — nada vai duplicar.</div>
+                </div>
+              </div>
+            )}
+            </>
           ) : (
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,maxWidth:400,margin:"0 auto 20px"}}>
               <div style={{background:C.bg3,borderRadius:8,padding:10}}>
