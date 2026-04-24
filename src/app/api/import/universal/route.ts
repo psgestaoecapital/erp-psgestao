@@ -243,7 +243,16 @@ function processarLinhaSIGA(row: any[], m: Record<string, number>): { tipo: "rec
   
   const nomePessoa = String(row[m.nome_pessoa] || "").trim();
   const clienteRel = String(row[m.cliente_relacionado] || "").trim();
-  const nomeFinal = nomePessoa || clienteRel;
+  // Se não tem nome, usa categoria como referência ou "(SEM NOME)" como último recurso
+  // Não descarta o lançamento — valor financeiro é real e precisa entrar no fluxo/DRE
+  const categoriaStr = String(row[m.categoria] || "").trim();
+  let nomeFinal = nomePessoa || clienteRel;
+  if (!nomeFinal) {
+    // Extrai a última parte da categoria (ex: "DESPESAS ADMINISTRATIVAS > Aluguel" → "Aluguel")
+    const catParts = categoriaStr.split(">").map(s => s.trim()).filter(Boolean);
+    const catLeaf = catParts[catParts.length - 1] || "";
+    nomeFinal = catLeaf ? `(SEM NOME) ${catLeaf}` : "(SEM NOME)";
+  }
   
   const descricao = String(row[m.descricao] || "").trim();
   const categoria = String(row[m.categoria] || "").trim();
@@ -454,7 +463,7 @@ export async function POST(req: NextRequest) {
       
       for (const r of rows) {
         const p = processarLinhaSIGA(r, mapping);
-        if (!p.tipo || !p.data.nome_pessoa) continue;
+        if (!p.tipo) continue;  // só descarta se não identificou tipo receber/pagar
         
         const nomeNorm = normalizeStr(p.data.nome_pessoa);
         
