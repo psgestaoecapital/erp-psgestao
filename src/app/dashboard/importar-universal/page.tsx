@@ -24,6 +24,7 @@ export default function ImportarUniversalPage(){
   const[tipoOverride,setTipoOverride]=useState("");
   const[result,setResult]=useState<any>(null);
   const[error,setError]=useState("");
+  const[currentFile,setCurrentFile]=useState<File|null>(null);
   const fileRef=useRef<HTMLInputElement>(null);
 
   useEffect(()=>{
@@ -49,6 +50,7 @@ export default function ImportarUniversalPage(){
 
   const analyzeFile=async(file:File)=>{
     setLoading(true);setError("");setAnalysis(null);
+    setCurrentFile(file); // <-- PRESERVA o arquivo no state
     const fd=new FormData();fd.append("file",file);fd.append("action","analyze");
     try{
       const res=await fetch("/api/import/universal",{method:"POST",body:fd});
@@ -63,9 +65,10 @@ export default function ImportarUniversalPage(){
     if(!analysis||!companyId)return;
     setLoading(true);setError("");
     const fd=new FormData();
-    const fileInput=fileRef.current;
-    if(!fileInput?.files?.[0]){setError("Selecione o arquivo novamente");setLoading(false);return;}
-    fd.append("file",fileInput.files[0]);
+    // Prefere o state (sempre presente), fallback pro input nativo
+    const file = currentFile || fileRef.current?.files?.[0];
+    if(!file){setError("Arquivo perdido — arraste de novo ou clique na área pra selecionar");setLoading(false);return;}
+    fd.append("file",file);
     fd.append("action","import");
     fd.append("company_id",companyId);
     if(analysis.preset)fd.append("preset",analysis.preset);
@@ -81,7 +84,7 @@ export default function ImportarUniversalPage(){
 
   const handleDrop=(e:React.DragEvent)=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)analyzeFile(f);};
   const handleFileChange=(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(f)analyzeFile(f);};
-  const reset=()=>{setStep("upload");setAnalysis(null);setResult(null);setError("");setTipoOverride("");if(fileRef.current)fileRef.current.value="";};
+  const reset=()=>{setStep("upload");setAnalysis(null);setResult(null);setError("");setTipoOverride("");setCurrentFile(null);if(fileRef.current)fileRef.current.value="";};
 
   const isSIGA=analysis?.preset==="siga";
   const tipo=tipoOverride||analysis?.tipo||"";
