@@ -6,7 +6,7 @@
 
 import { apiFetch } from '@/lib/apiFetch';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState , Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface ContaRevisao {
@@ -31,7 +31,7 @@ interface PSGCConta {
   dre_grupo: string;
 }
 
-export default function PSGCRevisaoPage() {
+function PSGCRevisaoPageInner() {
   const [data, setData] = useState<{
     resumo: any;
     contas: ContaRevisao[];
@@ -249,4 +249,9 @@ function SelectPSGC({ valorAtual, sugestao, opcoes, saving, onChange }: {
       ))}
     </select>
   );
+}
+
+
+export default function Page() {
+  return <Suspense fallback={<div style={{padding:40,background:'#FAF7F2',minHeight:'100vh',color:'#3D2314',fontFamily:'Inter,system-ui,sans-serif'}}>Carregando...</div>}><PSGCRevisaoPageInner /></Suspense>;
 }
