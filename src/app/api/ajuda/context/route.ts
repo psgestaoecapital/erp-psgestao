@@ -1,12 +1,26 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) {
+    throw new Error('Supabase env vars ausentes em runtime')
+  }
+  return createClient(url, key)
+}
 
 export async function GET() {
+  let supabase
+  try {
+    supabase = getSupabase()
+  } catch (e: any) {
+    if (e.message?.includes('env vars ausentes')) {
+      return NextResponse.json({ error: 'config_missing' }, { status: 503 })
+    }
+    throw e
+  }
+
   try {
     const [empRes, assRes] = await Promise.all([
       supabase.from('empresas').select('id, nome').order('nome'),
