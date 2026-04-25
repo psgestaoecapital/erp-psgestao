@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useSearchParams, useRouter } from 'next/navigation';
+import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -20,6 +21,7 @@ interface DashboardData {
     saude: { status: string; titulo: string; frase: string; indicadores: any };
     acoes: any[];
     futuro: { fluxo: any[]; saldo_projetado_60d: number };
+    consultor_ia?: any;
   };
   camada2: {
     dre_nivel2: any[];
@@ -172,7 +174,8 @@ function DashboardUniversalInner() {
         {data && (
           <>
             <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} />
-            
+            <ConsultorInsights data={data.camada1?.consultor_ia} />
+
             <div style={{ margin: '48px 0 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: 2, color: '#C8941A', fontWeight: 500, textTransform: 'uppercase' }}>Raio-X</div>
               <div style={{ flex: 1, height: 1, background: '#E8E2D4' }} />

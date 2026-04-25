@@ -79,10 +79,11 @@ async function handler(req: NextRequest, user: any) {
       topClientesRes,
       topFornRes,
       atalhosRes,
-      fluxoRes
+      fluxoRes,
+      consultorRes
     ] = await Promise.all([
-      supabase.rpc('fn_psgc_saude_consolidada', { 
-        p_company_ids: companyIds, p_ano: ano, p_mes: mes 
+      supabase.rpc('fn_psgc_saude_consolidada', {
+        p_company_ids: companyIds, p_ano: ano, p_mes: mes
       }),
       supabase.rpc('fn_psgc_dre_consolidada', {
         p_company_ids: companyIds, p_ano: ano, p_mes: mes
@@ -99,15 +100,21 @@ async function handler(req: NextRequest, user: any) {
         .in('company_id', companyIds)
         .gte('data', dataInicio)
         .lte('data', dataFim)
-        .order('data')
+        .order('data'),
+      supabase.rpc('fn_consultor_insights_grupo', {
+        p_company_ids: companyIds, p_ano: ano, p_mes: mes
+      })
     ]);
-    
+
     // Ações (BPO + boletos + recebíveis + compliance) consolidadas
     const acoes = await buscarAcoes(supabase, companyIds);
-    
+
     // Saúde → frase humana
     const s = (saudeRes.data || [])[0];
     const fraseSaude = montarFraseSaude(s, companyIds.length);
+
+    // Consultor IA — falha silenciosa pra não quebrar dashboard
+    const consultorIA = consultorRes?.error ? null : (consultorRes?.data || null);
     
     return NextResponse.json({
       contexto: {
@@ -136,7 +143,8 @@ async function handler(req: NextRequest, user: any) {
         futuro: {
           fluxo: fluxoRes.data || [],
           saldo_projetado_60d: calcularSaldo(fluxoRes.data || [])
-        }
+        },
+        consultor_ia: consultorIA
       },
       camada2: {
         dre_nivel2: dreRes.data || [],
