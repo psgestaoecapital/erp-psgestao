@@ -5,6 +5,7 @@ import RaioXDREExpandida from './RaioXDREExpandida';
 import RaioXABCProfundo from './RaioXABCProfundo';
 import RaioXFluxoCaixa from './RaioXFluxoCaixa';
 import RaioXIndicadores from './RaioXIndicadores';
+import RaioXAssessor from './RaioXAssessor';
 
 interface Props {
   apiFetch: (url: string, init?: RequestInit) => Promise<Response>;
@@ -23,7 +24,7 @@ const CORES = {
   dourado: '#C8941A',
 };
 
-type Aba = 'dre' | 'abc' | 'fluxo' | 'indicadores';
+type Aba = 'dre' | 'abc' | 'fluxo' | 'indicadores' | 'assessor';
 
 export default function RaioXProfundo({ apiFetch, companyIds, ano, mes, regime, grupoId }: Props) {
   const [aberto, setAberto] = useState(false);
@@ -170,6 +171,7 @@ export default function RaioXProfundo({ apiFetch, companyIds, ano, mes, regime, 
             { id: 'abc', label: 'ABC Profundo' },
             { id: 'fluxo', label: 'Fluxo de Caixa' },
             { id: 'indicadores', label: 'Indicadores Operacionais' },
+            { id: 'assessor', label: '👔 Raio-X Assessor' },
           ] as const).map(aba => (
             <button
               key={aba.id}
@@ -210,6 +212,16 @@ export default function RaioXProfundo({ apiFetch, companyIds, ano, mes, regime, 
               {abaAtiva === 'abc' && <RaioXABCProfundo data={data} />}
               {abaAtiva === 'fluxo' && <RaioXFluxoCaixa data={data} />}
               {abaAtiva === 'indicadores' && <RaioXIndicadores data={data} />}
+              {abaAtiva === 'assessor' && (
+                <RaioXAssessor
+                  apiFetch={apiFetch}
+                  companyIds={companyIds}
+                  ano={ano}
+                  mes={mes}
+                  grupoId={grupoId}
+                  ativo={abaAtiva === 'assessor'}
+                />
+              )}
             </>
           )}
         </div>
