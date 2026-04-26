@@ -21,6 +21,7 @@ async function handler(req: NextRequest, user: any) {
     const periodo = searchParams.get('periodo') || 'mes'; // hoje | sem | mes | tri | 6m | ano
     const anoParam = searchParams.get('ano');
     const mesParam = searchParams.get('mes');
+    const regime = (searchParams.get('regime') || 'competencia') as 'competencia' | 'caixa';
     
     const supabase = supabaseAdmin;
     
@@ -80,7 +81,8 @@ async function handler(req: NextRequest, user: any) {
       topFornRes,
       atalhosRes,
       fluxoRes,
-      consultorRes
+      consultorRes,
+      painelExecutivoRes
     ] = await Promise.all([
       supabase.rpc('fn_psgc_saude_consolidada', {
         p_company_ids: companyIds, p_ano: ano, p_mes: mes
@@ -103,6 +105,9 @@ async function handler(req: NextRequest, user: any) {
         .order('data'),
       supabase.rpc('fn_consultor_insights_grupo', {
         p_company_ids: companyIds, p_ano: ano, p_mes: mes
+      }),
+      supabase.rpc('fn_psgc_painel_executivo', {
+        p_company_ids: companyIds, p_ano: ano, p_mes: mes, p_regime: regime
       })
     ]);
 
@@ -115,6 +120,9 @@ async function handler(req: NextRequest, user: any) {
 
     // Consultor IA — falha silenciosa pra não quebrar dashboard
     const consultorIA = consultorRes?.error ? null : (consultorRes?.data || null);
+
+    // Painel Executivo — falha silenciosa
+    const painelExecutivo = painelExecutivoRes?.error ? null : (painelExecutivoRes?.data || null);
     
     return NextResponse.json({
       contexto: {
@@ -124,7 +132,8 @@ async function handler(req: NextRequest, user: any) {
         qtd_empresas: companyIds.length,
         periodo,
         ano,
-        mes
+        mes,
+        regime
       },
       camada1: {
         saude: {
@@ -144,7 +153,8 @@ async function handler(req: NextRequest, user: any) {
           fluxo: fluxoRes.data || [],
           saldo_projetado_60d: calcularSaldo(fluxoRes.data || [])
         },
-        consultor_ia: consultorIA
+        consultor_ia: consultorIA,
+        painel_executivo: painelExecutivo
       },
       camada2: {
         dre_nivel2: dreRes.data || [],
