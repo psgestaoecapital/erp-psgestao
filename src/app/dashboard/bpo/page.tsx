@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",BG="#111110",BG2="#252320",BG3="#33312A",G="#22C55E",R="#EF4444",Y="#FACC15",BL="#3B82F6",
     BD="#504D40",TX="#F0ECE3",TXM="#CCC7BB",TXD="#918C82",PU="#A855F7";
@@ -32,7 +33,7 @@ export default function BPOPage(){
     const targetClients=selectedCompany==="todas"?clients:clients.filter(c=>c.id===selectedCompany);
     for(const c of targetClients){
       try{
-        const r=await fetch("/api/bpo/executar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:c.id})});
+        const r=await authFetch("/api/bpo/executar",{method:"POST",body:JSON.stringify({company_id:c.id})});
         const d=await r.json();
         results.push({nome:c.nome,success:d.success,alertas:d.alertas_gerados||0,resumo:d.resumo_ia||"",resultados:d.resultados||{}});
       }catch(e:any){results.push({nome:c.nome,success:false,error:e.message});}

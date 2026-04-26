@@ -1,15 +1,17 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withAuth } from "@/lib/withAuth";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
 
-export async function POST(req: Request) {
+async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
   try {
     const { company_id } = await req.json();
     if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
 
     // 1. Load approved classifications not yet applied
     const { data: aprovados } = await supabase
@@ -112,6 +114,9 @@ export async function POST(req: Request) {
     });
 
   } catch (e: any) {
+    console.error('[bpo/retroalimentar]', e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+export const POST = withAuth(handler);
