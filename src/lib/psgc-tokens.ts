@@ -151,3 +151,19 @@ export const fmtTempoSLA = (segundos: number | null | undefined): string => {
   if (horas > 0) return `${sinal}${horas}h ${min}m`;
   return `${sinal}${min}m`;
 };
+
+// Helper de cor de score (anti-fraude, classificacao IA, qualquer score 0-100)
+// Reusavel em multiplas paginas: automacao, anti-fraude, etc
+export const corScore = (score: number): string => {
+  if (score >= 80) return PSGC_COLORS.baixa;
+  if (score >= 60) return PSGC_COLORS.media;
+  if (score >= 30) return PSGC_COLORS.laranjaAlerta;
+  return PSGC_COLORS.alta;
+};
+
+// Helper de variant para PSGCCard baseado em nivel saudavel/moderado/critico
+export const variantPorNivel = (nivel: 'saudavel' | 'moderado' | 'critico'): 'success' | 'attention' | 'critical' => {
+  if (nivel === 'saudavel') return 'success';
+  if (nivel === 'moderado') return 'attention';
+  return 'critical';
+};
