@@ -18,6 +18,9 @@ export const PSGC_COLORS = {
   douradoSoft: '#E8B848',
   douradoDark: '#A77614',
 
+  // Dourado alerta (urgencia temporal - "hoje!", "agora!")
+  douradoAlerta: '#FBBF24',
+
   // Semaforo (uso EXCLUSIVO em performance)
   alta: '#C44536',           // Critico
   media: '#D89627',          // Atencao
