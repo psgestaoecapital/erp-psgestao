@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 import AnaliseIAFlags from "../components/AnaliseIAFlags";
 import BalancoPatrimonial from "../components/BalancoPatrimonial";
@@ -238,9 +239,8 @@ export default function AnalisesPage(){
     setDrillData(null);
     const compIds = empresaSel==="consolidado" ? dbCompanies.map(c=>c.id) : empresaSel.startsWith("group_") ? dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id) : [empresaSel];
     try {
-      const res = await fetch(`/api/omie/detail?t=${Date.now()}`, {
+      const res = await authFetch(`/api/omie/detail?t=${Date.now()}`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ company_ids: compIds, categoria, tipo, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim })
       });
       const d = await res.json();
@@ -303,9 +303,9 @@ export default function AnalisesPage(){
       compIds = [empresaSel];
     }
     if (compIds.length === 0) { setLoadingReal(false); return; }
-    fetch(`/api/omie/process?t=${Date.now()}`, {
+    authFetch(`/api/omie/process?t=${Date.now()}`, {
       method: "POST",
-      headers: {"Content-Type":"application/json","Cache-Control":"no-cache"},
+      headers: {"Cache-Control":"no-cache"},
       body: JSON.stringify({ company_ids: compIds, periodo_inicio: efPeriodoInicio, periodo_fim: efPeriodoFim, regime })
     }).then(r=>r.text()).then(text=>{
       try{const d=JSON.parse(text);if(d.success){setRealData(d.data);}else console.error("PROCESS FAIL:",d.error);}
