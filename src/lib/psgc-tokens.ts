@@ -21,6 +21,9 @@ export const PSGC_COLORS = {
   // Dourado alerta (urgencia temporal - "hoje!", "agora!")
   douradoAlerta: '#FBBF24',
 
+  // Laranja alerta (gradacao entre atencao e critico - score anti-fraude 30-60)
+  laranjaAlerta: '#F97316',
+
   // Semaforo (uso EXCLUSIVO em performance)
   alta: '#C44536',           // Critico
   media: '#D89627',          // Atencao
