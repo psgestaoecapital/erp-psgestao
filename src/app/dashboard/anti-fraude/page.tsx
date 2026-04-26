@@ -313,6 +313,11 @@ export default function AntiFraudePage() {
 
   return (
     <div style={{ padding: '16px 16px 40px', minHeight: '100vh', background: C.bg, color: C.tx }}>
+      <div style={{ marginBottom: 16 }}>
+        <PSGCButton variant="ghost" size="sm" onClick={() => { window.location.href = '/dashboard/bpo' }}>
+          ← BPO
+        </PSGCButton>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 9, color: C.r, letterSpacing: 2, textTransform: 'uppercase' }}>Motor Proprietario</div>
@@ -337,9 +342,9 @@ export default function AntiFraudePage() {
               <option key={e.id} value={e.id}>{e.nome}</option>
             ))}
           </select>
-          <button onClick={analisar} disabled={loading || !empresaSel} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: loading ? C.bd : C.r, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
+          <PSGCButton variant="danger" size="md" onClick={analisar} disabled={loading || !empresaSel}>
             {loading ? 'Analisando...' : 'Executar Anti-Fraude'}
-          </button>
+          </PSGCButton>
         </div>
       </div>
 
@@ -371,12 +376,17 @@ export default function AntiFraudePage() {
           </div>
 
           {/* RESUMO EXECUTIVO */}
-          {gerarResumo() && (
-            <div style={{ background: C.card, borderRadius: 8, padding: 14, marginBottom: 14, borderLeft: '3px solid ' + corScore(stats.scoreMedia), border: '1px solid ' + C.bd }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: corScore(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
-              <div style={{ fontSize: 12, color: C.tx, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{gerarResumo()}</div>
-            </div>
-          )}
+          {gerarResumo() && (() => {
+            const nivel: 'saudavel' | 'moderado' | 'critico' =
+              stats.scoreMedia >= 80 ? 'saudavel' :
+              stats.scoreMedia >= 60 ? 'moderado' : 'critico'
+            return (
+              <PSGCCard variant={variantPorNivel(nivel)} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: corScore(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
+                <div style={{ fontSize: 12, color: C.tx, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{gerarResumo()}</div>
+              </PSGCCard>
+            )
+          })()}
 
           {/* FILTROS */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
