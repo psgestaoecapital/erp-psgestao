@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const ESP="#3D2314",GO="#C8941A",GOL="#E8C872",OW="#FAF7F2",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
   BD="#2A2822",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82",GRN="#22C55E",RED="#EF4444",Y="#FBBF24",B="#60A5FA";
@@ -44,7 +45,7 @@ export default function ConsultorPage(){
       formData.append("company_id",selectedComp);
       if(file)formData.append("file",file);
 
-      const res=await fetch("/api/consultor",{method:"POST",body:formData});
+      const res=await authFetch("/api/consultor",{method:"POST",body:formData});
       const data=await res.json();
 
       if(data.success){
