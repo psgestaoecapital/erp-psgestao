@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import PSGCBadge from '@/components/psgc/PSGCBadge'
 
 /* ═══════════════════════════════════════════════════════════════
    PS GESTÃO ERP — LAYOUT v11.1
@@ -292,6 +293,14 @@ const PLANO_ICON: Record<PlanoTipo, React.ReactNode> = {
   bpo: <Icon.Briefcase />,
   wealth: <Icon.Gem />,
   producao: <Icon.Palette />,
+}
+
+// Mapeia rotulo do badge pro variant do PSGCBadge
+const badgeVariant = (b: string): 'primary' | 'default' | 'info' => {
+  if (b === 'NOVO' || b === 'PRO') return 'primary'
+  if (b === 'IA') return 'default'
+  if (b === 'ADM') return 'info'
+  return 'primary'
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -791,7 +800,7 @@ function NavItem({ href, label, icon, active, collapsed, badge, onClick }: { hre
       {!collapsed && (
         <>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-          {badge && (<span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'var(--ps-gold)', color: 'var(--ps-text)', letterSpacing: '0.05em' }}>{badge}</span>)}
+          {badge && <PSGCBadge variant={badgeVariant(badge)} size="sm">{badge}</PSGCBadge>}
         </>
       )}
     </Link>
