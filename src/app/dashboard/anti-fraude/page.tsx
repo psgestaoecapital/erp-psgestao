@@ -2,8 +2,25 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { PSGC_COLORS, corScore, variantPorNivel } from '@/lib/psgc-tokens'
+import PSGCCard from '@/components/psgc/PSGCCard'
+import PSGCButton from '@/components/psgc/PSGCButton'
 
-const C = { bg: '#0F0F0F', card: '#1A1410', card2: '#201C16', bd: '#2A2822', go: '#C8941A', gol: '#E8C872', tx: '#FAF7F2', txm: '#B0AB9F', txd: '#706C64', g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7' }
+const C = {
+  bg: PSGC_COLORS.offWhite,
+  card: PSGC_COLORS.offWhite,
+  card2: PSGC_COLORS.offWhiteDarker,
+  bd: PSGC_COLORS.offWhiteDarker,
+  go: PSGC_COLORS.dourado,
+  gol: PSGC_COLORS.douradoSoft,
+  tx: PSGC_COLORS.espresso,
+  txm: PSGC_COLORS.espressoLight,
+  txd: PSGC_COLORS.espressoLight,
+  g: PSGC_COLORS.baixa,
+  r: PSGC_COLORS.alta,
+  y: PSGC_COLORS.media,
+  b: PSGC_COLORS.azul,
+}
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
 
