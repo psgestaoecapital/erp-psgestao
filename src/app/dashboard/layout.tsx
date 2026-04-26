@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import PSGCBadge from '@/components/psgc/PSGCBadge'
 
 /* ═══════════════════════════════════════════════════════════════
    PS GESTÃO ERP — LAYOUT v11.1
@@ -201,15 +200,14 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
     ]},
     { label: 'CENTRAL DE OPERAÇÕES', items: [
+      { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase />, badge: 'BPO' },
       { href: '/dashboard/bpo/inbox', label: 'Inbox do Operador', icon: <Icon.ClipboardList />, badge: 'NOVO' },
-      { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase /> },
-      { href: '/dashboard/bpo/automacao', label: 'Automações', icon: <Icon.Bot />, badge: 'IA' },
-      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
-      { href: '/dashboard/bpo/conciliacao', label: 'Conciliações', icon: <Icon.Landmark /> },
       { href: '/dashboard/bpo/rotinas', label: 'Rotinas', icon: <Icon.Calendar /> },
+      { href: '/dashboard/bpo/automacao', label: 'Automações', icon: <Icon.Bot />, badge: 'IA' },
+      { href: '/dashboard/bpo/conciliacao', label: 'Conciliações', icon: <Icon.Landmark /> },
       { href: '/dashboard/bpo/supervisor', label: 'Supervisor', icon: <Icon.Eye /> },
     ]},
-    { label: 'CADASTROS BPO', items: [
+    { label: 'CLIENTES BPO', items: [
       { href: '/dashboard/clientes', label: 'Clientes', icon: <Icon.Users /> },
       { href: '/dashboard/fornecedores', label: 'Fornecedores', icon: <Icon.Truck /> },
       { href: '/dashboard/contratos', label: 'Contratos', icon: <Icon.RefreshCw /> },
@@ -224,8 +222,9 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       { href: '/dashboard/consultor-ia', label: 'Consultor IA', icon: <Icon.Bot />, badge: 'IA' },
       { href: '/dashboard/score', label: 'Score Inadimplência', icon: <Icon.TrendingDown />, badge: 'IA' },
       { href: '/dashboard/previsao', label: 'Previsão de Caixa', icon: <Icon.TrendingUp />, badge: 'IA' },
+      { href: '/dashboard/anti-fraude', label: 'Anti-Fraude', icon: <Icon.Shield /> },
     ]},
-    { label: 'ADMINISTRAÇÃO', items: [
+    { label: 'ADMINISTRAÇÃO BPO', items: [
       { href: '/admin/operadores', label: 'Operadores & Atribuições', icon: <Icon.Users />, badge: 'ADM' },
     ]},
   ],
@@ -293,14 +292,6 @@ const PLANO_ICON: Record<PlanoTipo, React.ReactNode> = {
   bpo: <Icon.Briefcase />,
   wealth: <Icon.Gem />,
   producao: <Icon.Palette />,
-}
-
-// Mapeia rotulo do badge pro variant do PSGCBadge
-const badgeVariant = (b: string): 'primary' | 'default' | 'info' => {
-  if (b === 'NOVO' || b === 'PRO') return 'primary'
-  if (b === 'IA') return 'default'
-  if (b === 'ADM') return 'info'
-  return 'primary'
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -483,25 +474,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <style jsx global>{`
         :root {
           --ps-bg: #FAF7F2;
-          --ps-bg2: #FAF7F2;
+          --ps-bg2: #FFFFFF;
           --ps-bg3: #F0ECE3;
           --ps-bg4: #E8E1D3;
           --ps-text: #3D2314;
           --ps-text-m: #6B5D4F;
-          --ps-text-d: #5A3A2A;
+          --ps-text-d: #9C8E80;
           --ps-border: #E0D8CC;
           --ps-border-l: #EDE7DA;
           --ps-gold: #C8941A;
           --ps-gold-d: #A57A15;
           --ps-gold-l: #E8B84E;
           --ps-gold-bg: #FDF7E8;
-          --ps-green: #5C8D3F;
+          --ps-green: #2D7A3E;
           --ps-green-bg: #EBF3ED;
-          --ps-red: #C44536;
+          --ps-red: #B83B3B;
           --ps-red-bg: #F6E8E8;
-          --ps-amber: #D89627;
+          --ps-amber: #C88A1A;
           --ps-amber-bg: #FAF0DF;
-          --ps-blue: #3D6FA8;
+          --ps-blue: #2C5282;
           --ps-blue-bg: #E7EDF5;
           --ps-font-display: 'Fraunces', Georgia, serif;
           --ps-font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -596,7 +587,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {menuGroups.map((group, idx) => (
               <div key={idx} style={{ marginTop: 18 }}>
                 {!sidebarCollapsed && (
-                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{group.label}</div>
+                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{group.label}</div>
                 )}
                 {sidebarCollapsed && idx > 0 && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
                 {group.items.map(item => (
@@ -609,7 +600,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {isAdmin && (
               <div style={{ marginTop: 18 }}>
                 {!sidebarCollapsed && (
-                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>ADMINISTRAÇÃO SISTEMA</div>
+                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-text-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>ADMINISTRAÇÃO</div>
                 )}
                 {sidebarCollapsed && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
                 <NavItem href="/admin/sync-status" label="Status Sync Omie" icon={<Icon.RefreshCw />} active={pathname === '/admin/sync-status'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
@@ -800,7 +791,7 @@ function NavItem({ href, label, icon, active, collapsed, badge, onClick }: { hre
       {!collapsed && (
         <>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-          {badge && <PSGCBadge variant={badgeVariant(badge)} size="sm">{badge}</PSGCBadge>}
+          {badge && (<span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'var(--ps-gold)', color: 'var(--ps-text)', letterSpacing: '0.05em' }}>{badge}</span>)}
         </>
       )}
     </Link>

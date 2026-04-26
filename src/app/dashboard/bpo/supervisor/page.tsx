@@ -2,185 +2,136 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { PSGC_COLORS } from '@/lib/psgc-tokens'
 
-// Paleta local: usa PSGC_COLORS como fonte de verdade.
-// Mantemos referencias curtas pra preservar legibilidade do codigo original.
 const C = {
-  espresso: PSGC_COLORS.espresso,
-  offwhite: PSGC_COLORS.offWhite,
-  card: PSGC_COLORS.offWhite,
-  dourado: PSGC_COLORS.dourado,
-  douradoClaro: PSGC_COLORS.douradoSoft,
-  txt: PSGC_COLORS.espresso,
-  txtMedio: PSGC_COLORS.espressoLight,
-  txtClaro: PSGC_COLORS.espressoLight,
-  border: PSGC_COLORS.offWhiteDarker,
-  atrasado: PSGC_COLORS.alta,
-  urgente: PSGC_COLORS.media,
-  hoje: PSGC_COLORS.douradoAlerta,
-  ok: PSGC_COLORS.baixa,
+  espresso: '#3D2314',
+  offwhite: '#FAF7F2',
+  dourado: '#C8941A',
+  douradoClaro: '#E8C872',
+  txt: '#1A1410',
+  txtMedio: '#6B5C4A',
+  txtClaro: '#918C82',
+  border: '#E5DDD0',
+  atrasado: '#B85042',
+  urgente: '#D97706',
+  hoje: '#FBBF24',
+  ok: '#4A7C4A',
+  verde: '#4A7C4A',
+  vermelho: '#B85042',
 }
 
-interface EmpresaStats {
-  company_id: string
+type DashboardRow = {
   empresa: string
-  total_pendente: number
-  atrasados: number
+  company_id: string
+  total_itens: number
   urgentes: number
+  atrasados: number
   hoje: number
   sem_operador: number
   concluidos_hoje: number
 }
 
-interface OperadorStats {
+type OperadorStats = {
   user_id: string
-  email: string
-  empresas_atribuidas: number
-  pendentes: number
-  atrasados: number
+  full_name: string
+  empresas_acesso: number
+  itens_pendentes: number
+  itens_atrasados: number
   concluidos_hoje: number
 }
 
-export default function BPOSupervisorPage() {
-  const [empresas, setEmpresas] = useState<EmpresaStats[]>([])
+export default function SupervisorDashboardPage() {
+  const [rows, setRows] = useState<DashboardRow[]>([])
   const [operadores, setOperadores] = useState<OperadorStats[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function load() {
-      const [empData, opData] = await Promise.all([
-        supabase.rpc('fn_supervisor_dashboard'),
-        supabase.rpc('fn_operadores_stats'),
-      ])
-      if (empData.data) setEmpresas(empData.data as EmpresaStats[])
-      if (opData.data) setOperadores(opData.data as OperadorStats[])
-      setLoading(false)
-    }
-    load()
-  }, [])
+  useEffect(() => { loadAll() }, [])
 
-  const totals = empresas.reduce(
-    (acc, e) => ({
-      total: acc.total + e.total_pendente,
-      atrasados: acc.atrasados + e.atrasados,
-      urgentes: acc.urgentes + e.urgentes,
-      hoje: acc.hoje + e.hoje,
-      sem_op: acc.sem_op + e.sem_operador,
-      concluidos: acc.concluidos + e.concluidos_hoje,
-    }),
-    { total: 0, atrasados: 0, urgentes: 0, hoje: 0, sem_op: 0, concluidos: 0 }
-  )
+  async function loadAll() {
+    setLoading(true)
+
+    const [dashRes, opsRes] = await Promise.all([
+      supabase.rpc('fn_supervisor_dashboard'),
+      supabase.rpc('fn_operadores_stats'),
+    ])
+
+    if (dashRes.data) setRows(dashRes.data)
+    if (opsRes.data) setOperadores(opsRes.data)
+    setLoading(false)
+  }
+
+  const totals = rows.reduce((acc, r) => ({
+    total: acc.total + r.total_itens,
+    urgentes: acc.urgentes + r.urgentes,
+    atrasados: acc.atrasados + r.atrasados,
+    hoje: acc.hoje + r.hoje,
+    sem_operador: acc.sem_operador + r.sem_operador,
+    concluidos: acc.concluidos + r.concluidos_hoje,
+  }), { total: 0, urgentes: 0, atrasados: 0, hoje: 0, sem_operador: 0, concluidos: 0 })
 
   return (
-    <div style={{ minHeight: '100vh', background: C.offwhite, padding: '32px 40px' }}>
-      <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-        {/* HEADER */}
-        <div style={{
-          background: C.espresso,
-          padding: '24px 32px',
-          borderRadius: 12,
-          marginBottom: 24,
-        }}>
-          <div style={{
-            color: C.douradoClaro,
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 2,
-            marginBottom: 6,
-            textTransform: 'uppercase',
-          }}>
-            CENTRAL BPO PS GESTAO
-          </div>
-          <h1 style={{
-            color: C.douradoClaro,
-            fontSize: 32,
-            fontFamily: 'Georgia, serif',
-            fontWeight: 700,
-            margin: 0,
-          }}>
-            Supervisor Dashboard
-          </h1>
-          <div style={{
-            color: C.douradoClaro,
-            fontSize: 13,
-            marginTop: 4,
-            opacity: 0.9,
-          }}>
-            {empresas.length} empresas - {operadores.length} operadores
-          </div>
+    <div style={{ backgroundColor: C.offwhite, minHeight: 'calc(100vh - 64px)', margin: -24 }}>
+      <div style={{ backgroundColor: C.espresso, padding: '24px 32px', color: C.offwhite }}>
+        <div style={{ fontSize: 11, color: C.douradoClaro, fontWeight: 'bold', letterSpacing: 2 }}>
+          CENTRAL BPO PS GESTAO
+        </div>
+        <h1 style={{ fontSize: 32, fontFamily: 'Georgia, serif', margin: '4px 0 0 0', fontWeight: 'bold' }}>
+          Supervisor Dashboard
+        </h1>
+        <div style={{ fontSize: 13, color: C.douradoClaro, marginTop: 4 }}>
+          {rows.length} empresas ativas - {totals.total} itens totais - {totals.concluidos} concluidos hoje
+        </div>
+      </div>
+
+      <div style={{ padding: '24px 32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
+          <BigKpi label="Total" valor={totals.total} cor={C.espresso} />
+          <BigKpi label="Atrasados" valor={totals.atrasados} cor={C.atrasado} />
+          <BigKpi label="Urgentes" valor={totals.urgentes} cor={C.urgente} />
+          <BigKpi label="Hoje" valor={totals.hoje} cor={C.hoje} />
+          <BigKpi label="Sem operador" valor={totals.sem_operador} cor={C.txtMedio} />
+          <BigKpi label="Concluidos hoje" valor={totals.concluidos} cor={C.ok} />
         </div>
 
-        {/* 6 BIG KPIs */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 12,
-          marginBottom: 24,
-        }}>
-          {BigKpi('Pendentes Total', totals.total, C.txt)}
-          {BigKpi('Atrasados', totals.atrasados, C.atrasado)}
-          {BigKpi('Urgentes', totals.urgentes, C.urgente)}
-          {BigKpi('Hoje', totals.hoje, C.hoje)}
-          {BigKpi('Sem Operador', totals.sem_op, C.atrasado)}
-          {BigKpi('Concluidos Hoje', totals.concluidos, C.ok)}
-        </div>
-
-        {/* TABELA EMPRESAS */}
-        <div style={{
-          background: C.card,
-          borderRadius: 12,
-          padding: 24,
-          marginBottom: 24,
-          border: `1px solid ${C.border}`,
-        }}>
-          <h3 style={{
-            color: C.txt,
-            fontSize: 13,
-            fontWeight: 700,
-            letterSpacing: 2,
-            textTransform: 'uppercase',
-            marginTop: 0,
-            marginBottom: 16,
-          }}>
+        <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '20px 24px', marginBottom: 20, overflowX: 'auto' }}>
+          <div style={{ fontSize: 12, fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>
             Visao por Empresa
-          </h3>
+          </div>
+
           {loading ? (
-            <div style={{ textAlign: 'center', color: C.txtClaro, padding: 40 }}>
-              Carregando...
-            </div>
+            <div style={{ textAlign: 'center', padding: 30, color: C.txtMedio }}>Carregando...</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
               <thead>
-                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <th style={thStyle}>Empresa</th>
-                  <th style={thStyleRight}>Total</th>
-                  <th style={thStyleRight}>Atraso</th>
-                  <th style={thStyleRight}>Urgente</th>
-                  <th style={thStyleRight}>Hoje</th>
-                  <th style={thStyleRight}>Sem op</th>
-                  <th style={thStyleRight}>Concluidos</th>
+                <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                  <th style={thStyle()}>Empresa</th>
+                  <th style={thStyleRight()}>Total</th>
+                  <th style={thStyleRight()}>Atraso</th>
+                  <th style={thStyleRight()}>Urgente</th>
+                  <th style={thStyleRight()}>Hoje</th>
+                  <th style={thStyleRight()}>Sem op.</th>
+                  <th style={thStyleRight()}>Concluidos</th>
                 </tr>
               </thead>
               <tbody>
-                {empresas.map((e) => (
-                  <tr key={e.company_id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={tdStyle}>{e.empresa}</td>
-                    <td style={tdStyleRight}>{e.total_pendente}</td>
-                    <td style={{ ...tdStyleRight, color: e.atrasados > 0 ? C.atrasado : C.txtClaro, fontWeight: e.atrasados > 0 ? 700 : 400 }}>
-                      {e.atrasados > 0 ? e.atrasados : '-'}
+                {rows.map(r => (
+                  <tr key={r.company_id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={tdStyle()}><strong>{r.empresa}</strong></td>
+                    <td style={tdStyleRight()}>{r.total_itens}</td>
+                    <td style={{ ...tdStyleRight(), color: r.atrasados > 0 ? C.atrasado : C.txtClaro, fontWeight: r.atrasados > 0 ? 'bold' : 'normal' }}>
+                      {r.atrasados || '-'}
                     </td>
-                    <td style={{ ...tdStyleRight, color: e.urgentes > 0 ? C.urgente : C.txtClaro, fontWeight: e.urgentes > 0 ? 700 : 400 }}>
-                      {e.urgentes > 0 ? e.urgentes : '-'}
+                    <td style={{ ...tdStyleRight(), color: r.urgentes > 0 ? C.urgente : C.txtClaro, fontWeight: r.urgentes > 0 ? 'bold' : 'normal' }}>
+                      {r.urgentes || '-'}
                     </td>
-                    <td style={{ ...tdStyleRight, color: e.hoje > 0 ? PSGC_COLORS.douradoDark : C.txtClaro, fontWeight: e.hoje > 0 ? 700 : 400 }}>
-                      {e.hoje > 0 ? e.hoje : '-'}
+                    <td style={{ ...tdStyleRight(), color: r.hoje > 0 ? '#A67C00' : C.txtClaro }}>
+                      {r.hoje || '-'}
                     </td>
-                    <td style={{ ...tdStyleRight, color: e.sem_operador > 0 ? C.atrasado : C.txtClaro, fontWeight: e.sem_operador > 0 ? 700 : 400 }}>
-                      {e.sem_operador > 0 ? e.sem_operador : '-'}
+                    <td style={{ ...tdStyleRight(), color: r.sem_operador > 0 ? C.atrasado : C.txtClaro, fontWeight: r.sem_operador > 0 ? 'bold' : 'normal' }}>
+                      {r.sem_operador || '-'}
                     </td>
-                    <td style={{ ...tdStyleRight, color: e.concluidos_hoje > 0 ? C.ok : C.txtClaro, fontWeight: e.concluidos_hoje > 0 ? 700 : 400 }}>
-                      {e.concluidos_hoje}
+                    <td style={{ ...tdStyleRight(), color: C.ok }}>
+                      {r.concluidos_hoje || '-'}
                     </td>
                   </tr>
                 ))}
@@ -189,42 +140,22 @@ export default function BPOSupervisorPage() {
           )}
         </div>
 
-        {/* CARDS OPERADORES */}
         {operadores.length > 0 && (
-          <div>
-            <h3 style={{
-              color: C.txt,
-              fontSize: 13,
-              fontWeight: 700,
-              letterSpacing: 2,
-              textTransform: 'uppercase',
-              marginBottom: 16,
-            }}>
-              Carga por Operador
-            </h3>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 12,
-            }}>
-              {operadores.map((op) => (
-                <div key={op.user_id} style={{
-                  background: C.offwhite,
-                  border: `1px solid ${C.border}`,
-                  borderLeft: `4px solid ${op.atrasados > 0 ? C.atrasado : C.ok}`,
-                  borderRadius: 10,
-                  padding: 16,
-                }}>
-                  <div style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
-                    {op.email}
+          <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '20px 24px' }}>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>
+              Carga de Trabalho por Operador
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+              {operadores.map(op => (
+                <div key={op.user_id} style={{ padding: 14, borderRadius: 8, backgroundColor: C.offwhite, borderLeft: `4px solid ${op.itens_atrasados > 0 ? C.atrasado : C.verde}` }}>
+                  <div style={{ fontSize: 14, fontWeight: 'bold', color: C.txt }}>{op.full_name}</div>
+                  <div style={{ fontSize: 11, color: C.txtClaro, marginTop: 2 }}>
+                    {op.empresas_acesso} empresas atribuidas
                   </div>
-                  <div style={{ color: C.txtMedio, fontSize: 11, marginBottom: 12 }}>
-                    {op.empresas_atribuidas} empresas atribuidas
-                  </div>
-                  <div style={{ display: 'flex', gap: 16 }}>
-                    {SmallStat('Pendentes', op.pendentes, C.txt)}
-                    {SmallStat('Atrasados', op.atrasados, op.atrasados > 0 ? C.atrasado : C.txtClaro)}
-                    {SmallStat('Concluidos', op.concluidos_hoje, C.ok)}
+                  <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
+                    <SmallStat label="Pendentes" val={op.itens_pendentes} cor={C.dourado} />
+                    <SmallStat label="Atrasados" val={op.itens_atrasados} cor={op.itens_atrasados > 0 ? C.atrasado : C.txtClaro} />
+                    <SmallStat label="Concluidos" val={op.concluidos_hoje} cor={C.ok} />
                   </div>
                 </div>
               ))}
@@ -234,89 +165,27 @@ export default function BPOSupervisorPage() {
       </div>
     </div>
   )
-
-  function BigKpi(label: string, valor: number, cor: string) {
-    return (
-      <div key={label} style={{
-        background: C.offwhite,
-        border: `1px solid ${C.border}`,
-        borderLeft: `4px solid ${cor}`,
-        borderRadius: 10,
-        padding: '14px 16px',
-      }}>
-        <div style={{
-          color: C.txtMedio,
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: 0.8,
-          textTransform: 'uppercase',
-          marginBottom: 6,
-        }}>
-          {label}
-        </div>
-        <div style={{
-          color: cor,
-          fontSize: 32,
-          fontFamily: 'Georgia, serif',
-          fontWeight: 700,
-          letterSpacing: -1,
-          lineHeight: 1,
-        }}>
-          {valor}
-        </div>
-      </div>
-    )
-  }
-
-  function SmallStat(label: string, val: number, cor: string) {
-    return (
-      <div key={label} style={{ flex: 1 }}>
-        <div style={{
-          color: C.txtMedio,
-          fontSize: 9,
-          fontWeight: 700,
-          letterSpacing: 0.8,
-          textTransform: 'uppercase',
-          marginBottom: 2,
-        }}>
-          {label}
-        </div>
-        <div style={{
-          color: cor,
-          fontSize: 18,
-          fontFamily: 'Georgia, serif',
-          fontWeight: 700,
-        }}>
-          {val}
-        </div>
-      </div>
-    )
-  }
 }
 
-const thStyle: React.CSSProperties = {
-  textAlign: 'left',
-  fontSize: 10,
-  fontWeight: 700,
-  color: PSGC_COLORS.espressoLight,
-  letterSpacing: 0.8,
-  textTransform: 'uppercase',
-  padding: '12px 8px',
+function BigKpi({ label, valor, cor }: { label: string; valor: number; cor: string }) {
+  return (
+    <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '16px 20px', borderLeft: `4px solid ${cor}` }}>
+      <div style={{ fontSize: 11, color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>{label}</div>
+      <div style={{ fontSize: 32, fontFamily: 'Georgia, serif', fontWeight: 'bold', color: cor, marginTop: 4 }}>{valor}</div>
+    </div>
+  )
 }
 
-const thStyleRight: React.CSSProperties = {
-  ...thStyle,
-  textAlign: 'right',
+function SmallStat({ label, val, cor }: { label: string; val: number; cor: string }) {
+  return (
+    <div style={{ textAlign: 'center', flex: 1 }}>
+      <div style={{ fontSize: 18, fontWeight: 'bold', color: cor, fontFamily: 'Georgia, serif' }}>{val}</div>
+      <div style={{ fontSize: 9, color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
+    </div>
+  )
 }
 
-const tdStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: PSGC_COLORS.espresso,
-  padding: '12px 8px',
-}
-
-const tdStyleRight: React.CSSProperties = {
-  ...tdStyle,
-  textAlign: 'right',
-  fontVariantNumeric: 'tabular-nums',
-}
+function thStyle(): React.CSSProperties { return { textAlign: 'left', padding: '10px 8px', fontSize: 11, color: C.txtMedio, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 } }
+function thStyleRight(): React.CSSProperties { return { ...thStyle(), textAlign: 'right' } }
+function tdStyle(): React.CSSProperties { return { padding: '10px 8px', fontSize: 13, color: C.txt } }
+function tdStyleRight(): React.CSSProperties { return { ...tdStyle(), textAlign: 'right' } }
