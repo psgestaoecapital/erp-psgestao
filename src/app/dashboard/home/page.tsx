@@ -10,6 +10,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
+import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -181,6 +182,14 @@ function DashboardUniversalInner() {
             <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} />
             <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
             <ConsultorInsights data={data.camada1?.consultor_ia} />
+            <RaioXProfundo
+              apiFetch={authFetch}
+              companyIds={data.contexto?.company_ids || []}
+              ano={data.contexto?.ano || null}
+              mes={data.contexto?.mes || null}
+              regime={regime}
+              grupoId={grupoSel || null}
+            />
 
             <div style={{ margin: '48px 0 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: 2, color: '#C8941A', fontWeight: 500, textTransform: 'uppercase' }}>Raio-X</div>
