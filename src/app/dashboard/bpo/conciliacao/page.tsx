@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
 const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
@@ -48,7 +49,7 @@ export default function ConciliacaoPage(){
     const form=new FormData();
     form.append("file",file);form.append("company_id",selComp);form.append("operadora",operadora);
     try{
-      const res=await fetch("/api/conciliacao",{method:"POST",body:form});
+      const res=await authFetch("/api/conciliacao",{method:"POST",body:form});
       const d=await res.json();
       if(d.success){setResumo(d.resumo);setConcId(d.conciliacao_id);loadItens(d.conciliacao_id);loadHistorico();setMsg(`✅ ${d.resumo.transacoes_fatura} transações processadas!`);}
       else setMsg(`❌ ${d.error}`);

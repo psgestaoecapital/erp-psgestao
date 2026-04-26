@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -118,7 +119,7 @@ export default function FichaTecnicaPage(){
     if(!resolvedCompId)return;
     const loadProds=async()=>{
       try{
-        const res=await fetch("/api/ficha-tecnica/produtos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId,busca:""})});
+        const res=await authFetch("/api/ficha-tecnica/produtos",{method:"POST",body:JSON.stringify({company_id:resolvedCompId,busca:""})});
         const d=await res.json();
         if(d.success)setAllProds(d.produtos);
       }catch{}
@@ -142,7 +143,7 @@ export default function FichaTecnicaPage(){
   const atualizarPrecosERP=async()=>{
     if(!resolvedCompId||itens.length===0)return;
     setMsg("🔄 Buscando preços no ERP...");
-    const res=await fetch("/api/ficha-tecnica/produtos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId,busca:""})});
+    const res=await authFetch("/api/ficha-tecnica/produtos",{method:"POST",body:JSON.stringify({company_id:resolvedCompId,busca:""})});
     const d=await res.json();
     if(!d.success){setMsg("❌ Erro ao buscar produtos");return;}
     let updated=0;
@@ -265,7 +266,7 @@ export default function FichaTecnicaPage(){
   const seedDatabase=async()=>{
     setSeeding(true);
     try{
-      const res=await fetch("/api/ficha-tecnica/seed",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:resolvedCompId})});
+      const res=await authFetch("/api/ficha-tecnica/seed",{method:"POST",body:JSON.stringify({company_id:resolvedCompId})});
       const d=await res.json();
       if(d.success){setMsg(`✅ ${d.fichas_criadas} fichas + ${d.itens_criados} itens criados! (${d.total_materiais} materiais base)`);loadFichas();}
       else setMsg(`❌ ${d.error}`);
