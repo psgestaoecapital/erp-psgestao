@@ -275,7 +275,6 @@ export default function AntiFraudePage() {
     scoreMedia: despesas.length > 0 ? Math.round(despesas.reduce((s, l) => s + l.score, 0) / despesas.length) : 0,
   }
 
-  const scoreColor = (s: number) => s >= 80 ? C.g : s >= 60 ? C.y : s >= 30 ? '#F97316' : C.r
   const fmt = (v: number) => 'R$ ' + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 
   // Gera resumo narrativo
@@ -356,7 +355,7 @@ export default function AntiFraudePage() {
           {/* SCORECARD */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 6, marginBottom: 14 }}>
             {[
-              { l: 'Score Medio', v: String(stats.scoreMedia), c: scoreColor(stats.scoreMedia) },
+              { l: 'Score Medio', v: String(stats.scoreMedia), c: corScore(stats.scoreMedia) },
               { l: 'Total Despesas', v: String(stats.total), c: C.b },
               { l: 'Critico (<30)', v: String(stats.critico), c: C.r },
               { l: 'Suspeito (30-59)', v: String(stats.suspeito), c: '#F97316' },
@@ -373,8 +372,8 @@ export default function AntiFraudePage() {
 
           {/* RESUMO EXECUTIVO */}
           {gerarResumo() && (
-            <div style={{ background: C.card, borderRadius: 8, padding: 14, marginBottom: 14, borderLeft: '3px solid ' + scoreColor(stats.scoreMedia), border: '1px solid ' + C.bd }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: scoreColor(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
+            <div style={{ background: C.card, borderRadius: 8, padding: 14, marginBottom: 14, borderLeft: '3px solid ' + corScore(stats.scoreMedia), border: '1px solid ' + C.bd }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: corScore(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
               <div style={{ fontSize: 12, color: C.tx, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{gerarResumo()}</div>
             </div>
           )}
@@ -401,20 +400,20 @@ export default function AntiFraudePage() {
                   <React.Fragment key={l.id}>
                     <tr onClick={() => setExpandido(expandido === l.id ? null : l.id)} style={{ borderBottom: '0.5px solid ' + C.bd + '40', cursor: l.flags.length > 0 ? 'pointer' : 'default', background: expandido === l.id ? C.card2 : 'transparent' }}>
                       <td style={{ padding: '6px', width: 55 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(l.score), padding: '2px 8px', borderRadius: 4, background: scoreColor(l.score) + '15' }}>{l.score}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: corScore(l.score), padding: '2px 8px', borderRadius: 4, background: corScore(l.score) + '15' }}>{l.score}</span>
                       </td>
                       <td style={{ padding: '6px', fontSize: 10, color: C.txm, whiteSpace: 'nowrap' }}>{l.data}</td>
                       <td style={{ padding: '6px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.forn}</td>
                       <td style={{ padding: '6px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', color: C.txm }}>{l.desc}</td>
                       <td style={{ padding: '6px', textAlign: 'right', fontWeight: 600, color: C.r }}>{fmt(l.valor)}</td>
                       <td style={{ padding: '6px' }}>
-                        {l.flags.length > 0 && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: scoreColor(l.score) + '15', color: scoreColor(l.score), fontWeight: 600 }}>{l.flags.length} flag{l.flags.length > 1 ? 's' : ''}</span>}
+                        {l.flags.length > 0 && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: corScore(l.score) + '15', color: corScore(l.score), fontWeight: 600 }}>{l.flags.length} flag{l.flags.length > 1 ? 's' : ''}</span>}
                       </td>
                     </tr>
                     {expandido === l.id && l.flags.length > 0 && (
                       <tr><td colSpan={6} style={{ padding: '4px 6px 10px 60px', background: C.card2 }}>
                         {l.flags.map((f, i) => (
-                          <div key={i} style={{ fontSize: 10, color: scoreColor(l.score), padding: '2px 0', borderLeft: '2px solid ' + scoreColor(l.score), paddingLeft: 8, marginBottom: 2 }}>{f}</div>
+                          <div key={i} style={{ fontSize: 10, color: corScore(l.score), padding: '2px 0', borderLeft: '2px solid ' + corScore(l.score), paddingLeft: 8, marginBottom: 2 }}>{f}</div>
                         ))}
                         <div style={{ fontSize: 9, color: C.txd, marginTop: 4 }}>Cat: {l.cat || 'N/I'} | NF-e: {l.nfe || 'Sem'} | Doc: {l.nossoNum || 'Sem'} | Cod.Forn: {l.codForn}</div>
                       </td></tr>
