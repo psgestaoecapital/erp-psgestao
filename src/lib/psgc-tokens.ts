@@ -66,6 +66,16 @@ export const PSGC_RADIUS = {
   xxl: 14,
 } as const;
 
+// Toggle switch dimensions (caso reusavel - documentado, nao componente)
+export const PSGC_TOGGLE_DIMS = {
+  width: 40,
+  height: 22,
+  handleSize: 18,
+  handleOffsetActive: 20,
+  handleOffsetInactive: 2,
+  borderRadius: 11,
+} as const;
+
 // Helpers semanticos
 export const corStatus = (status: string) => {
   const map: Record<string, string> = {
