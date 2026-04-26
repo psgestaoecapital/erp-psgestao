@@ -8,6 +8,8 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
+import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
+import ToggleRegime from '@/components/dashboard/ToggleRegime';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -22,6 +24,7 @@ interface DashboardData {
     acoes: any[];
     futuro: { fluxo: any[]; saldo_projetado_60d: number };
     consultor_ia?: any;
+    painel_executivo?: any;
   };
   camada2: {
     dre_nivel2: any[];
@@ -57,6 +60,7 @@ function DashboardUniversalInner() {
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
   const [empresasSel, setEmpresasSel] = useState<string[]>([]);
   const [periodo, setPeriodo] = useState<string>('mes');
+  const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia');
   
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,7 +93,7 @@ function DashboardUniversalInner() {
   // Carrega dashboard sempre que muda seleção
   const carregar = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ plano, periodo });
+    const params = new URLSearchParams({ plano, periodo, regime });
     if (grupoSel) params.set('grupo_id', grupoSel);
     else if (empresasSel.length === 1) params.set('company_id', empresasSel[0]);
     else if (empresasSel.length > 1) params.set('company_ids', empresasSel.join(','));
@@ -103,11 +107,11 @@ function DashboardUniversalInner() {
     } finally {
       setLoading(false);
     }
-  }, [plano, periodo, grupoSel, empresasSel]);
-  
-  useEffect(() => { 
+  }, [plano, periodo, regime, grupoSel, empresasSel]);
+
+  useEffect(() => {
     if (grupoSel || empresasSel.length > 0) carregar();
-  }, [plano, periodo, grupoSel, empresasSel, carregar]);
+  }, [plano, periodo, regime, grupoSel, empresasSel, carregar]);
   
   const planoLabel = PLANOS.find(p => p.id === plano)?.label || plano;
   
@@ -141,6 +145,7 @@ function DashboardUniversalInner() {
           </div>
           
           <SeletorPeriodo periodo={periodo} onChange={setPeriodo} />
+          <ToggleRegime value={regime} onChange={setRegime} />
         </div>
         
         {/* Atalhos editáveis */}
@@ -174,6 +179,7 @@ function DashboardUniversalInner() {
         {data && (
           <>
             <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} />
+            <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
             <ConsultorInsights data={data.camada1?.consultor_ia} />
 
             <div style={{ margin: '48px 0 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
