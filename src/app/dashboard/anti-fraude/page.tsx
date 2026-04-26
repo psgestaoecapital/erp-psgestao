@@ -24,6 +24,29 @@ const C = {
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
 
+// 11 Camadas anti-fraude com categoria visual:
+//   cad (espresso): cadastrais (fornecedor/relacionamento/codigo)
+//   doc (dourado):  documentais (NF-e/pedido/descricao)
+//   beh (alta):     comportamentais (valor anomalo/redondo/duplicata/outlier/fim de semana)
+const CAMADAS: { id: number; nome: string; cat: 'cad' | 'doc' | 'beh' }[] = [
+  { id: 1,  nome: 'Fornecedor cadastrado', cat: 'cad' },
+  { id: 2,  nome: 'Faixa historica',       cat: 'beh' },
+  { id: 3,  nome: 'Tempo relacionamento',  cat: 'cad' },
+  { id: 4,  nome: 'NF-e vinculada',        cat: 'doc' },
+  { id: 5,  nome: 'Pedido/Documento',      cat: 'doc' },
+  { id: 6,  nome: 'Valor redondo',         cat: 'beh' },
+  { id: 7,  nome: 'Duplicatas',            cat: 'beh' },
+  { id: 8,  nome: 'CNPJ suspeito',         cat: 'cad' },
+  { id: 9,  nome: 'Outlier',               cat: 'beh' },
+  { id: 10, nome: 'Fim de semana',         cat: 'beh' },
+  { id: 11, nome: 'Sem descricao',         cat: 'doc' },
+]
+
+const corCamada = (cat: 'cad' | 'doc' | 'beh') =>
+  cat === 'cad' ? PSGC_COLORS.espresso :
+  cat === 'doc' ? PSGC_COLORS.dourado :
+  PSGC_COLORS.alta
+
 interface Lanc { id: string; data: string; desc: string; valor: number; cat: string; forn: string; codForn: string; tipo: string; nfe: string; nossoNum: string; codBarras: string; banco: string; score: number; flags: string[] }
 
 function extract(imports: any[]): { lancs: Lanc[]; fornCadastrados: Set<string>; fornHistorico: Record<string, number[]>; fornPrimeiro: Record<string, string> } {
@@ -350,8 +373,18 @@ export default function AntiFraudePage() {
 
       {/* 11 CAMADAS */}
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 14 }}>
-        {['Fornecedor cadastrado', 'Faixa historica', 'Tempo relacionamento', 'NF-e vinculada', 'Pedido/Documento', 'Valor redondo', 'Duplicatas', 'CNPJ suspeito', 'Outlier', 'Fim de semana', 'Sem descricao'].map((cam, i) => (
-          <span key={i} style={{ fontSize: 8, padding: '3px 8px', borderRadius: 4, background: C.r + '15', color: C.r, fontWeight: 600, border: '1px solid ' + C.r + '30' }}>{(i + 1).toString().padStart(2, '0')} {cam}</span>
+        {CAMADAS.map(c => (
+          <span key={c.id} style={{
+            background: corCamada(c.cat),
+            color: PSGC_COLORS.offWhite,
+            fontSize: 8,
+            fontWeight: 700,
+            padding: '3px 8px',
+            borderRadius: 4,
+            letterSpacing: 0.5,
+          }}>
+            {String(c.id).padStart(2, '0')} {c.nome}
+          </span>
         ))}
       </div>
 
