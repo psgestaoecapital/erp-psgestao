@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -98,7 +99,7 @@ export default function BPOAutoPage(){
       const ids=getCompIds();
       let totalClassif=0,totalPend=0;
       for(const cid of ids){
-        const res=await fetch("/api/bpo/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:cid})});
+        const res=await authFetch("/api/bpo/classify",{method:"POST",body:JSON.stringify({company_id:cid})});
         const d=await res.json();
         if(d.success){totalClassif+=(d.classificacoes_geradas||0);totalPend+=(d.pendentes_restantes||0);}
         else{setMsg(`❌ Erro em empresa: ${d.error||"desconhecido"}`);setClassifying(false);return;}
@@ -147,7 +148,7 @@ export default function BPOAutoPage(){
       const ids=getCompIds();
       let totalAplic=0,totalNao=0;
       for(const cid of ids){
-        const r=await fetch("/api/bpo/retroalimentar",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_id:cid})});
+        const r=await authFetch("/api/bpo/retroalimentar",{method:"POST",body:JSON.stringify({company_id:cid})});
         const d=await r.json();
         if(!d.error){totalAplic+=(d.aplicados||0);totalNao+=(d.nao_encontrados||0);}
       }

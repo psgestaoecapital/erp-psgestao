@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withAuth } from "@/lib/withAuth";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
 const STATUS_EXCL = new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 
@@ -39,12 +41,12 @@ function extractAll(imports: any[]) {
   return { pagar, receber, nomes };
 }
 
-export async function POST(req: Request) {
+async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
   const startTime = Date.now();
   try {
     const { company_id, modulos } = await req.json();
     if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     const { data: company } = await supabase.from("companies").select("*").eq("id", company_id).single();
@@ -267,6 +269,9 @@ export async function POST(req: Request) {
       resultados,
     });
   } catch (e: any) {
+    console.error('[bpo/executar]', e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+export const POST = withAuth(handler);

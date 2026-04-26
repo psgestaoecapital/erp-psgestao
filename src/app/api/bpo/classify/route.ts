@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withAuth } from "@/lib/withAuth";
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 export const maxDuration = 120;
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
 
 // Fallback: quando Omie tem rateio, codigo_categoria é null e categorias[] tem a divisão
 function getCategoriaOmie(r: any): string {
@@ -17,14 +16,15 @@ function getCategoriaOmie(r: any): string {
   return "";
 }
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
   const startTime = Date.now();
   try {
     const { company_id } = await req.json();
+    if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
 
     // 1. Load all Omie transactions
     const { data: imports } = await supabase.from("omie_imports").select("import_type,import_data").eq("company_id", company_id);
@@ -205,6 +205,9 @@ Classifique cada um. Responda APENAS com o JSON array.`
       duracao_ms: Date.now() - startTime,
     });
   } catch (error: any) {
+    console.error('[bpo/classify]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const POST = withAuth(handler);
