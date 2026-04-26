@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",G="#22C55E",Y="#FACC15",R="#EF4444",
   BG2="#161614",BG3="#1E1E1B",BD="#2A2822",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82",ESP="#3D2314",OW="#FAF7F2";
@@ -53,9 +54,8 @@ export default function MercadoPage(){
     if(assets.length===0){setMsg({t:"Nenhum ativo cadastrado para atualizar",ok:false});return;}
     setRefreshing(true);setMsg(null);
     try{
-      const res=await fetch("/api/wealth/quotes",{
+      const res=await authFetch("/api/wealth/quotes",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({update_db:true}),
       });
       const data=await res.json();
@@ -75,7 +75,7 @@ export default function MercadoPage(){
     if(!lookupTicker.trim()) return;
     setLookupLoading(true);setLookupResult(null);
     try{
-      const res=await fetch(`/api/wealth/quotes?tickers=${lookupTicker.trim().toUpperCase()}`);
+      const res=await authFetch(`/api/wealth/quotes?tickers=${lookupTicker.trim().toUpperCase()}`);
       const data=await res.json();
       if(data.success&&data.data?.length>0) setLookupResult(data.data[0]);
       else setLookupResult({error:"Ticker não encontrado"});

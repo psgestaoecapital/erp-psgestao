@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withAuth } from "@/lib/withAuth";
 
 export const dynamic = 'force-dynamic';
-
-const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
 
 // ══════════════════════════════════════════════════════════
 // CATÁLOGO BASE DE MATERIAIS — 35 ITENS
@@ -159,10 +159,10 @@ const FICHAS: {cod:string;nome:string;cat:string;mo:number;ind:number;imp:number
     {cod:"PL-ST-1250",qtd:1.05},{cod:"CN-F530",qtd:4.33},{cod:"PE-REG",qtd:1.50},{cod:"AR-G18",qtd:2.00},{cod:"PA-TA-2525",qtd:12},{cod:"FI-PAP-50",qtd:2.50},{cod:"MA-JUN-PO",qtd:0.40},{cod:"CT-2419",qtd:0.80},{cod:"PR-ACO",qtd:1.50}]},
 ];
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
   try {
     const { company_id } = await req.json();
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
 
     // Build material lookup
     const matMap: Record<string, typeof MATERIAIS[0]> = {};
@@ -205,3 +205,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const POST = withAuth(handler);

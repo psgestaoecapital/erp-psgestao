@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -79,7 +80,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
       const formData=new FormData();
       formData.append("question",`CONTEXTO DA ANÁLISE DE VIABILIDADE:\n${contextoViabilidade}\n\nPERGUNTA DO EMPRESÁRIO: ${iaPergunta}`);
       formData.append("company_id",compId);
-      const res=await fetch("/api/consultor",{method:"POST",body:formData});
+      const res=await authFetch("/api/consultor",{method:"POST",body:formData});
       const data=await res.json();
       if(data.success) setIaResposta(data.answer);
       else setIaResposta(`❌ Erro: ${data.error}`);

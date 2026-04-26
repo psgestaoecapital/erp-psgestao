@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",
@@ -51,8 +52,8 @@ export default function AgenteIA(){
 
     try{
       const hist=msgs.slice(-6).map(m=>({role:m.role,content:m.content}));
-      const res=await fetch("/api/agente",{
-        method:"POST",headers:{"Content-Type":"application/json"},
+      const res=await authFetch("/api/agente",{
+        method:"POST",
         body:JSON.stringify({pergunta,company_ids:companyIds,historico:hist})
       });
       const d=await res.json();

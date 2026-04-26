@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withAuth } from "@/lib/withAuth";
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 export const maxDuration = 60;
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
 
 type Transacao = { data: string; descricao: string; valor: number; raw?: string };
 
@@ -93,7 +92,7 @@ function similarity(a: string, b: string): number {
   return union > 0 ? inter / union : 0;
 }
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
@@ -102,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     if (!file || !companyId) return NextResponse.json({ error: "Arquivo e empresa obrigatórios" }, { status: 400 });
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
 
     // 1. PARSE FILE
     const text = await file.text();
@@ -290,3 +289,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const POST = withAuth(handler);

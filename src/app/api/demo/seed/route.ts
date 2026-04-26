@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withAuth } from "@/lib/withAuth";
 
 export const dynamic = 'force-dynamic';
-
-const supabaseUrl = 'https://horsymhsinqcimflrtjo.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnN5bWhzaW5xY2ltZmxydGpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODE0MjYsImV4cCI6MjA5MDg1NzQyNn0.s2GbtX69F0HtH_uhbBt3cnV8opXPJEdDQlolkhir1Mo';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
 
 // ═══════════════════════════════════════════════
 // DADOS REALISTAS — 12 MESES DE OPERAÇÃO
@@ -222,12 +222,17 @@ function generateProdutos(): any[] {
 // API HANDLER
 // ═══════════════════════════════════════════════
 
-export async function GET(req: NextRequest) { return handleSeed(); }
-export async function POST(req: NextRequest) { return handleSeed(); }
+async function handlerCore(_req: NextRequest, _user: { userId: string; userEmail?: string }) {
+  // Gate critico - demo seed so roda se env permitir
+  if (process.env.ALLOW_DEMO_SEED !== 'true') {
+    return NextResponse.json(
+      { erro: 'demo_seed_disabled', mensagem: 'Demo seed desabilitado neste ambiente. Configure ALLOW_DEMO_SEED=true para habilitar.' },
+      { status: 403 }
+    );
+  }
 
-async function handleSeed() {
   try {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
     
     const MESES = Object.keys(RECEITAS_MES);
 
@@ -376,3 +381,6 @@ async function handleSeed() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const GET = withAuth(handlerCore);
+export const POST = withAuth(handlerCore);
