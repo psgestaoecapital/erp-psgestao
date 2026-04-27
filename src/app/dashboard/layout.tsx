@@ -710,7 +710,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ position: 'relative' }}>
+              {!isBpoRoute && (<div style={{ position: 'relative' }}>
                 <button onClick={() => setShowCompanyMenu(!showCompanyMenu)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: 'var(--ps-bg3)', border: '1px solid var(--ps-border-l)', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text)', fontSize: 13, fontWeight: 500, minWidth: 220, maxWidth: 320 }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--ps-bg4)')} onMouseLeave={e => (e.currentTarget.style.background = 'var(--ps-bg3)')}>
                   <span style={{ fontSize: 14, flexShrink: 0 }}>{selLabel.icon}</span>
                   <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0, flex: 1, textAlign: 'left' }}>
@@ -761,9 +761,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </div>
                   </>
                 )}
-              </div>
+              </div>)}
 
-              <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
+              {!isBpoRoute && <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />}
 
               <TopButton icon={<Icon.Database />} label="Dados / Conectores" onClick={() => router.push('/dashboard/dados')} />
               <TopButton icon={<Icon.Upload />} label="Importar" onClick={() => router.push('/dashboard/importar-universal')} />
