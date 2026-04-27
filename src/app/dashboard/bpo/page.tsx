@@ -5,6 +5,7 @@ import { authFetch } from "@/lib/authFetch";
 import { PSGC_COLORS } from "@/lib/psgc-tokens";
 import PSGCButton from "@/components/psgc/PSGCButton";
 import PSGCBadge from "@/components/psgc/PSGCBadge";
+import { useSelectedCompany } from "@/contexts/SelectedCompanyContext";
 
 // Paleta local: nomes curtos preservados, valores referenciam PSGC_COLORS.
 const C = {
@@ -41,7 +42,8 @@ export default function BPOPage() {
   const [busca, setBusca] = useState("");
   const [running, setRunning] = useState(false);
   const [execResult, setExecResult] = useState<any>(null);
-  const [selectedCompany, setSelectedCompany] = useState<string>("todas");
+  const { selected, setSelected } = useSelectedCompany();
+  const selectedCompany = selected?.id || "todas";
 
   useEffect(() => { loadBPOData(); }, []);
 
@@ -181,6 +183,8 @@ export default function BPOPage() {
   const totalReceita = activeClients.reduce((a, c) => a + c.receita, 0);
 
   const modulos = [
+    { icon: '📅', nome: 'Meu Dia', desc: 'KPIs do operador BPO', href: '/dashboard/bpo/meu-dia', cor: PSGC_COLORS.dourado },
+    { icon: '🏢', nome: 'Minhas Empresas', desc: 'Carteira do operador', href: '/dashboard/bpo/empresas', cor: PSGC_COLORS.azul },
     { icon: '👥', nome: 'Supervisor', desc: 'Atribuir empresas a operadores', href: '/dashboard/bpo/supervisor', cor: PSGC_COLORS.dourado },
     { icon: '🤖', nome: 'Automacao IA', desc: 'Auto-classificacao + score anti-fraude', href: '/dashboard/bpo/automacao', cor: PSGC_COLORS.baixa },
     { icon: '🛡️', nome: 'Anti-Fraude', desc: '11 camadas - Score 0-100 - Patente INPI', href: '/dashboard/anti-fraude', cor: PSGC_COLORS.espresso },
@@ -233,7 +237,15 @@ export default function BPOPage() {
         </div>
         <select
           value={selectedCompany}
-          onChange={e => setSelectedCompany(e.target.value)}
+          onChange={e => {
+            const id = e.target.value;
+            if (id === "todas") {
+              setSelected(null);
+              return;
+            }
+            const c = clients.find(x => x.id === id);
+            if (c) setSelected({ id: c.id, nome_fantasia: c.nome, is_bpo_cliente: true });
+          }}
           style={{ flex: 1, minWidth: 200, background: C.BG3, border: `1px solid ${C.BD}`, color: C.TX, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", cursor: "pointer", fontFamily: "inherit" }}
         >
           <option value="todas">📊 Todas as empresas ({clients.length})</option>
@@ -245,7 +257,7 @@ export default function BPOPage() {
         </select>
         {selectedCompany !== "todas" && (
           <button
-            onClick={() => setSelectedCompany("todas")}
+            onClick={() => setSelected(null)}
             style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${C.BD}`, color: C.TXM, fontSize: 10, cursor: "pointer" }}
           >
             ✕ Limpar filtro

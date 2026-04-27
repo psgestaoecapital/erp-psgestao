@@ -321,6 +321,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [buscaEmpresa, setBuscaEmpresa] = useState('')
   const [demoMode, setDemoMode] = useState(false)
 
+  // Gate dev tools: so aparece em localhost ou quando NEXT_PUBLIC_SHOW_DEV_TOOLS=true
+  const showDevTools = process.env.NEXT_PUBLIC_SHOW_DEV_TOOLS === 'true'
+    || (typeof window !== 'undefined' && window.location.hostname === 'localhost')
+
   // Filtro BPO: rotas /dashboard/bpo/* e /dashboard/anti-fraude veem so v_bpo_clientes_ativos
   const isBpoRoute = pathname?.startsWith('/dashboard/bpo') || pathname?.startsWith('/dashboard/anti-fraude') || false
 
@@ -335,6 +339,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const demo = typeof window !== 'undefined' ? localStorage.getItem('ps_demo_mode') : null
     if (demo === 'true') setDemoMode(true)
   }, [])
+
+  // Sidebar troca automatica pra 'BPO Financeiro' em rotas /bpo/*; restaura plano anterior ao sair.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (isBpoRoute && currentPlano !== 'bpo') {
+      localStorage.setItem('ps_plano_anterior', currentPlano)
+      setCurrentPlano('bpo')
+      localStorage.setItem('ps_plano_atual', 'bpo')
+    }
+    if (!isBpoRoute && currentPlano === 'bpo') {
+      const anterior = localStorage.getItem('ps_plano_anterior')
+      if (anterior && anterior in MENU) {
+        setCurrentPlano(anterior as PlanoTipo)
+        localStorage.setItem('ps_plano_atual', anterior)
+        localStorage.removeItem('ps_plano_anterior')
+      }
+    }
+  }, [isBpoRoute, currentPlano])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -756,18 +778,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {isAdmin && (
                 <>
                   <div style={{ width: 1, height: 24, background: 'var(--ps-border)' }} />
-                  <button onClick={() => window.location.href = '/admin/sync-status'} title="Status de Sincronização Omie" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
-                    <span style={{ fontSize: 13 }}>🔄</span>
-                    <span>Sync</span>
-                  </button>
-                  <button onClick={() => window.location.href = '/admin/projeto'} title="Contexto do Projeto" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
-                    <span style={{ fontSize: 13 }}>📋</span>
-                    <span>Contexto</span>
-                  </button>
-                  <button onClick={() => router.push('/dashboard/dev')} title="Central de Desenvolvimento" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
-                    <span style={{ fontSize: 13 }}>🛠️</span>
-                    <span>Dev</span>
-                  </button>
+                  {showDevTools && (
+                    <>
+                      <button onClick={() => window.location.href = '/admin/sync-status'} title="Status de Sincronização Omie" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
+                        <span style={{ fontSize: 13 }}>🔄</span>
+                        <span>Sync</span>
+                      </button>
+                      <button onClick={() => window.location.href = '/admin/projeto'} title="Contexto do Projeto" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
+                        <span style={{ fontSize: 13 }}>📋</span>
+                        <span>Contexto</span>
+                      </button>
+                      <button onClick={() => router.push('/dashboard/dev')} title="Central de Desenvolvimento" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'transparent', border: '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-text-m)', fontSize: 11 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-bg3)'; e.currentTarget.style.color = 'var(--ps-text)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ps-text-m)'; }}>
+                        <span style={{ fontSize: 13 }}>🛠️</span>
+                        <span>Dev</span>
+                      </button>
+                    </>
+                  )}
                   <button onClick={() => router.push('/dashboard/admin')} title="Painel Administrativo" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--ps-gold-bg)', border: '1px solid var(--ps-gold)', borderRadius: 8, cursor: 'pointer', color: 'var(--ps-gold-d)', fontSize: 11, fontWeight: 600 }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--ps-gold)'; e.currentTarget.style.color = 'var(--ps-bg)' }} onMouseLeave={e => { e.currentTarget.style.background = 'var(--ps-gold-bg)'; e.currentTarget.style.color = 'var(--ps-gold-d)' }}>
                     <Icon.Settings />
                     <span>Admin</span>

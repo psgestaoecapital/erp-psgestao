@@ -49,25 +49,30 @@ export default function BPOSupervisorPage() {
 
   useEffect(() => {
     async function load() {
-      const [empData, opData] = await Promise.all([
+      const [empData, opData, ativos] = await Promise.all([
         supabase.rpc('fn_supervisor_dashboard'),
         supabase.rpc('fn_operadores_stats'),
+        supabase.from('v_bpo_clientes_ativos').select('id'),
       ])
-      if (empData.data) setEmpresas(empData.data as EmpresaStats[])
+      const idsAtivos = new Set((ativos.data ?? []).map((c: { id: string }) => c.id))
+      const empresasFiltradas = ((empData.data ?? []) as EmpresaStats[])
+        .filter(e => idsAtivos.has(e.company_id))
+      setEmpresas(empresasFiltradas)
       if (opData.data) setOperadores(opData.data as OperadorStats[])
       setLoading(false)
     }
     load()
   }, [])
 
+  const n = (v: number | null | undefined): number => Number.isFinite(Number(v)) ? Number(v) : 0
   const totals = empresas.reduce(
     (acc, e) => ({
-      total: acc.total + e.total_pendente,
-      atrasados: acc.atrasados + e.atrasados,
-      urgentes: acc.urgentes + e.urgentes,
-      hoje: acc.hoje + e.hoje,
-      sem_op: acc.sem_op + e.sem_operador,
-      concluidos: acc.concluidos + e.concluidos_hoje,
+      total: acc.total + n(e.total_pendente),
+      atrasados: acc.atrasados + n(e.atrasados),
+      urgentes: acc.urgentes + n(e.urgentes),
+      hoje: acc.hoje + n(e.hoje),
+      sem_op: acc.sem_op + n(e.sem_operador),
+      concluidos: acc.concluidos + n(e.concluidos_hoje),
     }),
     { total: 0, atrasados: 0, urgentes: 0, hoje: 0, sem_op: 0, concluidos: 0 }
   )
