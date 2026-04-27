@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frioeste — DRE Interativo</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--esp:#3D2314;--off:#FAF7F2;--off-d:#F0EAE0;--gold:#C8941A;--green:#2D8B4E;--red:#C0392B;--gray:#8B7355;--white:#fff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,sans-serif;background:var(--off);color:var(--esp);font-size:13px}
+.hdr{background:var(--esp);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:99}
+.hdr-left{display:flex;align-items:center;gap:12px}
+.logo{width:36px;height:36px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--esp);font-weight:800}
+.hdr h1{font-size:17px;color:var(--off);font-weight:600}
+.hdr .sub{font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:1.5px}
+.btn-r{background:var(--gold);color:var(--esp);border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer}
+.wrap{max-width:1500px;margin:0 auto;padding:16px}
+.tabs{display:flex;gap:2px;background:var(--off-d);border-radius:10px;padding:3px;margin-bottom:16px;overflow-x:auto}
+.tab{padding:8px 18px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--gray);white-space:nowrap}
+.tab.active{background:var(--esp);color:var(--off)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.g5{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.card{background:white;border-radius:10px;padding:18px;box-shadow:0 1px 3px rgba(61,35,20,.06)}
+.card-t{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin-bottom:12px;font-weight:600}
+.kpi{text-align:center;padding:14px 10px;position:relative}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--gold);border-radius:10px 10px 0 0}
+.kpi.alert::before{background:var(--red)}.kpi.ok::before{background:var(--green)}
+.kpi .v{font-size:22px;font-weight:700;line-height:1}
+.kpi .l{font-size:9px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-weight:600}
+.kpi .d{font-size:11px;color:var(--gray);margin-top:4px}
+.pill{display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700}
+.pill-r{background:rgba(192,57,43,.1);color:var(--red)}.pill-g{background:rgba(45,139,78,.1);color:var(--green)}
+.tbl{width:100%;border-collapse:collapse;font-size:11px}
+.tbl th{text-align:left;padding:7px 8px;background:var(--off);color:var(--gray);font-weight:600;text-transform:uppercase;font-size:9px;border-bottom:2px solid var(--off-d)}
+.tbl td{padding:7px 8px;border-bottom:1px solid var(--off)}
+.tbl tr:hover td{background:rgba(200,148,26,.04)}
+.tbl .r{text-align:right}.sem-r{color:var(--red);font-weight:700}.sem-g{color:var(--green);font-weight:700}
+.bar-row{display:flex;align-items:center;margin-bottom:5px;gap:6px}
+.bar-lbl{font-size:10px;width:100px;text-align:right;font-weight:500;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-trk{flex:1;height:16px;background:var(--off);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .5s}
+.bar-val{font-size:10px;width:70px;text-align:right;color:var(--gray);flex-shrink:0}
+.bar-pm{font-size:10px;width:45px;text-align:right;font-weight:700;flex-shrink:0}
+.insight{background:var(--esp);border-radius:10px;padding:18px;color:var(--off);margin-bottom:14px}
+.insight h3{font-size:14px;color:var(--gold);margin-bottom:8px}
+.insight p{font-size:12px;line-height:1.6;color:rgba(250,247,242,.85);margin-bottom:6px}
+.insight strong{color:var(--gold)}
+.detail-panel{background:white;border:2px solid var(--gold);border-radius:10px;padding:18px;margin-bottom:14px;display:none}
+.detail-panel.open{display:block}
+.clickable{cursor:pointer;text-decoration:underline;text-decoration-color:var(--gold)}.clickable:hover{color:var(--gold)}
+.scroll-tbl{max-height:500px;overflow-y:auto;border-radius:8px;border:1px solid var(--off-d)}
+.setup-box{max-width:600px;margin:60px auto;padding:40px;background:white;border-radius:14px;box-shadow:0 4px 20px rgba(61,35,20,.1)}
+.setup-box h2{font-size:20px;margin-bottom:12px;color:var(--gold)}
+.setup-box input{width:100%;padding:10px;border:2px solid var(--off-d);border-radius:8px;font-size:14px;margin-bottom:12px}
+.setup-box .btn-c{background:var(--esp);color:var(--off);border:none;padding:12px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;width:100%}
+#statusBar{padding:8px 24px;font-size:12px;text-align:center;font-weight:600;display:none}
+.footer{text-align:center;padding:20px;font-size:10px;color:var(--gray);border-top:1px solid var(--off-d);margin-top:16px}
+.footer strong{color:var(--gold)}
+@media(max-width:900px){.g2,.g3,.g5{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="hdr"><div class="hdr-left"><div class="logo">PS</div><div><h1>Frioeste — DRE Interativo</h1><div class="sub">Resultado Mensal &bull; PS Gestão e Capital</div></div></div>
+<div style="display:flex;gap:8px;align-items:center" id="filterBar" style="display:none"><button class="btn-r" onclick="loadData()">Atualizar</button><span id="lastUp" style="color:var(--gold);font-size:10px"></span></div></div>
+<div id="statusBar"></div>
+<div class="wrap">
+<div class="tabs" id="tabs" style="display:none">
+<div class="tab active" data-tab="resumo">Resumo DRE</div>
+<div class="tab" data-tab="grupos">Grupos de Despesa</div>
+<div class="tab" data-tab="contas">Contas Detalhadas</div>
+<div class="tab" data-tab="evolucao">Evolução Mensal</div>
+</div>
+<div id="content">
+<div class="setup-box" id="setupBox">
+<h2>Conectar ao Google Sheets</h2>
+<p style="font-size:13px;color:var(--gray);margin-bottom:16px">Publique a aba BASE da planilha DRE como CSV e cole o link abaixo.</p>
+<input type="text" id="sheetUrl" placeholder="Cole o link CSV publicado...">
+<button class="btn-c" onclick="connectSheet()">Conectar</button>
+<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--off-d)">
+<p style="font-size:12px;color:var(--gray);margin-bottom:8px"><strong>Ou:</strong> carregue o Excel direto:</p>
+<input type="file" id="fileIn" accept=".xlsx,.csv" onchange="loadFile(event)" style="padding:8px;border:1px dashed var(--gold);border-radius:8px">
+</div></div></div>
+<div class="footer"><strong>PS Gestão e Capital</strong> &bull; DRE ao vivo via Google Sheets</div>
+</div>
+<script>
+let RAW=[],MESES_ACTIVE=[],currentTab='resumo';
+const MN=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const MCOLS=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+function fmtN(n){return Math.round(n).toLocaleString('pt-BR')}
+function fmtR(n){return'R$ '+fmtN(n)}
+function fmtK(n){return n>=1e6?'R$ '+(n/1e6).toFixed(1)+' Mi':'R$ '+(n/1e3).toFixed(0)+'k'}
+function fmtP(n){return(n>=0?'+':'')+n.toFixed(1)+'%'}
+function showSt(m,t){const s=document.getElementById('statusBar');s.textContent=m;s.style.display='block';s.style.background=t==='loading'?'var(--gold)':t==='error'?'var(--red)':'var(--green)';s.style.color=t==='loading'?'var(--esp)':'white';if(t!=='loading')setTimeout(()=>s.style.display='none',5000)}
+
+const DEFAULT_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vRQKrKTorYmsLpIkk-ezqWmdxUlqt5cI6iqkZkoE9R8aw4XUb8aQBe3wvL-7aYwa2T-AKYhBf263tJV/pub?gid=467658870&single=true&output=csv';
+
+function connectSheet(){const u=document.getElementById('sheetUrl').value.trim();if(!u)return;localStorage.setItem('frioeste_dre_url',u);loadData()}
+function loadData(){
+  const url=localStorage.getItem('frioeste_dre_url')||DEFAULT_URL;
+  showSt('Carregando...','loading');
+  const proxies=['','https://corsproxy.io/?'];
+  let i=0;
+  function tryNext(){
+    if(i>=proxies.length){showSt('Erro ao conectar. Use "Escolher arquivo".','error');return}
+    const u=proxies[i]?(proxies[i]+encodeURIComponent(url)):url+'&_t='+Date.now();
+    Papa.parse(u,{download:true,header:true,skipEmptyLines:true,
+      complete:r=>{if(r.data.length<5){i++;tryNext();return}processData(r.data);showSt('Carregado: '+r.data.length+' contas','');document.getElementById('lastUp').textContent='Atualizado '+new Date().toLocaleTimeString('pt-BR')},
+      error:()=>{i++;tryNext()}
+    });
+  }
+  tryNext();
+}
+function loadFile(e){const f=e.target.files[0];if(!f)return;showSt('Lendo...','loading');const r=new FileReader();r.onload=ev=>{
+  if(f.name.endsWith('.csv')){Papa.parse(ev.target.result,{header:true,skipEmptyLines:true,complete:r=>{processData(r.data);showSt('OK: '+r.data.length+' contas','')}})}
+  else{const wb=XLSX.read(ev.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames.find(s=>s.toUpperCase().includes('BASE'))||wb.SheetNames[0]];const d=XLSX.utils.sheet_to_json(ws);processData(d);showSt('OK: '+d.length+' contas','')}
+};f.name.endsWith('.csv')?r.readAsText(f):r.readAsArrayBuffer(f)}
+
+function processData(data){
+  RAW=[];MESES_ACTIVE=[];
+  const colMap={};
+  if(data.length>0){Object.keys(data[0]).forEach(k=>{const u=k.trim().toUpperCase();
+    if(u.includes('COD_GRUPO'))colMap.cod=k;else if(u==='GRUPO')colMap.grupo=k;else if(u==='TIPO')colMap.tipo=k;
+    else if(u==='CONTA')colMap.conta=k;else if(u.includes('ITEM'))colMap.orig=k;
+    MCOLS.forEach((m,i)=>{if(u===m)colMap[m]=k})
+  })}
+  data.forEach(row=>{
+    const tipo=String(row[colMap.tipo]||'').trim();if(!tipo)return;
+    const r={tipo,grupo:String(row[colMap.grupo]||'').trim(),conta:String(row[colMap.conta]||'').trim(),vals:{}};
+    MCOLS.forEach(m=>{r.vals[m]=parseFloat(row[colMap[m]])||0});
+    RAW.push(r);
+  });
+  MCOLS.forEach(m=>{if(RAW.some(r=>r.vals[m]!==0))MESES_ACTIVE.push(m)});
+  document.getElementById('setupBox').style.display='none';
+  document.getElementById('tabs').style.display='flex';
+  render();
+}
+
+document.getElementById('tabs').addEventListener('click',e=>{if(e.target.classList.contains('tab')){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));e.target.classList.add('active');currentTab=e.target.dataset.tab;render()}});
+
+function byTipo(t){return RAW.filter(r=>r.tipo===t)}
+function sumTipo(t,m){return byTipo(t).reduce((s,r)=>s+r.vals[m],0)}
+function sumGrupo(g,m){return RAW.filter(r=>r.grupo===g).reduce((s,r)=>s+r.vals[m],0)}
+
+function render(){
+  const el=document.getElementById('content');
+  if(currentTab==='resumo')renderResumo(el);
+  else if(currentTab==='grupos')renderGrupos(el);
+  else if(currentTab==='contas')renderContas(el);
+  else if(currentTab==='evolucao')renderEvolucao(el);
+}
+
+function renderResumo(el){
+  const MA=MESES_ACTIVE;if(!MA.length)return;
+  const last=MA[MA.length-1],prev=MA.length>1?MA[MA.length-2]:null;
+  const recL=sumTipo('RECEITA',last),despL=sumTipo('DESPESA',last),estL=sumTipo('ESTOQUE',last),cxL=sumTipo('CAPEX',last);
+  const ebitdaL=recL-despL+estL,resL=ebitdaL-cxL,mgL=recL?ebitdaL/recL*100:0;
+  // Totals
+  let recT=0,despT=0,estT=0,cxT=0;MA.forEach(m=>{recT+=sumTipo('RECEITA',m);despT+=sumTipo('DESPESA',m);estT+=sumTipo('ESTOQUE',m);cxT+=sumTipo('CAPEX',m)});
+  const ebitdaT=recT-despT+estT,resT=ebitdaT-cxT,mgT=recT?ebitdaT/recT*100:0;
+
+  let comp='';
+  if(prev){
+    const recP=sumTipo('RECEITA',prev),despP=sumTipo('DESPESA',prev),estP=sumTipo('ESTOQUE',prev);
+    const ebitdaP=recP-despP+estP;
+    const dR=recP?(recL-recP)/recP*100:0,dD=despP?(despL-despP)/despP*100:0,dE=ebitdaP?(ebitdaL-ebitdaP)/ebitdaP*100:0;
+    comp=`<div class="card-t">Comparativo ${MN[MCOLS.indexOf(prev)+1]} → ${MN[MCOLS.indexOf(last)+1]}</div>
+    <div class="g3"><div style="text-align:center"><div style="font-size:10px;color:var(--gray)">Receita</div><div style="font-size:18px;font-weight:700">${fmtK(recL)}</div><span class="pill ${dR>0?'pill-g':'pill-r'}">${fmtP(dR)}</span></div>
+    <div style="text-align:center"><div style="font-size:10px;color:var(--gray)">Custos+Desp</div><div style="font-size:18px;font-weight:700">${fmtK(despL)}</div><span class="pill ${dD>0?'pill-r':'pill-g'}">${fmtP(dD)}</span></div>
+    <div style="text-align:center"><div style="font-size:10px;color:var(--gray)">EBITDA</div><div style="font-size:18px;font-weight:700">${fmtK(ebitdaL)}</div><span class="pill ${dE>0?'pill-g':'pill-r'}">${fmtP(dE)}</span></div></div>`;
+  }
+
+  // DRE table
+  let rows='';
+  MA.forEach(m=>{
+    const r=sumTipo('RECEITA',m),d=sumTipo('DESPESA',m),e=sumTipo('ESTOQUE',m),c=sumTipo('CAPEX',m);
+    const eb=r-d+e,rs=eb-c,mg=r?eb/r*100:0,mf=r?rs/r*100:0;
+    rows+=`<tr><td><strong>${MN[MCOLS.indexOf(m)+1]}</strong></td><td class="r">${fmtR(r)}</td><td class="r">${fmtR(d)}</td><td class="r">${fmtR(e)}</td><td class="r" style="font-weight:700;color:${eb>=0?'var(--green)':'var(--red)'}">${fmtR(eb)}</td><td class="r ${mg>4?'sem-g':mg<2?'sem-r':''}">${mg.toFixed(1)}%</td><td class="r">${fmtR(c)}</td><td class="r" style="font-weight:700">${fmtR(rs)}</td><td class="r">${mf.toFixed(1)}%</td></tr>`;
+  });
+  rows+=`<tr style="background:var(--esp);color:white;font-weight:700"><td>ACUMULADO</td><td class="r">${fmtR(recT)}</td><td class="r">${fmtR(despT)}</td><td class="r">${fmtR(estT)}</td><td class="r" style="color:var(--gold)">${fmtR(ebitdaT)}</td><td class="r" style="color:var(--gold)">${mgT.toFixed(1)}%</td><td class="r">${fmtR(cxT)}</td><td class="r">${fmtR(resT)}</td><td class="r">${(recT?resT/recT*100:0).toFixed(1)}%</td></tr>`;
+
+  el.innerHTML=`
+  <div class="g5">
+    <div class="card kpi ${mgL>4?'ok':'alert'}"><div class="l">EBITDA ${MN[MCOLS.indexOf(last)+1]}</div><div class="v">${fmtK(ebitdaL)}</div><div class="d">Margem ${mgL.toFixed(1)}%</div></div>
+    <div class="card kpi"><div class="l">Receita ${MN[MCOLS.indexOf(last)+1]}</div><div class="v">${fmtK(recL)}</div></div>
+    <div class="card kpi"><div class="l">Custos+Desp</div><div class="v">${fmtK(despL)}</div><div class="d">${(recL?despL/recL*100:0).toFixed(1)}% da receita</div></div>
+    <div class="card kpi"><div class="l">Estoque</div><div class="v">${fmtR(estL)}</div><div class="d">${estL>0?'Ganho':'Consumo'}</div></div>
+    <div class="card kpi"><div class="l">Resultado Acum.</div><div class="v">${fmtK(resT)}</div><div class="d">${(recT?resT/recT*100:0).toFixed(1)}% margem</div></div>
+  </div>
+  <div class="g2"><div class="card">${comp}</div>
+  <div class="card"><div class="card-t">DRE Resumido</div><div class="scroll-tbl"><table class="tbl">
+  <tr><th>Mês</th><th class="r">Receita</th><th class="r">Custos</th><th class="r">Estoque</th><th class="r">EBITDA</th><th class="r">Mg%</th><th class="r">CAPEX</th><th class="r">Resultado</th><th class="r">Mg%</th></tr>${rows}</table></div></div></div>`;
+}
+
+function renderGrupos(el){
+  const MA=MESES_ACTIVE,last=MA[MA.length-1],prev=MA.length>1?MA[MA.length-2]:null;
+  const recL=sumTipo('RECEITA',last);
+  const grupos=[...new Set(RAW.filter(r=>r.tipo==='DESPESA').map(r=>r.grupo))];
+  const gData=grupos.map(g=>{
+    const vals={};MA.forEach(m=>vals[m]=sumGrupo(g,m));
+    const tri=MA.reduce((s,m)=>s+vals[m],0);
+    const delta=prev?vals[last]-vals[prev]:0;
+    const pct=prev&&vals[prev]?delta/vals[prev]*100:0;
+    const pctRec=recL?vals[last]/recL*100:0;
+    return{grupo:g,vals,tri,delta,pct,pctRec};
+  }).sort((a,b)=>b.tri-a.tri);
+
+  const maxTri=Math.max(...gData.map(g=>g.tri));
+  let bars=gData.map(g=>{
+    const w=maxTri?g.tri/maxTri*100:0;
+    const color=g.pct>10?'var(--red)':g.pct<-5?'var(--green)':'var(--esp)';
+    return`<div class="bar-row" style="cursor:pointer" onclick="drillGrupo('${g.grupo}')">
+      <div class="bar-lbl">${g.grupo}</div><div class="bar-trk"><div class="bar-fill" style="width:${w}%;background:${color}"></div></div>
+      <div class="bar-val">${fmtK(g.tri)}</div><div class="bar-pm ${g.pct>10?'sem-r':g.pct<-5?'sem-g':''}">${g.pctRec.toFixed(1)}%</div></div>`;
+  }).join('');
+
+  let rows=gData.map(g=>`<tr class="clickable" onclick="drillGrupo('${g.grupo}')">
+    <td><strong>${g.grupo}</strong></td>${MA.map(m=>`<td class="r">${fmtN(g.vals[m])}</td>`).join('')}
+    <td class="r" style="font-weight:700">${fmtN(g.tri)}</td>
+    <td class="r ${g.pct>10?'sem-r':g.pct<-5?'sem-g':''}">${fmtP(g.pct)}</td>
+    <td class="r">${g.pctRec.toFixed(1)}%</td></tr>`).join('');
+
+  el.innerHTML=`<div id="drillP" class="detail-panel"></div>
+  <div class="g2"><div class="card"><div class="card-t">Participação por Grupo (% Receita ${MN[MCOLS.indexOf(last)+1]})</div>${bars}</div>
+  <div class="card"><div class="card-t">Tabela — Clique para detalhar</div><div class="scroll-tbl"><table class="tbl">
+  <tr><th>Grupo</th>${MA.map(m=>`<th class="r">${MN[MCOLS.indexOf(m)+1]}</th>`).join('')}<th class="r">Acum.</th><th class="r">Δ Mês</th><th class="r">% Rec</th></tr>${rows}</table></div></div></div>`;
+}
+
+window.drillGrupo=function(g){
+  const MA=MESES_ACTIVE,contas=RAW.filter(r=>r.grupo===g);
+  const cMap={};contas.forEach(r=>{if(!cMap[r.conta])cMap[r.conta]={conta:r.conta,vals:{}};MA.forEach(m=>{cMap[r.conta].vals[m]=(cMap[r.conta].vals[m]||0)+r.vals[m]})});
+  const cList=Object.values(cMap).map(c=>{c.tri=MA.reduce((s,m)=>s+(c.vals[m]||0),0);return c}).sort((a,b)=>b.tri-a.tri);
+  const rows=cList.map(c=>`<tr><td>${c.conta}</td>${MA.map(m=>`<td class="r">${fmtN(c.vals[m]||0)}</td>`).join('')}<td class="r" style="font-weight:700">${fmtN(c.tri)}</td></tr>`).join('');
+  const p=document.getElementById('drillP');
+  p.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="font-size:14px">${g} — ${cList.length} contas</h3><button class="btn-r" onclick="this.closest('.detail-panel').classList.remove('open')">Fechar</button></div>
+  <table class="tbl"><tr><th>Conta</th>${MA.map(m=>`<th class="r">${MN[MCOLS.indexOf(m)+1]}</th>`).join('')}<th class="r">Acum.</th></tr>${rows}</table>`;
+  p.classList.add('open');p.scrollIntoView({behavior:'smooth'});
+};
+
+function renderContas(el){
+  const MA=MESES_ACTIVE,prev=MA.length>1?MA[MA.length-2]:null,last=MA[MA.length-1];
+  const cMap={};RAW.filter(r=>r.tipo==='DESPESA').forEach(r=>{
+    if(!cMap[r.conta])cMap[r.conta]={conta:r.conta,grupo:r.grupo,vals:{}};
+    MA.forEach(m=>{cMap[r.conta].vals[m]=(cMap[r.conta].vals[m]||0)+r.vals[m]});
+  });
+  let cList=Object.values(cMap).map(c=>{c.tri=MA.reduce((s,m)=>s+(c.vals[m]||0),0);c.delta=prev?(c.vals[last]||0)-(c.vals[prev]||0):0;return c}).sort((a,b)=>b.tri-a.tri);
+  const rows=cList.map((c,i)=>{
+    const pctD=prev&&c.vals[prev]?c.delta/c.vals[prev]*100:0;
+    return`<tr><td>${i+1}</td><td><strong>${c.conta}</strong></td><td style="color:var(--gray)">${c.grupo}</td>${MA.map(m=>`<td class="r">${fmtN(c.vals[m]||0)}</td>`).join('')}<td class="r" style="font-weight:700">${fmtN(c.tri)}</td><td class="r ${pctD>20?'sem-r':pctD<-20?'sem-g':''}">${c.delta?fmtP(pctD):'-'}</td></tr>`}).join('');
+  el.innerHTML=`<div class="card"><input style="width:100%;padding:8px 12px;border:1px solid var(--off-d);border-radius:8px;font-size:12px;margin-bottom:12px" placeholder="Buscar conta..." oninput="document.querySelectorAll('#ctTbl tr').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(this.value.toLowerCase())?'':'none')">
+  <div class="card-t">${cList.length} contas de despesa — todas as contas granulares</div>
+  <div class="scroll-tbl"><table class="tbl" id="ctTbl"><tr><th>#</th><th>Conta</th><th>Grupo</th>${MA.map(m=>`<th class="r">${MN[MCOLS.indexOf(m)+1]}</th>`).join('')}<th class="r">Acum.</th><th class="r">Δ Mês</th></tr>${rows}</table></div></div>`;
+}
+
+function renderEvolucao(el){
+  const MA=MESES_ACTIVE;
+  const maxRec=Math.max(...MA.map(m=>sumTipo('RECEITA',m)));
+  const W=900,H=280,PL=60,PR=60,PT=30,PB=40,cw=W-PL-PR,ch=H-PT-PB;
+  const bw=Math.min(50,cw/MA.length*.6),gap=cw/MA.length;
+  let bars='',lineE='',dotsE='',labels='';
+  const ebs=MA.map(m=>{const r=sumTipo('RECEITA',m),d=sumTipo('DESPESA',m),e=sumTipo('ESTOQUE',m);return r-d+e});
+  const maxEb=Math.max(...ebs.map(Math.abs));
+  MA.forEach((m,i)=>{
+    const x=PL+i*gap+gap/2;const rec=sumTipo('RECEITA',m);const bh=maxRec?rec/maxRec*ch:0;
+    bars+=`<rect x="${x-bw/2}" y="${PT+ch-bh}" width="${bw}" height="${bh}" rx="3" fill="var(--esp)" opacity=".8"><title>${MN[MCOLS.indexOf(m)+1]}: ${fmtR(rec)}</title></rect>`;
+    const eb=ebs[i];const ey=PT+ch/2-(maxEb?eb/maxEb*(ch/2):0);
+    lineE+=(i===0?'M':'L')+x+','+ey;
+    dotsE+=`<circle cx="${x}" cy="${ey}" r="5" fill="${eb>=0?'var(--green)':'var(--red)'}"><title>EBITDA: ${fmtR(eb)}</title></circle>`;
+    labels+=`<text x="${x}" y="${H-5}" text-anchor="middle" fill="var(--gray)" font-size="10">${MN[MCOLS.indexOf(m)+1]}</text>`;
+  });
+
+  // Monthly table
+  let rows=MA.map(m=>{
+    const r=sumTipo('RECEITA',m),d=sumTipo('DESPESA',m),e=sumTipo('ESTOQUE',m),c=sumTipo('CAPEX',m);
+    const eb=r-d+e,rs=eb-c;
+    return`<tr><td><strong>${MN[MCOLS.indexOf(m)+1]}</strong></td><td class="r">${fmtR(r)}</td><td class="r">${fmtR(d)}</td><td class="r">${fmtR(e)}</td><td class="r" style="color:${eb>=0?'var(--green)':'var(--red)';font-weight:700}">${fmtR(eb)}</td><td class="r">${(r?eb/r*100:0).toFixed(1)}%</td><td class="r">${fmtR(c)}</td><td class="r" style="font-weight:700">${fmtR(rs)}</td></tr>`;
+  }).join('');
+
+  el.innerHTML=`<div class="card" style="margin-bottom:14px"><div class="card-t">Receita (barras) × EBITDA (pontos)</div>
+  <svg style="width:100%" viewBox="0 0 ${W} ${H}">
+  <line x1="${PL}" y1="${PT+ch}" x2="${W-PR}" y2="${PT+ch}" stroke="var(--off-d)"/>
+  <line x1="${PL}" y1="${PT+ch/2}" x2="${W-PR}" y2="${PT+ch/2}" stroke="var(--gold)" stroke-dasharray="4" opacity=".3"/>
+  ${bars}<path d="${lineE}" fill="none" stroke="var(--gold)" stroke-width="2.5"/>${dotsE}${labels}
+  <text x="${PL-5}" y="${PT+5}" text-anchor="end" fill="var(--gray)" font-size="9">${fmtK(maxRec)}</text>
+  </svg></div>
+  <div class="card"><div class="card-t">Dados Mensais</div><div class="scroll-tbl"><table class="tbl">
+  <tr><th>Mês</th><th class="r">Receita</th><th class="r">Custos</th><th class="r">Estoque</th><th class="r">EBITDA</th><th class="r">Mg%</th><th class="r">CAPEX</th><th class="r">Resultado</th></tr>${rows}</table></div></div>`;
+}
+
+// Auto-load
+if(localStorage.getItem('frioeste_dre_url'))loadData();
+else{localStorage.setItem('frioeste_dre_url',DEFAULT_URL);loadData()}
+</script>
+</body>
+</html>
