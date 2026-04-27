@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PSGCBadge from '@/components/psgc/PSGCBadge'
+import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 
 /* ═══════════════════════════════════════════════════════════════
    PS GESTÃO ERP — LAYOUT v11.1
@@ -320,7 +321,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [buscaEmpresa, setBuscaEmpresa] = useState('')
   const [demoMode, setDemoMode] = useState(false)
 
-  useEffect(() => { loadUser() }, [])
+  // Filtro BPO: rotas /dashboard/bpo/* e /dashboard/anti-fraude veem so v_bpo_clientes_ativos
+  const isBpoRoute = pathname?.startsWith('/dashboard/bpo') || pathname?.startsWith('/dashboard/anti-fraude') || false
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadUser() }, [isBpoRoute])
 
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('ps_plano_atual') : null
@@ -377,7 +382,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setGroups(grps || [])
     let d: any[] = []
     if (up?.role === 'adm' || up?.role === 'acesso_total' || up?.role === 'adm_investimentos') {
-      const r = await supabase.from('companies').select('*').order('nome_fantasia')
+      // Em rotas BPO, admin ve so clientes BPO ativos (filtra Mariele/PDOIS/Proplay automaticamente)
+      const r = isBpoRoute
+        ? await supabase.from('v_bpo_clientes_ativos').select('*').order('nome_fantasia')
+        : await supabase.from('companies').select('*').order('nome_fantasia')
       d = r.data || []
     } else {
       const r = await supabase.from('user_companies').select('companies(*)').eq('user_id', u.id)
@@ -785,7 +793,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
 
           <main className={demoMode ? 'ps-demo' : ''} style={{ padding: '24px', minHeight: 'calc(100vh - var(--topbar-height))' }}>
-            {children}
+            <SelectedCompanyProvider>
+              {children}
+            </SelectedCompanyProvider>
           </main>
         </div>
       </div>

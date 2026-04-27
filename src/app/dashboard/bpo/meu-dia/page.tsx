@@ -40,6 +40,15 @@ type MeuDia = {
   sla_vencido: number
   resolvidos_hoje: number
   tempo_medio_minutos_30d: number | null
+  // Campos de supervisao (opcionais - so vem quando user e supervisor)
+  eh_supervisor?: boolean
+  empresas_supervisionadas?: number
+  sup_inbox_pendente?: number
+  sup_inbox_em_andamento?: number
+  sup_urgentes?: number
+  sup_sla_vencido?: number
+  sup_sla_vencendo_4h?: number
+  sup_resolvidos_7d?: number
 }
 
 type MinhaEmpresa = {
@@ -185,6 +194,37 @@ export default function MeuDiaPage() {
           cor={corMetric.default}
         />
       </div>
+
+      {/* Bloco SUPERVISAO - so renderiza quando user eh supervisor */}
+      {meuDia?.eh_supervisor && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 12, fontWeight: 700, color: C.tx, marginBottom: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
+            Supervisao ({meuDia.empresas_supervisionadas ?? 0} empresas)
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <PSGCMetric
+              label="Inbox supervisionado"
+              valor={String(meuDia.sup_inbox_pendente ?? 0)}
+              cor={corMetric.default}
+            />
+            <PSGCMetric
+              label="Urgentes (super)"
+              valor={String(meuDia.sup_urgentes ?? 0)}
+              cor={corMetric.critical}
+            />
+            <PSGCMetric
+              label="SLA vencido (super)"
+              valor={String(meuDia.sup_sla_vencido ?? 0)}
+              cor={corMetric.critical}
+            />
+            <PSGCMetric
+              label="SLA vencendo 4h (super)"
+              valor={String(meuDia.sup_sla_vencendo_4h ?? 0)}
+              cor={corMetric.attention}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Sessao Minhas Empresas */}
       <div style={{ marginBottom: 24 }}>
