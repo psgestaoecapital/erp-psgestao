@@ -2,10 +2,50 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { PSGC_COLORS, corScore, variantPorNivel } from '@/lib/psgc-tokens'
+import PSGCCard from '@/components/psgc/PSGCCard'
+import PSGCButton from '@/components/psgc/PSGCButton'
 
-const C = { bg: '#0F0F0F', card: '#1A1410', card2: '#201C16', bd: '#2A2822', go: '#C8941A', gol: '#E8C872', tx: '#FAF7F2', txm: '#B0AB9F', txd: '#706C64', g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7' }
+const C = {
+  bg: PSGC_COLORS.offWhite,
+  card: PSGC_COLORS.offWhite,
+  card2: PSGC_COLORS.offWhiteDarker,
+  bd: PSGC_COLORS.offWhiteDarker,
+  go: PSGC_COLORS.dourado,
+  gol: PSGC_COLORS.douradoSoft,
+  tx: PSGC_COLORS.espresso,
+  txm: PSGC_COLORS.espressoLight,
+  txd: PSGC_COLORS.espressoLight,
+  g: PSGC_COLORS.baixa,
+  r: PSGC_COLORS.alta,
+  y: PSGC_COLORS.media,
+  b: PSGC_COLORS.azul,
+}
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
+
+// 11 Camadas anti-fraude com categoria visual:
+//   cad (espresso): cadastrais (fornecedor/relacionamento/codigo)
+//   doc (dourado):  documentais (NF-e/pedido/descricao)
+//   beh (alta):     comportamentais (valor anomalo/redondo/duplicata/outlier/fim de semana)
+const CAMADAS: { id: number; nome: string; cat: 'cad' | 'doc' | 'beh' }[] = [
+  { id: 1,  nome: 'Fornecedor cadastrado', cat: 'cad' },
+  { id: 2,  nome: 'Faixa historica',       cat: 'beh' },
+  { id: 3,  nome: 'Tempo relacionamento',  cat: 'cad' },
+  { id: 4,  nome: 'NF-e vinculada',        cat: 'doc' },
+  { id: 5,  nome: 'Pedido/Documento',      cat: 'doc' },
+  { id: 6,  nome: 'Valor redondo',         cat: 'beh' },
+  { id: 7,  nome: 'Duplicatas',            cat: 'beh' },
+  { id: 8,  nome: 'CNPJ suspeito',         cat: 'cad' },
+  { id: 9,  nome: 'Outlier',               cat: 'beh' },
+  { id: 10, nome: 'Fim de semana',         cat: 'beh' },
+  { id: 11, nome: 'Sem descricao',         cat: 'doc' },
+]
+
+const corCamada = (cat: 'cad' | 'doc' | 'beh') =>
+  cat === 'cad' ? PSGC_COLORS.espresso :
+  cat === 'doc' ? PSGC_COLORS.dourado :
+  PSGC_COLORS.alta
 
 interface Lanc { id: string; data: string; desc: string; valor: number; cat: string; forn: string; codForn: string; tipo: string; nfe: string; nossoNum: string; codBarras: string; banco: string; score: number; flags: string[] }
 
@@ -258,7 +298,6 @@ export default function AntiFraudePage() {
     scoreMedia: despesas.length > 0 ? Math.round(despesas.reduce((s, l) => s + l.score, 0) / despesas.length) : 0,
   }
 
-  const scoreColor = (s: number) => s >= 80 ? C.g : s >= 60 ? C.y : s >= 30 ? '#F97316' : C.r
   const fmt = (v: number) => 'R$ ' + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 
   // Gera resumo narrativo
@@ -297,6 +336,11 @@ export default function AntiFraudePage() {
 
   return (
     <div style={{ padding: '16px 16px 40px', minHeight: '100vh', background: C.bg, color: C.tx }}>
+      <div style={{ marginBottom: 16 }}>
+        <PSGCButton variant="ghost" size="sm" onClick={() => { window.location.href = '/dashboard/bpo' }}>
+          ← BPO
+        </PSGCButton>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 9, color: C.r, letterSpacing: 2, textTransform: 'uppercase' }}>Motor Proprietario</div>
@@ -321,16 +365,26 @@ export default function AntiFraudePage() {
               <option key={e.id} value={e.id}>{e.nome}</option>
             ))}
           </select>
-          <button onClick={analisar} disabled={loading || !empresaSel} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: loading ? C.bd : C.r, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
+          <PSGCButton variant="danger" size="md" onClick={analisar} disabled={loading || !empresaSel}>
             {loading ? 'Analisando...' : 'Executar Anti-Fraude'}
-          </button>
+          </PSGCButton>
         </div>
       </div>
 
       {/* 11 CAMADAS */}
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 14 }}>
-        {['Fornecedor cadastrado', 'Faixa historica', 'Tempo relacionamento', 'NF-e vinculada', 'Pedido/Documento', 'Valor redondo', 'Duplicatas', 'CNPJ suspeito', 'Outlier', 'Fim de semana', 'Sem descricao'].map((cam, i) => (
-          <span key={i} style={{ fontSize: 8, padding: '3px 8px', borderRadius: 4, background: C.r + '15', color: C.r, fontWeight: 600, border: '1px solid ' + C.r + '30' }}>{(i + 1).toString().padStart(2, '0')} {cam}</span>
+        {CAMADAS.map(c => (
+          <span key={c.id} style={{
+            background: corCamada(c.cat),
+            color: PSGC_COLORS.offWhite,
+            fontSize: 8,
+            fontWeight: 700,
+            padding: '3px 8px',
+            borderRadius: 4,
+            letterSpacing: 0.5,
+          }}>
+            {String(c.id).padStart(2, '0')} {c.nome}
+          </span>
         ))}
       </div>
 
@@ -339,7 +393,7 @@ export default function AntiFraudePage() {
           {/* SCORECARD */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 6, marginBottom: 14 }}>
             {[
-              { l: 'Score Medio', v: String(stats.scoreMedia), c: scoreColor(stats.scoreMedia) },
+              { l: 'Score Medio', v: String(stats.scoreMedia), c: corScore(stats.scoreMedia) },
               { l: 'Total Despesas', v: String(stats.total), c: C.b },
               { l: 'Critico (<30)', v: String(stats.critico), c: C.r },
               { l: 'Suspeito (30-59)', v: String(stats.suspeito), c: '#F97316' },
@@ -355,12 +409,17 @@ export default function AntiFraudePage() {
           </div>
 
           {/* RESUMO EXECUTIVO */}
-          {gerarResumo() && (
-            <div style={{ background: C.card, borderRadius: 8, padding: 14, marginBottom: 14, borderLeft: '3px solid ' + scoreColor(stats.scoreMedia), border: '1px solid ' + C.bd }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: scoreColor(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
-              <div style={{ fontSize: 12, color: C.tx, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{gerarResumo()}</div>
-            </div>
-          )}
+          {gerarResumo() && (() => {
+            const nivel: 'saudavel' | 'moderado' | 'critico' =
+              stats.scoreMedia >= 80 ? 'saudavel' :
+              stats.scoreMedia >= 60 ? 'moderado' : 'critico'
+            return (
+              <PSGCCard variant={variantPorNivel(nivel)} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: corScore(stats.scoreMedia), marginBottom: 6 }}>Parecer Anti-Fraude</div>
+                <div style={{ fontSize: 12, color: C.tx, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{gerarResumo()}</div>
+              </PSGCCard>
+            )
+          })()}
 
           {/* FILTROS */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
@@ -384,20 +443,20 @@ export default function AntiFraudePage() {
                   <React.Fragment key={l.id}>
                     <tr onClick={() => setExpandido(expandido === l.id ? null : l.id)} style={{ borderBottom: '0.5px solid ' + C.bd + '40', cursor: l.flags.length > 0 ? 'pointer' : 'default', background: expandido === l.id ? C.card2 : 'transparent' }}>
                       <td style={{ padding: '6px', width: 55 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(l.score), padding: '2px 8px', borderRadius: 4, background: scoreColor(l.score) + '15' }}>{l.score}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: corScore(l.score), padding: '2px 8px', borderRadius: 4, background: corScore(l.score) + '15' }}>{l.score}</span>
                       </td>
                       <td style={{ padding: '6px', fontSize: 10, color: C.txm, whiteSpace: 'nowrap' }}>{l.data}</td>
                       <td style={{ padding: '6px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.forn}</td>
                       <td style={{ padding: '6px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', color: C.txm }}>{l.desc}</td>
                       <td style={{ padding: '6px', textAlign: 'right', fontWeight: 600, color: C.r }}>{fmt(l.valor)}</td>
                       <td style={{ padding: '6px' }}>
-                        {l.flags.length > 0 && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: scoreColor(l.score) + '15', color: scoreColor(l.score), fontWeight: 600 }}>{l.flags.length} flag{l.flags.length > 1 ? 's' : ''}</span>}
+                        {l.flags.length > 0 && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: corScore(l.score) + '15', color: corScore(l.score), fontWeight: 600 }}>{l.flags.length} flag{l.flags.length > 1 ? 's' : ''}</span>}
                       </td>
                     </tr>
                     {expandido === l.id && l.flags.length > 0 && (
                       <tr><td colSpan={6} style={{ padding: '4px 6px 10px 60px', background: C.card2 }}>
                         {l.flags.map((f, i) => (
-                          <div key={i} style={{ fontSize: 10, color: scoreColor(l.score), padding: '2px 0', borderLeft: '2px solid ' + scoreColor(l.score), paddingLeft: 8, marginBottom: 2 }}>{f}</div>
+                          <div key={i} style={{ fontSize: 10, color: corScore(l.score), padding: '2px 0', borderLeft: '2px solid ' + corScore(l.score), paddingLeft: 8, marginBottom: 2 }}>{f}</div>
                         ))}
                         <div style={{ fontSize: 9, color: C.txd, marginTop: 4 }}>Cat: {l.cat || 'N/I'} | NF-e: {l.nfe || 'Sem'} | Doc: {l.nossoNum || 'Sem'} | Cod.Forn: {l.codForn}</div>
                       </td></tr>
