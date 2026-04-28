@@ -59,13 +59,15 @@ export const POST = withAuth(async (req: NextRequest) => {
   const razao = (empresa as any).razao_social || (empresa as any).nome_fantasia || 'empresa'
   const rootDir = safe(razao)
 
-  // Funcionarios alvo
+  // Funcionarios alvo. Inclui terceirização: empresa selecionada como
+  // empregadora (company_id) OU tomadora (empresa_tomadora_id).
+  const orFilter = `company_id.eq.${company_id},empresa_tomadora_id.eq.${company_id}`
   let funcionarios: Array<{ id: string; nome_completo: string }> = []
   if (funcionarioIdsInput && funcionarioIdsInput.length > 0) {
     const { data, error } = await supabaseAdmin
       .from('compliance_funcionarios')
       .select('id, nome_completo')
-      .eq('company_id', company_id)
+      .or(orFilter)
       .in('id', funcionarioIdsInput)
     if (error) return fail(500, `Falha ao consultar funcionários: ${error.message}`)
     funcionarios = (data as any[]) || []
@@ -73,7 +75,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     const { data, error } = await supabaseAdmin
       .from('compliance_funcionarios')
       .select('id, nome_completo')
-      .eq('company_id', company_id)
+      .or(orFilter)
       .eq('ativo', true)
     if (error) return fail(500, `Falha ao consultar funcionários: ${error.message}`)
     funcionarios = (data as any[]) || []
@@ -92,10 +94,11 @@ export const POST = withAuth(async (req: NextRequest) => {
 
   let docsFunc: any[] = []
   if (funcIds.length > 0) {
+    // Não restringe company_id aqui: funcionarios podem vir pela tomadora
+    // (CLT noutra empresa). funcIds já foi filtrado pelo OR acima.
     const { data, error } = await supabaseAdmin
       .from('compliance_documentos')
       .select('id, funcionario_id, tipo_documento_id, arquivo_url, arquivo_nome_original')
-      .eq('company_id', company_id)
       .in('funcionario_id', funcIds)
       .eq('ativo', true)
     if (error) return fail(500, `Falha ao consultar documentos: ${error.message}`)
