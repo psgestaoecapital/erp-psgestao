@@ -62,6 +62,9 @@ export default function ComplianceDashboardPage() {
     const ids = companyIdsKey ? companyIdsKey.split(',') : []
     if (ids.length === 0) return
     let ignore = false
+    // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
+    const idsCsv = ids.join(',')
+    const orFilter = `company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`
     ;(async () => {
       setLoading(true)
 
@@ -69,14 +72,14 @@ export default function ComplianceDashboardPage() {
       const { count: qtdFunc } = await supabase
         .from('compliance_funcionarios')
         .select('id', { count: 'exact', head: true })
-        .in('company_id', ids)
+        .or(orFilter)
         .eq('ativo', true)
 
       // Matriz — count por status_final
       const { data: matriz } = await supabase
         .from('v_compliance_matriz_funcionarios')
         .select('status_final, funcionario_ativo, obrigatorio')
-        .in('company_id', ids)
+        .or(orFilter)
 
       const m = (matriz as any[] | null) ?? []
       const ativosObrig = m.filter((x) => x.funcionario_ativo && x.obrigatorio)
@@ -88,7 +91,7 @@ export default function ComplianceDashboardPage() {
       const { data: urgentes } = await supabase
         .from('v_compliance_matriz_funcionarios')
         .select('documento_id, funcionario_id, nome_completo, tipo_nome, data_validade, dias_para_vencer, status_final')
-        .in('company_id', ids)
+        .or(orFilter)
         .eq('funcionario_ativo', true)
         .eq('obrigatorio', true)
         .in('status_final', ['vencido', 'vencendo'])

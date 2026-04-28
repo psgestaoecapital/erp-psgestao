@@ -30,7 +30,11 @@ export const GET = withAuth(async (req: NextRequest) => {
 
   const sb = admin()
   let query = sb.from('compliance_funcionarios').select('*').order('nome_completo')
-  if (companyIds.length > 0) query = query.in('company_id', companyIds)
+  if (companyIds.length > 0) {
+    // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
+    const idsCsv = companyIds.join(',')
+    query = query.or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
+  }
   if (cargo) query = query.eq('cargo', cargo)
   if (setor) query = query.eq('setor', setor)
   if (empresaTomadora) query = query.eq('empresa_tomadora_nome', empresaTomadora)

@@ -50,10 +50,14 @@ export const GET = withAuth(async (req: NextRequest) => {
     .order('nome')
 
   // Carrega a matriz.
+  // Carrega a matriz. Filtra funcionários onde a empresa selecionada é
+  // empregadora (company_id) OU tomadora de serviço (empresa_tomadora_id) —
+  // padrão terceirização: CLT em A presta serviço em obra de B.
+  const idsCsv = companyIds.join(',')
   let q = sb
     .from('v_compliance_matriz_funcionarios')
     .select('*')
-    .in('company_id', companyIds)
+    .or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
   if (apenasAtivos) q = q.eq('funcionario_ativo', true)
   if (empresaTomadora) q = q.eq('empresa_tomadora_nome', empresaTomadora)
   if (obra) q = q.eq('obra_nome', obra)
