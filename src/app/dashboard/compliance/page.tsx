@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
 
@@ -35,8 +36,18 @@ type Alerta = {
 }
 
 export default function ComplianceDashboardPage() {
-  const { companyIds } = useCompanyIds()
+  const { companyIds, selInfo } = useCompanyIds()
   const [loading, setLoading] = useState(true)
+  const [zipModalAberto, setZipModalAberto] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
+  const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : null
+
+  function showToast(msg: string, ok = true) {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }
+
   const [totalFuncionarios, setTotalFuncionarios] = useState(0)
   const [docsVencendo, setDocsVencendo] = useState(0)
   const [docsVencidos, setDocsVencidos] = useState(0)
@@ -106,16 +117,26 @@ export default function ComplianceDashboardPage() {
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
-        <header style={{ marginBottom: 24 }}>
-          <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-            Compliance
-          </p>
-          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>
-            Hub de Compliance
-          </h1>
-          <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
-            Documentação de funcionários e empresa, com alertas de validade.
-          </p>
+        <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
+              Compliance
+            </p>
+            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>
+              Hub de Compliance
+            </h1>
+            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
+              Documentação de funcionários e empresa, com alertas de validade.
+            </p>
+          </div>
+          {empresaUnica && (
+            <button
+              onClick={() => setZipModalAberto(true)}
+              style={{ padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: C.gold, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              📦 Gerar ZIP
+            </button>
+          )}
         </header>
 
         {/* Cards */}
@@ -186,6 +207,183 @@ export default function ComplianceDashboardPage() {
             </table>
           </div>
         </section>
+      </div>
+
+      {zipModalAberto && empresaUnica && (
+        <GerarZipModal
+          companyId={empresaUnica}
+          empresaNome={empresaNome || 'empresa'}
+          onClose={() => setZipModalAberto(false)}
+          onSucesso={() => { setZipModalAberto(false); showToast('✓ Pacote gerado e baixado') }}
+          onErro={(m: string) => showToast(m, false)}
+        />
+      )}
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 200,
+            padding: '12px 18px', borderRadius: 8,
+            background: toast.ok ? C.espresso : C.red,
+            color: 'white', fontSize: 13, fontWeight: 600,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            maxWidth: 'min(90vw, 420px)',
+          }}
+        >
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GerarZipModal({
+  companyId, empresaNome, onClose, onSucesso, onErro,
+}: {
+  companyId: string
+  empresaNome: string
+  onClose: () => void
+  onSucesso: () => void
+  onErro: (msg: string) => void
+}) {
+  const [funcs, setFuncs] = useState<Array<{ id: string; nome_completo: string }>>([])
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [gerando, setGerando] = useState(false)
+
+  useEffect(() => {
+    let ignore = false
+    ;(async () => {
+      try {
+        const res = await authFetch(`/api/compliance/funcionarios?company_ids=${encodeURIComponent(companyId)}&ativo=true`)
+        const j = await res.json()
+        if (!j.ok) throw new Error(j.error || 'falha')
+        if (ignore) return
+        const lista = (j.funcionarios as any[] || []).map((f: any) => ({ id: f.id, nome_completo: f.nome_completo }))
+        setFuncs(lista)
+        setSelecionados(new Set(lista.map((f) => f.id)))
+      } catch (e: any) {
+        if (!ignore) onErro(e.message || 'Falha ao carregar funcionários')
+      } finally {
+        if (!ignore) setLoading(false)
+      }
+    })()
+    return () => { ignore = true }
+  }, [companyId, onErro])
+
+  function toggleAll(checked: boolean) {
+    setSelecionados(checked ? new Set(funcs.map((f) => f.id)) : new Set())
+  }
+
+  function toggle(id: string) {
+    setSelecionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function gerar() {
+    setGerando(true)
+    try {
+      const res = await authFetch('/api/compliance/zip', {
+        method: 'POST',
+        body: JSON.stringify({
+          company_id: companyId,
+          funcionario_ids: Array.from(selecionados),
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => null)
+        throw new Error(j?.mensagem_humana || j?.error || `HTTP ${res.status}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const cd = res.headers.get('content-disposition') || ''
+      const m = cd.match(/filename="?([^";]+)"?/)
+      a.download = m?.[1] || `compliance_${empresaNome}.zip`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      onSucesso()
+    } catch (e: any) {
+      onErro(e.message || 'Falha ao gerar ZIP')
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  const todosMarcados = funcs.length > 0 && selecionados.size === funcs.length
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(560px, 92vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
+        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 4px' }}>
+          Gerar pacote ZIP
+        </h2>
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: C.muted }}>
+          {empresaNome}
+        </p>
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: C.muted, padding: '8px 12px', background: C.beigeLt, borderRadius: 6 }}>
+          O ZIP incluirá <strong>todos os documentos da empresa</strong> + os documentos dos funcionários selecionados abaixo.
+        </p>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={todosMarcados}
+              onChange={(e: any) => toggleAll(e.target.checked)}
+            />
+            {todosMarcados ? 'Desmarcar todos' : 'Selecionar todos'}
+          </label>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
+            {selecionados.size} de {funcs.length}
+          </span>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: 8, marginBottom: 16, minHeight: 100, maxHeight: 280 }}>
+          {loading && <div style={{ padding: 12, color: C.muted, fontSize: 13 }}>Carregando…</div>}
+          {!loading && funcs.length === 0 && <div style={{ padding: 12, color: C.muted, fontSize: 13 }}>Nenhum funcionário ativo</div>}
+          {funcs.map((f) => (
+            <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, fontSize: 13, color: C.ink, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={selecionados.has(f.id)}
+                onChange={() => toggle(f.id)}
+              />
+              {f.nome_completo}
+            </label>
+          ))}
+        </div>
+
+        {gerando && (
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: C.gold, fontWeight: 600 }}>
+            Empacotando documentos… pode levar alguns segundos.
+          </p>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={gerando}
+            style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: gerando ? 'not-allowed' : 'pointer' }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={gerar}
+            disabled={gerando || loading}
+            style={{ padding: '10px 18px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: gerando || loading ? 'not-allowed' : 'pointer', opacity: gerando || loading ? 0.6 : 1 }}
+          >
+            {gerando ? 'Gerando…' : 'Gerar e Baixar'}
+          </button>
+        </div>
       </div>
     </div>
   )

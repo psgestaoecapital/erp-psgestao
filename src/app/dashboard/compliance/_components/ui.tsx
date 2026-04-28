@@ -19,6 +19,9 @@ export const C = {
   redBg: '#fce8e8',
   gray: '#6b6b6b',
   grayBg: '#efece6',
+  // "Não se aplica" — neutro fora do semáforo de performance
+  neutral: '#9B9B9B',
+  neutralBg: '#f5efe2',
 }
 
 export function StatusBadge({ status }: { status: string | null | undefined }) {
@@ -28,6 +31,7 @@ export function StatusBadge({ status }: { status: string | null | undefined }) {
     vencendo: { bg: C.amberBg, fg: C.amber, label: 'Vencendo', dot: '🟡' },
     vencido: { bg: C.redBg, fg: C.red, label: 'Vencido', dot: '🔴' },
     nao_emitido: { bg: C.grayBg, fg: C.gray, label: 'Não emitido', dot: '⚫' },
+    nao_se_aplica: { bg: C.neutralBg, fg: C.neutral, label: 'Não se aplica', dot: '⊘' },
     sem_validade: { bg: C.greenBg, fg: C.green, label: 'Sem validade', dot: '🟢' },
   }
   const d = map[s] || { bg: C.grayBg, fg: C.gray, label: s, dot: '⚫' }

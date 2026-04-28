@@ -20,6 +20,7 @@ type Celula = {
   status_final: string
   dias_para_vencer: number | null
   obrigatorio: boolean
+  dispensa_motivo?: string | null
 }
 type Linha = {
   funcionario_id: string
@@ -40,6 +41,7 @@ function corDotStatus(status: string | null | undefined): { bg: string; fg: stri
     case 'vencendo': return { bg: C.amberBg, fg: C.amber, emoji: '🟡', label: 'Vencendo' }
     case 'vencido': return { bg: C.redBg, fg: C.red, emoji: '🔴', label: 'Vencido' }
     case 'nao_emitido': return { bg: C.grayBg, fg: C.gray, emoji: '⚫', label: 'Não emitido' }
+    case 'nao_se_aplica': return { bg: C.neutralBg, fg: C.neutral, emoji: '⊘', label: 'Não se aplica' }
     default: return { bg: C.grayBg, fg: C.gray, emoji: '⚫', label: status || 'Não emitido' }
   }
 }
@@ -58,6 +60,12 @@ export default function MatrizPage() {
   const [fCargo, setFCargo] = useState('')
   const [celulaSelecionada, setCelulaSelecionada] = useState<{ linha: Linha; celula: Celula } | null>(null)
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+
+  const showToast = useCallback((msg: string, ok = true) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }, [])
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) return
@@ -82,6 +90,47 @@ export default function MatrizPage() {
   }, [companyIdsKey, fTomadora, fObra, fSetor, fCargo])
 
   useEffect(() => { carregar() }, [carregar])
+
+  const dispensar = useCallback(async (linha: Linha, celula: Celula, motivo: string) => {
+    try {
+      const res = await authFetch('/api/compliance/dispensas', {
+        method: 'POST',
+        body: JSON.stringify({
+          company_id: linha.company_id,
+          tipo_documento_id: celula.tipo_documento_id,
+          funcionario_id: linha.funcionario_id,
+          motivo: motivo.trim() || null,
+        }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha')
+      showToast(`✓ Documento dispensado para ${linha.nome_completo}`)
+      setCelulaSelecionada(null)
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao dispensar', false)
+    }
+  }, [carregar, showToast])
+
+  const reativarCobranca = useCallback(async (linha: Linha, celula: Celula) => {
+    try {
+      const res = await authFetch('/api/compliance/dispensas', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          company_id: linha.company_id,
+          tipo_documento_id: celula.tipo_documento_id,
+          funcionario_id: linha.funcionario_id,
+        }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha')
+      showToast(`✓ Cobrança reativada para ${linha.nome_completo}`)
+      setCelulaSelecionada(null)
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao reativar', false)
+    }
+  }, [carregar, showToast])
 
   const opcoesTomadora = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.empresa_tomadora_nome).filter(Boolean) as string[])).sort(), [linhas])
   const opcoesObra = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.obra_nome).filter(Boolean) as string[])).sort(), [linhas])
@@ -181,7 +230,11 @@ export default function MatrizPage() {
                               if (!c) return
                               setCelulaSelecionada({ linha: l, celula: c })
                             }}
-                            title={`${t.nome}: ${d.label}${c?.data_validade ? ' até ' + fmtData(c.data_validade) : ''}`}
+                            title={
+                              c?.status_final === 'nao_se_aplica'
+                                ? `${t.nome}: Não se aplica${c?.dispensa_motivo ? ' — ' + c.dispensa_motivo : ''}`
+                                : `${t.nome}: ${d.label}${c?.data_validade ? ' até ' + fmtData(c.data_validade) : ''}`
+                            }
                             style={{
                               width: 32, height: 32, borderRadius: '50%',
                               border: 'none', background: d.bg, color: d.fg,
@@ -218,7 +271,24 @@ export default function MatrizPage() {
             })
             setCelulaSelecionada(null)
           }}
+          onDispensar={(motivo: string) => dispensar(celulaSelecionada.linha, celulaSelecionada.celula, motivo)}
+          onReativar={() => reativarCobranca(celulaSelecionada.linha, celulaSelecionada.celula)}
         />
+      )}
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 200,
+            padding: '12px 18px', borderRadius: 8,
+            background: toast.ok ? C.espresso : C.red,
+            color: 'white', fontSize: 13, fontWeight: 600,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            maxWidth: 'min(90vw, 420px)',
+          }}
+        >
+          {toast.msg}
+        </div>
       )}
 
       {uploadCtx && (
@@ -236,17 +306,24 @@ export default function MatrizPage() {
 }
 
 function CelulaModal({
-  linha, celula, onClose, onBaixar, onSubstituir,
+  linha, celula, onClose, onBaixar, onSubstituir, onDispensar, onReativar,
 }: {
   linha: Linha; celula: Celula
   onClose: () => void
   onBaixar: () => void
   onSubstituir: () => void
+  onDispensar: (motivo: string) => void
+  onReativar: () => void
 }) {
   const d = corDotStatus(celula.status_final)
+  const [mostrandoMotivo, setMostrandoMotivo] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const isNaoSeAplica = celula.status_final === 'nao_se_aplica'
+  const isNaoEmitido = celula.status_final === 'nao_emitido'
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(460px, 92vw)' }}>
+      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(480px, 92vw)' }}>
         <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
           {linha.nome_completo}
         </p>
@@ -255,25 +332,82 @@ function CelulaModal({
           {d.emoji} {d.label}
         </div>
         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
-          <div><strong>Emissão:</strong> {fmtData(celula.data_emissao)}</div>
-          <div><strong>Validade:</strong> {fmtData(celula.data_validade)}</div>
-          {celula.dias_para_vencer != null && (<div><strong>Dias para vencer:</strong> {celula.dias_para_vencer}</div>)}
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>
-          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Fechar</button>
-          {celula.documento_id && (
-            <button onClick={onBaixar} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Baixar</button>
+          {isNaoSeAplica ? (
+            <div><strong>Motivo:</strong> {celula.dispensa_motivo || '—'}</div>
+          ) : (
+            <>
+              <div><strong>Emissão:</strong> {fmtData(celula.data_emissao)}</div>
+              <div><strong>Validade:</strong> {fmtData(celula.data_validade)}</div>
+              {celula.dias_para_vencer != null && (<div><strong>Dias para vencer:</strong> {celula.dias_para_vencer}</div>)}
+            </>
           )}
-          <button onClick={onSubstituir} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            {celula.documento_id ? 'Substituir' : 'Fazer upload'}
-          </button>
-          <Link href={`/dashboard/compliance/funcionarios/${linha.funcionario_id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-            Ver funcionário
-          </Link>
         </div>
+
+        {mostrandoMotivo && (
+          <div style={{ marginTop: 16, padding: 12, background: C.beigeLt, borderRadius: 8 }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Motivo (opcional)
+            </label>
+            <textarea
+              value={motivo}
+              onChange={(e: any) => setMotivo(e.target.value)}
+              rows={2}
+              placeholder="Ex: cargo isento por convenção coletiva"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.borderLt}`, fontSize: 13, background: 'white', color: C.ink, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button onClick={() => { setMostrandoMotivo(false); setMotivo('') }} style={btnSecModal()}>Cancelar</button>
+              <button onClick={() => onDispensar(motivo)} style={btnPrimModal()}>Confirmar dispensa</button>
+            </div>
+          </div>
+        )}
+
+        {!mostrandoMotivo && (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>
+            <button onClick={onClose} style={btnSecModal()}>Fechar</button>
+            {celula.documento_id && (
+              <button onClick={onBaixar} style={btnSecModal()}>Baixar</button>
+            )}
+            {isNaoSeAplica ? (
+              <>
+                <button
+                  onClick={onReativar}
+                  style={{ ...btnSecModal(), borderColor: C.gold, color: C.gold }}
+                >
+                  🔄 Reativar cobrança
+                </button>
+                <button onClick={onSubstituir} style={btnPrimModal()}>📤 Fazer upload</button>
+              </>
+            ) : (
+              <>
+                {isNaoEmitido && (
+                  <button
+                    onClick={() => setMostrandoMotivo(true)}
+                    style={{ ...btnSecModal(), borderColor: C.neutral, color: C.neutral }}
+                  >
+                    🚫 Não se aplica
+                  </button>
+                )}
+                <button onClick={onSubstituir} style={btnPrimModal()}>
+                  {celula.documento_id ? 'Substituir' : '📤 Fazer upload'}
+                </button>
+              </>
+            )}
+            <Link href={`/dashboard/compliance/funcionarios/${linha.funcionario_id}`} style={{ ...btnSecModal(), textDecoration: 'none' }}>
+              Ver funcionário
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   )
+}
+
+function btnSecModal() {
+  return { padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' } as any
+}
+function btnPrimModal() {
+  return { padding: '8px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' } as any
 }
 
 function headerStyle() {
