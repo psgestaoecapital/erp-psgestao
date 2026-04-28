@@ -16,6 +16,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { authFetch } from '@/lib/authFetch'
 
 // ===== Tipos =====
 interface Movimento {
@@ -110,7 +111,7 @@ export default function ConciliacaoLotePage() {
   const carregar = useCallback(async () => {
     setCarregando(true)
     try {
-      const res = await fetch(`/api/conciliacao/inbox?lote_id=${lote_id}&status=pendente&limit=200`)
+      const res = await authFetch(`/api/conciliacao/inbox?lote_id=${lote_id}&status=pendente&limit=200`)
       const json = await res.json()
       if (!res.ok) throw new Error(json.mensagem_humana || json.error)
       setLote(json.lote)
@@ -166,7 +167,7 @@ export default function ConciliacaoLotePage() {
     )
 
     try {
-      const res = await fetch('/api/conciliacao/match', {
+      const res = await authFetch('/api/conciliacao/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -203,7 +204,7 @@ export default function ConciliacaoLotePage() {
     setProcessando(true)
 
     try {
-      await fetch('/api/conciliacao/match', {
+      await authFetch('/api/conciliacao/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,7 +233,7 @@ export default function ConciliacaoLotePage() {
     )
 
     try {
-      await fetch('/api/conciliacao/match', {
+      await authFetch('/api/conciliacao/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

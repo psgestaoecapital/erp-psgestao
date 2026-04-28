@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { authFetch } from '@/lib/authFetch'
 
 // ===== Tipos =====
 interface Lote {
@@ -72,7 +73,7 @@ export default function ConciliacaoHubPage() {
   const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/conciliacao/saude')
+    authFetch('/api/conciliacao/saude')
       .then(r => r.json())
       .then(json => {
         if (json.error) throw new Error(json.mensagem_humana || json.error)
