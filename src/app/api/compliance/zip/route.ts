@@ -44,6 +44,7 @@ export const POST = withAuth(async (req: NextRequest) => {
 
   const company_id = (body.company_id as string | undefined) || ''
   const funcionarioIdsInput = Array.isArray(body.funcionario_ids) ? (body.funcionario_ids as string[]) : null
+  const prestadorIdsInput = Array.isArray(body.prestador_ids) ? (body.prestador_ids as string[]) : null
 
   if (!company_id) return fail(400, 'company_id é obrigatório.')
 
@@ -81,31 +82,60 @@ export const POST = withAuth(async (req: NextRequest) => {
     funcionarios = (data as any[]) || []
   }
 
-  // Documentos ativos: empresa (funcionario_id IS NULL) + funcionarios listados
+  // Prestadores PJ/MEI alvo. Inclui terceirização também.
+  let prestadores: Array<{ id: string; razao_social: string }> = []
+  if (prestadorIdsInput && prestadorIdsInput.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('compliance_prestadores')
+      .select('id, razao_social')
+      .or(orFilter)
+      .in('id', prestadorIdsInput)
+    if (error) return fail(500, `Falha ao consultar prestadores: ${error.message}`)
+    prestadores = (data as any[]) || []
+  } else if (prestadorIdsInput === null) {
+    // Sem campo no body: por compatibilidade, NÃO inclui prestadores.
+    // Cliente que quer prestadores deve mandar ao menos um array vazio para
+    // optar in/out explícito, ou um array com IDs.
+    prestadores = []
+  }
+
+  // Documentos ativos: empresa (funcionario_id IS NULL && prestador_id IS NULL)
+  // + funcionarios listados + prestadores listados.
   const funcIds = funcionarios.map((f) => f.id)
+  const presIds = prestadores.map((p) => p.id)
 
   const { data: docsEmpresa, error: docsEmpErr } = await supabaseAdmin
     .from('compliance_documentos')
-    .select('id, funcionario_id, tipo_documento_id, arquivo_url, arquivo_nome_original')
+    .select('id, funcionario_id, prestador_id, tipo_documento_id, arquivo_url, arquivo_nome_original')
     .eq('company_id', company_id)
     .is('funcionario_id', null)
+    .is('prestador_id', null)
     .eq('ativo', true)
   if (docsEmpErr) return fail(500, `Falha ao consultar documentos: ${docsEmpErr.message}`)
 
   let docsFunc: any[] = []
   if (funcIds.length > 0) {
-    // Não restringe company_id aqui: funcionarios podem vir pela tomadora
-    // (CLT noutra empresa). funcIds já foi filtrado pelo OR acima.
     const { data, error } = await supabaseAdmin
       .from('compliance_documentos')
-      .select('id, funcionario_id, tipo_documento_id, arquivo_url, arquivo_nome_original')
+      .select('id, funcionario_id, prestador_id, tipo_documento_id, arquivo_url, arquivo_nome_original')
       .in('funcionario_id', funcIds)
       .eq('ativo', true)
     if (error) return fail(500, `Falha ao consultar documentos: ${error.message}`)
     docsFunc = data || []
   }
 
-  const todosDocs = [...(docsEmpresa || []), ...docsFunc]
+  let docsPres: any[] = []
+  if (presIds.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('compliance_documentos')
+      .select('id, funcionario_id, prestador_id, tipo_documento_id, arquivo_url, arquivo_nome_original')
+      .in('prestador_id', presIds)
+      .eq('ativo', true)
+    if (error) return fail(500, `Falha ao consultar documentos: ${error.message}`)
+    docsPres = data || []
+  }
+
+  const todosDocs = [...(docsEmpresa || []), ...docsFunc, ...docsPres]
   if (todosDocs.length === 0) {
     return fail(404, 'Nenhum documento ativo encontrado para gerar o ZIP.')
   }
@@ -121,6 +151,8 @@ export const POST = withAuth(async (req: NextRequest) => {
 
   const nomeFuncById = new Map<string, string>()
   for (const f of funcionarios) nomeFuncById.set(f.id, f.nome_completo)
+  const nomePrestadorById = new Map<string, string>()
+  for (const p of prestadores) nomePrestadorById.set(p.id, p.razao_social)
 
   // Monta ZIP
   const zip = new JSZip()
@@ -148,6 +180,9 @@ export const POST = withAuth(async (req: NextRequest) => {
     if (d.funcionario_id) {
       const nomeFunc = safe(nomeFuncById.get(d.funcionario_id) || `funcionario_${d.funcionario_id.slice(0, 8)}`)
       entryPath = `${rootDir}/${nomeFunc}/${tipoSlug}_${nomeOriginal}`
+    } else if (d.prestador_id) {
+      const nomePrest = safe(nomePrestadorById.get(d.prestador_id) || `prestador_${d.prestador_id.slice(0, 8)}`)
+      entryPath = `${rootDir}/prestadores/${nomePrest}/${tipoSlug}_${nomeOriginal}`
     } else {
       entryPath = `${rootDir}/empresa/${tipoSlug}_${nomeOriginal}`
     }
