@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../_components/ui'
 
@@ -124,7 +125,7 @@ export default function ComplianceEmpresaPage() {
                     <Td>{l.tipo.grupo || '—'}</Td>
                     <Td><StatusBadge status={statusFinal(l)} /></Td>
                     <Td mono>
-                      {l.documento?.data_validade || '—'}
+                      {fmtData(l.documento?.data_validade)}
                       {l.documento?.dias_para_vencer != null && statusFinal(l) === 'vencendo' && (
                         <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>em {l.documento.dias_para_vencer}d</div>
                       )}

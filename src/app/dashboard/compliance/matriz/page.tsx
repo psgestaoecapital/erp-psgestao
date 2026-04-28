@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
 import { C, baixarDocumento } from '../_components/ui'
 
@@ -94,7 +95,7 @@ export default function MatrizPage() {
       for (const t of tipos) {
         const c = l.documentos[t.slug]
         if (!c || c.status_final === 'nao_emitido') cols.push('Não emitido')
-        else cols.push(`${corDotStatus(c.status_final).label}${c.data_validade ? ' (até ' + c.data_validade + ')' : ''}`)
+        else cols.push(`${corDotStatus(c.status_final).label}${c.data_validade ? ' (até ' + fmtData(c.data_validade) + ')' : ''}`)
       }
       return cols
     })
@@ -180,7 +181,7 @@ export default function MatrizPage() {
                               if (!c) return
                               setCelulaSelecionada({ linha: l, celula: c })
                             }}
-                            title={`${t.nome}: ${d.label}${c?.data_validade ? ' até ' + c.data_validade : ''}`}
+                            title={`${t.nome}: ${d.label}${c?.data_validade ? ' até ' + fmtData(c.data_validade) : ''}`}
                             style={{
                               width: 32, height: 32, borderRadius: '50%',
                               border: 'none', background: d.bg, color: d.fg,
@@ -254,8 +255,8 @@ function CelulaModal({
           {d.emoji} {d.label}
         </div>
         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
-          <div><strong>Emissão:</strong> {celula.data_emissao || '—'}</div>
-          <div><strong>Validade:</strong> {celula.data_validade || '—'}</div>
+          <div><strong>Emissão:</strong> {fmtData(celula.data_emissao)}</div>
+          <div><strong>Validade:</strong> {fmtData(celula.data_validade)}</div>
           {celula.dias_para_vencer != null && (<div><strong>Dias para vencer:</strong> {celula.dias_para_vencer}</div>)}
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>

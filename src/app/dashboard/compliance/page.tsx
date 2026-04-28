@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { fmtData } from '@/lib/psgc-tokens'
 
 const C = {
   espresso: '#3D2314',
@@ -176,7 +177,7 @@ export default function ComplianceDashboardPage() {
                       </Link>
                     </Td>
                     <Td>{a.tipo_nome}</Td>
-                    <Td mono>{a.data_validade || '—'}</Td>
+                    <Td mono>{fmtData(a.data_validade)}</Td>
                     <Td mono>{a.dias_para_vencer == null ? '—' : a.dias_para_vencer}</Td>
                     <Td><StatusBadge status={a.status_final} /></Td>
                   </tr>

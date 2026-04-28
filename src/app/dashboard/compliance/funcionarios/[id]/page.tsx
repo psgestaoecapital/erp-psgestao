@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
+import { fmtData, fmtDataHora } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 
@@ -282,7 +283,7 @@ function AbaDocumentos({
                   <Td>{m.tipo_grupo || '—'}</Td>
                   <Td><StatusBadge status={m.status_final} /></Td>
                   <Td mono>
-                    {m.data_validade || '—'}
+                    {fmtData(m.data_validade)}
                     {m.dias_para_vencer != null && m.status_final === 'vencendo' && (
                       <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>em {m.dias_para_vencer}d</div>
                     )}
@@ -336,11 +337,11 @@ function AbaHistorico({ historico, onBaixar }: { historico: Documento[]; onBaixa
           <tbody>
             {historico.map((d, i) => (
               <tr key={d.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: d.ativo ? 1 : 0.55 }}>
-                <Td mono>{new Date(d.uploaded_at).toLocaleString('pt-BR')}</Td>
+                <Td mono>{fmtDataHora(d.uploaded_at)}</Td>
                 <Td mono>v{d.versao}</Td>
                 <Td>{d.arquivo_nome_original}</Td>
-                <Td mono>{d.data_emissao || '—'}</Td>
-                <Td mono>{d.data_validade || '—'}</Td>
+                <Td mono>{fmtData(d.data_emissao)}</Td>
+                <Td mono>{fmtData(d.data_validade)}</Td>
                 <Td><StatusBadge status={d.status_validade} /></Td>
                 <Td>{d.ativo ? 'Sim' : 'Substituído'}</Td>
                 <Td><button onClick={() => onBaixar(d.id)} style={btnSec()}>Baixar</button></Td>
