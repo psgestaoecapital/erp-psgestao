@@ -5,6 +5,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConnector, type Connector } from './base'
+import { OmieRateLimitError } from '@/lib/omieClient'
+
+// Tempo de cache padrão entre reconciliações quando force=false.
+const CACHE_TTL_MINUTES = 60
 
 // Módulos onde faz sentido detectar órfãos via listSourceIds.
 const MODULOS_COM_ORFAOS = new Set(['clientes', 'contas_pagar', 'contas_receber'])
@@ -21,6 +25,11 @@ type Vinculo = {
   id: string
   modules_ativos: string[] | null
   credentials_encrypted: Record<string, any> | null
+  rate_limit_bloqueado_ate: string | null
+  rate_limit_motivo: string | null
+  ultima_reconciliacao_em: string | null
+  paridade_status: string | null
+  paridade_detalhes: any
   data_sources: { slug: string; nome: string } | { slug: string; nome: string }[] | null
 }
 
@@ -154,6 +163,13 @@ async function gravarAlertaDivergencia(
   }
 }
 
+export type ReconcileOptions = {
+  // Quando true, ignora cache e bloqueio não-expirado e força nova execução.
+  force?: boolean
+  // Override do TTL do cache em minutos (default CACHE_TTL_MINUTES).
+  cacheTtlMinutes?: number
+}
+
 /**
  * Executa reconciliação para uma empresa. Usada pelas rotas
  * /api/connectors/reconcile (individual) e /batch (lote).
@@ -162,13 +178,21 @@ export async function reconcileCompany(
   companyId: string,
   sourceSlugFilter: string | null,
   supa: SupabaseClient,
-  baseUrl: string
+  baseUrl: string,
+  options?: ReconcileOptions
 ): Promise<ReconcileCompanyResult> {
   const inicio = Date.now()
+  const force = options?.force === true
+  const ttlMin = options?.cacheTtlMinutes ?? CACHE_TTL_MINUTES
 
   let q = supa
     .from('company_data_sources')
-    .select('id, modules_ativos, credentials_encrypted, data_sources!inner(slug, nome)')
+    .select(
+      'id, modules_ativos, credentials_encrypted, ' +
+        'rate_limit_bloqueado_ate, rate_limit_motivo, ' +
+        'ultima_reconciliacao_em, paridade_status, paridade_detalhes, ' +
+        'data_sources!inner(slug, nome)'
+    )
     .eq('company_id', companyId)
     .eq('ativo', true)
   if (sourceSlugFilter) q = q.eq('data_sources.slug', sourceSlugFilter)
@@ -183,7 +207,10 @@ export async function reconcileCompany(
       error: `select company_data_sources: ${error.message}`,
     }
   }
-  const lista = (vinculos as Vinculo[] | null) ?? []
+  // Cast via `unknown` porque o tipo inferido de `data` em selects com
+  // embed (data_sources!inner(...)) inclui GenericStringError[] na union.
+  // Já tratamos o `error` acima — aqui sabemos que é Vinculo[] | null.
+  const lista = (vinculos as unknown as Vinculo[] | null) ?? []
   if (lista.length === 0) {
     return {
       company_id: companyId,
@@ -207,6 +234,43 @@ export async function reconcileCompany(
         motivo: !slug ? 'sem data_source vinculado' : 'modules_ativos vazio',
       })
       continue
+    }
+
+    // Pre-check 1: bloqueio anti-boomerang. Se o Omie já disse que está
+    // bloqueado até T, não chamamos antes disso (nem com force).
+    const bloqueadoAte = v.rate_limit_bloqueado_ate
+      ? new Date(v.rate_limit_bloqueado_ate)
+      : null
+    if (bloqueadoAte && bloqueadoAte.getTime() > Date.now()) {
+      paridadeGeral = 'divergencia'
+      reports.push({
+        slug,
+        paridade_status: 'rate_limited',
+        bloqueado_ate: v.rate_limit_bloqueado_ate,
+        motivo: v.rate_limit_motivo,
+        modulos: [],
+      })
+      continue
+    }
+
+    // Pre-check 2: cache. Se reconciliação recente e force=false, devolve
+    // o que já está em paridade_detalhes sem chamar a API externa.
+    if (!force && v.ultima_reconciliacao_em) {
+      const idadeMs = Date.now() - new Date(v.ultima_reconciliacao_em).getTime()
+      const idadeMin = idadeMs / 60000
+      if (idadeMin < ttlMin) {
+        const cached = Array.isArray(v.paridade_detalhes) ? v.paridade_detalhes : []
+        const cachedStatus = v.paridade_status === 'divergencia' ? 'divergencia' : 'ok'
+        if (cachedStatus === 'divergencia') paridadeGeral = 'divergencia'
+        reports.push({
+          slug,
+          paridade_status: cachedStatus,
+          from_cache: true,
+          cache_age_minutes: Math.round(idadeMin),
+          modulos: cached,
+        })
+        continue
+      }
     }
 
     const inicioRun = Date.now()
@@ -252,6 +316,7 @@ export async function reconcileCompany(
     const reportsModulo: any[] = []
     const orfaosPorModulo: Record<string, OrfaosResult | null> = {}
     let erroFatal: string | null = null
+    let rateLimited: { bloqueado_ate: string | null; motivo: string | null } | null = null
 
     // Módulos em SÉRIE (não paralelo) — evita pico de rate limit Omie.
     for (const m of modules) {
@@ -271,6 +336,26 @@ export async function reconcileCompany(
           }
         }
       } catch (e: any) {
+        // Omie bloqueou explicitamente — aborta o resto dos módulos pra
+        // não piorar o bloqueio. O connector já persistiu rate_limit_*.
+        if (e instanceof OmieRateLimitError) {
+          const bloqueadoAte = new Date(
+            Date.now() + e.retryAfterSeconds * 1000
+          ).toISOString()
+          rateLimited = {
+            bloqueado_ate: bloqueadoAte,
+            motivo: e.faultstring || e.message,
+          }
+          reportsModulo.push({
+            module: m,
+            ok: false,
+            source_count: -1,
+            erp_count: -1,
+            details: `Omie rate-limited até ${bloqueadoAte}: ${e.faultstring || e.message}`,
+          })
+          paridadeGeral = 'divergencia'
+          break
+        }
         reportsModulo.push({
           module: m,
           ok: false,
@@ -283,7 +368,11 @@ export async function reconcileCompany(
       }
     }
 
-    const paridadeStatus = reportsModulo.every((r) => r.ok) ? 'ok' : 'divergencia'
+    const paridadeStatus = rateLimited
+      ? 'rate_limited'
+      : reportsModulo.every((r) => r.ok)
+        ? 'ok'
+        : 'divergencia'
 
     await supa
       .from('company_data_sources')
@@ -299,14 +388,17 @@ export async function reconcileCompany(
       await supa
         .from('data_source_runs')
         .update({
-          status: erroFatal ? 'erro' : 'sucesso',
+          status: erroFatal || rateLimited ? 'erro' : 'sucesso',
           finalizado_em: new Date().toISOString(),
           duracao_ms: Date.now() - inicioRun,
           resultado: {
             modulos: reportsModulo,
             orfaos: orfaosPorModulo,
+            rate_limited: rateLimited,
           },
-          erro_mensagem: erroFatal,
+          erro_mensagem: rateLimited
+            ? `rate-limited até ${rateLimited.bloqueado_ate}: ${rateLimited.motivo}`
+            : erroFatal,
         })
         .eq('id', runId)
     }
@@ -317,6 +409,7 @@ export async function reconcileCompany(
       run_id: runId,
       modulos: reportsModulo,
       orfaos: orfaosPorModulo,
+      ...(rateLimited ? { rate_limited: rateLimited } : {}),
     })
   }
 

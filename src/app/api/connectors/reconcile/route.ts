@@ -33,9 +33,10 @@ export async function POST(req: Request) {
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
-    const { company_id, source_slug } = body as {
+    const { company_id, source_slug, force } = body as {
       company_id?: string
       source_slug?: string
+      force?: boolean
     }
     if (!company_id) {
       return NextResponse.json(
@@ -45,7 +46,13 @@ export async function POST(req: Request) {
     }
 
     const baseUrl = baseUrlFromRequest(req)
-    const result = await reconcileCompany(company_id, source_slug ?? null, supabase, baseUrl)
+    const result = await reconcileCompany(
+      company_id,
+      source_slug ?? null,
+      supabase,
+      baseUrl,
+      { force: force === true }
+    )
 
     return NextResponse.json({
       ok: result.ok,

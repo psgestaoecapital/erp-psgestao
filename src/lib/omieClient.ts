@@ -18,6 +18,35 @@ export type OmieCallLog = {
   responseBodyPreview?: string | null
 }
 
+// Lançada quando a Omie sinaliza bloqueio explícito (HTTP 425 ou faultcode
+// MISUSE_API_PROCESS). Diferente de 429/"Too Many Requests" (transitório):
+// NÃO deve ser retentada automaticamente — o caller grava
+// company_data_sources.rate_limit_bloqueado_ate e retorna ao usuário.
+export class OmieRateLimitError extends Error {
+  constructor(
+    message: string,
+    public readonly retryAfterSeconds: number,
+    public readonly faultcode: string | null = null,
+    public readonly faultstring: string | null = null,
+    public readonly httpStatus: number | null = null
+  ) {
+    super(message)
+    this.name = 'OmieRateLimitError'
+  }
+}
+
+// Parse "Tente novamente em 90 segundos" → 90. Default 60s se não casar.
+export function parseRetryAfterSeconds(text: string): number {
+  if (!text) return 60
+  const m = String(text).match(/(?:em|after)\s+(\d+)\s*segundos?/i) ||
+            String(text).match(/(\d+)\s*seconds?/i)
+  if (m) {
+    const n = parseInt(m[1], 10)
+    if (isFinite(n) && n > 0 && n < 86400) return n
+  }
+  return 60
+}
+
 type OmieCallOptions = {
   call: string
   param: any
@@ -104,7 +133,34 @@ export async function omieCall(auth: OmieAuth, opts: OmieCallOptions): Promise<a
 
       const durationMs = Date.now() - startedAt
 
-      // Rate limit: política nova — espera 60s UMA vez só.
+      // HTTP 425 Too Early: Omie usa para "API bloqueada por consumo
+      // indevido". NÃO retenta — lança OmieRateLimitError pro caller
+      // persistir o bloqueio e abortar.
+      if (res.status === 425) {
+        const bodyText = await res.text().catch(() => '')
+        const preview = bodyText.slice(0, 500)
+        const retryAfter = parseRetryAfterSeconds(bodyText)
+        await doLog({
+          endpoint,
+          call: opts.call,
+          params: opts.param,
+          attempt: attempt + 1,
+          durationMs,
+          status: 'rate_limit',
+          httpStatus: 425,
+          errorMessage: `HTTP 425 — bloqueio Omie (retry em ${retryAfter}s)`,
+          responseBodyPreview: preview,
+        })
+        throw new OmieRateLimitError(
+          `Omie bloqueou a API (HTTP 425). Tente novamente em ${retryAfter} segundos.`,
+          retryAfter,
+          null,
+          bodyText.slice(0, 500),
+          425
+        )
+      }
+
+      // Rate limit: política — espera 60s UMA vez só (transitório).
       if (res.status === 429) {
         const bodyText = await res.text().catch(() => '')
         const preview = bodyText.slice(0, 500)
@@ -169,30 +225,50 @@ export async function omieCall(auth: OmieAuth, opts: OmieCallOptions): Promise<a
 
       // Omie às vezes retorna 200 com erro no JSON
       if (data.faultstring) {
-        const isRateLimit = /too many requests|SOAP-ENV:Server.*rate/i.test(
-          String(data.faultstring)
-        )
+        const faultstring = String(data.faultstring)
+        const faultcode = data.faultcode ? String(data.faultcode) : null
+        const isMisuse =
+          faultcode === 'MISUSE_API_PROCESS' ||
+          /consumo\s+indevido|API\s+bloqueada/i.test(faultstring)
+        const isTransientRateLimit =
+          !isMisuse &&
+          /too many requests|SOAP-ENV:Server.*rate/i.test(faultstring)
+
         await doLog({
           endpoint,
           call: opts.call,
           params: opts.param,
           attempt: attempt + 1,
           durationMs,
-          status: isRateLimit ? 'rate_limit' : 'error',
+          status: isMisuse || isTransientRateLimit ? 'rate_limit' : 'error',
           httpStatus: 200,
-          errorMessage: String(data.faultstring).slice(0, 2000),
+          errorMessage: faultstring.slice(0, 2000),
           responseBodyPreview: JSON.stringify(data).slice(0, 500),
         })
-        if (isRateLimit) {
+
+        // MISUSE_API_PROCESS / "consumo indevido": bloqueio explícito. NÃO
+        // retenta aqui — o caller persiste o bloqueio.
+        if (isMisuse) {
+          const retryAfter = parseRetryAfterSeconds(faultstring)
+          throw new OmieRateLimitError(
+            `Omie bloqueou a API (${faultcode || 'MISUSE'}): ${faultstring}`,
+            retryAfter,
+            faultcode,
+            faultstring,
+            200
+          )
+        }
+
+        if (isTransientRateLimit) {
           if (rateLimitWaited) {
-            throw new Error(`Omie rate limit persistente: ${data.faultstring}`)
+            throw new Error(`Omie rate limit persistente: ${faultstring}`)
           }
           rateLimitWaited = true
           console.warn('[Omie] SOAP rate limit — aguardando 60s')
           await sleep(60000)
           continue
         }
-        throw new Error(`Omie erro: ${data.faultstring}`)
+        throw new Error(`Omie erro: ${faultstring}`)
       }
 
       await doLog({
@@ -207,6 +283,8 @@ export async function omieCall(auth: OmieAuth, opts: OmieCallOptions): Promise<a
       return data
     } catch (err: any) {
       lastError = err
+      // Bloqueio explícito da Omie: propaga sem retry.
+      if (err instanceof OmieRateLimitError) throw err
       const durationMs = Date.now() - startedAt
       const isAbort = err.name === 'AbortError'
       if (isAbort) {
