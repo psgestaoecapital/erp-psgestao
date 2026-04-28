@@ -18,16 +18,22 @@ function admin() {
 
 export const GET = withAuth(async (req: NextRequest) => {
   const url = new URL(req.url)
-  const companyId = url.searchParams.get('company_id')
+  const companyIdsParam = url.searchParams.get('company_ids')
+  const companyIdParam = url.searchParams.get('company_id')
+  const companyIds = companyIdsParam
+    ? companyIdsParam.split(',').map((s) => s.trim()).filter(Boolean)
+    : companyIdParam
+      ? [companyIdParam]
+      : []
   const empresaTomadora = url.searchParams.get('empresa_tomadora')
   const obra = url.searchParams.get('obra')
   const setor = url.searchParams.get('setor')
   const cargo = url.searchParams.get('cargo')
   const apenasAtivos = url.searchParams.get('apenas_ativos') !== 'false'
 
-  if (!companyId) {
+  if (companyIds.length === 0) {
     return NextResponse.json(
-      { ok: false, error: 'company_id obrigatório' },
+      { ok: false, error: 'company_id ou company_ids obrigatório' },
       { status: 400 }
     )
   }
@@ -47,7 +53,7 @@ export const GET = withAuth(async (req: NextRequest) => {
   let q = sb
     .from('v_compliance_matriz_funcionarios')
     .select('*')
-    .eq('company_id', companyId)
+    .in('company_id', companyIds)
   if (apenasAtivos) q = q.eq('funcionario_ativo', true)
   if (empresaTomadora) q = q.eq('empresa_tomadora_nome', empresaTomadora)
   if (obra) q = q.eq('obra_nome', obra)
@@ -64,6 +70,7 @@ export const GET = withAuth(async (req: NextRequest) => {
     if (!porFuncionario.has(l.funcionario_id)) {
       porFuncionario.set(l.funcionario_id, {
         funcionario_id: l.funcionario_id,
+        company_id: l.company_id,
         nome_completo: l.nome_completo,
         cpf: l.cpf,
         cargo: l.cargo,

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { fmtData } from '@/lib/psgc-tokens'
 
 const C = {
   espresso: '#3D2314',
@@ -42,8 +43,13 @@ export default function ComplianceDashboardPage() {
   const [docsValidos, setDocsValidos] = useState(0)
   const [alertas, setAlertas] = useState<Alerta[]>([])
 
+  // useCompanyIds devolve um array novo a cada render — depender da referência
+  // direta gera loop de re-render. Estabiliza pelo CSV ordenado.
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
+
   useEffect(() => {
-    if (!companyIds || companyIds.length === 0) return
+    const ids = companyIdsKey ? companyIdsKey.split(',') : []
+    if (ids.length === 0) return
     let ignore = false
     ;(async () => {
       setLoading(true)
@@ -52,14 +58,14 @@ export default function ComplianceDashboardPage() {
       const { count: qtdFunc } = await supabase
         .from('compliance_funcionarios')
         .select('id', { count: 'exact', head: true })
-        .in('company_id', companyIds)
+        .in('company_id', ids)
         .eq('ativo', true)
 
       // Matriz — count por status_final
       const { data: matriz } = await supabase
         .from('v_compliance_matriz_funcionarios')
         .select('status_final, funcionario_ativo, obrigatorio')
-        .in('company_id', companyIds)
+        .in('company_id', ids)
 
       const m = (matriz as any[] | null) ?? []
       const ativosObrig = m.filter((x) => x.funcionario_ativo && x.obrigatorio)
@@ -71,7 +77,7 @@ export default function ComplianceDashboardPage() {
       const { data: urgentes } = await supabase
         .from('v_compliance_matriz_funcionarios')
         .select('documento_id, funcionario_id, nome_completo, tipo_nome, data_validade, dias_para_vencer, status_final')
-        .in('company_id', companyIds)
+        .in('company_id', ids)
         .eq('funcionario_ativo', true)
         .eq('obrigatorio', true)
         .in('status_final', ['vencido', 'vencendo'])
@@ -90,7 +96,7 @@ export default function ComplianceDashboardPage() {
     return () => {
       ignore = true
     }
-  }, [companyIds])
+  }, [companyIdsKey])
 
   const pctEmDia = useMemo(() => {
     const total = docsValidos + docsVencendo + docsVencidos
@@ -171,7 +177,7 @@ export default function ComplianceDashboardPage() {
                       </Link>
                     </Td>
                     <Td>{a.tipo_nome}</Td>
-                    <Td mono>{a.data_validade || '—'}</Td>
+                    <Td mono>{fmtData(a.data_validade)}</Td>
                     <Td mono>{a.dias_para_vencer == null ? '—' : a.dias_para_vencer}</Td>
                     <Td><StatusBadge status={a.status_final} /></Td>
                   </tr>

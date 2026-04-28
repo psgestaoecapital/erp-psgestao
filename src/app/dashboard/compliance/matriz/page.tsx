@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
 import { C, baixarDocumento } from '../_components/ui'
 
@@ -22,6 +23,7 @@ type Celula = {
 }
 type Linha = {
   funcionario_id: string
+  company_id: string
   nome_completo: string
   cpf: string | null
   cargo: string | null
@@ -44,7 +46,8 @@ function corDotStatus(status: string | null | undefined): { bg: string; fg: stri
 
 export default function MatrizPage() {
   const { companyIds } = useCompanyIds()
-  const companyId = companyIds?.[0] ?? null
+  // Estabiliza referência (useCompanyIds devolve array novo a cada render).
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [tipos, setTipos] = useState<Tipo[]>([])
@@ -57,11 +60,11 @@ export default function MatrizPage() {
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
 
   const carregar = useCallback(async () => {
-    if (!companyId) return
+    if (!companyIdsKey) return
     setLoading(true)
     setErro(null)
     try {
-      const params = new URLSearchParams({ company_id: companyId })
+      const params = new URLSearchParams({ company_ids: companyIdsKey })
       if (fTomadora) params.set('empresa_tomadora', fTomadora)
       if (fObra) params.set('obra', fObra)
       if (fSetor) params.set('setor', fSetor)
@@ -76,7 +79,7 @@ export default function MatrizPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, fTomadora, fObra, fSetor, fCargo])
+  }, [companyIdsKey, fTomadora, fObra, fSetor, fCargo])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -92,7 +95,7 @@ export default function MatrizPage() {
       for (const t of tipos) {
         const c = l.documentos[t.slug]
         if (!c || c.status_final === 'nao_emitido') cols.push('Não emitido')
-        else cols.push(`${corDotStatus(c.status_final).label}${c.data_validade ? ' (até ' + c.data_validade + ')' : ''}`)
+        else cols.push(`${corDotStatus(c.status_final).label}${c.data_validade ? ' (até ' + fmtData(c.data_validade) + ')' : ''}`)
       }
       return cols
     })
@@ -178,7 +181,7 @@ export default function MatrizPage() {
                               if (!c) return
                               setCelulaSelecionada({ linha: l, celula: c })
                             }}
-                            title={`${t.nome}: ${d.label}${c?.data_validade ? ' até ' + c.data_validade : ''}`}
+                            title={`${t.nome}: ${d.label}${c?.data_validade ? ' até ' + fmtData(c.data_validade) : ''}`}
                             style={{
                               width: 32, height: 32, borderRadius: '50%',
                               border: 'none', background: d.bg, color: d.fg,
@@ -199,7 +202,7 @@ export default function MatrizPage() {
         </section>
       </div>
 
-      {celulaSelecionada && companyId && (
+      {celulaSelecionada && (
         <CelulaModal
           linha={celulaSelecionada.linha}
           celula={celulaSelecionada.celula}
@@ -207,7 +210,7 @@ export default function MatrizPage() {
           onBaixar={() => celulaSelecionada.celula.documento_id && baixarDocumento(celulaSelecionada.celula.documento_id)}
           onSubstituir={() => {
             setUploadCtx({
-              companyId,
+              companyId: celulaSelecionada.linha.company_id,
               tipoDocumentoId: celulaSelecionada.celula.tipo_documento_id,
               tipoNome: celulaSelecionada.celula.tipo_nome,
               funcionarioId: celulaSelecionada.linha.funcionario_id,
@@ -252,8 +255,8 @@ function CelulaModal({
           {d.emoji} {d.label}
         </div>
         <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
-          <div><strong>Emissão:</strong> {celula.data_emissao || '—'}</div>
-          <div><strong>Validade:</strong> {celula.data_validade || '—'}</div>
+          <div><strong>Emissão:</strong> {fmtData(celula.data_emissao)}</div>
+          <div><strong>Validade:</strong> {fmtData(celula.data_validade)}</div>
           {celula.dias_para_vencer != null && (<div><strong>Dias para vencer:</strong> {celula.dias_para_vencer}</div>)}
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>

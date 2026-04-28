@@ -128,15 +128,24 @@ export const fmtPct = (v: number | null | undefined, casas = 1): string => {
   return `${sinal}${v.toFixed(casas)}%`;
 };
 
+// Parseia YYYY-MM-DD como data LOCAL (evita drift UTC do new Date('2025-04-17')
+// que vira 16/04 em fuso BR). Outras strings (ISO com hora) caem no parser nativo.
+const parseDataLocal = (v: string | Date): Date => {
+  if (v instanceof Date) return v;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(v);
+};
+
 export const fmtData = (v: string | Date | null | undefined): string => {
   if (!v) return '—';
-  const d = typeof v === 'string' ? new Date(v) : v;
+  const d = parseDataLocal(v);
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
 export const fmtDataHora = (v: string | Date | null | undefined): string => {
   if (!v) return '—';
-  const d = typeof v === 'string' ? new Date(v) : v;
+  const d = parseDataLocal(v);
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
