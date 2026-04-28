@@ -22,6 +22,7 @@ export type UploadContext = {
   tipoNome: string
   funcionarioId?: string | null
   empresaAlvoId?: string | null
+  prestadorId?: string | null
   modo: 'upload' | 'substituir'
 }
 
@@ -62,6 +63,7 @@ export function UploadDocumentoModal({
       fd.append('tipo_documento_id', ctx.tipoDocumentoId)
       if (ctx.funcionarioId) fd.append('funcionario_id', ctx.funcionarioId)
       if (ctx.empresaAlvoId) fd.append('empresa_alvo_id', ctx.empresaAlvoId)
+      if (ctx.prestadorId) fd.append('prestador_id', ctx.prestadorId)
       if (dataEmissao) fd.append('data_emissao', dataEmissao)
       if (dataValidade && !semValidade) fd.append('data_validade', dataValidade)
       fd.append('sem_validade', String(semValidade))
