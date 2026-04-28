@@ -41,7 +41,14 @@ export default function LoginPage() {
       if (error) { setError(error.message); setLoading(false); return; }
     }
 
-    router.push("/dashboard");
+    // Operador BPO entra direto no Inbox operacional; demais roles vao pro dashboard padrao.
+    let dest = "/dashboard";
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
+      if (up?.role === "operador_bpo") dest = "/dashboard/bpo/inbox";
+    }
+    router.push(dest);
   };
 
   return (
