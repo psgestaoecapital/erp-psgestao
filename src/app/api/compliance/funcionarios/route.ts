@@ -15,7 +15,13 @@ function admin() {
 
 export const GET = withAuth(async (req: NextRequest) => {
   const url = new URL(req.url)
-  const companyId = url.searchParams.get('company_id')
+  const companyIdsParam = url.searchParams.get('company_ids')
+  const companyIdParam = url.searchParams.get('company_id')
+  const companyIds = companyIdsParam
+    ? companyIdsParam.split(',').map((s) => s.trim()).filter(Boolean)
+    : companyIdParam
+      ? [companyIdParam]
+      : []
   const q = (url.searchParams.get('q') || '').trim()
   const cargo = url.searchParams.get('cargo')
   const setor = url.searchParams.get('setor')
@@ -24,7 +30,7 @@ export const GET = withAuth(async (req: NextRequest) => {
 
   const sb = admin()
   let query = sb.from('compliance_funcionarios').select('*').order('nome_completo')
-  if (companyId) query = query.eq('company_id', companyId)
+  if (companyIds.length > 0) query = query.in('company_id', companyIds)
   if (cargo) query = query.eq('cargo', cargo)
   if (setor) query = query.eq('setor', setor)
   if (empresaTomadora) query = query.eq('empresa_tomadora_nome', empresaTomadora)

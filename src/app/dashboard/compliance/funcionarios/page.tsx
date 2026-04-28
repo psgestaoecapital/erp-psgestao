@@ -47,15 +47,17 @@ export default function FuncionariosPage() {
   const [fStatus, setFStatus] = useState<'' | 'ok' | 'pendente' | 'critico'>('')
   const [modalAberto, setModalAberto] = useState(false)
 
-  // Company ativa — usamos a primeira se o modo for consolidado.
+  // useCompanyIds devolve um array novo a cada render — estabiliza pelo CSV ordenado.
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
+  // Para o modal de "Novo funcionário": usa a primeira do escopo atual.
   const companyAtiva = companyIds?.[0] ?? null
 
   const carregar = useCallback(async () => {
-    if (!companyAtiva) return
+    if (!companyIdsKey) return
     setLoading(true)
     setErro(null)
     try {
-      const params = new URLSearchParams({ company_id: companyAtiva, ativo: 'true' })
+      const params = new URLSearchParams({ company_ids: companyIdsKey, ativo: 'true' })
       if (busca) params.set('q', busca)
       if (fCargo) params.set('cargo', fCargo)
       if (fSetor) params.set('setor', fSetor)
@@ -69,7 +71,7 @@ export default function FuncionariosPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyAtiva, busca, fCargo, fSetor, fEmp])
+  }, [companyIdsKey, busca, fCargo, fSetor, fEmp])
 
   useEffect(() => {
     carregar()
