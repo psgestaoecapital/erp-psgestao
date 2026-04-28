@@ -22,6 +22,7 @@ type Celula = {
 }
 type Linha = {
   funcionario_id: string
+  company_id: string
   nome_completo: string
   cpf: string | null
   cargo: string | null
@@ -44,7 +45,8 @@ function corDotStatus(status: string | null | undefined): { bg: string; fg: stri
 
 export default function MatrizPage() {
   const { companyIds } = useCompanyIds()
-  const companyId = companyIds?.[0] ?? null
+  // Estabiliza referência (useCompanyIds devolve array novo a cada render).
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [tipos, setTipos] = useState<Tipo[]>([])
@@ -57,11 +59,11 @@ export default function MatrizPage() {
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
 
   const carregar = useCallback(async () => {
-    if (!companyId) return
+    if (!companyIdsKey) return
     setLoading(true)
     setErro(null)
     try {
-      const params = new URLSearchParams({ company_id: companyId })
+      const params = new URLSearchParams({ company_ids: companyIdsKey })
       if (fTomadora) params.set('empresa_tomadora', fTomadora)
       if (fObra) params.set('obra', fObra)
       if (fSetor) params.set('setor', fSetor)
@@ -76,7 +78,7 @@ export default function MatrizPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, fTomadora, fObra, fSetor, fCargo])
+  }, [companyIdsKey, fTomadora, fObra, fSetor, fCargo])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -199,7 +201,7 @@ export default function MatrizPage() {
         </section>
       </div>
 
-      {celulaSelecionada && companyId && (
+      {celulaSelecionada && (
         <CelulaModal
           linha={celulaSelecionada.linha}
           celula={celulaSelecionada.celula}
@@ -207,7 +209,7 @@ export default function MatrizPage() {
           onBaixar={() => celulaSelecionada.celula.documento_id && baixarDocumento(celulaSelecionada.celula.documento_id)}
           onSubstituir={() => {
             setUploadCtx({
-              companyId,
+              companyId: celulaSelecionada.linha.company_id,
               tipoDocumentoId: celulaSelecionada.celula.tipo_documento_id,
               tipoNome: celulaSelecionada.celula.tipo_nome,
               funcionarioId: celulaSelecionada.linha.funcionario_id,
