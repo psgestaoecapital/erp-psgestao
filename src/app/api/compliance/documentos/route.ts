@@ -62,6 +62,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   const tipoDocumentoId = (form.get('tipo_documento_id') as string | null) || ''
   const funcionarioId = (form.get('funcionario_id') as string | null) || null
   const empresaAlvoId = (form.get('empresa_alvo_id') as string | null) || null
+  const prestadorId = (form.get('prestador_id') as string | null) || null
   const dataEmissao = (form.get('data_emissao') as string | null) || null
   const dataValidade = (form.get('data_validade') as string | null) || null
   const semValidadeRaw = (form.get('sem_validade') as string | null) || 'false'
@@ -76,9 +77,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       { status: 400 }
     )
   }
-  if (!funcionarioId && !empresaAlvoId) {
+  if (!funcionarioId && !empresaAlvoId && !prestadorId) {
     return NextResponse.json(
-      { ok: false, error: 'informe funcionario_id ou empresa_alvo_id' },
+      { ok: false, error: 'informe funcionario_id, empresa_alvo_id ou prestador_id' },
       { status: 400 }
     )
   }
@@ -105,7 +106,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     .maybeSingle()
   const tipoSlug = (tipo as any)?.slug || 'sem-slug'
 
-  const scope = funcionarioId || 'empresa'
+  const scope = funcionarioId || (prestadorId ? `prestador-${prestadorId}` : 'empresa')
   const ext = extFromName(file.name)
   const path = `${companyId}/${scope}/${tipoSlug}/${uuid()}.${ext}`
 
@@ -132,6 +133,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   }
   if (funcionarioId) anteriorFilters.funcionario_id = funcionarioId
   if (empresaAlvoId) anteriorFilters.empresa_alvo_id = empresaAlvoId
+  if (prestadorId) anteriorFilters.prestador_id = prestadorId
   const { data: anteriores } = await sb
     .from('compliance_documentos')
     .select('id, versao')
@@ -153,6 +155,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     company_id: companyId,
     funcionario_id: funcionarioId,
     empresa_alvo_id: empresaAlvoId,
+    prestador_id: prestadorId,
     tipo_documento_id: tipoDocumentoId,
     arquivo_url: path, // guardamos o path; signed URL é gerada na GET.
     arquivo_nome_original: file.name,

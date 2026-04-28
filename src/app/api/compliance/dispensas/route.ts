@@ -24,6 +24,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   const company_id = (body.company_id as string | undefined) || ''
   const tipo_documento_id = (body.tipo_documento_id as string | undefined) || ''
   const funcionario_id = (body.funcionario_id as string | null | undefined) ?? null
+  const prestador_id = (body.prestador_id as string | null | undefined) ?? null
   const motivo = (body.motivo as string | null | undefined) ?? null
 
   if (!company_id || !tipo_documento_id) {
@@ -43,6 +44,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     .eq('company_id', company_id)
     .eq('tipo_documento_id', tipo_documento_id)
   upd = funcionario_id ? upd.eq('funcionario_id', funcionario_id) : upd.is('funcionario_id', null)
+  upd = prestador_id ? upd.eq('prestador_id', prestador_id) : upd.is('prestador_id', null)
   const { data: existentes, error: updErr } = await upd.select('*')
 
   if (updErr) {
@@ -59,6 +61,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       company_id,
       tipo_documento_id,
       funcionario_id,
+      prestador_id,
       motivo,
       dispensado_por: userId,
       ativo: true,
@@ -81,6 +84,7 @@ export const DELETE = withAuth(async (req: NextRequest) => {
   const company_id = body.company_id as string | undefined
   const tipo_documento_id = body.tipo_documento_id as string | undefined
   const funcionario_id = (body.funcionario_id as string | null | undefined) ?? null
+  const prestador_id = (body.prestador_id as string | null | undefined) ?? null
 
   if (!id && !(company_id && tipo_documento_id)) {
     return fail(400, 'Informe id da dispensa ou (company_id + tipo_documento_id).')
@@ -92,6 +96,7 @@ export const DELETE = withAuth(async (req: NextRequest) => {
   } else {
     q = q.eq('company_id', company_id!).eq('tipo_documento_id', tipo_documento_id!)
     q = funcionario_id ? q.eq('funcionario_id', funcionario_id) : q.is('funcionario_id', null)
+    q = prestador_id ? q.eq('prestador_id', prestador_id) : q.is('prestador_id', null)
   }
 
   const { error } = await q

@@ -58,6 +58,8 @@ export default function MatrizPage() {
   const [fObra, setFObra] = useState('')
   const [fSetor, setFSetor] = useState('')
   const [fCargo, setFCargo] = useState('')
+  const [fGrupo, setFGrupo] = useState<string>('')
+  const [mostrarOpcionais, setMostrarOpcionais] = useState(false)
   const [celulaSelecionada, setCelulaSelecionada] = useState<{ linha: Linha; celula: Celula } | null>(null)
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
@@ -137,11 +139,27 @@ export default function MatrizPage() {
   const opcoesSetor = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.setor).filter(Boolean) as string[])).sort(), [linhas])
   const opcoesCargo = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.cargo).filter(Boolean) as string[])).sort(), [linhas])
 
+  // Grupos de documentos vindos da API. Default mostra apenas obrigatórios;
+  // toggle "Mostrar opcionais" expande para todos. Filtro de grupo opera
+  // independente do toggle (ambos compõem).
+  const gruposDisponiveis = useMemo(
+    () => Array.from(new Set(tipos.map((t: Tipo) => t.grupo || '_outros'))).sort(),
+    [tipos]
+  )
+  const tiposFiltrados = useMemo(
+    () => tipos.filter((t: Tipo) => {
+      if (fGrupo && (t.grupo || '_outros') !== fGrupo) return false
+      if (!mostrarOpcionais && !t.obrigatorio) return false
+      return true
+    }),
+    [tipos, fGrupo, mostrarOpcionais]
+  )
+
   function exportarCsv() {
-    const header = ['Funcionário', 'CPF', 'Cargo', 'Setor', 'Tomadora', 'Obra', ...tipos.map((t: Tipo) => t.nome)]
+    const header = ['Funcionário', 'CPF', 'Cargo', 'Setor', 'Tomadora', 'Obra', ...tiposFiltrados.map((t: Tipo) => t.nome)]
     const rows = linhas.map((l: Linha) => {
       const cols: string[] = [l.nome_completo, l.cpf || '', l.cargo || '', l.setor || '', l.empresa_tomadora_nome || '', l.obra_nome || '']
-      for (const t of tipos) {
+      for (const t of tiposFiltrados) {
         const c = l.documentos[t.slug]
         if (!c || c.status_final === 'nao_emitido') cols.push('Não emitido')
         else cols.push(`${corDotStatus(c.status_final).label}${c.data_validade ? ' (até ' + fmtData(c.data_validade) + ')' : ''}`)
@@ -165,7 +183,11 @@ export default function MatrizPage() {
           <div>
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Matriz de Conformidade</h1>
-            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>{linhas.length} funcionários × {tipos.length} documentos. Clique numa célula para ver/editar.</p>
+            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
+              {linhas.length} funcionários × {tiposFiltrados.length} documentos
+              {!mostrarOpcionais && tiposFiltrados.length < tipos.length && ` (${tipos.length - tiposFiltrados.length} opcionais ocultos)`}
+              . Clique numa célula para ver/editar.
+            </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link href="/dashboard/compliance" style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>← Voltar</Link>
@@ -176,6 +198,23 @@ export default function MatrizPage() {
         </header>
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
+
+        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>Grupo:</span>
+          <button onClick={() => setFGrupo('')} style={chipStyle(fGrupo === '')}>Todos</button>
+          {gruposDisponiveis.map((g: string) => (
+            <button key={g} onClick={() => setFGrupo(g)} style={chipStyle(fGrupo === g)}>{labelGrupo(g)}</button>
+          ))}
+          <span style={{ flex: 1 }} />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={mostrarOpcionais}
+              onChange={(e: any) => setMostrarOpcionais(e.target.checked)}
+            />
+            Mostrar opcionais
+          </label>
+        </section>
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
           <select value={fTomadora} onChange={(e: any) => setFTomadora(e.target.value)} style={selectStyle()}>
@@ -202,8 +241,12 @@ export default function MatrizPage() {
               <thead>
                 <tr>
                   <th style={{ ...headerStyle(), left: 0, position: 'sticky', zIndex: 3, background: C.beigeLt, minWidth: 240 }}>Funcionário</th>
-                  {tipos.map((t: Tipo) => (
-                    <th key={t.id} style={{ ...headerStyle(), minWidth: 80 }} title={t.nome}>
+                  {tiposFiltrados.map((t: Tipo) => (
+                    <th
+                      key={t.id}
+                      style={{ ...headerStyle(), minWidth: 80, opacity: t.obrigatorio ? 1 : 0.6 }}
+                      title={`${t.nome}${t.obrigatorio ? ' (obrigatório)' : ' (opcional)'}`}
+                    >
                       <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', padding: '12px 4px', whiteSpace: 'nowrap' }}>
                         {t.nome}{t.obrigatorio ? ' *' : ''}
                       </div>
@@ -212,15 +255,15 @@ export default function MatrizPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading && (<tr><td colSpan={tipos.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
-                {!loading && linhas.length === 0 && (<tr><td colSpan={tipos.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Sem funcionários</td></tr>)}
+                {loading && (<tr><td colSpan={tiposFiltrados.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
+                {!loading && linhas.length === 0 && (<tr><td colSpan={tiposFiltrados.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Sem funcionários</td></tr>)}
                 {linhas.map((l: Linha, i: number) => (
                   <tr key={l.funcionario_id} style={{ background: i % 2 === 0 ? 'white' : C.offwhite }}>
                     <td style={{ padding: '8px 12px', borderBottom: `1px solid ${C.borderLt}`, left: 0, position: 'sticky', zIndex: 2, background: i % 2 === 0 ? 'white' : C.offwhite, minWidth: 240 }}>
                       <Link href={`/dashboard/compliance/funcionarios/${l.funcionario_id}`} style={{ color: C.espresso, textDecoration: 'none', fontWeight: 600 }}>{l.nome_completo}</Link>
                       <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{l.cargo || '—'} · {l.empresa_tomadora_nome || 'sem tomadora'}</div>
                     </td>
-                    {tipos.map((t: Tipo) => {
+                    {tiposFiltrados.map((t: Tipo) => {
                       const c = l.documentos[t.slug]
                       const d = corDotStatus(c?.status_final)
                       return (
@@ -418,3 +461,28 @@ function headerStyle() {
   } as any
 }
 function selectStyle() { return { padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: 'white', minWidth: 140 } as any }
+
+function chipStyle(active: boolean) {
+  return {
+    padding: '6px 12px', borderRadius: 999,
+    border: `1px solid ${active ? C.espresso : C.borderLt}`,
+    backgroundColor: active ? C.espresso : 'white',
+    color: active ? 'white' : C.espresso,
+    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  } as any
+}
+
+const GRUPO_LABEL: Record<string, string> = {
+  juridico: 'Jurídico',
+  fiscal: 'Fiscal',
+  saude: 'Saúde',
+  seguranca: 'Segurança',
+  ambiental: 'Ambiental',
+  pessoal: 'Pessoal',
+  trabalhista: 'Trabalhista',
+  _outros: 'Outros',
+}
+
+function labelGrupo(g: string): string {
+  return GRUPO_LABEL[g] || g.charAt(0).toUpperCase() + g.slice(1)
+}

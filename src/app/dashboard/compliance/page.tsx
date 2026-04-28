@@ -250,7 +250,9 @@ function GerarZipModal({
   onErro: (msg: string) => void
 }) {
   const [funcs, setFuncs] = useState<Array<{ id: string; nome_completo: string }>>([])
-  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [prestadores, setPrestadores] = useState<Array<{ id: string; razao_social: string }>>([])
+  const [funcSelecionados, setFuncSelecionados] = useState<Set<string>>(new Set())
+  const [presSelecionados, setPresSelecionados] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [gerando, setGerando] = useState(false)
 
@@ -258,15 +260,23 @@ function GerarZipModal({
     let ignore = false
     ;(async () => {
       try {
-        const res = await authFetch(`/api/compliance/funcionarios?company_ids=${encodeURIComponent(companyId)}&ativo=true`)
-        const j = await res.json()
-        if (!j.ok) throw new Error(j.error || 'falha')
+        const [resFunc, resPres] = await Promise.all([
+          authFetch(`/api/compliance/funcionarios?company_ids=${encodeURIComponent(companyId)}&ativo=true`),
+          authFetch(`/api/compliance/prestadores?company_ids=${encodeURIComponent(companyId)}&ativo=true`),
+        ])
+        const jFunc = await resFunc.json()
+        const jPres = await resPres.json()
+        if (!jFunc.ok) throw new Error(jFunc.error || 'falha')
+        if (!jPres.ok) throw new Error(jPres.error || 'falha')
         if (ignore) return
-        const lista = (j.funcionarios as any[] || []).map((f: any) => ({ id: f.id, nome_completo: f.nome_completo }))
-        setFuncs(lista)
-        setSelecionados(new Set(lista.map((f) => f.id)))
+        const listaFunc = (jFunc.funcionarios as any[] || []).map((f: any) => ({ id: f.id, nome_completo: f.nome_completo }))
+        const listaPres = (jPres.prestadores as any[] || []).map((p: any) => ({ id: p.id, razao_social: p.razao_social }))
+        setFuncs(listaFunc)
+        setPrestadores(listaPres)
+        setFuncSelecionados(new Set(listaFunc.map((f) => f.id)))
+        setPresSelecionados(new Set(listaPres.map((p) => p.id)))
       } catch (e: any) {
-        if (!ignore) onErro(e.message || 'Falha ao carregar funcionários')
+        if (!ignore) onErro(e.message || 'Falha ao carregar')
       } finally {
         if (!ignore) setLoading(false)
       }
@@ -274,15 +284,23 @@ function GerarZipModal({
     return () => { ignore = true }
   }, [companyId, onErro])
 
-  function toggleAll(checked: boolean) {
-    setSelecionados(checked ? new Set(funcs.map((f) => f.id)) : new Set())
+  function toggleAllFunc(checked: boolean) {
+    setFuncSelecionados(checked ? new Set(funcs.map((f) => f.id)) : new Set())
   }
-
-  function toggle(id: string) {
-    setSelecionados((prev) => {
+  function toggleFunc(id: string) {
+    setFuncSelecionados((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleAllPres(checked: boolean) {
+    setPresSelecionados(checked ? new Set(prestadores.map((p) => p.id)) : new Set())
+  }
+  function togglePres(id: string) {
+    setPresSelecionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -294,7 +312,8 @@ function GerarZipModal({
         method: 'POST',
         body: JSON.stringify({
           company_id: companyId,
-          funcionario_ids: Array.from(selecionados),
+          funcionario_ids: Array.from(funcSelecionados),
+          prestador_ids: Array.from(presSelecionados),
         }),
       })
       if (!res.ok) {
@@ -320,7 +339,8 @@ function GerarZipModal({
     }
   }
 
-  const todosMarcados = funcs.length > 0 && selecionados.size === funcs.length
+  const todosFuncMarcados = funcs.length > 0 && funcSelecionados.size === funcs.length
+  const todosPresMarcados = prestadores.length > 0 && presSelecionados.size === prestadores.length
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
@@ -333,36 +353,53 @@ function GerarZipModal({
           {empresaNome}
         </p>
         <p style={{ margin: '0 0 12px', fontSize: 12, color: C.muted, padding: '8px 12px', background: C.beigeLt, borderRadius: 6 }}>
-          O ZIP incluirá <strong>todos os documentos da empresa</strong> + os documentos dos funcionários selecionados abaixo.
+          O ZIP incluirá <strong>todos os documentos da empresa</strong> + os documentos dos funcionários e prestadores selecionados abaixo.
         </p>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={todosMarcados}
-              onChange={(e: any) => toggleAll(e.target.checked)}
-            />
-            {todosMarcados ? 'Desmarcar todos' : 'Selecionar todos'}
-          </label>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
-            {selecionados.size} de {funcs.length}
-          </span>
-        </div>
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, minHeight: 200, maxHeight: 360 }}>
+          <div style={{ border: `1px solid ${C.borderLt}`, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', background: C.beigeLt, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
+                <input type="checkbox" checked={todosFuncMarcados} onChange={(e: any) => toggleAllFunc(e.target.checked)} />
+                Funcionários CLT
+              </label>
+              <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
+                {funcSelecionados.size} de {funcs.length}
+              </span>
+            </div>
+            <div style={{ padding: 8, maxHeight: 160, overflowY: 'auto' }}>
+              {loading && <div style={{ padding: 8, color: C.muted, fontSize: 13 }}>Carregando…</div>}
+              {!loading && funcs.length === 0 && <div style={{ padding: 8, color: C.muted, fontSize: 13 }}>Nenhum funcionário ativo</div>}
+              {funcs.map((f) => (
+                <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 6, fontSize: 13, color: C.ink, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={funcSelecionados.has(f.id)} onChange={() => toggleFunc(f.id)} />
+                  {f.nome_completo}
+                </label>
+              ))}
+            </div>
+          </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: 8, marginBottom: 16, minHeight: 100, maxHeight: 280 }}>
-          {loading && <div style={{ padding: 12, color: C.muted, fontSize: 13 }}>Carregando…</div>}
-          {!loading && funcs.length === 0 && <div style={{ padding: 12, color: C.muted, fontSize: 13 }}>Nenhum funcionário ativo</div>}
-          {funcs.map((f) => (
-            <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, fontSize: 13, color: C.ink, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={selecionados.has(f.id)}
-                onChange={() => toggle(f.id)}
-              />
-              {f.nome_completo}
-            </label>
-          ))}
+          <div style={{ border: `1px solid ${C.borderLt}`, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', background: C.beigeLt, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
+                <input type="checkbox" checked={todosPresMarcados} onChange={(e: any) => toggleAllPres(e.target.checked)} />
+                Prestadores PJ/MEI
+              </label>
+              <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
+                {presSelecionados.size} de {prestadores.length}
+              </span>
+            </div>
+            <div style={{ padding: 8, maxHeight: 160, overflowY: 'auto' }}>
+              {loading && <div style={{ padding: 8, color: C.muted, fontSize: 13 }}>Carregando…</div>}
+              {!loading && prestadores.length === 0 && <div style={{ padding: 8, color: C.muted, fontSize: 13 }}>Nenhum prestador cadastrado</div>}
+              {prestadores.map((p) => (
+                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 6, fontSize: 13, color: C.ink, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={presSelecionados.has(p.id)} onChange={() => togglePres(p.id)} />
+                  {p.razao_social}
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
 
         {gerando && (
