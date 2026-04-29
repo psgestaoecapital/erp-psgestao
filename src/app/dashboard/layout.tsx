@@ -101,6 +101,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
     { label: 'FINANCEIRO', items: [
       { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/dre-divisional', label: 'DRE Divisional', icon: <Icon.PieChart />, badge: 'PRO' },
       { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
       { href: '/dashboard/contas', label: 'Contas a Pagar/Receber', icon: <Icon.Wallet /> },
       { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
@@ -152,6 +153,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
     { label: 'FINANCEIRO', items: [
       { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/dre-divisional', label: 'DRE Divisional', icon: <Icon.PieChart />, badge: 'PRO' },
       { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
       { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
       { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
@@ -184,6 +186,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
     { label: 'FINANCEIRO', items: [
       { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/dre-divisional', label: 'DRE Divisional', icon: <Icon.PieChart />, badge: 'PRO' },
       { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
       { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
       { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
@@ -218,6 +221,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
     { label: 'OPERAÇÃO FINANCEIRA', items: [
       { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/dre-divisional', label: 'DRE Divisional', icon: <Icon.PieChart />, badge: 'PRO' },
       { href: '/dashboard/contas', label: 'Contas a Pagar/Receber', icon: <Icon.Wallet /> },
       { href: '/dashboard/custeio', label: 'Custeio', icon: <Icon.Calculator /> },
       { href: '/dashboard/noc', label: 'NOC', icon: <Icon.Monitor /> },
@@ -262,6 +266,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     ]},
     { label: 'FINANCEIRO', items: [
       { href: '/dashboard/analises', label: 'Análises Financeiras', icon: <Icon.PieChart />, badge: 'PRO' },
+      { href: '/dashboard/dre-divisional', label: 'DRE Divisional', icon: <Icon.PieChart />, badge: 'PRO' },
       { href: '/dashboard/operacional', label: 'Operacional', icon: <Icon.Settings /> },
       { href: '/dashboard/contas', label: 'Contas', icon: <Icon.Wallet /> },
       { href: '/dashboard/conciliacao', label: 'Conciliação', icon: <Icon.Landmark /> },
