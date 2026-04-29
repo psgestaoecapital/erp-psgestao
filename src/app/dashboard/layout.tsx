@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import BpoLandingRedirect from '@/components/bpo/BpoLandingRedirect'
 import { supabase } from '@/lib/supabase'
 import PSGCBadge from '@/components/psgc/PSGCBadge'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
@@ -517,6 +518,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <>
+      <BpoLandingRedirect />
       <style jsx global>{`
         :root {
           --ps-bg: #FAF7F2;
