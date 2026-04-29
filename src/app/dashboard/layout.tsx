@@ -207,6 +207,11 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
     { label: 'DADOS', items: [
       { href: '/dashboard/importar-universal', label: 'Importar Dados', icon: <Icon.Upload />, badge: 'NOVO' },
     ]},
+    { label: 'BPO OPERADOR', items: [
+      { href: '/dashboard/bpo/meu-dia', label: 'Meu Dia', icon: <Icon.Calendar /> },
+      { href: '/dashboard/bpo/foco', label: 'Modo Foco', icon: <Icon.Target /> },
+      { href: '/dashboard/bpo/supervisao', label: 'Supervisão', icon: <Icon.Eye />, badge: 'NOVO' },
+    ]},
     { label: 'CENTRAL DE OPERAÇÕES', items: [
       { href: '/dashboard/bpo/inbox', label: 'Inbox do Operador', icon: <Icon.ClipboardList />, badge: 'NOVO' },
       { href: '/dashboard/bpo', label: 'Painel BPO', icon: <Icon.Briefcase /> },
