@@ -221,6 +221,13 @@ export default function MeuDiaPage() {
             <KpiBadge label="Pendentes" valor={data.kpis.total_pendente} />
             <KpiBadge label="Urgentes" valor={data.kpis.urgentes} tom={data.kpis.urgentes > 0 ? "vermelho" : "ok"} />
             <KpiBadge label="Vencidos" valor={data.kpis.vencidos} tom={data.kpis.vencidos > 0 ? "vermelho" : "ok"} />
+            <a
+              href="/dashboard/bpo/foco"
+              className="rounded-lg bg-[#C8941A] px-3 py-1.5 text-sm font-medium text-white transition hover:bg-[#A87810]"
+              title="Modo Foco — checklist por empresa"
+            >
+              🎯 Modo Foco
+            </a>
             <button
               onClick={() => setMostrandoAjuda(true)}
               className="rounded-lg bg-white px-3 py-1.5 text-sm text-[#3D2314] hover:bg-[#FAF7F2]"
