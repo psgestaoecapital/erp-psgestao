@@ -73,6 +73,7 @@ function DashboardUniversalInner() {
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [erroData, setErroData] = useState<string | null>(null);
   const [showGerenciarAtalhos, setShowGerenciarAtalhos] = useState(false);
   const [showGerenciarGrupos, setShowGerenciarGrupos] = useState(false);
 
@@ -96,39 +97,47 @@ function DashboardUniversalInner() {
     })();
   }, []);
 
-  // Deriva grupoId da seleção global. sel pode ser 'consolidado',
-  // 'group_<uuid>' ou '<company_uuid>'.
-  const grupoIdSelecionado = sel.startsWith('group_') ? sel.replace('group_', '') : null;
-
   // Carrega dashboard sempre que muda seleção (via useCompanyIds), plano, período ou regime.
   const carregar = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ plano, periodo, regime });
-    if (sel.startsWith('group_')) {
-      params.set('grupo_id', sel.replace('group_', ''));
-    } else if (sel === 'consolidado') {
-      // Modo consolidado: envia todas as company_ids resolvidas pelo hook.
-      if (companyIdsKey) params.set('company_ids', companyIdsKey);
-    } else if (sel) {
-      // Empresa individual selecionada
-      params.set('company_id', sel);
+    // Sempre enviar company_ids expandido pelo useCompanyIds. O hook resolve
+    // 'consolidado'/'group_<id>'/empresa→ids consultando companies.group_id.
+    // Antes: enviávamos grupo_id pra API, que buscava em dashboard_grupos_empresas
+    // (tabela diferente de company_groups) — IDs incompatíveis causavam crash.
+    if (companyIdsKey) {
+      if (companyIdsKey.includes(',')) {
+        params.set('company_ids', companyIdsKey);
+      } else {
+        params.set('company_id', companyIdsKey);
+      }
     }
 
     try {
       const r = await authFetch(`/api/dashboard/universal?${params}`);
       const d = await r.json();
+      // Defesa contra resposta malformada (API retornou erro ou shape inesperado)
+      if (!d || d.error || !d.contexto || !d.camada1) {
+        throw new Error(d?.error || 'Resposta inválida do dashboard');
+      }
       setData(d);
-    } catch (e) {
+      setErroData(null);
+    } catch (e: any) {
       console.error(e);
+      setErroData(e?.message || 'Não foi possível carregar o dashboard');
     } finally {
       setLoading(false);
     }
-  }, [plano, periodo, regime, sel, companyIdsKey]);
+  }, [plano, periodo, regime, companyIdsKey]);
 
   useEffect(() => {
-    // Só carrega quando o hook terminou de resolver a seleção
-    if (sel && (sel !== 'consolidado' || companyIdsKey)) carregar();
-  }, [carregar, sel, companyIdsKey]);
+    // Só carrega quando o hook terminou de resolver a seleção em pelo menos
+    // uma company_id. Evita disparar com array vazio durante a hidratação.
+    if (companyIdsKey) carregar();
+  }, [carregar, companyIdsKey]);
+
+  // Deriva grupoId apenas para o RaioXProfundo (que aceita grupoId opcional)
+  const grupoIdSelecionado = sel.startsWith('group_') ? sel.replace('group_', '') : null;
   
   const planoLabel = PLANOS.find(p => p.id === plano)?.label || plano;
   
@@ -144,7 +153,7 @@ function DashboardUniversalInner() {
       {/* ============ HEADER UNIVERSAL ============ */}
       {/* Seletor de empresa/grupo vive APENAS no header global do ERP (layout.tsx).
           Aqui controlamos somente plano (implícito), período e regime. */}
-      <div style={{ background: 'white', borderBottom: '1px solid #E8E2D4', padding: '14px 24px', position: 'sticky', top: 0, zIndex: 50 }}>
+      <div style={{ background: 'white', borderBottom: '1px solid #E8E2D4', padding: '14px 24px', position: 'sticky', top: 0, zIndex: 5 }}>
         <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ flex: '0 0 auto' }}>
             <div style={{ fontSize: 10, letterSpacing: 1.5, color: '#C8941A', fontWeight: 500, textTransform: 'uppercase' }}>{planoLabel}</div>
@@ -187,15 +196,33 @@ function DashboardUniversalInner() {
       
       {/* ============ CORPO ============ */}
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 60px' }}>
-        
+
+        {erroData && !data && (
+          <div style={{ background: 'white', borderRadius: 12, padding: 32, textAlign: 'center', border: '1px solid #E8E2D4', marginBottom: 20 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+            <h3 style={{ fontSize: 18, fontWeight: 600, color: '#3D2314', margin: 0 }}>
+              Não foi possível carregar o dashboard
+            </h3>
+            <p style={{ fontSize: 13, color: '#7a6b5d', marginTop: 8, marginBottom: 16 }}>
+              {erroData}
+            </p>
+            <button
+              onClick={() => carregar()}
+              style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#3D2314', color: '#FAF7F2', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+
         {data?.contexto && (
           <div style={{ fontSize: 13, color: '#7a6b5d', marginBottom: 20 }}>
             {data.contexto.nome} · {data.contexto.qtd_empresas} {data.contexto.qtd_empresas === 1 ? 'empresa' : 'empresas'}
             {data.contexto.qtd_empresas > 1 && <span style={{ marginLeft: 8, padding: '2px 8px', background: '#FAEEDA', color: '#854F0B', borderRadius: 10, fontSize: 11 }}>📊 Consolidado</span>}
           </div>
         )}
-        
-        {data && (
+
+        {data && data.camada1 && (
           <>
             <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} />
             <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
