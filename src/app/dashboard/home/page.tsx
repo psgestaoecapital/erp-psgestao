@@ -4,9 +4,10 @@
 
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useCompanyIds } from '@/lib/useCompanyIds';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
@@ -55,19 +56,26 @@ function DashboardUniversalInner() {
   
   // Plano vem do contexto. Prioridade: query > localStorage > cookie > default
   const [plano, setPlano] = useState<string>('comercio');
-  
+
+  // Fonte UNICA de verdade da seleção empresa/grupo: useCompanyIds (header global).
+  // Esta página NÃO mantém estado local de seleção — eliminado para evitar
+  // duplo seletor e estado inconsistente.
+  const { sel, companyIds } = useCompanyIds();
+  // Chave estável para useEffect (companyIds é re-criado a cada render do hook)
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds]);
+
+  // Lista de grupos/empresas para o modal "Gerenciar Grupos" (não para seleção).
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [empresasDisp, setEmpresasDisp] = useState<Empresa[]>([]);
-  const [grupoSel, setGrupoSel] = useState<string | null>(null);
-  const [empresasSel, setEmpresasSel] = useState<string[]>([]);
+
   const [periodo, setPeriodo] = useState<string>('mes');
   const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia');
-  
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showGerenciarAtalhos, setShowGerenciarAtalhos] = useState(false);
   const [showGerenciarGrupos, setShowGerenciarGrupos] = useState(false);
-  
+
   // Detecta plano no mount
   useEffect(() => {
     const queryPlano = searchParams.get('plano');
@@ -76,29 +84,36 @@ function DashboardUniversalInner() {
     setPlano(plano);
     if (typeof window !== 'undefined') localStorage.setItem('psgc_plano_atual', plano);
   }, [searchParams]);
-  
-  // Carrega grupos 1x
+
+  // Carrega grupos/empresas 1x — usado APENAS pelo modal "Gerenciar Grupos".
+  // A seleção em si vem do useCompanyIds.
   useEffect(() => {
     (async () => {
       const r = await authFetch('/api/dashboard/grupos');
       const d = await r.json();
       setGrupos(d.grupos || []);
       setEmpresasDisp(d.empresas_disponiveis || []);
-      // Seleciona grupo padrão
-      const padrao = (d.grupos || []).find((g: Grupo) => g.is_padrao);
-      if (padrao) setGrupoSel(padrao.id);
-      else if (d.empresas_disponiveis?.length > 0) setEmpresasSel([d.empresas_disponiveis[0].id]);
     })();
   }, []);
-  
-  // Carrega dashboard sempre que muda seleção
+
+  // Deriva grupoId da seleção global. sel pode ser 'consolidado',
+  // 'group_<uuid>' ou '<company_uuid>'.
+  const grupoIdSelecionado = sel.startsWith('group_') ? sel.replace('group_', '') : null;
+
+  // Carrega dashboard sempre que muda seleção (via useCompanyIds), plano, período ou regime.
   const carregar = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ plano, periodo, regime });
-    if (grupoSel) params.set('grupo_id', grupoSel);
-    else if (empresasSel.length === 1) params.set('company_id', empresasSel[0]);
-    else if (empresasSel.length > 1) params.set('company_ids', empresasSel.join(','));
-    
+    if (sel.startsWith('group_')) {
+      params.set('grupo_id', sel.replace('group_', ''));
+    } else if (sel === 'consolidado') {
+      // Modo consolidado: envia todas as company_ids resolvidas pelo hook.
+      if (companyIdsKey) params.set('company_ids', companyIdsKey);
+    } else if (sel) {
+      // Empresa individual selecionada
+      params.set('company_id', sel);
+    }
+
     try {
       const r = await authFetch(`/api/dashboard/universal?${params}`);
       const d = await r.json();
@@ -108,11 +123,12 @@ function DashboardUniversalInner() {
     } finally {
       setLoading(false);
     }
-  }, [plano, periodo, regime, grupoSel, empresasSel]);
+  }, [plano, periodo, regime, sel, companyIdsKey]);
 
   useEffect(() => {
-    if (grupoSel || empresasSel.length > 0) carregar();
-  }, [plano, periodo, regime, grupoSel, empresasSel, carregar]);
+    // Só carrega quando o hook terminou de resolver a seleção
+    if (sel && (sel !== 'consolidado' || companyIdsKey)) carregar();
+  }, [carregar, sel, companyIdsKey]);
   
   const planoLabel = PLANOS.find(p => p.id === plano)?.label || plano;
   
@@ -126,27 +142,29 @@ function DashboardUniversalInner() {
     <div style={{ background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
       {/* ============ HEADER UNIVERSAL ============ */}
+      {/* Seletor de empresa/grupo vive APENAS no header global do ERP (layout.tsx).
+          Aqui controlamos somente plano (implícito), período e regime. */}
       <div style={{ background: 'white', borderBottom: '1px solid #E8E2D4', padding: '14px 24px', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ flex: '0 0 auto' }}>
             <div style={{ fontSize: 10, letterSpacing: 1.5, color: '#C8941A', fontWeight: 500, textTransform: 'uppercase' }}>{planoLabel}</div>
             <div style={{ fontSize: 18, color: '#3D2314', fontWeight: 500, letterSpacing: -0.3 }}>Dashboard</div>
           </div>
-          
-          <div style={{ flex: 1, minWidth: 250 }}>
-            <SeletorGrupo 
-              grupos={grupos}
-              empresasDisp={empresasDisp}
-              grupoSel={grupoSel}
-              empresasSel={empresasSel}
-              onSelecionaGrupo={(id: string) => { setGrupoSel(id); setEmpresasSel([]); }}
-              onSelecionaEmpresas={(ids: string[]) => { setEmpresasSel(ids); setGrupoSel(null); }}
-              onGerenciar={() => setShowGerenciarGrupos(true)}
-            />
-          </div>
-          
+
+          <div style={{ flex: 1 }} />
+
           <SeletorPeriodo periodo={periodo} onChange={setPeriodo} />
           <ToggleRegime value={regime} onChange={setRegime} />
+          <button
+            onClick={() => setShowGerenciarGrupos(true)}
+            style={{
+              padding: '7px 12px', borderRadius: 8, background: 'transparent',
+              border: '1px solid #E8E2D4', color: '#3D2314', fontSize: 11,
+              fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+            }}
+          >
+            ⚙ Gerenciar Grupos
+          </button>
         </div>
         
         {/* Atalhos editáveis */}
@@ -188,7 +206,7 @@ function DashboardUniversalInner() {
               ano={data.contexto?.ano || null}
               mes={data.contexto?.mes || null}
               regime={regime}
-              grupoId={grupoSel || null}
+              grupoId={grupoIdSelecionado}
             />
 
             <div style={{ margin: '48px 0 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -206,83 +224,6 @@ function DashboardUniversalInner() {
       
       {showGerenciarGrupos && <ModalGerenciarGrupos onClose={() => { setShowGerenciarGrupos(false); carregar(); }} empresas={empresasDisp} grupos={grupos} />}
       {showGerenciarAtalhos && <ModalGerenciarAtalhos onClose={() => { setShowGerenciarAtalhos(false); carregar(); }} plano={plano} atuais={data?.atalhos || []} />}
-    </div>
-  );
-}
-
-// ============ SELETOR DE GRUPO ============
-function SeletorGrupo({ grupos, empresasDisp, grupoSel, empresasSel, onSelecionaGrupo, onSelecionaEmpresas, onGerenciar }: any) {
-  const [open, setOpen] = useState(false);
-  const nomeAtual = 
-    grupoSel ? (grupos.find((g: Grupo) => g.id === grupoSel)?.nome || '') :
-    empresasSel.length === 1 ? (empresasDisp.find((e: Empresa) => e.id === empresasSel[0])?.nome_fantasia || '') :
-    empresasSel.length > 1 ? `${empresasSel.length} empresas selecionadas` :
-    'Selecione...';
-  
-  return (
-    <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(!open)} style={{
-        width: '100%', padding: '8px 14px', borderRadius: 8, border: '1px solid #E8E2D4',
-        background: 'white', textAlign: 'left', fontSize: 13, color: '#3D2314',
-        fontFamily: 'inherit', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-      }}>
-        <span>{nomeAtual}</span>
-        <span style={{ color: '#888780' }}>▾</span>
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-          background: 'white', border: '1px solid #E8E2D4', borderRadius: 10,
-          boxShadow: '0 8px 24px rgba(61,35,20,0.12)', zIndex: 100, maxHeight: 420, overflowY: 'auto'
-        }}>
-          {grupos.length > 0 && (
-            <div style={{ padding: '8px 12px 4px' }}>
-              <div style={{ fontSize: 10, color: '#888780', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500, marginBottom: 4 }}>Grupos</div>
-              {grupos.map((g: Grupo) => (
-                <button key={g.id} onClick={() => { onSelecionaGrupo(g.id); setOpen(false); }} style={{
-                  width: '100%', padding: '8px 10px', textAlign: 'left', background: grupoSel === g.id ? '#FAEEDA' : 'transparent',
-                  border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#3D2314', fontFamily: 'inherit',
-                  display: 'flex', alignItems: 'center', gap: 8
-                }}>
-                  <span>{g.icone}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500 }}>{g.nome}</div>
-                    <div style={{ fontSize: 11, color: '#888780' }}>{g.dashboard_grupos_empresas?.length || 0} empresas</div>
-                  </div>
-                  {g.is_padrao && <span style={{ fontSize: 10, color: '#C8941A' }}>★ padrão</span>}
-                </button>
-              ))}
-            </div>
-          )}
-          <div style={{ padding: '8px 12px 4px', borderTop: grupos.length > 0 ? '1px solid #F1EFE8' : 'none' }}>
-            <div style={{ fontSize: 10, color: '#888780', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500, marginBottom: 4 }}>Empresas individuais</div>
-            {empresasDisp.map((e: Empresa) => {
-              const sel = empresasSel.includes(e.id);
-              return (
-                <button key={e.id} onClick={() => {
-                  onSelecionaEmpresas(sel ? empresasSel.filter((x: string) => x !== e.id) : [...empresasSel, e.id]);
-                }} style={{
-                  width: '100%', padding: '7px 10px', textAlign: 'left', background: sel ? '#FAEEDA' : 'transparent',
-                  border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#3D2314', fontFamily: 'inherit',
-                  display: 'flex', alignItems: 'center', gap: 8
-                }}>
-                  <span style={{ width: 14, height: 14, border: '1px solid #C8941A', borderRadius: 3, background: sel ? '#C8941A' : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 10 }}>
-                    {sel ? '✓' : ''}
-                  </span>
-                  <span>{e.nome_fantasia}</span>
-                </button>
-              );
-            })}
-          </div>
-          <button onClick={() => { setOpen(false); onGerenciar(); }} style={{
-            width: '100%', padding: '10px 12px', background: '#FAF7F2', border: 'none', borderTop: '1px solid #F1EFE8',
-            fontSize: 12, color: '#C8941A', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
-            borderBottomLeftRadius: 10, borderBottomRightRadius: 10
-          }}>
-            ⚙ Gerenciar Grupos
-          </button>
-        </div>
-      )}
     </div>
   );
 }
