@@ -7,6 +7,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { C, METODO_LABEL, MESES_PT, fmtBRL, fmtPct } from './_components'
 import { ComoCalculadoModal } from './_components/ComoCalculadoModal'
 import { GraficoBarrasEbitda, GraficoSerie12m } from './_components/Graficos'
+import { TabelaDetalhada } from './_components/TabelaDetalhada'
 
 type ViewMode = 'mes' | 'ytd' | 'serie_12m'
 
@@ -195,6 +196,7 @@ export default function DreDivisionalPage() {
           <CardsPorLN linhas={data.linhas} />
           <GraficoBarrasEbitda linhas={data.linhas} />
           {viewMode === 'serie_12m' && <GraficoSerie12m serie={data.serie_12m} />}
+          <TabelaDetalhada linhas={data.linhas} totais={data.totais} />
           <NotaTecnica />
         </>
       )}
