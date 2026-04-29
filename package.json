@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",
+    "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.101.1",
     "cheerio": "^1.2.0",
     "exceljs": "^4.4.0",
