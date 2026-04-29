@@ -126,6 +126,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       { href: '/dashboard/compliance/prestadores', label: 'Prestadores PJ/MEI', icon: <Icon.Briefcase />, badge: 'NOVO' },
       { href: '/dashboard/compliance/empresa', label: 'Docs da Empresa', icon: <Icon.FileText /> },
       { href: '/dashboard/compliance/matriz', label: 'Matriz de Conformidade', icon: <Icon.ClipboardList /> },
+      { href: '/dashboard/compliance/validacao-automatica', label: 'Validação Automática', icon: <Icon.Shield />, badge: 'PRO' },
     ]},
   ],
   industrial: [
