@@ -1,321 +1,587 @@
-'use client'
+// src/app/dashboard/bpo/meu-dia/page.tsx
+// Landing do operador BPO: 4 caixas (Urgentes, Planejadas, IA, Cliente)
+// Atalhos: J/K navegar, A aprovar/resolver, R rejeitar, T transferir, ? ajuda, Esc voltar
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { PSGC_COLORS } from '@/lib/psgc-tokens'
-import PSGCCard from '@/components/psgc/PSGCCard'
-import PSGCMetric from '@/components/psgc/PSGCMetric'
-import PSGCButton from '@/components/psgc/PSGCButton'
-import PSGCBadge from '@/components/psgc/PSGCBadge'
+"use client";
 
-const C = {
-  bg: PSGC_COLORS.offWhite,
-  card: PSGC_COLORS.offWhite,
-  bd: PSGC_COLORS.offWhiteDarker,
-  tx: PSGC_COLORS.espresso,
-  txm: PSGC_COLORS.espressoLight,
-  go: PSGC_COLORS.dourado,
-  gol: PSGC_COLORS.douradoSoft,
-  alta: PSGC_COLORS.alta,
-  media: PSGC_COLORS.media,
-  baixa: PSGC_COLORS.baixa,
-  azul: PSGC_COLORS.azul,
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { rpc, supabaseBrowser } from "@/lib/authFetch";
+
+interface Item {
+  id: string;
+  titulo: string;
+  descricao?: string;
+  categoria?: string;
+  prioridade?: string;
+  company_id: string;
+  empresa: string;
+  sla_vence_em?: string;
+  sla_status?: "vencido" | "vencendo_4h" | "ok";
+  ia_acao_sugerida?: string;
+  ia_confianca?: number;
+  ia_sugestao?: any;
+  tipo_origem?: string;
+  created_at?: string;
 }
 
-// PSGCMetric usa prop `cor` (nao `variant`). Mapeamento semantico local:
-const corMetric = {
-  default: PSGC_COLORS.espresso,
-  info: PSGC_COLORS.azul,
-  critical: PSGC_COLORS.alta,
-  attention: PSGC_COLORS.media,
-  success: PSGC_COLORS.baixa,
+interface MeuDiaData {
+  kpis: {
+    eh_supervisor: boolean;
+    minhas_empresas: number;
+    total_pendente: number;
+    urgentes: number;
+    vencidos: number;
+    resolvidos_hoje: number;
+    tempo_medio_min_30d?: number;
+  };
+  caixas: {
+    urgentes: Item[];
+    planejadas: Item[];
+    ia_precisa: Item[];
+    cliente_solicitou: Item[];
+  };
 }
 
-type MeuDia = {
-  inbox_pendente: number
-  inbox_em_andamento: number
-  inbox_aguardando_cliente: number
-  urgentes: number
-  sla_vencendo_4h: number
-  sla_vencido: number
-  resolvidos_hoje: number
-  tempo_medio_minutos_30d: number | null
-  // Campos de supervisao (opcionais - so vem quando user e supervisor)
-  eh_supervisor?: boolean
-  empresas_supervisionadas?: number
-  sup_inbox_pendente?: number
-  sup_inbox_em_andamento?: number
-  sup_urgentes?: number
-  sup_sla_vencido?: number
-  sup_sla_vencendo_4h?: number
-  sup_resolvidos_7d?: number
-}
-
-type MinhaEmpresa = {
-  company_id: string
-  nome_fantasia: string
-  papel: string
-  inbox_pendente: number
-  inbox_em_andamento: number
-  inbox_aguardando_cliente: number
-  sla_vencendo: number
-}
-
-type ItemTopo = {
-  id: string
-  titulo: string
-  descricao: string | null
-  prioridade: 'urgente' | 'alta' | 'normal' | 'baixa'
-  sla_vence_em: string | null
-  categoria: string | null
-  company_id: string
-}
+type CaixaKey = "urgentes" | "planejadas" | "ia_precisa" | "cliente_solicitou";
 
 export default function MeuDiaPage() {
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
-  const [meuDia, setMeuDia] = useState<MeuDia | null>(null)
-  const [empresas, setEmpresas] = useState<MinhaEmpresa[]>([])
-  const [topItens, setTopItens] = useState<ItemTopo[]>([])
-
-  useEffect(() => { carregar() }, [])
+  const router = useRouter();
+  const [data, setData] = useState<MeuDiaData | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [caixaAtiva, setCaixaAtiva] = useState<CaixaKey>("urgentes");
+  const [itemAtivoIdx, setItemAtivoIdx] = useState(0);
+  const [mostrandoAjuda, setMostrandoAjuda] = useState(false);
+  const [acaoAtiva, setAcaoAtiva] = useState<string | null>(null);
+  const inicioRef = useRef<number>(Date.now());
 
   async function carregar() {
-    setLoading(true)
-    const { data: { user: u } } = await supabase.auth.getUser()
-    if (!u) { setLoading(false); return }
-    setUser(u)
-
-    // Meu dia (KPIs pessoais)
-    const { data: md } = await supabase.rpc('fn_bpo_meu_dia', { p_user_id: u.id })
-    setMeuDia(md as MeuDia)
-
-    // Minhas empresas
-    const { data: emp } = await supabase.rpc('fn_bpo_minhas_empresas', { p_user_id: u.id })
-    setEmpresas((emp || []) as MinhaEmpresa[])
-
-    // Top 5 prioritarios
-    const { data: top } = await supabase
-      .from('bpo_inbox_items')
-      .select('id, titulo, descricao, prioridade, sla_vence_em, categoria, company_id')
-      .eq('assigned_to', u.id)
-      .in('status', ['pendente', 'em_andamento'])
-      .order('prioridade', { ascending: false })
-      .order('sla_vence_em', { ascending: true })
-      .limit(5)
-    setTopItens((top || []) as ItemTopo[])
-
-    setLoading(false)
+    setLoading(true);
+    setErro(null);
+    try {
+      const supabase = supabaseBrowser();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      setUserId(user.id);
+      const r = await rpc<MeuDiaData>("fn_bpo_meu_dia_v2", { p_user_id: user.id });
+      setData(r);
+    } catch (e: any) {
+      setErro(e.message || "Não foi possível carregar seu dia");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function saudacao() {
-    const h = new Date().getHours()
-    if (h < 12) return 'Bom dia'
-    if (h < 18) return 'Boa tarde'
-    return 'Boa noite'
-  }
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function nome() {
-    return user?.email?.split('@')[0]?.split('.')[0] || 'operador'
-  }
+  const itensVisiveis = data?.caixas[caixaAtiva] || [];
+  const itemAtivo = itensVisiveis[itemAtivoIdx];
 
+  // ============ AÇÕES ============
+  const executarAcao = useCallback(
+    async (acao: "resolver" | "rejeitar" | "transferir" | "pular") => {
+      if (!itemAtivo || !userId || acaoAtiva) return;
+      setAcaoAtiva(acao);
+      setErro(null);
+      try {
+        const tempoSeg = Math.round((Date.now() - inicioRef.current) / 1000);
+        const acaoMap: Record<string, string> = {
+          resolver: "resolver",
+          rejeitar: "rejeitar",
+          transferir: "transferir",
+          pular: "pular",
+        };
+        await rpc("fn_bpo_inbox_acao", {
+          p_item_id: itemAtivo.id,
+          p_user_id: userId,
+          p_acao: acaoMap[acao],
+          p_tempo_gasto_segundos: tempoSeg,
+        });
+        // remover item local sem recarregar tudo
+        if (data) {
+          const novasCaixas = { ...data.caixas };
+          novasCaixas[caixaAtiva] = novasCaixas[caixaAtiva].filter((i) => i.id !== itemAtivo.id);
+          setData({
+            ...data,
+            kpis: {
+              ...data.kpis,
+              total_pendente: data.kpis.total_pendente - 1,
+              resolvidos_hoje:
+                acao === "resolver" ? data.kpis.resolvidos_hoje + 1 : data.kpis.resolvidos_hoje,
+            },
+            caixas: novasCaixas,
+          });
+          setItemAtivoIdx((idx) => Math.min(idx, novasCaixas[caixaAtiva].length - 1));
+        }
+        inicioRef.current = Date.now();
+      } catch (e: any) {
+        setErro(e.message || "Não foi possível executar a ação");
+      } finally {
+        setAcaoAtiva(null);
+      }
+    },
+    [itemAtivo, userId, acaoAtiva, data, caixaAtiva]
+  );
+
+  // ============ ATALHOS DE TECLADO ============
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "?") {
+        e.preventDefault();
+        setMostrandoAjuda((v) => !v);
+        return;
+      }
+      if (e.key === "Escape") {
+        if (mostrandoAjuda) setMostrandoAjuda(false);
+        return;
+      }
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setItemAtivoIdx((i) => Math.min(i + 1, itensVisiveis.length - 1));
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setItemAtivoIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === "1") setCaixaAtiva("urgentes");
+      else if (e.key === "2") setCaixaAtiva("planejadas");
+      else if (e.key === "3") setCaixaAtiva("ia_precisa");
+      else if (e.key === "4") setCaixaAtiva("cliente_solicitou");
+      else if (e.key === "a" || e.key === "Enter") {
+        e.preventDefault();
+        executarAcao("resolver");
+      } else if (e.key === "r") {
+        e.preventDefault();
+        executarAcao("rejeitar");
+      } else if (e.key === "t") {
+        e.preventDefault();
+        executarAcao("transferir");
+      } else if (e.key === " ") {
+        e.preventDefault();
+        executarAcao("pular");
+      }
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [executarAcao, itensVisiveis.length, mostrandoAjuda]);
+
+  // resetar idx ao mudar caixa
+  useEffect(() => {
+    setItemAtivoIdx(0);
+    inicioRef.current = Date.now();
+  }, [caixaAtiva]);
+
+  // ============ RENDER ============
   if (loading) {
-    return <div style={{ padding: 32, color: C.tx }}>Carregando...</div>
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#FAF7F2]">
+        <div className="text-[#3D2314]">Preparando seu dia…</div>
+      </div>
+    );
   }
+
+  if (erro && !data) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#FAF7F2]">
+        <div className="rounded-lg bg-red-50 p-4 text-red-800">{erro}</div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  // Empty states amigáveis
+  const semNada =
+    data.kpis.total_pendente === 0 &&
+    Object.values(data.caixas).every((c) => c.length === 0);
 
   return (
-    <div style={{ background: C.bg, minHeight: '100vh', padding: 24 }}>
-      {/* Botao volta */}
-      <div style={{ marginBottom: 16 }}>
-        <PSGCButton variant="ghost" size="sm" onClick={() => { window.location.href = '/dashboard/bpo' }}>
-          ← BPO
-        </PSGCButton>
+    <div className="min-h-screen bg-white">
+      {/* HEADER com KPIs */}
+      <header className="border-b border-[#3D2314]/10 bg-[#FAF7F2] px-6 py-4">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-[#3D2314]">Meu dia</h1>
+            <p className="text-xs text-[#3D2314]/60">
+              {data.kpis.minhas_empresas} empresa{data.kpis.minhas_empresas !== 1 ? "s" : ""} ·{" "}
+              {data.kpis.resolvidos_hoje} resolvido{data.kpis.resolvidos_hoje !== 1 ? "s" : ""} hoje
+              {data.kpis.tempo_medio_min_30d &&
+                ` · média ${data.kpis.tempo_medio_min_30d}min/item`}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <KpiBadge label="Pendentes" valor={data.kpis.total_pendente} />
+            <KpiBadge label="Urgentes" valor={data.kpis.urgentes} tom={data.kpis.urgentes > 0 ? "vermelho" : "ok"} />
+            <KpiBadge label="Vencidos" valor={data.kpis.vencidos} tom={data.kpis.vencidos > 0 ? "vermelho" : "ok"} />
+            <button
+              onClick={() => setMostrandoAjuda(true)}
+              className="rounded-lg bg-white px-3 py-1.5 text-sm text-[#3D2314] hover:bg-[#FAF7F2]"
+              title="Atalhos (?)"
+            >
+              ?
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* TABS DE CAIXAS */}
+      <div className="border-b border-[#3D2314]/10 bg-white px-6">
+        <div className="mx-auto flex max-w-6xl gap-1 overflow-x-auto">
+          <CaixaTab
+            ativo={caixaAtiva === "urgentes"}
+            onClick={() => setCaixaAtiva("urgentes")}
+            tecla="1"
+            icone="🔥"
+            nome="Urgentes"
+            qtd={data.caixas.urgentes.length}
+            tom="vermelho"
+          />
+          <CaixaTab
+            ativo={caixaAtiva === "planejadas"}
+            onClick={() => setCaixaAtiva("planejadas")}
+            tecla="2"
+            icone="📋"
+            nome="Planejadas"
+            qtd={data.caixas.planejadas.length}
+          />
+          <CaixaTab
+            ativo={caixaAtiva === "ia_precisa"}
+            onClick={() => setCaixaAtiva("ia_precisa")}
+            tecla="3"
+            icone="🤖"
+            nome="IA precisa de você"
+            qtd={data.caixas.ia_precisa.length}
+          />
+          <CaixaTab
+            ativo={caixaAtiva === "cliente_solicitou"}
+            onClick={() => setCaixaAtiva("cliente_solicitou")}
+            tecla="4"
+            icone="📨"
+            nome="Cliente solicitou"
+            qtd={data.caixas.cliente_solicitou.length}
+          />
+        </div>
       </div>
 
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{
-          fontFamily: 'Georgia, serif',
-          fontStyle: 'italic',
-          fontSize: 32,
-          color: C.tx,
-          marginBottom: 8,
-          margin: 0,
-        }}>
-          Meu Dia
-        </h1>
-        <p style={{ fontSize: 14, color: C.txm, marginTop: 8, marginBottom: 0 }}>
-          {saudacao()}, <span style={{ color: C.go, fontWeight: 600 }}>{nome()}</span>.
-          {meuDia && meuDia.inbox_pendente > 0
-            ? ` Voce tem ${meuDia.inbox_pendente} itens pendentes.`
-            : ' Sua fila esta limpa hoje.'}
-        </p>
-      </div>
+      {/* CONTEÚDO */}
+      <main className="mx-auto max-w-6xl px-6 py-6">
+        {erro && (
+          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>
+        )}
 
-      {/* Grid 4 KPIs principais */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
-        <PSGCMetric
-          label="Pendentes"
-          valor={String(meuDia?.inbox_pendente ?? 0)}
-          cor={corMetric.default}
-        />
-        <PSGCMetric
-          label="Em andamento"
-          valor={String(meuDia?.inbox_em_andamento ?? 0)}
-          cor={corMetric.info}
-        />
-        <PSGCMetric
-          label="Urgentes"
-          valor={String(meuDia?.urgentes ?? 0)}
-          cor={corMetric.critical}
-        />
-        <PSGCMetric
-          label="Resolvidos hoje"
-          valor={String(meuDia?.resolvidos_hoje ?? 0)}
-          cor={corMetric.success}
-        />
-      </div>
+        {semNada ? (
+          <EmptyDay />
+        ) : itensVisiveis.length === 0 ? (
+          <EmptyCaixa caixa={caixaAtiva} />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_3fr]">
+            {/* Lista */}
+            <div className="space-y-2">
+              {itensVisiveis.map((it, idx) => (
+                <button
+                  key={it.id}
+                  onClick={() => setItemAtivoIdx(idx)}
+                  className={`w-full rounded-xl p-3 text-left transition ${
+                    idx === itemAtivoIdx
+                      ? "bg-[#3D2314] text-[#FAF7F2] shadow-md"
+                      : "bg-[#FAF7F2] text-[#3D2314] hover:bg-[#FAF7F2]/70"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{it.titulo}</div>
+                      <div className={`text-xs ${idx === itemAtivoIdx ? "text-[#FAF7F2]/70" : "text-[#3D2314]/60"}`}>
+                        {it.empresa}
+                      </div>
+                    </div>
+                    {it.sla_status === "vencido" && (
+                      <span className="rounded bg-red-500 px-1.5 py-0.5 text-xs text-white">venc</span>
+                    )}
+                    {it.sla_status === "vencendo_4h" && (
+                      <span className="rounded bg-yellow-400 px-1.5 py-0.5 text-xs text-yellow-900">4h</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
 
-      {/* Grid 3 KPIs de SLA + tempo medio */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
-        <PSGCMetric
-          label="SLA vencendo 4h"
-          valor={String(meuDia?.sla_vencendo_4h ?? 0)}
-          cor={corMetric.attention}
-        />
-        <PSGCMetric
-          label="SLA vencido"
-          valor={String(meuDia?.sla_vencido ?? 0)}
-          cor={corMetric.critical}
-        />
-        <PSGCMetric
-          label="Tempo medio (30d)"
-          valor={meuDia?.tempo_medio_minutos_30d != null ? `${meuDia.tempo_medio_minutos_30d} min` : '—'}
-          cor={corMetric.default}
-        />
-      </div>
+            {/* Detalhe */}
+            {itemAtivo && (
+              <div className="rounded-2xl bg-[#FAF7F2] p-5">
+                <div className="mb-3 flex items-start justify-between">
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-[#C8941A]">
+                      {itemAtivo.empresa}
+                    </div>
+                    <h2 className="mt-1 text-lg font-bold text-[#3D2314]">
+                      {itemAtivo.titulo}
+                    </h2>
+                  </div>
+                  <SlaPill status={itemAtivo.sla_status} venceEm={itemAtivo.sla_vence_em} />
+                </div>
 
-      {/* Bloco SUPERVISAO - so renderiza quando user eh supervisor */}
-      {meuDia?.eh_supervisor && (
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 12, fontWeight: 700, color: C.tx, marginBottom: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-            Supervisao ({meuDia.empresas_supervisionadas ?? 0} empresas)
-          </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-            <PSGCMetric
-              label="Inbox supervisionado"
-              valor={String(meuDia.sup_inbox_pendente ?? 0)}
-              cor={corMetric.default}
-            />
-            <PSGCMetric
-              label="Urgentes (super)"
-              valor={String(meuDia.sup_urgentes ?? 0)}
-              cor={corMetric.critical}
-            />
-            <PSGCMetric
-              label="SLA vencido (super)"
-              valor={String(meuDia.sup_sla_vencido ?? 0)}
-              cor={corMetric.critical}
-            />
-            <PSGCMetric
-              label="SLA vencendo 4h (super)"
-              valor={String(meuDia.sup_sla_vencendo_4h ?? 0)}
-              cor={corMetric.attention}
-            />
+                {itemAtivo.descricao && (
+                  <div className="mb-4 whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-[#3D2314]">
+                    {itemAtivo.descricao}
+                  </div>
+                )}
+
+                {itemAtivo.ia_acao_sugerida && (
+                  <div className="mb-4 rounded-lg bg-[#C8941A]/10 p-3">
+                    <div className="mb-1 text-xs font-semibold text-[#C8941A]">
+                      🤖 IA sugere
+                      {itemAtivo.ia_confianca != null && (
+                        <span className="ml-2 text-[#3D2314]/60">
+                          ({itemAtivo.ia_confianca}% confiança)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-[#3D2314]">
+                      {itemAtivo.ia_acao_sugerida}
+                    </div>
+                  </div>
+                )}
+
+                {/* AÇÕES */}
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  <BotaoAcao
+                    onClick={() => executarAcao("resolver")}
+                    disabled={!!acaoAtiva}
+                    cor="verde"
+                    tecla="A / Enter"
+                    label="Resolver"
+                    loading={acaoAtiva === "resolver"}
+                  />
+                  <BotaoAcao
+                    onClick={() => executarAcao("rejeitar")}
+                    disabled={!!acaoAtiva}
+                    cor="vermelho"
+                    tecla="R"
+                    label="Rejeitar"
+                    loading={acaoAtiva === "rejeitar"}
+                  />
+                  <BotaoAcao
+                    onClick={() => executarAcao("transferir")}
+                    disabled={!!acaoAtiva}
+                    cor="dourado"
+                    tecla="T"
+                    label="Transferir"
+                    loading={acaoAtiva === "transferir"}
+                  />
+                  <BotaoAcao
+                    onClick={() => executarAcao("pular")}
+                    disabled={!!acaoAtiva}
+                    cor="espresso"
+                    tecla="Espaço"
+                    label="Pular"
+                    loading={acaoAtiva === "pular"}
+                  />
+                </div>
+
+                <div className="mt-4 text-xs text-[#3D2314]/60">
+                  Use <Kbd>J</Kbd>/<Kbd>K</Kbd> para navegar, <Kbd>?</Kbd> para todos os atalhos.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* MODAL DE AJUDA */}
+      {mostrandoAjuda && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#3D2314]/60 p-4"
+          onClick={() => setMostrandoAjuda(false)}
+        >
+          <div
+            className="max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-3 text-lg font-bold text-[#3D2314]">Atalhos do teclado</h2>
+            <div className="space-y-2 text-sm">
+              <Atalho t="1 2 3 4" desc="Trocar entre caixas" />
+              <Atalho t="J ↓" desc="Próximo item" />
+              <Atalho t="K ↑" desc="Item anterior" />
+              <Atalho t="A / Enter" desc="Resolver item" />
+              <Atalho t="R" desc="Rejeitar item" />
+              <Atalho t="T" desc="Transferir para outro operador" />
+              <Atalho t="Espaço" desc="Pular sem agir" />
+              <Atalho t="?" desc="Mostrar/esconder esta ajuda" />
+              <Atalho t="Esc" desc="Fechar diálogos" />
+            </div>
+            <button
+              onClick={() => setMostrandoAjuda(false)}
+              className="mt-4 w-full rounded-lg bg-[#3D2314] py-2 text-sm text-[#FAF7F2] hover:bg-[#5C3A24]"
+            >
+              Fechar
+            </button>
           </div>
         </div>
       )}
-
-      {/* Sessao Minhas Empresas */}
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 12, fontWeight: 700, color: C.tx, marginBottom: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-          Minhas Empresas
-        </h2>
-        {empresas.length === 0 ? (
-          <PSGCCard variant="default">
-            <p style={{ color: C.txm, fontSize: 13, margin: 0 }}>Nenhuma empresa atribuida.</p>
-          </PSGCCard>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-            {empresas.map((e) => (
-              <PSGCCard
-                key={e.company_id}
-                variant={e.sla_vencendo > 0 ? 'attention' : 'default'}
-                onClick={() => { window.location.href = `/dashboard/bpo/inbox?company_id=${e.company_id}` }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                  <strong style={{ color: C.tx, fontSize: 14 }}>{e.nome_fantasia}</strong>
-                  <PSGCBadge variant={e.papel === 'titular' ? 'success' : 'default'} size="sm">
-                    {e.papel}
-                  </PSGCBadge>
-                </div>
-                <div style={{ display: 'flex', gap: 16, fontSize: 12, color: C.txm, flexWrap: 'wrap' }}>
-                  <span><strong style={{ color: C.tx }}>{e.inbox_pendente}</strong> pendente</span>
-                  <span><strong style={{ color: C.tx }}>{e.inbox_em_andamento}</strong> em curso</span>
-                  {e.sla_vencendo > 0 && (
-                    <span style={{ color: C.alta, fontWeight: 700 }}>
-                      ⚠ {e.sla_vencendo} SLA
-                    </span>
-                  )}
-                </div>
-              </PSGCCard>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Sessao Top 5 prioritarios */}
-      <div>
-        <h2 style={{ fontSize: 12, fontWeight: 700, color: C.tx, marginBottom: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-          Top 5 Prioritarios
-        </h2>
-        {topItens.length === 0 ? (
-          <PSGCCard variant="success">
-            <p style={{ color: C.tx, fontSize: 13, margin: 0 }}>✓ Sua fila esta limpa.</p>
-          </PSGCCard>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {topItens.map((item) => {
-              const corPrior = item.prioridade === 'urgente' ? C.alta
-                            : item.prioridade === 'alta' ? C.media
-                            : C.baixa
-              return (
-                <PSGCCard
-                  key={item.id}
-                  variant="default"
-                  onClick={() => { window.location.href = `/dashboard/bpo/inbox?item_id=${item.id}` }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                        <span style={{
-                          background: corPrior,
-                          color: PSGC_COLORS.offWhite,
-                          fontSize: 9,
-                          fontWeight: 700,
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.5,
-                        }}>
-                          {item.prioridade}
-                        </span>
-                        <span style={{ fontSize: 11, color: C.txm }}>{item.categoria || 'geral'}</span>
-                      </div>
-                      <strong style={{ color: C.tx, fontSize: 14 }}>{item.titulo}</strong>
-                      {item.descricao && (
-                        <p style={{ color: C.txm, fontSize: 12, marginTop: 4, marginBottom: 0 }}>
-                          {item.descricao.slice(0, 100)}{item.descricao.length > 100 ? '...' : ''}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </PSGCCard>
-              )
-            })}
-          </div>
-        )}
-      </div>
     </div>
-  )
+  );
+}
+
+// ============ COMPONENTES AUXILIARES ============
+
+function KpiBadge({ label, valor, tom }: { label: string; valor: number; tom?: "vermelho" | "ok" }) {
+  const cor = tom === "vermelho" && valor > 0 ? "text-red-700" : "text-[#3D2314]";
+  return (
+    <div className="text-right">
+      <div className="text-xs text-[#3D2314]/60">{label}</div>
+      <div className={`text-lg font-bold ${cor}`}>{valor}</div>
+    </div>
+  );
+}
+
+function CaixaTab({
+  ativo,
+  onClick,
+  tecla,
+  icone,
+  nome,
+  qtd,
+  tom,
+}: {
+  ativo: boolean;
+  onClick: () => void;
+  tecla: string;
+  icone: string;
+  nome: string;
+  qtd: number;
+  tom?: "vermelho";
+}) {
+  const corBase = ativo
+    ? "bg-[#3D2314] text-[#FAF7F2]"
+    : "bg-transparent text-[#3D2314] hover:bg-[#FAF7F2]";
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 transition ${corBase} ${
+        ativo ? "border-[#C8941A]" : "border-transparent"
+      }`}
+    >
+      <Kbd small>{tecla}</Kbd>
+      <span>{icone}</span>
+      <span className="text-sm font-medium">{nome}</span>
+      {qtd > 0 && (
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs ${
+            tom === "vermelho"
+              ? "bg-red-500 text-white"
+              : ativo
+              ? "bg-[#C8941A] text-white"
+              : "bg-[#3D2314]/10 text-[#3D2314]"
+          }`}
+        >
+          {qtd}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function SlaPill({ status, venceEm }: { status?: string; venceEm?: string }) {
+  if (!status || status === "ok") {
+    return venceEm ? (
+      <span className="text-xs text-[#3D2314]/60">
+        SLA até {new Date(venceEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+      </span>
+    ) : null;
+  }
+  if (status === "vencido") {
+    return <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">⚠ SLA vencido</span>;
+  }
+  return <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-semibold text-yellow-800">⏰ vence em &lt;4h</span>;
+}
+
+function BotaoAcao({
+  onClick,
+  disabled,
+  cor,
+  tecla,
+  label,
+  loading,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  cor: "verde" | "vermelho" | "dourado" | "espresso";
+  tecla: string;
+  label: string;
+  loading: boolean;
+}) {
+  const cores = {
+    verde: "bg-emerald-600 hover:bg-emerald-700 text-white",
+    vermelho: "bg-red-600 hover:bg-red-700 text-white",
+    dourado: "bg-[#C8941A] hover:bg-[#A87810] text-white",
+    espresso: "bg-[#3D2314] hover:bg-[#5C3A24] text-[#FAF7F2]",
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex flex-col items-center justify-center rounded-xl px-4 py-3 transition disabled:opacity-50 ${cores[cor]}`}
+    >
+      <span className="text-sm font-semibold">{loading ? "…" : label}</span>
+      <span className="mt-1 text-xs opacity-75">{tecla}</span>
+    </button>
+  );
+}
+
+function Atalho({ t, desc }: { t: string; desc: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg bg-[#FAF7F2] px-3 py-2">
+      <Kbd>{t}</Kbd>
+      <span className="text-[#3D2314]/80">{desc}</span>
+    </div>
+  );
+}
+
+function Kbd({ children, small }: { children: React.ReactNode; small?: boolean }) {
+  return (
+    <kbd
+      className={`rounded border border-[#3D2314]/20 bg-white font-mono text-[#3D2314] ${
+        small ? "px-1 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
+      }`}
+    >
+      {children}
+    </kbd>
+  );
+}
+
+function EmptyDay() {
+  return (
+    <div className="rounded-2xl bg-[#FAF7F2] p-12 text-center">
+      <div className="mb-4 text-6xl">☕</div>
+      <h3 className="text-xl font-bold text-[#3D2314]">Tudo em dia!</h3>
+      <p className="mt-2 text-sm text-[#3D2314]/70">
+        Nenhuma tarefa pendente nas suas empresas. Aproveite para revisar relatórios ou tomar um café.
+      </p>
+    </div>
+  );
+}
+
+function EmptyCaixa({ caixa }: { caixa: CaixaKey }) {
+  const msgs: Record<CaixaKey, { icone: string; titulo: string; desc: string }> = {
+    urgentes: { icone: "✅", titulo: "Sem urgências", desc: "Nenhum item com SLA crítico no momento." },
+    planejadas: { icone: "📅", titulo: "Sem tarefas planejadas hoje", desc: "O cron noturno cria a pauta às 03h. Volte amanhã ou veja outras caixas." },
+    ia_precisa: { icone: "🤖", titulo: "IA está em dia", desc: "Nenhuma classificação pendente. A IA está confiante nas decisões automáticas." },
+    cliente_solicitou: { icone: "📭", titulo: "Sem solicitações de clientes", desc: "Nenhum cliente abriu solicitação ainda." },
+  };
+  const m = msgs[caixa];
+  return (
+    <div className="rounded-2xl bg-[#FAF7F2] p-12 text-center">
+      <div className="mb-4 text-5xl">{m.icone}</div>
+      <h3 className="text-lg font-semibold text-[#3D2314]">{m.titulo}</h3>
+      <p className="mt-2 text-sm text-[#3D2314]/70">{m.desc}</p>
+    </div>
+  );
 }
