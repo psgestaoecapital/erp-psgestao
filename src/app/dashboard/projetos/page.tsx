@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { HardHat, Construction } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 
@@ -86,7 +87,7 @@ export default function ProjetosPainelPage() {
     return (
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="rounded-2xl bg-[#FAF7F2] p-12 text-center">
-          <div className="mb-4 text-5xl">🏗️</div>
+          <Construction size={48} strokeWidth={1.5} className="mx-auto mb-4 text-[#C8941A]/70" />
           <h2 className="text-xl font-bold text-[#3D2314]">
             Selecione uma empresa para acessar o Hub Projetos
           </h2>
@@ -116,7 +117,10 @@ export default function ProjetosPainelPage() {
 
       {/* Banner boas-vindas */}
       <section className="mb-6 rounded-2xl bg-[#3D2314] p-5 text-[#FAF7F2]">
-        <h2 className="text-lg font-bold">👷 Bem-vindo ao Hub Projetos!</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+          <HardHat size={20} strokeWidth={2} className="text-[#C8941A]" />
+          Bem-vindo ao Hub Projetos
+        </h2>
         <p className="mt-2 text-sm text-[#FAF7F2]/80 leading-relaxed">
           Esta área está sendo construída. Em breve você poderá gerenciar todo o ciclo de obras:
           do primeiro contato com cliente até a entrega final, passando por engenharia,
@@ -154,8 +158,8 @@ export default function ProjetosPainelPage() {
 
       {/* Próximos passos */}
       <section className="mb-6">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#3D2314]/70">
-          🚀 Próximos passos
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#3D2314]/60">
+          Próximos passos
         </h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <NextStep

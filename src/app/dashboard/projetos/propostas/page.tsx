@@ -1,11 +1,12 @@
 "use client";
+import { FileSignature } from "lucide-react";
 import { PlaceholderTab } from "../_components/PlaceholderTab";
 
 export default function PropostasPage() {
   return (
     <PlaceholderTab
-      icone="📄"
-      titulo="Propostas Comerciais"
+      icon={FileSignature}
+      titulo="Propostas comerciais"
       descricao="Geração automática de propostas profissionais a partir do orçamento. Envio multicanal (email/WhatsApp/Portal), assinatura digital."
       fase="Fase 5"
       funcoesFuturas={[

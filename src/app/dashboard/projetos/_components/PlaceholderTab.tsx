@@ -1,18 +1,19 @@
 // src/app/dashboard/projetos/_components/PlaceholderTab.tsx
-// Placeholder reutilizável para abas em construção do Hub Projetos
+// Placeholder reutilizável (premium) para abas em construção do Hub Projetos
 
 "use client";
 
 import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
 
 export function PlaceholderTab({
-  icone,
+  icon: Icon,
   titulo,
   descricao,
   fase,
   funcoesFuturas,
 }: {
-  icone: string;
+  icon: LucideIcon;
   titulo: string;
   descricao: string;
   fase: string;
@@ -22,13 +23,13 @@ export function PlaceholderTab({
     <div className="min-h-[60vh] flex items-center justify-center p-6">
       <div className="max-w-2xl w-full">
         <div className="bg-[#FAF7F2] rounded-3xl p-8 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#3D2314]/10 flex items-center justify-center text-3xl">
-            {icone}
+          <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-[#3D2314]/5 flex items-center justify-center">
+            <Icon size={40} strokeWidth={1.5} className="text-[#C8941A]/70" />
           </div>
-          <span className="inline-block px-3 py-1 rounded-full bg-[#C8941A]/20 text-[#C8941A] text-xs font-semibold mb-3">
+          <span className="inline-block px-3 py-1 rounded-full bg-[#C8941A]/15 text-[#C8941A] text-xs font-semibold mb-3">
             {fase} · Em construção
           </span>
-          <h1 className="text-2xl font-bold text-[#3D2314] mb-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-[#3D2314] mb-3">
             {titulo}
           </h1>
           <p className="text-[#3D2314]/70 mb-6 leading-relaxed">
@@ -36,7 +37,7 @@ export function PlaceholderTab({
           </p>
 
           <div className="bg-white rounded-2xl p-5 text-left">
-            <h3 className="text-sm font-semibold text-[#3D2314] mb-3 uppercase tracking-wide">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[#3D2314]/60 mb-3">
               Funcionalidades planejadas
             </h3>
             <ul className="space-y-2">
