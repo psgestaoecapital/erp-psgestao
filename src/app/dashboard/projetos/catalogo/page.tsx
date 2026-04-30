@@ -1,11 +1,12 @@
 "use client";
+import { BookOpenText } from "lucide-react";
 import { PlaceholderTab } from "../_components/PlaceholderTab";
 
 export default function CatalogoPage() {
   return (
     <PlaceholderTab
-      icone="📚"
-      titulo="Catálogo de Serviços"
+      icon={BookOpenText}
+      titulo="Catálogo de serviços"
       descricao="Serviços oferecidos pela empresa com Composição de Preço Unitário (CPU). Cada serviço tem materiais + mão de obra + equipamentos."
       fase="Fase 1"
       funcoesFuturas={[

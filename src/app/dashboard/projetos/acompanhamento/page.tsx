@@ -1,11 +1,12 @@
 "use client";
+import { TrendingUp } from "lucide-react";
 import { PlaceholderTab } from "../_components/PlaceholderTab";
 
 export default function AcompanhamentoPage() {
   return (
     <PlaceholderTab
-      icone="📈"
-      titulo="Orçado vs Realizado"
+      icon={TrendingUp}
+      titulo="Orçado vs realizado"
       descricao="Análise gerencial: comparativo entre o orçamento e o custo real da obra. Curva S, margens, alertas, decisões."
       fase="Fase 6"
       funcoesFuturas={[

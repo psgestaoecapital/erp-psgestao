@@ -1,11 +1,12 @@
 "use client";
+import { MapPin } from "lucide-react";
 import { PlaceholderTab } from "../_components/PlaceholderTab";
 
 export default function VisitasPage() {
   return (
     <PlaceholderTab
-      icone="🗺️"
-      titulo="Visitas Técnicas"
+      icon={MapPin}
+      titulo="Visitas técnicas"
       descricao="Vendedor em campo registra visita ao local da obra: localização GPS, fotos, medidas iniciais, briefing do cliente, prazos."
       fase="Fase 2"
       funcoesFuturas={[
