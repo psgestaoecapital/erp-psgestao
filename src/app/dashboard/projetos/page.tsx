@@ -69,7 +69,10 @@ export default function PainelProjetos() {
         <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[#3D2314]/8 mb-6">
           <Hammer size={28} className="text-[#C8941A]" />
         </div>
-        <h1 className="mb-2 text-2xl font-medium text-[#3D2314]">
+        <h1
+          className="mb-2 text-2xl font-medium text-[#3D2314]"
+          style={{ fontFamily: "var(--ps-font-body)" }}
+        >
           Selecione uma empresa
         </h1>
         <p className="text-[#3D2314]/60 max-w-md mx-auto">
@@ -84,14 +87,17 @@ export default function PainelProjetos() {
     <main className="mx-auto max-w-5xl px-6 py-12">
       {/* HERO */}
       <section className="text-center py-12">
-        <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-[#3D2314]/8 mb-6">
+        <div className="mx-auto inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-[#3D2314]/8 mb-6">
           <Hammer size={28} className="text-[#C8941A]" />
         </div>
-        <h1 className="text-3xl font-medium text-[#3D2314] mb-2">
+        <h1
+          className="text-3xl font-medium text-[#3D2314] mb-2"
+          style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal", letterSpacing: "-0.01em" }}
+        >
           Projetos · {empresaNome}
         </h1>
-        <p className="text-[#3D2314]/60 mb-8 max-w-md mx-auto">
-          Hub de engenharia, CRM de obra e acompanhamento financeiro
+        <p className="text-[#3D2314]/60 mb-8 max-w-xl mx-auto">
+          Hub de engenharia, CRM de obra e acompanhamento
         </p>
         <div className="flex flex-wrap items-center justify-center gap-4">
           <Link
@@ -112,9 +118,7 @@ export default function PainelProjetos() {
 
       {/* INDICADORES */}
       <section className="mt-16">
-        <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
-          Indicadores
-        </h2>
+        <SectionLabel>Indicadores</SectionLabel>
 
         <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           <KpiPrincipal label="Obras ativas" valor={String(resumo?.obras_ativas ?? 0)} />
@@ -143,10 +147,14 @@ export default function PainelProjetos() {
 
       {/* ROADMAP */}
       <section id="roadmap" className="mt-16">
-        <h2 className="mb-6 text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
-          Roadmap de construção
-        </h2>
-        <div className="rounded-xl border border-[#3D2314]/8 bg-white p-6">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <SectionLabel>Roadmap de construção</SectionLabel>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#C8941A]/15 px-2.5 py-1 text-xs font-medium text-[#C8941A]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#C8941A]" />
+            Fase 0 ativa · próximas liberadas após Onda 7
+          </span>
+        </div>
+        <div className="rounded-xl border border-[#3D2314]/8 bg-white p-6 shadow-sm">
           <div className="relative flex items-start justify-between">
             {/* Linha conectora absoluta */}
             <div className="absolute left-3 right-3 top-3 h-px bg-[#3D2314]/15" />
@@ -176,21 +184,33 @@ export default function PainelProjetos() {
               </div>
             ))}
           </div>
-          <p className="mt-6 text-center text-xs text-[#3D2314]/50">
-            Estamos na <span className="text-[#3D2314]">Fase 0</span>: fundação
-            estrutural. As próximas fases serão liberadas após a Onda 7 (sync Omie).
-          </p>
         </div>
       </section>
     </main>
   );
 }
 
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2
+      className="text-sm font-semibold uppercase tracking-wider text-[#3D2314]/60"
+      style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal", letterSpacing: "0.08em" }}
+    >
+      {children}
+    </h2>
+  );
+}
+
 function KpiPrincipal({ label, valor }: { label: string; valor: string }) {
   return (
-    <div className="rounded-xl border border-[#3D2314]/8 bg-white p-5">
+    <div className="rounded-xl border border-[#3D2314]/12 bg-white p-5 shadow-sm">
       <div className="mb-2 text-xs text-[#3D2314]/50">{label}</div>
-      <div className="text-2xl font-medium text-[#3D2314]">{valor}</div>
+      <div
+        className="text-2xl font-medium text-[#3D2314]"
+        style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
+      >
+        {valor}
+      </div>
     </div>
   );
 }
@@ -199,9 +219,14 @@ function KpiSecundario({ label, valor }: { label: string; valor: string }) {
   // Sem cor semântica vermelho/verde quando dado é normal/zero.
   // Reservado para futuras condições de alerta real (vencidos > 30d etc).
   return (
-    <div className="rounded-xl border border-[#3D2314]/8 bg-white p-4">
+    <div className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm">
       <div className="mb-1 text-xs text-[#3D2314]/50">{label}</div>
-      <div className="text-lg font-medium text-[#3D2314]">{valor}</div>
+      <div
+        className="text-lg font-medium text-[#3D2314]"
+        style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
+      >
+        {valor}
+      </div>
     </div>
   );
 }

@@ -29,7 +29,10 @@ export function PlaceholderTab({
           <span className="inline-block px-3 py-1 rounded-full bg-[#C8941A]/15 text-[#C8941A] text-xs font-semibold mb-3">
             {fase} · Em construção
           </span>
-          <h1 className="text-2xl font-semibold tracking-tight text-[#3D2314] mb-3">
+          <h1
+            className="text-2xl font-semibold text-[#3D2314] mb-3"
+            style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal", letterSpacing: "-0.01em" }}
+          >
             {titulo}
           </h1>
           <p className="text-[#3D2314]/70 mb-6 leading-relaxed">
@@ -37,7 +40,10 @@ export function PlaceholderTab({
           </p>
 
           <div className="bg-white rounded-2xl p-5 text-left">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[#3D2314]/60 mb-3">
+            <h3
+              className="text-xs font-semibold uppercase tracking-wide text-[#3D2314]/60 mb-3"
+              style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
+            >
               Funcionalidades planejadas
             </h3>
             <ul className="space-y-2">
