@@ -332,6 +332,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showCompanyMenu, setShowCompanyMenu] = useState(false)
+  const [temProjetos, setTemProjetos] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showPlanoMenu, setShowPlanoMenu] = useState(false)
   const [buscaEmpresa, setBuscaEmpresa] = useState('')
@@ -485,7 +486,43 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const currentCompany = companies.find(c => c.id === selCompany)
   const userInitials = user?.email ? user.email.slice(0, 2).toUpperCase() : '??'
-  const menuGroups = MENU[currentPlano] || []
+
+  // Hub adaptativo: empresa precisa ter flag_projetos=true em bpo_contratos.
+  // Só faz sentido em modo "empresa única" — grupo/consolidado não mostram.
+  useEffect(() => {
+    let cancel = false
+    if (!selCompany || selCompany === 'consolidado' || selCompany.startsWith('group_')) {
+      setTemProjetos(false)
+      return
+    }
+    ;(async () => {
+      try {
+        const { data } = await supabase
+          .from('bpo_contratos')
+          .select('flag_projetos')
+          .eq('company_id', selCompany)
+          .eq('ativo', true)
+          .maybeSingle()
+        if (!cancel) setTemProjetos(data?.flag_projetos === true)
+      } catch {
+        if (!cancel) setTemProjetos(false)
+      }
+    })()
+    return () => { cancel = true }
+  }, [selCompany])
+
+  const menuGroupsBase = MENU[currentPlano] || []
+  const menuGroups = temProjetos
+    ? [
+        ...menuGroupsBase,
+        {
+          label: 'PROJETOS',
+          items: [
+            { href: '/dashboard/projetos', label: 'Hub Projetos', icon: <Icon.Hammer />, badge: 'NOVO' },
+          ],
+        },
+      ]
+    : menuGroupsBase
 
   const gruposComEmpresas = React.useMemo(() => {
     return groups
