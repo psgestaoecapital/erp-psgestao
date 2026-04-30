@@ -211,6 +211,7 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       { href: '/dashboard/bpo/meu-dia', label: 'Meu Dia', icon: <Icon.Calendar /> },
       { href: '/dashboard/bpo/foco', label: 'Modo Foco', icon: <Icon.Target /> },
       { href: '/dashboard/bpo/supervisao', label: 'Supervisão', icon: <Icon.Eye />, badge: 'NOVO' },
+      { href: '/dashboard/bpo/fechamento', label: 'Fechamento Mensal', icon: <Icon.FileText />, badge: 'NOVO' },
     ]},
     { label: 'CENTRAL DE OPERAÇÕES', items: [
       { href: '/dashboard/bpo/inbox', label: 'Inbox do Operador', icon: <Icon.ClipboardList />, badge: 'NOVO' },
