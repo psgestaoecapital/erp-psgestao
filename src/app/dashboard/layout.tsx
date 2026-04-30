@@ -697,6 +697,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
                 {sidebarCollapsed && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
                 <NavItem href="/admin/sync-status" label="Status Sync Omie" icon={<Icon.RefreshCw />} active={pathname === '/admin/sync-status'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+                <NavItem href="/dashboard/admin/sync" label="Sync Multi-ERP" icon={<Icon.RefreshCw />} active={pathname === '/dashboard/admin/sync'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+                <NavItem href="/dashboard/admin/sync/payloads" label="Payloads Shadow" icon={<Icon.FileText />} active={pathname === '/dashboard/admin/sync/payloads'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+                <NavItem href="/dashboard/admin/sync/historico" label="Histórico Sync" icon={<Icon.ClipboardList />} active={pathname === '/dashboard/admin/sync/historico'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
                 <NavItem href="/admin/projeto" label="Contexto do Projeto" icon={<Icon.BookOpen />} active={pathname === '/admin/projeto'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
               </div>
             )}
