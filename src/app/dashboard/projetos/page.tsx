@@ -1,83 +1,63 @@
 // src/app/dashboard/projetos/page.tsx
-// Painel inicial do Hub Projetos
-// Lê v_projetos_resumo_empresa + projetos_modulo_config
+// Painel inicial premium do Hub Projetos
+// Estrutura: Hero centralizado + Indicadores + Roadmap horizontal
 
 "use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { HardHat, Construction } from "lucide-react";
+import { Hammer, ArrowRight } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 
 interface ResumoEmpresa {
   obras_ativas: number;
-  obras_concluidas_mes: number;
   propostas_pendentes: number;
   valor_orcamento_ativo: number;
   margem_media_pct: number;
   pagar_aberto: number;
   receber_aberto: number;
-  bdi_lucro_pct: number;
 }
 
-interface ConfigBdi {
-  bdi_administracao_central_pct: number;
-  bdi_seguros_pct: number;
-  bdi_riscos_pct: number;
-  bdi_garantia_pct: number;
-  bdi_despesas_financeiras_pct: number;
-  bdi_impostos_pct: number;
-  bdi_lucro_pct: number;
-  bdi_total_pct: number;
-}
+const FASES = [
+  { num: 0, label: "Fundação",     atual: true  },
+  { num: 1, label: "Cadastros",    atual: false },
+  { num: 2, label: "CRM Obra",     atual: false },
+  { num: 3, label: "Engenharia",   atual: false },
+  { num: 4, label: "Precificação", atual: false },
+  { num: 5, label: "Propostas",    atual: false },
+  { num: 6, label: "Acompanhar",   atual: false },
+];
 
 function fmtBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export default function ProjetosPainelPage() {
-  const { sel, companyIds, companies } = useCompanyIds();
+export default function PainelProjetos() {
+  const { sel, companies } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
   const empresaNome = empresa?.nome_fantasia || empresa?.razao_social || "—";
 
   const [resumo, setResumo] = useState<ResumoEmpresa | null>(null);
-  const [config, setConfig] = useState<ConfigBdi | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
     if (!companyId) {
-      setLoading(false);
+      setResumo(null);
       return;
     }
     let cancel = false;
     (async () => {
-      setLoading(true);
       try {
         const supabase = supabaseBrowser();
-        const [resR, cfgR] = await Promise.all([
-          supabase
-            .from("v_projetos_resumo_empresa")
-            .select("*")
-            .eq("company_id", companyId)
-            .maybeSingle(),
-          supabase
-            .from("projetos_modulo_config")
-            .select("*")
-            .eq("company_id", companyId)
-            .maybeSingle(),
-        ]);
-        if (cancel) return;
-        if (resR.error && resR.error.code !== "PGRST116") throw resR.error;
-        if (cfgR.error && cfgR.error.code !== "PGRST116") throw cfgR.error;
-        setResumo((resR.data as any) || null);
-        setConfig((cfgR.data as any) || null);
-      } catch (e: any) {
-        if (!cancel) setErro(e.message || "Falha ao carregar painel");
-      } finally {
-        if (!cancel) setLoading(false);
+        const { data } = await supabase
+          .from("v_projetos_resumo_empresa")
+          .select("*")
+          .eq("company_id", companyId)
+          .maybeSingle();
+        if (!cancel) setResumo((data as any) || null);
+      } catch {
+        if (!cancel) setResumo(null);
       }
     })();
     return () => { cancel = true; };
@@ -85,172 +65,143 @@ export default function ProjetosPainelPage() {
 
   if (!companyId) {
     return (
-      <main className="mx-auto max-w-5xl px-6 py-10">
-        <div className="rounded-2xl bg-[#FAF7F2] p-12 text-center">
-          <Construction size={48} strokeWidth={1.5} className="mx-auto mb-4 text-[#C8941A]/70" />
-          <h2 className="text-xl font-bold text-[#3D2314]">
-            Selecione uma empresa para acessar o Hub Projetos
-          </h2>
-          <p className="mt-2 text-sm text-[#3D2314]/70">
-            O módulo Projetos opera por empresa específica. Use o seletor no topo do ERP.
-          </p>
+      <main className="mx-auto max-w-3xl px-6 py-20 text-center">
+        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[#3D2314]/8 mb-6">
+          <Hammer size={28} className="text-[#C8941A]" />
         </div>
+        <h1 className="mb-2 text-2xl font-medium text-[#3D2314]">
+          Selecione uma empresa
+        </h1>
+        <p className="text-[#3D2314]/60 max-w-md mx-auto">
+          O Hub Projetos opera por empresa específica. Use o seletor no topo do ERP
+          para escolher a empresa que vai gerenciar.
+        </p>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-6">
-      {/* Header */}
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-[#3D2314]">
+    <main className="mx-auto max-w-5xl px-6 py-12">
+      {/* HERO */}
+      <section className="text-center py-12">
+        <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-[#3D2314]/8 mb-6">
+          <Hammer size={28} className="text-[#C8941A]" />
+        </div>
+        <h1 className="text-3xl font-medium text-[#3D2314] mb-2">
           Projetos · {empresaNome}
         </h1>
-        <p className="text-xs text-[#3D2314]/60">
-          Hub de Engenharia, CRM de obra, precificação e acompanhamento
+        <p className="text-[#3D2314]/60 mb-8 max-w-md mx-auto">
+          Hub de engenharia, CRM de obra e acompanhamento financeiro
         </p>
-      </header>
-
-      {erro && (
-        <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>
-      )}
-
-      {/* Banner boas-vindas */}
-      <section className="mb-6 rounded-2xl bg-[#3D2314] p-5 text-[#FAF7F2]">
-        <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-          <HardHat size={20} strokeWidth={2} className="text-[#C8941A]" />
-          Bem-vindo ao Hub Projetos
-        </h2>
-        <p className="mt-2 text-sm text-[#FAF7F2]/80 leading-relaxed">
-          Esta área está sendo construída. Em breve você poderá gerenciar todo o ciclo de obras:
-          do primeiro contato com cliente até a entrega final, passando por engenharia,
-          orçamento, propostas comerciais e acompanhamento financeiro.
-        </p>
-      </section>
-
-      {/* KPIs principais (zerados inicialmente) */}
-      <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Obras ativas" valor={resumo?.obras_ativas ?? 0} />
-        <KpiCard label="Propostas pendentes" valor={resumo?.propostas_pendentes ?? 0} />
-        <KpiCard
-          label="Orçamento ativo"
-          valor={resumo?.valor_orcamento_ativo ? fmtBRL(resumo.valor_orcamento_ativo) : fmtBRL(0)}
-        />
-        <KpiCard
-          label="Margem média"
-          valor={`${resumo?.margem_media_pct?.toFixed(1) ?? "0.0"}%`}
-        />
-      </section>
-
-      {/* KPIs auxiliares (já populados pelo backend) */}
-      <section className="mb-6 grid grid-cols-2 gap-3">
-        <SecKpi
-          label="Contas a pagar abertas"
-          valor={resumo?.pagar_aberto ? fmtBRL(resumo.pagar_aberto) : fmtBRL(0)}
-          tom="vermelho"
-        />
-        <SecKpi
-          label="Contas a receber abertas"
-          valor={resumo?.receber_aberto ? fmtBRL(resumo.receber_aberto) : fmtBRL(0)}
-          tom="verde"
-        />
-      </section>
-
-      {/* Próximos passos */}
-      <section className="mb-6">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#3D2314]/60">
-          Próximos passos
-        </h2>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <NextStep
-            href="/dashboard/projetos/clientes"
-            titulo="Cadastrar primeiro cliente"
-            desc="Adicione clientes finais (PF/PJ) e suas obras."
-            disponivel={false}
-            faseLabel="Fase 2"
-          />
-          <NextStep
-            href="/dashboard/projetos/catalogo"
-            titulo="Configurar catálogo"
-            desc="Cadastre serviços oferecidos (forro, drywall, sanca) com CPU."
-            disponivel={false}
-            faseLabel="Fase 1"
-          />
-          <NextStep
+        <div className="flex flex-wrap items-center justify-center gap-4">
+          <Link
             href="/dashboard/projetos/configuracoes"
-            titulo={loading ? "Carregando BDI..." : "Configurar BDI"}
-            desc={
-              config?.bdi_total_pct
-                ? `BDI atual: ${config.bdi_total_pct.toFixed(2)}% (lucro ${config.bdi_lucro_pct?.toFixed(1)}%, impostos ${config.bdi_impostos_pct?.toFixed(2)}%)`
-                : "Defina os percentuais de BDI da empresa."
-            }
-            disponivel={true}
-            faseLabel="Disponível"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-5 py-2.5 text-sm font-medium text-[#FAF7F2] transition-colors hover:bg-[#3D2314]/90"
+          >
+            Configurar BDI da empresa
+            <ArrowRight size={14} />
+          </Link>
+          <a
+            href="#roadmap"
+            className="text-sm text-[#3D2314]/60 hover:text-[#3D2314]"
+          >
+            Ver roadmap completo
+          </a>
+        </div>
+      </section>
+
+      {/* INDICADORES */}
+      <section className="mt-16">
+        <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
+          Indicadores
+        </h2>
+
+        <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <KpiPrincipal label="Obras ativas" valor={String(resumo?.obras_ativas ?? 0)} />
+          <KpiPrincipal label="Propostas pendentes" valor={String(resumo?.propostas_pendentes ?? 0)} />
+          <KpiPrincipal
+            label="Orçamento ativo"
+            valor={fmtBRL(resumo?.valor_orcamento_ativo ?? 0)}
           />
+          <KpiPrincipal
+            label="Margem média"
+            valor={`${(resumo?.margem_media_pct ?? 0).toFixed(1)}%`}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <KpiSecundario
+            label="Contas a pagar abertas"
+            valor={fmtBRL(resumo?.pagar_aberto ?? 0)}
+          />
+          <KpiSecundario
+            label="Contas a receber abertas"
+            valor={fmtBRL(resumo?.receber_aberto ?? 0)}
+          />
+        </div>
+      </section>
+
+      {/* ROADMAP */}
+      <section id="roadmap" className="mt-16">
+        <h2 className="mb-6 text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
+          Roadmap de construção
+        </h2>
+        <div className="rounded-xl border border-[#3D2314]/8 bg-white p-6">
+          <div className="relative flex items-start justify-between">
+            {/* Linha conectora absoluta */}
+            <div className="absolute left-3 right-3 top-3 h-px bg-[#3D2314]/15" />
+            {FASES.map((fase) => (
+              <div
+                key={fase.num}
+                className="relative flex flex-1 flex-col items-center text-center"
+              >
+                <div
+                  className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                    fase.atual
+                      ? "bg-[#C8941A] text-white shadow-sm"
+                      : "border border-[#3D2314]/20 bg-white text-[#3D2314]/40"
+                  }`}
+                >
+                  {fase.num}
+                </div>
+                <div
+                  className={`mt-2 text-xs ${
+                    fase.atual
+                      ? "font-medium text-[#3D2314]"
+                      : "text-[#3D2314]/60"
+                  }`}
+                >
+                  {fase.label}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-6 text-center text-xs text-[#3D2314]/50">
+            Estamos na <span className="text-[#3D2314]">Fase 0</span>: fundação
+            estrutural. As próximas fases serão liberadas após a Onda 7 (sync Omie).
+          </p>
         </div>
       </section>
     </main>
   );
 }
 
-function KpiCard({ label, valor }: { label: string; valor: string | number }) {
+function KpiPrincipal({ label, valor }: { label: string; valor: string }) {
   return (
-    <div className="rounded-xl bg-[#FAF7F2] p-4">
-      <div className="text-xs uppercase text-[#3D2314]/60">{label}</div>
-      <div className="mt-1 text-2xl font-bold text-[#3D2314]">{valor}</div>
+    <div className="rounded-xl border border-[#3D2314]/8 bg-white p-5">
+      <div className="mb-2 text-xs text-[#3D2314]/50">{label}</div>
+      <div className="text-2xl font-medium text-[#3D2314]">{valor}</div>
     </div>
   );
 }
 
-function SecKpi({ label, valor, tom }: { label: string; valor: string; tom: "verde" | "vermelho" }) {
-  const cor = tom === "verde" ? "text-emerald-700" : "text-red-700";
-  const bg = tom === "verde" ? "bg-emerald-50" : "bg-red-50";
+function KpiSecundario({ label, valor }: { label: string; valor: string }) {
+  // Sem cor semântica vermelho/verde quando dado é normal/zero.
+  // Reservado para futuras condições de alerta real (vencidos > 30d etc).
   return (
-    <div className={`rounded-xl p-4 ${bg}`}>
-      <div className="text-xs uppercase text-[#3D2314]/70">{label}</div>
-      <div className={`mt-1 text-xl font-bold ${cor}`}>{valor}</div>
+    <div className="rounded-xl border border-[#3D2314]/8 bg-white p-4">
+      <div className="mb-1 text-xs text-[#3D2314]/50">{label}</div>
+      <div className="text-lg font-medium text-[#3D2314]">{valor}</div>
     </div>
   );
-}
-
-function NextStep({
-  href,
-  titulo,
-  desc,
-  disponivel,
-  faseLabel,
-}: {
-  href: string;
-  titulo: string;
-  desc: string;
-  disponivel: boolean;
-  faseLabel: string;
-}) {
-  const inner = (
-    <div
-      className={`rounded-2xl p-4 transition ${
-        disponivel
-          ? "bg-[#FAF7F2] hover:shadow-md cursor-pointer"
-          : "bg-[#FAF7F2]/60 cursor-not-allowed"
-      }`}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-            disponivel
-              ? "bg-emerald-100 text-emerald-800"
-              : "bg-[#C8941A]/20 text-[#C8941A]"
-          }`}
-        >
-          {faseLabel}
-        </span>
-      </div>
-      <h3 className={`font-semibold ${disponivel ? "text-[#3D2314]" : "text-[#3D2314]/60"}`}>
-        {titulo}
-      </h3>
-      <p className="mt-1 text-xs text-[#3D2314]/60">{desc}</p>
-    </div>
-  );
-
-  return disponivel ? <Link href={href}>{inner}</Link> : <div>{inner}</div>;
 }
