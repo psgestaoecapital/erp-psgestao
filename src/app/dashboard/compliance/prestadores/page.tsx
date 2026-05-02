@@ -31,9 +31,24 @@ const TIPO_LABEL: Record<string, string> = {
 }
 
 export default function ComplianceListaPrestadoresPage() {
-  const { companyIds } = useCompanyIds()
+  const { companyIds, companies } = useCompanyIds()
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
-  const companyAtiva = companyIds?.[0] ?? null
+  const multiEmpresa = (companyIds?.length ?? 0) > 1
+  const empresasNoEscopo = useMemo(() => {
+    const ids = companyIdsKey ? companyIdsKey.split(',') : []
+    return ids
+      .map((id) => {
+        const c = companies.find((x) => x.id === id)
+        return { id, nome: c?.nome_fantasia || c?.razao_social || 'Empresa' }
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [companyIdsKey, companies])
+  const empresaPorId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of empresasNoEscopo) m.set(e.id, e.nome)
+    return m
+  }, [empresasNoEscopo])
+  const companyAtiva = !multiEmpresa ? (companyIds?.[0] ?? null) : null
 
   const [prestadores, setPrestadores] = useState<Prestador[]>([])
   const [loading, setLoading] = useState(true)
@@ -84,7 +99,7 @@ export default function ComplianceListaPrestadoresPage() {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link href="/dashboard/compliance" style={btnSec()}>← Voltar</Link>
-            <button onClick={() => setModalAberto(true)} disabled={!companyAtiva} style={btnPrim()}>
+            <button onClick={() => setModalAberto(true)} disabled={empresasNoEscopo.length === 0} style={btnPrim()}>
               + Novo Prestador
             </button>
           </div>
@@ -110,6 +125,7 @@ export default function ComplianceListaPrestadoresPage() {
                   <Th>Razão Social</Th>
                   <Th>CNPJ</Th>
                   <Th>Tipo</Th>
+                  {multiEmpresa && <Th>Empresa</Th>}
                   <Th>Responsável</Th>
                   <Th>Valor mensal</Th>
                   <Th>Compliance</Th>
@@ -117,8 +133,8 @@ export default function ComplianceListaPrestadoresPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading && (<tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
-                {!loading && prestadores.length === 0 && (<tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum prestador cadastrado</td></tr>)}
+                {loading && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
+                {!loading && prestadores.length === 0 && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum prestador cadastrado</td></tr>)}
                 {prestadores.map((p, i) => {
                   const pct = p.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
@@ -135,6 +151,11 @@ export default function ComplianceListaPrestadoresPage() {
                       </Td>
                       <Td mono>{p.cnpj}</Td>
                       <Td><span style={tipoBadge(p.tipo_contrato)}>{tipoLabel}</span></Td>
+                      {multiEmpresa && (
+                        <Td>
+                          <span style={{ fontSize: 12, color: C.espresso }}>{empresaPorId.get(p.company_id) || '—'}</span>
+                        </Td>
+                      )}
                       <Td>{p.responsavel_nome || '—'}</Td>
                       <Td mono>{p.valor_contrato_mensal != null ? fmtR(p.valor_contrato_mensal) : '—'}</Td>
                       <Td>
@@ -160,9 +181,10 @@ export default function ComplianceListaPrestadoresPage() {
         </section>
       </div>
 
-      {modalAberto && companyAtiva && (
+      {modalAberto && empresasNoEscopo.length > 0 && (
         <NovoPrestadorModal
-          companyId={companyAtiva}
+          empresas={empresasNoEscopo}
+          companyIdInicial={companyAtiva ?? empresasNoEscopo[0].id}
           onClose={() => setModalAberto(false)}
           onCreated={(nome) => {
             setModalAberto(false)
@@ -192,13 +214,16 @@ export default function ComplianceListaPrestadoresPage() {
 }
 
 function NovoPrestadorModal({
-  companyId, onClose, onCreated, onErro,
+  empresas, companyIdInicial, onClose, onCreated, onErro,
 }: {
-  companyId: string
+  empresas: { id: string; nome: string }[]
+  companyIdInicial: string
   onClose: () => void
   onCreated: (nome: string) => void
   onErro: (msg: string) => void
 }) {
+  const [companyId, setCompanyId] = useState(companyIdInicial)
+  const exigeEscolha = empresas.length > 1
   const [razao, setRazao] = useState('')
   const [cnpj, setCnpj] = useState('')
   const [nomeFantasia, setNomeFantasia] = useState('')
@@ -262,6 +287,14 @@ function NovoPrestadorModal({
       <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(620px, 92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
         <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 16px' }}>Novo Prestador PJ/MEI</h2>
+
+        {exigeEscolha && (
+          <Field label="Empresa *">
+            <select value={companyId} onChange={(e: any) => setCompanyId(e.target.value)} style={inputStyle()}>
+              {empresas.map((e) => (<option key={e.id} value={e.id}>{e.nome}</option>))}
+            </select>
+          </Field>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
           <Field label="Razão Social *"><input value={razao} onChange={(e: any) => setRazao(e.target.value)} style={inputStyle()} /></Field>
