@@ -759,7 +759,7 @@ function CampoNumero({
           const v = parseFloat(t);
           onChange(Number.isFinite(v) ? v : null);
         }}
-        className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-right font-mono text-sm focus:border-[#C8941A] focus:outline-none"
+        className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-4 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
       />
       {hint && <p className="mt-1 text-[11px] text-[#3D2314]/50">{hint}</p>}
     </label>
@@ -788,7 +788,7 @@ function CampoTexto({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         maxLength={10}
-        className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 font-mono text-sm uppercase focus:border-[#C8941A] focus:outline-none"
+        className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-4 py-2 font-mono text-sm uppercase !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
       />
     </label>
   );

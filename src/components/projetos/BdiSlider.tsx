@@ -23,7 +23,7 @@ interface Props {
 const CORES: Record<BdiSliderCor, { accent: string; chip: string }> = {
   espresso: { accent: "accent-[#3D2314]", chip: "bg-[#3D2314]/10 text-[#3D2314]" },
   gold: { accent: "accent-[#C8941A]", chip: "bg-[#C8941A]/15 text-[#C8941A]" },
-  brown: { accent: "accent-[#5C3A24]", chip: "bg-[#5C3A24]/12 text-[#5C3A24]" },
+  brown: { accent: "accent-[#3D2314]", chip: "bg-[#3D2314]/10 text-[#3D2314]" },
   gray: { accent: "accent-[#3D2314]/60", chip: "bg-[#3D2314]/8 text-[#3D2314]/70" },
 };
 
@@ -110,7 +110,7 @@ export function BdiSlider({
               const v = parseFloat(e.target.value);
               onChange(Number.isFinite(v) ? v : 0);
             }}
-            className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-2 py-1.5 text-right font-mono text-sm focus:border-[#C8941A] focus:outline-none"
+            className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-2 py-1.5 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none"
           />
           <span className="text-xs text-[#3D2314]/50">%</span>
         </div>
