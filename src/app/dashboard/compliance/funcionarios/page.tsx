@@ -36,7 +36,7 @@ type Funcionario = {
 }
 
 export default function FuncionariosPage() {
-  const { companyIds } = useCompanyIds()
+  const { companyIds, companies } = useCompanyIds()
   const [funcs, setFuncs] = useState<Funcionario[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -49,8 +49,24 @@ export default function FuncionariosPage() {
 
   // useCompanyIds devolve um array novo a cada render — estabiliza pelo CSV ordenado.
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
-  // Para o modal de "Novo funcionário": usa a primeira do escopo atual.
-  const companyAtiva = companyIds?.[0] ?? null
+  const multiEmpresa = (companyIds?.length ?? 0) > 1
+  // Empresas no escopo (para coluna "Empresa" e seletor do modal)
+  const empresasNoEscopo = useMemo(() => {
+    const ids = companyIdsKey ? companyIdsKey.split(',') : []
+    return ids
+      .map((id) => {
+        const c = companies.find((x) => x.id === id)
+        return { id, nome: c?.nome_fantasia || c?.razao_social || 'Empresa' }
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [companyIdsKey, companies])
+  const empresaPorId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of empresasNoEscopo) m.set(e.id, e.nome)
+    return m
+  }, [empresasNoEscopo])
+  // Modal de novo funcionario: se grupo, exige escolher; senao, primeira do escopo.
+  const companyAtiva = !multiEmpresa ? (companyIds?.[0] ?? null) : null
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) return
@@ -159,14 +175,15 @@ export default function FuncionariosPage() {
                   <Th>Nome</Th>
                   <Th>CPF</Th>
                   <Th>Cargo / Setor</Th>
+                  {multiEmpresa && <Th>Empresa</Th>}
                   <Th>Tomadora</Th>
                   <Th>Compliance</Th>
                   <Th>Ações</Th>
                 </tr>
               </thead>
               <tbody>
-                {loading && (<tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
-                {!loading && funcsFiltrados.length === 0 && (<tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum funcionário</td></tr>)}
+                {loading && (<tr><td colSpan={multiEmpresa ? 7 : 6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
+                {!loading && funcsFiltrados.length === 0 && (<tr><td colSpan={multiEmpresa ? 7 : 6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum funcionário</td></tr>)}
                 {funcsFiltrados.map((f: Funcionario, i: number) => {
                   const pct = f.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
@@ -180,6 +197,11 @@ export default function FuncionariosPage() {
                         <div>{f.cargo || '—'}</div>
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.setor || '—'}</div>
                       </Td>
+                      {multiEmpresa && (
+                        <Td>
+                          <span style={{ fontSize: 12, color: C.espresso }}>{empresaPorId.get(f.company_id) || '—'}</span>
+                        </Td>
+                      )}
                       <Td>
                         <div>{f.empresa_tomadora_nome || '—'}</div>
                         {f.obra_nome && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.obra_nome}</div>}
@@ -207,9 +229,10 @@ export default function FuncionariosPage() {
         </section>
       </div>
 
-      {modalAberto && companyAtiva && (
+      {modalAberto && empresasNoEscopo.length > 0 && (
         <NovoFuncionarioModal
-          companyId={companyAtiva}
+          empresas={empresasNoEscopo}
+          companyIdInicial={companyAtiva ?? empresasNoEscopo[0].id}
           onClose={() => setModalAberto(false)}
           onCreated={() => {
             setModalAberto(false)
@@ -221,7 +244,15 @@ export default function FuncionariosPage() {
   )
 }
 
-function NovoFuncionarioModal({ companyId, onClose, onCreated }: { companyId: string; onClose: () => void; onCreated: () => void }) {
+function NovoFuncionarioModal({
+  empresas, companyIdInicial, onClose, onCreated,
+}: {
+  empresas: { id: string; nome: string }[]
+  companyIdInicial: string
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [companyId, setCompanyId] = useState(companyIdInicial)
   const [nome, setNome] = useState('')
   const [cpf, setCpf] = useState('')
   const [cargo, setCargo] = useState('')
@@ -230,6 +261,8 @@ function NovoFuncionarioModal({ companyId, onClose, onCreated }: { companyId: st
   const [obra, setObra] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  const exigeEscolha = empresas.length > 1
 
   async function salvar() {
     setSalvando(true)
@@ -262,6 +295,13 @@ function NovoFuncionarioModal({ companyId, onClose, onCreated }: { companyId: st
       <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(520px, 92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '0 0 16px' }}>Novo funcionário</h2>
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{erro}</div>)}
+        {exigeEscolha && (
+          <Field label="Empresa *">
+            <select value={companyId} onChange={(e: any) => setCompanyId(e.target.value)} style={inputStyle()}>
+              {empresas.map((e) => (<option key={e.id} value={e.id}>{e.nome}</option>))}
+            </select>
+          </Field>
+        )}
         <Field label="Nome completo *"><input value={nome} onChange={(e: any) => setNome(e.target.value)} style={inputStyle()} /></Field>
         <Field label="CPF"><input value={cpf} onChange={(e: any) => setCpf(e.target.value)} style={inputStyle()} placeholder="000.000.000-00" /></Field>
         <Field label="Cargo"><input value={cargo} onChange={(e: any) => setCargo(e.target.value)} style={inputStyle()} /></Field>

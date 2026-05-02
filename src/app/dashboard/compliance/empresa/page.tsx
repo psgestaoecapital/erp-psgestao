@@ -19,6 +19,7 @@ type TipoEmpresa = {
 
 type DocEmpresa = {
   id: string
+  company_id: string
   tipo_documento_id: string
   data_emissao: string | null
   data_validade: string | null
@@ -30,6 +31,8 @@ type DocEmpresa = {
 
 type LinhaMatriz = {
   tipo: TipoEmpresa
+  companyId: string
+  empresaNome: string
   documento: DocEmpresa | null
 }
 
@@ -49,16 +52,37 @@ function labelGrupo(g: string | null): string {
 }
 
 export default function ComplianceEmpresaPage() {
-  const { companyIds } = useCompanyIds()
-  const companyId = companyIds?.[0] ?? null
+  const { companyIds, companies } = useCompanyIds()
+  // estabiliza dependencia (array novo a cada render)
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
+  const multiEmpresa = (companyIds?.length ?? 0) > 1
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [linhas, setLinhas] = useState<LinhaMatriz[]>([])
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
   const [filtroGrupo, setFiltroGrupo] = useState<string>('')
+  const [filtroEmpresa, setFiltroEmpresa] = useState<string>('')
+
+  const empresasNoEscopo = useMemo(() => {
+    const ids = companyIdsKey ? companyIdsKey.split(',') : []
+    return ids
+      .map((id) => {
+        const c = companies.find((x) => x.id === id)
+        return {
+          id,
+          nome: c?.nome_fantasia || c?.razao_social || 'Empresa',
+        }
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [companyIdsKey, companies])
 
   const carregar = useCallback(async () => {
-    if (!companyId) return
+    const ids = companyIdsKey ? companyIdsKey.split(',') : []
+    if (ids.length === 0) {
+      setLinhas([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setErro(null)
     try {
@@ -72,28 +96,38 @@ export default function ComplianceEmpresaPage() {
           .order('nome'),
         supabase
           .from('compliance_documentos')
-          .select('id, tipo_documento_id, data_emissao, data_validade, status_validade, dias_para_vencer, arquivo_nome_original, ativo')
-          .eq('company_id', companyId)
+          .select('id, company_id, tipo_documento_id, data_emissao, data_validade, status_validade, dias_para_vencer, arquivo_nome_original, ativo')
+          .in('company_id', ids)
           .not('empresa_alvo_id', 'is', null)
           .eq('ativo', true),
       ])
       if (e1) throw new Error(e1.message)
       if (e2) throw new Error(e2.message)
-      const docsPorTipo = new Map<string, DocEmpresa>()
+      // Indexa documentos por (tipo_documento_id, company_id)
+      const docsPorChave = new Map<string, DocEmpresa>()
       for (const d of (docs as any as DocEmpresa[]) || []) {
-        docsPorTipo.set(d.tipo_documento_id, d)
+        docsPorChave.set(`${d.tipo_documento_id}|${d.company_id}`, d)
       }
-      const out: LinhaMatriz[] = ((tipos as any as TipoEmpresa[]) || []).map((t) => ({
-        tipo: t,
-        documento: docsPorTipo.get(t.id) ?? null,
-      }))
+      // Para cada (tipo, empresa) gera uma linha. Permite ver missing por empresa.
+      const out: LinhaMatriz[] = []
+      const tiposArr = (tipos as any as TipoEmpresa[]) || []
+      for (const t of tiposArr) {
+        for (const emp of empresasNoEscopo) {
+          out.push({
+            tipo: t,
+            companyId: emp.id,
+            empresaNome: emp.nome,
+            documento: docsPorChave.get(`${t.id}|${emp.id}`) ?? null,
+          })
+        }
+      }
       setLinhas(out)
     } catch (e: any) {
       setErro(e.message)
     } finally {
       setLoading(false)
     }
-  }, [companyId])
+  }, [companyIdsKey, empresasNoEscopo])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -110,7 +144,9 @@ export default function ComplianceEmpresaPage() {
   }, [linhas])
 
   const linhasPorGrupo = useMemo(() => {
-    const filtradas = filtroGrupo ? linhas.filter((l) => (l.tipo.grupo || '_outros') === filtroGrupo) : linhas
+    let filtradas = linhas
+    if (filtroGrupo) filtradas = filtradas.filter((l) => (l.tipo.grupo || '_outros') === filtroGrupo)
+    if (filtroEmpresa) filtradas = filtradas.filter((l) => l.companyId === filtroEmpresa)
     const map = new Map<string, LinhaMatriz[]>()
     for (const l of filtradas) {
       const g = l.tipo.grupo || '_outros'
@@ -119,7 +155,12 @@ export default function ComplianceEmpresaPage() {
       map.set(g, arr)
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))
-  }, [linhas, filtroGrupo])
+  }, [linhas, filtroGrupo, filtroEmpresa])
+
+  // Total de tipos distintos (independente de quantas empresas)
+  const totalTipos = useMemo(() => {
+    return new Set(linhas.map((l) => l.tipo.id)).size
+  }, [linhas])
 
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -129,7 +170,9 @@ export default function ComplianceEmpresaPage() {
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Documentos da Empresa</h1>
             <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
-              {linhas.length} tipos · agrupados por área (jurídico, fiscal, saúde, segurança, ambiental).
+              {totalTipos} tipos
+              {multiEmpresa ? ` · ${empresasNoEscopo.length} empresas no escopo` : ''} ·
+              {' '}agrupados por área (jurídico, fiscal, saúde, segurança, ambiental).
             </p>
           </div>
           <Link href="/dashboard/compliance" style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>← Voltar</Link>
@@ -154,6 +197,24 @@ export default function ComplianceEmpresaPage() {
             </button>
           ))}
         </section>
+
+        {multiEmpresa && (
+          <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>Empresa:</span>
+            <button onClick={() => setFiltroEmpresa('')} style={chipStyle(filtroEmpresa === '')}>
+              Todas ({empresasNoEscopo.length})
+            </button>
+            {empresasNoEscopo.map((emp) => (
+              <button
+                key={emp.id}
+                onClick={() => setFiltroEmpresa(emp.id)}
+                style={chipStyle(filtroEmpresa === emp.id)}
+              >
+                {emp.nome}
+              </button>
+            ))}
+          </section>
+        )}
 
         {loading && (
           <section style={{ background: 'white', borderRadius: 12, padding: 32, textAlign: 'center', color: C.muted }}>
@@ -181,6 +242,7 @@ export default function ComplianceEmpresaPage() {
                   <tr style={{ backgroundColor: C.offwhite }}>
                     <Th>Documento</Th>
                     <Th>Tipo</Th>
+                    {multiEmpresa && <Th>Empresa</Th>}
                     <Th>Status</Th>
                     <Th>Validade</Th>
                     <Th>Arquivo</Th>
@@ -189,7 +251,7 @@ export default function ComplianceEmpresaPage() {
                 </thead>
                 <tbody>
                   {ls.map((l: LinhaMatriz, i: number) => (
-                    <tr key={l.tipo.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: l.tipo.obrigatorio ? 1 : 0.85 }}>
+                    <tr key={`${l.tipo.id}|${l.companyId}`} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: l.tipo.obrigatorio ? 1 : 0.85 }}>
                       <Td>
                         <div style={{ fontWeight: 600 }}>{l.tipo.nome}</div>
                       </Td>
@@ -200,6 +262,11 @@ export default function ComplianceEmpresaPage() {
                           <span style={badgeOpc()}>OPCIONAL</span>
                         )}
                       </Td>
+                      {multiEmpresa && (
+                        <Td>
+                          <span style={{ fontSize: 12, color: C.espresso }}>{l.empresaNome}</span>
+                        </Td>
+                      )}
                       <Td><StatusBadge status={statusFinal(l)} /></Td>
                       <Td mono>
                         {fmtData(l.documento?.data_validade)}
@@ -212,13 +279,12 @@ export default function ComplianceEmpresaPage() {
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           {!l.documento ? (
                             <button
-                              onClick={() => {
-                                if (!companyId) return
+                              onClick={() =>
                                 setUploadCtx({
-                                  companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
-                                  empresaAlvoId: companyId, modo: 'upload',
+                                  companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
+                                  empresaAlvoId: l.companyId, modo: 'upload',
                                 })
-                              }}
+                              }
                               style={btnPrim()}
                             >
                               Upload
@@ -226,13 +292,12 @@ export default function ComplianceEmpresaPage() {
                           ) : (
                             <>
                               <button
-                                onClick={() => {
-                                  if (!companyId) return
+                                onClick={() =>
                                   setUploadCtx({
-                                    companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
-                                    empresaAlvoId: companyId, modo: 'substituir',
+                                    companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
+                                    empresaAlvoId: l.companyId, modo: 'substituir',
                                   })
-                                }}
+                                }
                                 style={btnPrim()}
                               >
                                 Substituir
