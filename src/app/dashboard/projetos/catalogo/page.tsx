@@ -33,6 +33,8 @@ interface Servico {
   custo_equipamento: number | null;
   produtividade_unidade_dia: number | null;
   qtd_itens_bom: number | null;
+  qtd_insumos: number | null;
+  qtd_mo: number | null;
   is_publico: boolean | null;
   fork_from_publico_id: string | null;
   ativo: boolean | null;
@@ -81,11 +83,11 @@ export default function CatalogoServicosPage() {
       const supabase = supabaseBrowser();
       const [servR, cfgR] = await Promise.all([
         supabase
-          .from("projetos_servicos")
+          .from("v_projetos_servicos_catalogo")
           .select("*")
           .eq("company_id", companyId)
           .eq("is_publico", false)
-          .order("nome"),
+          .order("codigo"),
         supabase
           .from("projetos_modulo_config")
           .select("bdi_total_pct, bdi_lucro_pct, margem_minima_pct")
@@ -264,11 +266,6 @@ export default function CatalogoServicosPage() {
                 biblioteca
               </span>
             )}
-            {(s.qtd_itens_bom ?? 0) === 0 && (
-              <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-medium text-yellow-800">
-                BOM incompleto
-              </span>
-            )}
             {(s.custo_unitario_total ?? 0) === 0 && (s.qtd_itens_bom ?? 0) > 0 && (
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800">
                 Sem CPU
@@ -306,17 +303,28 @@ export default function CatalogoServicosPage() {
       key: "bom",
       label: "BOM",
       align: "center",
-      render: (s) => (
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-            (s.qtd_itens_bom ?? 0) > 0
-              ? "bg-[#3D2314]/8 text-[#3D2314]"
-              : "bg-yellow-50 text-yellow-700"
-          }`}
-        >
-          {s.qtd_itens_bom ?? 0} ite{(s.qtd_itens_bom ?? 0) !== 1 ? "ns" : "m"}
-        </span>
-      ),
+      render: (s) => {
+        const q = s.qtd_itens_bom ?? 0;
+        if (q === 0) {
+          return (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+              Sem BOM
+            </span>
+          );
+        }
+        if (q < 3) {
+          return (
+            <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
+              BOM mínimo · {q} ite{q !== 1 ? "ns" : "m"}
+            </span>
+          );
+        }
+        return (
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+            {q} itens
+          </span>
+        );
+      },
     },
     {
       key: "custo",
@@ -456,7 +464,7 @@ export default function CatalogoServicosPage() {
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                   placeholder="Código ou nome…"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white py-2 pl-9 pr-3 text-sm focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white py-2 pl-9 pr-3 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
             </div>
@@ -467,7 +475,7 @@ export default function CatalogoServicosPage() {
               <select
                 value={filtroCat}
                 onChange={(e) => setFiltroCat(e.target.value)}
-                className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
               >
                 <option value="">Todas</option>
                 {categorias.map((c) => (
@@ -484,7 +492,7 @@ export default function CatalogoServicosPage() {
               <select
                 value={filtroOrigem}
                 onChange={(e) => setFiltroOrigem(e.target.value as any)}
-                className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
               >
                 <option value="todos">Todas</option>
                 <option value="manual">Manual</option>
@@ -498,7 +506,7 @@ export default function CatalogoServicosPage() {
               <select
                 value={filtroStatus}
                 onChange={(e) => setFiltroStatus(e.target.value as any)}
-                className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
               >
                 <option value="ativo">Ativos</option>
                 <option value="inativo">Inativos</option>

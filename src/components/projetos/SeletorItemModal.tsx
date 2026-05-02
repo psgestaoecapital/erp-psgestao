@@ -200,7 +200,7 @@ export function SeletorItemModal({
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por nome…"
               autoFocus
-              className="w-full rounded-lg border border-[#3D2314]/12 bg-white py-2 pl-9 pr-3 text-sm focus:border-[#C8941A] focus:outline-none"
+              className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white py-2 pl-9 pr-3 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
             />
           </div>
         </div>

@@ -294,7 +294,7 @@ export default function ServicoEditorPage({
                   value={(valorAtual("codigo") as string) ?? ""}
                   onChange={(e) => handleEdit("codigo", e.target.value)}
                   placeholder="SERV-001"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 font-mono text-sm focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
               <div className="md:col-span-2">
@@ -306,7 +306,7 @@ export default function ServicoEditorPage({
                   value={(valorAtual("nome") as string) ?? ""}
                   onChange={(e) => handleEdit("nome", e.target.value)}
                   placeholder="Ex: Forro de gesso liso 12mm"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm font-medium text-[#3D2314] focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm font-medium !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
             </div>
@@ -321,7 +321,7 @@ export default function ServicoEditorPage({
                   value={(valorAtual("categoria") as string) ?? ""}
                   onChange={(e) => handleEdit("categoria", e.target.value)}
                   placeholder="Forros"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
               <div>
@@ -333,7 +333,7 @@ export default function ServicoEditorPage({
                   value={(valorAtual("unidade") as string) ?? ""}
                   onChange={(e) => handleEdit("unidade", e.target.value)}
                   placeholder="m²"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
               <div>
@@ -353,7 +353,7 @@ export default function ServicoEditorPage({
                     )
                   }
                   placeholder="20"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-right font-mono text-sm focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
               <div>
@@ -365,7 +365,7 @@ export default function ServicoEditorPage({
                   value={(valorAtual("equipe_padrao") as string) ?? ""}
                   onChange={(e) => handleEdit("equipe_padrao", e.target.value)}
                   placeholder="1 oficial + 1 ajudante"
-                  className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                  className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
             </div>
