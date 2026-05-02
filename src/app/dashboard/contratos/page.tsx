@@ -1,6 +1,7 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -54,19 +55,40 @@ const fmtMes=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR",{m
 const hoje=()=>new Date().toISOString().slice(0,10);
 
 export default function ContratosPage(){
+  const { companyIds, companies, selInfo } = useCompanyIds();
+  // Estabiliza dependencia (array novo a cada render)
+  const companyIdsKey = useMemo(()=>[...(companyIds??[])].sort().join(','), [companyIds]);
+  const empresaUnica = companyIds.length === 1 ? companyIds[0] : null;
+  const multiEmpresa = companyIds.length > 1;
+  const empresaPorId = useMemo(()=>{
+    const m = new Map<string,string>();
+    for (const c of companies) m.set(c.id, c.nome_fantasia || c.razao_social || 'Empresa');
+    return m;
+  }, [companies]);
+  const empresasNoEscopo = useMemo(()=>{
+    const ids = companyIdsKey ? companyIdsKey.split(',') : [];
+    return ids.map(id => ({ id, nome: empresaPorId.get(id) || 'Empresa' }))
+              .sort((a,b)=>a.nome.localeCompare(b.nome));
+  }, [companyIdsKey, empresaPorId]);
+
   const [contratos,setContratos]=useState<Contrato[]>([]);
-  const [companies,setCompanies]=useState<any[]>([]);
   const [clientes,setClientes]=useState<any[]>([]);
-  const [sel,setSel]=useState("");
   const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'>('dashboard');
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("ativo");
   const [msg,setMsg]=useState("");
-  
+
   const [metricas,setMetricas]=useState<any>(null);
   const [historico,setHistorico]=useState<any[]>([]);
-  
+  const [mrrPorTipo,setMrrPorTipo]=useState<any[]>([]);
+  const [topClientes,setTopClientes]=useState<any[]>([]);
+
+  // Estados Acoes (carregados da view enriquecida + count)
+  const [reajustesPendentes,setReajustesPendentes]=useState<Contrato[]>([]);
+  const [renovacoesProximas,setRenovacoesProximas]=useState<Contrato[]>([]);
+  const [gerandoEsteMesCount,setGerandoEsteMesCount]=useState(0);
+
   const [showNovo,setShowNovo]=useState(false);
   const [showDetalhe,setShowDetalhe]=useState<Contrato|null>(null);
   const [eventosDetalhe,setEventosDetalhe]=useState<any[]>([]);
@@ -79,65 +101,133 @@ export default function ContratosPage(){
     periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,
     forma_pagamento:'boleto',
   });
-  
+  // Empresa-alvo do novo contrato (necessario quando multi)
+  const [novoCompanyId,setNovoCompanyId]=useState<string>("");
+
   const [showReajuste,setShowReajuste]=useState<Contrato|null>(null);
   const [pctReajuste,setPctReajuste]=useState(0);
   const [processando,setProcessando]=useState(false);
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(sel){loadContratos();loadClientes();loadMetricas();}},[sel]);
+  // Define empresa-alvo padrao do modal sempre que escopo muda
+  useEffect(()=>{
+    if (empresaUnica) setNovoCompanyId(empresaUnica);
+    else if (empresasNoEscopo.length>0) setNovoCompanyId(empresasNoEscopo[0].id);
+    else setNovoCompanyId("");
+  }, [empresaUnica, empresasNoEscopo]);
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();if(!user)return;
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let d:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){const r=await supabase.from("companies").select("*").order("nome_fantasia");d=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);d=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(d.length>0){setCompanies(d);const s=(typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"")||"";const m=s?d.find((c:any)=>c.id===s):null;setSel(m?m.id:d[0].id);}
-    setLoading(false);
-  };
+  // --- LOADERS ---
 
-  const loadContratos=async()=>{
+  const loadContratos = useCallback(async ()=>{
+    if (!companyIdsKey) { setContratos([]); setLoading(false); return; }
     setLoading(true);
-    const{data,error}=await supabase.from("erp_contratos").select("*").eq("company_id",sel).order("data_inicio",{ascending:false});
-    if(data)setContratos(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    const ids = companyIdsKey.split(',');
+    // View enriquecida traz mrr_equivalente, situacao_vigencia, situacao_reajuste,
+    // faturas_em_aberto, faturas_vencidas, total_recebido, proxima_fatura_prevista.
+    const { data, error } = await supabase
+      .from('v_contratos_dashboard')
+      .select('*')
+      .in('company_id', ids)
+      .order('created_at', { ascending: false });
+    if (error && !error.message.includes('does not exist')) {
+      setMsg("Erro: "+error.message);
+    }
+    setContratos((data as any) || []);
     setLoading(false);
-  };
+  }, [companyIdsKey]);
 
-  const loadClientes=async()=>{
-    const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,nome,cpf_cnpj,email").eq("company_id",sel).eq("ativo",true).order("razao_social");
-    if(data)setClientes(data);
-  };
+  const loadClientes = useCallback(async ()=>{
+    if (!companyIdsKey) { setClientes([]); return; }
+    const ids = companyIdsKey.split(',');
+    const { data } = await supabase
+      .from('erp_clientes')
+      .select('id, company_id, razao_social, nome_fantasia, nome, cpf_cnpj, email')
+      .in('company_id', ids)
+      .eq('ativo', true)
+      .order('razao_social');
+    if (data) setClientes(data);
+  }, [companyIdsKey]);
 
-  const loadMetricas=async()=>{
-    const[{data:m},{data:h}]=await Promise.all([
-      supabase.rpc('calcular_metricas_saas',{p_company_id:sel}),
-      supabase.rpc('historico_mrr',{p_company_id:sel,p_meses:12}),
+  const loadMetricas = useCallback(async ()=>{
+    // KPIs/grafico SaaS so fazem sentido em empresa unica (LTV/churn nao somam)
+    if (!empresaUnica) { setMetricas(null); setHistorico([]); return; }
+    const [{ data: m }, { data: h }] = await Promise.all([
+      supabase.rpc('calcular_metricas_saas', { p_company_id: empresaUnica }),
+      supabase.rpc('historico_mrr', { p_company_id: empresaUnica, p_meses: 12 }),
     ]);
-    if(m&&m[0])setMetricas(m[0]);
-    if(h)setHistorico(h);
+    if (m && m[0]) setMetricas(m[0]); else setMetricas(null);
+    setHistorico(h || []);
+  }, [empresaUnica]);
+
+  const loadDashboardSplits = useCallback(async ()=>{
+    if (!companyIdsKey) { setMrrPorTipo([]); setTopClientes([]); return; }
+    const ids = companyIdsKey.split(',');
+    const [tipoR, topR] = await Promise.all([
+      supabase.from('v_contratos_mrr_por_tipo').select('*').in('company_id', ids),
+      supabase.from('v_contratos_top_clientes').select('*').in('company_id', ids),
+    ]);
+    setMrrPorTipo((tipoR.data as any) || []);
+    setTopClientes((topR.data as any) || []);
+  }, [companyIdsKey]);
+
+  const loadAcoesData = useCallback(async ()=>{
+    if (!companyIdsKey) {
+      setReajustesPendentes([]); setRenovacoesProximas([]); setGerandoEsteMesCount(0);
+      return;
+    }
+    const ids = companyIdsKey.split(',');
+    const mesYM = new Date().toISOString().slice(0,7);
+    // Reajustes pendentes + renovacoes proximas: filtra na view enriquecida
+    const [rajR, renR, contagemR] = await Promise.all([
+      supabase.from('v_contratos_dashboard').select('*')
+        .in('company_id', ids).eq('situacao_reajuste','reajuste_pendente'),
+      supabase.from('v_contratos_dashboard').select('*')
+        .in('company_id', ids).eq('situacao_vigencia','renovacao_proxima')
+        .order('data_fim', { ascending: true }),
+      // Quantos contratos ativos AINDA NAO tiveram fatura este mes
+      supabase.from('erp_contratos').select('id, ultimo_titulo_gerado_em', { count: 'exact', head: false })
+        .in('company_id', ids).eq('status','ativo'),
+    ]);
+    setReajustesPendentes((rajR.data as any) || []);
+    setRenovacoesProximas((renR.data as any) || []);
+    // Contagem: contratos ativos cujo ultimo_titulo_gerado_em nao corresponde ao mes atual
+    const ativos = (contagemR.data as any[]) || [];
+    const pendentes = ativos.filter(c => !c.ultimo_titulo_gerado_em || !String(c.ultimo_titulo_gerado_em).startsWith(mesYM));
+    setGerandoEsteMesCount(pendentes.length);
+  }, [companyIdsKey]);
+
+  // Reload tudo quando escopo muda
+  useEffect(()=>{
+    loadContratos();
+    loadClientes();
+    loadMetricas();
+    loadDashboardSplits();
+    loadAcoesData();
+  }, [loadContratos, loadClientes, loadMetricas, loadDashboardSplits, loadAcoesData]);
+
+  const refetchAll = ()=>{
+    loadContratos(); loadMetricas(); loadDashboardSplits(); loadAcoesData();
   };
 
   const criarContrato=async()=>{
+    if (!novoCompanyId) { setMsg("❌ Selecione a empresa"); return; }
     if(!novoContrato.cliente_nome||!novoContrato.nome||!novoContrato.valor_mensal){
       setMsg("❌ Preencha cliente, nome e valor");return;
     }
     const{data:{user}}=await supabase.auth.getUser();
-    const{data:numero}=await supabase.rpc('next_contrato_numero',{p_company_id:sel});
-    
+    const{data:numero}=await supabase.rpc('next_contrato_numero',{p_company_id:novoCompanyId});
+
     // Calcula primeiro vencimento
     const dataIni=new Date(novoContrato.data_inicio+'T00:00:00');
     const primeiroVenc=new Date(dataIni.getFullYear(),dataIni.getMonth(),novoContrato.dia_vencimento);
     if(primeiroVenc<dataIni)primeiroVenc.setMonth(primeiroVenc.getMonth()+1);
-    
+
     // Calcula próximo reajuste
     const proxReaj=new Date(dataIni);
     proxReaj.setFullYear(proxReaj.getFullYear()+1);
-    
+
     const{error}=await supabase.from("erp_contratos").insert({
       ...novoContrato,
-      company_id:sel,
+      company_id:novoCompanyId,
       numero,
       valor_atual:novoContrato.valor_mensal,
       data_primeiro_vencimento:primeiroVenc.toISOString().slice(0,10),
@@ -145,40 +235,64 @@ export default function ContratosPage(){
       data_fim:novoContrato.data_fim||null,
       created_by:user?.id,
     });
-    
+
     if(error){setMsg("❌ "+error.message);return;}
     setMsg(`✅ Contrato ${numero} criado com sucesso`);
     setShowNovo(false);
     setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,forma_pagamento:'boleto'});
     setBuscaCli("");
-    loadContratos();loadMetricas();
+    refetchAll();
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // RPC nova: fn_contrato_processar_lote_diario(p_data_referencia date)
+  // Retorna jsonb { success, total_processado, total_sucesso, total_idempotente, total_erro, erros }
   const gerarTitulosMes=async()=>{
+    if (gerandoEsteMesCount === 0) return;
     if(!confirm(`Gerar títulos de ${new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'})} para todos os contratos ativos?`))return;
     setProcessando(true);
-    const{data:{user}}=await supabase.auth.getUser();
-    const{data,error}=await supabase.rpc('gerar_titulos_contratos_mes',{p_company_id:sel,p_usuario_id:user?.id});
+    const dataRef = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase.rpc('fn_contrato_processar_lote_diario', { p_data_referencia: dataRef });
     if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
-    const r=data?.[0];
-    setMsg(`✅ ${r?.gerados||0} títulos gerados (${fmtR(r?.total_faturado)}) · ${r?.ja_existentes||0} já existiam`);
+    const r:any = Array.isArray(data) ? (data[0]||{}) : (data||{});
+    const sucesso = r.total_sucesso ?? r.gerados ?? 0;
+    const idemp = r.total_idempotente ?? r.ja_existentes ?? 0;
+    const erro = r.total_erro ?? 0;
+    setMsg(`✅ ${sucesso} título(s) gerados · ${idemp} já existiam${erro>0?` · ${erro} erro(s)`:''}`);
     setProcessando(false);
-    loadContratos();loadMetricas();
+    refetchAll();
     setTimeout(()=>setMsg(""),5000);
+  };
+
+  // RPC nova: fn_contrato_aplicar_reajuste(p_contrato_id, p_indice_aplicado)
+  // p_indice_aplicado=null usa reajuste_percentual configurado no contrato
+  const aplicarReajusteIndice=async(c:Contrato)=>{
+    if(!confirm(`Aplicar reajuste configurado (${c.tipo_reajuste?.toUpperCase()} ${Number(c.reajuste_percentual||0).toFixed(2)}%) em "${c.cliente_nome}"?`))return;
+    setProcessando(true);
+    const { error } = await supabase.rpc('fn_contrato_aplicar_reajuste', {
+      p_contrato_id: c.id,
+      p_indice_aplicado: null,
+    });
+    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    setMsg(`✅ Reajuste aplicado em ${c.cliente_nome}`);
+    setProcessando(false);
+    refetchAll();
+    setTimeout(()=>setMsg(""),3000);
   };
 
   const aplicarReajuste=async()=>{
     if(!showReajuste||pctReajuste<=0)return;
     setProcessando(true);
-    const{data:{user}}=await supabase.auth.getUser();
-    const{error}=await supabase.rpc('aplicar_reajuste_contrato',{p_contrato_id:showReajuste.id,p_percentual:pctReajuste,p_usuario_id:user?.id});
+    const { error } = await supabase.rpc('fn_contrato_aplicar_reajuste',{
+      p_contrato_id: showReajuste.id,
+      p_indice_aplicado: pctReajuste,
+    });
     if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
     setMsg(`✅ Reajuste de ${pctReajuste}% aplicado`);
     setShowReajuste(null);
     setPctReajuste(0);
     setProcessando(false);
-    loadContratos();loadMetricas();
+    refetchAll();
     setTimeout(()=>setMsg(""),3000);
   };
 
@@ -192,13 +306,13 @@ export default function ContratosPage(){
     }).eq("id",c.id);
     await supabase.from("erp_contratos_eventos").insert({
       contrato_id:c.id,
-      company_id:sel,
+      company_id:c.company_id,
       evento:'encerrado',
       detalhe:'Motivo: '+motivo,
     });
     setMsg("✅ Contrato encerrado");
     setShowDetalhe(null);
-    loadContratos();loadMetricas();
+    refetchAll();
     setTimeout(()=>setMsg(""),3000);
   };
 
@@ -225,26 +339,10 @@ export default function ContratosPage(){
   const clientesBusca=useMemo(()=>{
     if(!buscaCli.trim())return[];
     const b=buscaCli.toLowerCase();
-    return clientes.filter(c=>(c.razao_social||'').toLowerCase().includes(b)||(c.nome_fantasia||'').toLowerCase().includes(b)||(c.cpf_cnpj||'').includes(b.replace(/\D/g,''))).slice(0,8);
-  },[clientes,buscaCli]);
-
-  // Próximas renovações e reajustes pendentes
-  const proximasRenovacoes=useMemo(()=>{
-    const hoje=new Date();
-    const limite=new Date();
-    limite.setDate(limite.getDate()+60);
-    return contratos.filter(c=>c.status==='ativo'&&c.data_fim&&new Date(c.data_fim+'T00:00:00')>=hoje&&new Date(c.data_fim+'T00:00:00')<=limite).sort((a,b)=>a.data_fim.localeCompare(b.data_fim));
-  },[contratos]);
-
-  const reajustesPendentes=useMemo(()=>{
-    const hoje=new Date();
-    return contratos.filter(c=>c.status==='ativo'&&c.tipo_reajuste!=='nenhum'&&c.proximo_reajuste_em&&new Date(c.proximo_reajuste_em+'T00:00:00')<=hoje);
-  },[contratos]);
-
-  const gerandoEsteMes=useMemo(()=>{
-    const mesAtual=new Date().toISOString().slice(0,7);
-    return contratos.filter(c=>c.status==='ativo'&&(!c.ultimo_titulo_gerado_em||!c.ultimo_titulo_gerado_em.startsWith(mesAtual))).length;
-  },[contratos]);
+    // Filtra clientes da empresa-alvo do novo contrato (quando definida)
+    const baseCli = novoCompanyId ? clientes.filter(c=>c.company_id===novoCompanyId) : clientes;
+    return baseCli.filter(c=>(c.razao_social||'').toLowerCase().includes(b)||(c.nome_fantasia||'').toLowerCase().includes(b)||(c.cpf_cnpj||'').includes(b.replace(/\D/g,''))).slice(0,8);
+  },[clientes,buscaCli,novoCompanyId]);
 
   const selSt:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600};
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
@@ -286,13 +384,17 @@ export default function ContratosPage(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Contratos Recorrentes</div>
-          <div style={{fontSize:11,color:TXD}}>BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV</div>
+          <div style={{fontSize:11,color:TXD}}>
+            BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV
+            {selInfo && (
+              <span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:GO+"15",color:GO,fontWeight:600}}>
+                {selInfo.nome}{multiEmpresa?` · ${companyIds.length} empresas`:''}
+              </span>
+            )}
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
-          <button onClick={()=>setShowNovo(true)} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Contrato</button>
+          <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Novo Contrato</button>
         </div>
       </div>
 
@@ -308,7 +410,17 @@ export default function ContratosPage(){
       {/* TAB DASHBOARD SAAS */}
       {tab==='dashboard'&&(
         <>
-          {metricas?(
+          {multiEmpresa && (
+            <div style={{background:GO+"10",border:`1px solid ${GO}40`,borderRadius:10,padding:14,marginBottom:16,fontSize:12,color:TX}}>
+              <div style={{fontWeight:600,marginBottom:4,color:GO}}>ℹ️ Múltiplas empresas selecionadas</div>
+              <div style={{color:TXM}}>
+                Selecione uma única empresa no header para ver KPIs SaaS detalhados e gráfico de evolução do MRR.
+                Métricas como churn, LTV e ticket médio não são matematicamente agregáveis entre empresas.
+                As abas <b>Contratos</b> e <b>Ações</b> continuam funcionando com todas as empresas selecionadas.
+              </div>
+            </div>
+          )}
+          {empresaUnica && metricas?(
             <>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
@@ -342,69 +454,85 @@ export default function ContratosPage(){
                 <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>📈 Evolução do MRR (últimos 12 meses)</div>
                 {graficoMRR||<div style={{padding:40,textAlign:"center",color:TXD}}>Sem dados históricos ainda</div>}
               </div>
-
-              {/* Split por tipo */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-                <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>💼 MRR por Tipo de Serviço</div>
-                  {(()=>{
-                    const porTipo:Record<string,{count:number,mrr:number}>={};
-                    contratos.filter(c=>c.status==='ativo').forEach(c=>{
-                      const t=c.tipo||'outros';
-                      if(!porTipo[t])porTipo[t]={count:0,mrr:0};
-                      porTipo[t].count++;
-                      porTipo[t].mrr+=Number(c.valor_atual||c.valor_mensal);
-                    });
-                    const itens=Object.entries(porTipo).sort((a,b)=>b[1].mrr-a[1].mrr);
-                    const maxMRR=Math.max(...itens.map(i=>i[1].mrr),1);
-                    return itens.length===0?<div style={{padding:20,textAlign:"center",color:TXD,fontSize:11}}>Nenhum contrato ativo ainda</div>:(
-                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                        {itens.map(([tipo,d]:any)=>{
-                          const cfg=TIPOS_CONTRATO.find(t=>t.v===tipo);
-                          return(
-                            <div key={tipo}>
-                              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
-                                <span style={{color:TX,fontWeight:500}}>{cfg?.icon} {cfg?.l||tipo} ({d.count})</span>
-                                <span style={{color:GO,fontWeight:700}}>{fmtR(d.mrr)}</span>
-                              </div>
-                              <div style={{background:BG3,height:8,borderRadius:4,overflow:"hidden"}}>
-                                <div style={{width:(d.mrr/maxMRR)*100+"%",height:"100%",background:GO}}/>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>🏆 Top 5 Clientes por MRR</div>
-                  {(()=>{
-                    const top=[...contratos].filter(c=>c.status==='ativo').sort((a,b)=>Number(b.valor_atual||b.valor_mensal)-Number(a.valor_atual||a.valor_mensal)).slice(0,5);
-                    return top.length===0?<div style={{padding:20,textAlign:"center",color:TXD,fontSize:11}}>Nenhum contrato ativo</div>:(
-                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                        {top.map((c,i)=>(
-                          <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:8,background:BG3,borderRadius:6}}>
-                            <div style={{display:"flex",alignItems:"center",gap:10}}>
-                              <div style={{fontSize:14,fontWeight:800,color:i===0?GO:TXD,minWidth:20}}>{i+1}</div>
-                              <div>
-                                <div style={{fontSize:11,fontWeight:600,color:TX}}>{c.cliente_nome}</div>
-                                <div style={{fontSize:9,color:TXD}}>{c.nome}</div>
-                              </div>
-                            </div>
-                            <div style={{fontSize:13,fontWeight:700,color:G,fontFamily:"monospace"}}>{fmtR(c.valor_atual||c.valor_mensal)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
             </>
-          ):(
+          ):(empresaUnica?(
             <div style={{padding:40,textAlign:"center",color:TXD}}>Carregando métricas...</div>
-          )}
+          ):null)}
+
+          {/* Splits MRR por Tipo + Top 5 (multi-tenant via views) */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+            <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
+              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>💼 MRR por Tipo de Serviço</div>
+              {(()=>{
+                // Agrega view (varias linhas por empresa) por tipo
+                const porTipo:Record<string,{count:number,mrr:number}>={};
+                for (const r of (mrrPorTipo||[]) as any[]) {
+                  const t = String(r.tipo || 'outros');
+                  const mrr = Number(r.mrr_total ?? r.mrr ?? r.valor_total ?? 0);
+                  const cnt = Number(r.qtd_contratos ?? r.count ?? r.qtd ?? 1);
+                  if (!porTipo[t]) porTipo[t] = { count:0, mrr:0 };
+                  porTipo[t].count += cnt;
+                  porTipo[t].mrr += mrr;
+                }
+                const itens = Object.entries(porTipo).sort((a,b)=>b[1].mrr-a[1].mrr);
+                const maxMRR = Math.max(...itens.map(i=>i[1].mrr), 1);
+                return itens.length===0 ? (
+                  <div style={{padding:20,textAlign:"center",color:TXD,fontSize:11}}>Nenhum contrato ativo ainda</div>
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {itens.map(([tipo,d])=>{
+                      const cfg = TIPOS_CONTRATO.find(t=>t.v===tipo);
+                      return (
+                        <div key={tipo}>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+                            <span style={{color:TX,fontWeight:500}}>{cfg?.icon} {cfg?.l||tipo} ({d.count})</span>
+                            <span style={{color:GO,fontWeight:700}}>{fmtR(d.mrr)}</span>
+                          </div>
+                          <div style={{background:BG3,height:8,borderRadius:4,overflow:"hidden"}}>
+                            <div style={{width:(d.mrr/maxMRR)*100+"%",height:"100%",background:GO}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
+              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>🏆 Top 5 Clientes por MRR</div>
+              {(()=>{
+                // Ordena view por mrr desc; aceita variacoes de nome
+                const top = [...(topClientes||[])].map((r:any)=>({
+                  cliente_id: r.cliente_id ?? r.id,
+                  cliente_nome: r.cliente_nome ?? r.nome ?? r.razao_social ?? '—',
+                  contrato_nome: r.contrato_nome ?? r.nome_contrato ?? r.nome ?? '',
+                  mrr: Number(r.mrr_total ?? r.mrr ?? r.valor_atual ?? 0),
+                  company_id: r.company_id,
+                })).sort((a,b)=>b.mrr-a.mrr).slice(0,5);
+                return top.length===0 ? (
+                  <div style={{padding:20,textAlign:"center",color:TXD,fontSize:11}}>Nenhum contrato ativo</div>
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {top.map((c,i)=>(
+                      <div key={(c.cliente_id||'')+i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:8,background:BG3,borderRadius:6}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{fontSize:14,fontWeight:800,color:i===0?GO:TXD,minWidth:20}}>{i+1}</div>
+                          <div>
+                            <div style={{fontSize:11,fontWeight:600,color:TX}}>{c.cliente_nome}</div>
+                            <div style={{fontSize:9,color:TXD}}>
+                              {c.contrato_nome}{multiEmpresa && c.company_id?` · ${empresaPorId.get(c.company_id)||''}`:''}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{fontSize:13,fontWeight:700,color:G,fontFamily:"monospace"}}>{fmtR(c.mrr)}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
         </>
       )}
 
@@ -439,6 +567,7 @@ export default function ContratosPage(){
                     <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número</th>
                     <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
                     <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Contrato</th>
+                    {multiEmpresa && <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,width:140}}>Empresa</th>}
                     <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10,width:60}}>Venc</th>
                     <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10,width:110}}>Valor Mensal</th>
                     <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10,width:110}}>Reajuste</th>
@@ -460,6 +589,9 @@ export default function ContratosPage(){
                             <div style={{fontSize:11,fontWeight:500,color:TX}}>{tipoCfg?.icon} {c.nome}</div>
                             <div style={{fontSize:9,color:TXD}}>{tipoCfg?.l||c.tipo} · {c.periodicidade}</div>
                           </td>
+                          {multiEmpresa && (
+                            <td style={{padding:"8px",fontSize:11,color:TX}}>{empresaPorId.get(c.company_id)||'—'}</td>
+                          )}
                           <td style={{padding:"8px",textAlign:"center",color:TXM,fontWeight:600}}>{c.dia_vencimento}</td>
                           <td style={{padding:"8px",textAlign:"right"}}>
                             <div style={{color:G,fontWeight:700}}>{fmtR(c.valor_atual||c.valor_mensal)}</div>
@@ -496,49 +628,75 @@ export default function ContratosPage(){
           {/* Gerar títulos do mês */}
           <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
             <div style={{fontSize:14,fontWeight:700,color:TX,marginBottom:8}}>⚡ Gerar Títulos do Mês</div>
-            <div style={{fontSize:11,color:TXD,marginBottom:14}}>Cria lançamentos em Contas a Receber para todos os contratos ativos com vencimento neste mês.</div>
+            <div style={{fontSize:11,color:TXD,marginBottom:14}}>Processa todos os contratos ativos elegíveis e cria lançamentos em Contas a Receber (idempotente).</div>
             <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
               <div style={{fontSize:10,color:TXD,marginBottom:4}}>MÊS ATUAL</div>
               <div style={{fontSize:16,fontWeight:700,color:TX}}>{new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</div>
-              <div style={{fontSize:11,color:TXM,marginTop:4}}><b>{gerandoEsteMes}</b> contrato(s) ainda não tiveram título gerado este mês</div>
+              <div style={{fontSize:11,color:TXM,marginTop:4}}><b>{gerandoEsteMesCount}</b> contrato(s) ainda não tiveram título gerado este mês</div>
             </div>
-            <button onClick={gerarTitulosMes} disabled={processando||gerandoEsteMes===0} style={{width:"100%",padding:"12px",borderRadius:10,background:G,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:gerandoEsteMes===0?"not-allowed":"pointer",opacity:gerandoEsteMes===0?0.5:1}}>{processando?"⏳ Processando...":gerandoEsteMes===0?"✅ Tudo em dia":`💰 Gerar ${gerandoEsteMes} Título(s)`}</button>
+            <button onClick={gerarTitulosMes} disabled={processando||gerandoEsteMesCount===0} style={{width:"100%",padding:"12px",borderRadius:10,background:G,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:gerandoEsteMesCount===0?"not-allowed":"pointer",opacity:gerandoEsteMesCount===0?0.5:1}}>{processando?"⏳ Processando...":gerandoEsteMesCount===0?"✅ Tudo em dia":`💰 Gerar ${gerandoEsteMesCount} Título(s)`}</button>
           </div>
 
-          {/* Reajustes pendentes */}
+          {/* Reajustes pendentes (vem da view enriquecida: situacao_reajuste='reajuste_pendente') */}
           <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
             <div style={{fontSize:14,fontWeight:700,color:TX,marginBottom:8}}>📈 Reajustes Devidos</div>
             <div style={{fontSize:11,color:TXD,marginBottom:14}}>Contratos cujo aniversário de reajuste já passou.</div>
             {reajustesPendentes.length===0?(
               <div style={{background:G+"10",borderRadius:8,padding:16,textAlign:"center",fontSize:11,color:G,fontWeight:600,border:`1px solid ${G}30`}}>✅ Nenhum reajuste pendente</div>
             ):(
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {reajustesPendentes.map(c=>(
-                  <div key={c.id} style={{background:BG3,borderRadius:8,padding:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:600,color:TX}}>{c.cliente_nome}</div>
-                      <div style={{fontSize:9,color:TXD}}>{c.numero} · {c.tipo_reajuste.toUpperCase()} · devido desde {fmtD(c.proximo_reajuste_em)}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {reajustesPendentes.map(c=>{
+                  const pct = Number(c.reajuste_percentual||0);
+                  const tipoReaj = String(c.tipo_reajuste||'').toUpperCase();
+                  return (
+                    <div key={c.id} style={{background:BG3,borderRadius:8,padding:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:8}}>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div style={{fontSize:11,fontWeight:600,color:TX}}>{c.cliente_nome}</div>
+                          <div style={{fontSize:9,color:TXD}}>
+                            {c.numero} · {tipoReaj} · devido desde {fmtD(c.proximo_reajuste_em)}
+                            {multiEmpresa && c.company_id && ` · ${empresaPorId.get(c.company_id)||''}`}
+                          </div>
+                        </div>
+                        <div style={{fontSize:11,fontWeight:700,color:G,fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtR(c.valor_atual||c.valor_mensal)}</div>
+                      </div>
+                      <div style={{display:"flex",gap:6}}>
+                        <button
+                          onClick={()=>aplicarReajusteIndice(c)}
+                          disabled={processando||pct<=0}
+                          style={{flex:1,padding:"6px 12px",borderRadius:6,background:GO,color:"#FFF",fontSize:10,fontWeight:600,border:"none",cursor:pct<=0?"not-allowed":"pointer",opacity:pct<=0?0.5:1}}
+                          title={pct<=0?"Configure reajuste_percentual no contrato":""}
+                        >
+                          Aplicar {tipoReaj} {pct>0?`${pct.toFixed(2)}%`:''}
+                        </button>
+                        <button
+                          onClick={()=>{setShowReajuste(c);setPctReajuste(pct||5);}}
+                          disabled={processando}
+                          style={{padding:"6px 12px",borderRadius:6,background:"transparent",color:TXM,fontSize:10,fontWeight:600,border:`1px solid ${BD}`,cursor:"pointer"}}
+                        >
+                          Customizar…
+                        </button>
+                      </div>
                     </div>
-                    <button onClick={()=>{setShowReajuste(c);setPctReajuste(Number(c.reajuste_percentual)||5);}} style={{padding:"6px 12px",borderRadius:6,background:Y+"15",color:Y,fontSize:10,fontWeight:600,border:`1px solid ${Y}40`,cursor:"pointer"}}>Aplicar</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Próximas renovações */}
+          {/* Próximas renovações (vem da view: situacao_vigencia='renovacao_proxima') */}
           <div style={{gridColumn:"span 2",background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
             <div style={{fontSize:14,fontWeight:700,color:TX,marginBottom:8}}>📅 Próximas Renovações (60 dias)</div>
-            {proximasRenovacoes.length===0?(
+            {renovacoesProximas.length===0?(
               <div style={{background:G+"10",borderRadius:8,padding:16,textAlign:"center",fontSize:11,color:G,fontWeight:600,border:`1px solid ${G}30`}}>✅ Nenhum contrato vencendo nos próximos 60 dias</div>
             ):(
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
-                {proximasRenovacoes.map(c=>{
+                {renovacoesProximas.map(c=>{
                   const dias=Math.ceil((new Date(c.data_fim+'T00:00:00').getTime()-Date.now())/(1000*60*60*24));
                   return(
                     <div key={c.id} style={{background:BG3,borderRadius:8,padding:12,borderLeft:`4px solid ${dias<=15?R:dias<=30?Y:B}`}}>
                       <div style={{fontSize:11,fontWeight:600,color:TX}}>{c.cliente_nome}</div>
-                      <div style={{fontSize:10,color:TXM}}>{c.nome}</div>
+                      <div style={{fontSize:10,color:TXM}}>{c.nome}{multiEmpresa && c.company_id ? ` · ${empresaPorId.get(c.company_id)||''}`:''}</div>
                       <div style={{fontSize:13,fontWeight:700,color:dias<=15?R:dias<=30?Y:B,marginTop:6}}>
                         Vence em {dias} dias
                       </div>
@@ -560,6 +718,16 @@ export default function ContratosPage(){
               <div style={{fontSize:18,fontWeight:700,color:TX}}>+ Novo Contrato Recorrente</div>
               <button onClick={()=>setShowNovo(false)} style={{background:"none",border:"none",color:TXD,fontSize:22,cursor:"pointer"}}>✕</button>
             </div>
+
+            {/* Empresa fornecedora (so quando multi) */}
+            {multiEmpresa && (
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>🏢 Empresa fornecedora *</div>
+                <select value={novoCompanyId} onChange={e=>setNovoCompanyId(e.target.value)} style={{...inp,cursor:"pointer"}}>
+                  {empresasNoEscopo.map(e=>(<option key={e.id} value={e.id}>{e.nome}</option>))}
+                </select>
+              </div>
+            )}
 
             {/* Cliente */}
             <div style={{marginBottom:14}}>
