@@ -409,6 +409,20 @@ export async function POST(req: NextRequest) {
                 headers: psSheet.headers,
                 preview_linhas: psSheet.rows.slice(0, 10),
               },
+              // ====== Compat shape legado UI (Hotfix v2.1.2) ======
+              fileName: file.name,
+              fileSize: file.size,
+              totalRows: psSheet.rowCount,
+              headers: psSheet.headers,
+              preset: "planilha_modelo_ps",
+              mapping: Object.fromEntries(psSheet.headers.map((h: string) => [h, h])),
+              preview: psSheet.rows.slice(0, 10).map((row: any[]) => {
+                const obj: Record<string, any> = {};
+                psSheet.headers.forEach((h: string, idx: number) => { obj[h] = row[idx] ?? ""; });
+                return obj;
+              }),
+              recordsCount: psSheet.rowCount,
+              // ====== FIM Compat ======
             });
           } else if (isConfirmAction) {
             // Importacao real: usa createClient ja inicializado no escopo do modulo
@@ -531,6 +545,13 @@ export async function POST(req: NextRequest) {
                     mensagem: psTotalIns > 0
                       ? `${psTotalIns} lancamentos importados. Pipeline PSGC processara em ate 5 min.`
                       : "Nenhum registro novo importado",
+                    // ====== Compat shape legado UI - resultado import ======
+                    fileName: file.name,
+                    recordsImported: psTotalIns,
+                    recordsSkipped: psTotalDup,
+                    recordsErrors: psTotalErr,
+                    preset: "planilha_modelo_ps",
+                    // ====== FIM Compat ======
                   });
                 }
               }
@@ -560,6 +581,20 @@ export async function POST(req: NextRequest) {
                 headers: psSheet.headers,
                 preview_linhas: psSheet.rows.slice(0, 10),
               },
+              // ====== Compat shape legado UI (Hotfix v2.1.2) ======
+              fileName: file.name,
+              fileSize: file.size,
+              totalRows: psSheet.rowCount,
+              headers: psSheet.headers,
+              preset: "planilha_modelo_ps",
+              mapping: Object.fromEntries(psSheet.headers.map((h: string) => [h, h])),
+              preview: psSheet.rows.slice(0, 10).map((row: any[]) => {
+                const obj: Record<string, any> = {};
+                psSheet.headers.forEach((h: string, idx: number) => { obj[h] = row[idx] ?? ""; });
+                return obj;
+              }),
+              recordsCount: psSheet.rowCount,
+              // ====== FIM Compat ======
             });
           }
         } else {
