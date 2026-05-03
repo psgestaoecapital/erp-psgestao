@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  parseWorkbookForPS,
+  detectarPlanilhaModeloPs,
+  mapearLinhasPS,
+  normalizarCnpj as normCnpjPS,
+} from "@/lib/import/planilhaModeloPs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -354,7 +360,152 @@ export async function POST(req: NextRequest) {
     if (!fn.endsWith(".xlsx") && !fn.endsWith(".xls") && !fn.endsWith(".csv") && !fn.endsWith(".tsv")) {
       return NextResponse.json({ error: "Formato não suportado. Use .xlsx, .xls ou .csv" }, { status: 400 });
     }
-    
+
+    // =========================================================
+    // v2.1 — Deteccao prioritaria: Planilha Modelo PS Gestao
+    // Se for Planilha PS, processa via fn_planilha_universal_processar
+    // e retorna. Se nao for, cai no fluxo legado intacto abaixo.
+    // =========================================================
+    try {
+      if (fn.endsWith(".xlsx") || fn.endsWith(".xls")) {
+        const psBuffer = await file.arrayBuffer();
+        const sheetsPS = parseWorkbookForPS(psBuffer);
+        const detPS = detectarPlanilhaModeloPs(sheetsPS);
+
+        if (detPS.isPlanilhaModeloPs) {
+          const sheet = sheetsPS[detPS.sheetIndex];
+
+          // analyze/preview: retorna metadados (ok+success p/ compat com UI legada)
+          if (action === "analyze" || action === "preview") {
+            return NextResponse.json({
+              ok: true,
+              success: true,
+              action: "preview",
+              tipo: "planilha_modelo_ps",
+              preset: "planilha_modelo_ps",
+              arquivo: { nome: file.name, tamanho_kb: Math.round(file.size / 1024) },
+              sheets: sheetsPS.map((s, i) => ({
+                index: i,
+                nome: s.name,
+                linhas: s.rowCount,
+                colunas: s.headers.length,
+                headers: s.headers,
+                eh_planilha_ps: i === detPS.sheetIndex,
+              })),
+              deteccao: {
+                kind: "planilha_modelo_ps",
+                confidence: detPS.confidence,
+                sheetIndex: detPS.sheetIndex,
+                reason: detPS.reason,
+              },
+              sheet_selecionada: {
+                index: detPS.sheetIndex,
+                nome: sheet.name,
+                headers: sheet.headers,
+                preview_linhas: sheet.rows.slice(0, 10),
+              },
+            });
+          }
+
+          // import/confirm: processa via RPC
+          if (action === "import" || action === "confirm") {
+            const SUPA_URL_LOCAL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+            const SUPA_KEY_LOCAL = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+            const supa = createClient(SUPA_URL_LOCAL, SUPA_KEY_LOCAL);
+
+            const { data: empresasArr } = await supa.from("companies").select("id, cnpj");
+            const empresasMap = new Map<string, string>();
+            (empresasArr || []).forEach((e: any) => {
+              const c = normCnpjPS(e.cnpj || "");
+              if (c) empresasMap.set(c, e.id);
+            });
+
+            const { data: lnsArr } = await supa
+              .from("business_lines")
+              .select("id, company_id, name")
+              .eq("is_active", true);
+            const linhasNegocioMap = new Map<string, Map<string, string>>();
+            (lnsArr || []).forEach((ln: any) => {
+              if (!linhasNegocioMap.has(ln.company_id))
+                linhasNegocioMap.set(ln.company_id, new Map());
+              linhasNegocioMap.get(ln.company_id)!.set(
+                ln.name.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(),
+                ln.id
+              );
+            });
+
+            const { records, erros: errosMapa } = mapearLinhasPS(sheet, empresasMap, linhasNegocioMap);
+            if (records.length === 0) {
+              return NextResponse.json({
+                ok: false,
+                success: false,
+                error: "Nenhum registro valido para importar",
+                erros_mapeamento: errosMapa,
+              }, { status: 400 });
+            }
+
+            const userIdRaw = formData.get("user_id") as string | null;
+            const porEmpresa = new Map<string, typeof records>();
+            records.forEach((r) => {
+              if (!porEmpresa.has(r.company_id)) porEmpresa.set(r.company_id, []);
+              porEmpresa.get(r.company_id)!.push(r);
+            });
+
+            let totalInseridos = 0,
+              totalDuplicados = 0,
+              totalErros = errosMapa.length;
+            const todosErros: any[] = [...errosMapa];
+
+            for (const [cId, recs] of porEmpresa.entries()) {
+              for (let i = 0; i < recs.length; i += 200) {
+                const chunk = recs.slice(i, i + 200);
+                const { data, error } = await supa.rpc("fn_planilha_universal_processar", {
+                  p_company_id: cId,
+                  p_user_id: userIdRaw || null,
+                  p_arquivo_nome: file.name,
+                  p_records: chunk,
+                });
+                if (error) {
+                  totalErros += chunk.length;
+                  todosErros.push({ company_id: cId, erro: error.message });
+                  continue;
+                }
+                const r = data as any;
+                totalInseridos += r?.inseridos || 0;
+                totalDuplicados += r?.duplicados || 0;
+                totalErros += r?.erros || 0;
+                if (Array.isArray(r?.lista_erros)) todosErros.push(...r.lista_erros);
+              }
+            }
+
+            return NextResponse.json({
+              ok: true,
+              success: true,
+              action: "confirm",
+              tipo: "planilha_modelo_ps",
+              arquivo: file.name,
+              total_registros_validos: records.length,
+              empresas: porEmpresa.size,
+              inseridos: totalInseridos,
+              duplicados: totalDuplicados,
+              erros: totalErros,
+              lista_erros: todosErros.slice(0, 50),
+              mensagem: totalInseridos > 0
+                ? `${totalInseridos} lancamentos importados. Pipeline PSGC processara em ate 5 min.`
+                : "Nenhum registro novo importado",
+            });
+          }
+        }
+      }
+      // Se nao for Planilha PS, segue o fluxo legado abaixo (intacto)
+    } catch (ePS: any) {
+      console.error("[v2.1 PS] erro na deteccao Planilha Modelo, caindo no legado:", ePS?.message);
+      // Nao interrompe — segue para o parser legado
+    }
+    // =========================================================
+    // FIM DO BLOCO v2.1 — abaixo continua o fluxo antigo intacto
+    // =========================================================
+
     const { headers, rows } = await readFile(file);
     const cleanHeaders = headers.filter(h => h && h.length > 0);
     
