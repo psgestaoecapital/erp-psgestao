@@ -362,148 +362,218 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================
-    // v2.1 — Deteccao prioritaria: Planilha Modelo PS Gestao
-    // Se for Planilha PS, processa via fn_planilha_universal_processar
-    // e retorna. Se nao for, cai no fluxo legado intacto abaixo.
+    // v2.1.1 — Deteccao prioritaria: Planilha Modelo PS Gestao
+    // HOTFIX: usa formData ja parseado, NextResponse consistente,
+    // createClient no escopo do modulo, try/catch defensivo.
     // =========================================================
-    try {
-      if (fn.endsWith(".xlsx") || fn.endsWith(".xls")) {
+    {
+      let psResult: NextResponse | null = null;
+
+      try {
+        // Le buffer UMA vez (variavel local, nao polui escopo do handler antigo)
         const psBuffer = await file.arrayBuffer();
-        const sheetsPS = parseWorkbookForPS(psBuffer);
-        const detPS = detectarPlanilhaModeloPs(sheetsPS);
+        const psSheets = parseWorkbookForPS(psBuffer);
+        const psDeteccao = detectarPlanilhaModeloPs(psSheets);
 
-        if (detPS.isPlanilhaModeloPs) {
-          const sheet = sheetsPS[detPS.sheetIndex];
+        if (psDeteccao.isPlanilhaModeloPs) {
+          console.log("[PS v2.1.1] Detectada Planilha Modelo PS:", psDeteccao);
 
-          // analyze/preview: retorna metadados (ok+success p/ compat com UI legada)
-          if (action === "analyze" || action === "preview") {
-            return NextResponse.json({
+          // Aceita action de QUALQUER UI (legada usa analyze/import, nova usa preview/confirm)
+          const psAction = String(formData.get("action") || "preview").toLowerCase();
+          const isPreviewAction = psAction === "preview" || psAction === "analyze" || psAction === "";
+          const isConfirmAction = psAction === "confirm" || psAction === "import";
+
+          const psSheet = psSheets[psDeteccao.sheetIndex];
+
+          if (isPreviewAction) {
+            psResult = NextResponse.json({
               ok: true,
               success: true,
               action: "preview",
               tipo: "planilha_modelo_ps",
-              preset: "planilha_modelo_ps",
               arquivo: { nome: file.name, tamanho_kb: Math.round(file.size / 1024) },
-              sheets: sheetsPS.map((s, i) => ({
-                index: i,
-                nome: s.name,
-                linhas: s.rowCount,
-                colunas: s.headers.length,
-                headers: s.headers,
-                eh_planilha_ps: i === detPS.sheetIndex,
+              sheets: psSheets.map((s, i) => ({
+                index: i, nome: s.name, linhas: s.rowCount,
+                colunas: s.headers.length, headers: s.headers,
+                eh_planilha_ps: i === psDeteccao.sheetIndex,
               })),
               deteccao: {
                 kind: "planilha_modelo_ps",
-                confidence: detPS.confidence,
-                sheetIndex: detPS.sheetIndex,
-                reason: detPS.reason,
+                confidence: psDeteccao.confidence,
+                sheetIndex: psDeteccao.sheetIndex,
+                reason: psDeteccao.reason,
               },
               sheet_selecionada: {
-                index: detPS.sheetIndex,
-                nome: sheet.name,
-                headers: sheet.headers,
-                preview_linhas: sheet.rows.slice(0, 10),
+                index: psDeteccao.sheetIndex,
+                nome: psSheet.name,
+                headers: psSheet.headers,
+                preview_linhas: psSheet.rows.slice(0, 10),
+              },
+            });
+          } else if (isConfirmAction) {
+            // Importacao real: usa createClient ja inicializado no escopo do modulo
+            try {
+              const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+              const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+              if (!supaUrl || !supaKey) {
+                console.error("[PS v2.1.1] ENV vars Supabase ausentes");
+                psResult = NextResponse.json({
+                  ok: false, success: false,
+                  error: "Variaveis de ambiente Supabase ausentes",
+                }, { status: 500 });
+              } else {
+                const psSupa = createClient(supaUrl, supaKey);
+
+                const { data: empresasArr, error: errEmp } = await psSupa
+                  .from("companies")
+                  .select("id, cnpj");
+                if (errEmp) throw new Error("Erro ao buscar empresas: " + errEmp.message);
+
+                const psEmpresasMap = new Map<string, string>();
+                (empresasArr || []).forEach((e: any) => {
+                  const c = (e.cnpj ?? "").toString().replace(/\D/g, "");
+                  if (c) psEmpresasMap.set(c, e.id);
+                });
+
+                const { data: lnsArr, error: errLn } = await psSupa
+                  .from("business_lines")
+                  .select("id, company_id, name")
+                  .eq("is_active", true);
+                if (errLn) throw new Error("Erro ao buscar LNs: " + errLn.message);
+
+                const psLnsMap = new Map<string, Map<string, string>>();
+                (lnsArr || []).forEach((ln: any) => {
+                  if (!psLnsMap.has(ln.company_id)) psLnsMap.set(ln.company_id, new Map());
+                  const k = ln.name.toString().normalize("NFD")
+                    .replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+                  psLnsMap.get(ln.company_id)!.set(k, ln.id);
+                });
+
+                const { records: psRecords, erros: psErrosMapa } = mapearLinhasPS(
+                  psSheet, psEmpresasMap, psLnsMap
+                );
+
+                console.log(`[PS v2.1.1] Mapeamento: ${psRecords.length} validos, ${psErrosMapa.length} erros`);
+
+                if (psRecords.length === 0) {
+                  psResult = NextResponse.json({
+                    ok: false, success: false,
+                    error: "Nenhum registro valido para importar",
+                    erros_mapeamento: psErrosMapa.slice(0, 50),
+                  }, { status: 400 });
+                } else {
+                  const psUserId = (formData.get("user_id") as string) || null;
+                  const psPorEmpresa = new Map<string, typeof psRecords>();
+                  psRecords.forEach((r) => {
+                    if (!psPorEmpresa.has(r.company_id)) psPorEmpresa.set(r.company_id, []);
+                    psPorEmpresa.get(r.company_id)!.push(r);
+                  });
+
+                  let psTotalIns = 0, psTotalDup = 0, psTotalErr = psErrosMapa.length;
+                  const psTodosErros: any[] = [...psErrosMapa];
+
+                  for (const [companyId, recs] of psPorEmpresa.entries()) {
+                    for (let i = 0; i < recs.length; i += 200) {
+                      const chunk = recs.slice(i, i + 200);
+                      try {
+                        const { data, error } = await psSupa.rpc(
+                          "fn_planilha_universal_processar",
+                          {
+                            p_company_id: companyId,
+                            p_user_id: psUserId,
+                            p_arquivo_nome: file.name,
+                            p_records: chunk,
+                          }
+                        );
+                        if (error) {
+                          console.error("[PS v2.1.1] RPC error chunk", i, ":", error.message);
+                          psTotalErr += chunk.length;
+                          psTodosErros.push({
+                            company_id: companyId,
+                            chunk_inicio: i,
+                            erro: error.message,
+                          });
+                          continue;
+                        }
+                        const r = data as any;
+                        psTotalIns += r?.inseridos || 0;
+                        psTotalDup += r?.duplicados || 0;
+                        psTotalErr += r?.erros || 0;
+                        if (Array.isArray(r?.lista_erros)) {
+                          psTodosErros.push(...r.lista_erros);
+                        }
+                      } catch (chunkErr: any) {
+                        console.error("[PS v2.1.1] Excecao chunk", i, ":", chunkErr?.message);
+                        psTotalErr += chunk.length;
+                        psTodosErros.push({
+                          company_id: companyId,
+                          chunk_inicio: i,
+                          erro: chunkErr?.message || String(chunkErr),
+                        });
+                      }
+                    }
+                  }
+
+                  console.log(`[PS v2.1.1] Resultado final: ins=${psTotalIns}, dup=${psTotalDup}, err=${psTotalErr}`);
+
+                  psResult = NextResponse.json({
+                    ok: true, success: true,
+                    action: "confirm",
+                    tipo: "planilha_modelo_ps",
+                    arquivo: file.name,
+                    total_registros_validos: psRecords.length,
+                    empresas: psPorEmpresa.size,
+                    inseridos: psTotalIns,
+                    duplicados: psTotalDup,
+                    erros: psTotalErr,
+                    lista_erros: psTodosErros.slice(0, 50),
+                    mensagem: psTotalIns > 0
+                      ? `${psTotalIns} lancamentos importados. Pipeline PSGC processara em ate 5 min.`
+                      : "Nenhum registro novo importado",
+                  });
+                }
+              }
+            } catch (confirmErr: any) {
+              console.error("[PS v2.1.1] Erro confirm:", confirmErr?.message, confirmErr?.stack);
+              psResult = NextResponse.json({
+                ok: false, success: false,
+                error: "Erro ao processar importacao: " + (confirmErr?.message || String(confirmErr)),
+              }, { status: 500 });
+            }
+          } else {
+            // Action desconhecida - tratar como preview
+            psResult = NextResponse.json({
+              ok: true, success: true,
+              action: "preview",
+              tipo: "planilha_modelo_ps",
+              arquivo: { nome: file.name, tamanho_kb: Math.round(file.size / 1024) },
+              deteccao: {
+                kind: "planilha_modelo_ps",
+                confidence: psDeteccao.confidence,
+                sheetIndex: psDeteccao.sheetIndex,
+                reason: psDeteccao.reason,
+              },
+              sheet_selecionada: {
+                index: psDeteccao.sheetIndex,
+                nome: psSheet.name,
+                headers: psSheet.headers,
+                preview_linhas: psSheet.rows.slice(0, 10),
               },
             });
           }
-
-          // import/confirm: processa via RPC
-          if (action === "import" || action === "confirm") {
-            const SUPA_URL_LOCAL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-            const SUPA_KEY_LOCAL = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-            const supa = createClient(SUPA_URL_LOCAL, SUPA_KEY_LOCAL);
-
-            const { data: empresasArr } = await supa.from("companies").select("id, cnpj");
-            const empresasMap = new Map<string, string>();
-            (empresasArr || []).forEach((e: any) => {
-              const c = normCnpjPS(e.cnpj || "");
-              if (c) empresasMap.set(c, e.id);
-            });
-
-            const { data: lnsArr } = await supa
-              .from("business_lines")
-              .select("id, company_id, name")
-              .eq("is_active", true);
-            const linhasNegocioMap = new Map<string, Map<string, string>>();
-            (lnsArr || []).forEach((ln: any) => {
-              if (!linhasNegocioMap.has(ln.company_id))
-                linhasNegocioMap.set(ln.company_id, new Map());
-              linhasNegocioMap.get(ln.company_id)!.set(
-                ln.name.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(),
-                ln.id
-              );
-            });
-
-            const { records, erros: errosMapa } = mapearLinhasPS(sheet, empresasMap, linhasNegocioMap);
-            if (records.length === 0) {
-              return NextResponse.json({
-                ok: false,
-                success: false,
-                error: "Nenhum registro valido para importar",
-                erros_mapeamento: errosMapa,
-              }, { status: 400 });
-            }
-
-            const userIdRaw = formData.get("user_id") as string | null;
-            const porEmpresa = new Map<string, typeof records>();
-            records.forEach((r) => {
-              if (!porEmpresa.has(r.company_id)) porEmpresa.set(r.company_id, []);
-              porEmpresa.get(r.company_id)!.push(r);
-            });
-
-            let totalInseridos = 0,
-              totalDuplicados = 0,
-              totalErros = errosMapa.length;
-            const todosErros: any[] = [...errosMapa];
-
-            for (const [cId, recs] of porEmpresa.entries()) {
-              for (let i = 0; i < recs.length; i += 200) {
-                const chunk = recs.slice(i, i + 200);
-                const { data, error } = await supa.rpc("fn_planilha_universal_processar", {
-                  p_company_id: cId,
-                  p_user_id: userIdRaw || null,
-                  p_arquivo_nome: file.name,
-                  p_records: chunk,
-                });
-                if (error) {
-                  totalErros += chunk.length;
-                  todosErros.push({ company_id: cId, erro: error.message });
-                  continue;
-                }
-                const r = data as any;
-                totalInseridos += r?.inseridos || 0;
-                totalDuplicados += r?.duplicados || 0;
-                totalErros += r?.erros || 0;
-                if (Array.isArray(r?.lista_erros)) todosErros.push(...r.lista_erros);
-              }
-            }
-
-            return NextResponse.json({
-              ok: true,
-              success: true,
-              action: "confirm",
-              tipo: "planilha_modelo_ps",
-              arquivo: file.name,
-              total_registros_validos: records.length,
-              empresas: porEmpresa.size,
-              inseridos: totalInseridos,
-              duplicados: totalDuplicados,
-              erros: totalErros,
-              lista_erros: todosErros.slice(0, 50),
-              mensagem: totalInseridos > 0
-                ? `${totalInseridos} lancamentos importados. Pipeline PSGC processara em ate 5 min.`
-                : "Nenhum registro novo importado",
-            });
-          }
+        } else {
+          console.log("[PS v2.1.1] Nao e Planilha Modelo PS - cai no parser legado");
         }
+      } catch (psErr: any) {
+        console.error("[PS v2.1.1] Erro deteccao - caindo no legado:", psErr?.message, psErr?.stack);
+        // Nao define psResult - segue para parser legado
       }
-      // Se nao for Planilha PS, segue o fluxo legado abaixo (intacto)
-    } catch (ePS: any) {
-      console.error("[v2.1 PS] erro na deteccao Planilha Modelo, caindo no legado:", ePS?.message);
-      // Nao interrompe — segue para o parser legado
+
+      if (psResult) return psResult;
     }
     // =========================================================
-    // FIM DO BLOCO v2.1 — abaixo continua o fluxo antigo intacto
+    // FIM DO BLOCO v2.1.1 — abaixo continua o fluxo antigo intacto
     // =========================================================
 
     const { headers, rows } = await readFile(file);
