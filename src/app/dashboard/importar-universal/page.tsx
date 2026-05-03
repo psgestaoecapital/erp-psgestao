@@ -1,341 +1,576 @@
-"use client";
-import React, { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
-const C={bg:"#0C0C0A",bg2:"#161614",bg3:"#1E1E1B",esp:"#3D2314",go:"#C8941A",gol:"#E8C872",g:"#22C55E",r:"#EF4444",y:"#FBBF24",b:"#60A5FA",p:"#A78BFA",cy:"#2DD4BF",or:"#F97316",bd:"#2A2822",tx:"#E8E5DC",txm:"#A8A498",txd:"#918C82"};
+// src/app/dashboard/importar-universal/page.tsx
+// ========================================================================
+// Página Importar Universal v2.0 — UI premium com:
+//   - Botão de download da Planilha Modelo PS Gestão
+//   - Upload com preview robusto
+//   - Detecção visual do tipo de planilha
+//   - Confirmação explícita antes de importar
+//   - Logs de erro detalhados linha-a-linha
+// ========================================================================
 
-const TIPO_INFO:Record<string,{icon:string;nome:string;cor:string;desc:string}>={
-  clientes:{icon:"👤",nome:"Clientes",cor:C.b,desc:"Cadastro de clientes (nome, CNPJ, endereço, contato)"},
-  fornecedores:{icon:"🏭",nome:"Fornecedores",cor:C.or,desc:"Cadastro de fornecedores (nome, CNPJ, banco, PIX)"},
-  receber:{icon:"💰",nome:"Contas a Receber",cor:C.g,desc:"Títulos a receber (valor, vencimento, cliente, NF)"},
-  pagar:{icon:"💸",nome:"Contas a Pagar",cor:C.r,desc:"Títulos a pagar (valor, vencimento, fornecedor, NF)"},
-  produtos:{icon:"📦",nome:"Produtos / Serviços",cor:C.p,desc:"Catálogo (código, nome, preço, estoque, NCM)"},
-  misto:{icon:"🔀",nome:"Misto (SIGA)",cor:C.cy,desc:"Receber + Pagar na mesma planilha (formato SIGA)"},
+'use client';
+
+import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+
+// Paleta oficial PS Gestão
+const COLORS = {
+  espresso: '#3D2314',
+  espressoLight: '#5C3825',
+  offwhite: '#FAF7F2',
+  dourado: '#C8941A',
+  douradoLight: '#E8B547',
+  success: '#2D7A4F',
+  warning: '#C8941A',
+  danger: '#9B2D2D',
+  gray: '#F5F2ED',
 };
 
-function fmtBRL(n:number){return "R$ "+n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});}
+interface PreviewSheet {
+  index: number;
+  nome: string;
+  linhas: number;
+  colunas: number;
+  headers: string[];
+  eh_planilha_ps: boolean;
+}
 
-export default function ImportarUniversalPage(){
-  const[companies,setCompanies]=useState<any[]>([]);
-  const[companyId,setCompanyId]=useState("");
-  const[step,setStep]=useState<"upload"|"preview"|"done">("upload");
-  const[dragging,setDragging]=useState(false);
-  const[loading,setLoading]=useState(false);
-  const[analysis,setAnalysis]=useState<any>(null);
-  const[tipoOverride,setTipoOverride]=useState("");
-  const[result,setResult]=useState<any>(null);
-  const[error,setError]=useState("");
-  const[currentFile,setCurrentFile]=useState<File|null>(null);
-  const fileRef=useRef<HTMLInputElement>(null);
+interface PreviewResponse {
+  ok: boolean;
+  arquivo: { nome: string; tamanho_kb: number };
+  sheets: PreviewSheet[];
+  deteccao: { kind: string; confidence: number; sheetIndex: number; reason: string };
+  sheet_selecionada: { index: number; nome: string; headers: string[]; preview_linhas: any[][] };
+  error?: string;
+}
 
-  useEffect(()=>{
-    (async()=>{
-      const{data:{user}}=await supabase.auth.getUser();
-      if(!user)return;
-      const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-      let comps:any[]=[];
-      if(up?.role==="adm"||up?.role==="acesso_total"){
-        const{data}=await supabase.from("companies").select("*").order("nome_fantasia");comps=data||[];
-      }else{
-        const{data:uc}=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);
-        comps=(uc||[]).map((u:any)=>u.companies).filter(Boolean);
+interface ConfirmResponse {
+  ok: boolean;
+  inseridos?: number;
+  duplicados?: number;
+  erros?: number;
+  lista_erros?: any[];
+  total_registros_validos?: number;
+  empresas?: number;
+  mensagem?: string;
+  error?: string;
+}
+
+export default function ImportarUniversalPage() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  const [resultado, setResultado] = useState<ConfirmResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  function reset() {
+    setFile(null);
+    setPreview(null);
+    setResultado(null);
+    setErro(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function handleFile(f: File) {
+    setFile(f);
+    setPreview(null);
+    setResultado(null);
+    setErro(null);
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('action', 'preview');
+      const res = await fetch('/api/import/universal', { method: 'POST', body: fd });
+      const j = await res.json();
+      if (!j.ok) {
+        setErro(j.error || 'Erro ao processar arquivo');
+      } else {
+        setPreview(j);
       }
-      setCompanies(comps);
-      if(comps.length>0){
-        const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):null;
-        const match=saved && !saved.startsWith("group_") && saved!=="consolidado" ? comps.find((c:any)=>c.id===saved) : null;
-        setCompanyId(match?match.id:comps[0].id);
-      }
-    })();
-  },[]);
+    } catch (e: any) {
+      setErro(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const analyzeFile=async(file:File)=>{
-    setLoading(true);setError("");setAnalysis(null);
-    setCurrentFile(file); // <-- PRESERVA o arquivo no state
-    const fd=new FormData();fd.append("file",file);fd.append("action","analyze");
-    try{
-      const res=await fetch("/api/import/universal",{method:"POST",body:fd});
-      const json=await res.json();
-      if(json.success){setAnalysis(json);setStep("preview");}
-      else setError(json.error||"Erro ao analisar arquivo");
-    }catch(e:any){setError(e.message);}
-    setLoading(false);
+  async function handleConfirm() {
+    if (!file) return;
+    if (!confirm('Confirma a importação? Os registros serão inseridos em erp_lancamentos e o pipeline PSGC processará automaticamente.')) {
+      return;
+    }
+    setLoading(true);
+    setErro(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('action', 'confirm');
+      if (preview?.deteccao?.sheetIndex !== undefined) {
+        fd.append('sheet_index', String(preview.deteccao.sheetIndex));
+      }
+      const res = await fetch('/api/import/universal', { method: 'POST', body: fd });
+      const j = await res.json();
+      setResultado(j);
+      if (!j.ok) {
+        setErro(j.error || 'Erro ao importar');
+      }
+    } catch (e: any) {
+      setErro(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const detectionLabel = (kind: string) => {
+    const labels: Record<string, { texto: string; cor: string; icone: string }> = {
+      planilha_modelo_ps: { texto: 'Planilha Modelo PS Gestão', cor: COLORS.success, icone: '✅' },
+      lancamentos_generico: { texto: 'Lançamentos (genérico)', cor: COLORS.dourado, icone: '⚠️' },
+      clientes: { texto: 'Cadastro de Clientes', cor: COLORS.dourado, icone: 'ℹ️' },
+      fornecedores: { texto: 'Cadastro de Fornecedores', cor: COLORS.dourado, icone: 'ℹ️' },
+      desconhecido: { texto: 'Formato não reconhecido', cor: COLORS.danger, icone: '❌' },
+    };
+    return labels[kind] || labels['desconhecido'];
   };
 
-  const doImport=async()=>{
-    if(!analysis||!companyId)return;
-    setLoading(true);setError("");
-    const fd=new FormData();
-    // Prefere o state (sempre presente), fallback pro input nativo
-    const file = currentFile || fileRef.current?.files?.[0];
-    if(!file){setError("Arquivo perdido — arraste de novo ou clique na área pra selecionar");setLoading(false);return;}
-    fd.append("file",file);
-    fd.append("action","import");
-    fd.append("company_id",companyId);
-    if(analysis.preset)fd.append("preset",analysis.preset);
-    if(tipoOverride)fd.append("tipo",tipoOverride);
-    try{
-      const res=await fetch("/api/import/universal",{method:"POST",body:fd});
-      const json=await res.json();
-      if(json.success){setResult(json);setStep("done");}
-      else setError(json.error||"Erro ao importar");
-    }catch(e:any){setError(e.message);}
-    setLoading(false);
-  };
-
-  const handleDrop=(e:React.DragEvent)=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f)analyzeFile(f);};
-  const handleFileChange=(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(f)analyzeFile(f);};
-  const reset=()=>{setStep("upload");setAnalysis(null);setResult(null);setError("");setTipoOverride("");setCurrentFile(null);if(fileRef.current)fileRef.current.value="";};
-
-  const isSIGA=analysis?.preset==="siga";
-  const tipo=tipoOverride||analysis?.tipo||"";
-  const tipoInf=TIPO_INFO[tipo];
-
-  return(
-    <div style={{minHeight:"100vh",background:C.bg,color:C.tx,fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
-      <div style={{background:C.esp,padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`2px solid ${C.go}`}}>
-        <div>
-          <div style={{fontSize:18,fontWeight:700,color:C.gol}}>📤 Importar Dados — Upload Universal</div>
-          <div style={{fontSize:10,color:C.txm}}>Aceita Excel, CSV de qualquer sistema · Auto-detecta formato SIGA / ContaAzul / Omie · Gera PSGC automático</div>
-        </div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <select value={companyId} onChange={e=>setCompanyId(e.target.value)} style={{background:C.bg3,border:`1px solid ${C.bd}`,color:C.gol,borderRadius:6,padding:"4px 8px",fontSize:10,maxWidth:280}}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.nome||c.razao_social}</option>)}
-          </select>
-          <a href="/dashboard" style={{padding:"4px 10px",border:`1px solid ${C.bd}`,borderRadius:6,color:C.txm,fontSize:10,textDecoration:"none"}}>← Dashboard</a>
-        </div>
-      </div>
-
-      <div style={{padding:20,maxWidth:1100,margin:"0 auto"}}>
-
-      {/* STEP 1: UPLOAD */}
-      {step==="upload"&&(<>
-        <div onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={handleDrop}
-          onClick={()=>fileRef.current?.click()}
-          style={{border:`2px dashed ${dragging?C.gol:C.bd}`,borderRadius:16,padding:50,textAlign:"center",cursor:"pointer",background:dragging?C.go+"10":C.bg2,transition:"all 0.2s",marginBottom:20}}>
-          <div style={{fontSize:48,marginBottom:12}}>{loading?"⏳":"📁"}</div>
-          <div style={{fontSize:16,fontWeight:700,color:C.gol,marginBottom:8}}>{loading?"Analisando arquivo...":"Arraste seu arquivo aqui"}</div>
-          <div style={{fontSize:12,color:C.txm,marginBottom:12}}>ou clique para selecionar</div>
-          <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-            {["XLSX","XLS","CSV"].map(f=><span key={f} style={{padding:"4px 12px",borderRadius:6,background:C.bg3,border:`1px solid ${C.bd}`,fontSize:10,color:C.txm}}>.{f.toLowerCase()}</span>)}
-          </div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.tsv" onChange={handleFileChange} style={{display:"none"}}/>
-        </div>
-
-        <div style={{background:C.bg2,borderRadius:12,padding:16,border:`1px solid ${C.bd}`}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.gol,marginBottom:12}}>📋 O que posso importar?</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
-            {Object.entries(TIPO_INFO).map(([k,v])=>(
-              <div key={k} style={{background:C.bg3,borderRadius:8,padding:10,borderLeft:`3px solid ${v.cor}`}}>
-                <div style={{fontSize:20,marginBottom:4}}>{v.icon}</div>
-                <div style={{fontSize:11,fontWeight:600,color:v.cor}}>{v.nome}</div>
-                <div style={{fontSize:8,color:C.txd,marginTop:2}}>{v.desc}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{marginTop:12,padding:10,background:C.bg3,borderRadius:8}}>
-            <div style={{fontSize:10,fontWeight:600,color:C.gol,marginBottom:4}}>💡 Auto-detecção de formato</div>
-            <div style={{fontSize:9,color:C.txm,lineHeight:1.5}}>
-              • <b style={{color:C.cy}}>SIGA</b>: colunas "Receber", "Pagar", "Quitado em" → importa dois tipos de uma vez<br/>
-              • <b style={{color:C.go}}>Genérico</b>: detecta pelo conteúdo das colunas (Nedel, Bling, ContaAzul, etc)<br/>
-              • Os lançamentos vão pro <b>PSGC automaticamente</b> (DRE consolidada em tempo real)
-            </div>
-          </div>
-        </div>
-      </>)}
-
-      {/* STEP 2: PREVIEW */}
-      {step==="preview"&&analysis&&(<>
-        {/* Info arquivo + preset */}
-        <div style={{background:C.bg2,borderRadius:12,padding:14,border:`1px solid ${C.bd}`,marginBottom:12}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+  return (
+    <div style={{ background: COLORS.offwhite, minHeight: '100vh', padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+        {/* Header */}
+        <div
+          style={{
+            background: `linear-gradient(135deg, ${COLORS.espresso} 0%, ${COLORS.espressoLight} 100%)`,
+            padding: '32px 40px',
+            borderRadius: 16,
+            color: 'white',
+            marginBottom: 24,
+            boxShadow: '0 4px 16px rgba(61,35,20,0.15)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color:C.gol}}>📄 {analysis.fileName}</div>
-              <div style={{fontSize:9,color:C.txd}}>{(analysis.fileSize/1024).toFixed(0)} KB · {analysis.totalRows} linhas · {analysis.headers.length} colunas</div>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>
+                📤 Importar Dados — Upload Universal
+              </h1>
+              <p style={{ margin: '8px 0 0 0', color: COLORS.douradoLight, fontSize: 14 }}>
+                Aceita Planilha Modelo PS Gestão, SIGA, ContaAzul, Omie · Detecção automática · Idempotente · Multi-tenant
+              </p>
             </div>
-            <button onClick={reset} style={{padding:"4px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.bd}`,color:C.txm,fontSize:10,cursor:"pointer"}}>← Trocar arquivo</button>
+            <a
+              href="/api/templates/planilha-modelo"
+              download
+              style={{
+                background: COLORS.dourado,
+                color: COLORS.espresso,
+                padding: '12px 22px',
+                borderRadius: 10,
+                fontWeight: 700,
+                textDecoration: 'none',
+                fontSize: 14,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 8px rgba(200,148,26,0.3)',
+                transition: 'transform 0.15s',
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
+              onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+            >
+              📥 Baixar Planilha Modelo
+            </a>
           </div>
+        </div>
 
-          {/* Preset detectado */}
-          {isSIGA && (
-            <div style={{background:C.cy+"15",border:`1px solid ${C.cy}60`,borderRadius:8,padding:12,marginBottom:10}}>
-              <div style={{fontSize:12,fontWeight:700,color:C.cy,marginBottom:4}}>🔀 Formato SIGA detectado</div>
-              <div style={{fontSize:10,color:C.tx,lineHeight:1.5}}>
-                Planilha com colunas "Receber" E "Pagar" simultâneas. Cada linha vai ser classificada automaticamente e gravada em:<br/>
-                • <b>erp_receber</b> (linhas com valor em Receber)<br/>
-                • <b>erp_pagar</b> (linhas com valor em Pagar)<br/>
-                • <b>erp_lancamentos</b> (todos, pra PSGC ver consolidado)<br/>
-                Clientes/fornecedores novos serão criados automaticamente.<br/>
-                <span style={{color:C.y,fontWeight:600}}>🛡️ Proteção anti-duplicata inteligente:</span> reimportar a mesma planilha <b>NÃO</b> duplica. Se um lançamento mudou de status (ex: ficou "Quitado"), os campos <b>data_pagamento, valor_pago e status</b> são atualizados automaticamente. Duplicatas intencionais (2 comissões iguais) são preservadas.
+        {/* Card principal */}
+        <div
+          style={{
+            background: 'white',
+            borderRadius: 16,
+            padding: 32,
+            boxShadow: '0 2px 12px rgba(61,35,20,0.06)',
+            border: `1px solid ${COLORS.gray}`,
+          }}
+        >
+          {!file && (
+            <>
+              {/* Dica sobre planilha modelo */}
+              <div
+                style={{
+                  background: COLORS.gray,
+                  padding: 20,
+                  borderRadius: 12,
+                  marginBottom: 24,
+                  borderLeft: `4px solid ${COLORS.dourado}`,
+                }}
+              >
+                <p style={{ margin: 0, color: COLORS.espresso, fontSize: 14, lineHeight: 1.6 }}>
+                  <strong>💡 Recomendado:</strong> Baixe a <strong>Planilha Modelo PS Gestão</strong>, preencha
+                  com seus dados (suas empresas, suas linhas de negócio, lançamentos) e suba aqui. O sistema
+                  detecta automaticamente o formato, valida e popula o Dashboard em até 5 minutos.
+                </p>
               </div>
-              {analysis.stats && (
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
-                  <div style={{background:C.g+"15",border:`1px solid ${C.g}40`,borderRadius:6,padding:8}}>
-                    <div style={{fontSize:8,color:C.txd}}>A RECEBER</div>
-                    <div style={{fontSize:16,fontWeight:700,color:C.g}}>{analysis.stats.cReceber} · {fmtBRL(analysis.stats.totReceber)}</div>
+
+              {/* Drop zone */}
+              <label
+                htmlFor="file-input"
+                style={{
+                  display: 'block',
+                  border: `2px dashed ${COLORS.dourado}`,
+                  borderRadius: 14,
+                  padding: 48,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  background: COLORS.offwhite,
+                  transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+                <div style={{ fontSize: 18, fontWeight: 600, color: COLORS.espresso, marginBottom: 6 }}>
+                  Selecione a planilha para importar
+                </div>
+                <div style={{ fontSize: 13, color: COLORS.espressoLight }}>
+                  Arquivos .xlsx, .xls ou .csv até 50MB
+                </div>
+                <input
+                  id="file-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </>
+          )}
+
+          {/* Loading */}
+          {loading && (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+              <p style={{ color: COLORS.espresso, fontWeight: 600 }}>Processando arquivo...</p>
+            </div>
+          )}
+
+          {/* Erro */}
+          {erro && (
+            <div
+              style={{
+                background: '#FCEAEA',
+                border: `1px solid ${COLORS.danger}`,
+                color: COLORS.danger,
+                padding: 16,
+                borderRadius: 10,
+                marginTop: 16,
+              }}
+            >
+              <strong>❌ Erro:</strong> {erro}
+              <button
+                onClick={reset}
+                style={{
+                  marginLeft: 16,
+                  background: 'transparent',
+                  border: `1px solid ${COLORS.danger}`,
+                  color: COLORS.danger,
+                  padding: '4px 12px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                Tentar de novo
+              </button>
+            </div>
+          )}
+
+          {/* Preview */}
+          {preview && !resultado && (
+            <div>
+              {/* Detecção */}
+              <div
+                style={{
+                  background: COLORS.gray,
+                  padding: 20,
+                  borderRadius: 12,
+                  marginBottom: 20,
+                  borderLeft: `4px solid ${detectionLabel(preview.deteccao.kind).cor}`,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: COLORS.espresso }}>
+                      {detectionLabel(preview.deteccao.kind).icone} {detectionLabel(preview.deteccao.kind).texto}
+                    </div>
+                    <div style={{ fontSize: 13, color: COLORS.espressoLight, marginTop: 4 }}>
+                      {preview.deteccao.reason} · Confiança: {preview.deteccao.confidence}%
+                    </div>
                   </div>
-                  <div style={{background:C.r+"15",border:`1px solid ${C.r}40`,borderRadius:6,padding:8}}>
-                    <div style={{fontSize:8,color:C.txd}}>A PAGAR</div>
-                    <div style={{fontSize:16,fontWeight:700,color:C.r}}>{analysis.stats.cPagar} · {fmtBRL(analysis.stats.totPagar)}</div>
+                  <div style={{ fontSize: 13, color: COLORS.espressoLight }}>
+                    📁 <strong>{preview.arquivo.nome}</strong> · {preview.arquivo.tamanho_kb} KB
+                  </div>
+                </div>
+              </div>
+
+              {/* Sheets info */}
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ color: COLORS.espresso, fontSize: 14, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Abas detectadas
+                </h3>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {preview.sheets.map((s) => (
+                    <div
+                      key={s.index}
+                      style={{
+                        background: s.index === preview.deteccao.sheetIndex ? COLORS.gray : 'white',
+                        border: `1px solid ${s.index === preview.deteccao.sheetIndex ? COLORS.dourado : '#e5e5e5'}`,
+                        padding: 12,
+                        borderRadius: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: COLORS.espresso }}>{s.nome}</strong>
+                        <span style={{ color: COLORS.espressoLight, marginLeft: 12, fontSize: 13 }}>
+                          {s.linhas} linhas · {s.colunas} colunas
+                        </span>
+                      </div>
+                      {s.index === preview.deteccao.sheetIndex && (
+                        <span
+                          style={{
+                            background: COLORS.dourado,
+                            color: COLORS.espresso,
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        >
+                          SELECIONADA
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Headers da aba selecionada */}
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ color: COLORS.espresso, fontSize: 14, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Cabeçalhos detectados
+                </h3>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    background: COLORS.offwhite,
+                    padding: 12,
+                    borderRadius: 8,
+                  }}
+                >
+                  {preview.sheet_selecionada.headers.map((h, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        background: 'white',
+                        border: `1px solid ${COLORS.gray}`,
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        color: COLORS.espresso,
+                      }}
+                    >
+                      {h || <em style={{ color: COLORS.espressoLight }}>(vazio)</em>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview linhas */}
+              {preview.sheet_selecionada.preview_linhas.length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <h3 style={{ color: COLORS.espresso, fontSize: 14, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Preview (primeiras 10 linhas)
+                  </h3>
+                  <div style={{ overflow: 'auto', maxHeight: 300, border: `1px solid ${COLORS.gray}`, borderRadius: 8 }}>
+                    <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: COLORS.espresso, color: 'white' }}>
+                          {preview.sheet_selecionada.headers.map((h, i) => (
+                            <th
+                              key={i}
+                              style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, fontSize: 11, position: 'sticky', top: 0 }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.sheet_selecionada.preview_linhas.map((row, i) => (
+                          <tr
+                            key={i}
+                            style={{ background: i % 2 === 0 ? 'white' : COLORS.offwhite }}
+                          >
+                            {row.map((c, j) => (
+                              <td key={j} style={{ padding: '4px 8px', color: COLORS.espresso }}>
+                                {c?.toString().slice(0, 50) || ''}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Tipo override (só pra formato genérico) */}
-          {!isSIGA && (
-            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-              <div style={{fontSize:11,color:C.txm}}>Tipo detectado:</div>
-              {Object.entries(TIPO_INFO).filter(([k])=>k!=="misto").map(([k,v])=>(
-                <button key={k} onClick={()=>setTipoOverride(k)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${(tipoOverride||analysis.tipo)===k?v.cor:C.bd}`,background:(tipoOverride||analysis.tipo)===k?v.cor+"20":"transparent",color:(tipoOverride||analysis.tipo)===k?v.cor:C.txd,fontSize:10,fontWeight:(tipoOverride||analysis.tipo)===k?700:400,cursor:"pointer"}}>
-                  {v.icon} {v.nome}
+              {/* Botões */}
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+                <button
+                  onClick={reset}
+                  style={{
+                    background: 'white',
+                    color: COLORS.espresso,
+                    border: `1px solid ${COLORS.espresso}`,
+                    padding: '12px 24px',
+                    borderRadius: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                  }}
+                >
+                  Cancelar
                 </button>
-              ))}
-            </div>
-          )}
-
-          {/* Mapeamento */}
-          <div style={{fontSize:11,fontWeight:600,color:C.gol,marginBottom:6}}>🔗 Mapeamento de Colunas</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginBottom:8}}>
-            {Object.entries(analysis.mapping).map(([field,colIdx])=>(
-              <div key={field} style={{display:"flex",justifyContent:"space-between",padding:"3px 6px",background:C.bg3,borderRadius:4,borderLeft:`2px solid ${C.g}`}}>
-                <span style={{fontSize:9,color:C.g,fontWeight:600}}>{field}</span>
-                <span style={{fontSize:9,color:C.txm,overflow:"hidden",textOverflow:"ellipsis",maxWidth:120,whiteSpace:"nowrap"}}>← {analysis.headers[colIdx as number]}</span>
-              </div>
-            ))}
-          </div>
-          {analysis.unmappedHeaders?.length>0&&(
-            <div style={{fontSize:9,color:C.txd}}>Colunas não usadas: {analysis.unmappedHeaders.join(", ")}</div>
-          )}
-        </div>
-
-        {/* Preview */}
-        <div style={{background:C.bg2,borderRadius:12,padding:14,border:`1px solid ${C.bd}`,marginBottom:12}}>
-          <div style={{fontSize:11,fontWeight:600,color:C.gol,marginBottom:8}}>👁️ Preview (primeiros {analysis.preview?.length} registros)</div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:9}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.bd}`}}>
-                {isSIGA ? (
-                  ["tipo","data_vencimento","data_pagamento","nome","valor","categoria","centro_custo","status"].map(f=>
-                    <th key={f} style={{padding:"5px 4px",textAlign:"left",color:C.gol,fontSize:8}}>{f}</th>
-                  )
+                {preview.deteccao.kind === 'planilha_modelo_ps' ? (
+                  <button
+                    onClick={handleConfirm}
+                    disabled={loading}
+                    style={{
+                      background: COLORS.success,
+                      color: 'white',
+                      border: 'none',
+                      padding: '12px 28px',
+                      borderRadius: 10,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      boxShadow: '0 2px 8px rgba(45,122,79,0.3)',
+                    }}
+                  >
+                    🚀 Confirmar Importação
+                  </button>
                 ) : (
-                  Object.keys(analysis.mapping).map(f=><th key={f} style={{padding:"5px 4px",textAlign:"left",color:C.gol,fontSize:8}}>{f}</th>)
+                  <div
+                    style={{
+                      background: COLORS.gray,
+                      color: COLORS.espresso,
+                      padding: '12px 24px',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      maxWidth: 400,
+                    }}
+                  >
+                    ⚠️ Importação automática disponível somente para a <strong>Planilha Modelo PS Gestão</strong>.
+                    Baixe o template clicando no botão acima.
+                  </div>
                 )}
-              </tr></thead>
-              <tbody>
-                {(analysis.preview||[]).map((row:any,i:number)=>(
-                  <tr key={i} style={{borderBottom:`0.5px solid ${C.bd}20`}}>
-                    {isSIGA ? (
-                      ["tipo","data_vencimento","data_pagamento","nome","valor","categoria","centro_custo","status"].map(f=>{
-                        let v=row[f];
-                        if(f==="valor" && typeof v==="number") v=fmtBRL(v);
-                        if(f==="tipo"){
-                          const cor=v==="receber"?C.g:C.r;
-                          return <td key={f} style={{padding:"4px",maxWidth:80}}><span style={{background:cor+"20",color:cor,padding:"2px 6px",borderRadius:4,fontSize:8,fontWeight:600}}>{v}</span></td>;
-                        }
-                        return <td key={f} style={{padding:"4px",color:v?C.tx:C.txd,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v||"—"}</td>;
-                      })
-                    ) : (
-                      Object.keys(analysis.mapping).map(f=>(
-                        <td key={f} style={{padding:"4px",color:row[f]?C.tx:C.txd,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row[f]||"—"}</td>
-                      ))
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Botão importar */}
-        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-          <button onClick={doImport} disabled={loading||!companyId} style={{padding:"12px 32px",borderRadius:10,border:"none",background:isSIGA?C.cy:(tipoInf?.cor||C.go),color:C.bg,fontSize:14,fontWeight:700,cursor:loading?"wait":"pointer",opacity:loading?0.5:1}}>
-            {loading?"⏳ Importando...":
-              isSIGA?`🔀 Importar ${analysis.stats?.cReceber||0} a receber + ${analysis.stats?.cPagar||0} a pagar (SIGA)`:
-              `${tipoInf?.icon||"📤"} Importar ${analysis.totalRows} registros como ${tipoInf?.nome||tipo}`}
-          </button>
-          <button onClick={reset} style={{padding:"12px 20px",borderRadius:10,border:`1px solid ${C.bd}`,background:"transparent",color:C.txm,fontSize:12,cursor:"pointer"}}>Cancelar</button>
-        </div>
-      </>)}
-
-      {/* STEP 3: DONE */}
-      {step==="done"&&result&&(
-        <div style={{background:C.bg2,borderRadius:16,padding:30,border:`1px solid ${C.g}40`,textAlign:"center"}}>
-          <div style={{fontSize:48,marginBottom:12}}>✅</div>
-          <div style={{fontSize:20,fontWeight:700,color:C.g,marginBottom:8}}>Importação Concluída!</div>
-          <div style={{fontSize:13,color:C.tx,marginBottom:16,maxWidth:700,margin:"0 auto 16px"}}>{result.message}</div>
-          
-          {result.preset==="siga" ? (
-            <>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,maxWidth:720,margin:"0 auto 12px"}}>
-              <div style={{background:C.bg3,borderRadius:8,padding:10}}>
-                <div style={{fontSize:7,color:C.txd}}>TOTAL LINHAS</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.gol}}>{result.totalRows}</div>
-              </div>
-              <div style={{background:C.g+"15",borderRadius:8,padding:10,borderLeft:`2px solid ${C.g}`}}>
-                <div style={{fontSize:7,color:C.txd}}>NOVOS A RECEBER</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.g}}>{result.impReceber}</div>
-              </div>
-              <div style={{background:C.r+"15",borderRadius:8,padding:10,borderLeft:`2px solid ${C.r}`}}>
-                <div style={{fontSize:7,color:C.txd}}>NOVOS A PAGAR</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.r}}>{result.impPagar}</div>
-              </div>
-              <div style={{background:C.cy+"15",borderRadius:8,padding:10,borderLeft:`2px solid ${C.cy}`}}>
-                <div style={{fontSize:7,color:C.txd}}>PSGC (lanç.)</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.cy}}>{result.impLanc}</div>
-              </div>
-              <div style={{background:C.bg3,borderRadius:8,padding:10}}>
-                <div style={{fontSize:7,color:C.txd}}>NOVOS CAD.</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.b}}>{(result.clientesNovos||0)+(result.fornecNovos||0)}</div>
-                <div style={{fontSize:7,color:C.txd}}>{result.clientesNovos}c · {result.fornecNovos}f</div>
               </div>
             </div>
-            
-            {/* Idempotência + Updates */}
-            {((result.jaExistiamRec||0)+(result.jaExistiamPag||0)+(result.dupDentroImport||0)+(result.updReceber||0)+(result.updPagar||0) > 0) && (
-              <div style={{background:C.y+"15",border:`1px solid ${C.y}40`,borderRadius:8,padding:12,maxWidth:720,margin:"0 auto 20px"}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.y,marginBottom:6}}>🛡️ Proteção anti-duplicata + sincronização</div>
-                <div style={{fontSize:10,color:C.tx,lineHeight:1.5,textAlign:"left"}}>
-                  {(result.updReceber||0)+(result.updPagar||0) > 0 && (
-                    <div>• <b style={{color:C.cy}}>{(result.updReceber||0)+(result.updPagar||0)} lançamento(s) atualizado(s)</b> (status, data de pagamento ou valor pago sincronizados com a origem).</div>
-                  )}
-                  {result.dupDentroImport > 0 && (
-                    <div>• <b>{result.dupDentroImport} duplicata(s)</b> inline (linhas idênticas) foram ignoradas.</div>
-                  )}
-                  <div style={{color:C.txm,marginTop:4,fontSize:9}}>Você pode reimportar essa planilha à vontade — novos lançamentos entram, existentes são atualizados (status/pagamento), identidade do registro nunca muda.</div>
+          )}
+
+          {/* Resultado */}
+          {resultado && (
+            <div>
+              <div
+                style={{
+                  background: resultado.ok && (resultado.inseridos || 0) > 0 ? '#E8F5E9' : '#FFF3E0',
+                  border: `1px solid ${resultado.ok && (resultado.inseridos || 0) > 0 ? COLORS.success : COLORS.dourado}`,
+                  padding: 24,
+                  borderRadius: 12,
+                  marginBottom: 16,
+                }}
+              >
+                <h2 style={{ margin: '0 0 12px 0', color: COLORS.espresso, fontSize: 20 }}>
+                  {resultado.ok ? '✅ Importação concluída' : '❌ Falha na importação'}
+                </h2>
+                {resultado.mensagem && (
+                  <p style={{ color: COLORS.espresso, fontSize: 14, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                    {resultado.mensagem}
+                  </p>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+                  <Metric label="Inseridos" value={resultado.inseridos || 0} color={COLORS.success} />
+                  <Metric label="Duplicados (ignorados)" value={resultado.duplicados || 0} color={COLORS.espressoLight} />
+                  <Metric label="Erros" value={resultado.erros || 0} color={COLORS.danger} />
+                  <Metric label="Empresas" value={resultado.empresas || 0} color={COLORS.dourado} />
                 </div>
               </div>
-            )}
-            </>
-          ) : (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,maxWidth:400,margin:"0 auto 20px"}}>
-              <div style={{background:C.bg3,borderRadius:8,padding:10}}>
-                <div style={{fontSize:7,color:C.txd}}>TOTAL</div>
-                <div style={{fontSize:20,fontWeight:700,color:C.gol}}>{result.totalRows}</div>
-              </div>
-              <div style={{background:C.bg3,borderRadius:8,padding:10}}>
-                <div style={{fontSize:7,color:C.txd}}>IMPORTADOS</div>
-                <div style={{fontSize:20,fontWeight:700,color:C.g}}>{result.imported}</div>
-              </div>
-              <div style={{background:C.bg3,borderRadius:8,padding:10}}>
-                <div style={{fontSize:7,color:C.txd}}>ERROS</div>
-                <div style={{fontSize:20,fontWeight:700,color:result.errors>0?C.r:C.g}}>{result.errors}</div>
+
+              {resultado.lista_erros && resultado.lista_erros.length > 0 && (
+                <details style={{ marginBottom: 16 }}>
+                  <summary style={{ cursor: 'pointer', color: COLORS.danger, fontWeight: 600, padding: 8 }}>
+                    Ver {resultado.lista_erros.length} erro(s)
+                  </summary>
+                  <div style={{ background: '#FCEAEA', padding: 12, borderRadius: 8, maxHeight: 300, overflow: 'auto', fontSize: 12 }}>
+                    {resultado.lista_erros.map((e: any, i: number) => (
+                      <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid #f5d4d4' }}>
+                        <strong>Linha {e.linha || '?'}:</strong> {e.erro || JSON.stringify(e)}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={reset}
+                  style={{
+                    background: 'white',
+                    color: COLORS.espresso,
+                    border: `1px solid ${COLORS.espresso}`,
+                    padding: '10px 20px',
+                    borderRadius: 8,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Importar outro arquivo
+                </button>
+                <button
+                  onClick={() => router.push('/dashboard')}
+                  style={{
+                    background: COLORS.espresso,
+                    color: 'white',
+                    border: 'none',
+                    padding: '10px 24px',
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📊 Ver Dashboard
+                </button>
               </div>
             </div>
           )}
-          
-          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-            <button onClick={reset} style={{padding:"10px 24px",borderRadius:8,border:"none",background:C.go,color:C.bg,fontSize:12,fontWeight:700,cursor:"pointer"}}>📤 Importar outro</button>
-            <a href="/dashboard/home" style={{padding:"10px 24px",borderRadius:8,border:`1px solid ${C.bd}`,color:C.gol,fontSize:12,fontWeight:600,textDecoration:"none"}}>📊 Ver Dashboard</a>
-            <a href="/dashboard/contas" style={{padding:"10px 24px",borderRadius:8,border:`1px solid ${C.bd}`,color:C.gol,fontSize:12,fontWeight:600,textDecoration:"none"}}>📋 Contas</a>
-            <a href="/dashboard" style={{padding:"10px 24px",borderRadius:8,border:`1px solid ${C.bd}`,color:C.txm,fontSize:12,textDecoration:"none"}}>← Sair</a>
-          </div>
         </div>
-      )}
 
-      {error&&<div style={{marginTop:12,padding:12,background:C.r+"15",borderRadius:8,color:C.r,fontSize:11,borderLeft:`3px solid ${C.r}`}}>❌ {error}</div>}
+        {/* Footer */}
+        <p style={{ textAlign: 'center', color: COLORS.espressoLight, fontSize: 12, marginTop: 24 }}>
+          PS Gestão ERP · Upload Universal v2.0 · Multi-tenant · Idempotente
+        </p>
+      </div>
+    </div>
+  );
+}
 
+function Metric({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ background: 'white', padding: 14, borderRadius: 10, textAlign: 'center', border: '1px solid #e8e0d4' }}>
+      <div style={{ fontSize: 24, fontWeight: 700, color }}>{value}</div>
+      <div style={{ fontSize: 11, color: COLORS.espressoLight, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {label}
       </div>
     </div>
   );

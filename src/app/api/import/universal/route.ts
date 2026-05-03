@@ -1,874 +1,528 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+// src/app/api/import/universal/route.ts
+// ========================================================================
+// Upload Universal v2.0 — Suporta:
+//   1. Planilha Modelo PS Gestão (assinatura: aba "💰 LANÇAMENTOS")
+//   2. Detecção automática de outros formatos (SIGA, Omie, ContaAzul)
+//   3. Multi-tenant via CNPJ → company_id
+//   4. Idempotência via import_hash
+// ========================================================================
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import * as XLSX from 'xlsx';
+import crypto from 'crypto';
 
-const SUPA_URL = "https://horsymhsinqcimflrtjo.supabase.co";
-const KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+// ============ Tipos ============
+type DetectedKind =
+  | 'planilha_modelo_ps'
+  | 'lancamentos_generico'
+  | 'clientes'
+  | 'fornecedores'
+  | 'contas_receber'
+  | 'contas_pagar'
+  | 'produtos_servicos'
+  | 'desconhecido';
 
-// ==================================================================
-// MAPEAMENTO DE COLUNAS — generico + preset SIGA
-// ==================================================================
-const COLUMN_MAP: Record<string, Record<string, string[]>> = {
-  clientes: {
-    nome: ["razao social","razão social","nome","nome fantasia","cliente","name","company","empresa","denominacao"],
-    nome_fantasia: ["nome fantasia","fantasia","apelido","nome fantasia/apelido"],
-    cpf_cnpj: ["cpf","cnpj","cpf/cnpj","cpf_cnpj","documento","cnpj/cpf","inscricao"],
-    email: ["email","e-mail","mail","correio"],
-    telefone: ["telefone","tel","fone","phone","tel comercial"],
-    celular: ["celular","cel","mobile","whatsapp"],
-    cidade: ["cidade","city","municipio"],
-    uf: ["uf","estado","state"],
-  },
-  fornecedores: {
-    nome: ["razao social","razão social","nome","fornecedor","supplier","nome fantasia","empresa","nome fantasia/apelido"],
-    nome_fantasia: ["nome fantasia","fantasia","apelido"],
-    cpf_cnpj: ["cpf","cnpj","cpf/cnpj","documento"],
-    email: ["email","e-mail"],
-    telefone: ["telefone","tel","fone"],
-    cidade: ["cidade","city","municipio"],
-    uf: ["uf","estado"],
-  },
-  receber: {
-    descricao: ["descricao","descrição","historico","histórico","description","observacao","detalhamento"],
-    valor: ["valor","value","amount","total","vlr","valor documento","valor titulo","valor base","receber"],
-    data_vencimento: ["vencimento","data vencimento","dt vencimento","venc","data vcto"],
-    data_emissao: ["emissao","emissão","data emissao","data emissão","dt emissao","data lancamento","competencia","data"],
-    data_pagamento: ["pagamento","data pagamento","dt pagamento","data recebimento","dt baixa","quitado em","quitado"],
-    cliente_nome: ["cliente","customer","client","sacado","pagador","nome cliente","nome fantasia/apelido","nome fantasia","apelido"],
-    categoria: ["categoria","category","plano contas","conta contabil","classificacao"],
-    numero_documento: ["documento","doc","numero","num doc","nr documento","numero documento","nf","nota","codigo","código"],
-    status: ["status","situacao","situação"],
-    forma_pagamento: ["forma pgto","forma pagamento","meio pagamento","meio de pagamento","tipo pgto"],
-    centro_custo: ["centro custo","cc","cost center","centro de custo","centro de custos"],
-    cliente_relacionado: ["cliente relacionado","relacionado"],
-  },
-  pagar: {
-    descricao: ["descricao","descrição","historico","histórico","description","observacao","detalhamento"],
-    valor: ["valor","value","amount","total","vlr","valor documento","valor titulo","valor base","pagar"],
-    data_vencimento: ["vencimento","data vencimento","dt vencimento","venc"],
-    data_emissao: ["emissao","emissão","data emissao","data emissão","dt emissao","data lancamento","competencia","data"],
-    data_pagamento: ["pagamento","data pagamento","dt pagamento","dt baixa","quitado em","quitado"],
-    fornecedor_nome: ["fornecedor","supplier","vendor","cedente","beneficiario","nome fornecedor","credor","nome fantasia/apelido","nome fantasia","apelido"],
-    categoria: ["categoria","category","plano contas","conta contabil","classificacao"],
-    numero_documento: ["documento","doc","numero","num doc","nr documento","numero documento","codigo","código"],
-    status: ["status","situacao","situação"],
-    forma_pagamento: ["forma pgto","forma pagamento","meio pagamento","meio de pagamento","tipo pgto"],
-    centro_custo: ["centro custo","cc","cost center","centro de custo","centro de custos"],
-    cliente_relacionado: ["cliente relacionado","relacionado"],
-  },
-  produtos: {
-    codigo: ["codigo","código","code","sku","ref","referencia","id","cod"],
-    nome: ["nome","descricao","descrição","produto","product","item","mercadoria"],
-    unidade: ["unidade","un","unit","und","medida"],
-    preco_venda: ["preco venda","preço venda","preco","preço","price","valor venda"],
-    preco_custo: ["preco custo","preço custo","custo","cost","valor custo"],
-    estoque_atual: ["estoque","estoque atual","stock","saldo","quantidade","qtd"],
-    ncm: ["ncm","ncm/sh"],
-    categoria: ["categoria","grupo","departamento","secao","familia"],
-  },
-};
-
-// ==================================================================
-// Detectar formato SIGA
-// ==================================================================
-function detectPreset(headers: string[]): "siga" | "generico" {
-  const h = headers.map(x => x.toLowerCase().trim());
-  const hasReceber = h.some(x => x === "receber");
-  const hasPagar = h.some(x => x === "pagar");
-  const hasQuitado = h.some(x => x.includes("quitado em") || x === "quitado");
-  const hasSaldo = h.some(x => x === "saldo");
-  if (hasReceber && hasPagar && (hasQuitado || hasSaldo)) return "siga";
-  return "generico";
+interface ParsedSheet {
+  name: string;
+  headers: string[];
+  rows: any[][];
+  rowCount: number;
 }
 
-function detectTipo(headers: string[]): string {
-  const h = headers.map(x => x.toLowerCase().trim());
-  const scores: Record<string, number> = { clientes: 0, fornecedores: 0, receber: 0, pagar: 0, produtos: 0 };
-  for (const [tipo, campos] of Object.entries(COLUMN_MAP)) {
-    for (const aliases of Object.values(campos)) {
-      for (const alias of aliases) {
-        if (h.some(hdr => hdr.includes(alias) || alias.includes(hdr))) scores[tipo]++;
-      }
-    }
+interface DetectionResult {
+  kind: DetectedKind;
+  confidence: number;
+  sheetIndex: number;
+  reason: string;
+}
+
+interface LancamentoRecord {
+  company_id: string;
+  business_line_id: string | null;
+  tipo: 'PAGAR' | 'RECEBER';
+  data_emissao: string | null;
+  data_vencimento: string;
+  data_pagamento: string | null;
+  valor_documento: number;
+  valor_pago: number | null;
+  status: string;
+  categoria: string | null;
+  subcategoria: string | null;
+  centro_custo: string | null;
+  descricao: string | null;
+  nome_pessoa: string | null;
+  forma_pagamento: string | null;
+  import_hash: string;
+}
+
+// ============ Constantes ============
+const ASSINATURA_PLANILHA_PS = '💰 LANÇAMENTOS';
+const ASSINATURA_PLANILHA_PS_FALLBACK = 'LANÇAMENTOS';
+
+const HEADERS_LANCAMENTO_PS = [
+  'CNPJ',
+  'Tipo',
+  'Linha de Negócio',
+  'Data Competência',
+  'Data Vencimento',
+  'Valor (R$)',
+  'Categoria',
+  'Subcategoria',
+];
+
+// ============ Helpers ============
+function normalizar(s: string): string {
+  return (s ?? '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function normalizarCnpj(cnpj: string): string {
+  return (cnpj ?? '').toString().replace(/\D/g, '');
+}
+
+function parseDate(v: any): string | null {
+  if (!v) return null;
+  if (typeof v === 'number') {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    const ms = v * 86400 * 1000;
+    const d = new Date(epoch.getTime() + ms);
+    return d.toISOString().slice(0, 10);
   }
-  if (h.some(x => x.includes("cliente") || x.includes("sacado"))) scores.receber += 3;
-  if (h.some(x => x.includes("fornecedor") || x.includes("cedente") || x.includes("credor"))) scores.pagar += 3;
-  if (h.some(x => x.includes("estoque") || x.includes("sku") || x.includes("produto"))) scores.produtos += 3;
-  if (h.some(x => x.includes("vencimento"))) { scores.receber += 2; scores.pagar += 2; }
-  return Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
-}
-
-function mapColumns(headers: string[], tipo: string): Record<string, number> {
-  const campos = COLUMN_MAP[tipo] || {};
-  const mapped: Record<string, number> = {};
-  const h = headers.map(x => x.toLowerCase().trim());
-  for (const [field, aliases] of Object.entries(campos)) {
-    for (let i = 0; i < h.length; i++) {
-      if (Object.values(mapped).includes(i)) continue;
-      const hdr = h[i];
-      if (aliases.some(a => hdr === a || hdr.includes(a) || a.includes(hdr))) {
-        mapped[field] = i;
-        break;
-      }
-    }
+  if (v instanceof Date) {
+    return v.toISOString().slice(0, 10);
   }
-  return mapped;
-}
-
-// Mapeamento específico SIGA (busca por header exato)
-function mapColumnsSIGA(headers: string[]): Record<string, number> {
-  const h = headers.map(x => x.toLowerCase().trim());
-  const m: Record<string, number> = {};
-  const find = (name: string) => h.findIndex(x => x === name);
-  const findContains = (name: string) => h.findIndex(x => x.includes(name));
-  
-  m.data_emissao = find("emissao") !== -1 ? find("emissao") : find("emissão");
-  m.data_vencimento = find("vencimento");
-  m.data_pagamento = findContains("quitado em");
-  if (m.data_pagamento === -1) m.data_pagamento = find("quitado");
-  m.status = find("situacao") !== -1 ? find("situacao") : find("situação");
-  m.forma_pagamento = findContains("meio");
-  m.numero_documento = find("codigo") !== -1 ? find("codigo") : find("código");
-  m.numero_nf = find("documento");
-  m.nome_pessoa = findContains("nome fantasia");
-  m.descricao = find("descricao") !== -1 ? find("descricao") : find("descrição");
-  m.valor_base = findContains("valor base");
-  m.valor_receber = find("receber");
-  m.valor_pagar = find("pagar");
-  m.conta_corrente = findContains("conta corrente");
-  m.categoria = find("categoria");
-  m.centro_custo = findContains("centro de custo");
-  m.cliente_relacionado = findContains("cliente relacionado");
-  
-  // Remove campos -1
-  Object.keys(m).forEach(k => { if (m[k] === -1) delete m[k]; });
-  return m;
-}
-
-// ==================================================================
-// Parsers
-// ==================================================================
-function parseDate(val: any): string | null {
-  if (val == null || val === "") return null;
-  if (val instanceof Date) return val.toISOString().split("T")[0];
-  const s = String(val).trim();
+  const s = String(v).trim();
   if (!s) return null;
-  const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-  if (m1) { let y = parseInt(m1[3]); if (m1[3].length === 2) y += 2000; return `${y}-${m1[2].padStart(2, "0")}-${m1[1].padStart(2, "0")}`; }
-  const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-  if (m2) return `${m2[1]}-${m2[2].padStart(2, "0")}-${m2[3].padStart(2, "0")}`;
-  if (/^\d{5}$/.test(s)) { const d = new Date((parseInt(s) - 25569) * 86400 * 1000); return d.toISOString().split("T")[0]; }
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+  if (m) {
+    const [, d, mo, y] = m;
+    const yyyy = y.length === 2 ? '20' + y : y;
+    return `${yyyy}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
   return null;
 }
 
-function parseNumber(val: any): number {
-  if (typeof val === "number") return val;
-  if (val == null || val === "") return 0;
-  const s = String(val).replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
-  return parseFloat(s) || 0;
-}
-
-function parseStatus(val: any): string {
-  const s = (String(val || "")).toLowerCase().trim();
-  if (["pago", "recebido", "liquidado", "baixado", "quitado"].some(x => s.includes(x))) return "pago";
-  if (["cancelado", "estornado"].some(x => s.includes(x))) return "cancelado";
-  if (["vencido", "atraso", "inadimplente"].some(x => s.includes(x))) return "vencido";
-  return "aberto";
-}
-
-function normalizeStr(s: string): string {
-  return (s || "").trim().toUpperCase().slice(0, 150);
-}
-
-// ==================================================================
-// HASH de idempotência (SHA-256 truncado)
-// Base: company_id + data_emissao + data_vencimento + valor + nome + descricao + numero_documento + centro_custo + seq
-//
-// IMPORTANTE: o parâmetro `seq` permite que duplicatas INTENCIONAIS (ex: comissão
-// Luzardo repetida pra fechar caixa) sejam preservadas. O chamador incrementa seq
-// a cada vez que uma chave base idêntica aparece na mesma planilha.
-// Quando reimportar a mesma planilha, os mesmos seq se repetem → nada duplica.
-// ==================================================================
-async function computeImportHash(
-  companyId: string,
-  dataEmissao: string | null,
-  dataVencimento: string | null,
-  valor: number,
-  nome: string,
-  descricao: string,
-  numeroDocumento: string | null,
-  centroCusto: string | null,
-  seq: number
-): Promise<string> {
-  const crypto = require("crypto");
-  const key = [
-    companyId || "",
-    dataEmissao || "",
-    dataVencimento || "",
-    valor.toFixed(2),
-    normalizeStr(nome),
-    normalizeStr(descricao),
-    normalizeStr(numeroDocumento || ""),
-    normalizeStr(centroCusto || ""),
-    String(seq),
-  ].join("|");
-  return crypto.createHash("sha256").update(key).digest("hex").slice(0, 32);
-}
-
-// ==================================================================
-// Processa 1 linha SIGA -> lançamento
-// ==================================================================
-function processarLinhaSIGA(row: any[], m: Record<string, number>): { tipo: "receber" | "pagar" | null; data: any } {
-  const receber = parseNumber(row[m.valor_receber]);
-  const pagar = parseNumber(row[m.valor_pagar]);
-  const valorBase = parseNumber(row[m.valor_base]);
-  
-  let tipo: "receber" | "pagar" | null = null;
-  let valor = 0;
-  
-  if (receber > 0) { tipo = "receber"; valor = receber; }
-  else if (pagar > 0) { tipo = "pagar"; valor = pagar; }
-  else if (valorBase > 0) {
-    // Se não tem receber/pagar mas tem valor base, tentar deduzir pela categoria
-    const cat = String(row[m.categoria] || "").toLowerCase();
-    if (cat.includes("receita") || cat.includes("credito")) { tipo = "receber"; valor = valorBase; }
-    else { tipo = "pagar"; valor = valorBase; }
-  }
-  
-  if (!tipo || valor === 0) return { tipo: null, data: null };
-  
-  const nomePessoa = String(row[m.nome_pessoa] || "").trim();
-  const clienteRel = String(row[m.cliente_relacionado] || "").trim();
-  // Se não tem nome, usa categoria como referência ou "(SEM NOME)" como último recurso
-  // Não descarta o lançamento — valor financeiro é real e precisa entrar no fluxo/DRE
-  const categoriaStr = String(row[m.categoria] || "").trim();
-  let nomeFinal = nomePessoa || clienteRel;
-  if (!nomeFinal) {
-    // Extrai a última parte da categoria (ex: "DESPESAS ADMINISTRATIVAS > Aluguel" → "Aluguel")
-    const catParts = categoriaStr.split(">").map(s => s.trim()).filter(Boolean);
-    const catLeaf = catParts[catParts.length - 1] || "";
-    nomeFinal = catLeaf ? `(SEM NOME) ${catLeaf}` : "(SEM NOME)";
-  }
-  
-  const descricao = String(row[m.descricao] || "").trim();
-  const categoria = String(row[m.categoria] || "").trim();
-  const centroCusto = String(row[m.centro_custo] || "").trim();
-  
-  return {
-    tipo,
-    data: {
-      data_emissao: parseDate(row[m.data_emissao]),
-      data_vencimento: parseDate(row[m.data_vencimento]),
-      data_pagamento: parseDate(row[m.data_pagamento]),
-      status: parseStatus(row[m.status]),
-      forma_pagamento: String(row[m.forma_pagamento] || "").trim() || null,
-      numero_documento: String(row[m.numero_documento] || "").trim() || null,
-      numero_nf: String(row[m.numero_nf] || "").trim() || null,
-      nome_pessoa: nomeFinal,
-      descricao: descricao || categoria,
-      valor_documento: valor,
-      valor_pago: receber > 0 || pagar > 0 || parseDate(row[m.data_pagamento]) ? valor : 0,
-      categoria_original: categoria,
-      centro_custo_original: centroCusto,
-      conta_corrente: String(row[m.conta_corrente] || "").trim() || null,
+function parseValor(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return Math.round(v * 100) / 100;
+  let s = String(v).trim();
+  if (!s) return null;
+  s = s.replace(/R\$\s*/gi, '').replace(/\s/g, '');
+  const temVirgula = s.includes(',');
+  const temPonto = s.includes('.');
+  if (temVirgula && temPonto) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      s = s.replace(/,/g, '');
     }
-  };
-}
-
-// ==================================================================
-// Read XLSX / CSV
-// ==================================================================
-async function readFile(file: File): Promise<{ headers: string[]; rows: any[][] }> {
-  const fileName = file.name.toLowerCase();
-  const isCSV = fileName.endsWith(".csv") || fileName.endsWith(".tsv");
-  
-  if (isCSV) {
-    const text = await file.text();
-    const sep = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
-    const lines = text.split("\n").filter(l => l.trim().length > 0);
-    if (lines.length < 2) throw new Error("Arquivo vazio");
-    let hdrIdx = 0;
-    for (let i = 0; i < Math.min(5, lines.length); i++) {
-      const cols = lines[i].split(sep);
-      if (cols.length >= 3) { hdrIdx = i; break; }
-    }
-    const headers = lines[hdrIdx].split(sep).map(h => h.replace(/["']/g, "").trim());
-    const rows = lines.slice(hdrIdx + 1).map(l => l.split(sep).map(v => v.replace(/["']/g, "").trim()));
-    return { headers, rows };
+  } else if (temVirgula) {
+    s = s.replace(',', '.');
   }
-  
-  const ExcelJS = require("exceljs");
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(await file.arrayBuffer() as any);
-  const ws = wb.worksheets[0];
-  if (!ws) throw new Error("Planilha vazia");
-  
-  let hdrRow = 1;
-  let bestCount = 0;
-  ws.eachRow((row: any, num: any) => {
-    if (num > 10) return;
-    let filled = 0;
-    row.eachCell((_c: any) => filled++);
-    if (filled > bestCount && filled >= 3) { bestCount = filled; hdrRow = num; }
-  });
-  
-  const headers: string[] = [];
-  const hdrCells = ws.getRow(hdrRow);
-  hdrCells.eachCell((cell: any, col: any) => { headers[col - 1] = String(cell.value || "").trim(); });
-  
-  const rows: any[][] = [];
-  ws.eachRow((row: any, num: any) => {
-    if (num <= hdrRow) return;
-    const r: any[] = [];
-    row.eachCell((cell: any, col: any) => { 
-      let v = cell.value;
-      if (v && typeof v === "object" && "result" in v) v = v.result;
-      if (v && typeof v === "object" && "text" in v) v = v.text;
-      r[col - 1] = v;
-    });
-    if (r.some(v => v != null && String(v).trim() !== "")) rows.push(r);
-  });
-  
-  return { headers, rows };
+  const n = parseFloat(s);
+  return isNaN(n) ? null : Math.round(n * 100) / 100;
 }
 
-// ==================================================================
-// POST handler
-// ==================================================================
+function gerarHash(record: Partial<LancamentoRecord>, idx: number): string {
+  const base = [
+    record.company_id || '',
+    record.tipo || '',
+    record.data_emissao || record.data_vencimento || '',
+    record.valor_documento ?? '',
+    record.nome_pessoa || '',
+    record.descricao || '',
+    idx,
+  ].join('|');
+  return 'plan_' + crypto.createHash('md5').update(base).digest('hex').slice(0, 32);
+}
+
+function normalizarStatus(v: any, dataPagamento: string | null): string {
+  if (dataPagamento) return 'PAGO';
+  if (!v) return 'A VENCER';
+  const s = String(v).toUpperCase().trim();
+  if (s.includes('PAGO') || s.includes('RECEBI') || s.includes('QUITAD') || s.includes('LIQUIDAD')) return 'PAGO';
+  if (s.includes('CANCEL')) return 'CANCELADO';
+  return 'A VENCER';
+}
+
+// ============ Parsing do XLSX ============
+function parseWorkbook(buffer: ArrayBuffer): ParsedSheet[] {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  return wb.SheetNames.map((name) => {
+    const ws = wb.Sheets[name];
+    const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    if (aoa.length === 0) {
+      return { name, headers: [], rows: [], rowCount: 0 };
+    }
+    let headerRowIdx = 0;
+    for (let i = 0; i < Math.min(5, aoa.length); i++) {
+      const r = aoa[i] || [];
+      const stringCount = r.filter((c) => typeof c === 'string' && c.trim().length > 1).length;
+      if (stringCount >= 3) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+    const headers = (aoa[headerRowIdx] || []).map((h) => String(h ?? '').trim());
+    const rows = aoa.slice(headerRowIdx + 1).filter((r) => r.some((c) => c !== '' && c !== null));
+    return { name, headers, rows, rowCount: rows.length };
+  });
+}
+
+// ============ Detecção de Tipo ============
+function detectarTipo(sheets: ParsedSheet[]): DetectionResult {
+  for (let i = 0; i < sheets.length; i++) {
+    const sh = sheets[i];
+    const nameNorm = normalizar(sh.name);
+    if (
+      nameNorm.includes('lancamentos') ||
+      sh.name.includes(ASSINATURA_PLANILHA_PS) ||
+      sh.name.includes(ASSINATURA_PLANILHA_PS_FALLBACK)
+    ) {
+      const headersNorm = sh.headers.map(normalizar);
+      const matches = HEADERS_LANCAMENTO_PS.filter((h) => headersNorm.includes(normalizar(h))).length;
+      if (matches >= 5) {
+        return {
+          kind: 'planilha_modelo_ps',
+          confidence: 100,
+          sheetIndex: i,
+          reason: `Aba "${sh.name}" com ${matches}/${HEADERS_LANCAMENTO_PS.length} cabeçalhos da Planilha Modelo PS detectados`,
+        };
+      }
+    }
+  }
+
+  for (let i = 0; i < sheets.length; i++) {
+    const sh = sheets[i];
+    if (sh.rowCount < 2) continue;
+    const headersNorm = sh.headers.map(normalizar);
+    const temData = headersNorm.some((h) => h.includes('data') || h.includes('vencimento') || h.includes('competencia'));
+    const temValor = headersNorm.some((h) => h.includes('valor') || h.includes('montante') || h.includes('total'));
+    const temTipo = headersNorm.some(
+      (h) => h.includes('tipo') || h.includes('receita') || h.includes('despesa') || h.includes('pagar') || h.includes('receber')
+    );
+    if (temData && temValor && temTipo) {
+      return {
+        kind: 'lancamentos_generico',
+        confidence: 70,
+        sheetIndex: i,
+        reason: `Aba "${sh.name}" tem colunas de data, valor e tipo`,
+      };
+    }
+  }
+
+  for (let i = 0; i < sheets.length; i++) {
+    const sh = sheets[i];
+    const headersNorm = sh.headers.map(normalizar);
+    if (headersNorm.some((h) => h.includes('cliente')) && headersNorm.some((h) => h.includes('cnpj') || h.includes('cpf'))) {
+      return { kind: 'clientes', confidence: 60, sheetIndex: i, reason: `Aba "${sh.name}" parece cadastro de clientes` };
+    }
+    if (headersNorm.some((h) => h.includes('fornecedor'))) {
+      return { kind: 'fornecedores', confidence: 60, sheetIndex: i, reason: `Aba "${sh.name}" parece cadastro de fornecedores` };
+    }
+  }
+
+  return { kind: 'desconhecido', confidence: 0, sheetIndex: 0, reason: 'Nenhum formato reconhecido' };
+}
+
+// ============ Mapeamento Planilha PS → Records ============
+function mapearPlanilhaPS(
+  sheet: ParsedSheet,
+  empresasMap: Map<string, string>,
+  linhasNegocioMap: Map<string, Map<string, string>>
+): { records: LancamentoRecord[]; erros: any[] } {
+  const headersNorm = sheet.headers.map(normalizar);
+  const idx = (target: string) => headersNorm.findIndex((h) => h === normalizar(target));
+
+  const colCnpj = idx('CNPJ');
+  const colTipo = idx('Tipo');
+  const colLn = idx('Linha de Negócio');
+  const colDataCompt = idx('Data Competência');
+  const colDataVenc = idx('Data Vencimento');
+  const colDataPgto = idx('Data Pagamento');
+  const colValor = idx('Valor (R$)');
+  const colValorPago = idx('Valor Pago (R$)');
+  const colCategoria = idx('Categoria');
+  const colSubcat = idx('Subcategoria');
+  const colCC = idx('Centro de Custo');
+  const colDesc = idx('Descrição');
+  const colPessoa = idx('Cliente/Fornecedor');
+  const colForma = idx('Forma Pagamento');
+
+  const records: LancamentoRecord[] = [];
+  const erros: any[] = [];
+
+  sheet.rows.forEach((row, idxRow) => {
+    try {
+      const cnpjRaw = colCnpj >= 0 ? row[colCnpj] : null;
+      const cnpjNorm = normalizarCnpj(String(cnpjRaw || ''));
+
+      if (!cnpjNorm || cnpjNorm.length !== 14) return;
+      if (cnpjNorm === '00000000000100' || cnpjNorm === '00000000000000') return;
+
+      const company_id = empresasMap.get(cnpjNorm);
+      if (!company_id) {
+        erros.push({ linha: idxRow + 2, erro: `CNPJ ${cnpjRaw} não cadastrado no sistema` });
+        return;
+      }
+
+      const tipoRaw = String(row[colTipo] || '').toUpperCase().trim();
+      if (tipoRaw !== 'PAGAR' && tipoRaw !== 'RECEBER') {
+        erros.push({ linha: idxRow + 2, erro: `Tipo inválido: "${tipoRaw}". Use PAGAR ou RECEBER` });
+        return;
+      }
+
+      const dataCompt = colDataCompt >= 0 ? parseDate(row[colDataCompt]) : null;
+      const dataVenc = colDataVenc >= 0 ? parseDate(row[colDataVenc]) : null;
+      const dataPgto = colDataPgto >= 0 ? parseDate(row[colDataPgto]) : null;
+
+      if (!dataVenc && !dataCompt) {
+        erros.push({ linha: idxRow + 2, erro: 'Data de Vencimento ou Competência obrigatória' });
+        return;
+      }
+
+      const valor = colValor >= 0 ? parseValor(row[colValor]) : null;
+      if (!valor || valor <= 0) {
+        erros.push({ linha: idxRow + 2, erro: `Valor inválido: ${row[colValor]}` });
+        return;
+      }
+      const valorPago = colValorPago >= 0 ? parseValor(row[colValorPago]) : null;
+
+      let business_line_id: string | null = null;
+      if (colLn >= 0) {
+        const lnNome = String(row[colLn] || '').trim();
+        if (lnNome) {
+          const lnsEmpresa = linhasNegocioMap.get(company_id);
+          if (lnsEmpresa) {
+            business_line_id = lnsEmpresa.get(normalizar(lnNome)) || null;
+            if (!business_line_id) {
+              erros.push({
+                linha: idxRow + 2,
+                erro: `Linha de Negócio "${lnNome}" não cadastrada para esta empresa`,
+              });
+              return;
+            }
+          }
+        }
+      }
+
+      const cliente = colPessoa >= 0 ? String(row[colPessoa] || '').trim() : '';
+      const descRaw = colDesc >= 0 ? String(row[colDesc] || '').trim() : '';
+      const desc = (descRaw || cliente || 'Lançamento sem descrição').slice(0, 200);
+
+      const rec: LancamentoRecord = {
+        company_id,
+        business_line_id,
+        tipo: tipoRaw as 'PAGAR' | 'RECEBER',
+        data_emissao: dataCompt,
+        data_vencimento: dataVenc || dataCompt!,
+        data_pagamento: dataPgto,
+        valor_documento: valor,
+        valor_pago: valorPago,
+        status: normalizarStatus(null, dataPgto),
+        categoria: colCategoria >= 0 ? String(row[colCategoria] || '').trim() || null : null,
+        subcategoria: colSubcat >= 0 ? String(row[colSubcat] || '').trim() || null : null,
+        centro_custo: colCC >= 0 ? String(row[colCC] || '').trim() || null : null,
+        descricao: desc,
+        nome_pessoa: cliente || null,
+        forma_pagamento: colForma >= 0 ? String(row[colForma] || '').trim() || null : null,
+        import_hash: '',
+      };
+      rec.import_hash = gerarHash(rec, idxRow);
+
+      records.push(rec);
+    } catch (e: any) {
+      erros.push({ linha: idxRow + 2, erro: e.message });
+    }
+  });
+
+  return { records, erros };
+}
+
+// ============ Handler POST ============
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const action = (formData.get("action") as string) || "analyze";
-    const companyId = formData.get("company_id") as string;
-    const tipoForced = formData.get("tipo") as string;
-    const presetForced = formData.get("preset") as string;
-    
-    if (!file) return NextResponse.json({ error: "Nenhum arquivo" }, { status: 400 });
-    
-    const fn = file.name.toLowerCase();
-    if (!fn.endsWith(".xlsx") && !fn.endsWith(".xls") && !fn.endsWith(".csv") && !fn.endsWith(".tsv")) {
-      return NextResponse.json({ error: "Formato não suportado. Use .xlsx, .xls ou .csv" }, { status: 400 });
+    const file = formData.get('file') as File | null;
+    const action = (formData.get('action') as string) || 'preview';
+    const sheetIndexParam = formData.get('sheet_index');
+    const userIdRaw = formData.get('user_id') as string | null;
+
+    if (!file) {
+      return NextResponse.json({ ok: false, error: 'Arquivo não enviado' }, { status: 400 });
     }
-    
-    const { headers, rows } = await readFile(file);
-    const cleanHeaders = headers.filter(h => h && h.length > 0);
-    
-    // Detectar preset e tipo
-    const preset = presetForced || detectPreset(cleanHeaders);
-    const tipoDetected = preset === "siga" ? "misto" : detectTipo(cleanHeaders);
-    const tipo = tipoForced || tipoDetected;
-    
-    // Mapeamento
-    let mapping: Record<string, number> = {};
-    if (preset === "siga") {
-      mapping = mapColumnsSIGA(cleanHeaders);
-    } else {
-      mapping = mapColumns(cleanHeaders, tipo);
+
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    if (!url || !key) {
+      return NextResponse.json({ ok: false, error: 'Variáveis de ambiente Supabase ausentes' }, { status: 500 });
     }
-    
-    // =========================================================
-    // ANALYZE MODE
-    // =========================================================
-    if (action === "analyze") {
-      let preview: any[] = [];
-      
-      if (preset === "siga") {
-        // Preview SIGA: mostrar as 10 primeiras linhas com tipo inferido
-        preview = rows.slice(0, 10).map(r => {
-          const p = processarLinhaSIGA(r, mapping);
-          if (!p.tipo) return null;
-          return {
-            tipo: p.tipo,
-            data_emissao: p.data.data_emissao,
-            data_vencimento: p.data.data_vencimento,
-            data_pagamento: p.data.data_pagamento,
-            nome: p.data.nome_pessoa,
-            valor: p.data.valor_documento,
-            descricao: p.data.descricao,
-            categoria: p.data.categoria_original,
-            centro_custo: p.data.centro_custo_original,
-            status: p.data.status,
-          };
-        }).filter(Boolean);
-      } else {
-        preview = rows.slice(0, 10).map(r => {
-          const obj: Record<string, any> = {};
-          for (const [field, colIdx] of Object.entries(mapping)) {
-            obj[field] = r[colIdx] != null ? String(r[colIdx]) : "";
-          }
-          return obj;
-        });
-      }
-      
-      // Contagem prévia SIGA
-      let stats: any = null;
-      if (preset === "siga") {
-        let cReceber = 0, cPagar = 0, totReceber = 0, totPagar = 0;
-        for (const r of rows) {
-          const p = processarLinhaSIGA(r, mapping);
-          if (p.tipo === "receber") { cReceber++; totReceber += p.data.valor_documento; }
-          else if (p.tipo === "pagar") { cPagar++; totPagar += p.data.valor_documento; }
-        }
-        stats = { cReceber, cPagar, totReceber, totPagar };
-      }
-      
+    const supa = createClient(url, key);
+
+    const buffer = await file.arrayBuffer();
+    const sheets = parseWorkbook(buffer);
+
+    if (sheets.length === 0) {
+      return NextResponse.json({ ok: false, error: 'Arquivo vazio ou inválido' }, { status: 400 });
+    }
+
+    const detection = detectarTipo(sheets);
+    const sheetIndex = sheetIndexParam !== null && sheetIndexParam !== undefined
+      ? parseInt(String(sheetIndexParam), 10)
+      : detection.sheetIndex;
+    const sheetEscolhida = sheets[sheetIndex];
+
+    if (action === 'preview') {
       return NextResponse.json({
-        success: true,
-        action: "analyze",
-        fileName: file.name,
-        fileSize: file.size,
-        totalRows: rows.length,
-        headers: cleanHeaders,
-        preset,
-        tipoDetected,
-        tipo,
-        mapping,
-        unmappedHeaders: cleanHeaders.filter((_, i) => !Object.values(mapping).includes(i)),
-        preview,
-        stats,
+        ok: true,
+        action: 'preview',
+        arquivo: { nome: file.name, tamanho_kb: Math.round(file.size / 1024) },
+        sheets: sheets.map((s, i) => ({
+          index: i,
+          nome: s.name,
+          linhas: s.rowCount,
+          colunas: s.headers.length,
+          headers: s.headers,
+          eh_planilha_ps: s.name.includes(ASSINATURA_PLANILHA_PS),
+        })),
+        deteccao: detection,
+        sheet_selecionada: {
+          index: sheetIndex,
+          nome: sheetEscolhida?.name,
+          headers: sheetEscolhida?.headers,
+          preview_linhas: (sheetEscolhida?.rows || []).slice(0, 10),
+        },
       });
     }
-    
-    // =========================================================
-    // IMPORT MODE
-    // =========================================================
-    if (!companyId) return NextResponse.json({ error: "company_id obrigatório" }, { status: 400 });
-    
-    const sb = createClient(SUPA_URL, KEY());
-    
-    // ----- SIGA: dupla escrita em erp_pagar/erp_receber + erp_lancamentos -----
-    if (preset === "siga") {
-      // 1) Carregar clientes e fornecedores existentes da empresa (usa nome_fantasia)
-      const [clientesRes, fornecRes] = await Promise.all([
-        sb.from("erp_clientes").select("id, nome_fantasia").eq("company_id", companyId),
-        sb.from("erp_fornecedores").select("id, nome_fantasia").eq("company_id", companyId),
-      ]);
-      
-      const clientesMap = new Map<string, string>();
-      (clientesRes.data || []).forEach((c: any) => clientesMap.set(normalizeStr(c.nome_fantasia), c.id));
-      
-      const fornecMap = new Map<string, string>();
-      (fornecRes.data || []).forEach((f: any) => fornecMap.set(normalizeStr(f.nome_fantasia), f.id));
-      
-      // 2) Processar todas as linhas
-      const lancReceber: any[] = [];
-      const lancPagar: any[] = [];
-      const clientesNovos = new Set<string>();
-      const fornecNovos = new Set<string>();
-      
-      for (const r of rows) {
-        const p = processarLinhaSIGA(r, mapping);
-        if (!p.tipo) continue;  // só descarta se não identificou tipo receber/pagar
-        
-        const nomeNorm = normalizeStr(p.data.nome_pessoa);
-        
-        if (p.tipo === "receber") {
-          if (!clientesMap.has(nomeNorm)) clientesNovos.add(p.data.nome_pessoa);
-          lancReceber.push({ ...p.data, _nome_norm: nomeNorm });
-        } else {
-          if (!fornecMap.has(nomeNorm)) fornecNovos.add(p.data.nome_pessoa);
-          lancPagar.push({ ...p.data, _nome_norm: nomeNorm });
-        }
-      }
-      
-      // 3) Criar clientes novos em lote
-      if (clientesNovos.size > 0) {
-        const novos = Array.from(clientesNovos).map(nome => ({
-          company_id: companyId,
-          nome_fantasia: nome.slice(0, 250),
-        }));
-        const { data: criados, error: errC } = await sb
-          .from("erp_clientes")
-          .insert(novos)
-          .select("id, nome_fantasia");
-        if (!errC && criados) {
-          criados.forEach((c: any) => clientesMap.set(normalizeStr(c.nome_fantasia), c.id));
-        } else if (errC) {
-          console.error("Erro criando clientes:", errC.message);
-        }
-      }
-      
-      // 4) Criar fornecedores novos em lote
-      if (fornecNovos.size > 0) {
-        const novos = Array.from(fornecNovos).map(nome => ({
-          company_id: companyId,
-          nome_fantasia: nome.slice(0, 250),
-        }));
-        const { data: criados, error: errF } = await sb
-          .from("erp_fornecedores")
-          .insert(novos)
-          .select("id, nome_fantasia");
-        if (!errF && criados) {
-          criados.forEach((f: any) => fornecMap.set(normalizeStr(f.nome_fantasia), f.id));
-        } else if (errF) {
-          console.error("Erro criando fornecedores:", errF.message);
-        }
-      }
-      
-      // 5-6-7) Preparar registros COM HASH pra idempotência
-      const recordsReceber: any[] = [];
-      const recordsPagar: any[] = [];
-      const recordsLancamentos: any[] = [];
-      
-      // Contador de sequencial por chave base (pra permitir duplicatas intencionais)
-      const seqCounter = new Map<string, number>();
-      function nextSeq(base: string): number {
-        const n = (seqCounter.get(base) || 0) + 1;
-        seqCounter.set(base, n);
-        return n;
-      }
-      
-      for (const l of lancReceber) {
-        const baseKey = `R|${l.data_emissao}|${l.data_vencimento}|${l.valor_documento.toFixed(2)}|${normalizeStr(l.nome_pessoa)}|${normalizeStr(l.descricao)}`;
-        const seq = nextSeq(baseKey);
-        const hash = await computeImportHash(
-          companyId,
-          l.data_emissao,
-          l.data_vencimento,
-          l.valor_documento,
-          l.nome_pessoa,
-          l.descricao,
-          l.numero_documento,
-          l.centro_custo_original,
-          seq
-        );
-        
-        recordsReceber.push({
-          company_id: companyId,
-          cliente_id: clientesMap.get(l._nome_norm) || null,
-          cliente_nome: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 250),
-          valor: l.valor_documento,
-          valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-          numero_nf: (l.numero_nf || "").slice(0, 100) || null,
-          categoria: (l.categoria_original || "").slice(0, 250) || null,
-          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          ref_externa_sistema: "siga",
-          importado_em: new Date().toISOString(),
-          import_hash: hash,
-        });
-        
-        recordsLancamentos.push({
-          company_id: companyId,
-          tipo: "receber",
-          cliente_id: clientesMap.get(l._nome_norm) || null,
-          nome_pessoa: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 500),
-          valor_documento: l.valor_documento,
-          valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          categoria: (l.categoria_original || "").slice(0, 250) || null,
-          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-          import_hash: hash,
-        });
-      }
-      
-      for (const l of lancPagar) {
-        const baseKey = `P|${l.data_emissao}|${l.data_vencimento}|${l.valor_documento.toFixed(2)}|${normalizeStr(l.nome_pessoa)}|${normalizeStr(l.descricao)}`;
-        const seq = nextSeq(baseKey);
-        const hash = await computeImportHash(
-          companyId,
-          l.data_emissao,
-          l.data_vencimento,
-          l.valor_documento,
-          l.nome_pessoa,
-          l.descricao,
-          l.numero_documento,
-          l.centro_custo_original,
-          seq
-        );
-        
-        recordsPagar.push({
-          company_id: companyId,
-          fornecedor_id: fornecMap.get(l._nome_norm) || null,
-          fornecedor_nome: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 250),
-          valor: l.valor_documento,
-          valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-          numero_nf: (l.numero_nf || "").slice(0, 100) || null,
-          categoria: (l.categoria_original || "").slice(0, 250) || null,
-          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          ref_externa_sistema: "siga",
-          importado_em: new Date().toISOString(),
-          import_hash: hash,
-        });
-        
-        recordsLancamentos.push({
-          company_id: companyId,
-          tipo: "pagar",
-          fornecedor_id: fornecMap.get(l._nome_norm) || null,
-          nome_pessoa: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 500),
-          valor_documento: l.valor_documento,
-          valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          categoria: (l.categoria_original || "").slice(0, 250) || null,
-          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-          import_hash: hash,
-        });
-      }
-      
-      // 8) DEDUPLICAÇÃO defensiva: remover hashes EXATAMENTE iguais dentro do mesmo import
-      // (com o seq, só acontece se a planilha tem linhas byte-a-byte idênticas — raro)
-      const seenRec = new Set<string>();
-      const recordsReceberUnique = recordsReceber.filter(r => {
-        if (seenRec.has(r.import_hash)) return false;
-        seenRec.add(r.import_hash);
-        return true;
-      });
-      const seenPag = new Set<string>();
-      const recordsPagarUnique = recordsPagar.filter(r => {
-        if (seenPag.has(r.import_hash)) return false;
-        seenPag.add(r.import_hash);
-        return true;
-      });
-      const seenLanc = new Set<string>();
-      const recordsLancamentosUnique = recordsLancamentos.filter(r => {
-        const k = r.tipo + ":" + r.import_hash;
-        if (seenLanc.has(k)) return false;
-        seenLanc.add(k);
-        return true;
-      });
-      
-      const dupDentroImport = 
-        (recordsReceber.length - recordsReceberUnique.length) +
-        (recordsPagar.length - recordsPagarUnique.length);
-      
-      // 9) Verificar quais hashes JÁ EXISTEM no banco
-      const allHashesRec = recordsReceberUnique.map(r => r.import_hash);
-      const allHashesPag = recordsPagarUnique.map(r => r.import_hash);
-      
-      const hashesExistentesRec = new Set<string>();
-      const hashesExistentesPag = new Set<string>();
-      
-      // Consulta em lotes de 500 IDs (limite de query GET)
-      for (let i = 0; i < allHashesRec.length; i += 500) {
-        const batch = allHashesRec.slice(i, i + 500);
-        const { data } = await sb.from("erp_receber")
-          .select("import_hash")
-          .eq("company_id", companyId)
-          .in("import_hash", batch);
-        (data || []).forEach((r: any) => hashesExistentesRec.add(r.import_hash));
-      }
-      for (let i = 0; i < allHashesPag.length; i += 500) {
-        const batch = allHashesPag.slice(i, i + 500);
-        const { data } = await sb.from("erp_pagar")
-          .select("import_hash")
-          .eq("company_id", companyId)
-          .in("import_hash", batch);
-        (data || []).forEach((r: any) => hashesExistentesPag.add(r.import_hash));
-      }
-      
-      // Contagens finais
-      const novosRec = recordsReceberUnique.filter(r => !hashesExistentesRec.has(r.import_hash));
-      const novosPag = recordsPagarUnique.filter(r => !hashesExistentesPag.has(r.import_hash));
-      const jaExistiamRec = recordsReceberUnique.length - novosRec.length;
-      const jaExistiamPag = recordsPagarUnique.length - novosPag.length;
-      
-      // 10) INSERT dos NOVOS + UPDATE dos EXISTENTES com campos voláteis
-      //
-      // Regra: campos FIXOS (datas de emissão/vencimento, valor_documento, nome, descrição, 
-      // categoria, centro_custo) NUNCA mudam após importado — são a "identidade" do lançamento.
-      // Campos VOLÁTEIS (data_pagamento, valor_pago, status) podem mudar quando o SIGA atualiza
-      // o título (ex: de "Em aberto" pra "Quitado em 15/04"). A reimportação atualiza só esses.
-      let impReceber = 0, impPagar = 0, impLanc = 0;
-      let updReceber = 0, updPagar = 0, updLanc = 0;
-      let errReceber = 0, errPagar = 0, errLanc = 0;
-      
-      // Helper: separar em (novos para INSERT) e (existentes para UPDATE)
-      const existentesRec = recordsReceberUnique.filter(r => hashesExistentesRec.has(r.import_hash));
-      const existentesPag = recordsPagarUnique.filter(r => hashesExistentesPag.has(r.import_hash));
-      
-      // Pra erp_lancamentos, precisamos consultar separadamente qual já existe
-      const hashesLanc = new Set<string>();
-      const allHashesLanc = Array.from(new Set(recordsLancamentosUnique.map(r => r.import_hash)));
-      for (let i = 0; i < allHashesLanc.length; i += 500) {
-        const batch = allHashesLanc.slice(i, i + 500);
-        const { data } = await sb.from("erp_lancamentos")
-          .select("import_hash")
-          .eq("company_id", companyId)
-          .in("import_hash", batch);
-        (data || []).forEach((r: any) => hashesLanc.add(r.import_hash));
-      }
-      const novosLanc = recordsLancamentosUnique.filter(r => !hashesLanc.has(r.import_hash));
-      const existentesLanc = recordsLancamentosUnique.filter(r => hashesLanc.has(r.import_hash));
-      
-      // ===== INSERTS dos novos =====
-      for (let i = 0; i < novosRec.length; i += 100) {
-        const batch = novosRec.slice(i, i + 100);
-        const { error } = await sb.from("erp_receber").insert(batch);
-        if (error) { errReceber += batch.length; console.error("Erro erp_receber insert:", error.message); }
-        else impReceber += batch.length;
-      }
-      for (let i = 0; i < novosPag.length; i += 100) {
-        const batch = novosPag.slice(i, i + 100);
-        const { error } = await sb.from("erp_pagar").insert(batch);
-        if (error) { errPagar += batch.length; console.error("Erro erp_pagar insert:", error.message); }
-        else impPagar += batch.length;
-      }
-      for (let i = 0; i < novosLanc.length; i += 100) {
-        const batch = novosLanc.slice(i, i + 100);
-        const { error } = await sb.from("erp_lancamentos").insert(batch);
-        if (error) { errLanc += batch.length; console.error("Erro erp_lancamentos insert:", error.message); }
-        else impLanc += batch.length;
-      }
-      
-      // ===== UPDATES dos existentes (só campos voláteis) =====
-      // Campos voláteis: data_pagamento, valor_pago, status
-      // Updates individuais pra cada hash (Supabase não suporta update em lote com valores diferentes)
-      for (const rec of existentesRec) {
-        const { error } = await sb.from("erp_receber")
-          .update({
-            data_pagamento: rec.data_pagamento,
-            valor_pago: rec.valor_pago,
-            status: rec.status,
-          })
-          .eq("company_id", companyId)
-          .eq("import_hash", rec.import_hash);
-        if (error) { console.error("Erro update erp_receber:", error.message); }
-        else updReceber++;
-      }
-      for (const pag of existentesPag) {
-        const { error } = await sb.from("erp_pagar")
-          .update({
-            data_pagamento: pag.data_pagamento,
-            valor_pago: pag.valor_pago,
-            status: pag.status,
-          })
-          .eq("company_id", companyId)
-          .eq("import_hash", pag.import_hash);
-        if (error) { console.error("Erro update erp_pagar:", error.message); }
-        else updPagar++;
-      }
-      for (const lanc of existentesLanc) {
-        const { error } = await sb.from("erp_lancamentos")
-          .update({
-            data_pagamento: lanc.data_pagamento,
-            valor_pago: lanc.valor_pago,
-            status: lanc.status,
-          })
-          .eq("company_id", companyId)
-          .eq("import_hash", lanc.import_hash)
-          .eq("tipo", lanc.tipo);
-        if (error) { console.error("Erro update erp_lancamentos:", error.message); }
-        else updLanc++;
-      }
-      
-      return NextResponse.json({
-        success: true,
-        action: "import",
-        preset: "siga",
-        totalRows: rows.length,
-        imported: impReceber + impPagar,
-        impReceber,
-        impPagar,
-        impLanc,
-        updReceber,
-        updPagar,
-        updLanc,
-        errors: errReceber + errPagar + errLanc,
-        errReceber,
-        errPagar,
-        errLanc,
-        clientesNovos: clientesNovos.size,
-        fornecNovos: fornecNovos.size,
-        jaExistiamRec,
-        jaExistiamPag,
-        dupDentroImport,
-        message: 
-          `Importação SIGA: ${impReceber} novo(s) a receber + ${impPagar} novo(s) a pagar. ` +
-          (updReceber + updPagar > 0 ? `${updReceber + updPagar} lançamento(s) atualizado(s) (status/pagamento). ` : "") +
-          (dupDentroImport > 0 ? `${dupDentroImport} duplicata(s) inline ignorada(s). ` : "") +
-          `${clientesNovos.size} cliente(s) e ${fornecNovos.size} fornecedor(es) novo(s).`,
-      });
+
+    if (action !== 'confirm') {
+      return NextResponse.json({ ok: false, error: `Ação inválida: ${action}` }, { status: 400 });
     }
-    
-    // ----- GENERICO: mantém comportamento antigo -----
-    const TABELA_MAP: Record<string, string> = {
-      clientes: "erp_clientes", fornecedores: "erp_fornecedores",
-      receber: "erp_receber", pagar: "erp_pagar", produtos: "erp_produtos"
-    };
-    const tabela = TABELA_MAP[tipo];
-    if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
-    
-    const DATE_FIELDS = ["data_vencimento", "data_emissao", "data_pagamento"];
-    const NUMBER_FIELDS = ["valor", "valor_pago", "preco_venda", "preco_custo", "estoque_atual"];
-    
-    const records = rows.map(r => {
-      const obj: Record<string, any> = { company_id: companyId };
-      for (const [field, colIdx] of Object.entries(mapping)) {
-        let val = r[colIdx];
-        if (val == null || String(val).trim() === "") continue;
-        if (DATE_FIELDS.includes(field)) val = parseDate(val);
-        else if (NUMBER_FIELDS.includes(field)) val = parseNumber(val);
-        else if (field === "status") val = parseStatus(val);
-        else val = String(val).trim();
-        if (val != null) obj[field] = val;
-      }
-      // Pra clientes/fornecedores, campo é nome_fantasia (não existe "nome")
-      if ((tipo === "clientes" || tipo === "fornecedores") && obj.nome && !obj.nome_fantasia) {
-        obj.nome_fantasia = obj.nome;
-        delete obj.nome;
-      }
-      return obj;
-    }).filter(r => {
-      if (tipo === "clientes" || tipo === "fornecedores") return r.nome_fantasia;
-      if (tipo === "receber" || tipo === "pagar") return r.descricao || r.valor;
-      if (tipo === "produtos") return r.nome;
-      return true;
+
+    if (detection.kind !== 'planilha_modelo_ps') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Importação automática disponível apenas para Planilha Modelo PS Gestão. Tipo detectado: ${detection.kind}`,
+          deteccao: detection,
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data: empresasArr, error: errEmp } = await supa
+      .from('companies')
+      .select('id, cnpj');
+    if (errEmp) throw errEmp;
+    const empresasMap = new Map<string, string>();
+    (empresasArr || []).forEach((e: any) => {
+      const c = normalizarCnpj(e.cnpj || '');
+      if (c) empresasMap.set(c, e.id);
     });
-    
-    if (records.length === 0) return NextResponse.json({ error: "Nenhum registro válido" }, { status: 400 });
-    
-    let imported = 0, errors = 0;
-    for (let i = 0; i < records.length; i += 100) {
-      const batch = records.slice(i, i + 100);
-      const { error } = await sb.from(tabela).insert(batch);
-      if (error) { errors += batch.length; console.error("Import error:", error.message); }
-      else imported += batch.length;
+
+    const { data: lnsArr, error: errLn } = await supa
+      .from('business_lines')
+      .select('id, company_id, name')
+      .eq('is_active', true);
+    if (errLn) throw errLn;
+    const linhasNegocioMap = new Map<string, Map<string, string>>();
+    (lnsArr || []).forEach((ln: any) => {
+      if (!linhasNegocioMap.has(ln.company_id)) linhasNegocioMap.set(ln.company_id, new Map());
+      linhasNegocioMap.get(ln.company_id)!.set(normalizar(ln.name), ln.id);
+    });
+
+    const { records, erros: errosMapa } = mapearPlanilhaPS(sheetEscolhida, empresasMap, linhasNegocioMap);
+
+    if (records.length === 0) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Nenhum registro válido para importar',
+        erros_mapeamento: errosMapa,
+      }, { status: 400 });
     }
-    
+
+    const porEmpresa = new Map<string, LancamentoRecord[]>();
+    records.forEach((r) => {
+      if (!porEmpresa.has(r.company_id)) porEmpresa.set(r.company_id, []);
+      porEmpresa.get(r.company_id)!.push(r);
+    });
+
+    const resultados: any[] = [];
+    let totalInseridos = 0;
+    let totalDuplicados = 0;
+    let totalErros = errosMapa.length;
+    const todosErros: any[] = [...errosMapa];
+
+    for (const [companyId, recs] of porEmpresa.entries()) {
+      for (let i = 0; i < recs.length; i += 200) {
+        const chunk = recs.slice(i, i + 200);
+        const { data, error } = await supa.rpc('fn_planilha_universal_processar', {
+          p_company_id: companyId,
+          p_user_id: userIdRaw || null,
+          p_arquivo_nome: file.name,
+          p_records: chunk,
+        });
+        if (error) {
+          totalErros += chunk.length;
+          todosErros.push({ company_id: companyId, chunk_inicio: i, erro: error.message });
+          continue;
+        }
+        const r = data as any;
+        totalInseridos += r.inseridos || 0;
+        totalDuplicados += r.duplicados || 0;
+        totalErros += r.erros || 0;
+        if (r.lista_erros && Array.isArray(r.lista_erros)) {
+          todosErros.push(...r.lista_erros.map((e: any) => ({ ...e, company_id: companyId })));
+        }
+        resultados.push({ company_id: companyId, chunk: i, ...r });
+      }
+    }
+
     return NextResponse.json({
-      success: true,
-      action: "import",
-      tipo,
-      tabela,
-      preset,
-      totalRows: rows.length,
-      imported,
-      errors,
-      message: `${imported} registros importados${errors > 0 ? `, ${errors} com erro` : ""}`,
+      ok: true,
+      action: 'confirm',
+      tipo: detection.kind,
+      arquivo: file.name,
+      total_linhas_planilha: sheetEscolhida.rowCount,
+      total_registros_validos: records.length,
+      empresas: porEmpresa.size,
+      inseridos: totalInseridos,
+      duplicados: totalDuplicados,
+      erros: totalErros,
+      lista_erros: todosErros.slice(0, 50),
+      detalhes_por_empresa: resultados,
+      mensagem:
+        totalInseridos > 0
+          ? `${totalInseridos} lançamentos importados. Pipeline PSGC processará em até 5 minutos. Dashboard será atualizado automaticamente.`
+          : 'Nenhum registro novo importado',
     });
-    
-  } catch (error: any) {
-    console.error("Import error:", error);
-    return NextResponse.json({ error: error.message || "Erro interno" }, { status: 500 });
+  } catch (e: any) {
+    console.error('[import/universal] erro fatal:', e);
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
   }
+}
+
+// ============ Handler GET (info) ============
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    versao: '2.0',
+    formatos_suportados: [
+      'planilha_modelo_ps (importação automática completa)',
+      'lancamentos_generico (em desenvolvimento)',
+      'clientes (em desenvolvimento)',
+      'fornecedores (em desenvolvimento)',
+    ],
+    template_url: '/api/templates/planilha-modelo',
+    documentacao: 'Baixe a Planilha Modelo PS Gestão, preencha e suba aqui.',
+  });
 }
