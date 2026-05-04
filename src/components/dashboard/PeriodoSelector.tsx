@@ -78,12 +78,21 @@ export default function PeriodoSelector({ companyIds, selecao, onChange }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodos.length, selecao]);
 
+  // Tabela de nomes de mes para fallback elegante (Bug 2: nao mostrar "11/2026")
+  const NOMES_MES: Record<number, string> = {
+    1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
+    5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto',
+    9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro',
+  };
+
   // Label exibida no botao
   const labelAtual = (() => {
     if (!selecao) return 'Selecione um período';
     if (selecao.modo === 'mes') {
       const p = periodos.find((p) => p.ano === selecao.ano && p.mes === selecao.mes);
-      return p?.label ?? `${selecao.mes}/${selecao.ano}`;
+      if (p?.label) return p.label;
+      // Fallback elegante: usa nome do mes mesmo se nao estiver na lista atual
+      return `${NOMES_MES[selecao.mes] ?? selecao.mes}/${selecao.ano}`;
     }
     const fmt = (s: string) => {
       const [y, m, d] = s.split('-');

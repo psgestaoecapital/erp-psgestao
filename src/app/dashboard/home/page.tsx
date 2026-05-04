@@ -143,6 +143,13 @@ function DashboardUniversalInner() {
   const [selecaoPeriodo, setSelecaoPeriodo] = useState<SelecaoPeriodo | null>(null);
   const [dashboardHomeData, setDashboardHomeData] = useState<any>(null);
 
+  // Bug 1: reset selecaoPeriodo quando companyIds muda (evita selecao orfã)
+  // PeriodoSelector vai re-buscar periodos da nova empresa e auto-selecionar
+  // o ultimo_com_dados quando detectar selecao=null.
+  useEffect(() => {
+    setSelecaoPeriodo(null);
+  }, [companyIdsKey]);
+
   useEffect(() => {
     if (!companyIdsKey || !selecaoPeriodo) return;
     const ids = companyIdsKey.split(',').filter(Boolean);
@@ -317,6 +324,13 @@ function SeletorPeriodo({ periodo, onChange }: { periodo: string; onChange: (p: 
 function CamadaUm({ data, qtdEmpresas, dashboardHomeData }: { data: any; qtdEmpresas: number; dashboardHomeData?: any }) {
   // v2 Dashboard foundational: fallback inteligente para Receita do periodo selecionado
   const fat = dashboardHomeData?.pulso?.faturamento?.valor;
+  // Bug 3 fix: ler margem/ebitda do backend (que ja retorna 0 quando receita=0)
+  // e exibir "—" ao inves de "100%" incorreto quando receita=0.
+  const margemBackend = dashboardHomeData?.termometro?.margem_contribuicao_pct;
+  const ebitdaBackend = dashboardHomeData?.termometro?.ebitda_pct;
+  const receitaAtual = dashboardHomeData?.pulso?.faturamento?.valor;
+  // Quando ha dashboardHomeData, considera "receita zero" se faturamento <= 0
+  const semReceita = dashboardHomeData !== null && (receitaAtual ?? 0) <= 0;
   const cores = {
     saudavel: { border: '#639922', bg: '#EAF3DE', dot: '#639922' },
     atencao: { border: '#C8941A', bg: '#FAEEDA', dot: '#C8941A' },
@@ -343,9 +357,28 @@ function CamadaUm({ data, qtdEmpresas, dashboardHomeData }: { data: any; qtdEmpr
         </div>
         <div style={{ fontSize: 15, color: '#5F5E5A', lineHeight: 1.6, marginBottom: 20 }}>{data.saude.frase}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          <IndCard label="Margem Contrib." valor={`${fmtPct(data.saude.indicadores.margem_contribuicao_pct || 0)}%`} />
-          <IndCard label="EBITDA %" valor={`${fmtPct(data.saude.indicadores.ebitda_pct || 0)}%`}
-                   cor={data.saude.indicadores.ebitda_pct < 0 ? '#A32D2D' : '#3D2314'} />
+          {/* Bug 3 fix: quando ha selecao de periodo sem receita, exibe "—" no lugar de % invalido */}
+          <IndCard
+            label="Margem Contrib."
+            valor={
+              semReceita
+                ? '—'
+                : margemBackend !== undefined
+                ? `${fmtPct(margemBackend)}%`
+                : `${fmtPct(data.saude.indicadores.margem_contribuicao_pct || 0)}%`
+            }
+          />
+          <IndCard
+            label="EBITDA %"
+            valor={
+              semReceita
+                ? '—'
+                : ebitdaBackend !== undefined
+                ? `${fmtPct(ebitdaBackend)}%`
+                : `${fmtPct(data.saude.indicadores.ebitda_pct || 0)}%`
+            }
+            cor={(ebitdaBackend ?? data.saude.indicadores.ebitda_pct) < 0 ? '#A32D2D' : '#3D2314'}
+          />
           {/* Receita: usa fat (do dashboardHomeData) quando disponivel; senao mantem legado */}
           <IndCard
             label={dashboardHomeData?.periodo?.label ? `Faturamento · ${dashboardHomeData.periodo.label}` : 'Receita'}
