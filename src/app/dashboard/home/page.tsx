@@ -72,6 +72,14 @@ function DashboardUniversalInner() {
   const [periodo, setPeriodo] = useState<string>('mes');
   const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia');
 
+  // ====== Dashboard foundational v2 — seletor de periodo (mes ou custom) ======
+  // Declarado AQUI (antes do carregar()) para que carregar() possa referenciar
+  // selecaoPeriodo e propagar ano/mes ao /api/dashboard/universal.
+  // Sem isto, todas as 6 RPCs do Dashboard universal recebem hoje.getMonth()+1
+  // (mes corrente) ignorando completamente a selecao do PeriodoSelector.
+  const [selecaoPeriodo, setSelecaoPeriodo] = useState<SelecaoPeriodo | null>(null);
+  const [dashboardHomeData, setDashboardHomeData] = useState<any>(null);
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [erroData, setErroData] = useState<string | null>(null);
@@ -99,6 +107,9 @@ function DashboardUniversalInner() {
   }, []);
 
   // Carrega dashboard sempre que muda seleção (via useCompanyIds), plano, período ou regime.
+  // Foundational fix: propaga selecaoPeriodo.ano/mes para a API universal —
+  // sem isto, todas as 6 RPCs (saude, dre, abc clientes/fornecedores, consultor,
+  // painel executivo) recebem hoje.getMonth()+1 ignorando o PeriodoSelector.
   const carregar = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ plano, periodo, regime });
@@ -112,6 +123,15 @@ function DashboardUniversalInner() {
       } else {
         params.set('company_id', companyIdsKey);
       }
+    }
+    // Foundational: propaga ano/mes do seletor para a API universal.
+    // Quando modo 'mes', sobrescreve o calculo padrao baseado em CURRENT_DATE.
+    // Modo 'custom' (daterange) ainda nao e suportado pela API universal —
+    // cai no comportamento default (mes corrente) ate que essa API ganhe
+    // suporte a data_inicio/data_fim.
+    if (selecaoPeriodo?.modo === 'mes') {
+      params.set('ano', String(selecaoPeriodo.ano));
+      params.set('mes', String(selecaoPeriodo.mes));
     }
 
     try {
@@ -129,7 +149,7 @@ function DashboardUniversalInner() {
     } finally {
       setLoading(false);
     }
-  }, [plano, periodo, regime, companyIdsKey]);
+  }, [plano, periodo, regime, companyIdsKey, selecaoPeriodo]);
 
   useEffect(() => {
     // Só carrega quando o hook terminou de resolver a seleção em pelo menos
@@ -137,12 +157,8 @@ function DashboardUniversalInner() {
     if (companyIdsKey) carregar();
   }, [carregar, companyIdsKey]);
 
-  // ====== Dashboard foundational v2 — seletor de periodo (mes ou custom) ======
-  // Aditivo: roda em paralelo do carregar() legado, popula dashboardHomeData
-  // com KPIs do periodo selecionado. Default backend: ultimo mes com dados.
-  const [selecaoPeriodo, setSelecaoPeriodo] = useState<SelecaoPeriodo | null>(null);
-  const [dashboardHomeData, setDashboardHomeData] = useState<any>(null);
-
+  // ====== Dashboard foundational v2 — efeitos do seletor de periodo ======
+  // (states selecaoPeriodo + dashboardHomeData ja declarados acima do carregar)
   // Bug 1: reset selecaoPeriodo quando companyIds muda (evita selecao orfã)
   // PeriodoSelector vai re-buscar periodos da nova empresa e auto-selecionar
   // o ultimo_com_dados quando detectar selecao=null.
