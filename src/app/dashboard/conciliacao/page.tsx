@@ -6,9 +6,10 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { authFetch } from '@/lib/authFetch'
+import UploadFaturaExtrato from '@/components/conciliacao/UploadFaturaExtrato'
 
 // ===== Tipos =====
 interface Lote {
@@ -71,18 +72,36 @@ export default function ConciliacaoHubPage() {
   const [filtroEmpresa, setFiltroEmpresa] = useState<string>('todas')
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  // Upload modal state (foundational fix do botao morto)
+  const [modalUploadOpen, setModalUploadOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
-  useEffect(() => {
+  function carregar() {
+    setCarregando(true)
     authFetch('/api/conciliacao/saude')
       .then(r => r.json())
       .then(json => {
         if (json.error) throw new Error(json.mensagem_humana || json.error)
         setSaude(json.saude || [])
         setLotes(json.lotes || [])
+        setErro(null)
       })
       .catch(e => setErro(e.message))
       .finally(() => setCarregando(false))
+  }
+
+  useEffect(() => {
+    carregar()
   }, [])
+
+  // Empresas para o modal de upload (extraidas da tabela saude que ja vem da API)
+  const empresasUpload = useMemo(
+    () =>
+      saude
+        .map(s => ({ id: s.company_id, nome: s.razao_social }))
+        .sort((a, b) => a.nome.localeCompare(b.nome)),
+    [saude]
+  )
 
   // Empresas únicas para filtro
   const empresasUnicas = Array.from(
@@ -135,7 +154,12 @@ export default function ConciliacaoHubPage() {
             {totalPendentes} pendentes · {totalConciliados} conciliados · {pctGlobal}% global
           </div>
         </div>
-        <button style={btnPrimario}>+ Importar fatura/extrato</button>
+        <button
+          onClick={() => setModalUploadOpen(true)}
+          style={btnPrimario}
+        >
+          + Importar fatura/extrato
+        </button>
       </header>
 
       {/* Cards de saúde por empresa */}
@@ -234,6 +258,41 @@ export default function ConciliacaoHubPage() {
           </div>
         )}
       </section>
+
+      {/* Modal de upload OFX (foundational) */}
+      <UploadFaturaExtrato
+        isOpen={modalUploadOpen}
+        onClose={() => setModalUploadOpen(false)}
+        empresas={empresasUpload}
+        onSuccess={(loteId) => {
+          setModalUploadOpen(false)
+          setToast(`✓ Lote criado com sucesso (${loteId.slice(0, 8)}…). Recarregando…`)
+          setTimeout(() => setToast(null), 4500)
+          carregar()
+        }}
+      />
+
+      {/* Toast de sucesso */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            background: '#3D2314',
+            color: '#FAF7F2',
+            padding: '12px 18px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: '0 8px 24px rgba(61,35,20,0.25)',
+            zIndex: 200,
+            maxWidth: 'min(90vw, 420px)',
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
