@@ -36,6 +36,7 @@ export default function PeriodoSelector({ companyIds, selecao, onChange }: Props
   const [tmpInicio, setTmpInicio] = useState('');
   const [tmpFim, setTmpFim] = useState('');
 
+  // 1. Buscar periodos quando companyIds muda (so atualiza estado periodos)
   useEffect(() => {
     if (!companyIds || companyIds.length === 0) {
       setPeriodos([]);
@@ -49,17 +50,31 @@ export default function PeriodoSelector({ companyIds, selecao, onChange }: Props
       .then((j) => {
         if (j.ok && Array.isArray(j.periodos)) {
           setPeriodos(j.periodos);
-          // Se nao tem selecao, escolher ultimo mes com dados automaticamente
-          if (!selecao) {
-            const ultimo = j.periodos.find((p: Periodo) => p.is_ultimo_com_dados);
-            if (ultimo) onChange({ modo: 'mes', ano: ultimo.ano, mes: ultimo.mes });
-          }
+        } else {
+          setPeriodos([]);
         }
       })
-      .catch((e) => console.error('[PeriodoSelector] erro:', e))
+      .catch((e) => {
+        console.error('[PeriodoSelector] erro fetch periodos:', e);
+        setPeriodos([]);
+      })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyIds.join(',')]);
+
+  // 2. Auto-selecionar ultimo_com_dados quando periodos chegam E selecao=null
+  // Roda sempre que periodos OU selecao mudar - mas o early return !selecao
+  // evita loop (apos selecionar, selecao !== null e nao re-dispara onChange).
+  useEffect(() => {
+    if (selecao !== null) return; // ja tem selecao, nada a fazer
+    if (periodos.length === 0) return; // ainda nao chegaram periodos
+
+    const ultimo = periodos.find((p) => p.is_ultimo_com_dados);
+    if (ultimo) {
+      onChange({ modo: 'mes', ano: ultimo.ano, mes: ultimo.mes });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodos, selecao]);
 
   // Inicializar datepicker custom com valores razoaveis
   useEffect(() => {

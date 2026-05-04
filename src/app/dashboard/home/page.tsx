@@ -151,7 +151,12 @@ function DashboardUniversalInner() {
   }, [companyIdsKey]);
 
   useEffect(() => {
-    if (!companyIdsKey || !selecaoPeriodo) return;
+    if (!companyIdsKey) return;
+    if (!selecaoPeriodo) {
+      // Limpa dados antigos enquanto aguarda auto-select da nova empresa
+      setDashboardHomeData(null);
+      return;
+    }
     const ids = companyIdsKey.split(',').filter(Boolean);
     if (ids.length === 0) return;
     const url = new URL('/api/dashboard/home', window.location.origin);
