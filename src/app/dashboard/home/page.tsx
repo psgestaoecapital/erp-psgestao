@@ -217,6 +217,18 @@ function DashboardUniversalInner() {
             companyIds={companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []}
             selecao={selecaoPeriodo}
             onChange={setSelecaoPeriodo}
+            onPeriodosCarregados={(periodos) => {
+              // Auto-select foundational: usa setState callback p/ acessar
+              // valor MAIS RECENTE de selecaoPeriodo (sem closure stale).
+              // Filho notifica, pai decide.
+              setSelecaoPeriodo((prev) => {
+                if (prev !== null) return prev; // ja tem selecao, mantem
+                if (!periodos || periodos.length === 0) return null;
+                const ultimo = periodos.find((p) => p.is_ultimo_com_dados);
+                if (!ultimo) return null;
+                return { modo: 'mes', ano: ultimo.ano, mes: ultimo.mes };
+              });
+            }}
           />
           <SeletorPeriodo periodo={periodo} onChange={setPeriodo} />
           <ToggleRegime value={regime} onChange={setRegime} />
