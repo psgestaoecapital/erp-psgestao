@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  parseWorkbookForPS,
+  detectarPlanilhaModeloPs,
+  mapearLinhasPS,
+  normalizarCnpj as normCnpjPS,
+} from "@/lib/import/planilhaModeloPs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -354,7 +360,257 @@ export async function POST(req: NextRequest) {
     if (!fn.endsWith(".xlsx") && !fn.endsWith(".xls") && !fn.endsWith(".csv") && !fn.endsWith(".tsv")) {
       return NextResponse.json({ error: "Formato não suportado. Use .xlsx, .xls ou .csv" }, { status: 400 });
     }
-    
+
+    // =========================================================
+    // v2.1.1 — Deteccao prioritaria: Planilha Modelo PS Gestao
+    // HOTFIX: usa formData ja parseado, NextResponse consistente,
+    // createClient no escopo do modulo, try/catch defensivo.
+    // =========================================================
+    {
+      let psResult: NextResponse | null = null;
+
+      try {
+        // Le buffer UMA vez (variavel local, nao polui escopo do handler antigo)
+        const psBuffer = await file.arrayBuffer();
+        const psSheets = parseWorkbookForPS(psBuffer);
+        const psDeteccao = detectarPlanilhaModeloPs(psSheets);
+
+        if (psDeteccao.isPlanilhaModeloPs) {
+          console.log("[PS v2.1.1] Detectada Planilha Modelo PS:", psDeteccao);
+
+          // Aceita action de QUALQUER UI (legada usa analyze/import, nova usa preview/confirm)
+          const psAction = String(formData.get("action") || "preview").toLowerCase();
+          const isPreviewAction = psAction === "preview" || psAction === "analyze" || psAction === "";
+          const isConfirmAction = psAction === "confirm" || psAction === "import";
+
+          const psSheet = psSheets[psDeteccao.sheetIndex];
+
+          if (isPreviewAction) {
+            psResult = NextResponse.json({
+              ok: true,
+              success: true,
+              action: "preview",
+              tipo: "planilha_modelo_ps",
+              arquivo: { nome: file.name, tamanho_kb: Math.round(file.size / 1024) },
+              sheets: psSheets.map((s, i) => ({
+                index: i, nome: s.name, linhas: s.rowCount,
+                colunas: s.headers.length, headers: s.headers,
+                eh_planilha_ps: i === psDeteccao.sheetIndex,
+              })),
+              deteccao: {
+                kind: "planilha_modelo_ps",
+                confidence: psDeteccao.confidence,
+                sheetIndex: psDeteccao.sheetIndex,
+                reason: psDeteccao.reason,
+              },
+              sheet_selecionada: {
+                index: psDeteccao.sheetIndex,
+                nome: psSheet.name,
+                headers: psSheet.headers,
+                preview_linhas: psSheet.rows.slice(0, 10),
+              },
+              // ====== Compat shape legado UI (Hotfix v2.1.2) ======
+              fileName: file.name,
+              fileSize: file.size,
+              totalRows: psSheet.rowCount,
+              headers: psSheet.headers,
+              preset: "planilha_modelo_ps",
+              mapping: Object.fromEntries(psSheet.headers.map((h: string) => [h, h])),
+              preview: psSheet.rows.slice(0, 10).map((row: any[]) => {
+                const obj: Record<string, any> = {};
+                psSheet.headers.forEach((h: string, idx: number) => { obj[h] = row[idx] ?? ""; });
+                return obj;
+              }),
+              recordsCount: psSheet.rowCount,
+              // ====== FIM Compat ======
+            });
+          } else if (isConfirmAction) {
+            // Importacao real: usa createClient ja inicializado no escopo do modulo
+            try {
+              const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+              const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+              if (!supaUrl || !supaKey) {
+                console.error("[PS v2.1.1] ENV vars Supabase ausentes");
+                psResult = NextResponse.json({
+                  ok: false, success: false,
+                  error: "Variaveis de ambiente Supabase ausentes",
+                }, { status: 500 });
+              } else {
+                const psSupa = createClient(supaUrl, supaKey);
+
+                const { data: empresasArr, error: errEmp } = await psSupa
+                  .from("companies")
+                  .select("id, cnpj");
+                if (errEmp) throw new Error("Erro ao buscar empresas: " + errEmp.message);
+
+                const psEmpresasMap = new Map<string, string>();
+                (empresasArr || []).forEach((e: any) => {
+                  const c = (e.cnpj ?? "").toString().replace(/\D/g, "");
+                  if (c) psEmpresasMap.set(c, e.id);
+                });
+
+                const { data: lnsArr, error: errLn } = await psSupa
+                  .from("business_lines")
+                  .select("id, company_id, name")
+                  .eq("is_active", true);
+                if (errLn) throw new Error("Erro ao buscar LNs: " + errLn.message);
+
+                const psLnsMap = new Map<string, Map<string, string>>();
+                (lnsArr || []).forEach((ln: any) => {
+                  if (!psLnsMap.has(ln.company_id)) psLnsMap.set(ln.company_id, new Map());
+                  const k = ln.name.toString().normalize("NFD")
+                    .replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+                  psLnsMap.get(ln.company_id)!.set(k, ln.id);
+                });
+
+                const { records: psRecords, erros: psErrosMapa } = mapearLinhasPS(
+                  psSheet, psEmpresasMap, psLnsMap
+                );
+
+                console.log(`[PS v2.1.1] Mapeamento: ${psRecords.length} validos, ${psErrosMapa.length} erros`);
+
+                if (psRecords.length === 0) {
+                  psResult = NextResponse.json({
+                    ok: false, success: false,
+                    error: "Nenhum registro valido para importar",
+                    erros_mapeamento: psErrosMapa.slice(0, 50),
+                  }, { status: 400 });
+                } else {
+                  const psUserId = (formData.get("user_id") as string) || null;
+                  const psPorEmpresa = new Map<string, typeof psRecords>();
+                  psRecords.forEach((r) => {
+                    if (!psPorEmpresa.has(r.company_id)) psPorEmpresa.set(r.company_id, []);
+                    psPorEmpresa.get(r.company_id)!.push(r);
+                  });
+
+                  let psTotalIns = 0, psTotalDup = 0, psTotalErr = psErrosMapa.length;
+                  const psTodosErros: any[] = [...psErrosMapa];
+
+                  for (const [companyId, recs] of psPorEmpresa.entries()) {
+                    for (let i = 0; i < recs.length; i += 200) {
+                      const chunk = recs.slice(i, i + 200);
+                      try {
+                        const { data, error } = await psSupa.rpc(
+                          "fn_planilha_universal_processar",
+                          {
+                            p_company_id: companyId,
+                            p_user_id: psUserId,
+                            p_arquivo_nome: file.name,
+                            p_records: chunk,
+                          }
+                        );
+                        if (error) {
+                          console.error("[PS v2.1.1] RPC error chunk", i, ":", error.message);
+                          psTotalErr += chunk.length;
+                          psTodosErros.push({
+                            company_id: companyId,
+                            chunk_inicio: i,
+                            erro: error.message,
+                          });
+                          continue;
+                        }
+                        const r = data as any;
+                        psTotalIns += r?.inseridos || 0;
+                        psTotalDup += r?.duplicados || 0;
+                        psTotalErr += r?.erros || 0;
+                        if (Array.isArray(r?.lista_erros)) {
+                          psTodosErros.push(...r.lista_erros);
+                        }
+                      } catch (chunkErr: any) {
+                        console.error("[PS v2.1.1] Excecao chunk", i, ":", chunkErr?.message);
+                        psTotalErr += chunk.length;
+                        psTodosErros.push({
+                          company_id: companyId,
+                          chunk_inicio: i,
+                          erro: chunkErr?.message || String(chunkErr),
+                        });
+                      }
+                    }
+                  }
+
+                  console.log(`[PS v2.1.1] Resultado final: ins=${psTotalIns}, dup=${psTotalDup}, err=${psTotalErr}`);
+
+                  psResult = NextResponse.json({
+                    ok: true, success: true,
+                    action: "confirm",
+                    tipo: "planilha_modelo_ps",
+                    arquivo: file.name,
+                    total_registros_validos: psRecords.length,
+                    empresas: psPorEmpresa.size,
+                    inseridos: psTotalIns,
+                    duplicados: psTotalDup,
+                    erros: psTotalErr,
+                    lista_erros: psTodosErros.slice(0, 50),
+                    mensagem: psTotalIns > 0
+                      ? `${psTotalIns} lancamentos importados. Pipeline PSGC processara em ate 5 min.`
+                      : "Nenhum registro novo importado",
+                    // ====== Compat shape legado UI - resultado import ======
+                    fileName: file.name,
+                    recordsImported: psTotalIns,
+                    recordsSkipped: psTotalDup,
+                    recordsErrors: psTotalErr,
+                    preset: "planilha_modelo_ps",
+                    // ====== FIM Compat ======
+                  });
+                }
+              }
+            } catch (confirmErr: any) {
+              console.error("[PS v2.1.1] Erro confirm:", confirmErr?.message, confirmErr?.stack);
+              psResult = NextResponse.json({
+                ok: false, success: false,
+                error: "Erro ao processar importacao: " + (confirmErr?.message || String(confirmErr)),
+              }, { status: 500 });
+            }
+          } else {
+            // Action desconhecida - tratar como preview
+            psResult = NextResponse.json({
+              ok: true, success: true,
+              action: "preview",
+              tipo: "planilha_modelo_ps",
+              arquivo: { nome: file.name, tamanho_kb: Math.round(file.size / 1024) },
+              deteccao: {
+                kind: "planilha_modelo_ps",
+                confidence: psDeteccao.confidence,
+                sheetIndex: psDeteccao.sheetIndex,
+                reason: psDeteccao.reason,
+              },
+              sheet_selecionada: {
+                index: psDeteccao.sheetIndex,
+                nome: psSheet.name,
+                headers: psSheet.headers,
+                preview_linhas: psSheet.rows.slice(0, 10),
+              },
+              // ====== Compat shape legado UI (Hotfix v2.1.2) ======
+              fileName: file.name,
+              fileSize: file.size,
+              totalRows: psSheet.rowCount,
+              headers: psSheet.headers,
+              preset: "planilha_modelo_ps",
+              mapping: Object.fromEntries(psSheet.headers.map((h: string) => [h, h])),
+              preview: psSheet.rows.slice(0, 10).map((row: any[]) => {
+                const obj: Record<string, any> = {};
+                psSheet.headers.forEach((h: string, idx: number) => { obj[h] = row[idx] ?? ""; });
+                return obj;
+              }),
+              recordsCount: psSheet.rowCount,
+              // ====== FIM Compat ======
+            });
+          }
+        } else {
+          console.log("[PS v2.1.1] Nao e Planilha Modelo PS - cai no parser legado");
+        }
+      } catch (psErr: any) {
+        console.error("[PS v2.1.1] Erro deteccao - caindo no legado:", psErr?.message, psErr?.stack);
+        // Nao define psResult - segue para parser legado
+      }
+
+      if (psResult) return psResult;
+    }
+    // =========================================================
+    // FIM DO BLOCO v2.1.1 — abaixo continua o fluxo antigo intacto
+    // =========================================================
+
     const { headers, rows } = await readFile(file);
     const cleanHeaders = headers.filter(h => h && h.length > 0);
     

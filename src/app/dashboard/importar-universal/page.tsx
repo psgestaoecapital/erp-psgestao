@@ -98,6 +98,24 @@ export default function ImportarUniversalPage(){
           <div style={{fontSize:10,color:C.txm}}>Aceita Excel, CSV de qualquer sistema · Auto-detecta formato SIGA / ContaAzul / Omie · Gera PSGC automático</div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <a
+            href="/api/templates/planilha-modelo"
+            download
+            style={{
+              background: "#C8941A",
+              color: "#3D2314",
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontWeight: 700,
+              textDecoration: "none",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+              boxShadow: "0 2px 8px rgba(200,148,26,0.3)",
+              display: "inline-block",
+            }}
+          >
+            📥 Baixar Planilha Modelo
+          </a>
           <select value={companyId} onChange={e=>setCompanyId(e.target.value)} style={{background:C.bg3,border:`1px solid ${C.bd}`,color:C.gol,borderRadius:6,padding:"4px 8px",fontSize:10,maxWidth:280}}>
             {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.nome||c.razao_social}</option>)}
           </select>
