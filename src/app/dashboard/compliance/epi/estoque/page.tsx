@@ -28,12 +28,11 @@ interface EstoqueRow {
   catalogo_id: string
   catalogo_nome?: string
   ca_numero?: string
+  catalogo_lote?: string | null
   localizacao: string | null
   qtd_disponivel: number
   qtd_reservada: number
   qtd_minima_alerta: number
-  lote: string | null
-  observacoes: string | null
   created_at: string
 }
 
@@ -77,7 +76,7 @@ export default function EstoqueEpiPage() {
       const [estR, ownR, globalR] = await Promise.all([
         supabase
           .from('epi_estoque')
-          .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, lote, observacoes, created_at, epi_catalogo(nome, ca_numero)')
+          .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, created_at, epi_catalogo(nome, ca_numero, lote)')
           .in('company_id', ids)
           .order('created_at', { ascending: false }),
         supabase
@@ -101,6 +100,7 @@ export default function EstoqueEpiPage() {
         ...r,
         catalogo_nome: (r.epi_catalogo as any)?.nome,
         ca_numero: (r.epi_catalogo as any)?.ca_numero,
+        catalogo_lote: (r.epi_catalogo as any)?.lote,
       })) as EstoqueRow[])
       // Proprios da empresa primeiro (mais relevantes), globais depois.
       setCatalogo([...(ownR.data || []), ...(globalR.data || [])] as CatalogoOption[])
@@ -179,7 +179,7 @@ export default function EstoqueEpiPage() {
                   const st = statusEstoque(e)
                   return (
                     <tr key={e.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
-                      <Td><strong>{e.catalogo_nome || '—'}</strong>{e.lote ? <div style={{ fontSize: 11, color: C.muted }}>Lote: {e.lote}</div> : null}</Td>
+                      <Td><strong>{e.catalogo_nome || '—'}</strong>{e.catalogo_lote ? <div style={{ fontSize: 11, color: C.muted }}>Lote: {e.catalogo_lote}</div> : null}</Td>
                       <Td mono>{e.ca_numero || '—'}</Td>
                       <Td>{e.localizacao || '—'}</Td>
                       {multiEmpresa && <Td>{empresaPorId.get(e.company_id) || '—'}</Td>}
@@ -222,8 +222,6 @@ function ModalEntradaEstoque({
   const [catalogoId, setCatalogoId] = useState('')
   const [quantidade, setQuantidade] = useState(1)
   const [localizacao, setLocalizacao] = useState('')
-  const [lote, setLote] = useState('')
-  const [observacoes, setObservacoes] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -247,7 +245,7 @@ function ModalEntradaEstoque({
         const novaQtd = (Number(existente.qtd_disponivel) || 0) + quantidade
         const { error } = await supabase
           .from('epi_estoque')
-          .update({ qtd_disponivel: novaQtd, lote: lote.trim() || null, observacoes: observacoes.trim() || null })
+          .update({ qtd_disponivel: novaQtd })
           .eq('id', existente.id)
         if (error) throw error
       } else {
@@ -260,8 +258,6 @@ function ModalEntradaEstoque({
             qtd_disponivel: quantidade,
             qtd_reservada: 0,
             qtd_minima_alerta: 5,
-            lote: lote.trim() || null,
-            observacoes: observacoes.trim() || null,
           })
         if (error) throw error
       }
@@ -302,8 +298,9 @@ function ModalEntradaEstoque({
           <Field label="Quantidade *"><input type="number" min={1} value={quantidade} onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} style={inputStyle} /></Field>
           <Field label="Localização *"><input value={localizacao} onChange={(e) => setLocalizacao(e.target.value)} placeholder="Ex: Almoxarifado Sede" style={inputStyle} /></Field>
         </div>
-        <Field label="Lote"><input value={lote} onChange={(e) => setLote(e.target.value)} style={inputStyle} /></Field>
-        <Field label="Observações"><textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} style={{ ...inputStyle, minHeight: 60 }} /></Field>
+        <p style={{ fontSize: 11, color: C.muted, margin: '8px 0 0', lineHeight: 1.5 }}>
+          O lote do EPI é registrado por movimento (na entrega ao funcionário), seguindo NR-6. Para o estoque controlamos saldo agregado por EPI + localização.
+        </p>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
           <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
