@@ -1,5 +1,7 @@
 // src/app/dashboard/compliance/epi/fichas/page.tsx
-// Lista de fichas EPI: cards de funcionarios com qtd EPIs em uso e status.
+// Lista de fichas EPI: cards de TODOS funcionarios ativos (LEFT JOIN)
+// com qtd EPIs em uso, trocas atrasadas e situacao geral.
+// Backend: v_epi_funcionarios_consolidado (substitui v_epi_ficha_funcionario INNER JOIN)
 
 'use client'
 
@@ -20,33 +22,47 @@ const C = {
   green: '#16a34a',
   yellow: '#eab308',
   red: '#dc2626',
+  gray: '#94a3b8',
 }
 
-interface FichaRow {
+interface FuncRow {
   funcionario_id: string
-  funcionario_nome: string
+  company_id: string
+  empresa: string | null
+  nome_completo: string
   cpf: string | null
   cargo: string | null
   setor: string | null
+  matricula: string | null
   vinculo_tipo: string | null
   prestador_id: string | null
-  prestador_nome: string | null
-  total_epis_uso: number | null
+  prestador_razao_social: string | null
+  epis_em_uso: number | null
+  epis_pendente_devolucao: number | null
+  trocas_atrasadas: number | null
+  trocas_proximas_30d: number | null
   ultima_movimentacao: string | null
-  status_geral: string | null
-  company_id: string
+  situacao_geral: 'sem_epi' | 'em_dia' | 'atencao' | 'critico' | string | null
+}
+
+const SITUACAO_META: Record<string, { label: string; cor: string; icone: string }> = {
+  sem_epi: { label: 'Sem EPI', cor: '#94a3b8', icone: '⚪' },
+  em_dia: { label: 'Em dia', cor: '#16a34a', icone: '🟢' },
+  atencao: { label: 'Atenção', cor: '#eab308', icone: '🟡' },
+  critico: { label: 'Crítico', cor: '#dc2626', icone: '🔴' },
 }
 
 export default function FichasEpiPage() {
   const { companyIds } = useCompanyIds()
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
 
-  const [fichas, setFichas] = useState<FichaRow[]>([])
+  const [linhas, setLinhas] = useState<FuncRow[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [filtroSetor, setFiltroSetor] = useState('')
   const [filtroVinculo, setFiltroVinculo] = useState<'' | 'direto' | 'terceirizado'>('')
+  const [filtroSituacao, setFiltroSituacao] = useState<'' | 'sem_epi' | 'em_dia' | 'atencao' | 'critico'>('')
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) return
@@ -55,12 +71,12 @@ export default function FichasEpiPage() {
     try {
       const ids = companyIdsKey.split(',').filter(Boolean)
       const { data, error } = await supabase
-        .from('v_epi_ficha_funcionario')
+        .from('v_epi_funcionarios_consolidado')
         .select('*')
         .in('company_id', ids)
-        .order('funcionario_nome')
+        .order('nome_completo')
       if (error) throw error
-      setFichas((data || []) as FichaRow[])
+      setLinhas((data || []) as FuncRow[])
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar fichas')
     } finally {
@@ -70,26 +86,21 @@ export default function FichasEpiPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  const setores = useMemo(() => Array.from(new Set(fichas.map((f) => f.setor).filter(Boolean) as string[])).sort(), [fichas])
+  const setores = useMemo(() => Array.from(new Set(linhas.map((f) => f.setor).filter(Boolean) as string[])).sort(), [linhas])
 
-  const fichasFiltradas = useMemo(() => {
+  const filtradas = useMemo(() => {
     const q = busca.toLowerCase().trim()
-    return fichas.filter((f) => {
+    return linhas.filter((f) => {
       if (filtroSetor && f.setor !== filtroSetor) return false
       if (filtroVinculo && f.vinculo_tipo !== filtroVinculo) return false
+      if (filtroSituacao && f.situacao_geral !== filtroSituacao) return false
       if (q) {
-        const hay = `${f.funcionario_nome} ${f.cpf || ''}`.toLowerCase()
+        const hay = `${f.nome_completo} ${f.cpf || ''} ${f.matricula || ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [fichas, busca, filtroSetor, filtroVinculo])
-
-  function statusCor(s: string | null): string {
-    if (s === 'critico') return C.red
-    if (s === 'atencao') return C.yellow
-    return C.green
-  }
+  }, [linhas, busca, filtroSetor, filtroVinculo, filtroSituacao])
 
   return (
     <div style={{ background: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -98,7 +109,7 @@ export default function FichasEpiPage() {
           <div>
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>EPI</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Fichas de EPI</h1>
-            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>{fichasFiltradas.length} de {fichas.length} funcionários</p>
+            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>{filtradas.length} de {linhas.length} funcionários</p>
           </div>
           <Link href="/dashboard/compliance/epi" style={btnSec}>← EPI</Link>
         </header>
@@ -106,7 +117,7 @@ export default function FichasEpiPage() {
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{erro}</div>}
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <input type="text" placeholder="Buscar por nome ou CPF…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: '1 1 240px' }} />
+          <input type="text" placeholder="Buscar por nome, CPF ou matrícula…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: '1 1 240px' }} />
           <select value={filtroSetor} onChange={(e) => setFiltroSetor(e.target.value)} style={{ ...inputStyle, minWidth: 160 }}>
             <option value="">Todos os setores</option>
             {setores.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -116,46 +127,60 @@ export default function FichasEpiPage() {
             <option value="direto">Direto</option>
             <option value="terceirizado">Terceirizado</option>
           </select>
+          <select value={filtroSituacao} onChange={(e) => setFiltroSituacao(e.target.value as any)} style={{ ...inputStyle, minWidth: 160 }}>
+            <option value="">Todas as situações</option>
+            <option value="sem_epi">⚪ Sem EPI</option>
+            <option value="em_dia">🟢 Em dia</option>
+            <option value="atencao">🟡 Atenção</option>
+            <option value="critico">🔴 Crítico</option>
+          </select>
         </section>
 
         {loading ? (
           <p style={{ textAlign: 'center', color: C.muted, padding: 40 }}>Carregando…</p>
-        ) : fichasFiltradas.length === 0 ? (
+        ) : filtradas.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 32, color: C.muted, background: '#FFFFFF', borderRadius: 12 }}>
-            Nenhum funcionário cadastrado ainda. Use o módulo Funcionários do Compliance.
+            {linhas.length === 0
+              ? 'Nenhum funcionário ativo cadastrado. Use o módulo Funcionários do Compliance.'
+              : 'Nenhum funcionário corresponde aos filtros selecionados.'}
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-            {fichasFiltradas.map((f) => {
-              const cor = statusCor(f.status_geral)
-              const iniciais = f.funcionario_nome.split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase()
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+            {filtradas.map((f) => {
+              const sit = SITUACAO_META[f.situacao_geral || 'sem_epi'] || SITUACAO_META.sem_epi
+              const iniciais = f.nome_completo.split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase()
+              const trocasAtr = f.trocas_atrasadas || 0
+              const episUso = f.epis_em_uso || 0
               return (
                 <Link key={f.funcionario_id} href={`/dashboard/compliance/epi/ficha/${f.funcionario_id}`} style={{ textDecoration: 'none' }}>
-                  <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderLeft: `4px solid ${cor}`, transition: 'transform 150ms', cursor: 'pointer' }}>
+                  <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderLeft: `4px solid ${sit.cor}`, transition: 'transform 150ms', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                       <div style={{ width: 38, height: 38, borderRadius: 38, background: C.beigeLt, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: C.espresso, fontSize: 13 }}>{iniciais || '?'}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, color: C.espresso, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.funcionario_nome}</div>
+                        <div style={{ fontWeight: 600, color: C.espresso, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nome_completo}</div>
                         {f.cpf && <div style={{ fontSize: 11, color: C.muted, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{f.cpf}</div>}
                       </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: sit.cor, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{sit.icone} {sit.label}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: C.espressoLt, marginBottom: 4 }}>
-                      {f.cargo || '—'} {f.setor && <>· {f.setor}</>}
+                    <div style={{ fontSize: 12, color: C.espressoLt, marginBottom: 6 }}>
+                      {f.cargo || '—'}{f.setor && <> · {f.setor}</>}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                       {f.vinculo_tipo === 'terceirizado' ? (
                         <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: C.gold + '22', color: C.gold, fontWeight: 700 }}>TERCEIRIZADO</span>
                       ) : (
                         <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: C.green + '22', color: C.green, fontWeight: 700 }}>DIRETO</span>
                       )}
-                      {f.prestador_nome && <span style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.prestador_nome}</span>}
+                      {f.prestador_razao_social && <span style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.prestador_razao_social}</span>}
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: `1px solid ${C.borderLt}` }}>
                       <div>
-                        <span style={{ fontSize: 22, fontWeight: 700, color: C.espresso }}>{f.total_epis_uso || 0}</span>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: C.espresso }}>{episUso}</span>
                         <span style={{ fontSize: 11, color: C.muted, marginLeft: 6 }}>EPIs em uso</span>
                       </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: cor, textTransform: 'uppercase' }}>{f.status_geral || 'ok'}</span>
+                      {trocasAtr > 0 && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.red }}>⚠ {trocasAtr} atrasada{trocasAtr === 1 ? '' : 's'}</span>
+                      )}
                     </div>
                   </div>
                 </Link>

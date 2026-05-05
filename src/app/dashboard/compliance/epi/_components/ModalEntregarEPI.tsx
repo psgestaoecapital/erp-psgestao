@@ -85,16 +85,27 @@ export function ModalEntregarEPI({ isOpen, onClose, onSuccess, funcionario, comp
   const carregarCatalogo = useCallback(async () => {
     setCarregandoCatalogo(true)
     try {
-      // Catalogo: globais + da empresa
-      const { data, error } = await supabase
-        .from('epi_catalogo')
-        .select('id, nome, modelo, ca_numero, ca_validade, fabricante_nome, lote, vida_util_meses, descartavel, is_global, company_id')
-        .or(`is_global.eq.true,company_id.eq.${companyId}`)
-        .eq('ativo', true)
-        .order('is_global', { ascending: false })
-        .order('nome')
-      if (error) throw error
-      setCatalogo((data || []) as any)
+      // Buscar EPIs disponiveis: proprios da empresa (mais relevantes) + globais (PS).
+      // Duas queries separadas para evitar quirks do operador .or() do PostgREST.
+      const COLS = 'id, nome, modelo, ca_numero, ca_validade, fabricante_nome, lote, vida_util_meses, descartavel, is_global, company_id'
+      const [ownR, globalR] = await Promise.all([
+        supabase
+          .from('epi_catalogo')
+          .select(COLS)
+          .eq('is_global', false)
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+          .order('nome'),
+        supabase
+          .from('epi_catalogo')
+          .select(COLS)
+          .eq('is_global', true)
+          .eq('ativo', true)
+          .order('nome'),
+      ])
+      if (ownR.error) throw ownR.error
+      if (globalR.error) throw globalR.error
+      setCatalogo([...(ownR.data || []), ...(globalR.data || [])] as any)
     } catch (e: any) {
       console.error('[catalogo]', e?.message)
       setCatalogo([])
@@ -222,11 +233,24 @@ export function ModalEntregarEPI({ isOpen, onClose, onSuccess, funcionario, comp
                 style={inputStyle}
               >
                 <option value="">{carregandoCatalogo ? 'Carregando catálogo…' : 'Selecione o EPI'}</option>
-                {catalogo.map((epi) => (
-                  <option key={epi.id} value={epi.id}>
-                    {epi.nome}{epi.modelo ? ` · ${epi.modelo}` : ''} · CA {epi.ca_numero}
-                  </option>
-                ))}
+                {catalogo.filter((c) => !c.is_global).length > 0 && (
+                  <optgroup label="🏢 Da empresa">
+                    {catalogo.filter((c) => !c.is_global).map((epi) => (
+                      <option key={epi.id} value={epi.id}>
+                        {epi.nome}{epi.modelo ? ` · ${epi.modelo}` : ''} · CA {epi.ca_numero}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {catalogo.filter((c) => c.is_global).length > 0 && (
+                  <optgroup label="🌐 Catálogo Global PS">
+                    {catalogo.filter((c) => c.is_global).map((epi) => (
+                      <option key={epi.id} value={epi.id}>
+                        {epi.nome}{epi.modelo ? ` · ${epi.modelo}` : ''} · CA {epi.ca_numero}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {epiSelecionado && (
                 <div style={{ marginTop: 8, padding: 10, background: C.beigeLt, borderRadius: 8, fontSize: 12, color: C.espressoLt }}>

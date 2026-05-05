@@ -41,6 +41,7 @@ interface CatalogoOption {
   id: string
   nome: string
   ca_numero: string
+  is_global?: boolean
 }
 
 export default function EstoqueEpiPage() {
@@ -71,7 +72,9 @@ export default function EstoqueEpiPage() {
     try {
       const ids = companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []
       if (ids.length === 0) { setEstoque([]); setCatalogo([]); setLoading(false); return }
-      const [estR, catR] = await Promise.all([
+      // Buscar EPIs disponiveis: globais (PS) + proprios da(s) empresa(s) selecionada(s).
+      // Duas queries separadas para evitar quirks do operador .or() do PostgREST.
+      const [estR, ownR, globalR] = await Promise.all([
         supabase
           .from('epi_estoque')
           .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, lote, observacoes, created_at, epi_catalogo(nome, ca_numero)')
@@ -79,19 +82,28 @@ export default function EstoqueEpiPage() {
           .order('created_at', { ascending: false }),
         supabase
           .from('epi_catalogo')
-          .select('id, nome, ca_numero')
-          .or(`is_global.eq.true,company_id.in.(${ids.join(',')})`)
+          .select('id, nome, ca_numero, is_global')
+          .eq('is_global', false)
+          .in('company_id', ids)
+          .eq('ativo', true)
+          .order('nome'),
+        supabase
+          .from('epi_catalogo')
+          .select('id, nome, ca_numero, is_global')
+          .eq('is_global', true)
           .eq('ativo', true)
           .order('nome'),
       ])
       if (estR.error) throw estR.error
-      if (catR.error) throw catR.error
+      if (ownR.error) throw ownR.error
+      if (globalR.error) throw globalR.error
       setEstoque(((estR.data || []) as any[]).map((r) => ({
         ...r,
         catalogo_nome: (r.epi_catalogo as any)?.nome,
         ca_numero: (r.epi_catalogo as any)?.ca_numero,
       })) as EstoqueRow[])
-      setCatalogo((catR.data || []) as CatalogoOption[])
+      // Proprios da empresa primeiro (mais relevantes), globais depois.
+      setCatalogo([...(ownR.data || []), ...(globalR.data || [])] as CatalogoOption[])
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar estoque')
     } finally {
@@ -270,7 +282,20 @@ function ModalEntradaEstoque({
         <Field label="EPI *">
           <select value={catalogoId} onChange={(e) => setCatalogoId(e.target.value)} style={inputStyle}>
             <option value="">Selecione…</option>
-            {catalogo.map((c) => <option key={c.id} value={c.id}>{c.nome} (CA {c.ca_numero})</option>)}
+            {catalogo.filter((c) => !c.is_global).length > 0 && (
+              <optgroup label="🏢 Da empresa">
+                {catalogo.filter((c) => !c.is_global).map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome} (CA {c.ca_numero})</option>
+                ))}
+              </optgroup>
+            )}
+            {catalogo.filter((c) => c.is_global).length > 0 && (
+              <optgroup label="🌐 Catálogo Global PS">
+                {catalogo.filter((c) => c.is_global).map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome} (CA {c.ca_numero})</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
