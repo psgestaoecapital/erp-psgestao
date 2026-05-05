@@ -91,6 +91,8 @@ export const POST = withAuth(async (req: NextRequest) => {
     'matricula', 'cargo', 'setor', 'funcao', 'data_admissao', 'data_demissao',
     'tipo_contrato', 'salario_base', 'empresa_tomadora_id', 'empresa_tomadora_nome',
     'obra_nome', 'ativo', 'observacoes',
+    // PR A1 — multi-vinculo: direto (CLT) ou terceirizado (via prestador)
+    'vinculo_tipo', 'prestador_id', 'setor_id',
   ]
   const payload: Record<string, any> = {}
   for (const k of CAMPOS) if (k in body) payload[k] = body[k]
