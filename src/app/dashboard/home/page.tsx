@@ -12,6 +12,7 @@ import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
 import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
+import PeriodoSelector, { type SelecaoPeriodo } from '@/components/dashboard/PeriodoSelector';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -71,6 +72,14 @@ function DashboardUniversalInner() {
   const [periodo, setPeriodo] = useState<string>('mes');
   const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia');
 
+  // ====== Dashboard foundational v2 — seletor de periodo (mes ou custom) ======
+  // Declarado AQUI (antes do carregar()) para que carregar() possa referenciar
+  // selecaoPeriodo e propagar ano/mes ao /api/dashboard/universal.
+  // Sem isto, todas as 6 RPCs do Dashboard universal recebem hoje.getMonth()+1
+  // (mes corrente) ignorando completamente a selecao do PeriodoSelector.
+  const [selecaoPeriodo, setSelecaoPeriodo] = useState<SelecaoPeriodo | null>(null);
+  const [dashboardHomeData, setDashboardHomeData] = useState<any>(null);
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [erroData, setErroData] = useState<string | null>(null);
@@ -98,6 +107,9 @@ function DashboardUniversalInner() {
   }, []);
 
   // Carrega dashboard sempre que muda seleção (via useCompanyIds), plano, período ou regime.
+  // Foundational fix: propaga selecaoPeriodo.ano/mes para a API universal —
+  // sem isto, todas as 6 RPCs (saude, dre, abc clientes/fornecedores, consultor,
+  // painel executivo) recebem hoje.getMonth()+1 ignorando o PeriodoSelector.
   const carregar = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ plano, periodo, regime });
@@ -111,6 +123,15 @@ function DashboardUniversalInner() {
       } else {
         params.set('company_id', companyIdsKey);
       }
+    }
+    // Foundational: propaga ano/mes do seletor para a API universal.
+    // Quando modo 'mes', sobrescreve o calculo padrao baseado em CURRENT_DATE.
+    // Modo 'custom' (daterange) ainda nao e suportado pela API universal —
+    // cai no comportamento default (mes corrente) ate que essa API ganhe
+    // suporte a data_inicio/data_fim.
+    if (selecaoPeriodo?.modo === 'mes') {
+      params.set('ano', String(selecaoPeriodo.ano));
+      params.set('mes', String(selecaoPeriodo.mes));
     }
 
     try {
@@ -128,13 +149,59 @@ function DashboardUniversalInner() {
     } finally {
       setLoading(false);
     }
-  }, [plano, periodo, regime, companyIdsKey]);
+  }, [plano, periodo, regime, companyIdsKey, selecaoPeriodo]);
 
   useEffect(() => {
     // Só carrega quando o hook terminou de resolver a seleção em pelo menos
     // uma company_id. Evita disparar com array vazio durante a hidratação.
     if (companyIdsKey) carregar();
   }, [carregar, companyIdsKey]);
+
+  // ====== Dashboard foundational v2 — efeitos do seletor de periodo ======
+  // (states selecaoPeriodo + dashboardHomeData ja declarados acima do carregar)
+  // Bug 1: reset selecaoPeriodo quando companyIds muda (evita selecao orfã)
+  // PeriodoSelector vai re-buscar periodos da nova empresa e auto-selecionar
+  // o ultimo_com_dados quando detectar selecao=null.
+  useEffect(() => {
+    setSelecaoPeriodo(null);
+  }, [companyIdsKey]);
+
+  useEffect(() => {
+    if (!companyIdsKey) return;
+    if (!selecaoPeriodo) {
+      // Limpa dados antigos enquanto aguarda auto-select da nova empresa
+      setDashboardHomeData(null);
+      return;
+    }
+    const ids = companyIdsKey.split(',').filter(Boolean);
+    if (ids.length === 0) return;
+    const url = new URL('/api/dashboard/home', window.location.origin);
+    url.searchParams.set('company_ids', ids.join(','));
+    if (selecaoPeriodo.modo === 'mes') {
+      url.searchParams.set('ano', String(selecaoPeriodo.ano));
+      url.searchParams.set('mes', String(selecaoPeriodo.mes));
+    } else if (selecaoPeriodo.modo === 'custom') {
+      url.searchParams.set('data_inicio', selecaoPeriodo.data_inicio);
+      url.searchParams.set('data_fim', selecaoPeriodo.data_fim);
+    }
+    fetch(url.toString())
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.ok) setDashboardHomeData(j);
+      })
+      .catch((e) => console.error('[Dashboard] erro home:', e));
+  }, [companyIdsKey, selecaoPeriodo]);
+
+  // Valores derivados (fallback inteligente — undefined preserva comportamento legado)
+  const fat = dashboardHomeData?.pulso?.faturamento?.valor;
+  const fatPct = dashboardHomeData?.pulso?.faturamento?.variacao_pct;
+  const desp = dashboardHomeData?.pulso?.despesas?.valor;
+  const despPct = dashboardHomeData?.pulso?.despesas?.variacao_pct;
+  const res = dashboardHomeData?.pulso?.resultado?.valor;
+  const resPct = dashboardHomeData?.pulso?.resultado?.pct;
+  const termoStatus = dashboardHomeData?.termometro?.status;
+  const termoScore = dashboardHomeData?.termometro?.pontuacao;
+  // ====== FIM Dashboard foundational v2 ======
 
   // Deriva grupoId apenas para o RaioXProfundo (que aceita grupoId opcional)
   const grupoIdSelecionado = sel.startsWith('group_') ? sel.replace('group_', '') : null;
@@ -162,6 +229,23 @@ function DashboardUniversalInner() {
 
           <div style={{ flex: 1 }} />
 
+          <PeriodoSelector
+            companyIds={companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []}
+            selecao={selecaoPeriodo}
+            onChange={setSelecaoPeriodo}
+            onPeriodosCarregados={(periodos) => {
+              // Auto-select foundational: usa setState callback p/ acessar
+              // valor MAIS RECENTE de selecaoPeriodo (sem closure stale).
+              // Filho notifica, pai decide.
+              setSelecaoPeriodo((prev) => {
+                if (prev !== null) return prev; // ja tem selecao, mantem
+                if (!periodos || periodos.length === 0) return null;
+                const ultimo = periodos.find((p) => p.is_ultimo_com_dados);
+                if (!ultimo) return null;
+                return { modo: 'mes', ano: ultimo.ano, mes: ultimo.mes };
+              });
+            }}
+          />
           <SeletorPeriodo periodo={periodo} onChange={setPeriodo} />
           <ToggleRegime value={regime} onChange={setRegime} />
           <button
@@ -224,7 +308,7 @@ function DashboardUniversalInner() {
 
         {data && data.camada1 && (
           <>
-            <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} />
+            <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} dashboardHomeData={dashboardHomeData} />
             <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
             <ConsultorInsights data={data.camada1?.consultor_ia} />
             <RaioXProfundo
@@ -270,7 +354,16 @@ function SeletorPeriodo({ periodo, onChange }: { periodo: string; onChange: (p: 
 }
 
 // ============ CAMADA 1 ============
-function CamadaUm({ data, qtdEmpresas }: { data: any; qtdEmpresas: number }) {
+function CamadaUm({ data, qtdEmpresas, dashboardHomeData }: { data: any; qtdEmpresas: number; dashboardHomeData?: any }) {
+  // v2 Dashboard foundational: fallback inteligente para Receita do periodo selecionado
+  const fat = dashboardHomeData?.pulso?.faturamento?.valor;
+  // Bug 3 fix: ler margem/ebitda do backend (que ja retorna 0 quando receita=0)
+  // e exibir "—" ao inves de "100%" incorreto quando receita=0.
+  const margemBackend = dashboardHomeData?.termometro?.margem_contribuicao_pct;
+  const ebitdaBackend = dashboardHomeData?.termometro?.ebitda_pct;
+  const receitaAtual = dashboardHomeData?.pulso?.faturamento?.valor;
+  // Quando ha dashboardHomeData, considera "receita zero" se faturamento <= 0
+  const semReceita = dashboardHomeData !== null && (receitaAtual ?? 0) <= 0;
   const cores = {
     saudavel: { border: '#639922', bg: '#EAF3DE', dot: '#639922' },
     atencao: { border: '#C8941A', bg: '#FAEEDA', dot: '#C8941A' },
@@ -297,10 +390,33 @@ function CamadaUm({ data, qtdEmpresas }: { data: any; qtdEmpresas: number }) {
         </div>
         <div style={{ fontSize: 15, color: '#5F5E5A', lineHeight: 1.6, marginBottom: 20 }}>{data.saude.frase}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          <IndCard label="Margem Contrib." valor={`${fmtPct(data.saude.indicadores.margem_contribuicao_pct || 0)}%`} />
-          <IndCard label="EBITDA %" valor={`${fmtPct(data.saude.indicadores.ebitda_pct || 0)}%`} 
-                   cor={data.saude.indicadores.ebitda_pct < 0 ? '#A32D2D' : '#3D2314'} />
-          <IndCard label="Receita" valor={`R$ ${fmt(data.saude.indicadores.receita || 0)}`} />
+          {/* Bug 3 fix: quando ha selecao de periodo sem receita, exibe "—" no lugar de % invalido */}
+          <IndCard
+            label="Margem Contrib."
+            valor={
+              semReceita
+                ? '—'
+                : margemBackend !== undefined
+                ? `${fmtPct(margemBackend)}%`
+                : `${fmtPct(data.saude.indicadores.margem_contribuicao_pct || 0)}%`
+            }
+          />
+          <IndCard
+            label="EBITDA %"
+            valor={
+              semReceita
+                ? '—'
+                : ebitdaBackend !== undefined
+                ? `${fmtPct(ebitdaBackend)}%`
+                : `${fmtPct(data.saude.indicadores.ebitda_pct || 0)}%`
+            }
+            cor={(ebitdaBackend ?? data.saude.indicadores.ebitda_pct) < 0 ? '#A32D2D' : '#3D2314'}
+          />
+          {/* Receita: usa fat (do dashboardHomeData) quando disponivel; senao mantem legado */}
+          <IndCard
+            label={dashboardHomeData?.periodo?.label ? `Faturamento · ${dashboardHomeData.periodo.label}` : 'Receita'}
+            valor={fat !== undefined ? `R$ ${fmt(fat)}` : `R$ ${fmt(data.saude.indicadores.receita || 0)}`}
+          />
         </div>
       </div>
       

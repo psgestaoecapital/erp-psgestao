@@ -4,9 +4,10 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import FiltroEmpresas from "@/components/bpo/FiltroEmpresas";
 
 interface Item {
   id: string;
@@ -55,7 +56,40 @@ export default function MeuDiaPage() {
   const [itemAtivoIdx, setItemAtivoIdx] = useState(0);
   const [mostrandoAjuda, setMostrandoAjuda] = useState(false);
   const [acaoAtiva, setAcaoAtiva] = useState<string | null>(null);
+  const [empresaSelecionada, setEmpresaSelecionada] = useState<string | null>(null);
   const inicioRef = useRef<number>(Date.now());
+
+  // ============ FILTRO POR EMPRESA ============
+  // Extrai empresas unicas dos 4 caixas com contagem agregada.
+  const empresas = useMemo(() => {
+    if (!data?.caixas) return [] as { id: string; nome: string; total: number }[];
+    const todos: Item[] = [
+      ...(data.caixas.urgentes || []),
+      ...(data.caixas.planejadas || []),
+      ...(data.caixas.ia_precisa || []),
+      ...(data.caixas.cliente_solicitou || []),
+    ];
+    const map = new Map<string, { id: string; nome: string; total: number }>();
+    todos.forEach((item) => {
+      if (!item.company_id) return;
+      const existing = map.get(item.company_id);
+      if (existing) {
+        existing.total++;
+      } else {
+        map.set(item.company_id, { id: item.company_id, nome: item.empresa, total: 1 });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [data]);
+
+  const filtrarPorEmpresa = useCallback(
+    (items: Item[] | undefined): Item[] => {
+      if (!items) return [];
+      if (!empresaSelecionada) return items;
+      return items.filter((item) => item.company_id === empresaSelecionada);
+    },
+    [empresaSelecionada]
+  );
 
   async function carregar() {
     setLoading(true);
@@ -82,7 +116,7 @@ export default function MeuDiaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const itensVisiveis = data?.caixas[caixaAtiva] || [];
+  const itensVisiveis = filtrarPorEmpresa(data?.caixas[caixaAtiva]);
   const itemAtivo = itensVisiveis[itemAtivoIdx];
 
   // ============ AÇÕES ============
@@ -173,11 +207,11 @@ export default function MeuDiaPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [executarAcao, itensVisiveis.length, mostrandoAjuda]);
 
-  // resetar idx ao mudar caixa
+  // resetar idx ao mudar caixa OU empresa filtrada
   useEffect(() => {
     setItemAtivoIdx(0);
     inicioRef.current = Date.now();
-  }, [caixaAtiva]);
+  }, [caixaAtiva, empresaSelecionada]);
 
   // ============ RENDER ============
   if (loading) {
@@ -239,7 +273,18 @@ export default function MeuDiaPage() {
         </div>
       </header>
 
-      {/* TABS DE CAIXAS */}
+      {/* FILTRO POR EMPRESA (premium) */}
+      <div className="bg-white px-6 pt-3">
+        <div className="mx-auto max-w-6xl">
+          <FiltroEmpresas
+            empresas={empresas}
+            selecionada={empresaSelecionada}
+            onChange={setEmpresaSelecionada}
+          />
+        </div>
+      </div>
+
+      {/* TABS DE CAIXAS — counters refletem filtro de empresa */}
       <div className="border-b border-[#3D2314]/10 bg-white px-6">
         <div className="mx-auto flex max-w-6xl gap-1 overflow-x-auto">
           <CaixaTab
@@ -248,7 +293,7 @@ export default function MeuDiaPage() {
             tecla="1"
             icone="🔥"
             nome="Urgentes"
-            qtd={data.caixas.urgentes.length}
+            qtd={filtrarPorEmpresa(data.caixas.urgentes).length}
             tom="vermelho"
           />
           <CaixaTab
@@ -257,7 +302,7 @@ export default function MeuDiaPage() {
             tecla="2"
             icone="📋"
             nome="Planejadas"
-            qtd={data.caixas.planejadas.length}
+            qtd={filtrarPorEmpresa(data.caixas.planejadas).length}
           />
           <CaixaTab
             ativo={caixaAtiva === "ia_precisa"}
@@ -265,7 +310,7 @@ export default function MeuDiaPage() {
             tecla="3"
             icone="🤖"
             nome="IA precisa de você"
-            qtd={data.caixas.ia_precisa.length}
+            qtd={filtrarPorEmpresa(data.caixas.ia_precisa).length}
           />
           <CaixaTab
             ativo={caixaAtiva === "cliente_solicitou"}
@@ -273,7 +318,7 @@ export default function MeuDiaPage() {
             tecla="4"
             icone="📨"
             nome="Cliente solicitou"
-            qtd={data.caixas.cliente_solicitou.length}
+            qtd={filtrarPorEmpresa(data.caixas.cliente_solicitou).length}
           />
         </div>
       </div>
@@ -290,34 +335,70 @@ export default function MeuDiaPage() {
           <EmptyCaixa caixa={caixaAtiva} />
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_3fr]">
-            {/* Lista */}
-            <div className="space-y-2">
-              {itensVisiveis.map((it, idx) => (
-                <button
-                  key={it.id}
-                  onClick={() => setItemAtivoIdx(idx)}
-                  className={`w-full rounded-xl p-3 text-left transition ${
-                    idx === itemAtivoIdx
-                      ? "bg-[#3D2314] text-[#FAF7F2] shadow-md"
-                      : "bg-[#FAF7F2] text-[#3D2314] hover:bg-[#FAF7F2]/70"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">{it.titulo}</div>
-                      <div className={`text-xs ${idx === itemAtivoIdx ? "text-[#FAF7F2]/70" : "text-[#3D2314]/60"}`}>
-                        {it.empresa}
+            {/* Lista — premium: hover suave + borda dourada animada + sombra sutil */}
+            <div className="space-y-1.5">
+              {itensVisiveis.map((it, idx) => {
+                const ativo = idx === itemAtivoIdx;
+                return (
+                  <button
+                    key={it.id}
+                    onClick={() => setItemAtivoIdx(idx)}
+                    className={`group block w-full rounded-lg border p-3 text-left transition-all ${
+                      ativo
+                        ? "border-[#F0E8DC] bg-white shadow-md"
+                        : "border-[#F0E8DC] bg-white hover:translate-x-[2px] hover:shadow-sm"
+                    }`}
+                    style={{
+                      borderLeft: ativo ? "3px solid #C8941A" : "3px solid transparent",
+                      boxShadow: ativo ? "0 2px 8px rgba(61,35,20,0.08)" : "0 1px 3px rgba(61,35,20,0.04)",
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-[#3D2314] truncate">
+                          {it.titulo}
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span
+                            className="inline-flex items-center text-[11px] font-medium text-[#5C3825]"
+                            style={{
+                              background: "#FAF7F2",
+                              padding: "1px 7px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            🏢 {it.empresa}
+                          </span>
+                        </div>
                       </div>
+                      {it.sla_status === "vencido" && (
+                        <span
+                          className="rounded text-[10px] font-bold uppercase tracking-wide"
+                          style={{
+                            color: "#B8453B",
+                            background: "#FBE9E7",
+                            padding: "2px 6px",
+                          }}
+                        >
+                          SLA vencido
+                        </span>
+                      )}
+                      {it.sla_status === "vencendo_4h" && (
+                        <span
+                          className="rounded text-[10px] font-bold"
+                          style={{
+                            color: "#A87810",
+                            background: "#FFF8EC",
+                            padding: "2px 6px",
+                          }}
+                        >
+                          ⏰ 4h
+                        </span>
+                      )}
                     </div>
-                    {it.sla_status === "vencido" && (
-                      <span className="rounded bg-red-500 px-1.5 py-0.5 text-xs text-white">venc</span>
-                    )}
-                    {it.sla_status === "vencendo_4h" && (
-                      <span className="rounded bg-yellow-400 px-1.5 py-0.5 text-xs text-yellow-900">4h</span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Detalhe */}
@@ -342,11 +423,17 @@ export default function MeuDiaPage() {
                 )}
 
                 {itemAtivo.ia_acao_sugerida && (
-                  <div className="mb-4 rounded-lg bg-[#C8941A]/10 p-3">
-                    <div className="mb-1 text-xs font-semibold text-[#C8941A]">
+                  <div
+                    className="mb-3 rounded-lg p-3"
+                    style={{
+                      background: "#FFF8EC",
+                      border: "1px solid #F0DCB0",
+                    }}
+                  >
+                    <div className="mb-1 text-xs font-semibold text-[#A87810]">
                       🤖 IA sugere
                       {itemAtivo.ia_confianca != null && (
-                        <span className="ml-2 text-[#3D2314]/60">
+                        <span className="ml-2 font-normal text-[#5C3825]">
                           ({itemAtivo.ia_confianca}% confiança)
                         </span>
                       )}
@@ -357,8 +444,8 @@ export default function MeuDiaPage() {
                   </div>
                 )}
 
-                {/* AÇÕES */}
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                {/* AÇÕES — botoes compactos (premium) */}
+                <div className="flex flex-wrap items-center gap-2">
                   <BotaoAcao
                     onClick={() => executarAcao("resolver")}
                     disabled={!!acaoAtiva}
@@ -393,8 +480,8 @@ export default function MeuDiaPage() {
                   />
                 </div>
 
-                <div className="mt-4 text-xs text-[#3D2314]/60">
-                  Use <Kbd>J</Kbd>/<Kbd>K</Kbd> para navegar, <Kbd>?</Kbd> para todos os atalhos.
+                <div className="mt-3 text-[10px] text-[#3D2314]/50">
+                  Use <Kbd small>J</Kbd>/<Kbd small>K</Kbd> para navegar · <Kbd small>?</Kbd> atalhos
                 </div>
               </div>
             )}
@@ -440,11 +527,16 @@ export default function MeuDiaPage() {
 // ============ COMPONENTES AUXILIARES ============
 
 function KpiBadge({ label, valor, tom }: { label: string; valor: number; tom?: "vermelho" | "ok" }) {
-  const cor = tom === "vermelho" && valor > 0 ? "text-red-700" : "text-[#3D2314]";
+  const cor = tom === "vermelho" && valor > 0 ? "text-[#B8453B]" : "text-[#3D2314]";
   return (
     <div className="text-right">
-      <div className="text-xs text-[#3D2314]/60">{label}</div>
-      <div className={`text-lg font-bold ${cor}`}>{valor}</div>
+      <div className="text-[10px] uppercase tracking-wider text-[#3D2314]/60">{label}</div>
+      <div
+        className={`text-xl font-bold leading-tight ${cor}`}
+        style={{ fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums' }}
+      >
+        {valor}
+      </div>
     </div>
   );
 }
@@ -531,14 +623,16 @@ function BotaoAcao({
     dourado: "bg-[#C8941A] hover:bg-[#A87810] text-white",
     espresso: "bg-[#3D2314] hover:bg-[#5C3A24] text-[#FAF7F2]",
   };
+  // Premium UX: botoes mais compactos (8px vertical em vez de 12px+)
+  // ganha ~30% de altura na tela para mostrar mais pendencias.
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex flex-col items-center justify-center rounded-xl px-4 py-3 transition disabled:opacity-50 ${cores[cor]}`}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:opacity-50 ${cores[cor]}`}
     >
-      <span className="text-sm font-semibold">{loading ? "…" : label}</span>
-      <span className="mt-1 text-xs opacity-75">{tecla}</span>
+      <span>{loading ? "…" : label}</span>
+      <span className="text-[10px] opacity-70">{tecla}</span>
     </button>
   );
 }
