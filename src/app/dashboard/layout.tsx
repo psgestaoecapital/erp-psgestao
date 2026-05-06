@@ -74,6 +74,9 @@ const Icon = {
   Database: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>,
   Wrench: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
   DollarSign: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  HardHat: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v2z"/><path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/><path d="M4 15v-3a6 6 0 0 1 6-6"/><path d="M14 6a6 6 0 0 1 6 6v3"/></svg>,
+  Box: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>,
+  AlertTriangle: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>,
 }
 
 type PlanoTipo = 'comercio' | 'industrial' | 'agro' | 'bpo' | 'wealth' | 'producao'
@@ -130,6 +133,13 @@ const MENU: Record<PlanoTipo, MenuGroup[]> = {
       { href: '/dashboard/compliance/matriz', label: 'Matriz de Conformidade', icon: <Icon.ClipboardList /> },
       { href: '/dashboard/compliance/setores', label: 'Setores', icon: <Icon.Building />, badge: 'NOVO' },
       { href: '/dashboard/compliance/validacao-automatica', label: 'Validação Automática', icon: <Icon.Shield />, badge: 'PRO' },
+    ]},
+    { label: 'EPI · NR-6', items: [
+      { href: '/dashboard/compliance/epi', label: 'Dashboard EPI', icon: <Icon.HardHat />, badge: 'NOVO' },
+      { href: '/dashboard/compliance/epi/catalogo', label: 'Catálogo', icon: <Icon.ClipboardList /> },
+      { href: '/dashboard/compliance/epi/estoque', label: 'Estoque', icon: <Icon.Box /> },
+      { href: '/dashboard/compliance/epi/fichas', label: 'Fichas', icon: <Icon.FileText /> },
+      { href: '/dashboard/compliance/epi/alertas', label: 'Alertas', icon: <Icon.AlertTriangle /> },
     ]},
   ],
   industrial: [
