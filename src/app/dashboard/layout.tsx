@@ -523,9 +523,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [selCompany])
 
   const menuGroupsBase = MENU[currentPlano] || []
-  const menuGroups = temProjetos
-    ? [
-        ...menuGroupsBase,
+  const isAdminWealth = userRole === 'adm' || userRole === 'acesso_total' || userRole === 'adm_investimentos'
+  const menuGroups = (() => {
+    let groups = menuGroupsBase
+    if (temProjetos) {
+      groups = [
+        ...groups,
         {
           label: 'PROJETOS',
           items: [
@@ -533,7 +536,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ],
         },
       ]
-    : menuGroupsBase
+    }
+    // Wealth · MFO: visivel em qualquer plano para admins / AAI; o plano "wealth"
+    // ja inclui o item nativamente, entao nao duplica.
+    if (isAdminWealth && currentPlano !== 'wealth') {
+      groups = [
+        ...groups,
+        {
+          label: 'WEALTH · MFO',
+          items: [
+            { href: '/dashboard/wealth', label: 'Carteiras de Clientes', icon: <Icon.Gem />, badge: 'MFO' },
+          ],
+        },
+      ]
+    }
+    return groups
+  })()
 
   const gruposComEmpresas = React.useMemo(() => {
     return groups
