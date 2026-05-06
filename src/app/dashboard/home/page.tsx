@@ -12,6 +12,7 @@ import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
 import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
+import PeriodoSelector from '@/components/dashboard/PeriodoSelector';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -136,6 +137,30 @@ function DashboardUniversalInner() {
     if (companyIdsKey) carregar();
   }, [carregar, companyIdsKey]);
 
+  // ====== Hotfix Dashboard foundational: seletor de periodo + KPIs flexiveis ======
+  // Aditivo: novo endpoint /api/dashboard/home com fn_dashboard_home(uuid[], int, int).
+  // Default inteligente: se ano/mes nao selecionados, backend usa ultimo mes com dados.
+  const [periodoAno, setPeriodoAno] = useState<number | null>(null);
+  const [periodoMes, setPeriodoMes] = useState<number | null>(null);
+  const [dashboardHomeData, setDashboardHomeData] = useState<any>(null);
+
+  useEffect(() => {
+    if (!companyIdsKey) return;
+    const ids = companyIdsKey.split(',').filter(Boolean);
+    if (ids.length === 0) return;
+    const url = new URL('/api/dashboard/home', window.location.origin);
+    url.searchParams.set('company_ids', ids.join(','));
+    if (periodoAno) url.searchParams.set('ano', String(periodoAno));
+    if (periodoMes) url.searchParams.set('mes', String(periodoMes));
+    fetch(url.toString())
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.ok) setDashboardHomeData(j);
+      })
+      .catch((e) => console.error('[Dashboard] erro home:', e));
+  }, [companyIdsKey, periodoAno, periodoMes]);
+  // ====== FIM Hotfix Dashboard foundational ======
+
   // Deriva grupoId apenas para o RaioXProfundo (que aceita grupoId opcional)
   const grupoIdSelecionado = sel.startsWith('group_') ? sel.replace('group_', '') : null;
   
@@ -162,6 +187,15 @@ function DashboardUniversalInner() {
 
           <div style={{ flex: 1 }} />
 
+          <PeriodoSelector
+            companyIds={companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []}
+            anoSelecionado={periodoAno}
+            mesSelecionado={periodoMes}
+            onChange={(ano, mes) => {
+              setPeriodoAno(ano);
+              setPeriodoMes(mes);
+            }}
+          />
           <SeletorPeriodo periodo={periodo} onChange={setPeriodo} />
           <ToggleRegime value={regime} onChange={setRegime} />
           <button
