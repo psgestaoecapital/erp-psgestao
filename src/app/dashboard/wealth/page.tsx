@@ -1,168 +1,88 @@
+// src/app/dashboard/wealth/page.tsx
+// Placeholder PR-W1: rota /dashboard/wealth ativa, identidade visual PS,
+// aguardando PRs Sprint 2 (W2 lista clientes, W3 IPS, W4 posicoes,
+// W5 proventos). Backend Wealth completo ja em producao (12 tabelas,
+// 8 RPCs, RLS multi-tenant LGPD, 5 templates IPS, 2 buckets storage).
+
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+const C = {
+  espresso: '#3D2314',
+  espressoLt: '#5D4534',
+  offwhite: '#FAF7F2',
+  gold: '#C8941A',
+  goldLt: '#FFF8EC',
+  beigeLt: '#f5f0e8',
+  borderLt: '#ece3d2',
+  ink: '#1a1a1a',
+  muted: 'rgba(61, 35, 20, 0.55)',
+}
 
-const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', blue: '#42A5F5' }
+const proximas = [
+  'Cadastro e listagem de clientes Wealth',
+  'IPS (Investment Policy Statement) versionado',
+  'Posições, transações e proventos por cliente',
+  'Importação OFX/Excel das corretoras',
+  'Relatórios PDF mensais com narrativa IA',
+]
 
-interface WCliente { id: string; nome: string; cpf_cnpj?: string; perfil_risco?: string; ativo?: boolean }
-interface WPortfolio { id: string; cliente_id: string; nome_ativo?: string; classe_ativo?: string; valor_atual?: number }
-interface ClasseData { valor: number; count: number }
-
-export default function WealthPage() {
-  const [clientes, setClientes] = useState<WCliente[]>([])
-  const [portfolios, setPortfolios] = useState<WPortfolio[]>([])
-  const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('overview')
-
-  useEffect(() => { loadData() }, [])
-
-  const loadData = async () => {
-    setLoading(true)
-    const [cRes, pRes] = await Promise.all([
-      supabase.from('wealth_clientes').select('*').order('nome'),
-      supabase.from('wealth_portfolios').select('*'),
-    ])
-    setClientes((cRes.data || []) as WCliente[])
-    setPortfolios((pRes.data || []) as WPortfolio[])
-    setLoading(false)
-  }
-
-  const totalAUM = portfolios.reduce((s, p) => s + (p.valor_atual || 0), 0)
-  const totalClientes = clientes.length
-  const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  const fmtM = (v: number) => v >= 1000000 ? 'R$ ' + (v / 1000000).toFixed(1) + 'M' : fmt(v)
-
-  const tabSt = (t: string): React.CSSProperties => ({
-    padding: '8px 16px', cursor: 'pointer', borderRadius: '6px 6px 0 0', fontWeight: 600, fontSize: 12,
-    background: tab === t ? C.card : 'transparent', color: tab === t ? C.gold : C.muted, border: 'none',
-  })
-
-  const byClass: Record<string, ClasseData> = portfolios.reduce((acc, p) => {
-    const cls = p.classe_ativo || 'Outros'
-    if (!acc[cls]) acc[cls] = { valor: 0, count: 0 }
-    acc[cls].valor += p.valor_atual || 0
-    acc[cls].count++
-    return acc
-  }, {} as Record<string, ClasseData>)
-
-  const classEntries = Object.entries(byClass).sort((a, b) => b[1].valor - a[1].valor)
-
-  const kpis = [
-    { label: 'AUM Total', value: fmtM(totalAUM), color: C.gold },
-    { label: 'Clientes', value: String(totalClientes), color: C.blue },
-    { label: 'Portfolios', value: String(portfolios.length), color: C.green },
-    { label: 'Ticket Medio', value: totalClientes > 0 ? fmtM(totalAUM / totalClientes) : '-', color: C.text },
-  ]
-
+export default function WealthHomePage() {
   return (
-    <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.gold, margin: 0 }}>PS Wealth - Multi Family Office</h1>
-        <button onClick={loadData} style={{ background: C.gold, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>Atualizar</button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 16 }}>
-        {kpis.map((s, i) => (
-          <div key={i} style={{ background: C.card, borderRadius: 8, padding: 16, borderTop: '3px solid ' + s.color }}>
-            <div style={{ fontSize: 11, color: C.muted }}>{s.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+    <div style={{ background: C.offwhite, minHeight: '100vh', color: C.ink, padding: '32px 24px' }}>
+      <div style={{ maxWidth: 760, margin: '0 auto' }}>
+        {/* Header */}
+        <header style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 80, height: 80, borderRadius: 40, background: C.espresso, marginBottom: 16 }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/>
+            </svg>
           </div>
-        ))}
-      </div>
+          <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', color: C.gold, margin: 0 }}>Multi Family Office</p>
+          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 36, fontWeight: 400, margin: '6px 0 6px', color: C.espresso }}>Wealth · MFO</h1>
+          <p style={{ fontSize: 15, color: C.muted, margin: 0 }}>Gestão de patrimônio de clientes da consultoria PS Gestão</p>
+        </header>
 
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid ' + C.border, marginBottom: 16 }}>
-        <button style={tabSt('overview')} onClick={() => setTab('overview')}>Visao Geral</button>
-        <button style={tabSt('clientes')} onClick={() => setTab('clientes')}>Clientes</button>
-        <button style={tabSt('alocacao')} onClick={() => setTab('alocacao')}>Alocacao</button>
-      </div>
-
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: C.muted }}>Carregando...</div>}
-
-      {tab === 'overview' && !loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-          <div style={{ background: C.card, borderRadius: 8, padding: 16 }}>
-            <div style={{ fontWeight: 700, color: C.gold, marginBottom: 12 }}>Alocacao por Classe</div>
-            {classEntries.map(([cls, d]) => {
-              const pct = totalAUM > 0 ? (d.valor / totalAUM) * 100 : 0
-              return (
-                <div key={cls} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-                    <span>{cls}</span>
-                    <span style={{ color: C.gold }}>{pct.toFixed(1)}% - {fmtM(d.valor)}</span>
-                  </div>
-                  <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: pct + '%', background: C.gold, borderRadius: 3 }} />
-                  </div>
-                </div>
-              )
-            })}
-            {classEntries.length === 0 && <div style={{ color: C.muted, fontSize: 12 }}>Nenhum portfolio cadastrado</div>}
+        {/* Card principal */}
+        <section style={{ background: '#FFFFFF', borderRadius: 12, border: `1px solid ${C.gold}`, padding: 28, marginBottom: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 8, background: C.goldLt, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="6" width="20" height="8" rx="1"/><path d="M17 14v7"/><path d="M7 14v7"/><path d="M17 3v3"/><path d="M7 3v3"/><path d="M10 14 2.3 6.3"/><path d="m14 6 7.7 7.7"/><path d="m8 6 8 8"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, color: C.espresso, margin: '0 0 10px' }}>Módulo em construção</h2>
+              <p style={{ fontSize: 14, color: C.espressoLt, lineHeight: 1.6, margin: '0 0 10px' }}>
+                O backend Wealth está pronto em produção: <strong>12 tabelas</strong> com RLS multi-tenant LGPD,
+                {' '}<strong>8 RPCs</strong> operacionais (cálculo de posição, snapshot mensal, validação IPS,
+                cálculo de DY, consolidação familiar, importação, atualização de cotações, métricas) e
+                {' '}<strong>5 templates IPS</strong> pré-configurados (Conservador → Agressivo).
+              </p>
+              <p style={{ fontSize: 14, color: C.espressoLt, lineHeight: 1.6, margin: '0 0 14px' }}>
+                As próximas entregas trarão a interface completa para gestão das carteiras:
+              </p>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {proximas.map((p) => (
+                  <li key={p} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: C.espresso }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 6, background: C.gold, flexShrink: 0 }} />
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-          <div style={{ background: C.card, borderRadius: 8, padding: 16 }}>
-            <div style={{ fontWeight: 700, color: C.gold, marginBottom: 12 }}>Clientes Recentes</div>
-            {clientes.slice(0, 8).map((c, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid ' + C.border, fontSize: 12 }}>
-                <span>{c.nome}</span>
-                <span style={{ color: C.muted }}>{c.perfil_risco || '-'}</span>
-              </div>
-            ))}
-            {clientes.length === 0 && <div style={{ color: C.muted, fontSize: 12 }}>Nenhum cliente cadastrado</div>}
-          </div>
-        </div>
-      )}
+        </section>
 
-      {tab === 'clientes' && !loading && (
-        <div style={{ background: C.card, borderRadius: 8, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr>{['Nome','CPF/CNPJ','Perfil','AUM','Status'].map(h=>(
-              <th key={h} style={{ padding:'10px 12px', textAlign:'left', color:C.gold, fontWeight:600, fontSize:11 }}>{h}</th>
-            ))}</tr></thead>
-            <tbody>
-              {clientes.map((c, i) => {
-                const ca = portfolios.filter(p => p.cliente_id === c.id).reduce((s, p) => s + (p.valor_atual || 0), 0)
-                return (
-                  <tr key={i} style={{ borderBottom: '1px solid ' + C.border }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 500 }}>{c.nome}</td>
-                    <td style={{ padding: '8px 12px', color: C.muted }}>{c.cpf_cnpj || '-'}</td>
-                    <td style={{ padding: '8px 12px' }}>{c.perfil_risco || '-'}</td>
-                    <td style={{ padding: '8px 12px', color: C.gold, fontWeight: 600 }}>{fmtM(ca)}</td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <span style={{ padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:700, color: c.ativo !== false ? C.green : C.red }}>{c.ativo !== false ? 'Ativo' : 'Inativo'}</span>
-                    </td>
-                  </tr>
-                )
-              })}
-              {clientes.length === 0 && <tr><td colSpan={5} style={{ padding:20, textAlign:'center', color:C.muted }}>Nenhum cliente</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === 'alocacao' && !loading && (
-        <div style={{ background: C.card, borderRadius: 8, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr>{['Ativo','Classe','Cliente','Valor Atual','% AUM'].map(h=>(
-              <th key={h} style={{ padding:'10px 12px', textAlign: h==='Valor Atual'||h==='% AUM'?'right':'left', color:C.gold, fontWeight:600, fontSize:11 }}>{h}</th>
-            ))}</tr></thead>
-            <tbody>
-              {portfolios.sort((a,b)=>(b.valor_atual||0)-(a.valor_atual||0)).map((p,i)=>{
-                const cl = clientes.find(c => c.id === p.cliente_id)
-                return (
-                  <tr key={i} style={{ borderBottom:'1px solid '+C.border }}>
-                    <td style={{ padding:'8px 12px', fontWeight:500 }}>{p.nome_ativo||'-'}</td>
-                    <td style={{ padding:'8px 12px', color:C.muted }}>{p.classe_ativo||'-'}</td>
-                    <td style={{ padding:'8px 12px' }}>{cl?.nome||'-'}</td>
-                    <td style={{ padding:'8px 12px', textAlign:'right', color:C.gold, fontWeight:600 }}>{fmt(p.valor_atual||0)}</td>
-                    <td style={{ padding:'8px 12px', textAlign:'right', color:C.muted }}>{totalAUM>0?((p.valor_atual||0)/totalAUM*100).toFixed(1)+'%':'-'}</td>
-                  </tr>
-                )
-              })}
-              {portfolios.length===0&&<tr><td colSpan={5} style={{ padding:20, textAlign:'center', color:C.muted }}>Nenhum portfolio</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
+        {/* Aviso privacidade */}
+        <section style={{ background: '#FFFFFF', borderRadius: 8, border: `1px solid ${C.borderLt}`, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.espresso} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <p style={{ fontSize: 12, color: C.muted, margin: 0, lineHeight: 1.5 }}>
+            Acesso restrito a admins e AAI/CFP responsáveis. Dados patrimoniais com RLS isolada por consultor (LGPD Art. 37).
+          </p>
+        </section>
+      </div>
     </div>
   )
 }
