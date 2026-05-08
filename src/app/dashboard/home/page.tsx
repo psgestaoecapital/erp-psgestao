@@ -177,6 +177,10 @@ function DashboardUniversalInner() {
     if (ids.length === 0) return;
     const url = new URL('/api/dashboard/home', window.location.origin);
     url.searchParams.set('company_ids', ids.join(','));
+    // Pacote 8: propaga regime do toggle COMPETENCIA/CAIXA. Default 'competencia'
+    // preserva comportamento legado para Tryo/MM/R.R./Gean. PDOIS apertando
+    // CAIXA -> backend le psgc_fluxo_realizado e bate 100% com SIGA.
+    url.searchParams.set('regime', regime);
     if (selecaoPeriodo.modo === 'mes') {
       url.searchParams.set('ano', String(selecaoPeriodo.ano));
       url.searchParams.set('mes', String(selecaoPeriodo.mes));
@@ -190,7 +194,7 @@ function DashboardUniversalInner() {
         if (j && j.ok) setDashboardHomeData(j);
       })
       .catch((e) => console.error('[Dashboard] erro home:', e));
-  }, [companyIdsKey, selecaoPeriodo]);
+  }, [companyIdsKey, selecaoPeriodo, regime]);
 
   // Valores derivados (fallback inteligente — undefined preserva comportamento legado)
   const fat = dashboardHomeData?.pulso?.faturamento?.valor;
