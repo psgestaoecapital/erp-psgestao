@@ -28,7 +28,7 @@ interface OFXUpload {
   corretora_detectada: string | null;
   total_transactions: number | null;
   status: string;
-  created_at: string;
+  uploaded_at: string;
 }
 
 const statusVisualPluggy: Record<
@@ -55,6 +55,7 @@ export function ClienteConexoesSection({
   const [items, setItems] = useState<PluggyItem[]>([]);
   const [uploads, setUploads] = useState<OFXUpload[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -70,10 +71,10 @@ export function ClienteConexoesSection({
         supabase
           .from("wealth_ofx_uploads")
           .select(
-            "id, filename, corretora_detectada, total_transactions, status, created_at"
+            "id, filename, corretora_detectada, total_transactions, status, uploaded_at"
           )
           .eq("client_id", clienteId)
-          .order("created_at", { ascending: false })
+          .order("uploaded_at", { ascending: false })
           .limit(5),
       ]);
 
@@ -88,6 +89,22 @@ export function ClienteConexoesSection({
       mounted = false;
     };
   }, [clienteId]);
+
+  const handleSyncManual = async (itemUuid: string) => {
+    setSyncingId(itemUuid);
+    try {
+      const { error } = await supabase.rpc("sp_pluggy_dispatch_sync", {
+        p_item_id: itemUuid,
+        p_origem: "manual_consultor",
+      });
+      if (error) throw error;
+      setTimeout(() => onChange(), 1500);
+    } catch (e) {
+      alert(`Erro ao sincronizar: ${(e as Error).message}`);
+    } finally {
+      setSyncingId(null);
+    }
+  };
 
   const handleRevogarPluggy = async (itemUuid: string) => {
     if (
@@ -209,13 +226,26 @@ export function ClienteConexoesSection({
                     )}
                   </div>
                   {isAtivo && (
-                    <button
-                      onClick={() => handleRevogarPluggy(item.id)}
-                      className="text-xs underline hover:opacity-80"
-                      style={{ color: "#DC2626" }}
-                    >
-                      Revogar
-                    </button>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {item.status !== "UPDATING" &&
+                        item.status !== "LOGIN_IN_PROGRESS" && (
+                          <button
+                            onClick={() => handleSyncManual(item.id)}
+                            disabled={syncingId === item.id}
+                            className="text-xs underline hover:opacity-80 disabled:opacity-50"
+                            style={{ color: "#C8941A" }}
+                          >
+                            {syncingId === item.id ? "Sincronizando..." : "Sincronizar"}
+                          </button>
+                        )}
+                      <button
+                        onClick={() => handleRevogarPluggy(item.id)}
+                        className="text-xs underline hover:opacity-80"
+                        style={{ color: "#DC2626" }}
+                      >
+                        Revogar
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -265,7 +295,7 @@ export function ClienteConexoesSection({
                   >
                     {u.corretora_detectada || "Corretora desconhecida"} •{" "}
                     {u.total_transactions ?? 0} transações •{" "}
-                    {new Date(u.created_at).toLocaleDateString("pt-BR")}
+                    {new Date(u.uploaded_at).toLocaleDateString("pt-BR")}
                   </div>
                 </div>
                 <span

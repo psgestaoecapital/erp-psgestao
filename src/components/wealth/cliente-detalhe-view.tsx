@@ -9,6 +9,8 @@ import { ClientePositionsTable } from "./cliente-positions-table";
 import { ClienteConexoesSection } from "./cliente-conexoes-section";
 import { TermoConsentModal } from "./termo-consent-modal";
 import { PluggyWidgetWrapper } from "./pluggy-widget-wrapper";
+import { OFXUploadModal } from "./ofx-upload-modal";
+import { SyncHistorySection } from "./sync-history-section";
 
 interface ClienteDetalheViewProps {
   clienteId: string;
@@ -45,6 +47,7 @@ export function ClienteDetalheView({ clienteId }: ClienteDetalheViewProps) {
   const [consentId, setConsentId] = useState<string | null>(null);
   const [connectToken, setConnectToken] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(false);
+  const [showOfxModal, setShowOfxModal] = useState(false);
 
   const refreshAll = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -291,12 +294,11 @@ export function ClienteDetalheView({ clienteId }: ClienteDetalheViewProps) {
             Conectar conta
           </button>
           <button
-            disabled
-            title="ETAPA A3 - em breve"
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md border cursor-not-allowed"
+            onClick={() => setShowOfxModal(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md border hover:opacity-80"
             style={{
               borderColor: "rgba(61, 35, 20, 0.2)",
-              color: "rgba(61, 35, 20, 0.4)",
+              color: "#3D2314",
             }}
           >
             <FileUp className="h-4 w-4" />
@@ -314,6 +316,16 @@ export function ClienteDetalheView({ clienteId }: ClienteDetalheViewProps) {
         key={`con-${refreshKey}`}
         onChange={refreshAll}
       />
+
+      <SyncHistorySection clienteId={clienteId} key={`syn-${refreshKey}`} />
+
+      {showOfxModal && (
+        <OFXUploadModal
+          clienteId={clienteId}
+          onClose={() => setShowOfxModal(false)}
+          onSuccess={refreshAll}
+        />
+      )}
 
       {fluxoConectar === "termo" && (
         <TermoConsentModal
