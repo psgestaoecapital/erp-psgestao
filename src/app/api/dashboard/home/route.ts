@@ -14,6 +14,11 @@ export async function GET(req: NextRequest) {
     const mesParam = url.searchParams.get('mes');
     const dataInicioParam = url.searchParams.get('data_inicio');
     const dataFimParam = url.searchParams.get('data_fim');
+    const regimeParam = url.searchParams.get('regime');
+    // Default 'competencia' preserva comportamento legado (zero risco para
+    // empresas que nao usam regime caixa).
+    const regime: 'competencia' | 'caixa' =
+      regimeParam === 'caixa' ? 'caixa' : 'competencia';
 
     if (!companyIdsParam) {
       return NextResponse.json(
@@ -55,6 +60,7 @@ export async function GET(req: NextRequest) {
       p_company_ids: companyIds,
       p_ano: ano,
       p_mes: mes,
+      p_regime: regime,
     });
 
     if (error) {
