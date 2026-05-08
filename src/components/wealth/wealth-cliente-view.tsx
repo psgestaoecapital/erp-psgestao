@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Loader2, Construction, FileText } from "lucide-react";
+import { Loader2, ArrowRight } from "lucide-react";
 
 export function WealthClienteView() {
   const [loading, setLoading] = useState(true);
@@ -12,12 +13,13 @@ export function WealthClienteView() {
   useEffect(() => {
     const load = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (!user) {
           setLoading(false);
           return;
         }
-
         const { data } = await supabase
           .from("wealth_clients")
           .select("id, nome")
@@ -52,15 +54,8 @@ export function WealthClienteView() {
         className="rounded-lg border p-12 text-center"
         style={{ borderColor: "rgba(61, 35, 20, 0.1)", backgroundColor: "#FAF7F2" }}
       >
-        <FileText
-          className="h-12 w-12 mx-auto mb-3"
-          style={{ color: "rgba(61, 35, 20, 0.3)" }}
-        />
         <p style={{ color: "rgba(61, 35, 20, 0.7)" }}>
-          Você ainda não está cadastrado como cliente Wealth.
-        </p>
-        <p className="text-sm mt-1" style={{ color: "rgba(61, 35, 20, 0.5)" }}>
-          Fale com seu consultor.
+          Você ainda não está cadastrado como cliente Wealth. Fale com seu consultor.
         </p>
       </div>
     );
@@ -80,28 +75,29 @@ export function WealthClienteView() {
         </p>
       </div>
 
-      <div
-        className="rounded-lg border-2 border-dashed p-12 text-center"
+      <Link
+        href={`/dashboard/wealth/clientes/${meuClienteId}`}
+        className="block rounded-lg border-2 p-8 transition group hover:opacity-90"
         style={{
           borderColor: "rgba(200, 148, 26, 0.3)",
           backgroundColor: "rgba(200, 148, 26, 0.05)",
         }}
       >
-        <Construction
-          className="h-12 w-12 mx-auto mb-3"
-          style={{ color: "#C8941A" }}
-        />
-        <p className="font-medium" style={{ color: "#3D2314" }}>
-          Detalhe da sua carteira em construção
-        </p>
-        <p
-          className="text-sm mt-2 max-w-md mx-auto"
-          style={{ color: "rgba(61, 35, 20, 0.6)" }}
-        >
-          Em breve você poderá conectar suas contas, fazer upload de extratos OFX e acompanhar
-          a evolução do seu patrimônio.
-        </p>
-      </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-lg font-semibold" style={{ color: "#3D2314" }}>
+              Acessar minha carteira
+            </p>
+            <p className="text-sm mt-1" style={{ color: "rgba(61, 35, 20, 0.7)" }}>
+              Patrimônio, conexões Open Finance, histórico de movimentações
+            </p>
+          </div>
+          <ArrowRight
+            className="h-6 w-6 group-hover:translate-x-1 transition-transform"
+            style={{ color: "#C8941A" }}
+          />
+        </div>
+      </Link>
     </div>
   );
 }
