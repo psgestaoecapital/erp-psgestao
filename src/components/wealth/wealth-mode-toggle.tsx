@@ -14,34 +14,65 @@ export function WealthModeToggle() {
   useEffect(() => {
     const checkRoles = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (!user) {
+          console.warn("[WealthModeToggle] no auth user");
           setLoading(false);
           return;
         }
 
-        const [{ data: cons }, { data: cli }] = await Promise.all([
+        console.log("[WealthModeToggle] auth user:", {
+          id: user.id,
+          email: user.email,
+        });
+
+        const [consResp, cliResp] = await Promise.all([
           supabase
             .from("wealth_consultores")
             .select("id")
             .eq("user_id", user.id)
             .eq("ativo", true),
-          supabase
-            .from("wealth_clients")
-            .select("id")
-            .eq("email", user.email)
-            .limit(1),
+          // ilike = case-insensitive; sem .single()/.maybeSingle() para tolerar 0 rows sem 406
+          user.email
+            ? supabase
+                .from("wealth_clients")
+                .select("id")
+                .ilike("email", user.email)
+                .limit(1)
+            : Promise.resolve({ data: [] as { id: string }[], error: null }),
         ]);
 
-        const hasCons = (cons?.length ?? 0) > 0;
-        const hasCli = (cli?.length ?? 0) > 0;
+        if (consResp.error) {
+          console.error("[WealthModeToggle] consultor query error:", consResp.error);
+        }
+        if ("error" in cliResp && cliResp.error) {
+          console.error("[WealthModeToggle] cliente query error:", cliResp.error);
+        }
+
+        const consData = consResp.data ?? [];
+        const cliData = (cliResp.data ?? []) as { id: string }[];
+        const hasCons = consData.length > 0;
+        const hasCli = cliData.length > 0;
+
+        console.log("[WealthModeToggle] roles:", {
+          hasCons,
+          hasCli,
+          consRows: consData.length,
+          cliRows: cliData.length,
+        });
+
+        // Sempre setar (defensivo - garante render mesmo se query retornou null)
         setIsConsultor(hasCons);
         setIsCliente(hasCli);
 
+        // Auto-set mode somente quando o estado persistido nao corresponde a um papel valido
         if (hasCons && !hasCli) setMode("consultor");
         else if (!hasCons && hasCli) setMode("cliente");
+        // Se ambos: mantem o modo persistido (zustand) ou default 'consultor'
       } catch (e) {
-        console.error("checkRoles error:", e);
+        console.error("[WealthModeToggle] checkRoles exception:", e);
       } finally {
         setLoading(false);
       }
