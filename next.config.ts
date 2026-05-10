@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  // playwright-core + chromium-min sao binarios nativos —
+  // nao podem ser bundlados pelo Turbopack (PR M.A.7.5.2)
+  serverExternalPackages: ['playwright-core', '@sparticuz/chromium-min'],
   async headers() {
     return [{
       source: '/(.*)',
