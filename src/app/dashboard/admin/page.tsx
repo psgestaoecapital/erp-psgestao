@@ -64,7 +64,23 @@ export default function AdminPage(){
   const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
   const groupColors=["#C8941A","#FF9800","#4CAF50","#3B82F6","#A855F7","#EF4444","#14B8A6","#FF5722","#8BC34A","#E91E63"];
 
+  // ═══ Screen Watcher + Visual Truth (M.A.7.5.1) ═══
+  const [screens,setScreens]=useState<any[]>([]);
+  const [screenLoading,setScreenLoading]=useState(false);
+  const [filtroArea,setFiltroArea]=useState("");
+  const [filtroPrioridade,setFiltroPrioridade]=useState("");
+  const [rotaDetail,setRotaDetail]=useState<any>(null);
+  const [capturandoNow,setCapturandoNow]=useState(false);
+  const [vtStatus,setVtStatus]=useState<any>(null);
+  const [vtAlerts,setVtAlerts]=useState<any[]>([]);
+
   useEffect(()=>{checkAuth();},[]);
+
+  useEffect(()=>{
+    if(!isAuthorized) return;
+    if(tab==="screen_watcher"&&screens.length===0) loadScreens();
+    if(tab==="visual_truth"&&!vtStatus) loadVisualTruth();
+  },[tab,isAuthorized]);
 
   const checkAuth=async()=>{
     const{data:{user}}=await supabase.auth.getUser();
@@ -130,6 +146,42 @@ export default function AdminPage(){
   const atualizarRole=async(uid:string,nr:string)=>{await supabase.from("users").update({role:nr}).eq("id",uid);setUsuarios(usuarios.map(u=>u.id===uid?{...u,role:nr}:u));setMsg("Nível atualizado!");};
   const atualizarPlano=async(compId:string,novoPlano:string)=>{await supabase.from("companies").update({plano:novoPlano}).eq("id",compId);setEmpresas(empresas.map(e=>e.id===compId?{...e,plano:novoPlano}:e));setMsg("Plano atualizado!");setTimeout(()=>setMsg(""),3000);};
 
+  // ═══ Screen Watcher RPCs ═══
+  const loadScreens=async()=>{
+    setScreenLoading(true);
+    const{data,error}=await supabase.rpc('fn_admin_screen_watcher_dashboard');
+    if(error){setMsg("Erro: "+error.message);}
+    if(data)setScreens(Array.isArray(data)?data:[]);
+    setScreenLoading(false);
+  };
+  const abrirRota=async(rota:string)=>{
+    const{data,error}=await supabase.rpc('fn_admin_screen_watcher_get',{p_rota:rota});
+    if(error){setMsg("Erro: "+error.message);return;}
+    setRotaDetail(data);
+  };
+  const capturarAgora=async()=>{
+    setCapturandoNow(true);
+    const{error}=await supabase.rpc('fn_disparar_screen_watcher');
+    if(error){setMsg("Erro ao disparar: "+error.message);}else{setMsg("Captura disparada — resultado em alguns minutos.");}
+    setCapturandoNow(false);
+    setTimeout(()=>{loadScreens();setMsg("");},6000);
+  };
+  const loadVisualTruth=async()=>{
+    const[s,a]=await Promise.all([
+      supabase.rpc('fn_admin_visual_truth_status'),
+      supabase.from('visual_truth_alerts').select('*').eq('status','novo').order('created_at',{ascending:false}).limit(50),
+    ]);
+    if(s.data)setVtStatus(s.data);
+    if(a.data)setVtAlerts(a.data);
+  };
+  const resolverAlerta=async(id:string,novoStatus:'resolvido'|'falso_positivo')=>{
+    const{error}=await supabase.from('visual_truth_alerts').update({status:novoStatus,resolved_at:new Date().toISOString()}).eq('id',id);
+    if(error){setMsg("Erro: "+error.message);return;}
+    setVtAlerts(prev=>prev.filter(x=>x.id!==id));
+    setMsg(novoStatus==='resolvido'?"Alerta resolvido.":"Alerta marcado como falso positivo.");
+    setTimeout(()=>setMsg(""),3000);
+  };
+
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   // ═══ EMPRESA ROW — reutilizado em grupos e sem grupo ═══
@@ -189,7 +241,7 @@ export default function AdminPage(){
     {msg&&<div style={{background:G+"20",border:`1px solid ${G}`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:G,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
     <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
-      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"}].map(t=>(
+      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:20,fontSize:11,border:`1px solid ${tab===t.id?GO:BD}`,background:tab===t.id?`${G}08`:"transparent",color:tab===t.id?GO:TXM,fontWeight:tab===t.id?600:400,cursor:"pointer"}}>{t.n}</button>
       ))}
     </div>
@@ -525,6 +577,170 @@ export default function AdminPage(){
       </div>
     </div>)}
 
-    <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:24}}>PS Gestão e Capital — Painel Administrativo v9.0</div>
+    {/* ═══ SCREEN WATCHER (M.A.7.5.1) ═══ */}
+    {tab==="screen_watcher"&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:14,fontWeight:600,color:TX}}>📸 Screen Watcher · {screens.length} rotas catalogadas</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          <select value={filtroArea} onChange={e=>setFiltroArea(e.target.value)} style={{...inp,width:"auto",fontSize:11,padding:"6px 10px"}}>
+            <option value="">Todas áreas</option>
+            {Array.from(new Set(screens.map(s=>s.area).filter(Boolean))).sort().map(a=>(<option key={a as string} value={a as string}>{a as string}</option>))}
+          </select>
+          <select value={filtroPrioridade} onChange={e=>setFiltroPrioridade(e.target.value)} style={{...inp,width:"auto",fontSize:11,padding:"6px 10px"}}>
+            <option value="">Todas prioridades</option>
+            <option value="critica">Crítica</option>
+            <option value="alta">Alta</option>
+            <option value="media">Média</option>
+            <option value="baixa">Baixa</option>
+          </select>
+          <button onClick={loadScreens} disabled={screenLoading} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:11,cursor:"pointer",opacity:screenLoading?0.5:1}}>{screenLoading?"Carregando...":"Atualizar"}</button>
+          <button onClick={capturarAgora} disabled={capturandoNow} style={{padding:"6px 14px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:11,fontWeight:600,border:"none",cursor:capturandoNow?"wait":"pointer",opacity:capturandoNow?0.6:1}}>{capturandoNow?"Disparando...":"📸 Capturar agora"}</button>
+        </div>
+      </div>
+
+      {screenLoading&&screens.length===0?(
+        <div style={{padding:40,textAlign:"center",color:TXD,fontSize:13}}>Carregando rotas catalogadas...</div>
+      ):screens.length===0?(
+        <div style={{padding:24,textAlign:"center",color:TXD,fontSize:12,background:BG2,borderRadius:10,border:`1px dashed ${BD}`}}>Nenhuma rota retornada pelo Screen Watcher. Verifique se <code>fn_admin_screen_watcher_dashboard()</code> está disponível.</div>
+      ):(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
+          {screens.filter(s=>!filtroArea||s.area===filtroArea).filter(s=>!filtroPrioridade||s.prioridade===filtroPrioridade).map((s:any)=>{
+            const corPrio=({critica:R,alta:Y,media:BL,baixa:TXD} as Record<string,string>)[s.prioridade]||TXD;
+            const status=s.status_capture||s.status||"sem_dados";
+            const corStatus=status==="ok"?G:status==="erro"?R:status==="pendente"?Y:TXD;
+            const ultima=s.ultima_captura||s.captured_at||s.last_captured_at;
+            return(
+              <div key={s.rota} onClick={()=>abrirRota(s.rota)} style={{background:BG2,border:`1px solid ${BD}`,borderRadius:10,overflow:"hidden",cursor:"pointer",transition:"transform 0.15s, box-shadow 0.15s"}}
+                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 4px 12px rgba(61,35,20,0.08)";}}
+                onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}}>
+                <div style={{aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,color:TXD,position:"relative",overflow:"hidden"}}>
+                  {s.screenshot_url?(
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={s.screenshot_url} alt={s.rota} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  ):(
+                    <div style={{textAlign:"center"}}>
+                      <div style={{fontSize:36}}>📸</div>
+                      <div style={{fontSize:9,color:TXD,marginTop:4}}>Sem captura</div>
+                    </div>
+                  )}
+                  <div style={{position:"absolute",top:6,right:6,padding:"2px 8px",borderRadius:6,background:corStatus,color:"#FFF",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{status}</div>
+                </div>
+                <div style={{padding:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:TX,marginBottom:4,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.rota}</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:4}}>
+                    {s.area&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:6,background:GO+"15",color:GO,fontWeight:600}}>{s.area}</span>}
+                    {s.prioridade&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:6,background:corPrio+"15",color:corPrio,fontWeight:600,textTransform:"uppercase"}}>{s.prioridade}</span>}
+                  </div>
+                  <div style={{fontSize:9,color:TXD}}>{ultima?new Date(ultima).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"Nunca capturada"}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal detalhe da rota */}
+      {rotaDetail&&(
+        <div onClick={()=>setRotaDetail(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:BG,borderRadius:12,padding:24,maxWidth:820,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`1px solid ${BD}`,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",marginBottom:14,gap:10}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>Detalhe da rota</div>
+                <div style={{fontSize:16,fontWeight:700,color:TX,fontFamily:"monospace",wordBreak:"break-all"}}>{rotaDetail?.screen?.rota||rotaDetail?.rota||"—"}</div>
+              </div>
+              <button onClick={()=>setRotaDetail(null)} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,padding:"4px 12px",cursor:"pointer",color:TX,fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            {(rotaDetail?.screen?.descricao||rotaDetail?.descricao)&&<div style={{fontSize:12,color:TXM,marginBottom:14,lineHeight:1.5}}>{rotaDetail?.screen?.descricao||rotaDetail?.descricao}</div>}
+
+            {Array.isArray(rotaDetail?.historico)&&rotaDetail.historico.length>0?(
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:TX,marginBottom:8}}>Histórico ({rotaDetail.historico.length} {rotaDetail.historico.length===1?"captura":"capturas"})</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {rotaDetail.historico.map((h:any,i:number)=>(
+                    <div key={i} style={{padding:10,background:BG2,borderRadius:8,border:`1px solid ${BD}`,fontSize:11}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,gap:8,flexWrap:"wrap"}}>
+                        <span style={{color:TX,fontWeight:600}}>{new Date(h.captured_at||h.created_at).toLocaleString("pt-BR")}</span>
+                        <span style={{color:h.status==="ok"?G:R,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h.status||"—"}</span>
+                      </div>
+                      {h.html_hash&&<div style={{color:TXD,fontSize:9,fontFamily:"monospace",marginBottom:4}}>hash: {String(h.html_hash).substring(0,24)}…</div>}
+                      {h.screenshot_url&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver PNG ↗</a>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ):(
+              <div style={{padding:20,textAlign:"center",color:TXD,fontSize:12,background:BG2,borderRadius:8,border:`1px dashed ${BD}`}}>Sem capturas registradas para esta rota.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>)}
+
+    {/* ═══ VISUAL TRUTH (M.A.7.5.1) ═══ */}
+    {tab==="visual_truth"&&(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:14,fontWeight:600,color:TX}}>🛡️ Visual Truth Auditor</div>
+        <button onClick={loadVisualTruth} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontSize:11,cursor:"pointer"}}>Atualizar</button>
+      </div>
+
+      {vtStatus&&(
+        <div style={{background:BG2,border:`2px solid ${vtStatus.alertas_criticos>0?R:vtStatus.alertas_abertos>0?Y:G}`,borderRadius:12,padding:18,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:14}}>
+            <div>
+              <div style={{fontSize:9,color:TXD,fontWeight:600,textTransform:"uppercase",letterSpacing:0.5}}>Regras ativas</div>
+              <div style={{fontSize:24,fontWeight:700,color:TX,marginTop:2}}>{vtStatus.regras_ativas??0}</div>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:TXD,fontWeight:600,textTransform:"uppercase",letterSpacing:0.5}}>Alertas abertos</div>
+              <div style={{fontSize:24,fontWeight:700,color:vtStatus.alertas_abertos>0?Y:G,marginTop:2}}>{vtStatus.alertas_abertos??0}</div>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:TXD,fontWeight:600,textTransform:"uppercase",letterSpacing:0.5}}>Críticos</div>
+              <div style={{fontSize:24,fontWeight:700,color:vtStatus.alertas_criticos>0?R:G,marginTop:2}}>{vtStatus.alertas_criticos??0}</div>
+            </div>
+            {vtStatus.ultima_execucao&&(
+              <div>
+                <div style={{fontSize:9,color:TXD,fontWeight:600,textTransform:"uppercase",letterSpacing:0.5}}>Última execução</div>
+                <div style={{fontSize:11,fontWeight:600,color:TX,marginTop:6}}>{new Date(vtStatus.ultima_execucao).toLocaleString("pt-BR")}</div>
+              </div>
+            )}
+          </div>
+          {vtStatus.mensagem&&<div style={{marginTop:12,padding:10,background:BG3,borderRadius:8,fontSize:12,color:TXM,lineHeight:1.5}}>{vtStatus.mensagem}</div>}
+        </div>
+      )}
+
+      <div style={{fontSize:12,fontWeight:600,color:TX,marginBottom:8}}>Alertas abertos · {vtAlerts.length}</div>
+      {vtAlerts.length===0?(
+        <div style={{padding:24,textAlign:"center",color:G,fontSize:13,background:G+"10",border:`1px solid ${G}40`,borderRadius:10}}>✅ Nenhum alerta visual aberto. Sistema íntegro.</div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {vtAlerts.map((a:any)=>{
+            const corSev=({critical:R,critica:R,warn:Y,warning:Y,info:BL} as Record<string,string>)[a.severity]||TXM;
+            return(
+              <div key={a.id} style={{background:BG2,border:`1px solid ${BD}`,borderLeft:`4px solid ${corSev}`,borderRadius:8,padding:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
+                      <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:corSev+"18",color:corSev,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{a.severity||"info"}</span>
+                      {a.rota&&<span style={{fontSize:10,color:TXD,fontFamily:"monospace"}}>{a.rota}</span>}
+                      {a.rule_id&&<span style={{fontSize:10,color:TXD,fontFamily:"monospace"}}>· {a.rule_id}</span>}
+                    </div>
+                    <div style={{fontSize:12,color:TX,marginBottom:6,lineHeight:1.4}}>{a.mensagem||a.message||"Alerta sem mensagem."}</div>
+                    {a.detalhe&&<div style={{fontSize:10,color:TXM,fontFamily:"monospace",background:BG3,padding:6,borderRadius:6,wordBreak:"break-all",marginBottom:6}}>{typeof a.detalhe==="string"?a.detalhe:JSON.stringify(a.detalhe)}</div>}
+                    <div style={{fontSize:9,color:TXD}}>{new Date(a.created_at||a.detected_at).toLocaleString("pt-BR")}</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                    <button onClick={()=>resolverAlerta(a.id,"resolvido")} style={{padding:"5px 12px",borderRadius:6,background:G,color:"#FFF",fontSize:10,fontWeight:600,border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>Resolver</button>
+                    <button onClick={()=>resolverAlerta(a.id,"falso_positivo")} style={{padding:"5px 12px",borderRadius:6,background:"transparent",border:`1px solid ${BD}`,color:TXM,fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>Falso pos.</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>)}
+
+    <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:24}}>PS Gestão e Capital — Painel Administrativo v9.1</div>
   </div>);
 }
