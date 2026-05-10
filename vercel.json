@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "src/app/api/screen-watcher/playwright/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "src/app/api/cron/screen-watcher/route.ts": {
+      "maxDuration": 300,
+      "memory": 512
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/screen-watcher",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
