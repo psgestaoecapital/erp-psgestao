@@ -7,6 +7,35 @@ import BpoLandingRedirect from '@/components/bpo/BpoLandingRedirect'
 import { supabase } from '@/lib/supabase'
 import PSGCBadge from '@/components/psgc/PSGCBadge'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
+import {
+  Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
+  ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
+  type LucideIcon,
+} from 'lucide-react'
+
+// Mapa de icones para fn_areas_menu_lateral (M.A.7.5 — 12 areas)
+const AREA_ICONS: Record<string, LucideIcon> = {
+  Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
+  ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
+}
+
+type AreaMenu = {
+  id: string
+  ordem: number
+  nome_menu: string
+  icone: string
+  rota_raiz: string
+  cor_destaque: string
+  status_comercial: 'em_producao' | 'piloto' | 'em_construcao' | 'futuro' | 'backlog'
+  status_badge_label: string
+  status_badge_color: string
+  clientes_ativos: number
+  mrr_brl: number | string
+  pct_evolucao: number
+  meta_pct: number
+  estrategia_rollout: string
+  visivel: boolean
+}
 
 /* ═══════════════════════════════════════════════════════════════
    PS GESTÃO ERP — LAYOUT v11.1
@@ -340,6 +369,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [groups, setGroups] = useState<any[]>([])
   const [selCompany, setSelCompany] = useState('')
   const [currentPlano, setCurrentPlano] = useState<PlanoTipo>('comercio')
+  const [areasMenu, setAreasMenu] = useState<AreaMenu[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showCompanyMenu, setShowCompanyMenu] = useState(false)
@@ -366,6 +396,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (collapsed === '1') setSidebarCollapsed(true)
     const demo = typeof window !== 'undefined' ? localStorage.getItem('ps_demo_mode') : null
     if (demo === 'true') setDemoMode(true)
+  }, [])
+
+  // M.A.7.5: carrega 12 areas comerciais sempre-visiveis do banco
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data, error } = await supabase.rpc('fn_areas_menu_lateral')
+      if (!alive) return
+      if (!error && Array.isArray(data)) {
+        setAreasMenu(data.filter((a: AreaMenu) => a.visivel) as AreaMenu[])
+      }
+    })()
+    return () => { alive = false }
   }, [])
 
   // Sidebar troca automatica pra 'BPO Financeiro' em rotas /bpo/*; restaura plano anterior ao sair.
@@ -705,6 +748,80 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
             <NavItem href="/dashboard" label="Dashboard" icon={<Icon.Home />} active={pathname === '/dashboard'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
             <NavItem href="/dashboard/visao-mensal" label="Visão Mensal" icon={<Icon.Calendar />} active={pathname === '/dashboard/visao-mensal'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+
+            {/* M.A.7.5: 12 areas comerciais SEMPRE visiveis (fn_areas_menu_lateral) */}
+            {areasMenu.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                {!sidebarCollapsed && (
+                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                    Áreas comerciais
+                  </div>
+                )}
+                {sidebarCollapsed && <div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />}
+                {areasMenu.map((area) => {
+                  const IconComp = AREA_ICONS[area.icone] ?? Briefcase
+                  const isActive = pathname === area.rota_raiz || pathname.startsWith(area.rota_raiz + '/')
+                  const isMuted = area.status_comercial === 'futuro' || area.status_comercial === 'backlog'
+                  const mrrNum = typeof area.mrr_brl === 'string' ? parseFloat(area.mrr_brl) : area.mrr_brl
+                  const tooltip = `${area.status_badge_label} · ${area.clientes_ativos} cliente${area.clientes_ativos === 1 ? '' : 's'} · MRR R$ ${mrrNum.toLocaleString('pt-BR', { minimumFractionDigits: 0 })} · ${area.estrategia_rollout}`
+                  return (
+                    <Link
+                      key={area.id}
+                      href={area.rota_raiz}
+                      onClick={() => setMobileMenuOpen(false)}
+                      title={tooltip}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: sidebarCollapsed ? 0 : 10,
+                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                        padding: sidebarCollapsed ? '10px' : '8px 20px',
+                        textDecoration: 'none',
+                        color: isActive ? 'var(--ps-gold-d)' : (isMuted ? 'var(--ps-text-d)' : 'var(--ps-text)'),
+                        background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
+                        borderLeft: isActive ? '3px solid var(--ps-gold)' : '3px solid transparent',
+                        fontSize: 13,
+                        fontWeight: isActive ? 600 : 400,
+                        opacity: isMuted ? 0.7 : 1,
+                        transition: 'background 0.12s',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0 }}>
+                        <IconComp size={18} />
+                      </span>
+                      {!sidebarCollapsed && (
+                        <>
+                          <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {area.nome_menu}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 9,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: area.status_badge_color + '22',
+                              color: area.status_badge_color,
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: 0.3,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {area.status_badge_label}
+                          </span>
+                        </>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
 
             {menuGroups.map((group, idx) => (
               <div key={idx} style={{ marginTop: 18 }}>
