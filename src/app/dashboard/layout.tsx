@@ -7,6 +7,35 @@ import BpoLandingRedirect from '@/components/bpo/BpoLandingRedirect'
 import { supabase } from '@/lib/supabase'
 import PSGCBadge from '@/components/psgc/PSGCBadge'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
+import {
+  Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
+  ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
+  type LucideIcon,
+} from 'lucide-react'
+
+// Mapa de icones para fn_areas_menu_lateral (M.A.7.5 — 12 areas)
+const AREA_ICONS: Record<string, LucideIcon> = {
+  Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
+  ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
+}
+
+type AreaMenu = {
+  id: string
+  ordem: number
+  nome_menu: string
+  icone: string
+  rota_raiz: string
+  cor_destaque: string
+  status_comercial: 'em_producao' | 'piloto' | 'em_construcao' | 'futuro' | 'backlog'
+  status_badge_label: string
+  status_badge_color: string
+  clientes_ativos: number
+  mrr_brl: number | string
+  pct_evolucao: number
+  meta_pct: number
+  estrategia_rollout: string
+  visivel: boolean
+}
 
 /* ═══════════════════════════════════════════════════════════════
    PS GESTÃO ERP — LAYOUT v11.1
@@ -340,6 +369,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [groups, setGroups] = useState<any[]>([])
   const [selCompany, setSelCompany] = useState('')
   const [currentPlano, setCurrentPlano] = useState<PlanoTipo>('comercio')
+  const [areasMenu, setAreasMenu] = useState<AreaMenu[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showCompanyMenu, setShowCompanyMenu] = useState(false)
@@ -366,6 +396,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (collapsed === '1') setSidebarCollapsed(true)
     const demo = typeof window !== 'undefined' ? localStorage.getItem('ps_demo_mode') : null
     if (demo === 'true') setDemoMode(true)
+  }, [])
+
+  // M.A.7.5: carrega 12 areas comerciais sempre-visiveis do banco
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data, error } = await supabase.rpc('fn_areas_menu_lateral')
+      if (!alive) return
+      if (!error && Array.isArray(data)) {
+        setAreasMenu(data.filter((a: AreaMenu) => a.visivel) as AreaMenu[])
+      }
+    })()
+    return () => { alive = false }
   }, [])
 
   // Sidebar troca automatica pra 'BPO Financeiro' em rotas /bpo/*; restaura plano anterior ao sair.
@@ -681,30 +724,176 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           {!sidebarCollapsed && (
             <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--ps-border-l)', position: 'relative' }}>
-              <button onClick={() => setShowPlanoMenu(!showPlanoMenu)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--ps-bg3)', border: '1px solid var(--ps-border-l)', borderRadius: 8, cursor: 'pointer', textAlign: 'left', color: 'var(--ps-text)' }}>
-                <div style={{ color: 'var(--ps-gold)', flexShrink: 0 }}>{PLANO_ICON[currentPlano]}</div>
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <div style={{ fontSize: 9, color: 'var(--ps-text-d)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Área</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ps-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{PLANO_LABEL[currentPlano]}</div>
-                </div>
-                <div style={{ color: 'var(--ps-text-d)', transform: showPlanoMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><Icon.ChevronDown /></div>
-              </button>
-              {showPlanoMenu && (
-                <div style={{ position: 'absolute', top: 'calc(100% - 2px)', left: 16, right: 16, background: 'var(--ps-bg2)', border: '1px solid var(--ps-border)', borderRadius: 10, boxShadow: 'var(--ps-shadow-lg)', zIndex: 50, overflow: 'hidden', marginTop: 4 }}>
-                  {(Object.keys(MENU) as PlanoTipo[]).map(p => (
-                    <button key={p} onClick={() => selectPlano(p)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: currentPlano === p ? 'var(--ps-gold-bg)' : 'transparent', border: 'none', borderBottom: '1px solid var(--ps-border-l)', cursor: 'pointer', textAlign: 'left', color: currentPlano === p ? 'var(--ps-gold-d)' : 'var(--ps-text)', fontWeight: currentPlano === p ? 600 : 400 }} onMouseEnter={e => (e.currentTarget.style.background = currentPlano === p ? 'var(--ps-gold-bg)' : 'var(--ps-bg3)')} onMouseLeave={e => (e.currentTarget.style.background = currentPlano === p ? 'var(--ps-gold-bg)' : 'transparent')}>
-                      <div style={{ color: currentPlano === p ? 'var(--ps-gold)' : 'var(--ps-text-d)' }}>{PLANO_ICON[p]}</div>
-                      <span style={{ fontSize: 13 }}>{PLANO_LABEL[p]}</span>
+              {(() => {
+                // M.A.7.5.2 — Area Switcher do topo consome fn_areas_menu_lateral.
+                // Determina area ativa pela rota atual (match em rota_raiz/prefixo);
+                // fallback para PLANO_LABEL legado se nenhuma area bater.
+                const activeArea = areasMenu.find(
+                  (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
+                )
+                const TriggerIcon = activeArea ? (AREA_ICONS[activeArea.icone] ?? Briefcase) : null
+                return (
+                  <>
+                    <button onClick={() => setShowPlanoMenu(!showPlanoMenu)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--ps-bg3)', border: '1px solid var(--ps-border-l)', borderRadius: 8, cursor: 'pointer', textAlign: 'left', color: 'var(--ps-text)' }}>
+                      <div style={{ color: 'var(--ps-gold)', flexShrink: 0, display: 'inline-flex' }}>
+                        {TriggerIcon ? <TriggerIcon size={18} /> : PLANO_ICON[currentPlano]}
+                      </div>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontSize: 9, color: 'var(--ps-text-d)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Área</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ps-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {activeArea ? activeArea.nome_menu : PLANO_LABEL[currentPlano]}
+                        </div>
+                      </div>
+                      <div style={{ color: 'var(--ps-text-d)', transform: showPlanoMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><Icon.ChevronDown /></div>
                     </button>
-                  ))}
-                </div>
-              )}
+                    {showPlanoMenu && (
+                      <div style={{ position: 'absolute', top: 'calc(100% - 2px)', left: 16, right: 16, background: 'var(--ps-bg2)', border: '1px solid var(--ps-border)', borderRadius: 10, boxShadow: 'var(--ps-shadow-lg)', zIndex: 50, overflow: 'hidden', marginTop: 4, maxHeight: 480, overflowY: 'auto' }}>
+                        {areasMenu.length === 0 ? (
+                          <div style={{ padding: 14, fontSize: 12, color: 'var(--ps-text-d)' }}>Carregando áreas…</div>
+                        ) : (
+                          areasMenu.map((area) => {
+                            const ItemIcon = AREA_ICONS[area.icone] ?? Briefcase
+                            const isActive = activeArea?.id === area.id
+                            const isMuted = area.status_comercial === 'futuro' || area.status_comercial === 'backlog'
+                            return (
+                              <button
+                                key={area.id}
+                                onClick={() => {
+                                  setShowPlanoMenu(false)
+                                  router.push(area.rota_raiz)
+                                }}
+                                style={{
+                                  width: '100%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 10,
+                                  padding: '10px 14px',
+                                  background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
+                                  border: 'none',
+                                  borderBottom: '1px solid var(--ps-border-l)',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                  color: isActive ? 'var(--ps-gold-d)' : (isMuted ? 'var(--ps-text-d)' : 'var(--ps-text)'),
+                                  fontWeight: isActive ? 600 : 400,
+                                  opacity: isMuted ? 0.75 : 1,
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)'
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isActive) e.currentTarget.style.background = 'transparent'
+                                }}
+                              >
+                                <div style={{ color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', display: 'inline-flex', flexShrink: 0 }}>
+                                  <ItemIcon size={18} />
+                                </div>
+                                <span style={{ fontSize: 13, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {area.nome_menu}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    padding: '2px 6px',
+                                    borderRadius: 4,
+                                    background: area.status_badge_color + '22',
+                                    color: area.status_badge_color,
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.3,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {area.status_badge_label}
+                                </span>
+                              </button>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           )}
 
           <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
             <NavItem href="/dashboard" label="Dashboard" icon={<Icon.Home />} active={pathname === '/dashboard'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
             <NavItem href="/dashboard/visao-mensal" label="Visão Mensal" icon={<Icon.Calendar />} active={pathname === '/dashboard/visao-mensal'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
+
+            {/* M.A.7.5: 12 areas comerciais SEMPRE visiveis (fn_areas_menu_lateral) */}
+            {areasMenu.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                {!sidebarCollapsed && (
+                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                    Áreas comerciais
+                  </div>
+                )}
+                {sidebarCollapsed && <div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />}
+                {areasMenu.map((area) => {
+                  const IconComp = AREA_ICONS[area.icone] ?? Briefcase
+                  const isActive = pathname === area.rota_raiz || pathname.startsWith(area.rota_raiz + '/')
+                  const isMuted = area.status_comercial === 'futuro' || area.status_comercial === 'backlog'
+                  const mrrNum = typeof area.mrr_brl === 'string' ? parseFloat(area.mrr_brl) : area.mrr_brl
+                  const tooltip = `${area.status_badge_label} · ${area.clientes_ativos} cliente${area.clientes_ativos === 1 ? '' : 's'} · MRR R$ ${mrrNum.toLocaleString('pt-BR', { minimumFractionDigits: 0 })} · ${area.estrategia_rollout}`
+                  return (
+                    <Link
+                      key={area.id}
+                      href={area.rota_raiz}
+                      onClick={() => setMobileMenuOpen(false)}
+                      title={tooltip}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: sidebarCollapsed ? 0 : 10,
+                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                        padding: sidebarCollapsed ? '10px' : '8px 20px',
+                        textDecoration: 'none',
+                        color: isActive ? 'var(--ps-gold-d)' : (isMuted ? 'var(--ps-text-d)' : 'var(--ps-text)'),
+                        background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
+                        borderLeft: isActive ? '3px solid var(--ps-gold)' : '3px solid transparent',
+                        fontSize: 13,
+                        fontWeight: isActive ? 600 : 400,
+                        opacity: isMuted ? 0.7 : 1,
+                        transition: 'background 0.12s',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0 }}>
+                        <IconComp size={18} />
+                      </span>
+                      {!sidebarCollapsed && (
+                        <>
+                          <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {area.nome_menu}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 9,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: area.status_badge_color + '22',
+                              color: area.status_badge_color,
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: 0.3,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {area.status_badge_label}
+                          </span>
+                        </>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
 
             {menuGroups.map((group, idx) => (
               <div key={idx} style={{ marginTop: 18 }}>
