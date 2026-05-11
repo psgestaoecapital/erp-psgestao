@@ -103,7 +103,7 @@ export default function SupervisaoPage() {
       const supabase = supabaseBrowser();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        router.replace("/login");
+        router.replace("/");
         return;
       }
       setUserId(user.id);

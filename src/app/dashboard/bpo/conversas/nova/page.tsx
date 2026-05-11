@@ -41,7 +41,7 @@ export default function NovaConversaPage() {
       try {
         const supabase = supabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { router.replace("/login"); return; }
+        if (!user) { router.replace("/"); return; }
 
         // Carregar empresas BPO ativas que o operador pode acessar
         const { data, error } = await supabase

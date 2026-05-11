@@ -61,7 +61,7 @@ export default function FechamentoLandingPage() {
     const supabase = supabaseBrowser();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      router.replace("/login");
+      router.replace("/");
       return false;
     }
     const { data: sup } = await supabase

@@ -424,7 +424,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const loadUser = async () => {
     const { data: { user: u } } = await supabase.auth.getUser()
-    if (!u) { router.push('/login'); return }
+    if (!u) { router.push('/'); return }
     setUser(u)
     const { data: up } = await supabase.from('users').select('*').eq('id', u.id).single()
     if (up?.role) setUserRole(up.role)
@@ -475,7 +475,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const signOut = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
+    router.push('/')
   }
 
   const breadcrumb = React.useMemo(() => {
