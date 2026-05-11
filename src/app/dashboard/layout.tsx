@@ -10,13 +10,18 @@ import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import {
   Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
   ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
+  Box, Upload, FileText, BarChart3, Users, Settings, Truck,
+  ClipboardCheck, AlertCircle,
   type LucideIcon,
 } from 'lucide-react'
 
 // Mapa de icones para fn_areas_menu_lateral (M.A.7.5 — 12 areas)
+// + icones extras para fn_modulos_sidebar_por_area (M.A.7.5.3 — modulos)
 const AREA_ICONS: Record<string, LucideIcon> = {
   Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
   ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
+  Box, Upload, FileText, BarChart3, Users, Settings, Truck,
+  ClipboardCheck, AlertCircle,
 }
 
 type AreaMenu = {
@@ -35,6 +40,20 @@ type AreaMenu = {
   meta_pct: number
   estrategia_rollout: string
   visivel: boolean
+}
+
+// M.A.7.5.3 — modulos contextuais por area selecionada
+type ModuloSidebar = {
+  secao: 'GLOBAL' | 'AREA' | 'DADOS'
+  secao_label: string
+  modulo_id: string
+  nome: string
+  rota: string
+  icone: string
+  ordem: number
+  status: string | null
+  badge_label: string | null
+  badge_color: string | null
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -370,6 +389,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [selCompany, setSelCompany] = useState('')
   const [currentPlano, setCurrentPlano] = useState<PlanoTipo>('comercio')
   const [areasMenu, setAreasMenu] = useState<AreaMenu[]>([])
+  const [modulosSidebar, setModulosSidebar] = useState<ModuloSidebar[]>([])
+  const [toastMsg, setToastMsg] = useState<string>('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showCompanyMenu, setShowCompanyMenu] = useState(false)
@@ -410,6 +431,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     })()
     return () => { alive = false }
   }, [])
+
+  // M.A.7.5.3: area ativa derivada do pathname (igual logica do switcher topo)
+  const activeAreaId = React.useMemo(() => {
+    const match = areasMenu.find(
+      (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
+    )
+    return match?.id ?? null
+  }, [pathname, areasMenu])
+
+  // M.A.7.5.3: carrega modulos da area ativa (GLOBAL + AREA + DADOS) sempre que area muda
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
+        p_area_id: activeAreaId,
+      })
+      if (!alive) return
+      if (!error && Array.isArray(data)) {
+        setModulosSidebar(data as ModuloSidebar[])
+      }
+    })()
+    return () => { alive = false }
+  }, [activeAreaId])
 
   // Sidebar troca automatica pra 'BPO Financeiro' em rotas /bpo/*; restaura plano anterior ao sair.
   useEffect(() => {
@@ -818,94 +862,105 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
 
           <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-            <NavItem href="/dashboard" label="Dashboard" icon={<Icon.Home />} active={pathname === '/dashboard'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
-            <NavItem href="/dashboard/visao-mensal" label="Visão Mensal" icon={<Icon.Calendar />} active={pathname === '/dashboard/visao-mensal'} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
-
-            {/* M.A.7.5: 12 areas comerciais SEMPRE visiveis (fn_areas_menu_lateral) */}
-            {areasMenu.length > 0 && (
-              <div style={{ marginTop: 18 }}>
-                {!sidebarCollapsed && (
-                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-                    Áreas comerciais
-                  </div>
-                )}
-                {sidebarCollapsed && <div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />}
-                {areasMenu.map((area) => {
-                  const IconComp = AREA_ICONS[area.icone] ?? Briefcase
-                  const isActive = pathname === area.rota_raiz || pathname.startsWith(area.rota_raiz + '/')
-                  const isMuted = area.status_comercial === 'futuro' || area.status_comercial === 'backlog'
-                  const mrrNum = typeof area.mrr_brl === 'string' ? parseFloat(area.mrr_brl) : area.mrr_brl
-                  const tooltip = `${area.status_badge_label} · ${area.clientes_ativos} cliente${area.clientes_ativos === 1 ? '' : 's'} · MRR R$ ${mrrNum.toLocaleString('pt-BR', { minimumFractionDigits: 0 })} · ${area.estrategia_rollout}`
-                  return (
-                    <Link
-                      key={area.id}
-                      href={area.rota_raiz}
-                      onClick={() => setMobileMenuOpen(false)}
-                      title={tooltip}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: sidebarCollapsed ? 0 : 10,
-                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                        padding: sidebarCollapsed ? '10px' : '8px 20px',
-                        textDecoration: 'none',
-                        color: isActive ? 'var(--ps-gold-d)' : (isMuted ? 'var(--ps-text-d)' : 'var(--ps-text)'),
-                        background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
-                        borderLeft: isActive ? '3px solid var(--ps-gold)' : '3px solid transparent',
-                        fontSize: 13,
-                        fontWeight: isActive ? 600 : 400,
-                        opacity: isMuted ? 0.7 : 1,
-                        transition: 'background 0.12s',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) e.currentTarget.style.background = 'transparent'
-                      }}
-                    >
-                      <span style={{ display: 'inline-flex', color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0 }}>
-                        <IconComp size={18} />
-                      </span>
-                      {!sidebarCollapsed && (
-                        <>
-                          <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {area.nome_menu}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 9,
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              background: area.status_badge_color + '22',
-                              color: area.status_badge_color,
-                              fontWeight: 600,
-                              textTransform: 'uppercase',
-                              letterSpacing: 0.3,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {area.status_badge_label}
-                          </span>
-                        </>
-                      )}
-                    </Link>
-                  )
-                })}
-              </div>
-            )}
-
-            {menuGroups.map((group, idx) => (
-              <div key={idx} style={{ marginTop: 18 }}>
-                {!sidebarCollapsed && (
-                  <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{group.label}</div>
-                )}
-                {sidebarCollapsed && idx > 0 && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
-                {group.items.map(item => (
-                  <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} badge={item.badge} active={pathname === item.href || pathname.startsWith(item.href + '/')} collapsed={sidebarCollapsed} onClick={() => setMobileMenuOpen(false)} />
-                ))}
-              </div>
-            ))}
+            {/*
+              M.A.7.5.3 — Sidebar contextual: GERAL + AREA (modulos da area ativa) + DADOS.
+              Removidas:
+                - NavItems hardcoded de Dashboard + Visão Mensal (vem como GLOBAL/painel_geral pela RPC)
+                - Secao "ÁREAS COMERCIAIS" (PR #96 redundante; 12 areas agora SO no switcher topo)
+                - menuGroups per-plano legados (substituidos pelos modulos da area)
+            */}
+            {(() => {
+              // Agrupa em ordem de aparicao na RPC (GLOBAL → AREA → DADOS, ja vem ordenado)
+              const grupos: Array<{ secao: string; label: string; items: ModuloSidebar[] }> = []
+              for (const m of modulosSidebar) {
+                const last = grupos[grupos.length - 1]
+                if (last && last.secao === m.secao) {
+                  last.items.push(m)
+                } else {
+                  grupos.push({ secao: m.secao, label: m.secao_label, items: [m] })
+                }
+              }
+              return grupos.map((g, idx) => (
+                <div key={`${g.secao}-${idx}`} style={{ marginTop: idx === 0 ? 0 : 18 }}>
+                  {!sidebarCollapsed && (
+                    <div style={{ padding: '0 20px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ps-gold-d)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                      {g.label}
+                    </div>
+                  )}
+                  {sidebarCollapsed && idx > 0 && (<div style={{ margin: '6px 14px', height: 1, background: 'var(--ps-border-l)' }} />)}
+                  {g.items.map((m) => {
+                    const isLucideName = /^[A-Z][a-zA-Z0-9]+$/.test(m.icone || '')
+                    const IconComp = isLucideName ? (AREA_ICONS[m.icone] ?? Box) : null
+                    const isActive = pathname === m.rota || (pathname?.startsWith(m.rota + '/') ?? false)
+                    const isLocked = m.status === 'previsto' || m.status === 'em_construcao'
+                    const handleClick = (e: React.MouseEvent) => {
+                      if (isLocked) {
+                        e.preventDefault()
+                        setToastMsg(`${m.nome} — Em desenvolvimento, disponível em breve.`)
+                        window.clearTimeout((window as any).__moduloToastTimer)
+                        ;(window as any).__moduloToastTimer = window.setTimeout(() => setToastMsg(''), 3500)
+                      } else {
+                        setMobileMenuOpen(false)
+                      }
+                    }
+                    return (
+                      <Link
+                        key={m.modulo_id}
+                        href={m.rota}
+                        onClick={handleClick}
+                        title={m.badge_label ? `${m.nome} — ${m.badge_label}` : m.nome}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: sidebarCollapsed ? 0 : 10,
+                          justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                          padding: sidebarCollapsed ? '10px' : '8px 20px',
+                          textDecoration: 'none',
+                          color: isActive ? 'var(--ps-gold-d)' : (isLocked ? 'var(--ps-text-d)' : 'var(--ps-text)'),
+                          background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
+                          borderLeft: isActive ? '3px solid var(--ps-gold)' : '3px solid transparent',
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 400,
+                          opacity: isLocked ? 0.7 : 1,
+                          cursor: isLocked ? 'not-allowed' : 'pointer',
+                          transition: 'background 0.12s',
+                        }}
+                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)' }}
+                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0 }}>
+                          {IconComp ? <IconComp size={18} /> : <span style={{ fontSize: 16, lineHeight: 1 }}>{m.icone}</span>}
+                        </span>
+                        {!sidebarCollapsed && (
+                          <>
+                            <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {m.nome}
+                            </span>
+                            {m.badge_label && m.badge_color && (
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  background: m.badge_color + '22',
+                                  color: m.badge_color,
+                                  fontWeight: 600,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.3,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {m.badge_label}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </Link>
+                    )
+                  })}
+                </div>
+              ))
+            })()}
 
             {/* Seção ADMINISTRAÇÃO — só para admins */}
             {isAdmin && (
@@ -966,6 +1021,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </aside>
 
         {mobileMenuOpen && (<div className="ps-overlay" onClick={() => setMobileMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 35 }} />)}
+
+        {/* M.A.7.5.3 — Toast para modulos previstos/em_construcao */}
+        {toastMsg && (
+          <div
+            role="status"
+            style={{
+              position: 'fixed',
+              bottom: 24,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'var(--ps-espresso, #3D2314)',
+              color: 'var(--ps-offwhite, #FAF7F2)',
+              padding: '12px 20px',
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 500,
+              zIndex: 9999,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+              maxWidth: 'min(420px, calc(100vw - 32px))',
+              textAlign: 'center',
+            }}
+          >
+            {toastMsg}
+          </div>
+        )}
 
         <div style={{ flex: 1, marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed)' : 'var(--sidebar-width)', minWidth: 0, transition: 'margin-left 0.2s ease-out' }} className="ps-main">
           <header style={{ height: 'var(--topbar-height)', background: 'var(--ps-bg2)', borderBottom: '1px solid var(--ps-border)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 16, position: 'sticky', top: 0, zIndex: 30, backdropFilter: 'blur(8px)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
