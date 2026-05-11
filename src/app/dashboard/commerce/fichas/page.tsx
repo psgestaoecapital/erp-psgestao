@@ -13,9 +13,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
-  Plus, Search, FileText, X, Trash2, Save,
-  Package, Calculator, ListChecks,
+  Plus, Search, FileText, X, Trash2,
+  Package, Calculator, ListChecks, Info,
 } from 'lucide-react'
 
 const C = {
@@ -75,11 +76,14 @@ const fmtBRL = (v: number | null | undefined) =>
   (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export default function FichasCommercePage() {
-  const [companyId, setCompanyId] = useState<string | null>(null)
+  // M.B.1.1-fix: usa hook canonico useCompanyIds (mesmo padrao de TODAS as
+  // outras paginas que filtram multi-tenant). Resolve admin (sem
+  // user_companies), consolidado, grupo, ou empresa unica corretamente.
+  const { companyIds, selInfo, loading: companiesLoading, sel } = useCompanyIds()
+
   const [fichas, setFichas] = useState<FichaTec[]>([])
   const [itensCache, setItensCache] = useState<Record<string, FichaItem[]>>({})
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string>('')
+  const [loadingFichas, setLoadingFichas] = useState(false)
   const [msg, setMsg] = useState<string>('')
 
   const [filtroBusca, setFiltroBusca] = useState('')
@@ -88,44 +92,36 @@ export default function FichasCommercePage() {
   const [selFichaId, setSelFichaId] = useState<string | null>(null)
   const [showNova, setShowNova] = useState(false)
 
-  // Carregar contexto
+  // companyId unico para INSERT (so vale se selInfo.tipo === 'empresa')
+  const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
+  const canCreate = !!companyIdUnico
+
+  // Carregar fichas (re-executa quando companyIds mudam, ex: usuario troca empresa)
+  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
+
   useEffect(() => {
+    if (companiesLoading) return
+    if (companyIds.length === 0) {
+      setFichas([])
+      return
+    }
     let alive = true
+    setLoadingFichas(true)
     ;(async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setErr('Sessão expirada. Faça login.')
-        setLoading(false)
-        return
-      }
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
-      let cid: string | null = null
-      if (saved && saved !== 'consolidado' && !saved.startsWith('group_')) {
-        cid = saved
-      } else {
-        const { data: ucs } = await supabase.from('user_companies').select('company_id').eq('user_id', user.id).limit(1)
-        cid = ucs?.[0]?.company_id ?? null
-      }
-      if (!alive) return
-      setCompanyId(cid)
-      if (!cid) {
-        setErr('Selecione uma empresa para gerenciar as fichas técnicas.')
-        setLoading(false)
-        return
-      }
-      const { data: fs, error } = await supabase
+      const { data } = await supabase
         .from('fichas_tecnicas')
         .select('*')
-        .eq('company_id', cid)
+        .in('company_id', companyIds)
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
-      if (error) setErr(error.message)
-      else setFichas((fs ?? []) as FichaTec[])
-      setLoading(false)
+      setFichas((data ?? []) as FichaTec[])
+      setLoadingFichas(false)
     })()
     return () => { alive = false }
-  }, [])
+    // companyIdsKey eh CSV ordenado — estavel em string para deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyIdsKey, companiesLoading])
 
   // Carregar itens da ficha selecionada
   useEffect(() => {
@@ -175,11 +171,14 @@ export default function FichasCommercePage() {
   }
 
   async function criarFicha(nome: string, categoria: string) {
-    if (!companyId) return
+    if (!companyIdUnico) {
+      flash('Selecione uma empresa especifica no menu para criar fichas.')
+      return
+    }
     const { data, error } = await supabase
       .from('fichas_tecnicas')
       .insert({
-        company_id: companyId,
+        company_id: companyIdUnico,
         nome: nome.trim(),
         categoria,
         unidade: 'm²',
@@ -320,16 +319,17 @@ export default function FichasCommercePage() {
           <button
             type="button"
             onClick={() => setShowNova(true)}
-            disabled={!companyId}
+            disabled={!canCreate}
+            title={canCreate ? 'Criar nova ficha tecnica' : 'Selecione uma empresa especifica para criar fichas'}
             style={{
               padding: '8px 16px',
               borderRadius: 8,
               border: 'none',
-              background: companyId ? C.gold : C.cream,
-              color: companyId ? '#FFF' : C.espressoL,
+              background: canCreate ? C.gold : C.cream,
+              color: canCreate ? '#FFF' : C.espressoL,
               fontSize: 12,
               fontWeight: 600,
-              cursor: companyId ? 'pointer' : 'not-allowed',
+              cursor: canCreate ? 'pointer' : 'not-allowed',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
@@ -340,7 +340,32 @@ export default function FichasCommercePage() {
         </div>
       </header>
 
-      {/* Toast */}
+      {/* Hint contextual (consolidado/grupo) — orienta sem ser intrusivo */}
+      {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            background: C.goldBg,
+            border: `1px solid ${C.gold}55`,
+            borderRadius: 8,
+            color: C.goldD,
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Info size={14} />
+          <span>
+            Exibindo fichas de <strong>{selInfo.nome}</strong> ({selInfo.count}{' '}
+            {selInfo.count === 1 ? 'empresa' : 'empresas'}). Para criar uma ficha nova, selecione uma
+            empresa especifica no menu superior.
+          </span>
+        </div>
+      )}
+
+      {/* Toast positivo */}
       {msg && (
         <div
           onClick={() => setMsg('')}
@@ -356,21 +381,6 @@ export default function FichasCommercePage() {
           }}
         >
           {msg}
-        </div>
-      )}
-      {err && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: '10px 14px',
-            background: C.red + '14',
-            border: `1px solid ${C.red}55`,
-            borderRadius: 8,
-            color: C.red,
-            fontSize: 12,
-          }}
-        >
-          {err}
         </div>
       )}
 
@@ -435,12 +445,14 @@ export default function FichasCommercePage() {
       </div>
 
       {/* Tabela ou empty state */}
-      {loading ? (
+      {companiesLoading || loadingFichas ? (
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>
           Carregando fichas técnicas…
         </div>
-      ) : fichas.length === 0 && !err ? (
-        <EmptyState onCreate={() => setShowNova(true)} disabled={!companyId} />
+      ) : companyIds.length === 0 ? (
+        <NoCompanyState />
+      ) : fichas.length === 0 ? (
+        <EmptyState onCreate={() => setShowNova(true)} disabled={!canCreate} hintNeedSelect={!canCreate} />
       ) : fichasFiltradas.length === 0 ? (
         <div
           style={{
@@ -541,7 +553,7 @@ function Td({ children, align = 'left' }: { children?: React.ReactNode; align?: 
   )
 }
 
-function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled: boolean }) {
+function EmptyState({ onCreate, disabled, hintNeedSelect }: { onCreate: () => void; disabled: boolean; hintNeedSelect: boolean }) {
   return (
     <div
       style={{
@@ -556,35 +568,76 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled: bo
         gap: 14,
       }}
     >
-      <div style={{ width: 72, height: 72, borderRadius: '50%', background: C.goldBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <FileText size={32} style={{ color: C.gold }} />
-      </div>
+      {/* Ilustracao SVG simples — caixa + checklist representando ficha tecnica */}
+      <svg width="96" height="96" viewBox="0 0 96 96" fill="none" aria-hidden>
+        <rect x="14" y="20" width="50" height="64" rx="6" fill={C.goldBg} stroke={C.gold} strokeWidth="2" />
+        <rect x="22" y="14" width="34" height="10" rx="3" fill={C.gold} />
+        <line x1="22" y1="38" x2="56" y2="38" stroke={C.gold} strokeWidth="2" strokeLinecap="round" />
+        <line x1="22" y1="48" x2="48" y2="48" stroke={C.gold} strokeWidth="2" strokeLinecap="round" />
+        <line x1="22" y1="58" x2="52" y2="58" stroke={C.gold} strokeWidth="2" strokeLinecap="round" />
+        <line x1="22" y1="68" x2="42" y2="68" stroke={C.gold} strokeWidth="2" strokeLinecap="round" />
+        <circle cx="74" cy="68" r="14" fill={C.gold} />
+        <path d="M68 68 l4 4 l8 -8" stroke="#FFF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.espresso }}>Crie sua primeira ficha técnica</h2>
-      <p style={{ margin: 0, fontSize: 13, color: C.espressoM, maxWidth: 440, lineHeight: 1.5 }}>
-        Fichas técnicas combinam materiais, mão de obra e custos para gerar preço de venda automático com markup.
-        Ideal para Comércio com itens compostos.
+      <p style={{ margin: 0, fontSize: 13, color: C.espressoM, maxWidth: 460, lineHeight: 1.5 }}>
+        Fichas técnicas combinam <strong>materiais + mão de obra + custos</strong> para gerar
+        preço de venda automático com markup. Ideal para Comércio com itens compostos.
       </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        disabled={disabled}
-        style={{
-          marginTop: 4,
-          padding: '10px 20px',
-          borderRadius: 8,
-          border: 'none',
-          background: disabled ? C.cream : C.gold,
-          color: disabled ? C.espressoL : '#FFF',
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        <Plus size={14} /> Nova ficha técnica
-      </button>
+      {hintNeedSelect ? (
+        <p style={{ margin: 0, fontSize: 12, color: C.goldD, fontWeight: 600, maxWidth: 420 }}>
+          Selecione uma empresa específica no menu superior para criar fichas.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={disabled}
+          style={{
+            marginTop: 4,
+            padding: '10px 20px',
+            borderRadius: 8,
+            border: 'none',
+            background: disabled ? C.cream : C.gold,
+            color: disabled ? C.espressoL : '#FFF',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Plus size={14} /> Nova ficha técnica
+        </button>
+      )}
+    </div>
+  )
+}
+
+function NoCompanyState() {
+  return (
+    <div
+      style={{
+        background: C.offWhite,
+        border: `1px dashed ${C.border}`,
+        borderRadius: 12,
+        padding: 48,
+        textAlign: 'center',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 14,
+      }}
+    >
+      <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Info size={28} style={{ color: C.espressoM }} />
+      </div>
+      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.espresso }}>Nenhuma empresa disponível</h2>
+      <p style={{ margin: 0, fontSize: 12, color: C.espressoM, maxWidth: 440, lineHeight: 1.5 }}>
+        Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular a uma empresa,
+        ou selecione uma empresa no menu superior do dashboard.
+      </p>
     </div>
   )
 }
