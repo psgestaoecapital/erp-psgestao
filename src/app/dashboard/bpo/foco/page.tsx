@@ -33,7 +33,7 @@ export default function FocoLandingPage() {
         const supabase = supabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          router.replace("/login");
+          router.replace("/");
           return;
         }
         const data = await rpc<EmpresaFoco[]>("fn_bpo_listar_empresas_foco", {

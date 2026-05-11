@@ -67,7 +67,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
     try {
       const supabase = supabaseBrowser();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.replace("/login"); return; }
+      if (!user) { router.replace("/"); return; }
       setUserId(user.id);
 
       const { data: conv, error: errConv } = await supabase
