@@ -2,11 +2,15 @@
 // Body: { rota: string }
 // Header: x-watcher-secret (valida WATCHER_SECRET env var)
 //
-// Captura uma screenshot PNG de uma rota autenticada do SaaS via
-// Playwright headless Chromium (sparticuz para Vercel) e:
+// Captura uma screenshot JPEG (qualidade 75) de uma rota autenticada do SaaS
+// via Playwright headless Chromium (sparticuz para Vercel) e:
 //  1. Faz upload pra bucket 'system-screenshots'
 //  2. UPDATE system_screens.screenshot_url + screenshot_atualizado_em
 //  3. INSERT system_screens_history (audit trail por captura)
+//
+// JPEG q=75 vs PNG: reduz tokens_input ~33% no Insight Auditor IA sem
+// perda perceptual na analise (UI screenshots). Custo medio por tela
+// cai de ~$0.013 para ~$0.009.
 //
 // Auth: WATCHER_SECRET (header x-watcher-secret)
 // Runtime: nodejs (playwright NAO funciona em edge runtime)
@@ -150,21 +154,22 @@ export async function POST(req: Request) {
     // pequeno delay pra animacoes/skeletons
     await page.waitForTimeout(800);
 
-    // 8. Screenshot
+    // 8. Screenshot — JPEG q=75 economiza ~33% tokens IA vs PNG
     const buffer = await page.screenshot({
-      type: 'png',
+      type: 'jpeg',
+      quality: 75,
       fullPage: false,
       clip: { x: 0, y: 0, width: 1280, height: 800 },
     });
 
     // 9. Upload pra bucket
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const path = `${sanitizePathComponent(rota)}/${ts}.png`;
+    const path = `${sanitizePathComponent(rota)}/${ts}.jpg`;
 
     const { error: errUp } = await supabase.storage
       .from('system-screenshots')
       .upload(path, buffer, {
-        contentType: 'image/png',
+        contentType: 'image/jpeg',
         upsert: false,
       });
 
