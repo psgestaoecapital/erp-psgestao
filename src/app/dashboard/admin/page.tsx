@@ -663,7 +663,7 @@ export default function AdminPage(){
                         <span style={{color:h.status==="ok"?G:R,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h.status||"—"}</span>
                       </div>
                       {h.html_hash&&<div style={{color:TXD,fontSize:9,fontFamily:"monospace",marginBottom:4}}>hash: {String(h.html_hash).substring(0,24)}…</div>}
-                      {h.screenshot_url&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver PNG ↗</a>}
+                      {h.screenshot_url&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver imagem ↗</a>}
                     </div>
                   ))}
                 </div>
