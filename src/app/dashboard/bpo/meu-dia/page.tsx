@@ -254,7 +254,14 @@ export default function MeuDiaPage() {
           <div className="flex items-center gap-3">
             <KpiBadge label="Pendentes" valor={data.kpis.total_pendente} />
             <KpiBadge label="Urgentes" valor={data.kpis.urgentes} tom={data.kpis.urgentes > 0 ? "vermelho" : "ok"} />
-            <KpiBadge label="Vencidos" valor={data.kpis.vencidos} tom={data.kpis.vencidos > 0 ? "vermelho" : "ok"} />
+            {(() => {
+              // CTA Jordana (PR #108): deep-link Vencidos → /financeiro/titulos com filtro pre-aplicado.
+              // Inclui empresa se houver uma especifica selecionada nas tabs do meu-dia.
+              const qs = new URLSearchParams({ status: 'vencido' })
+              if (empresaSelecionada) qs.set('empresa', empresaSelecionada)
+              const href = `/dashboard/financeiro/titulos?${qs.toString()}`
+              return <KpiBadge label="Vencidos" valor={data.kpis.vencidos} tom={data.kpis.vencidos > 0 ? "vermelho" : "ok"} href={href} />
+            })()}
             <a
               href="/dashboard/bpo/foco"
               className="rounded-lg bg-[#C8941A] px-3 py-1.5 text-sm font-medium text-white transition hover:bg-[#A87810]"
@@ -526,11 +533,14 @@ export default function MeuDiaPage() {
 
 // ============ COMPONENTES AUXILIARES ============
 
-function KpiBadge({ label, valor, tom }: { label: string; valor: number; tom?: "vermelho" | "ok" }) {
+function KpiBadge({ label, valor, tom, href }: { label: string; valor: number; tom?: "vermelho" | "ok"; href?: string }) {
   const cor = tom === "vermelho" && valor > 0 ? "text-[#B8453B]" : "text-[#3D2314]";
-  return (
-    <div className="text-right">
-      <div className="text-[10px] uppercase tracking-wider text-[#3D2314]/60">{label}</div>
+  const body = (
+    <div className={`text-right${href ? " transition-all hover:-translate-y-0.5" : ""}`}>
+      <div className="text-[10px] uppercase tracking-wider text-[#3D2314]/60">
+        {label}
+        {href && <span className="ml-1 inline-block text-[#C8941A]">↗</span>}
+      </div>
       <div
         className={`text-xl font-bold leading-tight ${cor}`}
         style={{ fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums' }}
@@ -539,6 +549,18 @@ function KpiBadge({ label, valor, tom }: { label: string; valor: number; tom?: "
       </div>
     </div>
   );
+  if (href) {
+    return (
+      <a
+        href={href}
+        className="block rounded-md outline-none ring-offset-2 hover:bg-[#3D2314]/5 focus-visible:ring-2 focus-visible:ring-[#C8941A]"
+        title="Abrir lista detalhada"
+      >
+        {body}
+      </a>
+    );
+  }
+  return body;
 }
 
 function CaixaTab({
