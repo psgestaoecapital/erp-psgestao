@@ -22,6 +22,7 @@ import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
+import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-truth/executor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -107,6 +108,7 @@ export async function POST(req: Request) {
   let errorMsg: string | null = null;
   let screenshotUrl: string | null = null;
   let errorsCount = 0;
+  let visualTruth: VisualTruthResult | null = null;
 
   try {
     // 5. Lancar Chromium headless (Vercel-friendly via sparticuz)
@@ -190,6 +192,21 @@ export async function POST(req: Request) {
         })
         .eq('id', screenId);
     }
+
+    // 11. Visual Truth — executa regras ativas para a screen capturada.
+    // Erros nesse passo NAO derrubam a captura (ja persistida). Caminho A:
+    // switch hardcoded em src/lib/visual-truth/executor.ts (zero dynamic SQL).
+    try {
+      visualTruth = await executarVisualTruthRules(page, screenId, rota, supabase);
+      if (visualTruth.regras_executadas + visualTruth.regras_puladas > 0) {
+        console.log(
+          `[visual-truth] ${rota}: ${visualTruth.regras_executadas} executadas, ` +
+            `${visualTruth.alertas_inseridos} alertas, ${visualTruth.regras_puladas} puladas`,
+        );
+      }
+    } catch (vtErr) {
+      console.error('[visual-truth] erro nao fatal:', vtErr);
+    }
   } catch (e: unknown) {
     captureStatus = 'erro';
     errorMsg = e instanceof Error ? e.message : String(e);
@@ -227,5 +244,6 @@ export async function POST(req: Request) {
     screenshot_url: screenshotUrl,
     page_load_ms: pageLoadMs,
     errors_count: errorsCount,
+    visual_truth: visualTruth,
   });
 }
