@@ -43,8 +43,10 @@ type AreaMenu = {
 }
 
 // M.A.7.5.3 — modulos contextuais por area selecionada
+// secao: identifier livre vindo da RPC (GLOBAL, AREA, DADOS, DOCS_REGULATORIOS,
+// CONTROLE_EPIS, etc). O label visivel e secao_label.
 type ModuloSidebar = {
-  secao: 'GLOBAL' | 'AREA' | 'DADOS'
+  secao: string
   secao_label: string
   modulo_id: string
   nome: string
@@ -870,14 +872,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 - menuGroups per-plano legados (substituidos pelos modulos da area)
             */}
             {(() => {
-              // Agrupa em ordem de aparicao na RPC (GLOBAL → AREA → DADOS, ja vem ordenado)
+              // Agrupa por secao preservando ordem de primeira aparicao.
+              // A RPC pode retornar itens interleaved por `ordem` (ex.: Compliance
+              // alterna DOCS_REGULATORIOS e CONTROLE_EPIS), entao precisamos
+              // agregar TODOS itens da mesma secao, nao so consecutivos.
               const grupos: Array<{ secao: string; label: string; items: ModuloSidebar[] }> = []
+              const indexBySecao = new Map<string, number>()
               for (const m of modulosSidebar) {
-                const last = grupos[grupos.length - 1]
-                if (last && last.secao === m.secao) {
-                  last.items.push(m)
-                } else {
+                const idx = indexBySecao.get(m.secao)
+                if (idx === undefined) {
+                  indexBySecao.set(m.secao, grupos.length)
                   grupos.push({ secao: m.secao, label: m.secao_label, items: [m] })
+                } else {
+                  grupos[idx].items.push(m)
                 }
               }
               return grupos.map((g, idx) => (
