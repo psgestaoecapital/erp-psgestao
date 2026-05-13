@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import BpoLandingRedirect from '@/components/bpo/BpoLandingRedirect'
 import { supabase } from '@/lib/supabase'
 import PSGCBadge from '@/components/psgc/PSGCBadge'
@@ -384,6 +384,7 @@ const badgeVariant = (b: string): 'primary' | 'default' | 'info' => {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [user, setUser] = useState<any>(null)
   const [userRole, setUserRole] = useState<string>('')
   const [companies, setCompanies] = useState<any[]>([])
@@ -434,13 +435,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => { alive = false }
   }, [])
 
-  // M.A.7.5.3: area ativa derivada do pathname (igual logica do switcher topo)
+  // M.A.7.5.3 + RD-area-context (13/05/2026): area ativa prioriza ?area=X
+  // (preserva contexto ao clicar modulos compartilhados como Contratos Recorrentes
+  // em area P&M), com fallback para inferencia por prefixo do pathname.
   const activeAreaId = React.useMemo(() => {
+    // PRIORIDADE 1: query param ?area=X (modulos compartilhados)
+    const areaFromQuery = searchParams?.get('area') ?? null
+    if (areaFromQuery && areasMenu.some((a) => a.id === areaFromQuery)) {
+      return areaFromQuery
+    }
+    // PRIORIDADE 2: inferencia por prefixo (comportamento original)
     const match = areasMenu.find(
       (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
     )
     return match?.id ?? null
-  }, [pathname, areasMenu])
+  }, [pathname, areasMenu, searchParams])
 
   // M.A.7.5.3: carrega modulos da area ativa (GLOBAL + AREA + DADOS) sempre que area muda
   useEffect(() => {
@@ -900,6 +909,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     const IconComp = isLucideName ? (AREA_ICONS[m.icone] ?? Box) : null
                     const isActive = pathname === m.rota || (pathname?.startsWith(m.rota + '/') ?? false)
                     const isLocked = m.status === 'previsto' || m.status === 'em_construcao'
+                    // RD-area-context (13/05/2026): se a rota nativa do modulo
+                    // pertence a OUTRA area (ex: Contratos Recorrentes em P&M
+                    // aponta para /dashboard/contratos), anexa ?area={atual}
+                    // para que activeAreaId preserve contexto pos-clique.
+                    const moduloRotaPertenceAArea = activeAreaId
+                      ? areasMenu.some(
+                          (a) =>
+                            a.id === activeAreaId &&
+                            (m.rota === a.rota_raiz || m.rota.startsWith(a.rota_raiz + '/')),
+                        )
+                      : false
+                    const linkHref =
+                      activeAreaId && !moduloRotaPertenceAArea
+                        ? `${m.rota}?area=${activeAreaId}`
+                        : m.rota
                     const handleClick = (e: React.MouseEvent) => {
                       if (isLocked) {
                         e.preventDefault()
@@ -913,7 +937,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     return (
                       <Link
                         key={m.modulo_id}
-                        href={m.rota}
+                        href={linkHref}
                         onClick={handleClick}
                         title={m.badge_label ? `${m.nome} — ${m.badge_label}` : m.nome}
                         style={{
