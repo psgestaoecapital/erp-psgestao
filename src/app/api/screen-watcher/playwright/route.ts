@@ -159,6 +159,31 @@ export async function POST(req: Request) {
       } catch {
         throw new Error(`Login bot falhou (URL apos submit: ${page.url()})`);
       }
+
+      // Bug race condition (13/05/2026): waitForURL resolve assim que URL
+      // muda, mas o supabase.auth.signInWithPassword pode ainda nao ter
+      // terminado de escrever no localStorage. Se navegar para a rota
+      // alvo nesse instante, o layout.tsx chama getUser() e ve null,
+      // disparando router.push('/') de volta para o login.
+      //
+      // Fix: aguardar localStorage ter o sb-*-auth-token presente E
+      // URL coerente (dashboard ou admin). Garante que getUser na
+      // proxima navegacao sera capaz de devolver o usuario.
+      try {
+        await page.waitForFunction(
+          () => {
+            const url = window.location.pathname;
+            if (url === '/' || url.startsWith('/login')) return false;
+            const hasSession = Object.keys(window.localStorage).some(
+              (k) => k.startsWith('sb-') && k.endsWith('-auth-token'),
+            );
+            return hasSession && (url.startsWith('/dashboard') || url.startsWith('/admin'));
+          },
+          { timeout: 15000 },
+        );
+      } catch {
+        throw new Error(`Session bot nao propagou apos login (URL: ${page.url()})`);
+      }
     }
 
     // 7. Navegar para rota alvo — usa rotaCompleta (preserva ?area=)
