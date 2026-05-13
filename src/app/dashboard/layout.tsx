@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import BpoLandingRedirect from '@/components/bpo/BpoLandingRedirect'
@@ -382,6 +382,16 @@ const badgeVariant = (b: string): 'primary' | 'default' | 'info' => {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  // useSearchParams() em layout client component exige Suspense boundary
+  // para nao quebrar prerender estatico (Next 15+/16). Wrapper isola o uso.
+  return (
+    <Suspense fallback={null}>
+      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+    </Suspense>
+  )
+}
+
+function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
