@@ -59,10 +59,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const rota = (body.rota || '').trim();
-  if (!rota || !rota.startsWith('/')) {
+  const rotaCompleta = (body.rota || '').trim();
+  if (!rotaCompleta || !rotaCompleta.startsWith('/')) {
     return NextResponse.json({ error: 'Body.rota deve comecar com /' }, { status: 400 });
   }
+  // Bug A fix: rota_base separa lookup em system_screens (sem ?query=)
+  // de rotaCompleta usada na navegacao do Playwright (preserva ?area=).
+  const rotaBase = rotaCompleta.split('?')[0].split('#')[0];
 
   // 3. Env vars necessarias
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -88,18 +91,18 @@ export async function POST(req: Request) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // 4. Buscar screen_id pela rota
+  // 4. Buscar screen_id pela rota base (sem query string)
   const { data: screen, error: errScreen } = await supabase
     .from('system_screens')
     .select('id, rota')
-    .eq('rota', rota)
+    .eq('rota', rotaBase)
     .maybeSingle();
 
   if (errScreen) {
     return NextResponse.json({ error: 'Erro buscando screen: ' + errScreen.message }, { status: 500 });
   }
   if (!screen) {
-    return NextResponse.json({ error: `Rota nao catalogada: ${rota}` }, { status: 404 });
+    return NextResponse.json({ error: `Rota nao catalogada: ${rotaBase}` }, { status: 404 });
   }
 
   const screenId: string = screen.id;
@@ -135,26 +138,39 @@ export async function POST(req: Request) {
       if (msg.type() === 'error') errorsCount++;
     });
 
-    // 6. Login no SaaS
+    // 6. Login no SaaS — Bug B fix: nao silenciar timeout do waitForURL.
+    // Antes: .catch(() => {}) escondia falhas de auth e seguia anonimo,
+    // capturando a tela de login como "screenshot da rota". Agora se
+    // login nao completar em 15s, throw para responder 500 explicito.
     await page.goto(`${SAAS_BASE_URL}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-    // Localiza form de login na home (ou em /cliente)
-    // Heuristica simples: esperar email input
-    const emailInput = await page.locator('input[type="email"]').first();
-    await emailInput.fill(PLAYWRIGHT_USER_EMAIL, { timeout: 8000 });
-    const pwdInput = await page.locator('input[type="password"]').first();
-    await pwdInput.fill(PLAYWRIGHT_USER_PASSWORD, { timeout: 4000 });
-    await page.locator('button[type="submit"]').first().click({ timeout: 4000 });
+    // Se a navegacao para / ja redirecionou para /dashboard, sessao existente.
+    // Caso contrario, preencher form de login.
+    if (!/\/(dashboard|admin)/.test(page.url())) {
+      const emailInput = page.locator('input[type="email"]').first();
+      await emailInput.fill(PLAYWRIGHT_USER_EMAIL, { timeout: 8000 });
+      const pwdInput = page.locator('input[type="password"]').first();
+      await pwdInput.fill(PLAYWRIGHT_USER_PASSWORD, { timeout: 4000 });
+      await page.locator('button[type="submit"]').first().click({ timeout: 4000 });
 
-    // Aguarda chegar no dashboard (10s max)
-    await page.waitForURL(/\/(dashboard|admin)/, { timeout: 12000 }).catch(() => {
-      /* segue mesmo se nao detectar; pode ja estar logado */
-    });
+      // Aguarda chegar no dashboard (15s max). Se falhar, log + throw.
+      try {
+        await page.waitForURL(/\/(dashboard|admin)/, { timeout: 15000 });
+      } catch {
+        throw new Error(`Login bot falhou (URL apos submit: ${page.url()})`);
+      }
+    }
 
-    // 7. Navegar para rota alvo
-    await page.goto(`${SAAS_BASE_URL}${rota}`, { waitUntil: 'networkidle', timeout: 25000 });
+    // 7. Navegar para rota alvo — usa rotaCompleta (preserva ?area=)
+    await page.goto(`${SAAS_BASE_URL}${rotaCompleta}`, { waitUntil: 'networkidle', timeout: 25000 });
     // pequeno delay pra animacoes/skeletons
     await page.waitForTimeout(800);
+
+    // Sanity: se apos goto da rota o browser foi redirecionado para login
+    // (sessao expirou no meio, AdminGuard rejeitou, etc), throw explicito.
+    if (page.url().includes('/login') || page.url() === `${SAAS_BASE_URL}/`) {
+      throw new Error(`Bot redirecionado para login ao acessar ${rotaCompleta} (URL: ${page.url()})`);
+    }
 
     // 8. Screenshot — JPEG q=75 economiza ~33% tokens IA vs PNG
     const buffer = await page.screenshot({
@@ -164,9 +180,10 @@ export async function POST(req: Request) {
       clip: { x: 0, y: 0, width: 1280, height: 800 },
     });
 
-    // 9. Upload pra bucket
+    // 9. Upload pra bucket — usa rota base para path (uma pasta por rota,
+    // independente da query string usada nessa captura).
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const path = `${sanitizePathComponent(rota)}/${ts}.jpg`;
+    const path = `${sanitizePathComponent(rotaBase)}/${ts}.jpg`;
 
     const { error: errUp } = await supabase.storage
       .from('system-screenshots')
@@ -197,10 +214,10 @@ export async function POST(req: Request) {
     // Erros nesse passo NAO derrubam a captura (ja persistida). Caminho A:
     // switch hardcoded em src/lib/visual-truth/executor.ts (zero dynamic SQL).
     try {
-      visualTruth = await executarVisualTruthRules(page, screenId, rota, supabase);
+      visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
       if (visualTruth.regras_executadas + visualTruth.regras_puladas > 0) {
         console.log(
-          `[visual-truth] ${rota}: ${visualTruth.regras_executadas} executadas, ` +
+          `[visual-truth] ${rotaBase}: ${visualTruth.regras_executadas} executadas, ` +
             `${visualTruth.alertas_inseridos} alertas, ${visualTruth.regras_puladas} puladas`,
         );
       }
@@ -217,10 +234,11 @@ export async function POST(req: Request) {
   }
 
   // 11. INSERT history (sempre, mesmo em erro — audit trail)
+  // History grava rotaCompleta para preservar contexto (?area=) no audit.
   const pageLoadMs = Date.now() - startedAt;
   await supabase.from('system_screens_history').insert({
     screen_id: screenId,
-    rota,
+    rota: rotaCompleta,
     screenshot_url: screenshotUrl,
     errors_count: errorsCount,
     errors_snapshot: errorMsg,
@@ -232,7 +250,7 @@ export async function POST(req: Request) {
 
   if (captureStatus === 'erro') {
     return NextResponse.json(
-      { success: false, screen_id: screenId, rota, error: errorMsg, page_load_ms: pageLoadMs },
+      { success: false, screen_id: screenId, rota: rotaCompleta, error: errorMsg, page_load_ms: pageLoadMs },
       { status: 500 },
     );
   }
@@ -240,7 +258,8 @@ export async function POST(req: Request) {
   return NextResponse.json({
     success: true,
     screen_id: screenId,
-    rota,
+    rota: rotaCompleta,
+    rota_base: rotaBase,
     screenshot_url: screenshotUrl,
     page_load_ms: pageLoadMs,
     errors_count: errorsCount,
