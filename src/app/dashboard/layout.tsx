@@ -588,20 +588,40 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   const breadcrumb = React.useMemo(() => {
     if (!pathname) return []
+    // M.A.7.5.3 + RD-area-context: rotulo raiz prioriza area ativa
+    // (areasMenu via activeAreaId, que respeita ?area=). Fallback para
+    // PLANO_LABEL legado quando nenhuma area bate.
+    const activeArea = activeAreaId
+      ? areasMenu.find((a) => a.id === activeAreaId)
+      : null
+    const rootLabel = activeArea?.nome_menu ?? PLANO_LABEL[currentPlano]
+    const rootHref = activeArea?.rota_raiz ?? '/dashboard'
+
+    // Tenta achar item no menu modulosSidebar (sistema novo) primeiro
+    for (const m of modulosSidebar) {
+      if (pathname === m.rota || pathname.startsWith(m.rota + '/')) {
+        return [
+          { label: rootLabel, href: rootHref },
+          { label: m.secao_label || 'MÓDULO', href: null },
+          { label: m.nome, href: m.rota },
+        ]
+      }
+    }
+    // Fallback: menu legado por plano
     const groups = MENU[currentPlano] || []
     for (const group of groups) {
       for (const item of group.items) {
         if (pathname === item.href || pathname.startsWith(item.href + '/')) {
           return [
-            { label: PLANO_LABEL[currentPlano], href: '/dashboard' },
+            { label: rootLabel, href: rootHref },
             { label: group.label, href: null },
             { label: item.label, href: item.href },
           ]
         }
       }
     }
-    return [{ label: PLANO_LABEL[currentPlano], href: '/dashboard' }]
-  }, [pathname, currentPlano])
+    return [{ label: rootLabel, href: rootHref }]
+  }, [pathname, currentPlano, activeAreaId, areasMenu, modulosSidebar])
 
   const currentCompany = companies.find(c => c.id === selCompany)
   const userInitials = user?.email ? user.email.slice(0, 2).toUpperCase() : '??'
@@ -791,11 +811,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--ps-border-l)', position: 'relative' }}>
               {(() => {
                 // M.A.7.5.2 — Area Switcher do topo consome fn_areas_menu_lateral.
-                // Determina area ativa pela rota atual (match em rota_raiz/prefixo);
-                // fallback para PLANO_LABEL legado se nenhuma area bater.
-                const activeArea = areasMenu.find(
-                  (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
-                )
+                // Usa activeAreaId memo (que prioriza ?area= sobre pathname inference)
+                // para preservar contexto ao navegar em modulos compartilhados.
+                const activeArea = activeAreaId
+                  ? areasMenu.find((a) => a.id === activeAreaId)
+                  : areasMenu.find(
+                      (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
+                    )
                 const TriggerIcon = activeArea ? (AREA_ICONS[activeArea.icone] ?? Briefcase) : null
                 return (
                   <>
