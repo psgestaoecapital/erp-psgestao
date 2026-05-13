@@ -114,7 +114,43 @@ export async function POST(req: Request) {
   let visualTruth: VisualTruthResult | null = null;
 
   try {
-    // 5. Lancar Chromium headless (Vercel-friendly via sparticuz)
+    // 5a. Gerar session do bot via Admin API (server-side, antes do browser).
+    // Refactor 13/05/2026: substitui o login UI client-side (PR #119/#120)
+    // pela injecao direta da session no localStorage via addInitScript.
+    // Resolve race condition definitivamente — getUser() do layout.tsx ja
+    // encontra session na primeira leitura. Tambem evita rodar o form de
+    // login no Playwright a cada captura (mais rapido, mais previsivel).
+    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: signinData, error: signinError } = await adminClient.auth.signInWithPassword({
+      email: PLAYWRIGHT_USER_EMAIL,
+      password: PLAYWRIGHT_USER_PASSWORD,
+    });
+    if (signinError || !signinData.session) {
+      return NextResponse.json(
+        { error: `Bot signin falhou: ${signinError?.message ?? 'sessao vazia'}` },
+        { status: 500 },
+      );
+    }
+    const botSession = signinData.session;
+    // Project ref derivado do URL: https://<ref>.supabase.co
+    const PROJECT_REF = (() => {
+      try {
+        const host = new URL(SUPABASE_URL).hostname;
+        return host.split('.')[0];
+      } catch {
+        return '';
+      }
+    })();
+    if (!PROJECT_REF) {
+      return NextResponse.json(
+        { error: 'SUPABASE_URL invalida — nao foi possivel extrair project ref' },
+        { status: 500 },
+      );
+    }
+
+    // 5b. Lancar Chromium headless (Vercel-friendly via sparticuz)
     const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
     browser = await playwright.launch({
       args: chromium.args,
@@ -128,6 +164,32 @@ export async function POST(req: Request) {
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PsGestaoScreenWatcher/1.0',
     });
 
+    // 5c. Injetar session no localStorage do contexto ANTES de qualquer
+    // page abrir. supabase-js le essa chave e considera o bot logado;
+    // dispensa o fluxo UI completo. Passamos os dois campos serializados
+    // como string JSON para evitar problemas de serializacao do Playwright.
+    const sessionPayload = JSON.stringify({
+      access_token: botSession.access_token,
+      refresh_token: botSession.refresh_token,
+      expires_in: botSession.expires_in,
+      expires_at: botSession.expires_at,
+      token_type: botSession.token_type,
+      user: botSession.user,
+      provider_token: null,
+      provider_refresh_token: null,
+    });
+    const storageKey = `sb-${PROJECT_REF}-auth-token`;
+    await context.addInitScript(
+      ({ key, value }) => {
+        try {
+          window.localStorage.setItem(key, value);
+        } catch {
+          /* localStorage indisponivel em about:blank — sera definido na primeira navegacao */
+        }
+      },
+      { key: storageKey, value: sessionPayload },
+    );
+
     const page: Page = await context.newPage();
 
     // Coletar erros do console
@@ -138,63 +200,32 @@ export async function POST(req: Request) {
       if (msg.type() === 'error') errorsCount++;
     });
 
-    // 6. Login no SaaS — Bug B fix: nao silenciar timeout do waitForURL.
-    // Antes: .catch(() => {}) escondia falhas de auth e seguia anonimo,
-    // capturando a tela de login como "screenshot da rota". Agora se
-    // login nao completar em 15s, throw para responder 500 explicito.
-    await page.goto(`${SAAS_BASE_URL}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
-
-    // Se a navegacao para / ja redirecionou para /dashboard, sessao existente.
-    // Caso contrario, preencher form de login.
-    if (!/\/(dashboard|admin)/.test(page.url())) {
-      const emailInput = page.locator('input[type="email"]').first();
-      await emailInput.fill(PLAYWRIGHT_USER_EMAIL, { timeout: 8000 });
-      const pwdInput = page.locator('input[type="password"]').first();
-      await pwdInput.fill(PLAYWRIGHT_USER_PASSWORD, { timeout: 4000 });
-      await page.locator('button[type="submit"]').first().click({ timeout: 4000 });
-
-      // Aguarda chegar no dashboard (15s max). Se falhar, log + throw.
-      try {
-        await page.waitForURL(/\/(dashboard|admin)/, { timeout: 15000 });
-      } catch {
-        throw new Error(`Login bot falhou (URL apos submit: ${page.url()})`);
-      }
-
-      // Bug race condition (13/05/2026): waitForURL resolve assim que URL
-      // muda, mas o supabase.auth.signInWithPassword pode ainda nao ter
-      // terminado de escrever no localStorage. Se navegar para a rota
-      // alvo nesse instante, o layout.tsx chama getUser() e ve null,
-      // disparando router.push('/') de volta para o login.
-      //
-      // Fix: aguardar localStorage ter o sb-*-auth-token presente E
-      // URL coerente (dashboard ou admin). Garante que getUser na
-      // proxima navegacao sera capaz de devolver o usuario.
-      try {
-        await page.waitForFunction(
-          () => {
-            const url = window.location.pathname;
-            if (url === '/' || url.startsWith('/login')) return false;
-            const hasSession = Object.keys(window.localStorage).some(
-              (k) => k.startsWith('sb-') && k.endsWith('-auth-token'),
-            );
-            return hasSession && (url.startsWith('/dashboard') || url.startsWith('/admin'));
-          },
-          { timeout: 15000 },
-        );
-      } catch {
-        throw new Error(`Session bot nao propagou apos login (URL: ${page.url()})`);
-      }
-    }
-
-    // 7. Navegar para rota alvo — usa rotaCompleta (preserva ?area=)
-    await page.goto(`${SAAS_BASE_URL}${rotaCompleta}`, { waitUntil: 'networkidle', timeout: 25000 });
+    // 6. Navegar direto para rota alvo (usa rotaCompleta preserva ?area=).
+    // Sem login UI: addInitScript injetou session no localStorage, layout.tsx
+    // chama getUser() e ja encontra usuario na primeira leitura.
+    await page.goto(`${SAAS_BASE_URL}${rotaCompleta}`, { waitUntil: 'networkidle', timeout: 30000 });
     // pequeno delay pra animacoes/skeletons
     await page.waitForTimeout(800);
 
-    // Sanity: se apos goto da rota o browser foi redirecionado para login
-    // (sessao expirou no meio, AdminGuard rejeitou, etc), throw explicito.
+    // Sanity check: a session injetada deve ter sido aceita pelo cliente
+    // supabase-js no momento em que layout.tsx montou. Se nao, o layout
+    // teria redirecionado para '/'. Verificamos URL final + presenca da
+    // chave no localStorage (proves session legivel pelo Supabase JS).
     if (page.url().includes('/login') || page.url() === `${SAAS_BASE_URL}/`) {
       throw new Error(`Bot redirecionado para login ao acessar ${rotaCompleta} (URL: ${page.url()})`);
+    }
+    const sessionStillPresent = await page.evaluate((key) => {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return false;
+      try {
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed?.access_token);
+      } catch {
+        return false;
+      }
+    }, storageKey);
+    if (!sessionStillPresent) {
+      throw new Error(`Bot session sumiu do localStorage durante captura (URL: ${page.url()})`);
     }
 
     // 8. Screenshot — JPEG q=75 economiza ~33% tokens IA vs PNG
