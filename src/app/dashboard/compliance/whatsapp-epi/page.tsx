@@ -37,10 +37,12 @@ const C = {
 
 interface Funcionario {
   id: string
+  company_id: string
   nome_completo: string
   cpf: string | null
   telefone: string | null
   cargo: string | null
+  empresa_nome?: string
 }
 
 interface EpiCatalogo {
@@ -97,11 +99,18 @@ const diasAte = (s: string): number => {
 }
 
 export default function WhatsAppEpiPage() {
-  const { companyIds, sel, selInfo, companies, loading: loadingCompanies } = useCompanyIds()
-  const companyIdUnico = useMemo(
-    () => (selInfo.tipo === 'empresa' && sel ? sel : companyIds[0] ?? null),
-    [selInfo, sel, companyIds],
-  )
+  const { companyIds, selInfo, companies, loading: loadingCompanies } = useCompanyIds()
+  // Hotfix modo consolidado: usar companyIds (array) em todas queries de
+  // listagem. RPCs de mutacao continuam aceitando 1 company_id — extraimos
+  // do recurso selecionado (funcionario.company_id) no momento do submit.
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
+  const empresasMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of companies) {
+      m.set(c.id, c.nome_fantasia || c.razao_social || '')
+    }
+    return m
+  }, [companies])
 
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
   const [catalogo, setCatalogo] = useState<EpiCatalogo[]>([])
@@ -117,37 +126,45 @@ export default function WhatsAppEpiPage() {
   const [copiado, setCopiado] = useState(false)
 
   const carregar = useCallback(async () => {
-    if (!companyIdUnico) return
+    if (!companyIdsKey) return
+    const ids = companyIdsKey.split(',').filter(Boolean)
+    if (ids.length === 0) return
     setLoading(true)
     setErro(null)
     try {
+      // Catalogo: company-specific da empresa selecionada + globais (is_global).
+      // Supabase `.or` aceita uma expressao SQL — montamos string sanitizada.
+      const orExpr = `company_id.in.(${ids.join(',')}),is_global.eq.true`
       const [funcs, cats, hist] = await Promise.all([
         supabase
           .from('compliance_funcionarios')
-          .select('id, nome_completo, cpf, telefone, cargo')
-          .eq('company_id', companyIdUnico)
+          .select('id, company_id, nome_completo, cpf, telefone, cargo')
+          .in('company_id', ids)
           .eq('ativo', true)
           .order('nome_completo'),
         supabase
           .from('epi_catalogo')
           .select('id, nome, ca_numero, is_global, company_id')
-          .or(`company_id.eq.${companyIdUnico},is_global.eq.true`)
+          .or(orExpr)
           .eq('ativo', true)
           .order('nome'),
         supabase
           .from('compliance_epi_assinatura_tokens')
           .select('id, funcionario_id, catalogo_ids, status, whatsapp_telefone, expires_at, visualizado_em, assinado_em, created_at')
-          .eq('company_id', companyIdUnico)
+          .in('company_id', ids)
           .order('created_at', { ascending: false })
           .limit(50),
       ])
       if (funcs.error) throw funcs.error
       if (cats.error) throw cats.error
       if (hist.error) throw hist.error
-      setFuncionarios((funcs.data ?? []) as Funcionario[])
+      const funcsList = ((funcs.data ?? []) as Funcionario[]).map((f) => ({
+        ...f,
+        empresa_nome: empresasMap.get(f.company_id) || '',
+      }))
+      setFuncionarios(funcsList)
       setCatalogo((cats.data ?? []) as EpiCatalogo[])
-      // enriquecer historico com nome do funcionario
-      const funcsMap = new Map((funcs.data ?? []).map((f: any) => [f.id, f.nome_completo]))
+      const funcsMap = new Map(funcsList.map((f) => [f.id, f.nome_completo]))
       setHistorico(
         ((hist.data ?? []) as TokenHistorico[]).map((h) => ({
           ...h,
@@ -159,7 +176,7 @@ export default function WhatsAppEpiPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyIdUnico])
+  }, [companyIdsKey, empresasMap])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -180,7 +197,14 @@ export default function WhatsAppEpiPage() {
   }
 
   async function gerarLink() {
-    if (!companyIdUnico || !funcId || epiCount === 0) return
+    if (!funcId || epiCount === 0) return
+    // Hotfix modo consolidado: usar company_id DO FUNCIONARIO selecionado
+    // (cada funcionario pertence a UMA empresa). RPC nao aceita array.
+    const funcSelLocal = funcionarios.find((f) => f.id === funcId)
+    if (!funcSelLocal) {
+      setErro('Funcionario nao encontrado')
+      return
+    }
     setGerando(true)
     setErro(null)
     setResultado(null)
@@ -189,7 +213,7 @@ export default function WhatsAppEpiPage() {
       const ids = Object.keys(epiIds)
       const qtds = ids.map((id) => epiIds[id])
       const { data, error } = await supabase.rpc('fn_compliance_epi_gerar_link_whatsapp', {
-        p_company_id: companyIdUnico,
+        p_company_id: funcSelLocal.company_id,
         p_funcionario_id: funcId,
         p_catalogo_ids: ids,
         p_quantidades: qtds,
@@ -230,7 +254,7 @@ export default function WhatsAppEpiPage() {
   if (loadingCompanies) {
     return <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Carregando empresas…</div>
   }
-  if (!companyIdUnico) {
+  if (companyIds.length === 0) {
     return (
       <div style={{ padding: 'clamp(16px, 4vw, 32px)', maxWidth: 620, margin: '0 auto', textAlign: 'center' }}>
         <p style={{ fontSize: 14, color: C.espressoM }}>
@@ -312,6 +336,7 @@ export default function WhatsAppEpiPage() {
               {funcionarios.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.nome_completo}
+                  {selInfo.isGroup && f.empresa_nome ? ` · ${f.empresa_nome}` : ''}
                   {f.cargo ? ` · ${f.cargo}` : ''}
                   {!f.telefone ? ' (sem WhatsApp)' : ''}
                 </option>

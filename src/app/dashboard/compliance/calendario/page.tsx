@@ -96,16 +96,11 @@ function riscoColor(r: string | null): string {
 }
 
 export default function CalendarioCompliancePage() {
-  const { companyIds, sel, selInfo, companies, loading: loadingCompanies } = useCompanyIds()
-  const companyIdUnico = useMemo(
-    () => (selInfo.tipo === 'empresa' && sel ? sel : companyIds[0] ?? null),
-    [selInfo, sel, companyIds],
-  )
-  const empresaNome = useMemo(() => {
-    if (!companyIdUnico) return ''
-    const c = companies.find((x) => x.id === companyIdUnico)
-    return c?.nome_fantasia || c?.razao_social || 'Empresa'
-  }, [companyIdUnico, companies])
+  const { companyIds, selInfo, loading: loadingCompanies } = useCompanyIds()
+  // Hotfix modo consolidado: usar companyIds (array) em todas queries.
+  // selInfo.nome ja vem como "Todas as Empresas", "Grupo X" ou nome da empresa.
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
+  const empresaNome = selInfo.nome
 
   const [kpis, setKpis] = useState<KPIs | null>(null)
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
@@ -118,58 +113,107 @@ export default function CalendarioCompliancePage() {
   const [msgOk, setMsgOk] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
-    if (!companyIdUnico) return
+    if (!companyIdsKey) return
+    const ids = companyIdsKey.split(',').filter(Boolean)
+    if (ids.length === 0) return
     setLoading(true)
     setErro(null)
     try {
-      const [kpiRes, tarRes] = await Promise.all([
-        supabase
-          .from('v_compliance_calendar_dashboard')
-          .select('*')
-          .eq('company_id', companyIdUnico)
-          .maybeSingle(),
-        supabase.rpc('fn_compliance_calendar_priorizado', {
-          p_company_id: companyIdUnico,
-          p_horizonte_dias: 90,
-          p_apenas_pendentes: true,
-        }),
-      ])
+      // KPIs: agregar (SUM) todas rows do v_compliance_calendar_dashboard
+      // das empresas selecionadas. View retorna 1 row por company_id.
+      const kpiRes = await supabase
+        .from('v_compliance_calendar_dashboard')
+        .select('*')
+        .in('company_id', ids)
       if (kpiRes.error) throw kpiRes.error
-      if (tarRes.error) throw tarRes.error
-      setKpis((kpiRes.data ?? null) as KPIs | null)
-      setTarefas((tarRes.data ?? []) as Tarefa[])
+      const kpiRows = (kpiRes.data ?? []) as Array<Partial<KPIs>>
+      const kpisAgg: KPIs = {
+        tarefas_ativas: 0,
+        tarefas_vencidas: 0,
+        vencendo_7d: 0,
+        vencendo_15d: 0,
+        vencendo_30d: 0,
+        concluidas_30d: 0,
+        exposicao_multa_total_brl: 0,
+        multa_atual_vencido_brl: 0,
+        criticas_abertas: 0,
+        esocial_abertas: 0,
+      }
+      for (const row of kpiRows) {
+        kpisAgg.tarefas_ativas += Number(row.tarefas_ativas ?? 0)
+        kpisAgg.tarefas_vencidas += Number(row.tarefas_vencidas ?? 0)
+        kpisAgg.vencendo_7d += Number(row.vencendo_7d ?? 0)
+        kpisAgg.vencendo_15d += Number(row.vencendo_15d ?? 0)
+        kpisAgg.vencendo_30d += Number(row.vencendo_30d ?? 0)
+        kpisAgg.concluidas_30d += Number(row.concluidas_30d ?? 0)
+        kpisAgg.exposicao_multa_total_brl += Number(row.exposicao_multa_total_brl ?? 0)
+        kpisAgg.multa_atual_vencido_brl += Number(row.multa_atual_vencido_brl ?? 0)
+        kpisAgg.criticas_abertas += Number(row.criticas_abertas ?? 0)
+        kpisAgg.esocial_abertas += Number(row.esocial_abertas ?? 0)
+      }
+      setKpis(kpisAgg)
+
+      // Tarefas: RPC aceita uma empresa por vez. Promise.all em paralelo.
+      const tarRes = await Promise.all(
+        ids.map((cid) =>
+          supabase.rpc('fn_compliance_calendar_priorizado', {
+            p_company_id: cid,
+            p_horizonte_dias: 90,
+            p_apenas_pendentes: true,
+          }),
+        ),
+      )
+      const tarefasAll: Tarefa[] = []
+      for (const r of tarRes) {
+        if (r.error) throw r.error
+        if (Array.isArray(r.data)) tarefasAll.push(...(r.data as Tarefa[]))
+      }
+      // ordenar por prioridade desc (ja vem ordenado por empresa, mas misturamos)
+      tarefasAll.sort((a, b) => (b.prioridade ?? 0) - (a.prioridade ?? 0))
+      setTarefas(tarefasAll)
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar calendario')
     } finally {
       setLoading(false)
     }
-  }, [companyIdUnico])
+  }, [companyIdsKey])
 
   useEffect(() => {
     carregar()
   }, [carregar])
 
   async function gerarTarefas() {
-    if (!companyIdUnico) return
+    if (!companyIdsKey) return
+    const ids = companyIdsKey.split(',').filter(Boolean)
+    if (ids.length === 0) return
     setGerando(true)
     setErro(null)
     setMsgOk(null)
     try {
-      const [docsRes, recRes] = await Promise.all([
+      // Para cada empresa selecionada, gerar de docs + recorrentes em paralelo.
+      // RPCs sao SECURITY DEFINER + idempotentes (re-rodar nao duplica).
+      const allCalls = ids.flatMap((cid) => [
         supabase.rpc('fn_compliance_calendar_gerar_de_documentos', {
-          p_company_id: companyIdUnico,
+          p_company_id: cid,
           p_horizonte_dias: 365,
         }),
         supabase.rpc('fn_compliance_calendar_gerar_recorrentes_mensais', {
-          p_company_id: companyIdUnico,
+          p_company_id: cid,
           p_mes: null,
         }),
       ])
-      if (docsRes.error) throw docsRes.error
-      if (recRes.error) throw recRes.error
-      const criadasDocs = (docsRes.data?.[0]?.tarefas_criadas ?? 0) as number
-      const criadasRec = (recRes.data?.[0]?.tarefas_criadas ?? 0) as number
-      setMsgOk(`Tarefas geradas: ${criadasDocs} de documentos + ${criadasRec} recorrentes`)
+      const results = await Promise.all(allCalls)
+      let criadasDocs = 0
+      let criadasRec = 0
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]
+        if (r.error) throw r.error
+        const criadas = Number(r.data?.[0]?.tarefas_criadas ?? 0)
+        if (i % 2 === 0) criadasDocs += criadas
+        else criadasRec += criadas
+      }
+      const empresasMsg = ids.length === 1 ? '' : ` (${ids.length} empresas)`
+      setMsgOk(`Tarefas geradas: ${criadasDocs} de documentos + ${criadasRec} recorrentes${empresasMsg}`)
       window.setTimeout(() => setMsgOk(null), 4500)
       await carregar()
     } catch (e: any) {
@@ -208,7 +252,7 @@ export default function CalendarioCompliancePage() {
   if (loadingCompanies) {
     return <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Carregando empresas…</div>
   }
-  if (!companyIdUnico) {
+  if (companyIds.length === 0) {
     return (
       <div style={{ padding: 'clamp(16px, 4vw, 32px)', maxWidth: 620, margin: '0 auto', textAlign: 'center' }}>
         <p style={{ fontSize: 14, color: C.espressoM }}>
