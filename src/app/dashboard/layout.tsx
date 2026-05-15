@@ -597,9 +597,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const rootLabel = activeArea?.nome_menu ?? PLANO_LABEL[currentPlano]
     const rootHref = activeArea?.rota_raiz ?? '/dashboard'
 
-    // Tenta achar item no menu modulosSidebar (sistema novo) primeiro
+    // Tenta achar item no menu modulosSidebar (sistema novo) primeiro.
+    // m.rota vem do backend com ?area=X; comparar contra rota base
+    // (usePathname nao inclui query string).
     for (const m of modulosSidebar) {
-      if (pathname === m.rota || pathname.startsWith(m.rota + '/')) {
+      const mBase = m.rota.split('?')[0]
+      if (pathname === mBase || pathname.startsWith(mBase + '/')) {
         return [
           { label: rootLabel, href: rootHref },
           { label: m.secao_label || 'MÓDULO', href: null },
@@ -939,23 +942,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   {g.items.map((m) => {
                     const isLucideName = /^[A-Z][a-zA-Z0-9]+$/.test(m.icone || '')
                     const IconComp = isLucideName ? (AREA_ICONS[m.icone] ?? Box) : null
-                    const isActive = pathname === m.rota || (pathname?.startsWith(m.rota + '/') ?? false)
+                    // Backend (fn_modulos_sidebar_por_area) ja entrega a rota
+                    // COM ?area=X. Nao reanexar no frontend (causava URL
+                    // duplicada ?area=X?area=X). isActive compara contra a
+                    // rota base (sem query string) pois usePathname() nao
+                    // inclui ?query.
+                    const rotaBase = m.rota.split('?')[0]
+                    const isActive = pathname === rotaBase || (pathname?.startsWith(rotaBase + '/') ?? false)
                     const isLocked = m.status === 'previsto' || m.status === 'em_construcao'
-                    // RD-area-context (13/05/2026): se a rota nativa do modulo
-                    // pertence a OUTRA area (ex: Contratos Recorrentes em P&M
-                    // aponta para /dashboard/contratos), anexa ?area={atual}
-                    // para que activeAreaId preserve contexto pos-clique.
-                    const moduloRotaPertenceAArea = activeAreaId
-                      ? areasMenu.some(
-                          (a) =>
-                            a.id === activeAreaId &&
-                            (m.rota === a.rota_raiz || m.rota.startsWith(a.rota_raiz + '/')),
-                        )
-                      : false
-                    const linkHref =
-                      activeAreaId && !moduloRotaPertenceAArea
-                        ? `${m.rota}?area=${activeAreaId}`
-                        : m.rota
+                    const linkHref = m.rota
                     const handleClick = (e: React.MouseEvent) => {
                       if (isLocked) {
                         e.preventDefault()
