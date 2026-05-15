@@ -13,6 +13,7 @@ import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
 import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
 import PeriodoSelector, { type SelecaoPeriodo } from '@/components/dashboard/PeriodoSelector';
+import { PainelOperacionalCompleto } from '@/components/dashboard/operacional/PainelOperacionalCompleto';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -284,6 +285,12 @@ function DashboardUniversalInner() {
       
       {/* ============ CORPO ============ */}
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 60px' }}>
+
+        {/* UX Onda 1: Painel Operacional ContaAzul-like — operacao do dia
+            ANTES dos KPIs estrategicos. companyIdsKey vem do useCompanyIds. */}
+        <PainelOperacionalCompleto
+          companyIds={companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []}
+        />
 
         {erroData && !data && (
           <div style={{ background: 'white', borderRadius: 12, padding: 32, textAlign: 'center', border: '1px solid #E8E2D4', marginBottom: 20 }}>
