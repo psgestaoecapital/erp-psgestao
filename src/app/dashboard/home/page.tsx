@@ -4,6 +4,12 @@
 
 'use client';
 
+// 🛡️ Reenquadramento pós PR #132 — esconde blocos legados do home.
+// O estratégico vive em /dashboard/analises (9 abas maduras); a ponte
+// "Ver análises completas →" já existe abaixo. Reversível: basta
+// SHOW_LEGACY_HOME = true (1 edit + commit) para restaurar os blocos.
+const SHOW_LEGACY_HOME = false;
+
 import { useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -320,16 +326,20 @@ function DashboardUniversalInner() {
         {data && data.camada1 && (
           <>
             <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} dashboardHomeData={dashboardHomeData} />
-            <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
-            <ConsultorInsights data={data.camada1?.consultor_ia} />
-            <RaioXProfundo
-              apiFetch={authFetch}
-              companyIds={data.contexto?.company_ids || []}
-              ano={data.contexto?.ano || null}
-              mes={data.contexto?.mes || null}
-              regime={regime}
-              grupoId={grupoIdSelecionado}
-            />
+            {SHOW_LEGACY_HOME && (
+              <>
+                <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
+                <ConsultorInsights data={data.camada1?.consultor_ia} />
+                <RaioXProfundo
+                  apiFetch={authFetch}
+                  companyIds={data.contexto?.company_ids || []}
+                  ano={data.contexto?.ano || null}
+                  mes={data.contexto?.mes || null}
+                  regime={regime}
+                  grupoId={grupoIdSelecionado}
+                />
+              </>
+            )}
 
             <div style={{ margin: '48px 0 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: 2, color: '#C8941A', fontWeight: 500, textTransform: 'uppercase' }}>Raio-X</div>
