@@ -1,3 +1,5 @@
+import type React from 'react';
+
 // PS Gestao e Capital - Design Tokens v1.0
 // Lei: Espresso #3D2314 (estrutura) + Off-white #FAF7F2 (background) + Dourado #C8941A (highlight)
 // Sem cinza em borders. Sem dark theme. Verde/Amarelo/Vermelho exclusivos para semaforo de performance.
@@ -175,4 +177,108 @@ export const variantPorNivel = (nivel: 'saudavel' | 'moderado' | 'critico'): 'su
   if (nivel === 'saudavel') return 'success';
   if (nivel === 'moderado') return 'attention';
   return 'critical';
+};
+
+// ═══════════════════════════════════════════════════════════════
+// DESIGN SYSTEM PREMIUM V1 — adicionado 16/05/2026
+// Foundational para eliminar "padrão de IA" em telas premium
+// Convenção: ADD-only, mesma estrutura de objeto que PSGC_TYPO/PSGC_COLORS
+// Compatível com paleta espresso/off-white/dourado existente
+// ═══════════════════════════════════════════════════════════════
+
+// Tipografia premium — escala completa com tabular-nums para números
+// Convenção: objeto com size/weight/letterSpacing (igual PSGC_TYPO existente)
+// + fontVariantNumeric quando aplicável (alinhamento de dígitos em tabelas/dashboards)
+export const PSGC_TYPO_PREMIUM = {
+  // Números — hero, KPIs, displays grandes
+  // fontVariantNumeric: 'tabular-nums' garante largura fixa por dígito
+  numberHero:    { size: 48, weight: 700, letterSpacing: -1.5, fontVariantNumeric: 'tabular-nums' as const },
+  numberLarge:   { size: 32, weight: 700, letterSpacing: -1,   fontVariantNumeric: 'tabular-nums' as const },
+  numberMedium:  { size: 24, weight: 600, letterSpacing: -0.5, fontVariantNumeric: 'tabular-nums' as const },
+  numberSmall:   { size: 16, weight: 600, letterSpacing: 0,    fontVariantNumeric: 'tabular-nums' as const },
+
+  // Labels — sempre uppercase + tracking + peso médio
+  label:         { size: 11, weight: 500, letterSpacing: 0.8, textTransform: 'uppercase' as const },
+  labelLarge:    { size: 13, weight: 500, letterSpacing: 0.6, textTransform: 'uppercase' as const },
+
+  // Texto comum
+  bodyPremium:   { size: 14, weight: 400, lineHeight: 1.5 },
+  bodyMuted:     { size: 14, weight: 400, lineHeight: 1.5 },
+  caption:       { size: 12, weight: 400, lineHeight: 1.4 },
+
+  // Section title — uppercase pequeno (estilo ContaAzul)
+  sectionTitle:  { size: 11, weight: 600, letterSpacing: 1.2, textTransform: 'uppercase' as const },
+} as const;
+
+// Espaçamento assimétrico premium
+// Princípio: muito espaço entre seções (deixa respirar), denso dentro (info junto)
+export const PSGC_SPACING_PREMIUM = {
+  betweenSections: 64,    // px — entre blocos grandes (mb-16)
+  betweenSectionsLg: 80,  // px — em telas wide (sm:mb-20)
+  withinSection: 24,      // px — dentro de uma seção (space-y-6)
+  cardPadding: 24,        // px — padding interno do card premium
+  cardGap: 8,             // px — entre linhas dentro do card (denso)
+  heroGap: 12,            // px — no hero (label → número → contexto)
+} as const;
+
+// KPI Variants — alinha com semântica existente (variantPorNivel)
+// Usa cores PSGC_COLORS, não cores Tailwind genéricas
+export const PSGC_KPI_VARIANTS = {
+  neutral: {
+    text: PSGC_COLORS.espresso,
+    accent: PSGC_COLORS.espressoDarker,
+    border: PSGC_COLORS.offWhiteDark,
+  },
+  success: {
+    text: PSGC_COLORS.baixa,
+    accent: PSGC_COLORS.baixa,
+    border: PSGC_COLORS.verdeSoft,
+  },
+  attention: {
+    text: PSGC_COLORS.media,
+    accent: PSGC_COLORS.media,
+    border: PSGC_COLORS.amareloSoft,
+  },
+  critical: {
+    text: PSGC_COLORS.alta,
+    accent: PSGC_COLORS.alta,
+    border: PSGC_COLORS.vermelhoSoft,
+  },
+} as const;
+
+// Bordas premium — finíssimas, quase invisíveis (estilo ContaAzul)
+// Hex com alpha simulada via cor mais clara do espresso
+export const PSGC_BORDER_PREMIUM = {
+  hairline: `1px solid ${PSGC_COLORS.offWhiteDark}`,     // borda quase invisível
+  subtle:   `1px solid ${PSGC_COLORS.offWhiteDarker}`,   // borda sutil
+  emphasis: `2px solid ${PSGC_COLORS.espresso}`,         // borda destacada (raríssima)
+} as const;
+
+// Sombras premium — usar com avareza, profundidade mínima
+export const PSGC_SHADOW_PREMIUM = {
+  none: 'none',
+  card: '0 1px 2px rgba(61, 35, 20, 0.04), 0 1px 1px rgba(61, 35, 20, 0.02)',
+  cardHover: '0 4px 12px rgba(61, 35, 20, 0.08), 0 2px 4px rgba(61, 35, 20, 0.04)',
+  elevated: '0 8px 24px rgba(61, 35, 20, 0.12), 0 2px 6px rgba(61, 35, 20, 0.06)',
+} as const;
+
+// TypeScript types — para autocomplete e validação
+export type PsgcTypoPremiumKey = keyof typeof PSGC_TYPO_PREMIUM;
+export type PsgcSpacingPremiumKey = keyof typeof PSGC_SPACING_PREMIUM;
+export type PsgcKpiVariant = keyof typeof PSGC_KPI_VARIANTS;
+export type PsgcBorderPremiumKey = keyof typeof PSGC_BORDER_PREMIUM;
+export type PsgcShadowPremiumKey = keyof typeof PSGC_SHADOW_PREMIUM;
+
+// Helper — converte token PSGC_TYPO_PREMIUM em React.CSSProperties
+// Útil para aplicar inline (padrão do projeto)
+export const typoToStyle = (key: PsgcTypoPremiumKey): React.CSSProperties => {
+  const t = PSGC_TYPO_PREMIUM[key] as Record<string, unknown>;
+  return {
+    fontSize: t.size as number,
+    fontWeight: t.weight as number,
+    ...(t.letterSpacing !== undefined && { letterSpacing: t.letterSpacing as number }),
+    ...(t.lineHeight !== undefined && { lineHeight: t.lineHeight as number }),
+    ...(t.textTransform !== undefined && { textTransform: t.textTransform as 'uppercase' }),
+    ...(t.fontVariantNumeric !== undefined && { fontVariantNumeric: t.fontVariantNumeric as 'tabular-nums' }),
+  };
 };
