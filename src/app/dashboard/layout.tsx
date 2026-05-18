@@ -462,11 +462,25 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   }, [pathname, areasMenu, searchParams])
 
   // M.A.7.5.3: carrega modulos da area ativa (GLOBAL + AREA + DADOS) sempre que area muda
+  // Fase 4 V2: filtra sidebar por subscription ativa da empresa + nivel do usuario.
+  // p_company_id/p_user_id tem DEFAULT NULL na RPC (backward-compat: NULL = modo admin/todos).
+  // Reusa selCompany/companies/user ja resolvidos pela layout (mesma fonte do switcher),
+  // evitando hook/auth.getUser duplicado. Empresa unica -> ela; consolidado/grupo/vazio
+  // -> primeira empresa disponivel (multi-empresa consolidado real-time e Fase 5).
   useEffect(() => {
     let alive = true
     ;(async () => {
+      const sidebarCompanyId =
+        selCompany && selCompany !== 'consolidado' && !selCompany.startsWith('group_')
+          ? selCompany
+          : (companies[0]?.id ?? null)
+      if (!sidebarCompanyId) {
+        console.warn('[Sidebar] Sem company_id — exibindo modo admin (todos os módulos)')
+      }
       const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
         p_area_id: activeAreaId,
+        p_company_id: sidebarCompanyId,
+        p_user_id: user?.id ?? null,
       })
       if (!alive) return
       if (!error && Array.isArray(data)) {
@@ -474,7 +488,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       }
     })()
     return () => { alive = false }
-  }, [activeAreaId])
+  }, [activeAreaId, selCompany, companies, user])
 
   // Sidebar troca automatica pra 'BPO Financeiro' em rotas /bpo/*; restaura plano anterior ao sair.
   useEffect(() => {
