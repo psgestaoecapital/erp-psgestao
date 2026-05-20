@@ -8,6 +8,7 @@ import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { GestaoEmpresarialHubSkeleton } from './GestaoEmpresarialHubSkeleton'
 import { ModuleCard, type ModuloHub } from './ModuleCard'
+import { FluxoCaixaWidget } from './FluxoCaixaWidget'
 
 interface HubData {
   empty_state: boolean
@@ -142,6 +143,13 @@ export default function GestaoEmpresarialHubClient() {
           <PSGCMetric label="Previstos" valor={data.kpis?.modulos_previstos ?? 0} icon="🗺️" />
           <PSGCMetric label="Evolução média" valor={`${data.kpis?.pct_evolucao_media ?? 0}%`} icon="📈" />
         </section>
+
+        {/* Widget Fluxo de Caixa — projeção 30 dias */}
+        {data.empresa_id && (
+          <section style={{ marginBottom: 40 }}>
+            <FluxoCaixaWidget companyId={data.empresa_id} />
+          </section>
+        )}
 
         {/* Cards de módulos */}
         <h2 style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: PSGC_COLORS.espressoLight, margin: '0 0 12px' }}>
