@@ -963,10 +963,23 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     // inclui ?query.
                     const rotaBase = m.rota.split('?')[0]
                     const isActive = pathname === rotaBase || (pathname?.startsWith(rotaBase + '/') ?? false)
-                    const isLocked = m.status === 'previsto' || m.status === 'em_construcao'
+                    // S0.8 — escopo Compliance only (decisão CEO 🅰):
+                    // previsto não-clicável + tooltip nativo. em_construcao
+                    // volta a ser clicável dentro de Compliance. Outras áreas
+                    // mantêm o legado (previsto/em_construcao interceptam o
+                    // clique e mostram toast). Gate por URL = fácil de remover
+                    // na replicação às demais áreas.
+                    const isCompliancePath =
+                      pathname === '/dashboard/compliance' ||
+                      (pathname?.startsWith('/dashboard/compliance/') ?? false)
+                    const isPrevisto = m.status === 'previsto'
+                    const isEmConstrucao = m.status === 'em_construcao'
+                    const nonClickable = isCompliancePath && isPrevisto
+                    const lockedForToast = !isCompliancePath && (isPrevisto || isEmConstrucao)
+                    const isLocked = nonClickable || lockedForToast
                     const linkHref = m.rota
                     const handleClick = (e: React.MouseEvent) => {
-                      if (isLocked) {
+                      if (lockedForToast) {
                         e.preventDefault()
                         setToastMsg(`${m.nome} — Em desenvolvimento, disponível em breve.`)
                         window.clearTimeout((window as any).__moduloToastTimer)
@@ -975,31 +988,28 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                         setMobileMenuOpen(false)
                       }
                     }
-                    return (
-                      <Link
-                        key={m.modulo_id}
-                        href={linkHref}
-                        onClick={handleClick}
-                        title={m.badge_label ? `${m.nome} — ${m.badge_label}` : m.nome}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: sidebarCollapsed ? 0 : 10,
-                          justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                          padding: sidebarCollapsed ? '10px' : '8px 20px',
-                          textDecoration: 'none',
-                          color: isActive ? 'var(--ps-gold-d)' : (isLocked ? 'var(--ps-text-d)' : 'var(--ps-text)'),
-                          background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
-                          borderLeft: isActive ? '3px solid var(--ps-gold)' : '3px solid transparent',
-                          fontSize: 13,
-                          fontWeight: isActive ? 600 : 400,
-                          opacity: isLocked ? 0.7 : 1,
-                          cursor: isLocked ? 'not-allowed' : 'pointer',
-                          transition: 'background 0.12s',
-                        }}
-                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)' }}
-                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
-                      >
+                    const itemStyle: React.CSSProperties = {
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: sidebarCollapsed ? 0 : 10,
+                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                      padding: sidebarCollapsed ? '10px' : '8px 20px',
+                      textDecoration: 'none',
+                      color: isActive ? 'var(--ps-gold-d)' : (isLocked ? 'var(--ps-text-d)' : 'var(--ps-text)'),
+                      background: isActive ? 'var(--ps-gold-bg)' : 'transparent',
+                      borderLeft: isActive ? '3px solid var(--ps-gold)' : '3px solid transparent',
+                      fontSize: 13,
+                      fontWeight: isActive ? 600 : 400,
+                      opacity: isLocked ? 0.7 : 1,
+                      cursor: isLocked ? 'not-allowed' : 'pointer',
+                      transition: 'background 0.12s',
+                      userSelect: nonClickable ? 'none' : undefined,
+                    }
+                    const itemTitle = nonClickable
+                      ? 'Em desenvolvimento — disponível em breve'
+                      : (m.badge_label ? `${m.nome} — ${m.badge_label}` : m.nome)
+                    const itemContent = (
+                      <>
                         <span style={{ display: 'inline-flex', alignItems: 'center', color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0 }}>
                           {IconComp ? <IconComp size={18} /> : <span style={{ fontSize: 16, lineHeight: 1 }}>{m.icone}</span>}
                         </span>
@@ -1027,6 +1037,29 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                             )}
                           </>
                         )}
+                      </>
+                    )
+                    return nonClickable ? (
+                      <div
+                        key={m.modulo_id}
+                        role="link"
+                        aria-disabled="true"
+                        title={itemTitle}
+                        style={itemStyle}
+                      >
+                        {itemContent}
+                      </div>
+                    ) : (
+                      <Link
+                        key={m.modulo_id}
+                        href={linkHref}
+                        onClick={handleClick}
+                        title={itemTitle}
+                        style={itemStyle}
+                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--ps-bg3)' }}
+                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
+                      >
+                        {itemContent}
                       </Link>
                     )
                   })}
