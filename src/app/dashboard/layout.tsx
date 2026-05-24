@@ -458,8 +458,25 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const match = areasMenu.find(
       (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
     )
-    return match?.id ?? null
+    if (match) return match.id
+    // PRIORIDADE 3: ultima area lembrada na sessao (foundational).
+    // Cobre sub-rotas transversais (/dashboard/cadastros/*,
+    // /dashboard/importar-universal/*, /dashboard/contratos-recorrentes/*)
+    // que nao possuem rota_raiz propria em area_menu_config. Usa
+    // sessionStorage (por aba) — multi-aba em areas distintas nao contamina.
+    if (typeof window !== 'undefined' && pathname?.startsWith('/dashboard/')) {
+      const lembrada = sessionStorage.getItem('ps_last_area')
+      if (lembrada && areasMenu.some((a) => a.id === lembrada)) return lembrada
+    }
+    return null
   }, [pathname, areasMenu, searchParams])
+
+  // Persiste a area sempre que P1 ou P2 resolvem (ground truth) — base da P3.
+  useEffect(() => {
+    if (activeAreaId && typeof window !== 'undefined') {
+      sessionStorage.setItem('ps_last_area', activeAreaId)
+    }
+  }, [activeAreaId])
 
   // M.A.7.5.3: carrega modulos da area ativa (GLOBAL + AREA + DADOS) sempre que area muda
   // Fase 4 V2: filtra sidebar por subscription ativa da empresa + nivel do usuario.
