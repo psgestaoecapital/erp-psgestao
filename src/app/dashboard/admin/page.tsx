@@ -73,6 +73,12 @@ export default function AdminPage(){
   const [capturandoNow,setCapturandoNow]=useState(false);
   const [vtStatus,setVtStatus]=useState<any>(null);
   const [vtAlerts,setVtAlerts]=useState<any[]>([]);
+  // ═══ PR-SW · Screen Watcher Hierarquico (Area > Modulo > Tela) ═══
+  const [swHier,setSwHier]=useState<any>(null);
+  const [swHierLoading,setSwHierLoading]=useState(false);
+  const [swAreasExpand,setSwAreasExpand]=useState<Set<string>>(new Set(['gestao_empresarial']));
+  const [swModulosExpand,setSwModulosExpand]=useState<Set<string>>(new Set());
+  const [swSoComScreenshot,setSwSoComScreenshot]=useState(false);
 
   useEffect(()=>{checkAuth();},[]);
 
@@ -154,6 +160,22 @@ export default function AdminPage(){
     if(data)setScreens(Array.isArray(data)?data:[]);
     setScreenLoading(false);
   };
+  // PR-SW: hierarquia Area > Modulo > Tela via fn_screen_watcher_hierarquico
+  const loadScreensHier=async()=>{
+    setSwHierLoading(true);
+    const{data,error}=await supabase.rpc('fn_screen_watcher_hierarquico',{
+      p_area:filtroArea||null,
+      p_modulo:null,
+      p_so_com_screenshot:swSoComScreenshot,
+    });
+    if(error){setMsg("Erro: "+error.message);}
+    if(data)setSwHier(data);
+    setSwHierLoading(false);
+  };
+  useEffect(()=>{
+    if(tab==='screen_watcher')loadScreensHier();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tab,filtroArea,swSoComScreenshot]);
   const abrirRota=async(rota:string)=>{
     const{data,error}=await supabase.rpc('fn_admin_screen_watcher_get',{p_rota:rota});
     if(error){setMsg("Erro: "+error.message);return;}
@@ -577,62 +599,90 @@ export default function AdminPage(){
       </div>
     </div>)}
 
-    {/* ═══ SCREEN WATCHER (M.A.7.5.1) ═══ */}
+    {/* ═══ SCREEN WATCHER · Hierárquico (PR-SW · Área > Módulo > Tela) ═══ */}
     {tab==="screen_watcher"&&(<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:14,fontWeight:600,color:TX}}>📸 Screen Watcher · {screens.length} rotas catalogadas</div>
+        <div style={{fontSize:14,fontWeight:600,color:TX}}>
+          📸 Screen Watcher
+          {swHier&&<span style={{marginLeft:8,fontSize:11,color:TXM,fontWeight:500}}>· {swHier.total_areas} áreas · {swHier.total_modulos} módulos · {swHier.total_telas} telas</span>}
+        </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
           <select value={filtroArea} onChange={e=>setFiltroArea(e.target.value)} style={{...inp,width:"auto",fontSize:11,padding:"6px 10px"}}>
             <option value="">Todas áreas</option>
-            {Array.from(new Set(screens.map(s=>s.area).filter(Boolean))).sort().map(a=>(<option key={a as string} value={a as string}>{a as string}</option>))}
+            {(swHier?.areas??[]).map((a:any)=>(<option key={a.area} value={a.area}>{a.area_display||a.area}</option>))}
           </select>
-          <select value={filtroPrioridade} onChange={e=>setFiltroPrioridade(e.target.value)} style={{...inp,width:"auto",fontSize:11,padding:"6px 10px"}}>
-            <option value="">Todas prioridades</option>
-            <option value="critica">Crítica</option>
-            <option value="alta">Alta</option>
-            <option value="media">Média</option>
-            <option value="baixa">Baixa</option>
-          </select>
-          <button onClick={loadScreens} disabled={screenLoading} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:11,cursor:"pointer",opacity:screenLoading?0.5:1}}>{screenLoading?"Carregando...":"Atualizar"}</button>
+          <label style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:11,color:TXM,cursor:"pointer"}}>
+            <input type="checkbox" checked={swSoComScreenshot} onChange={e=>setSwSoComScreenshot(e.target.checked)} />
+            Só com screenshot
+          </label>
+          <button onClick={loadScreensHier} disabled={swHierLoading} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${BD}`,background:"transparent",color:TX,fontSize:11,cursor:"pointer",opacity:swHierLoading?0.5:1}}>{swHierLoading?"Carregando...":"Atualizar"}</button>
           <button onClick={capturarAgora} disabled={capturandoNow} style={{padding:"6px 14px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:11,fontWeight:600,border:"none",cursor:capturandoNow?"wait":"pointer",opacity:capturandoNow?0.6:1}}>{capturandoNow?"Disparando...":"📸 Capturar agora"}</button>
         </div>
       </div>
 
-      {screenLoading&&screens.length===0?(
-        <div style={{padding:40,textAlign:"center",color:TXD,fontSize:13}}>Carregando rotas catalogadas...</div>
-      ):screens.length===0?(
-        <div style={{padding:24,textAlign:"center",color:TXD,fontSize:12,background:BG2,borderRadius:10,border:`1px dashed ${BD}`}}>Nenhuma rota retornada pelo Screen Watcher. Verifique se <code>fn_admin_screen_watcher_dashboard()</code> está disponível.</div>
+      {swHierLoading&&!swHier?(
+        <div style={{padding:40,textAlign:"center",color:TXD,fontSize:13}}>Carregando árvore de áreas...</div>
+      ):!swHier||!swHier.areas||swHier.areas.length===0?(
+        <div style={{padding:24,textAlign:"center",color:TXD,fontSize:12,background:BG2,borderRadius:10,border:`1px dashed ${BD}`}}>Nenhuma área retornada. Verifique <code>fn_screen_watcher_hierarquico</code>.</div>
       ):(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
-          {screens.filter(s=>!filtroArea||s.area===filtroArea).filter(s=>!filtroPrioridade||s.prioridade===filtroPrioridade).map((s:any)=>{
-            const corPrio=({critica:R,alta:Y,media:BL,baixa:TXD} as Record<string,string>)[s.prioridade]||TXD;
-            const status=s.status_capture||s.status||"sem_dados";
-            const corStatus=status==="ok"?G:status==="erro"?R:status==="pendente"?Y:TXD;
-            const ultima=s.ultima_captura||s.captured_at||s.last_captured_at;
-            return(
-              <div key={s.rota} onClick={()=>abrirRota(s.rota)} style={{background:BG2,border:`1px solid ${BD}`,borderRadius:10,overflow:"hidden",cursor:"pointer",transition:"transform 0.15s, box-shadow 0.15s"}}
-                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 4px 12px rgba(61,35,20,0.08)";}}
-                onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}}>
-                <div style={{aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,color:TXD,position:"relative",overflow:"hidden"}}>
-                  {s.screenshot_url?(
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={s.screenshot_url} alt={s.rota} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                  ):(
-                    <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:36}}>📸</div>
-                      <div style={{fontSize:9,color:TXD,marginTop:4}}>Sem captura</div>
-                    </div>
-                  )}
-                  <div style={{position:"absolute",top:6,right:6,padding:"2px 8px",borderRadius:6,background:corStatus,color:"#FFF",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{status}</div>
-                </div>
-                <div style={{padding:10}}>
-                  <div style={{fontSize:11,fontWeight:600,color:TX,marginBottom:4,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.rota}</div>
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:4}}>
-                    {s.area&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:6,background:GO+"15",color:GO,fontWeight:600}}>{s.area}</span>}
-                    {s.prioridade&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:6,background:corPrio+"15",color:corPrio,fontWeight:600,textTransform:"uppercase"}}>{s.prioridade}</span>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {swHier.areas.map((area:any)=>{
+            const aberto=swAreasExpand.has(area.area);
+            return (
+              <div key={area.area} style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden"}}>
+                <button onClick={()=>{const n=new Set(swAreasExpand);if(n.has(area.area))n.delete(area.area);else n.add(area.area);setSwAreasExpand(n);}}
+                  style={{width:"100%",padding:"14px 18px",background:aberto?"rgba(200,148,26,0.08)":"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
+                  <span style={{fontSize:12,color:TXM,width:14,display:"inline-block"}}>{aberto?"▼":"▶"}</span>
+                  <span style={{fontSize:20}}>{area.area_icone||"📦"}</span>
+                  <span style={{flex:1,fontSize:14,fontWeight:600,color:TX}}>{area.area_display||area.area}</span>
+                  <span style={{fontSize:11,color:TXM,background:BG3,padding:"3px 10px",borderRadius:10,fontWeight:600}}>{area.total_telas} telas</span>
+                </button>
+                {aberto&&(
+                  <div style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:8}}>
+                    {(area.modulos??[]).map((mod:any)=>{
+                      const modKey=`${area.area}::${mod.modulo||"_raiz"}`;
+                      const mAberto=swModulosExpand.has(modKey);
+                      return (
+                        <div key={modKey} style={{background:BG,borderRadius:8,border:`1px solid ${BD}`}}>
+                          <button onClick={()=>{const n=new Set(swModulosExpand);if(n.has(modKey))n.delete(modKey);else n.add(modKey);setSwModulosExpand(n);}}
+                            style={{width:"100%",padding:"10px 14px",background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:8,textAlign:"left",flexWrap:"wrap"}}>
+                            <span style={{fontSize:11,color:TXM,width:12,display:"inline-block"}}>{mAberto?"▼":"▶"}</span>
+                            {mod.modulo_icone&&<span style={{fontSize:15}}>{mod.modulo_icone}</span>}
+                            <span style={{flex:1,fontSize:13,fontWeight:600,color:TX,minWidth:140}}>{mod.modulo_display||"(Painel raiz)"}</span>
+                            <span style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                              {mod.qtd_pronto>0&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:8,background:G+"22",color:G,fontWeight:700}}>✅ {mod.qtd_pronto}</span>}
+                              {mod.qtd_parcial>0&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:8,background:GO+"22",color:GO,fontWeight:700}}>🟡 {mod.qtd_parcial}</span>}
+                              {mod.qtd_desconhecida>0&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:8,background:BG3,color:TXM,fontWeight:700}}>⚠️ {mod.qtd_desconhecida}</span>}
+                              {mod.qtd_placeholder>0&&<span style={{fontSize:9,padding:"2px 7px",borderRadius:8,background:BG3,color:TXD,fontWeight:700}}>📦 {mod.qtd_placeholder}</span>}
+                              <span style={{fontSize:10,color:TXD,padding:"2px 4px"}}>· {mod.qtd_telas}</span>
+                            </span>
+                          </button>
+                          {mAberto&&(
+                            <div style={{padding:"0 14px 14px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
+                              {(mod.telas??[]).map((t:any)=>{
+                                const cor=t.estado_real==="pronto"?G:t.estado_real==="parcial"?GO:t.estado_real==="placeholder"?TXD:BD;
+                                return (
+                                  <div key={t.id} onClick={()=>abrirRota(t.rota)} style={{background:BG2,border:`1px solid ${cor}`,borderRadius:8,overflow:"hidden",cursor:"pointer"}}>
+                                    {t.screenshot_url?(
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={t.screenshot_url} alt={t.titulo||t.rota} loading="lazy" style={{width:"100%",aspectRatio:"16/10",objectFit:"cover",display:"block"}}/>
+                                    ):(
+                                      <div style={{width:"100%",aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",color:TXD,fontSize:10}}>Sem screenshot</div>
+                                    )}
+                                    <div style={{padding:10}}>
+                                      <div style={{fontSize:11,color:TX,marginBottom:3,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.titulo||t.rota}</div>
+                                      <div style={{fontSize:9,color:TXD,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.rota}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div style={{fontSize:9,color:TXD}}>{ultima?new Date(ultima).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"Nunca capturada"}</div>
-                </div>
+                )}
               </div>
             );
           })}
