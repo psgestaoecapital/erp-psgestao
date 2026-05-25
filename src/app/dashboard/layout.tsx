@@ -445,12 +445,40 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     return () => { alive = false }
   }, [])
 
+  // PR-FIX-SIDEBAR-V2 (25/05/2026): PRIORIDADE 1.5 — backend RPC
+  // fn_resolver_area_da_rota(pathname) resolve rotas transversais como
+  // /dashboard/cadastros/* que nao tem rota_raiz propria (antes caiam em
+  // P3 sessionStorage e mostravam area errada). 4 estrategias internas
+  // na RPC: rota_raiz exata · system_screens · patterns · fallback GE.
+  const areaFromQuery = searchParams?.get('area') ?? null
+  const [areaFromPath, setAreaFromPath] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (areaFromQuery || !pathname?.startsWith('/dashboard/')) {
+      setAreaFromPath(null)
+      return
+    }
+    let cancelled = false
+    supabase
+      .rpc('fn_resolver_area_da_rota', { p_pathname: pathname })
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          console.warn('[FIX-SIDEBAR-V2] erro resolver area:', error)
+          return
+        }
+        const typed = data as { area_id: string; origem_match: string } | null
+        if (typed?.area_id) setAreaFromPath(typed.area_id)
+      })
+    return () => { cancelled = true }
+  }, [pathname, areaFromQuery])
+
   // M.A.7.5.3 + RD-area-context (13/05/2026): area ativa prioriza ?area=X
   // (preserva contexto ao clicar modulos compartilhados como Contratos Recorrentes
   // em area P&M), com fallback para inferencia por prefixo do pathname.
   const activeAreaId = React.useMemo(() => {
     // PRIORIDADE 1: query param ?area=X (modulos compartilhados)
-    const areaFromQuery = searchParams?.get('area') ?? null
     if (areaFromQuery && areasMenu.some((a) => a.id === areaFromQuery)) {
       return areaFromQuery
     }
@@ -459,17 +487,20 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       (a) => pathname === a.rota_raiz || (pathname?.startsWith(a.rota_raiz + '/') ?? false),
     )
     if (match) return match.id
-    // PRIORIDADE 3: ultima area lembrada na sessao (foundational).
-    // Cobre sub-rotas transversais (/dashboard/cadastros/*,
-    // /dashboard/importar-universal/*, /dashboard/contratos-recorrentes/*)
-    // que nao possuem rota_raiz propria em area_menu_config. Usa
-    // sessionStorage (por aba) — multi-aba em areas distintas nao contamina.
+    // PRIORIDADE 1.5: area resolvida pelo backend via pathname (PR-FIX-SIDEBAR-V2).
+    // Cobre sub-rotas transversais (/dashboard/cadastros/*, /dashboard/admin/*,
+    // /dashboard/lgpd/*) que nao possuem rota_raiz em area_menu_config.
+    if (areaFromPath && areasMenu.some((a) => a.id === areaFromPath)) {
+      return areaFromPath
+    }
+    // PRIORIDADE 3: ultima area lembrada na sessao (ultimo recurso).
+    // Usa sessionStorage (por aba) — multi-aba em areas distintas nao contamina.
     if (typeof window !== 'undefined' && pathname?.startsWith('/dashboard/')) {
       const lembrada = sessionStorage.getItem('ps_last_area')
       if (lembrada && areasMenu.some((a) => a.id === lembrada)) return lembrada
     }
     return null
-  }, [pathname, areasMenu, searchParams])
+  }, [pathname, areasMenu, areaFromQuery, areaFromPath])
 
   // Persiste a area sempre que P1 ou P2 resolvem (ground truth) — base da P3.
   useEffect(() => {
