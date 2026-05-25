@@ -38,7 +38,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
 
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
-  const [, setContas] = useState<ContaBancaria[]>([])
+  const [contas, setContas] = useState<ContaBancaria[]>([])
 
   const [clienteId, setClienteId] = useState('')
   const [clienteNome, setClienteNome] = useState('')
@@ -52,9 +52,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaRecebimento, setFormaRecebimento] = useState('pix')
+  const [contaBancaria, setContaBancaria] = useState('')
   const [observacao, setObservacao] = useState('')
 
   const [loading, setLoading] = useState(false)
+  const [semPlano, setSemPlano] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
@@ -124,7 +126,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       p_forma_recebimento: formaRecebimento || null,
       p_observacao: observacao || null,
       p_intervalo_dias: intervaloDias,
-      p_status_inicial: null,
+      p_status_inicial: 'pendente',
+      p_conta_bancaria: contaBancaria || null,
     })
 
     setLoading(false)
@@ -134,17 +137,25 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       return
     }
 
-    const resultado = data as { sucesso?: boolean; receita_id?: string; erro?: string } | null
+    const resultado = data as {
+      success?: boolean
+      sem_plano?: boolean
+      qtd_parcelas_criadas?: number
+      valor_por_parcela?: number
+      status_inicial?: string
+      ids?: string[]
+    } | null
 
-    if (resultado?.erro) {
-      setErro(resultado.erro)
+    if (resultado?.sem_plano) {
+      setSemPlano(true)
       return
     }
 
-    if (resultado?.receita_id && onSucesso) {
-      onSucesso(resultado.receita_id)
+    const primeiroId = resultado?.ids?.[0]
+    if (primeiroId && onSucesso) {
+      onSucesso(primeiroId)
     } else {
-      router.push('/dashboard/financeiro/titulos?area=gestao_empresarial')
+      router.push('/dashboard/financeiro/receber?area=gestao_empresarial')
     }
   }
 
@@ -298,6 +309,26 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             </select>
           </Campo>
 
+          <Campo label="Em qual conta entra o dinheiro?">
+            <select
+              value={contaBancaria}
+              onChange={(e) => setContaBancaria(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">— escolher depois —</option>
+              {contas.map((c) => (
+                <option key={c.id} value={c.nome}>
+                  {c.nome}{c.banco ? ` · ${c.banco}` : ''}
+                </option>
+              ))}
+            </select>
+            {contas.length === 0 && (
+              <small style={{ ...helperStyle, color: '#854F0B' }}>
+                Nenhuma conta bancária cadastrada · pule por agora
+              </small>
+            )}
+          </Campo>
+
           <Campo label="Número do documento (opcional)">
             <input
               value={numeroDocumento}
@@ -318,6 +349,23 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
         </div>
+
+        {semPlano && (
+          <div
+            style={{
+              background: '#FFF7ED',
+              color: '#854F0B',
+              border: '0.5px solid rgba(200,148,26,0.4)',
+              padding: '10px 14px',
+              borderRadius: 6,
+              marginTop: 18,
+              fontSize: 13,
+            }}
+          >
+            Esta empresa ainda não tem o plano <strong>Gestão Empresarial Pro</strong> ativo.
+            Ative o plano pra cadastrar receitas.
+          </div>
+        )}
 
         {erro && (
           <div
