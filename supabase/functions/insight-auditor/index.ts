@@ -1,10 +1,12 @@
-// Edge Function: insight-auditor v3
+// Edge Function: insight-auditor v4
 // M.A.6 - Product Insight Auditor
 // 11/05/2026 - Sessao 8 (otimizada para baseline batch)
 // 13/05/2026 - v3: detect media_type por extensao do screenshot_url (JPG/PNG).
-//                  PR #113 trocou Playwright para JPEG q=75 mas IA continuava
-//                  enviando media_type=image/png, causando 400 da Claude API
-//                  e zerando scores desde 11/05.
+// 25/05/2026 - v4 (AUDITORIA GOLD FASE 2 · FRENTE 4):
+//   - Aceita body.model (default sonnet · backward compat com cron antigo)
+//   - Aceita body.prioridade (filtra system_screens.prioridade_monitoramento)
+//   - Pricing dinamico: Haiku 4.5 ($1/$5 por MTok) vs Sonnet 4 ($3/$15)
+//   - Grava claude_model_used com valor real (nao mais hardcoded)
 //
 // MUDANCAS v2:
 // - Pula telas ja analisadas nas ultimas 6h
@@ -12,6 +14,19 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const MODEL_DEFAULT = "claude-sonnet-4-20250514";
+
+// Pricing Anthropic Messages API (USD por MTok · validado 25/05/2026)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "claude-sonnet-4-20250514": { input: 3, output: 15 },
+  "claude-haiku-4-5-20250930": { input: 1, output: 5 },
+};
+
+function calcularCustoUsd(model: string, inputTokens: number, outputTokens: number): number {
+  const p = MODEL_PRICING[model] ?? MODEL_PRICING[MODEL_DEFAULT];
+  return (inputTokens * p.input / 1_000_000) + (outputTokens * p.output / 1_000_000);
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -53,6 +68,9 @@ Deno.serve(async (req: Request) => {
   const rotaEspecifica = body.rota || null;
   const limit = body.limit || 3;
   const modo = body.modo || "baseline"; // baseline = so nao analisadas
+  // v4: aceita model e prioridade do body (FASE 2 FRENTE 4)
+  const model: string = body.model || MODEL_DEFAULT;
+  const prioridadeFiltro: string | null = body.prioridade || null;
 
   // Query: telas com screenshot mas SEM analise recente
   let queryBuilder;
@@ -81,13 +99,19 @@ Deno.serve(async (req: Request) => {
       queryBuilder = queryBuilder.not("id", "in", `(${idsExcluir.map((i: string) => `"${i}"`).join(",")})`);
     }
 
+    if (prioridadeFiltro) {
+      queryBuilder = queryBuilder.eq("prioridade_monitoramento", prioridadeFiltro);
+    }
     queryBuilder = queryBuilder.limit(limit);
   } else {
     queryBuilder = supabase
       .from("system_screens")
       .select("id, rota, area, titulo, screenshot_url, screenshot_atualizado_em")
-      .not("screenshot_url", "is", null)
-      .limit(limit);
+      .not("screenshot_url", "is", null);
+    if (prioridadeFiltro) {
+      queryBuilder = queryBuilder.eq("prioridade_monitoramento", prioridadeFiltro);
+    }
+    queryBuilder = queryBuilder.limit(limit);
   }
 
   const { data: screens, error: screensError } = await queryBuilder;
@@ -178,7 +202,7 @@ REGRAS:
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: model,
           max_tokens: 2000,
           messages: [{
             role: "user",
@@ -211,7 +235,7 @@ REGRAS:
 
       const inputTokens = claudeData.usage?.input_tokens || 0;
       const outputTokens = claudeData.usage?.output_tokens || 0;
-      const custoUsd = (inputTokens * 3 / 1_000_000) + (outputTokens * 15 / 1_000_000);
+      const custoUsd = calcularCustoUsd(model, inputTokens, outputTokens);
 
       const { error: insertError } = await supabase
         .from("system_screens_insights")
@@ -232,13 +256,13 @@ REGRAS:
           prioridade_atacar: analysis.prioridade_atacar ?? "media",
           proximo_passo_sugerido: analysis.proximo_passo_sugerido ?? null,
           claude_analysis_raw: analysis,
-          claude_model_used: "claude-sonnet-4-20250514",
+          claude_model_used: model,
           claude_tokens_input: inputTokens,
           claude_tokens_output: outputTokens,
           claude_custo_usd: custoUsd,
           screenshot_url_analisado: screen.screenshot_url,
           screenshot_capturado_em: screen.screenshot_atualizado_em,
-          analisador: "insight-auditor-edge-fn-v3",
+          analisador: "insight-auditor-edge-fn-v4",
         });
 
       if (insertError) {
