@@ -42,9 +42,9 @@ export default function PrevisaoPage(){
   };
 
   const loadSaldo=async()=>{
-    const{data}=await supabase.from("erp_banco_contas").select("saldo_atual").eq("company_id",sel).eq("ativo",true);
-    const total=(data||[]).reduce((s,c)=>s+Number(c.saldo_atual||0),0);
-    setSaldoInicial(total);
+    const{data,error}=await supabase.rpc('fn_saldo_bancos_dinamico',{p_company_ids:[sel]});
+    if(error){setSaldoInicial(0);return;}
+    setSaldoInicial(Number(data)||0);
   };
 
   const calcularPrevisao=async()=>{
