@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { supabase } from '@/lib/supabase'
 import { C, METODO_LABEL, MESES_PT, fmtBRL, fmtPct } from './_components'
 import { ComoCalculadoModal } from './_components/ComoCalculadoModal'
 import { GraficoBarrasEbitda, GraficoSerie12m } from './_components/Graficos'
@@ -65,6 +66,7 @@ export default function DreDivisionalPage() {
   const [data, setData] = useState<DreResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [ordemPersonalizada, setOrdemPersonalizada] = useState<Array<{ linha_id: string; ordem: number }>>([])
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) {
@@ -92,6 +94,44 @@ export default function DreDivisionalPage() {
   }, [empresaUnica, ano, mes, viewMode])
 
   useEffect(() => { carregar() }, [carregar])
+
+  useEffect(() => {
+    let ignore = false
+    if (!empresaUnica) { setOrdemPersonalizada([]); return }
+    ;(async () => {
+      const { data: ordem } = await supabase.rpc('fn_dre_ordem_personalizada_get', { p_company_id: empresaUnica })
+      if (!ignore) setOrdemPersonalizada((ordem ?? []) as Array<{ linha_id: string; ordem: number }>)
+    })()
+    return () => { ignore = true }
+  }, [empresaUnica])
+
+  const linhasOrdenadas = useMemo<Linha[]>(() => {
+    if (!data?.linhas) return []
+    if (ordemPersonalizada.length === 0) return data.linhas
+    const ordemMap = new Map(ordemPersonalizada.map((o) => [o.linha_id, o.ordem]))
+    const ordenadas = [...data.linhas].sort((a, b) => {
+      const oa = ordemMap.get(a.ln_id) ?? Number.MAX_SAFE_INTEGER
+      const ob = ordemMap.get(b.ln_id) ?? Number.MAX_SAFE_INTEGER
+      return oa - ob
+    })
+    return ordenadas
+  }, [data, ordemPersonalizada])
+
+  async function handleReorderLinhas(novaOrdem: Linha[]) {
+    if (!empresaUnica) return
+    const payload = novaOrdem.map((l, idx) => ({ linha_id: l.ln_id, ordem: idx, visivel: true }))
+    setOrdemPersonalizada(payload.map(({ linha_id, ordem }) => ({ linha_id, ordem })))
+    await supabase.rpc('fn_dre_ordem_personalizada_set', {
+      p_company_id: empresaUnica,
+      p_ordens: payload,
+    })
+  }
+
+  async function handleResetOrdem() {
+    if (!empresaUnica) return
+    await supabase.rpc('fn_dre_ordem_personalizada_reset', { p_company_id: empresaUnica })
+    setOrdemPersonalizada([])
+  }
 
   const anos = useMemo(() => {
     const out: number[] = []
@@ -193,10 +233,16 @@ export default function DreDivisionalPage() {
       {data && data.metadata.tem_lns_suficientes && (
         <>
           <CardsTotais totais={data.totais} viewMode={viewMode} />
-          <CardsPorLN linhas={data.linhas} />
-          <GraficoBarrasEbitda linhas={data.linhas} />
+          <CardsPorLN linhas={linhasOrdenadas} />
+          <GraficoBarrasEbitda linhas={linhasOrdenadas} />
           {viewMode === 'serie_12m' && <GraficoSerie12m serie={data.serie_12m} />}
-          <TabelaDetalhada linhas={data.linhas} totais={data.totais} />
+          <TabelaDetalhada
+            linhas={linhasOrdenadas}
+            totais={data.totais}
+            onReorder={handleReorderLinhas}
+            onReset={handleResetOrdem}
+            isCustomOrder={ordemPersonalizada.length > 0}
+          />
           <NotaTecnica />
         </>
       )}
