@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "auditor:run": "tsx scripts/auditor-playwright.ts"
   },
   "dependencies": {
     "@sparticuz/chromium-min": "^148.0.0",
@@ -34,7 +35,9 @@
     "@types/react-signature-canvas": "^1.0.7",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
+    "playwright": "^1.59.1",
     "tailwindcss": "^4",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }
