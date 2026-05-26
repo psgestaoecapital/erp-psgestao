@@ -7,7 +7,7 @@ export default function DashboardIndex() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard/home');
+    router.replace('/dashboard/gestao-empresarial');
   }, [router]);
 
   return (
