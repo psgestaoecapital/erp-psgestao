@@ -111,8 +111,8 @@ export default function ConciliacaoPage() {
                 Upload OFX/CSV + match automático IA via fn_conciliacao_sugerir_match. Disponível no PR 14 V2.
               </div>
             </div>
-            <button disabled title="Parser OFX em desenvolvimento (PR 14 V2)" style={disabledBtn}>
-              Importar OFX/CSV (em breve)
+            <button disabled title="Parser OFX em desenvolvimento (PR 14 V2)" style={disabledBtn} aria-disabled="true">
+              🔒 Importar OFX/CSV · em breve PR 14 V2
             </button>
           </div>
         </div>
@@ -199,8 +199,9 @@ const primaryBtn: React.CSSProperties = {
 }
 
 const disabledBtn: React.CSSProperties = {
-  background: 'rgba(200,148,26,0.4)', color: '#3D2314', border: 'none',
-  padding: '10px 18px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'not-allowed',
+  background: '#D6D6D6', color: 'rgba(61,35,20,0.45)', border: '0.5px solid rgba(61,35,20,0.15)',
+  padding: '10px 18px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+  cursor: 'not-allowed', opacity: 0.7,
 }
 
 const loteCard: React.CSSProperties = {
