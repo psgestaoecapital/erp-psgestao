@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import UploadOfxArea from '@/components/conciliacao/UploadOfxArea'
 
 interface Lote {
   id: string
@@ -103,18 +104,11 @@ export default function ConciliacaoPage() {
           <Card label="Total lotes" valor={String(saude?.total_lotes ?? 0)} cor="rgba(61,35,20,0.5)" />
         </div>
 
-        <div style={{ background: '#FAEEDA', border: '0.5px solid rgba(186,117,23,0.3)', borderRadius: 8, padding: '16px 20px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#854F0B', marginBottom: 4 }}>Importar extrato bancário</div>
-              <div style={{ fontSize: 11, color: '#854F0B', opacity: 0.85 }}>
-                Upload OFX/CSV + match automático IA via fn_conciliacao_sugerir_match. Disponível no PR 14 V2.
-              </div>
-            </div>
-            <button disabled title="Parser OFX em desenvolvimento (PR 14 V2)" style={disabledBtn} aria-disabled="true">
-              🔒 Importar OFX/CSV · em breve PR 14 V2
-            </button>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 8 }}>
+            Importar extrato bancário
           </div>
+          <UploadOfxArea companyId={empresaUnica} />
         </div>
 
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 400, color: '#3D2314', margin: '0 0 12px' }}>
@@ -198,11 +192,6 @@ const primaryBtn: React.CSSProperties = {
   padding: '10px 18px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
 }
 
-const disabledBtn: React.CSSProperties = {
-  background: '#D6D6D6', color: 'rgba(61,35,20,0.45)', border: '0.5px solid rgba(61,35,20,0.15)',
-  padding: '10px 18px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-  cursor: 'not-allowed', opacity: 0.7,
-}
 
 const loteCard: React.CSSProperties = {
   background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8,
