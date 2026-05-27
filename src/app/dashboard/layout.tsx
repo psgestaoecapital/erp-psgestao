@@ -56,6 +56,7 @@ type ModuloSidebar = {
   status: string | null
   badge_label: string | null
   badge_color: string | null
+  diferencial?: boolean
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1055,7 +1056,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     }
                     const itemTitle = nonClickable
                       ? 'Em desenvolvimento — disponível em breve'
-                      : (m.badge_label ? `${m.nome} — ${m.badge_label}` : m.nome)
+                      : `${m.diferencial ? '★ ' : ''}${m.nome}${m.badge_label ? ` — ${m.badge_label}` : ''}${m.diferencial ? ' · diferencial PS' : ''}`
                     const itemContent = (
                       <>
                         <span style={{ display: 'inline-flex', alignItems: 'center', color: isActive ? 'var(--ps-gold)' : 'var(--ps-text-d)', flexShrink: 0 }}>
@@ -1066,6 +1067,21 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                             <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {m.nome}
                             </span>
+                            {m.diferencial && (
+                              <span
+                                aria-hidden="true"
+                                title="Diferencial exclusivo PS Gestão"
+                                style={{
+                                  fontSize: 12,
+                                  color: 'var(--ps-gold)',
+                                  flexShrink: 0,
+                                  lineHeight: 1,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                ★
+                              </span>
+                            )}
                             {m.badge_label && m.badge_color && (
                               <span
                                 style={{
