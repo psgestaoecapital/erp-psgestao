@@ -61,10 +61,11 @@ Deno.serve(async (req: Request) => {
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  const { data: secrets } = await supabase
-    .from("vault.decrypted_secrets")
-    .select("name, decrypted_secret")
-    .in("name", ["AUDITOR_GOLD_EMAIL", "AUDITOR_GOLD_PASSWORD", "ANTHROPIC_API_KEY"]);
+  const { data: secrets, error: secretsErr } = await supabase.rpc("fn_gold_get_secrets");
+
+  if (secretsErr) {
+    return jsonResp({ error: "rpc secrets erro", detalhe: secretsErr.message }, 500);
+  }
 
   const secretMap = new Map((secrets || []).map((s: { name: string; decrypted_secret: string }) => [s.name, s.decrypted_secret]));
   const AUDITOR_EMAIL = secretMap.get("AUDITOR_GOLD_EMAIL");
