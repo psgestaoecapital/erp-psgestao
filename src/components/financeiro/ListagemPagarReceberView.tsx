@@ -428,7 +428,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td>{r.nome_pessoa || '—'}</Td>
                         <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
-                        <Td align="right"><strong>{fmtBRL(r.valor_pago ?? r.valor_documento)}</strong></Td>
+                        <Td align="right"><strong>{fmtBRL(r.status === 'pago' && r.valor_pago ? r.valor_pago : r.valor_documento)}</strong></Td>
                         <Td><Pill situacao={r.situacao} /></Td>
                         <Td align="right">
                           {!pago ? (
