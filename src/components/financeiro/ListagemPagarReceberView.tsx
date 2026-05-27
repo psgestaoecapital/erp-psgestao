@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import MarcarPagoModal from './MarcarPagoModal'
+import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -71,6 +72,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [mes, setMes] = useState(hoje.getMonth() + 1)
   const [pagandoItem, setPagandoItem] = useState<Resultado | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [loteAberto, setLoteAberto] = useState(false)
   const [periodoChoice, setPeriodoChoice] = useState<PeriodoChoice>('mes_atual')
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'avencer' | 'vencidos' | 'pagos' | 'hoje'>('todos')
   const [categoria, setCategoria] = useState('')
@@ -121,6 +124,32 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       return true
     })
   }, [data, busca, categoria])
+
+  const idsSelecionaveis = useMemo(
+    () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
+    [resultadosFiltrados],
+  )
+  const valorTotalSelecionados = useMemo(() => {
+    return resultadosFiltrados
+      .filter((r) => selecionados.has(r.id))
+      .reduce((s, r) => s + (r.valor_documento - (r.valor_pago ?? 0)), 0)
+  }, [resultadosFiltrados, selecionados])
+
+  function toggleSelecionado(id: string) {
+    const ns = new Set(selecionados)
+    if (ns.has(id)) ns.delete(id); else ns.add(id)
+    setSelecionados(ns)
+  }
+  function toggleTodos() {
+    if (selecionados.size === idsSelecionaveis.length && idsSelecionaveis.length > 0) {
+      setSelecionados(new Set())
+    } else {
+      setSelecionados(new Set(idsSelecionaveis))
+    }
+  }
+  function limparSelecao() { setSelecionados(new Set()) }
+
+  useEffect(() => { setSelecionados(new Set()) }, [companyId, tipo, ano, mes, statusFiltro, reloadKey])
 
   const totalPages = Math.max(1, Math.ceil(resultadosFiltrados.length / PAGE_SIZE))
   const pageSafe = Math.min(page, totalPages)
@@ -319,10 +348,49 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <EmptyState labels={labels} />
         ) : (
           <>
+            {selecionados.size > 0 && (
+              <div style={{
+                position: 'sticky', top: 0, zIndex: 5,
+                background: '#3D2314', color: '#FAF7F2',
+                padding: '12px 16px', borderRadius: '12px 12px 0 0',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: 12, flexWrap: 'wrap', marginBottom: -1,
+              }}>
+                <div style={{ fontSize: 13 }}>
+                  ✅ <strong>{selecionados.size}</strong> selecionado{selecionados.size !== 1 ? 's' : ''} · R$ <strong>{fmtBRL(valorTotalSelecionados)}</strong> total
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setLoteAberto(true)}
+                    style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    {tipo === 'pagar' ? `Marcar ${selecionados.size} pagas` : `Marcar ${selecionados.size} recebidas`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={limparSelecao}
+                    style={{ background: 'transparent', color: '#FAF7F2', border: '0.5px solid rgba(250,247,242,0.3)', padding: '8px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
+                  >
+                    Limpar
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#FAF7F2', borderBottom: '0.5px solid rgba(61,35,20,0.12)' }}>
+                    <Th>
+                      <input
+                        type="checkbox"
+                        checked={idsSelecionaveis.length > 0 && selecionados.size === idsSelecionaveis.length}
+                        onChange={toggleTodos}
+                        disabled={idsSelecionaveis.length === 0}
+                        aria-label="Selecionar todos não pagos"
+                      />
+                    </Th>
                     <Th>Descrição</Th>
                     <Th>Quem</Th>
                     <Th>Categoria</Th>
@@ -333,31 +401,45 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {pageItems.map((r) => (
-                    <tr key={r.id} style={{ borderBottom: '0.5px solid rgba(61,35,20,0.06)' }}>
-                      <Td><strong style={{ color: '#3D2314' }}>{r.descricao}</strong>{r.numero_documento && (
-                        <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
-                      )}</Td>
-                      <Td>{r.nome_pessoa || '—'}</Td>
-                      <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
-                      <Td>{fmtData(r.data_vencimento)}</Td>
-                      <Td align="right"><strong>{fmtBRL(r.valor_pago ?? r.valor_documento)}</strong></Td>
-                      <Td><Pill situacao={r.situacao} /></Td>
-                      <Td align="right">
-                        {r.situacao !== 'pago' ? (
-                          <button
-                            type="button"
-                            onClick={() => setPagandoItem(r)}
-                            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          >
-                            {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)' }}>✓ baixado</span>
-                        )}
-                      </Td>
-                    </tr>
-                  ))}
+                  {pageItems.map((r) => {
+                    const pago = r.situacao === 'pago'
+                    const checked = selecionados.has(r.id)
+                    return (
+                      <tr key={r.id} style={{ borderBottom: '0.5px solid rgba(61,35,20,0.06)', background: checked ? 'rgba(200,148,26,0.06)' : 'transparent' }}>
+                        <Td>
+                          {!pago && (
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSelecionado(r.id)}
+                              aria-label={`Selecionar ${r.descricao}`}
+                            />
+                          )}
+                        </Td>
+                        <Td><strong style={{ color: '#3D2314' }}>{r.descricao}</strong>{r.numero_documento && (
+                          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
+                        )}</Td>
+                        <Td>{r.nome_pessoa || '—'}</Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td>{fmtData(r.data_vencimento)}</Td>
+                        <Td align="right"><strong>{fmtBRL(r.valor_pago ?? r.valor_documento)}</strong></Td>
+                        <Td><Pill situacao={r.situacao} /></Td>
+                        <Td align="right">
+                          {!pago ? (
+                            <button
+                              type="button"
+                              onClick={() => setPagandoItem(r)}
+                              style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                              {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)' }}>✓ baixado</span>
+                          )}
+                        </Td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -412,6 +494,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         itemId={pagandoItem?.id ?? ''}
         descricao={pagandoItem?.descricao ?? ''}
         valorTotal={pagandoItem ? (pagandoItem.valor_documento - (pagandoItem.valor_pago ?? 0)) : 0}
+      />
+
+      <MarcarPagoLoteModal
+        open={loteAberto}
+        onClose={() => setLoteAberto(false)}
+        onSucesso={() => { setReloadKey((k) => k + 1); setSelecionados(new Set()); setLoteAberto(false) }}
+        companyId={companyId}
+        tipo={tipo}
+        ids={Array.from(selecionados)}
+        valorTotal={valorTotalSelecionados}
       />
     </Wrapper>
   )
