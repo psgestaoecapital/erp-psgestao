@@ -9,6 +9,7 @@ import { C, METODO_LABEL, MESES_PT, fmtBRL, fmtPct } from './_components'
 import { ComoCalculadoModal } from './_components/ComoCalculadoModal'
 import { GraficoBarrasEbitda, GraficoSerie12m } from './_components/Graficos'
 import { TabelaDetalhada } from './_components/TabelaDetalhada'
+import VincularCategoriasModal from '@/components/dre/VincularCategoriasModal'
 
 type ViewMode = 'mes' | 'ytd' | 'serie_12m'
 
@@ -233,7 +234,7 @@ export default function DreDivisionalPage() {
       {data && data.metadata.tem_lns_suficientes && (
         <>
           <CardsTotais totais={data.totais} viewMode={viewMode} />
-          <CardsPorLN linhas={linhasOrdenadas} />
+          <CardsPorLN linhas={linhasOrdenadas} companyId={empresaUnica} onChange={carregar} />
           <GraficoBarrasEbitda linhas={linhasOrdenadas} />
           {viewMode === 'serie_12m' && <GraficoSerie12m serie={data.serie_12m} />}
           <TabelaDetalhada
@@ -337,17 +338,18 @@ function Card({ label, valor, info, cor }: { label: string; valor: string; info:
 
 // ───────────── Cards por LN ─────────────
 
-function CardsPorLN({ linhas }: { linhas: Linha[] }) {
+function CardsPorLN({ linhas, companyId, onChange }: { linhas: Linha[]; companyId: string | null; onChange?: () => void }) {
   return (
     <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginBottom: 20 }}>
       {linhas.map((l) => (
-        <CardLN key={l.ln_id} linha={l} />
+        <CardLN key={l.ln_id} linha={l} companyId={companyId} onChange={onChange} />
       ))}
     </section>
   )
 }
 
-function CardLN({ linha }: { linha: Linha }) {
+function CardLN({ linha, companyId, onChange }: { linha: Linha; companyId: string | null; onChange?: () => void }) {
+  const [vinculando, setVinculando] = useState(false)
   const positivo = linha.ebitda_pos_rateio >= 0
   const corReal = positivo ? C.green : C.red
   const corRealBg = positivo ? C.greenBg : C.redBg
@@ -355,7 +357,7 @@ function CardLN({ linha }: { linha: Linha }) {
 
   return (
     <div style={{ background: 'white', borderRadius: 12, padding: 18, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', border: `1px solid ${C.borderLt}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: 0, color: C.espresso }}>
           {linha.ln_nome}
         </h3>
@@ -363,6 +365,25 @@ function CardLN({ linha }: { linha: Linha }) {
           {positivo ? 'Lucro real' : 'Prejuízo real'}
         </span>
       </div>
+      {companyId && (
+        <button
+          type="button"
+          onClick={() => setVinculando(true)}
+          style={{ background: 'transparent', color: C.espresso, border: `0.5px solid ${C.borderLt}`, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}
+        >
+          + Vincular categorias
+        </button>
+      )}
+      {companyId && (
+        <VincularCategoriasModal
+          open={vinculando}
+          onClose={() => setVinculando(false)}
+          onSucesso={() => { setVinculando(false); onChange?.() }}
+          companyId={companyId}
+          ldnId={linha.ln_id}
+          ldnNome={linha.ln_nome}
+        />
+      )}
 
       <Row label="Receita Bruta" valor={fmtBRL(linha.rob)} />
       <Row label="EBITDA Antes Rateio" valor={`${fmtBRL(linha.ebitda_pre_rateio)} · ${fmtPct(pctPre)}`} />
