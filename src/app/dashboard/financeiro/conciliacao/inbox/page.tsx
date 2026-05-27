@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 
 interface Item {
   movimento_id: string
@@ -52,6 +53,7 @@ export default function InboxPage() {
   const [soOuro, setSoOuro] = useState(false)
   const [aplicandoIds, setAplicandoIds] = useState<Set<string>>(new Set())
   const [erro, setErro] = useState<string | null>(null)
+  const [arquivando, setArquivando] = useState<Item | null>(null)
 
   async function carregar() {
     if (!empresaUnica) return
@@ -214,22 +216,35 @@ export default function InboxPage() {
                     </div>
                   </div>
 
-                  {temSugestao && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                      <button onClick={() => rejeitar(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
-                        Rejeitar
-                      </button>
-                      <button onClick={() => aplicarMatch(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>
-                        {aplicando ? 'Aplicando…' : 'Aplicar match'}
-                      </button>
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button onClick={() => setArquivando(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
+                      ✕ Arquivar
+                    </button>
+                    {temSugestao && (
+                      <>
+                        <button onClick={() => rejeitar(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
+                          Rejeitar
+                        </button>
+                        <button onClick={() => aplicarMatch(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>
+                          {aplicando ? 'Aplicando…' : 'Aplicar match'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      <ArquivarMovimentoModal
+        open={!!arquivando}
+        onClose={() => setArquivando(null)}
+        onSucesso={() => { setArquivando(null); void carregar() }}
+        movimentoId={arquivando?.movimento_id ?? ''}
+        descricao={arquivando ? `${arquivando.descricao ?? '(sem descrição)'} · R$ ${Math.abs(arquivando.valor).toFixed(2)}` : undefined}
+      />
     </div>
   )
 }
