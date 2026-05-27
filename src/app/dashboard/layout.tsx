@@ -11,7 +11,7 @@ import {
   Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
   ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
   Box, Upload, FileText, BarChart3, Users, Settings, Truck,
-  ClipboardCheck, AlertCircle,
+  ClipboardCheck, AlertCircle, Activity, List,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -21,7 +21,7 @@ const AREA_ICONS: Record<string, LucideIcon> = {
   Store, Briefcase, Wrench, Building2, Factory, PaintBucket,
   ShieldCheck, Wallet, TrendingUp, Calculator, Wheat, Network,
   Box, Upload, FileText, BarChart3, Users, Settings, Truck,
-  ClipboardCheck, AlertCircle,
+  ClipboardCheck, AlertCircle, Activity, List,
 }
 
 type AreaMenu = {
@@ -819,7 +819,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           --ps-shadow-sm: 0 1px 2px rgba(61, 35, 20, 0.04);
           --ps-shadow: 0 2px 8px rgba(61, 35, 20, 0.06), 0 1px 2px rgba(61, 35, 20, 0.04);
           --ps-shadow-lg: 0 10px 32px rgba(61, 35, 20, 0.08), 0 2px 6px rgba(61, 35, 20, 0.04);
-          --sidebar-width: 260px;
+          --sidebar-width: 280px;
           --sidebar-collapsed: 68px;
           --topbar-height: 64px;
         }
