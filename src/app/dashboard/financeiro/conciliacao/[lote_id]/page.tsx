@@ -3,6 +3,8 @@
 import { use as usePromise, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
+import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 
 interface Lote {
   id: string
@@ -52,6 +54,32 @@ export default function LotePage({ params }: { params: Promise<{ lote_id: string
   const [movimentos, setMovimentos] = useState<Movimento[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('todos')
+  const [arquivando, setArquivando] = useState<Movimento | null>(null)
+  const [ajustando, setAjustando] = useState<Movimento | null>(null)
+  const [desvinculandoId, setDesvinculandoId] = useState<string | null>(null)
+
+  async function recarregar() {
+    const { data } = await supabase
+      .from('conciliacao_movimento')
+      .select('id, data_transacao, valor, descricao, natureza, status, match_score, match_origem, lancamento_tabela, lancamento_id')
+      .eq('lote_id', lote_id)
+      .order('data_transacao', { ascending: false })
+      .limit(500)
+    setMovimentos((data ?? []) as Movimento[])
+  }
+
+  async function desvincular(m: Movimento) {
+    if (!m.lancamento_id || !m.lancamento_tabela) return
+    if (!confirm('Desvincular este lançamento da conciliação?')) return
+    setDesvinculandoId(m.id)
+    const { error } = await supabase.rpc('fn_conciliacao_desvincular', {
+      p_lancamento_id: m.lancamento_id,
+      p_tipo: m.lancamento_tabela,
+    })
+    setDesvinculandoId(null)
+    if (error) { alert('Erro: ' + error.message); return }
+    await recarregar()
+  }
 
   useEffect(() => {
     let ignore = false
@@ -170,6 +198,7 @@ export default function LotePage({ params }: { params: Promise<{ lote_id: string
                   <th style={{ ...th, textAlign: 'right' }}>Valor</th>
                   <th style={th}>Match</th>
                   <th style={th}>Status</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -185,6 +214,38 @@ export default function LotePage({ params }: { params: Promise<{ lote_id: string
                       {m.match_score != null ? `${Number(m.match_score).toFixed(2)} · ${m.match_origem ?? '—'}` : '—'}
                     </td>
                     <td style={td}><span style={statusBadge(m.status)}>{m.status}</span></td>
+                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {m.status === 'pendente' && (
+                          <button
+                            type="button"
+                            onClick={() => setArquivando(m)}
+                            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.2)', padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            Arquivar
+                          </button>
+                        )}
+                        {(m.status === 'conciliado' || m.status === 'sugerido') && m.lancamento_id && m.lancamento_tabela && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setAjustando(m)}
+                              style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Ajustar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => desvincular(m)}
+                              disabled={desvinculandoId === m.id}
+                              style={{ background: 'transparent', color: '#A32D2D', border: '0.5px solid rgba(163,45,45,0.3)', padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: desvinculandoId === m.id ? 'wait' : 'pointer' }}
+                            >
+                              {desvinculandoId === m.id ? '…' : 'Desvincular'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -192,6 +253,25 @@ export default function LotePage({ params }: { params: Promise<{ lote_id: string
           </div>
         )}
       </div>
+
+      <ArquivarMovimentoModal
+        open={!!arquivando}
+        onClose={() => setArquivando(null)}
+        onSucesso={() => { setArquivando(null); void recarregar() }}
+        movimentoId={arquivando?.id ?? ''}
+        descricao={arquivando ? `${arquivando.descricao ?? '(sem descrição)'} · R$ ${Math.abs(arquivando.valor).toFixed(2)}` : undefined}
+      />
+
+      <AjustarValoresModal
+        open={!!ajustando}
+        onClose={() => setAjustando(null)}
+        onSucesso={() => { setAjustando(null); void recarregar() }}
+        lancamentoId={ajustando?.lancamento_id ?? ''}
+        tipo={(ajustando?.lancamento_tabela === 'erp_pagar' ? 'pagar' : 'receber')}
+        valorOriginal={Math.abs(ajustando?.valor ?? 0)}
+        valorBanco={ajustando ? Math.abs(ajustando.valor) : null}
+        descricao={ajustando?.descricao ?? undefined}
+      />
     </div>
   )
 }
