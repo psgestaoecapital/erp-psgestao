@@ -243,11 +243,14 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
     <div style={card}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <div>
-          <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, color: '#3D2314', margin: 0 }}>
-            Importar Pagar/Receber em lote
+          <div style={{ fontSize: 10, color: '#C8941A', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 4 }}>
+            📥 Modo recomendado · em lote
+          </div>
+          <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 500, color: '#3D2314', margin: 0 }}>
+            Importar Pagar/Receber em lote (XLSX)
           </h2>
-          <p style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', margin: '4px 0 0' }}>
-            Planilha XLSX estruturada · até centenas de lançamentos de uma vez
+          <p style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)', margin: '4px 0 0' }}>
+            Wizard 3 passos · template baixável · preview com validação · resolução CNPJ automática · até centenas de lançamentos
           </p>
         </div>
         {passo !== 'tipo' && (
@@ -445,8 +448,10 @@ function Stat({ label, valor, cor }: { label: string; valor: string; cor: string
 }
 
 const card: React.CSSProperties = {
-  background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)',
-  borderRadius: 12, padding: '20px 24px', marginBottom: 16,
+  background: 'linear-gradient(135deg, #FFF8E7 0%, #FFFFFF 100%)',
+  border: '2px solid #C8941A',
+  borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+  boxShadow: '0 4px 12px rgba(200,148,26,0.15)',
 }
 const th: React.CSSProperties = {
   textAlign: 'left', padding: '8px 10px', fontSize: 10,
