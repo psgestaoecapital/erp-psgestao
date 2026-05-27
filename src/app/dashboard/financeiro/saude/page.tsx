@@ -20,6 +20,24 @@ interface SaudeData {
   sem_plano?: boolean
 }
 
+interface AlertaIA {
+  icone?: string
+  titulo: string
+  mensagem: string
+  acao_sugerida?: string
+  severidade?: string
+}
+
+interface AlertasResposta {
+  saldo_atual: number | null
+  despesa_mensal_media: number | null
+  meses_caixa: number | null
+  inadimplencia_pct: number | null
+  concentracao_top_cliente: number | null
+  total_alertas: number
+  alertas: AlertaIA[]
+}
+
 const COR = {
   verde: { fg: '#3B6D11', bg: '#EAF3DE' },
   amarelo: { fg: '#BA7517', bg: '#FAEEDA' },
@@ -36,6 +54,7 @@ export default function SaudeFinanceiraPage() {
   const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
   const [data, setData] = useState<SaudeData | null>(null)
+  const [alertasIA, setAlertasIA] = useState<AlertasResposta | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -43,8 +62,15 @@ export default function SaudeFinanceiraPage() {
     if (!empresaUnica) { setLoading(false); return }
     ;(async () => {
       setLoading(true)
-      const { data: result } = await supabase.rpc('fn_ge_saude_financeira', { p_company_id: empresaUnica })
-      if (!ignore) { setData(result as SaudeData); setLoading(false) }
+      const [{ data: result }, { data: alertasRet }] = await Promise.all([
+        supabase.rpc('fn_ge_saude_financeira', { p_company_id: empresaUnica }),
+        supabase.rpc('fn_saude_alertas_proativos', { p_company_id: empresaUnica }),
+      ])
+      if (!ignore) {
+        setData(result as SaudeData)
+        setAlertasIA(alertasRet as AlertasResposta)
+        setLoading(false)
+      }
     })()
     return () => { ignore = true }
   }, [empresaUnica])
@@ -72,6 +98,33 @@ export default function SaudeFinanceiraPage() {
           ← Painel Gestão Empresarial
         </button>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: '#3D2314', margin: '0 0 6px' }}>Saúde Financeira</h1>
+        {alertasIA && (
+          <div style={{ background: alertasIA.total_alertas > 0 ? '#FAEEDA' : '#EAF3DE', border: `0.5px solid ${alertasIA.total_alertas > 0 ? '#BA7517' : '#3B6D11'}`, borderRadius: 12, padding: '16px 20px', margin: '16px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18 }}>🤖</span>
+              <strong style={{ color: '#3D2314', fontSize: 14 }}>
+                Alertas Proativos IA {alertasIA.total_alertas > 0 ? `(${alertasIA.total_alertas})` : ''}
+              </strong>
+            </div>
+            {alertasIA.total_alertas === 0 ? (
+              <div style={{ color: '#3B6D11', fontSize: 13 }}>✅ Sistema saudável · Sem alertas no momento</div>
+            ) : (
+              alertasIA.alertas.map((a, i) => (
+                <div key={i} style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.08)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>
+                    {a.icone ? `${a.icone} ` : ''}{a.titulo}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.85)', marginTop: 2 }}>{a.mensagem}</div>
+                  {a.acao_sugerida && (
+                    <div style={{ fontSize: 11, color: '#854F0B', marginTop: 4, fontStyle: 'italic' }}>
+                      → {a.acao_sugerida}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
         <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, marginBottom: 28 }}>Termômetro consolidado e drill-down dos indicadores</p>
 
         <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '24px 28px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
