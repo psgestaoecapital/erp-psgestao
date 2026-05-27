@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2",
+    "playwright-core": "npm:playwright-core@1.49",
+    "@sparticuz/chromium-min": "npm:@sparticuz/chromium-min@131",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@0.30"
+  }
+}
