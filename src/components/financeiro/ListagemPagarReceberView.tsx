@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import MarcarPagoModal from './MarcarPagoModal'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -68,6 +69,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const hoje = new Date()
   const [ano, setAno] = useState(hoje.getFullYear())
   const [mes, setMes] = useState(hoje.getMonth() + 1)
+  const [pagandoItem, setPagandoItem] = useState<Resultado | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [periodoChoice, setPeriodoChoice] = useState<PeriodoChoice>('mes_atual')
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'avencer' | 'vencidos' | 'pagos' | 'hoje'>('todos')
   const [categoria, setCategoria] = useState('')
@@ -104,7 +107,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     return () => {
       alive = false
     }
-  }, [companyId, tipo, ano, mes, statusFiltro])
+  }, [companyId, tipo, ano, mes, statusFiltro, reloadKey])
 
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
@@ -326,6 +329,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                     <Th>Vencimento</Th>
                     <Th align="right">Valor</Th>
                     <Th>Status</Th>
+                    <Th align="right">Ação</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -339,6 +343,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                       <Td>{fmtData(r.data_vencimento)}</Td>
                       <Td align="right"><strong>{fmtBRL(r.valor_pago ?? r.valor_documento)}</strong></Td>
                       <Td><Pill situacao={r.situacao} /></Td>
+                      <Td align="right">
+                        {r.situacao !== 'pago' ? (
+                          <button
+                            type="button"
+                            onClick={() => setPagandoItem(r)}
+                            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)' }}>✓ baixado</span>
+                        )}
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -385,6 +402,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </>
         )}
       </div>
+
+      <MarcarPagoModal
+        open={!!pagandoItem}
+        onClose={() => setPagandoItem(null)}
+        onSucesso={() => setReloadKey((k) => k + 1)}
+        companyId={companyId}
+        tipo={tipo}
+        itemId={pagandoItem?.id ?? ''}
+        descricao={pagandoItem?.descricao ?? ''}
+        valorTotal={pagandoItem ? (pagandoItem.valor_documento - (pagandoItem.valor_pago ?? 0)) : 0}
+      />
     </Wrapper>
   )
 }

@@ -47,6 +47,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [dataRecebimento, setDataRecebimento] = useState(
     new Date().toISOString().split('T')[0],
   )
+  const [dataCompetencia, setDataCompetencia] = useState('')
   const [parcelas, setParcelas] = useState(1)
   const [intervaloDias, setIntervaloDias] = useState(30)
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
@@ -54,6 +55,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [formaRecebimento, setFormaRecebimento] = useState('pix')
   const [contaBancaria, setContaBancaria] = useState('')
   const [observacao, setObservacao] = useState('')
+  const [jaRecebido, setJaRecebido] = useState(false)
+  const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
 
   const [loading, setLoading] = useState(false)
   const [semPlano, setSemPlano] = useState(false)
@@ -130,9 +133,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       p_conta_bancaria: contaBancaria || null,
     })
 
-    setLoading(false)
-
     if (error) {
+      setLoading(false)
       setErro(error.message)
       return
     }
@@ -147,11 +149,32 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     } | null
 
     if (resultado?.sem_plano) {
+      setLoading(false)
       setSemPlano(true)
       return
     }
 
-    const primeiroId = resultado?.ids?.[0]
+    const ids = resultado?.ids ?? []
+    const dataCompFinal = dataCompetencia || dataRecebimento
+    if (ids.length > 0 && dataCompFinal) {
+      await supabase.from('erp_receber').update({ data_competencia: dataCompFinal }).in('id', ids)
+    }
+
+    if (jaRecebido && ids.length > 0 && contaBancaria) {
+      for (const id of ids) {
+        await supabase.rpc('fn_receber_baixar_pagamento', {
+          p_receber_id: id,
+          p_data_pagamento: dataPagamento,
+          p_conta_bancaria_id: contaBancaria,
+          p_forma_pagamento: (formaRecebimento || 'PIX').toUpperCase(),
+          p_valor_pago: null,
+        })
+      }
+    }
+
+    setLoading(false)
+
+    const primeiroId = ids[0]
     if (primeiroId && onSucesso) {
       onSucesso(primeiroId)
     } else {
@@ -225,6 +248,19 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
               onChange={(e) => setDataRecebimento(e.target.value)}
               style={inputStyle}
             />
+          </Campo>
+
+          <Campo label="Data de competência (opcional)">
+            <input
+              type="date"
+              value={dataCompetencia}
+              onChange={(e) => setDataCompetencia(e.target.value)}
+              placeholder={dataRecebimento}
+              style={inputStyle}
+            />
+            <small style={helperStyle}>
+              Mês contábil ao qual essa receita pertence. Default = data de recebimento.
+            </small>
           </Campo>
 
           <Campo label="De quem você vai receber?">
@@ -348,6 +384,34 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
               maxLength={500}
             />
           </Campo>
+
+          <div style={{ gridColumn: '1 / -1', borderTop: '0.5px solid rgba(61,35,20,0.12)', paddingTop: 12, marginTop: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={jaRecebido}
+                onChange={(e) => setJaRecebido(e.target.checked)}
+              />
+              Já recebi essa receita
+            </label>
+            {jaRecebido && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
+                <Campo label="Data do recebimento" obrigatorio>
+                  <input
+                    type="date"
+                    value={dataPagamento}
+                    onChange={(e) => setDataPagamento(e.target.value)}
+                    style={inputStyle}
+                  />
+                </Campo>
+                {!contaBancaria && (
+                  <small style={{ ...helperStyle, color: '#A32D2D', gridColumn: '1 / -1' }}>
+                    Selecione uma conta bancária acima pra registrar o recebimento.
+                  </small>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {semPlano && (
