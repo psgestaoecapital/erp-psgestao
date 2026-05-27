@@ -30,7 +30,7 @@ type KpiBlock = { valor: number; qtd: number }
 type Resposta = {
   sem_plano?: boolean
   tipo: Tipo
-  periodo: { ano: number; mes: number }
+  periodo: { data_inicio: string; data_fim: string }
   kpis: {
     vencidos: KpiBlock
     hoje: KpiBlock
@@ -68,8 +68,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const labels = useMemo(() => labelsPorTipo(tipo), [tipo])
 
   const hoje = new Date()
-  const [ano, setAno] = useState(hoje.getFullYear())
-  const [mes, setMes] = useState(hoje.getMonth() + 1)
+  const toISO = (d: Date) => {
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+  const inicioMesAtual = () => toISO(new Date(hoje.getFullYear(), hoje.getMonth(), 1))
+  const fimMesAtual = () => toISO(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0))
+  const [dataInicio, setDataInicio] = useState<string>(inicioMesAtual())
+  const [dataFim, setDataFim] = useState<string>(fimMesAtual())
   const [pagandoItem, setPagandoItem] = useState<Resultado | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
@@ -90,11 +98,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setLoading(true)
     setErro(null)
     supabase
-      .rpc('fn_ge_listagem', {
+      .rpc('fn_ge_listagem_v2', {
         p_company_id: companyId,
         p_tipo: tipo,
-        p_ano: ano,
-        p_mes: mes,
+        p_data_inicio: dataInicio,
+        p_data_fim: dataFim,
         p_status_filtro: statusFiltro,
       })
       .then(({ data, error }) => {
@@ -110,7 +118,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     return () => {
       alive = false
     }
-  }, [companyId, tipo, ano, mes, statusFiltro, reloadKey])
+  }, [companyId, tipo, dataInicio, dataFim, statusFiltro, reloadKey])
 
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
@@ -149,7 +157,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }
   function limparSelecao() { setSelecionados(new Set()) }
 
-  useEffect(() => { setSelecionados(new Set()) }, [companyId, tipo, ano, mes, statusFiltro, reloadKey])
+  useEffect(() => { setSelecionados(new Set()) }, [companyId, tipo, dataInicio, dataFim, statusFiltro, reloadKey])
 
   const totalPages = Math.max(1, Math.ceil(resultadosFiltrados.length / PAGE_SIZE))
   const pageSafe = Math.min(page, totalPages)
@@ -168,15 +176,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setPeriodoChoice(choice)
     const ref = new Date()
     if (choice === 'mes_atual') {
-      setAno(ref.getFullYear())
-      setMes(ref.getMonth() + 1)
+      setDataInicio(toISO(new Date(ref.getFullYear(), ref.getMonth(), 1)))
+      setDataFim(toISO(new Date(ref.getFullYear(), ref.getMonth() + 1, 0)))
     } else if (choice === 'mes_passado') {
-      const prev = new Date(ref.getFullYear(), ref.getMonth() - 1, 1)
-      setAno(prev.getFullYear())
-      setMes(prev.getMonth() + 1)
+      setDataInicio(toISO(new Date(ref.getFullYear(), ref.getMonth() - 1, 1)))
+      setDataFim(toISO(new Date(ref.getFullYear(), ref.getMonth(), 0)))
     } else if (choice === 'ano_atual') {
-      setAno(ref.getFullYear())
-      setMes(1)
+      setDataInicio(toISO(new Date(ref.getFullYear(), 0, 1)))
+      setDataFim(toISO(new Date(ref.getFullYear(), 11, 31)))
     }
   }
 
@@ -266,20 +273,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
         {periodoChoice === 'personalizado' && (
           <>
-            <Campo label="Mês">
-              <select value={mes} onChange={(e) => setMes(parseInt(e.target.value))} style={inputStyle}>
-                {MESES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
-                ))}
-              </select>
-            </Campo>
-            <Campo label="Ano">
+            <Campo label="Data início">
               <input
-                type="number"
-                value={ano}
-                min="2020"
-                max="2030"
-                onChange={(e) => setAno(parseInt(e.target.value) || hoje.getFullYear())}
+                type="date"
+                value={dataInicio}
+                onChange={(e) => setDataInicio(e.target.value)}
+                style={inputStyle}
+              />
+            </Campo>
+            <Campo label="Data fim">
+              <input
+                type="date"
+                value={dataFim}
+                onChange={(e) => setDataFim(e.target.value)}
                 style={inputStyle}
               />
             </Campo>
