@@ -67,7 +67,7 @@ export default function DreDivisionalPage() {
   const [data, setData] = useState<DreResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [ordemPersonalizada, setOrdemPersonalizada] = useState<Array<{ linha_id: string; ordem: number }>>([])
+  const [ordemPersonalizada, setOrdemPersonalizada] = useState<Array<{ linha_id: string; ordem: number; visivel?: boolean }>>([])
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) {
@@ -101,7 +101,7 @@ export default function DreDivisionalPage() {
     if (!empresaUnica) { setOrdemPersonalizada([]); return }
     ;(async () => {
       const { data: ordem } = await supabase.rpc('fn_dre_ordem_personalizada_get', { p_company_id: empresaUnica })
-      if (!ignore) setOrdemPersonalizada((ordem ?? []) as Array<{ linha_id: string; ordem: number }>)
+      if (!ignore) setOrdemPersonalizada((ordem ?? []) as Array<{ linha_id: string; ordem: number; visivel?: boolean }>)
     })()
     return () => { ignore = true }
   }, [empresaUnica])
@@ -109,19 +109,20 @@ export default function DreDivisionalPage() {
   const linhasOrdenadas = useMemo<Linha[]>(() => {
     if (!data?.linhas) return []
     if (ordemPersonalizada.length === 0) return data.linhas
-    const ordemMap = new Map(ordemPersonalizada.map((o) => [o.linha_id, o.ordem]))
-    const ordenadas = [...data.linhas].sort((a, b) => {
-      const oa = ordemMap.get(a.ln_id) ?? Number.MAX_SAFE_INTEGER
-      const ob = ordemMap.get(b.ln_id) ?? Number.MAX_SAFE_INTEGER
+    const cfgMap = new Map(ordemPersonalizada.map((o) => [o.linha_id, o]))
+    const filtradas = data.linhas.filter((l) => cfgMap.get(l.ln_id)?.visivel !== false)
+    return filtradas.sort((a, b) => {
+      const oa = cfgMap.get(a.ln_id)?.ordem ?? Number.MAX_SAFE_INTEGER
+      const ob = cfgMap.get(b.ln_id)?.ordem ?? Number.MAX_SAFE_INTEGER
       return oa - ob
     })
-    return ordenadas
   }, [data, ordemPersonalizada])
 
   async function handleReorderLinhas(novaOrdem: Linha[]) {
     if (!empresaUnica) return
-    const payload = novaOrdem.map((l, idx) => ({ linha_id: l.ln_id, ordem: idx, visivel: true }))
-    setOrdemPersonalizada(payload.map(({ linha_id, ordem }) => ({ linha_id, ordem })))
+    const visMap = new Map(ordemPersonalizada.map((o) => [o.linha_id, o.visivel ?? true]))
+    const payload = novaOrdem.map((l, idx) => ({ linha_id: l.ln_id, ordem: idx, visivel: visMap.get(l.ln_id) ?? true }))
+    setOrdemPersonalizada(payload)
     await supabase.rpc('fn_dre_ordem_personalizada_set', {
       p_company_id: empresaUnica,
       p_ordens: payload,
@@ -452,12 +453,20 @@ function Layout({
               Resultado por linha de negócio com rateio NBC TG 16{empresa ? ` · ${empresa}` : ''}.
             </p>
           </div>
-          <button
-            onClick={onAbrirModal}
-            style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            ℹ️ Como é calculado
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/dre-divisional/configurar"
+              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+            >
+              ⚙ Configurar ordem
+            </Link>
+            <button
+              onClick={onAbrirModal}
+              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ℹ️ Como é calculado
+            </button>
+          </div>
         </header>
 
         {children}
