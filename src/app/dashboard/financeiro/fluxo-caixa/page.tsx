@@ -14,6 +14,8 @@ type DiaFluxo = {
   data: string
   recebimentos: number
   pagamentos: number
+  transferencias_entrada: number
+  transferencias_saida: number
   movimento_dia: number
   saldo_final: number
 }
@@ -74,7 +76,12 @@ export default function FluxoCaixaPage() {
 
   const dias = dados?.dias ?? []
   const saldoHoje = dias.find((d) => d.data === hojeISO())?.saldo_final ?? dados?.saldo_final ?? 0
-  const diasComMov = dias.filter((d) => d.movimento_dia !== 0)
+  const diasComMov = dias.filter((d) =>
+    d.movimento_dia !== 0 || d.transferencias_entrada > 0 || d.transferencias_saida > 0,
+  )
+  const totalTransfEntrada = dias.reduce((s, d) => s + (d.transferencias_entrada ?? 0), 0)
+  const totalTransfSaida = dias.reduce((s, d) => s + (d.transferencias_saida ?? 0), 0)
+  const HOJE = hojeISO()
   const chartData = dias.map((d) => ({
     data: d.data.slice(5),
     saldo: Number(d.saldo_final),
@@ -147,39 +154,172 @@ export default function FluxoCaixaPage() {
       </div>
 
       <div style={{ background: '#fff', borderRadius: PSGC_RADIUS.lg, padding: 16 }}>
-        <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>
-          Movimentações
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+          <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, margin: 0 }}>
+            Movimentações
+          </p>
+          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <span><span style={{ color: ENTRADA }}>●</span> Entradas</span>
+            <span><span style={{ color: SAIDA }}>●</span> Saídas</span>
+            <span><span style={{ color: TRANSF_IN }}>●</span> Transf. entrada</span>
+            <span><span style={{ color: TRANSF_OUT }}>●</span> Transf. saída</span>
+          </div>
+        </div>
+
         {diasComMov.length === 0 ? (
           <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>
             Nenhuma movimentação no período. Conforme você registrar pagamentos e
             recebimentos, eles aparecem aqui.
           </p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {diasComMov.map((d) => (
-              <div key={d.data} style={{
-                display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8,
-                alignItems: 'center', fontSize: 13, paddingBottom: 8,
-                borderBottom: '1px solid #f0ebe4',
-              }}>
-                <span style={{ color: PSGC_COLORS.espresso, fontWeight: 600 }}>
-                  {d.data.slice(8, 10)}/{d.data.slice(5, 7)}
-                </span>
-                <span style={{ color: PSGC_COLORS.baixa }}>
-                  {d.recebimentos > 0 ? `+${brl(d.recebimentos)}` : '—'}
-                </span>
-                <span style={{ color: PSGC_COLORS.alta }}>
-                  {d.pagamentos > 0 ? `−${brl(d.pagamentos)}` : '—'}
-                </span>
-                <span style={{ color: PSGC_COLORS.espresso, fontWeight: 700, textAlign: 'right' }}>
-                  {brl(d.saldo_final)}
-                </span>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="fc-table-wrap" style={{ overflowX: 'auto', marginTop: 6 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                <thead style={{ position: 'sticky', top: 0, background: PSGC_COLORS.offWhite, zIndex: 5 }}>
+                  <tr>
+                    <th style={th}>Data</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Entradas</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saídas</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↓</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↑</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Movimento</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saldo no dia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diasComMov.map((d) => {
+                    const ehHoje = d.data === HOJE
+                    const movCor = d.movimento_dia > 0 ? ENTRADA : d.movimento_dia < 0 ? SAIDA : 'rgba(61,35,20,0.5)'
+                    const movPrefixo = d.movimento_dia > 0 ? '+' : d.movimento_dia < 0 ? '−' : ''
+                    return (
+                      <tr key={d.data} style={{ borderTop: '1px solid #f0ebe4', background: ehHoje ? '#FEF3C7' : 'transparent' }}>
+                        <td style={{ ...td, fontWeight: ehHoje ? 700 : 600, color: PSGC_COLORS.espresso }}>
+                          {d.data.slice(8, 10)}/{d.data.slice(5, 7)}{ehHoje && ' (hoje)'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: d.recebimentos > 0 ? ENTRADA : 'rgba(61,35,20,0.45)' }}>
+                          {d.recebimentos > 0 ? `+${brl(d.recebimentos)}` : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: d.pagamentos > 0 ? SAIDA : 'rgba(61,35,20,0.45)' }}>
+                          {d.pagamentos > 0 ? `−${brl(d.pagamentos)}` : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: d.transferencias_entrada > 0 ? TRANSF_IN : 'rgba(61,35,20,0.45)' }}>
+                          {d.transferencias_entrada > 0 ? `+${brl(d.transferencias_entrada)}` : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: d.transferencias_saida > 0 ? TRANSF_OUT : 'rgba(61,35,20,0.45)' }}>
+                          {d.transferencias_saida > 0 ? `−${brl(d.transferencias_saida)}` : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: movCor, fontWeight: 600 }}>
+                          {d.movimento_dia !== 0 ? `${movPrefixo}${brl(Math.abs(d.movimento_dia))}` : brl(0)}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: PSGC_COLORS.espresso, fontWeight: 700 }}>
+                          {brl(d.saldo_final)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: PSGC_COLORS.offWhite, borderTop: `2px solid ${PSGC_COLORS.espresso}` }}>
+                    <td style={{ ...td, fontWeight: 700, color: PSGC_COLORS.espresso }}>Total no período</td>
+                    <td style={{ ...td, textAlign: 'right', color: ENTRADA, fontWeight: 700 }}>
+                      +{brl(dados?.total_recebimentos ?? 0)}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', color: SAIDA, fontWeight: 700 }}>
+                      −{brl(dados?.total_pagamentos ?? 0)}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', color: TRANSF_IN, fontWeight: 700 }}>
+                      {totalTransfEntrada > 0 ? `+${brl(totalTransfEntrada)}` : '—'}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', color: TRANSF_OUT, fontWeight: 700 }}>
+                      {totalTransfSaida > 0 ? `−${brl(totalTransfSaida)}` : '—'}
+                    </td>
+                    <td style={{
+                      ...td, textAlign: 'right', fontWeight: 700,
+                      color: (dados?.movimento_liquido ?? 0) > 0 ? ENTRADA : (dados?.movimento_liquido ?? 0) < 0 ? SAIDA : 'rgba(61,35,20,0.5)',
+                    }}>
+                      {(dados?.movimento_liquido ?? 0) > 0 ? '+' : (dados?.movimento_liquido ?? 0) < 0 ? '−' : ''}
+                      {brl(Math.abs(dados?.movimento_liquido ?? 0))}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', color: PSGC_COLORS.espresso, fontWeight: 800 }}>
+                      {brl(dados?.saldo_final ?? 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="fc-cards">
+              {diasComMov.map((d) => {
+                const ehHoje = d.data === HOJE
+                const movCor = d.movimento_dia > 0 ? ENTRADA : d.movimento_dia < 0 ? SAIDA : 'rgba(61,35,20,0.5)'
+                const movPrefixo = d.movimento_dia > 0 ? '+' : d.movimento_dia < 0 ? '−' : ''
+                const temTransf = d.transferencias_entrada > 0 || d.transferencias_saida > 0
+                return (
+                  <div key={d.data} style={{
+                    border: '1px solid #f0ebe4',
+                    borderRadius: PSGC_RADIUS.md,
+                    padding: '10px 12px',
+                    marginBottom: 8,
+                    background: ehHoje ? '#FEF3C7' : '#fff',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontWeight: 700, color: PSGC_COLORS.espresso }}>
+                        {d.data.slice(8, 10)}/{d.data.slice(5, 7)}{ehHoje && ' (hoje)'}
+                      </span>
+                      <span style={{ fontWeight: 700, color: PSGC_COLORS.espresso, fontVariantNumeric: 'tabular-nums' }}>
+                        {brl(d.saldo_final)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, fontSize: 12, fontVariantNumeric: 'tabular-nums', flexWrap: 'wrap' }}>
+                      {d.recebimentos > 0 && <span style={{ color: ENTRADA }}>+{brl(d.recebimentos)}</span>}
+                      {d.pagamentos > 0 && <span style={{ color: SAIDA }}>−{brl(d.pagamentos)}</span>}
+                      <span style={{ color: movCor, fontWeight: 600 }}>
+                        Mov {movPrefixo}{brl(Math.abs(d.movimento_dia))}
+                      </span>
+                    </div>
+                    {temTransf && (
+                      <div style={{ fontSize: 11, marginTop: 4, color: 'rgba(61,35,20,0.65)' }}>
+                        Transf:
+                        {d.transferencias_entrada > 0 && <span style={{ color: TRANSF_IN, marginLeft: 4 }}>↓ {brl(d.transferencias_entrada)}</span>}
+                        {d.transferencias_saida > 0 && <span style={{ color: TRANSF_OUT, marginLeft: 4 }}>↑ {brl(d.transferencias_saida)}</span>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
+
+      <style>{`
+        .fc-cards { display: none; }
+        @media (max-width: 767px) {
+          .fc-table-wrap { display: none; }
+          .fc-cards { display: block; }
+        }
+      `}</style>
     </div>
   )
+}
+
+const ENTRADA = '#16A34A'
+const SAIDA = '#DC2626'
+const TRANSF_IN = '#3B82F6'
+const TRANSF_OUT = '#6B7280'
+
+const th: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+  color: 'rgba(61,35,20,0.6)',
+  padding: '8px 6px',
+  textAlign: 'left',
+  borderBottom: '1px solid #f0ebe4',
+}
+
+const td: React.CSSProperties = {
+  padding: '8px 6px',
+  fontSize: 13,
 }
