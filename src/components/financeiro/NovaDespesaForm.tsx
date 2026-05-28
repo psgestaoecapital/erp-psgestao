@@ -262,26 +262,50 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           </Campo>
 
           <Campo label="Para quem você paga?">
-            <select
-              value={fornecedorId}
-              onChange={(e) => {
-                setFornecedorId(e.target.value)
-                const f = fornecedores.find((x) => x.id === e.target.value)
-                setFornecedorNome(f ? exibirNomeFornecedor(f) : '')
-              }}
-              style={inputStyle}
-            >
-              <option value="">— sem fornecedor cadastrado —</option>
-              {fornecedores.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {exibirNomeFornecedor(f)}
-                </option>
-              ))}
-            </select>
-            {fornecedores.length === 0 && (
-              <small style={{ ...helperStyle, color: '#854F0B' }}>
-                Você ainda não tem fornecedores · cadastra um primeiro?
-              </small>
+            {fornecedores.length > 0 ? (
+              <>
+                <select
+                  value={fornecedorId}
+                  onChange={(e) => {
+                    setFornecedorId(e.target.value)
+                    const f = fornecedores.find((x) => x.id === e.target.value)
+                    setFornecedorNome(f ? exibirNomeFornecedor(f) : '')
+                  }}
+                  style={inputStyle}
+                >
+                  <option value="">— Outro (digite abaixo) —</option>
+                  {fornecedores.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {exibirNomeFornecedor(f)}
+                    </option>
+                  ))}
+                </select>
+                {!fornecedorId && (
+                  <input
+                    value={fornecedorNome}
+                    onChange={(e) => setFornecedorNome(e.target.value)}
+                    placeholder="Digite o nome do fornecedor"
+                    style={{ ...inputStyle, marginTop: 6 }}
+                  />
+                )}
+                {!fornecedorId && fornecedorNome && (
+                  <small style={helperStyle}>
+                    Vamos cadastrar esse fornecedor pra você automaticamente.
+                  </small>
+                )}
+              </>
+            ) : (
+              <>
+                <input
+                  value={fornecedorNome}
+                  onChange={(e) => { setFornecedorNome(e.target.value); setFornecedorId('') }}
+                  placeholder="Digite o nome do fornecedor"
+                  style={inputStyle}
+                />
+                <small style={helperStyle}>
+                  Não está na lista? Digite o nome e a gente cadastra depois.
+                </small>
+              </>
             )}
           </Campo>
 
