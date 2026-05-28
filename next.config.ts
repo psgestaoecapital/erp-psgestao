@@ -4,6 +4,13 @@ const nextConfig: NextConfig = {
   // playwright-core + chromium-min sao binarios nativos —
   // nao podem ser bundlados pelo Turbopack (PR M.A.7.5.2)
   serverExternalPackages: ['playwright-core', '@sparticuz/chromium-min'],
+  // FIX 28/05: @vercel/nft nao detecta browsers.json (leitura dinamica do
+  // playwright-core registry) · forcar inclusao no deployment das rotas Playwright.
+  // Sem isso: "Cannot find module .../playwright-core/browsers.json" no boot.
+  outputFileTracingIncludes: {
+    '/api/screen-watcher/playwright': ['./node_modules/playwright-core/**/*'],
+    '/api/gold/auditar-rota': ['./node_modules/playwright-core/**/*'],
+  },
   async headers() {
     return [{
       source: '/(.*)',
