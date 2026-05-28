@@ -23,6 +23,7 @@ type Resultado = {
   situacao: Situacao
   numero_documento: string | null
   forma_pagamento: string | null
+  parcela: string | null
 }
 
 type KpiBlock = { valor: number; qtd: number }
@@ -56,6 +57,13 @@ const MESES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ]
+
+const CORES_SITUACAO: Record<Situacao, string> = {
+  vencido: '#DC2626',
+  hoje: '#C8941A',
+  a_vencer: '#3D2314',
+  pago: '#16A34A',
+}
 
 type PeriodoChoice = 'mes_atual' | 'mes_passado' | 'ano_atual' | 'personalizado'
 
@@ -213,40 +221,57 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     <Wrapper>
       <Header labels={labels} />
 
-      {/* KPIs */}
+      {/* KPIs · sticky topo · padrao ContaAzul (Vencidos, Hoje, A vencer, Pagos/Recebidos, Total) */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 12,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          background: '#FAF7F2',
+          padding: '8px 0',
           marginBottom: 20,
         }}
       >
-        <KpiCard
-          titulo="A vencer"
-          valor={data?.kpis.avencer.valor ?? 0}
-          qtd={data?.kpis.avencer.qtd ?? 0}
-          cor="#C8941A"
-        />
-        <KpiCard
-          titulo="Vencidos"
-          valor={data?.kpis.vencidos.valor ?? 0}
-          qtd={data?.kpis.vencidos.qtd ?? 0}
-          cor="#DC2626"
-          destaque={(data?.kpis.vencidos.qtd ?? 0) > 0}
-        />
-        <KpiCard
-          titulo={labels.pagosLabel}
-          valor={data?.kpis.pagos.valor ?? 0}
-          qtd={data?.kpis.pagos.qtd ?? 0}
-          cor="#16A34A"
-        />
-        <KpiCard
-          titulo="Hoje"
-          valor={data?.kpis.hoje.valor ?? 0}
-          qtd={data?.kpis.hoje.qtd ?? 0}
-          cor="#3D2314"
-        />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 12,
+            overflowX: 'auto',
+          }}
+        >
+          <KpiCard
+            titulo={labels.vencidosLabel}
+            valor={data?.kpis.vencidos.valor ?? 0}
+            qtd={data?.kpis.vencidos.qtd ?? 0}
+            cor="#DC2626"
+            destaque={(data?.kpis.vencidos.qtd ?? 0) > 0}
+          />
+          <KpiCard
+            titulo={labels.hojeLabel}
+            valor={data?.kpis.hoje.valor ?? 0}
+            qtd={data?.kpis.hoje.qtd ?? 0}
+            cor="#C8941A"
+          />
+          <KpiCard
+            titulo="A vencer"
+            valor={data?.kpis.avencer.valor ?? 0}
+            qtd={data?.kpis.avencer.qtd ?? 0}
+            cor="#3D2314"
+          />
+          <KpiCard
+            titulo={labels.pagosLabel}
+            valor={data?.kpis.pagos.valor ?? 0}
+            qtd={data?.kpis.pagos.qtd ?? 0}
+            cor="#16A34A"
+          />
+          <KpiCard
+            titulo="Total"
+            valor={data?.kpis.total ?? 0}
+            qtd={(data?.resultados ?? []).length}
+            cor="#3D2314"
+          />
+        </div>
       </div>
 
       {/* Filtros */}
@@ -410,8 +435,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                   {pageItems.map((r) => {
                     const pago = r.situacao === 'pago'
                     const checked = selecionados.has(r.id)
+                    const corLinha = CORES_SITUACAO[r.situacao]
+                    const parcelaVisivel = r.parcela && r.parcela.trim() !== '' && r.parcela !== '1/1' && r.parcela !== '001/001'
                     return (
-                      <tr key={r.id} style={{ borderBottom: '0.5px solid rgba(61,35,20,0.06)', background: checked ? 'rgba(200,148,26,0.06)' : 'transparent' }}>
+                      <tr key={r.id} style={{ borderBottom: '0.5px solid rgba(61,35,20,0.06)', background: checked ? 'rgba(200,148,26,0.06)' : 'transparent', boxShadow: `inset 4px 0 0 ${corLinha}` }}>
                         <Td>
                           {!pago && (
                             <input
@@ -422,9 +449,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             />
                           )}
                         </Td>
-                        <Td><strong style={{ color: '#3D2314' }}>{r.descricao}</strong>{r.numero_documento && (
-                          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
-                        )}</Td>
+                        <Td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <strong style={{ color: '#3D2314' }}>{r.descricao}</strong>
+                            {parcelaVisivel && (
+                              <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(61,35,20,0.65)', background: 'rgba(200,148,26,0.12)', border: '0.5px solid rgba(200,148,26,0.35)', padding: '2px 6px', borderRadius: 4 }} title="Parcela atual / total">
+                                Parcela {r.parcela}
+                              </span>
+                            )}
+                          </div>
+                          {r.numero_documento && (
+                            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
+                          )}
+                        </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
                         <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
@@ -525,7 +562,9 @@ function labelsPorTipo(tipo: Tipo) {
       titulo: 'Despesas a pagar',
       subtitulo: 'Acompanhe tudo que você tem para pagar',
       tipoPlural: 'despesas',
-      pagosLabel: 'Pagos',
+      pagosLabel: 'Pagas',
+      vencidosLabel: 'Vencidas',
+      hojeLabel: 'Vencem hoje',
       ctaNovo: 'Nova despesa',
       rotaNovo: '/dashboard/financeiro/nova-despesa',
     }
@@ -535,7 +574,9 @@ function labelsPorTipo(tipo: Tipo) {
     titulo: 'Receitas a receber',
     subtitulo: 'Acompanhe tudo que você tem para receber',
     tipoPlural: 'receitas',
-    pagosLabel: 'Recebidos',
+    pagosLabel: 'Recebidas',
+    vencidosLabel: 'Vencidas',
+    hojeLabel: 'Vencem hoje',
     ctaNovo: 'Nova receita',
     rotaNovo: '/dashboard/financeiro/nova-receita',
   }
