@@ -18,6 +18,7 @@ interface Linha {
   forma_pagamento: string | null
   saldo_acumulado: number
   numero_documento: string | null
+  parcela: string | null
 }
 
 interface Extrato {
@@ -54,6 +55,30 @@ function isoMinus(days: number): string {
 
 function isoToday(): string {
   return new Date().toISOString().split('T')[0]
+}
+
+function toISO(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+const CATEGORIA_PALETTE = [
+  { bg: '#FCE4E4', fg: '#7A2929' },
+  { bg: '#E4F0FC', fg: '#1F4A7A' },
+  { bg: '#E4FCEA', fg: '#1F6B3A' },
+  { bg: '#FCF5E4', fg: '#7A5A1F' },
+  { bg: '#F0E4FC', fg: '#4A1F7A' },
+  { bg: '#E4FCF8', fg: '#1F6B6B' },
+  { bg: '#FCE4F4', fg: '#7A1F5A' },
+  { bg: '#EEFCE4', fg: '#3A6B1F' },
+]
+
+function hashColor(s: string): { bg: string; fg: string } {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return CATEGORIA_PALETTE[h % CATEGORIA_PALETTE.length]
 }
 
 type Tipo = 'todos' | 'entradas' | 'saidas'
@@ -197,6 +222,11 @@ export default function ExtratoPage() {
         </p>
 
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#FAF7F2', padding: '8px 0 16px', marginBottom: 16, borderBottom: '0.5px solid rgba(61,35,20,0.08)' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <button type="button" onClick={() => { setDataInicio(isoMinus(30)); setDataFim(isoToday()) }} style={quickBtn}>30 dias</button>
+            <button type="button" onClick={() => { const h = new Date(); setDataInicio(toISO(new Date(h.getFullYear(), h.getMonth(), 1))); setDataFim(toISO(new Date(h.getFullYear(), h.getMonth() + 1, 0))) }} style={quickBtn}>Mês atual</button>
+            <button type="button" onClick={() => { const h = new Date(); setDataInicio(toISO(new Date(h.getFullYear(), h.getMonth() - 1, 1))); setDataFim(toISO(new Date(h.getFullYear(), h.getMonth(), 0))) }} style={quickBtn}>Mês passado</button>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
             <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={input}>
               <option value="">Todas as contas</option>
@@ -245,14 +275,35 @@ export default function ExtratoPage() {
                     <th style={{ ...th, textAlign: 'right' }}>Valor</th>
                     <th style={{ ...th, textAlign: 'right' }}>Saldo</th>
                     <th style={th}>Status</th>
+                    <th style={{ ...th, width: 36 }} aria-label="Editar"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {linhasPagina.map((l, idx) => (
-                    <tr key={l.id} onClick={() => drilldown(l)} style={{ borderTop: '0.5px solid rgba(61,35,20,0.08)', background: idx % 2 ? 'rgba(61,35,20,0.015)' : 'transparent', cursor: 'pointer' }}>
+                  {linhasPagina.map((l, idx) => {
+                    const parcelaVisivel = l.parcela && l.parcela.trim() !== '' && l.parcela !== '1/1' && l.parcela !== '001/001'
+                    const categoriaCor = l.categoria ? hashColor(l.categoria) : null
+                    return (
+                    <tr key={l.id} style={{ borderTop: '0.5px solid rgba(61,35,20,0.08)', background: idx % 2 ? 'rgba(61,35,20,0.015)' : 'transparent' }}>
                       <td style={td}>{fmtDate(l.data)}</td>
-                      <td style={td}>{l.descricao ?? '—'}</td>
-                      <td style={{ ...td, color: 'rgba(61,35,20,0.65)', fontSize: 12 }}>{l.categoria ?? '—'}</td>
+                      <td style={td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span>{l.descricao ?? '—'}</span>
+                          {parcelaVisivel && (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(61,35,20,0.65)', background: 'rgba(61,35,20,0.06)', padding: '1px 6px', borderRadius: 3 }} title="Parcela atual / total">
+                              parcela {l.parcela}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={td}>
+                        {l.categoria && categoriaCor ? (
+                          <span style={{ fontSize: 11, fontWeight: 600, color: categoriaCor.fg, background: categoriaCor.bg, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                            {l.categoria}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'rgba(61,35,20,0.45)', fontSize: 12 }}>—</span>
+                        )}
+                      </td>
                       <td style={{ ...td, color: 'rgba(61,35,20,0.85)', fontSize: 12 }}>{l.nome_pessoa ?? '—'}</td>
                       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: l.sinal < 0 ? '#A32D2D' : '#3B6D11', fontWeight: 600 }}>
                         {l.sinal < 0 ? '−' : '+'} R$ {fmt(Math.abs(l.sinal))}
@@ -261,8 +312,14 @@ export default function ExtratoPage() {
                       <td style={td}>
                         <span style={statusBadge(l.status)}>{l.status}</span>
                       </td>
+                      <td style={td}>
+                        <button type="button" onClick={() => drilldown(l)} style={pencilBtn} title="Abrir registro" aria-label="Abrir registro">
+                          ✎
+                        </button>
+                      </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -344,6 +401,28 @@ const primaryBtn: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   cursor: 'pointer',
+}
+
+const quickBtn: React.CSSProperties = {
+  background: 'transparent',
+  color: '#3D2314',
+  border: '0.5px solid rgba(61,35,20,0.25)',
+  padding: '6px 12px',
+  borderRadius: 4,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+
+const pencilBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: 'rgba(61,35,20,0.55)',
+  fontSize: 14,
+  cursor: 'pointer',
+  padding: '2px 6px',
+  borderRadius: 4,
 }
 
 function secondaryBtn(disabled: boolean): React.CSSProperties {
