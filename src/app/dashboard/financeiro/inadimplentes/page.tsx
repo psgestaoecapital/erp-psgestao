@@ -20,6 +20,11 @@ interface ContaAtrasada {
 interface ClienteAtrasado {
   cliente_id: string | null
   cliente_nome: string | null
+  cliente_cpf_cnpj: string | null
+  cliente_telefone: string | null
+  cliente_celular: string | null
+  cliente_whatsapp: string | null
+  cliente_email: string | null
   qtd_contas: number
   total_valor: number
   contas: ContaAtrasada[]
@@ -57,6 +62,64 @@ function hoje(): string {
   return new Date().toISOString().split('T')[0]
 }
 
+function onlyDigits(s: string | null | undefined): string {
+  return (s ?? '').replace(/\D/g, '')
+}
+
+function corPorAtraso(dias: number): string {
+  if (dias > 60) return '#DC2626'
+  if (dias > 30) return '#EA580C'
+  return '#C8941A'
+}
+
+function whatsappHref(cliente: ClienteAtrasado, empresaNome: string): string | null {
+  const tel = onlyDigits(cliente.cliente_whatsapp ?? cliente.cliente_celular ?? '')
+  if (!tel) return null
+  const fone = tel.length <= 11 ? `55${tel}` : tel
+  const nome = (cliente.cliente_nome ?? '').split(' ')[0] || 'tudo bem'
+  const valor = Number(cliente.total_valor ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+  const empresa = empresaNome || 'da empresa'
+  const msg = `Olá ${nome}, tudo bem? Aqui é da ${empresa}. Notei que há ${cliente.qtd_contas} ${cliente.qtd_contas === 1 ? 'conta em aberto' : 'contas em aberto'} totalizando R$ ${valor}. Posso te ajudar a regularizar?`
+  return `https://wa.me/${fone}?text=${encodeURIComponent(msg)}`
+}
+
+function exportarCSVInadimplentes(clientes: ClienteAtrasado[]): void {
+  const head = ['Cliente', 'CNPJ/CPF', 'Conta', 'Vencimento', 'Valor', 'Dias atraso', 'Telefone', 'Email']
+  const linhas: string[][] = []
+  for (const c of clientes) {
+    const tel = c.cliente_telefone || c.cliente_celular || c.cliente_whatsapp || ''
+    for (const conta of c.contas) {
+      linhas.push([
+        (c.cliente_nome ?? '').replace(/"/g, '""'),
+        c.cliente_cpf_cnpj ?? '',
+        (conta.descricao ?? '').replace(/"/g, '""'),
+        conta.vencimento,
+        Number(conta.valor).toFixed(2).replace('.', ','),
+        String(conta.dias_atraso),
+        tel,
+        c.cliente_email ?? '',
+      ])
+    }
+  }
+  const csv = [head, ...linhas].map((r) => r.map((c) => `"${c}"`).join(';')).join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `inadimplentes_${hoje()}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function mailtoHref(cliente: ClienteAtrasado): string | null {
+  if (!cliente.cliente_email) return null
+  const nome = cliente.cliente_nome ?? 'cliente'
+  const valor = Number(cliente.total_valor ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+  const subject = 'Cobrança · contas em aberto'
+  const body = `Prezado(a) ${nome},\n\nIdentificamos ${cliente.qtd_contas} ${cliente.qtd_contas === 1 ? 'conta' : 'contas'} em aberto totalizando R$ ${valor}.\n\nSolicitamos a gentileza de regularizar ou entrar em contato para renegociação.\n\nAtenciosamente.`
+  return `mailto:${cliente.cliente_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}
+
 export default function InadimplentesPage() {
   const router = useRouter()
   const { companyIds, selInfo } = useCompanyIds()
@@ -71,6 +134,8 @@ export default function InadimplentesPage() {
   const [renegociandoIds, setRenegociandoIds] = useState<string[] | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [acaoLoading, setAcaoLoading] = useState(false)
+  const [ordem, setOrdem] = useState<'valor' | 'atraso'>('valor')
+  const [empresaNome, setEmpresaNome] = useState<string>('')
 
   useEffect(() => {
     let ignore = false
@@ -89,7 +154,32 @@ export default function InadimplentesPage() {
     return () => { ignore = true }
   }, [empresaUnica, reloadKey])
 
-  const clientesAtrasados = data?.atrasadas?.agrupado_cliente ?? []
+  useEffect(() => {
+    let ignore = false
+    if (!empresaUnica) return
+    ;(async () => {
+      const { data } = await supabase
+        .from('companies').select('nome_fantasia, razao_social')
+        .eq('id', empresaUnica).maybeSingle()
+      if (!ignore && data) setEmpresaNome((data.nome_fantasia as string) || (data.razao_social as string) || '')
+    })()
+    return () => { ignore = true }
+  }, [empresaUnica])
+
+  const clientesAtrasadosRaw = data?.atrasadas?.agrupado_cliente ?? []
+  const clientesAtrasados = useMemo(() => {
+    const arr = [...clientesAtrasadosRaw]
+    if (ordem === 'valor') {
+      arr.sort((a, b) => Number(b.total_valor) - Number(a.total_valor))
+    } else {
+      arr.sort((a, b) => {
+        const maxA = Math.max(...a.contas.map((c) => c.dias_atraso))
+        const maxB = Math.max(...b.contas.map((c) => c.dias_atraso))
+        return maxB - maxA
+      })
+    }
+    return arr
+  }, [clientesAtrasadosRaw, ordem])
   const countAtrasadas = data?.atrasadas?.count ?? 0
   const countAndamento = data?.em_andamento?.count ?? 0
   const countResolvidas = data?.resolvidas?.count ?? 0
@@ -188,6 +278,10 @@ export default function InadimplentesPage() {
             onMarcarPago={(id) => marcarPagoIds([id])}
             onRenegociar={(id) => setRenegociandoIds([id])}
             acaoLoading={acaoLoading}
+            ordem={ordem}
+            onOrdemChange={setOrdem}
+            onExportCSV={() => exportarCSVInadimplentes(clientesAtrasados)}
+            empresaNome={empresaNome}
           />
         )}
 
@@ -214,6 +308,7 @@ function ConteudoAtrasadas({
   clientes, totalValor, selecionados, todosIds, onToggleSelect,
   onSelectAll, onClearAll, expandido, onToggleCliente,
   onMarcarPago, onRenegociar, acaoLoading,
+  ordem, onOrdemChange, onExportCSV, empresaNome,
 }: {
   clientes: ClienteAtrasado[]
   totalValor: number
@@ -222,6 +317,10 @@ function ConteudoAtrasadas({
   onToggleSelect: (id: string) => void
   onSelectAll: (ids: string[]) => void
   onClearAll: () => void
+  ordem: 'valor' | 'atraso'
+  onOrdemChange: (o: 'valor' | 'atraso') => void
+  onExportCSV: () => void
+  empresaNome: string
   expandido: Set<string>
   onToggleCliente: (k: string) => void
   onMarcarPago: (id: string) => void
@@ -258,13 +357,26 @@ function ConteudoAtrasadas({
         </label>
       </div>
 
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>Ordenar:</span>
+          <button type="button" onClick={() => onOrdemChange('valor')} style={ordemBtnStyle(ordem === 'valor')}>Maior valor</button>
+          <button type="button" onClick={() => onOrdemChange('atraso')} style={ordemBtnStyle(ordem === 'atraso')}>Maior atraso</button>
+        </div>
+        <button type="button" onClick={onExportCSV} style={contatoBtnStyle('#3D2314')} title="Exportar CSV pra contador">
+          Exportar CSV
+        </button>
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {clientes.map((c) => {
           const key = c.cliente_id ?? c.cliente_nome ?? Math.random().toString()
           const open = expandido.has(key)
+          const waHref = whatsappHref(c, empresaNome)
+          const mHref = mailtoHref(c)
           return (
             <div key={key} style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, overflow: 'hidden' }}>
-              <button type="button" onClick={() => onToggleCliente(key)} style={clienteHeaderStyle(open)}>
+              <div style={clienteHeaderStyle(open)} role="button" tabIndex={0} onClick={() => onToggleCliente(key)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleCliente(key) } }}>
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {c.cliente_nome ?? '(sem nome)'}
@@ -273,20 +385,33 @@ function ConteudoAtrasadas({
                     {c.qtd_contas} {c.qtd_contas === 1 ? 'conta' : 'contas'}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 16 }}>
+                <div style={{ display: 'flex', gap: 6, marginRight: 12, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                  {waHref && (
+                    <a href={waHref} target="_blank" rel="noopener noreferrer" title="Cobrar via WhatsApp" aria-label="Cobrar via WhatsApp" style={contatoBtnStyle('#25D366')}>
+                      WhatsApp
+                    </a>
+                  )}
+                  {mHref && (
+                    <a href={mHref} title="Enviar email" aria-label="Enviar email" style={contatoBtnStyle('#3D2314')}>
+                      Email
+                    </a>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 4 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>
                     R$ {fmt(c.total_valor)}
                   </div>
                 </div>
                 <div style={{ fontSize: 16, color: 'rgba(61,35,20,0.4)', marginLeft: 12 }}>{open ? '−' : '+'}</div>
-              </button>
+              </div>
 
               {open && (
                 <div style={{ borderTop: '0.5px solid rgba(61,35,20,0.08)', padding: '4px 8px 8px' }}>
                   {c.contas.map((conta) => {
                     const checked = selecionados.has(conta.id)
+                    const corAtraso = corPorAtraso(conta.dias_atraso)
                     return (
-                      <div key={conta.id} style={{ padding: '8px 8px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderBottom: '0.5px solid rgba(61,35,20,0.05)' }}>
+                      <div key={conta.id} style={{ padding: '8px 8px 8px 10px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderBottom: '0.5px solid rgba(61,35,20,0.05)', borderLeft: `4px solid ${corAtraso}` }}>
                         <input type="checkbox" checked={checked} onChange={() => onToggleSelect(conta.id)} />
                         <div style={{ flex: 1, minWidth: 200 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>{conta.descricao ?? '(sem descrição)'}</div>
@@ -546,6 +671,37 @@ function smallBtn(bg: string, disabled: boolean, color?: string): React.CSSPrope
     fontSize: 11, fontWeight: 600,
     cursor: disabled ? 'not-allowed' : 'pointer',
     whiteSpace: 'nowrap',
+  }
+}
+
+function ordemBtnStyle(ativo: boolean): React.CSSProperties {
+  return {
+    background: ativo ? '#3D2314' : 'transparent',
+    color: ativo ? '#FAF7F2' : '#3D2314',
+    border: '0.5px solid rgba(61,35,20,0.25)',
+    padding: '4px 10px',
+    borderRadius: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  }
+}
+
+function contatoBtnStyle(bg: string): React.CSSProperties {
+  return {
+    background: bg,
+    color: '#FFFFFF',
+    border: 'none',
+    padding: '4px 10px',
+    borderRadius: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
   }
 }
 
