@@ -21,48 +21,47 @@ export default function MobileDrawer() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Abrir menu"
-        className="md:hidden flex items-center justify-center w-10 h-10 rounded-md text-[#FAF7F2] hover:bg-white/10"
+        data-testid="mobile-drawer-toggle"
+        className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg text-[#FAF7F2] hover:bg-[#C8941A]/12 transition-colors"
       >
         <Menu size={20} />
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          className="fixed inset-0 bg-black/55 z-40 md:hidden backdrop-blur-sm"
           onClick={() => setOpen(false)}
           aria-hidden="true"
         />
       )}
 
       <aside
-        className={`fixed top-0 left-0 h-full w-72 bg-[#3D2314] z-50 md:hidden transform transition-transform duration-300 overflow-y-auto ${
+        className={`fixed top-0 left-0 h-full w-[300px] bg-[#3D2314] z-50 md:hidden transform transition-transform duration-300 overflow-y-auto shadow-[8px_0_32px_rgba(0,0,0,0.4)] ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-hidden={!open}
       >
-        <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-[#C8941A] rounded-md flex items-center justify-center text-[#3D2314] font-medium text-sm">
+        <div className="flex items-center justify-between px-5 py-5 border-b border-[#C8941A]/20">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#C8941A] rounded-[8px] flex items-center justify-center text-[#3D2314] font-medium text-sm shadow-[0_0_0_1.5px_rgba(200,148,26,0.25)]">
               PS
             </div>
-            <div className="text-[#FAF7F2] text-sm font-medium leading-tight">
-              PS Gestão
-              <div className="text-[10px] text-[#FAF7F2]/60 tracking-wider">
-                CAPITAL &amp; ERP
-              </div>
+            <div className="leading-[1.15]">
+              <div className="text-[14px] font-medium text-[#FAF7F2] tracking-[0.2px]">PS Gestão</div>
+              <div className="text-[10px] text-[#FAF7F2]/70 tracking-[1px] font-medium">CAPITAL · ERP</div>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Fechar menu"
-            className="text-[#FAF7F2] hover:bg-white/10 w-8 h-8 rounded-md flex items-center justify-center"
+            className="text-[#FAF7F2] hover:bg-[#C8941A]/12 w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
-        <nav className="p-2">
+        <nav className="p-3">
           {DASHBOARD_MENU_GROUPS.map((group) => {
             const GroupIcon = group.icon
             const isExpanded = expandedGroup === group.id
@@ -72,20 +71,25 @@ export default function MobileDrawer() {
                 <button
                   type="button"
                   onClick={() => setExpandedGroup(isExpanded ? null : group.id)}
-                  className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-md text-sm transition-colors ${
-                    isGroupActive ? 'text-[#C8941A]' : 'text-[#FAF7F2] hover:bg-white/10'
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-3 rounded-lg text-[13.5px] font-medium tracking-[0.2px] transition-colors ${
+                    isGroupActive || isExpanded
+                      ? 'text-[#C8941A] bg-[#C8941A]/10'
+                      : 'text-[#FAF7F2] hover:bg-[#C8941A]/12'
                   }`}
                   aria-expanded={isExpanded}
                 >
-                  <span className="flex items-center gap-2.5">
-                    <GroupIcon size={16} />
+                  <span className="flex items-center gap-3">
+                    <GroupIcon size={17} className={isGroupActive || isExpanded ? 'text-[#C8941A]' : 'text-[#FAF7F2]/85'} />
                     {group.label}
                   </span>
-                  <ChevronDown size={14} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                  <ChevronDown
+                    size={13}
+                    className={`opacity-70 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                  />
                 </button>
 
                 {isExpanded && (
-                  <div className="mt-1 pl-2 space-y-0.5">
+                  <div className="mt-1 ml-2 pl-3 border-l border-[#C8941A]/20 space-y-0.5">
                     {group.items.map((item) => {
                       const ItemIcon = item.icon
                       const isActive = pathname?.startsWith(item.href)
@@ -94,10 +98,10 @@ export default function MobileDrawer() {
                           key={`${item.href}-${item.label}`}
                           href={item.href}
                           onClick={() => setOpen(false)}
-                          className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm ${
+                          className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-[12.5px] font-medium transition-colors ${
                             isActive
-                              ? 'bg-[#C8941A]/15 text-[#C8941A] font-medium'
-                              : 'text-[#FAF7F2]/80 hover:bg-white/5'
+                              ? 'bg-[#C8941A]/15 text-[#C8941A]'
+                              : 'text-[#FAF7F2]/85 hover:bg-[#C8941A]/10 hover:text-[#FAF7F2]'
                           }`}
                         >
                           <span className="flex items-center gap-2.5">
@@ -105,7 +109,7 @@ export default function MobileDrawer() {
                             {item.label}
                           </span>
                           {item.status && (
-                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${statusTagClasses(item.status)}`}>
+                            <span className={`text-[9px] font-medium px-1.5 py-[2px] rounded-full tracking-[0.3px] ${statusTagClasses(item.status)}`}>
                               {statusTagLabel(item.status)}
                             </span>
                           )}

@@ -47,20 +47,32 @@ export default function TopNavDropdown({ group }: Props) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="true"
-        className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm transition-colors ${
-          isGroupActive ? 'text-[#C8941A]' : 'text-[#FAF7F2] hover:bg-white/10'
+        data-testid={`topnav-group-${group.id}`}
+        className={`relative flex items-center gap-[7px] px-3.5 py-[9px] rounded-lg text-[13.5px] font-medium tracking-[0.2px] transition-all duration-150 ${
+          isGroupActive || open
+            ? 'text-[#C8941A] bg-[#C8941A]/8'
+            : 'text-[#FAF7F2] hover:text-[#FAF7F2] hover:bg-[#C8941A]/12'
         }`}
       >
-        <Icon size={16} />
+        <Icon size={17} className={isGroupActive || open ? 'text-[#C8941A]' : 'text-[#FAF7F2]/85'} />
         <span>{group.label}</span>
-        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={12}
+          className={`opacity-70 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+        {(isGroupActive || open) && (
+          <span className="absolute left-3.5 right-3.5 -bottom-[1px] h-[2px] bg-[#C8941A] rounded-t-[2px]" />
+        )}
       </button>
 
       {open && (
         <div
-          className="absolute top-full left-0 mt-1 min-w-[260px] bg-[#FAF7F2] border border-[#3D2314]/15 rounded-lg shadow-lg p-1.5 z-50"
           role="menu"
+          className="absolute top-full left-0 mt-2 min-w-[280px] bg-[#FAF7F2] rounded-2xl p-2 z-50 shadow-[0_1px_2px_rgba(61,35,20,0.05),0_16px_40px_rgba(61,35,20,0.18),0_0_0_0.5px_rgba(61,35,20,0.08)]"
         >
+          <div className="px-3 py-2 text-[10px] text-[#3D2314]/55 tracking-[0.8px] font-medium uppercase">
+            {group.label}
+          </div>
           {group.items.map((item) => {
             const ItemIcon = item.icon
             const isActive = pathname?.startsWith(item.href)
@@ -70,8 +82,9 @@ export default function TopNavDropdown({ group }: Props) {
                 href={item.href}
                 role="menuitem"
                 onClick={() => setOpen(false)}
-                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm text-[#3D2314] hover:bg-[#C8941A]/10 transition-colors ${
-                  isActive ? 'bg-[#C8941A]/10 font-medium' : ''
+                data-testid={`topnav-item-${item.href.replace(/\//g, '-')}`}
+                className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
+                  isActive ? 'bg-[#C8941A]/12 text-[#3D2314]' : 'text-[#3D2314] hover:bg-[#C8941A]/10'
                 }`}
               >
                 <span className="flex items-center gap-2.5">
@@ -79,7 +92,7 @@ export default function TopNavDropdown({ group }: Props) {
                   <span>{item.label}</span>
                 </span>
                 {item.status && (
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusTagClasses(item.status)}`}>
+                  <span className={`text-[9.5px] font-medium px-2 py-[3px] rounded-full tracking-[0.4px] ${statusTagClasses(item.status)}`}>
                     {statusTagLabel(item.status)}
                   </span>
                 )}
