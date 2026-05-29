@@ -24,13 +24,14 @@ interface Categoria {
   nivel: number | null
 }
 
-type TipoVinculo = 'receita' | 'despesa' | 'imposto' | 'custo'
+type TipoVinculo = 'receita' | 'despesa' | 'custo' | 'financeiro' | 'investimento'
 
 const TIPOS: Array<{ value: TipoVinculo; label: string }> = [
   { value: 'receita', label: 'Receita' },
   { value: 'despesa', label: 'Despesa' },
-  { value: 'imposto', label: 'Imposto' },
   { value: 'custo', label: 'Custo' },
+  { value: 'financeiro', label: 'Financeiro' },
+  { value: 'investimento', label: 'Investimento' },
 ]
 
 function indent(nivel: number | null | undefined): number {
@@ -67,10 +68,7 @@ export default function VincularCategoriasModal({ open, onClose, onSucesso, comp
   const filtradas = useMemo(() => {
     const q = filtro.trim().toLowerCase()
     let base = categorias
-    if (tipo === 'receita') base = categorias.filter((c) => (c.tipo ?? '').toLowerCase() === 'receita')
-    if (tipo === 'despesa') base = categorias.filter((c) => ['despesa', 'custo'].includes((c.tipo ?? '').toLowerCase()))
-    if (tipo === 'custo') base = categorias.filter((c) => (c.tipo ?? '').toLowerCase() === 'custo')
-    if (tipo === 'imposto') base = categorias
+    base = categorias.filter((c) => (c.tipo ?? '').toLowerCase() === tipo)
     if (!q) return base
     return base.filter((c) => `${c.codigo} ${c.descricao}`.toLowerCase().includes(q))
   }, [categorias, tipo, filtro])
