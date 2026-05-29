@@ -64,5 +64,20 @@ export default function Page() {
     )
   }
 
-  return <ContratosList companyId={empresaUnica} />
+  return (
+    <>
+      <div style={{ background: '#FAF7F2', padding: '20px 24px 0' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/cadastros/contratos-recorrentes/a-faturar')}
+            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', boxShadow: '0 1px 3px rgba(61,35,20,0.12)' }}
+          >
+            📋 Contratos a Faturar (próximos 15 dias)
+          </button>
+        </div>
+      </div>
+      <ContratosList companyId={empresaUnica} />
+    </>
+  )
 }
