@@ -61,6 +61,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [loading, setLoading] = useState(false)
   const [semPlano, setSemPlano] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [copiarAberto, setCopiarAberto] = useState(false)
 
   useEffect(() => {
     if (!companyId) return
@@ -197,6 +198,16 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
         <h1 style={{ fontSize: 24, color: '#3D2314', margin: 0, fontWeight: 500 }}>Nova despesa</h1>
         <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.65)', marginTop: 4 }}>
           Cadastre uma despesa nova · simples como uma nota fiscal
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+          <span style={{ ...atalhoBtn(true), pointerEvents: 'none' }}>🆕 Despesa nova</span>
+          <button type="button" onClick={() => setCopiarAberto(true)} style={atalhoBtn(false)}>
+            📋 Copiar de outra
+          </button>
+          <span title="Em breve: modelos de despesa" style={{ ...atalhoBtn(false), opacity: 0.45, cursor: 'not-allowed' }}>
+            📌 Usar modelo
+          </span>
         </div>
       </div>
 
@@ -510,8 +521,137 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           </button>
         </div>
       </div>
+
+      <CopiarDespesaModal
+        open={copiarAberto}
+        companyId={companyId}
+        onClose={() => setCopiarAberto(false)}
+        onUsar={(d) => {
+          setFornecedorId(d.fornecedor_id ?? '')
+          setFornecedorNome(d.fornecedor_nome ?? '')
+          setDescricao(d.descricao ?? '')
+          setValor(d.valor != null ? String(d.valor) : '')
+          setCategoriaCodigo(d.categoria ?? '')
+          setNumeroDocumento(d.numero_documento ?? '')
+          setFormaPagamento(d.forma_pagamento || 'pix')
+          setCopiarAberto(false)
+        }}
+      />
     </div>
   )
+}
+
+interface DespesaCopiavel {
+  id: string
+  fornecedor_id: string | null
+  fornecedor_nome: string | null
+  descricao: string | null
+  valor: number | null
+  categoria: string | null
+  numero_documento: string | null
+  forma_pagamento: string | null
+}
+
+function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
+  open: boolean
+  companyId: string
+  onClose: () => void
+  onUsar: (d: DespesaCopiavel) => void
+}) {
+  const [despesas, setDespesas] = useState<DespesaCopiavel[]>([])
+  const [busca, setBusca] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open || !companyId) return
+    let ignore = false
+    setLoading(true)
+    ;(async () => {
+      const { data } = await supabase
+        .from('erp_pagar')
+        .select('id, fornecedor_id, fornecedor_nome, descricao, valor, categoria, numero_documento, forma_pagamento, created_at')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false })
+        .limit(20)
+      if (!ignore) {
+        setDespesas((data ?? []) as DespesaCopiavel[])
+        setLoading(false)
+      }
+    })()
+    return () => { ignore = true }
+  }, [open, companyId])
+
+  if (!open) return null
+  const q = busca.trim().toLowerCase()
+  const filtradas = q
+    ? despesas.filter((d) => `${d.descricao ?? ''} ${d.fornecedor_nome ?? ''} ${d.categoria ?? ''}`.toLowerCase().includes(q))
+    : despesas
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#FAF7F2', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #C8941A' }}>
+        <div style={{ background: '#3D2314', color: '#FAF7F2', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 12, borderTopRightRadius: 12, position: 'sticky', top: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Copiar de outra despesa</h2>
+          <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', color: '#FAF7F2', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ padding: 16 }}>
+          <input
+            type="search"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por descrição, fornecedor, categoria…"
+            style={inputStyle}
+          />
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {loading ? (
+              <div style={{ color: 'rgba(61,35,20,0.55)', fontSize: 12, padding: 14, textAlign: 'center' }}>Carregando últimas 20 despesas…</div>
+            ) : filtradas.length === 0 ? (
+              <div style={{ color: 'rgba(61,35,20,0.55)', fontSize: 12, padding: 14, textAlign: 'center' }}>Nenhuma despesa encontrada.</div>
+            ) : (
+              filtradas.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => onUsar(d)}
+                  style={{ textAlign: 'left', background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {d.descricao || '(sem descrição)'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
+                      {d.fornecedor_nome ? `${d.fornecedor_nome} · ` : ''}{d.categoria ? `${d.categoria} · ` : ''}{d.forma_pagamento ?? ''}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>
+                    R$ {Number(d.valor ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function atalhoBtn(ativo: boolean): React.CSSProperties {
+  return {
+    background: ativo ? '#3D2314' : 'transparent',
+    color: ativo ? '#FAF7F2' : '#3D2314',
+    border: `0.5px solid ${ativo ? '#3D2314' : 'rgba(61,35,20,0.2)'}`,
+    padding: '6px 12px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: ativo ? 'default' : 'pointer',
+    fontFamily: 'inherit',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+  }
 }
 
 const inputStyle: React.CSSProperties = {
