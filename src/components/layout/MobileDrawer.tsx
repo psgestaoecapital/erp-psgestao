@@ -9,11 +9,15 @@ import {
   statusTagClasses,
   statusTagLabel,
 } from '@/lib/menu/dashboard-menu-config'
+import { AREAS_VISIVEIS, detectarAreaAtiva } from '@/lib/menu/areas-config'
 
 export default function MobileDrawer() {
   const [open, setOpen] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
-  const pathname = usePathname()
+  const [areasOpen, setAreasOpen] = useState(false)
+  const pathname = usePathname() || ''
+  const areaAtiva = detectarAreaAtiva(pathname)
+  const ActiveAreaIcon = areaAtiva?.icon
 
   return (
     <>
@@ -61,7 +65,57 @@ export default function MobileDrawer() {
           </button>
         </div>
 
-        <nav className="p-3">
+        <div className="px-3 pt-3">
+          <button
+            type="button"
+            onClick={() => setAreasOpen((o) => !o)}
+            data-testid="mobile-area-toggle"
+            aria-expanded={areasOpen}
+            className="w-full flex items-center justify-between gap-2 px-3 py-3 rounded-lg bg-[#C8941A]/12 border border-[#C8941A]/30 text-[#FAF7F2] text-[13px] font-medium"
+          >
+            <span className="flex items-center gap-2.5">
+              {areaAtiva && ActiveAreaIcon ? (
+                <>
+                  <ActiveAreaIcon size={17} className="text-[#C8941A]" />
+                  <span>{areaAtiva.label}</span>
+                </>
+              ) : (
+                <span className="text-[#FAF7F2]/70">Selecionar área</span>
+              )}
+            </span>
+            <ChevronDown size={13} className={`opacity-70 transition-transform ${areasOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {areasOpen && (
+            <div className="mt-2 ml-2 pl-3 border-l border-[#C8941A]/20 space-y-0.5">
+              {AREAS_VISIVEIS.filter((a) => a.visivel).map((area) => {
+                const Icon = area.icon
+                const isAtual = areaAtiva?.id === area.id
+                return (
+                  <Link
+                    key={area.id}
+                    href={area.hubRoute}
+                    onClick={() => {
+                      if (typeof window !== 'undefined') localStorage.setItem('area_atual_id', area.id)
+                      setOpen(false)
+                      setAreasOpen(false)
+                    }}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[12.5px] font-medium transition-colors ${
+                      isAtual ? 'bg-[#C8941A]/15 text-[#C8941A]' : 'text-[#FAF7F2]/85 hover:bg-[#C8941A]/10'
+                    }`}
+                  >
+                    <Icon size={15} className="text-[#C8941A]" />
+                    {area.label}
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <nav className="p-3 pt-2">
+          <div className="px-3 py-2 text-[10px] text-[#FAF7F2]/45 tracking-[1px] font-medium">
+            MENU DA ÁREA
+          </div>
           {DASHBOARD_MENU_GROUPS.map((group) => {
             const GroupIcon = group.icon
             const isExpanded = expandedGroup === group.id
