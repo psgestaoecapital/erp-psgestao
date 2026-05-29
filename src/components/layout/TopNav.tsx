@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Bell, ChevronDown } from 'lucide-react'
 import TopNavDropdown from './TopNavDropdown'
 import MobileDrawer from './MobileDrawer'
+import AreaSwitcher from './AreaSwitcher'
 import { DASHBOARD_MENU_GROUPS } from '@/lib/menu/dashboard-menu-config'
 import { supabase } from '@/lib/supabase'
 
@@ -102,6 +103,10 @@ export default function TopNav() {
           </div>
         </Link>
 
+        <div className="hidden md:block">
+          <AreaSwitcher />
+        </div>
+
         <nav className="hidden md:flex items-center gap-0.5">
           {DASHBOARD_MENU_GROUPS.map((group) => (
             <TopNavDropdown key={group.id} group={group} />
@@ -117,6 +122,7 @@ export default function TopNav() {
               onClick={() => setEmpresaOpen((o) => !o)}
               aria-haspopup="true"
               aria-expanded={empresaOpen}
+              data-testid="empresa-switcher"
               className="flex items-center gap-2.5 pl-3 pr-3 py-[7px] rounded-full bg-[#C8941A]/12 hover:bg-[#C8941A]/18 border border-[#C8941A]/30 text-[12px] font-medium transition-colors"
             >
               <span className="w-[7px] h-[7px] bg-[#C8941A] rounded-full shadow-[0_0_0_2px_rgba(200,148,26,0.25)]" />
@@ -149,6 +155,7 @@ export default function TopNav() {
         <button
           type="button"
           aria-label="Notificações"
+          data-testid="bell-notifications"
           className="relative w-9 h-9 rounded-lg hover:bg-[#C8941A]/12 flex items-center justify-center transition-colors mr-1"
         >
           <Bell size={18} />
@@ -161,6 +168,7 @@ export default function TopNav() {
           <button
             type="button"
             aria-label={`Conta de ${user.email}`}
+            data-testid="user-avatar"
             className="w-9 h-9 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[13px] flex items-center justify-center hover:opacity-95 transition-opacity ring-[1.5px] ring-[#FAF7F2]/95 shadow-[0_0_0_3px_rgba(200,148,26,0.35)]"
           >
             {user.iniciais}
