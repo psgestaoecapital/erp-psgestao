@@ -129,7 +129,7 @@ export default function ConciliacaoPage() {
             {lotes.map((l) => {
               const pct = l.total_movimentos > 0 ? Math.round((l.total_conciliados / l.total_movimentos) * 100) : 0
               return (
-                <button key={l.id} onClick={() => router.push(`/dashboard/financeiro/conciliacao/${l.id}`)} style={loteCard}>
+                <button key={l.id} onClick={() => router.push(`/dashboard/conciliacao/${l.id}`)} style={loteCard}>
                   <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {l.nome}
