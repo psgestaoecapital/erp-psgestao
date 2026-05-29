@@ -47,9 +47,7 @@ export default function DashboardRico({ companyId, companyName, userName }: Prop
 
   return (
     <div style={{ background: '#FAF7F2', minHeight: '100vh' }}>
-      {painel?.alertas_imediatos && painel.alertas_imediatos.length > 0 && (
-        <FaixaAlertas alertas={painel.alertas_imediatos} />
-      )}
+      <FaixaAlertas companyId={companyId} />
 
       <HeaderGE companyId={companyId} companyName={companyName} userName={userName} />
 

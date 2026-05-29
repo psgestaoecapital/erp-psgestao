@@ -60,6 +60,7 @@ export interface ContaPlano {
   pai_codigo: string | null
   nivel: number | null
   ativo: boolean
+  is_totalizador: boolean
 }
 
 interface Props {
@@ -88,6 +89,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
   const [grupo, setGrupo] = useState(conta?.grupo ?? grupoDefault(conta?.tipo ?? 'despesa'))
   const [paiCodigo, setPaiCodigo] = useState(conta?.pai_codigo ?? '')
   const [nivel, setNivel] = useState<number>(conta?.nivel ?? 2)
+  const [isTotalizador, setIsTotalizador] = useState<boolean>(conta?.is_totalizador ?? false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -126,6 +128,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
       pai_codigo: paiCodigo || null,
       nivel,
       ativo: conta?.ativo ?? true,
+      is_totalizador: isTotalizador,
     }
 
     const result = conta?.id
@@ -228,6 +231,18 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
               </select>
             </Campo>
           )}
+
+          <div style={{ background: 'rgba(200,148,26,0.08)', border: '0.5px solid rgba(200,148,26,0.3)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={isTotalizador} onChange={(e) => setIsTotalizador(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A', marginTop: 2 }} />
+              <span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Σ É linha totalizadora</span>
+                <small style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
+                  Soma os filhos automaticamente · não recebe lançamentos diretos.
+                </small>
+              </span>
+            </label>
+          </div>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button

@@ -31,6 +31,7 @@ export interface Conta {
   incluir_no_resumo: boolean
   incluir_no_fluxo: boolean
   incluir_no_orcamento: boolean
+  limite_credito: number
 }
 
 interface Props {
@@ -65,6 +66,7 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
   const [incluirResumo, setIncluirResumo] = useState(conta?.incluir_no_resumo ?? true)
   const [incluirFluxo, setIncluirFluxo] = useState(conta?.incluir_no_fluxo ?? true)
   const [incluirOrcamento, setIncluirOrcamento] = useState(conta?.incluir_no_orcamento ?? true)
+  const [limiteCredito, setLimiteCredito] = useState(conta?.limite_credito?.toString() ?? '0')
   const [cor, setCor] = useState(conta?.cor ?? '#3D2314')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -90,6 +92,7 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
       incluir_no_resumo: incluirResumo,
       incluir_no_fluxo: incluirFluxo,
       incluir_no_orcamento: incluirOrcamento,
+      limite_credito: parseFloat(limiteCredito) || 0,
       cor,
       ativo: true,
     }
@@ -219,6 +222,10 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
               <input type="date" value={dataSaldoInicial} onChange={(e) => setDataSaldoInicial(e.target.value)} style={inputStyle} />
             </Campo>
           </div>
+
+          <Campo label="Limite de crédito (R$)" hint="Cartão de crédito ou cheque especial · zero se não houver">
+            <input type="number" step="0.01" min="0" value={limiteCredito} onChange={(e) => setLimiteCredito(e.target.value)} style={inputStyle} />
+          </Campo>
 
           <Campo label="Cor identificadora">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

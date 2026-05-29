@@ -35,6 +35,9 @@ interface Extrato {
 interface Conta {
   id: string
   nome: string
+  saldo_atual?: number | null
+  saldo_inicial?: number | null
+  limite_credito?: number | null
 }
 
 function fmt(n: number | null | undefined): string {
@@ -119,7 +122,7 @@ export default function ExtratoPage() {
     if (!empresaUnica) return
     ;(async () => {
       const { data } = await supabase
-        .from('erp_banco_contas').select('id, nome')
+        .from('erp_banco_contas').select('id, nome, saldo_atual, saldo_inicial, limite_credito')
         .eq('company_id', empresaUnica).eq('ativo', true)
         .order('nome')
       if (!ignore) setContas((data ?? []) as Conta[])
@@ -242,6 +245,27 @@ export default function ExtratoPage() {
             <input placeholder="Buscar descrição, pessoa, categoria…" value={busca} onChange={(e) => setBusca(e.target.value)} style={input} />
           </div>
         </div>
+
+        {(() => {
+          const contaSel = contaId ? contas.find((c) => c.id === contaId) : null
+          const saldoAtual = contaSel
+            ? Number(contaSel.saldo_atual ?? contaSel.saldo_inicial ?? 0)
+            : contas.reduce((s, c) => s + Number(c.saldo_atual ?? c.saldo_inicial ?? 0), 0)
+          const limite = contaSel
+            ? Number(contaSel.limite_credito ?? 0)
+            : contas.reduce((s, c) => s + Number(c.limite_credito ?? 0), 0)
+          const pendentePagar = Math.max(0, Number(total?.total_saidas ?? 0))
+          const conciliado = saldoAtual - pendentePagar
+          const disponivel = saldoAtual + limite
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+              <Card label="Saldo Conciliado" valor={`R$ ${fmt(conciliado)}`} cor="#C8941A" />
+              <Card label="Saldo Atual" valor={`R$ ${fmt(saldoAtual)}`} cor="#3D2314" destaque />
+              <Card label="Limite de Crédito" valor={`R$ ${fmt(limite)}`} cor="rgba(61,35,20,0.55)" />
+              <Card label="Disponível" valor={`R$ ${fmt(disponivel)}`} cor="#3B6D11" />
+            </div>
+          )
+        })()}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
           <Card label="Saldo Anterior" valor={`R$ ${fmt(total?.saldo_anterior)}`} cor="rgba(61,35,20,0.5)" />
