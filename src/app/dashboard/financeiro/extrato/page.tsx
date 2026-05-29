@@ -102,20 +102,6 @@ export default function ExtratoPage() {
 
   const [extrato, setExtrato] = useState<Extrato | null>(null)
   const [loading, setLoading] = useState(true)
-  const [allowed, setAllowed] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    let ignore = false
-    if (!empresaUnica) { setAllowed(false); return }
-    ;(async () => {
-      const { data } = await supabase
-        .from('tenant_subscriptions').select('plan_id, status')
-        .eq('company_id', empresaUnica).eq('status', 'active')
-        .eq('plan_id', 'v15_gestao_empresarial_pro').maybeSingle()
-      if (!ignore) setAllowed(!!data)
-    })()
-    return () => { ignore = true }
-  }, [empresaUnica])
 
   useEffect(() => {
     let ignore = false
@@ -132,7 +118,7 @@ export default function ExtratoPage() {
 
   useEffect(() => {
     let ignore = false
-    if (!empresaUnica || allowed !== true) return
+    if (!empresaUnica) return
     ;(async () => {
       setLoading(true)
       const { data } = await supabase.rpc('fn_ge_extrato_conta', {
@@ -148,7 +134,7 @@ export default function ExtratoPage() {
       }
     })()
     return () => { ignore = true }
-  }, [empresaUnica, contaId, dataInicio, dataFim, allowed])
+  }, [empresaUnica, contaId, dataInicio, dataFim])
 
   const linhasFiltradas = useMemo<Linha[]>(() => {
     if (!extrato) return []
@@ -193,19 +179,8 @@ export default function ExtratoPage() {
     router.push(`${destino}?q=${encodeURIComponent(l.descricao ?? '')}`)
   }
 
-  if (allowed === null) {
-    return <div style={loadingBox}>Carregando…</div>
-  }
   if (!empresaUnica) {
     return <div style={infoBox}>Selecione uma empresa para ver o extrato.</div>
-  }
-  if (!allowed) {
-    return (
-      <div style={{ ...infoBox, textAlign: 'center' }}>
-        <h2 style={{ color: '#3D2314', fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400 }}>Plano GE Pró necessário</h2>
-        <button onClick={() => router.push('/dashboard/gestao-empresarial')} style={primaryBtn}>Voltar ao painel</button>
-      </div>
-    )
   }
 
   const total = extrato?.totalizadores
