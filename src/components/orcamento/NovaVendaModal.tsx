@@ -143,7 +143,7 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
         <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={loading} style={secondaryBtn(loading)}>Cancelar</button>
           <button onClick={confirmar} disabled={loading || clientes.length === 0} style={primaryBtn(loading)}>
-            {loading ? 'Criando…' : 'Confirmar venda'}
+            {loading ? 'Criando…' : tipo === 'orcamento' ? 'Salvar Orçamento' : tipo === 'venda_recorrente' ? 'Criar Recorrência' : 'Lançar Venda Avulsa'}
           </button>
         </div>
       </div>
