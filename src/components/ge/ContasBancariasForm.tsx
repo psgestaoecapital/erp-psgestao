@@ -28,6 +28,9 @@ export interface Conta {
   soma_no_saldo: boolean
   cor: string | null
   ativo: boolean
+  incluir_no_resumo: boolean
+  incluir_no_fluxo: boolean
+  incluir_no_orcamento: boolean
 }
 
 interface Props {
@@ -59,6 +62,9 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
     conta?.data_saldo_inicial ?? new Date().toISOString().split('T')[0],
   )
   const [somaNoSaldo, setSomaNoSaldo] = useState(conta?.soma_no_saldo ?? true)
+  const [incluirResumo, setIncluirResumo] = useState(conta?.incluir_no_resumo ?? true)
+  const [incluirFluxo, setIncluirFluxo] = useState(conta?.incluir_no_fluxo ?? true)
+  const [incluirOrcamento, setIncluirOrcamento] = useState(conta?.incluir_no_orcamento ?? true)
   const [cor, setCor] = useState(conta?.cor ?? '#3D2314')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -81,6 +87,9 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
       saldo_inicial: parseFloat(saldoInicial) || 0,
       data_saldo_inicial: dataSaldoInicial || null,
       soma_no_saldo: somaNoSaldo,
+      incluir_no_resumo: incluirResumo,
+      incluir_no_fluxo: incluirFluxo,
+      incluir_no_orcamento: incluirOrcamento,
       cor,
       ativo: true,
     }
@@ -241,6 +250,33 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
                 <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>
                   Marque para contas operacionais. Desmarque para cartões de crédito ou investimentos que você quer ver separado.
                 </div>
+              </div>
+            </label>
+          </div>
+
+          <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, padding: 14, marginTop: 8 }}>
+            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700, marginBottom: 10 }}>
+              Onde considerar esta conta
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0' }}>
+              <input type="checkbox" checked={incluirResumo} onChange={(e) => setIncluirResumo(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A' }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>Incluir no Resumo</div>
+                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Aparece no saldo total do hub</div>
+              </div>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0' }}>
+              <input type="checkbox" checked={incluirFluxo} onChange={(e) => setIncluirFluxo(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A' }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>Incluir no Fluxo de Caixa</div>
+                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Movimentos somam na visão diária</div>
+              </div>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0' }}>
+              <input type="checkbox" checked={incluirOrcamento} onChange={(e) => setIncluirOrcamento(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A' }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>Incluir no Orçamento</div>
+                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Lançamentos entram no Budget Anual</div>
               </div>
             </label>
           </div>

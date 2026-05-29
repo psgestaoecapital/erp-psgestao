@@ -29,7 +29,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
     setLoading(true)
     const { data } = await supabase
       .from('erp_banco_contas')
-      .select('id, nome, banco, agencia, conta, tipo_conta, saldo_inicial, data_saldo_inicial, soma_no_saldo, cor, ativo')
+      .select('id, nome, banco, agencia, conta, tipo_conta, saldo_inicial, data_saldo_inicial, soma_no_saldo, incluir_no_resumo, incluir_no_fluxo, incluir_no_orcamento, cor, ativo')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome')
@@ -180,11 +180,26 @@ function CardConta({ conta, onEditar, onInativar }: { conta: Conta; onEditar: ()
     >
       <div style={{ fontSize: 22 }} aria-hidden>{tipoInfo.icone}</div>
       <div style={{ flex: 1, minWidth: 200 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           {conta.nome}
           {!conta.soma_no_saldo && (
-            <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(186,117,23,0.15)', color: '#854F0B', padding: '2px 6px', borderRadius: 3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
+            <span style={{ fontSize: 10, background: 'rgba(186,117,23,0.15)', color: '#854F0B', padding: '2px 6px', borderRadius: 3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
               Não soma
+            </span>
+          )}
+          {conta.incluir_no_resumo === false && (
+            <span title="Não incluída no Resumo" style={{ fontSize: 10, background: 'rgba(163,45,45,0.12)', color: '#A32D2D', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+              ⚠ Resumo
+            </span>
+          )}
+          {conta.incluir_no_fluxo === false && (
+            <span title="Não incluída no Fluxo de Caixa" style={{ fontSize: 10, background: 'rgba(163,45,45,0.12)', color: '#A32D2D', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+              ⚠ Fluxo
+            </span>
+          )}
+          {conta.incluir_no_orcamento === false && (
+            <span title="Não incluída no Orçamento" style={{ fontSize: 10, background: 'rgba(163,45,45,0.12)', color: '#A32D2D', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+              ⚠ Orçamento
             </span>
           )}
         </div>

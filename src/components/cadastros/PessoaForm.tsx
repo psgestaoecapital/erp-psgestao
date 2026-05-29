@@ -16,7 +16,10 @@ export interface Pessoa {
   cidade: string | null
   uf: string | null
   ativo: boolean
+  tags: string[] | null
 }
+
+export const TAGS_SUGERIDAS = ['Cliente', 'Fornecedor', 'Funcionário', 'Parceiro', 'Prospect']
 
 interface Props {
   companyId: string
@@ -49,9 +52,23 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
   const [telefone, setTelefone] = useState(pessoa?.telefone ?? '')
   const [cidade, setCidade] = useState(pessoa?.cidade ?? '')
   const [uf, setUf] = useState(pessoa?.uf ?? '')
+  const [tags, setTags] = useState<string[]>(pessoa?.tags ?? (tipo === 'cliente' ? ['Cliente'] : ['Fornecedor']))
+  const [novaTag, setNovaTag] = useState('')
   const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  function adicionarTag(t: string) {
+    const limpa = t.trim()
+    if (!limpa) return
+    if (tags.includes(limpa)) return
+    setTags([...tags, limpa])
+    setNovaTag('')
+  }
+
+  function removerTag(t: string) {
+    setTags(tags.filter((x) => x !== t))
+  }
 
   async function handleBuscarCNPJ() {
     if (tipoPessoa !== 'PJ') return
@@ -95,6 +112,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       cidade: cidade.trim() || null,
       uf: uf.trim().toUpperCase().slice(0, 2) || null,
       ativo: pessoa?.ativo ?? true,
+      tags: tags.length > 0 ? tags : null,
     }
 
     const result = pessoa?.id
@@ -206,6 +224,36 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
               <input value={uf} onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))} style={inputStyle} maxLength={2} />
             </Campo>
           </div>
+
+          <Campo label="Tags" hint="Categorize a pessoa · clique nas sugestões ou digite uma tag nova">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {tags.map((t) => (
+                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#C8941A', color: '#3D2314', padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600 }}>
+                  {t}
+                  <button type="button" onClick={() => removerTag(t)} aria-label={`Remover ${t}`} style={{ background: 'transparent', border: 'none', color: '#3D2314', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1 }}>×</button>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+              {TAGS_SUGERIDAS.filter((t) => !tags.includes(t)).map((t) => (
+                <button key={t} type="button" onClick={() => adicionarTag(t)} style={{ background: 'transparent', border: '0.5px solid rgba(61,35,20,0.2)', color: '#3D2314', padding: '2px 8px', borderRadius: 12, fontSize: 11, cursor: 'pointer' }}>
+                  + {t}
+                </button>
+              ))}
+            </div>
+            <input
+              value={novaTag}
+              onChange={(e) => setNovaTag(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault()
+                  adicionarTag(novaTag)
+                }
+              }}
+              placeholder="Digite uma tag e tecle Enter…"
+              style={{ ...inputStyle, fontSize: 12 }}
+            />
+          </Campo>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" onClick={onClose} disabled={salvando} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '10px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
