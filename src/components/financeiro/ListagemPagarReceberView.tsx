@@ -195,27 +195,6 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     }
   }
 
-  if (data?.sem_plano) {
-    return (
-      <Wrapper>
-        <Header labels={labels} />
-        <div
-          style={{
-            background: '#FFF7ED',
-            border: '0.5px solid rgba(200,148,26,0.4)',
-            borderRadius: 12,
-            padding: '20px 24px',
-            color: '#854F0B',
-            fontSize: 13,
-            maxWidth: 720,
-          }}
-        >
-          Esta empresa ainda não tem o plano <strong>Gestão Empresarial Pro</strong> ativo.
-          Ative o plano pra ver as {labels.tipoPlural}.
-        </div>
-      </Wrapper>
-    )
-  }
 
   return (
     <Wrapper>

@@ -59,7 +59,6 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
 
   const [loading, setLoading] = useState(false)
-  const [semPlano, setSemPlano] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [copiarAberto, setCopiarAberto] = useState(false)
 
@@ -149,7 +148,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
 
     if (resultado?.sem_plano) {
       setLoading(false)
-      setSemPlano(true)
+      setErro('Não foi possível salvar agora. Verifique o cadastro da empresa.')
       return
     }
 
@@ -445,23 +444,6 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             )}
           </div>
         </div>
-
-        {semPlano && (
-          <div
-            style={{
-              background: '#FFF7ED',
-              color: '#854F0B',
-              border: '0.5px solid rgba(200,148,26,0.4)',
-              padding: '10px 14px',
-              borderRadius: 6,
-              marginTop: 18,
-              fontSize: 13,
-            }}
-          >
-            Esta empresa ainda não tem o plano <strong>Gestão Empresarial Pro</strong> ativo.
-            Ative o plano pra cadastrar despesas.
-          </div>
-        )}
 
         {erro && (
           <div
