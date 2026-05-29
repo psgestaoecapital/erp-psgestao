@@ -29,7 +29,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
     setLoading(true)
     const { data } = await supabase
       .from('erp_banco_contas')
-      .select('id, nome, banco, agencia, conta, tipo_conta, saldo_inicial, data_saldo_inicial, soma_no_saldo, incluir_no_resumo, incluir_no_fluxo, incluir_no_orcamento, cor, ativo')
+      .select('id, nome, banco, agencia, conta, tipo_conta, saldo_inicial, data_saldo_inicial, soma_no_saldo, incluir_no_resumo, incluir_no_fluxo, incluir_no_orcamento, limite_credito, cor, ativo')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome')

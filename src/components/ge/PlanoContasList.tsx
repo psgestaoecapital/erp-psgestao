@@ -22,7 +22,7 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
     setLoading(true)
     const { data } = await supabase
       .from('erp_plano_contas')
-      .select('id, codigo, descricao, grupo, tipo, pai_codigo, nivel, ativo')
+      .select('id, codigo, descricao, grupo, tipo, pai_codigo, nivel, ativo, is_totalizador')
       .eq('company_id', companyId)
       .order('codigo')
     if (data) setContas(data as ContaPlano[])
@@ -244,6 +244,11 @@ function CardConta({ conta, onEditar, onToggleAtivo, onVincularDRE }: { conta: C
         <span style={{ fontSize: 13, fontWeight: isNivel1 ? 600 : 400, color: '#3D2314' }}>
           {conta.descricao}
         </span>
+        {conta.is_totalizador && (
+          <span title="Soma os filhos · não recebe lançamentos diretos" style={{ marginLeft: 8, fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#C8941A', color: '#FAF7F2', fontWeight: 700, fontFamily: 'Fraunces, Georgia, serif', letterSpacing: 0.3 }}>
+            Σ Totalizador
+          </span>
+        )}
         {conta.grupo && (
           <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 3, background: 'rgba(200,148,26,0.15)', color: '#854F0B', fontWeight: 600, textTransform: 'capitalize' }}>
             {conta.grupo.replace(/_/g, ' ')}
