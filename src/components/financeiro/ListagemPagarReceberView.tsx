@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
+import EmitirNFSeButton from './EmitirNFSeButton'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -99,6 +100,32 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [data, setData] = useState<Resposta | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
+
+  useEffect(() => {
+    if (!companyId || tipo !== 'receber') {
+      setNfseMap({})
+      return
+    }
+    let alive = true
+    supabase
+      .from('erp_nfse_emitidas')
+      .select('erp_receber_id, status')
+      .eq('company_id', companyId)
+      .not('erp_receber_id', 'is', null)
+      .then(({ data, error }) => {
+        if (!alive || error) return
+        const map: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
+        for (const row of data ?? []) {
+          if (!row.erp_receber_id) continue
+          const existing = map[row.erp_receber_id]
+          if (existing === 'autorizada') continue
+          map[row.erp_receber_id] = row.status
+        }
+        setNfseMap(map)
+      })
+    return () => { alive = false }
+  }, [companyId, tipo, reloadKey])
 
   useEffect(() => {
     if (!companyId) return
@@ -407,6 +434,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                     <Th>Vencimento</Th>
                     <Th align="right">Valor</Th>
                     <Th>Status</Th>
+                    {tipo === 'receber' && <Th>NFSe</Th>}
                     <Th align="right">Ação</Th>
                   </tr>
                 </thead>
@@ -446,6 +474,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td align="right"><strong>{fmtBRL(r.status === 'pago' && r.valor_pago ? r.valor_pago : r.valor_documento)}</strong></Td>
                         <Td><Pill situacao={r.situacao} /></Td>
+                        {tipo === 'receber' && (
+                          <Td>
+                            <EmitirNFSeButton
+                              companyId={companyId}
+                              erpReceberId={r.id}
+                              descricao={r.descricao}
+                              valor={r.valor_documento}
+                              jaEmitida={nfseMap[r.id] === 'autorizada'}
+                              onSucesso={() => setReloadKey((k) => k + 1)}
+                            />
+                          </Td>
+                        )}
                         <Td align="right">
                           {!pago ? (
                             <button
