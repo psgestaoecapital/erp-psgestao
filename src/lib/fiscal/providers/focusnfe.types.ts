@@ -58,3 +58,17 @@ export interface FocusNFeAPIError {
 export type FocusNFeBaseUrl =
   | 'https://api.focusnfe.com.br'
   | 'https://homologacao.focusnfe.com.br'
+
+export interface FocusNFeNFeResponse {
+  ref?: string
+  chave_nfe?: string
+  numero?: string
+  serie?: string
+  protocolo?: string
+  status: 'autorizado' | 'processando_autorizacao' | 'erro_autorizacao' | 'cancelado' | 'denegado'
+  status_sefaz?: string
+  mensagem_sefaz?: string
+  caminho_xml_nota_fiscal?: string
+  caminho_danfe?: string
+  url_danfe?: string
+}
