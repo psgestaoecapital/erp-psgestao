@@ -31,9 +31,13 @@ export default function BPOInboxPage() {
   const [userName, setUserName] = useState<string>('')
   const [filterEmpresa, setFilterEmpresa] = useState<string>('todas')
   const [filterPrioridade, setFilterPrioridade] = useState<string>('todas')
-  const [filterTipo, setFilterTipo] = useState<string>('todos')
+  // RD-bpo-jordana 13/05/2026: default 'alerta' filtra as 225 tarefas
+  // sistemicas (cron) que poluiam o inbox principal. Operadora ainda pode
+  // alternar manualmente para 'todos'/'tarefa' via select.
+  const [filterTipo, setFilterTipo] = useState<string>('alerta')
   const [busca, setBusca] = useState<string>('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [actionMsg, setActionMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
 
   // Paleta local: nomes preservados, valores referenciam PSGC_COLORS.
   const C = {
@@ -150,41 +154,36 @@ export default function BPOInboxPage() {
 
   async function handleAction(item: InboxItem, action: 'aprovar' | 'rejeitar' | 'escalar') {
     setActionLoading(item.item_id)
+    setActionMsg(null)
 
-    const updates: Record<string, unknown> = {
-      status: action === 'aprovar' || action === 'rejeitar' ? 'concluido' : 'pendente',
-      resolvido_em: new Date().toISOString(),
-      resolvido_por: userId,
-    }
+    // RD-bpo-jordana 13/05/2026: substitui o UPDATE direto em
+    // bpo_inbox_items por chamada a fn_inbox_resolver (SECURITY DEFINER).
+    // RPC server-side resolve em uma transacao consistente: bpo_inbox_items,
+    // bpo_alertas/bpo_classificacoes e audit log. Bypassa RLS strict do
+    // PR #107 que bloqueava operador BPO sem company_id na sessao.
+    try {
+      const { data, error } = await supabase.rpc('fn_inbox_resolver', {
+        p_inbox_id: item.item_id,
+        p_acao: action,
+        p_motivo: null,
+      })
 
-    if (action === 'escalar') {
-      updates.prioridade = 'urgente'
-      updates.operador_notas = `Escalado em ${new Date().toISOString()}`
-    }
+      if (error) throw new Error(error.message)
+      if (!data?.sucesso) throw new Error(data?.erro || 'Erro desconhecido ao resolver item')
 
-    const { error } = await supabase
-      .from('bpo_inbox_items')
-      .update(updates)
-      .eq('id', item.item_id)
-
-    if (!error) {
-      if (item.tipo_origem === 'alerta') {
-        await supabase
-          .from('bpo_alertas')
-          .update({ status: action === 'aprovar' ? 'resolvido' : 'rejeitado' })
-          .eq('id', item.item_id)
-      }
-      if (item.tipo_origem === 'classificacao') {
-        await supabase
-          .from('bpo_classificacoes')
-          .update({ status: action === 'aprovar' ? 'aprovado' : 'rejeitado' })
-          .eq('id', item.item_id)
-      }
+      const labelAcao = action === 'aprovar' ? 'aprovado' : action === 'rejeitar' ? 'rejeitado' : 'escalado'
+      setActionMsg({ tipo: 'ok', texto: `Item ${labelAcao} com sucesso.` })
+      window.setTimeout(() => setActionMsg(null), 3500)
 
       await loadInbox()
       setSelectedItem(null)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[inbox] handleAction error:', msg)
+      setActionMsg({ tipo: 'erro', texto: `Falha ao ${action}: ${msg}` })
+    } finally {
+      setActionLoading(null)
     }
-    setActionLoading(null)
   }
 
   // ─── Sub-componentes (DENTRO do componente principal pra closure sobre C) ───
@@ -457,6 +456,24 @@ export default function BPOInboxPage() {
           Atualizar
         </PSGCButton>
       </div>
+
+      {/* Feedback inline das acoes Aprovar/Rejeitar/Escalar */}
+      {actionMsg && (
+        <div
+          style={{
+            margin: '0 32px 12px',
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            background: actionMsg.tipo === 'ok' ? '#DCFCE7' : '#FEE2E2',
+            color: actionMsg.tipo === 'ok' ? '#166534' : '#991B1B',
+            borderLeft: `4px solid ${actionMsg.tipo === 'ok' ? '#16A34A' : '#DC2626'}`,
+          }}
+        >
+          {actionMsg.texto}
+        </div>
+      )}
 
       {/* LAYOUT 2 COLUNAS */}
       <div style={{ padding: '16px 32px', display: 'flex', gap: 16, flexWrap: 'wrap' }}>

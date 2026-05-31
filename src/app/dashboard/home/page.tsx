@@ -4,6 +4,12 @@
 
 'use client';
 
+// 🛡️ Reenquadramento pós PR #132 — esconde blocos legados do home.
+// O estratégico vive em /dashboard/analises (9 abas maduras); a ponte
+// "Ver análises completas →" já existe abaixo. Reversível: basta
+// SHOW_LEGACY_HOME = true (1 edit + commit) para restaurar os blocos.
+const SHOW_LEGACY_HOME = false;
+
 import { useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -13,6 +19,7 @@ import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
 import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
 import PeriodoSelector, { type SelecaoPeriodo } from '@/components/dashboard/PeriodoSelector';
+import { PainelOperacionalCompleto } from '@/components/dashboard/operacional/PainelOperacionalCompleto';
 
 interface Empresa { id: string; nome_fantasia: string; cnpj?: string; }
 interface Grupo { 
@@ -285,6 +292,12 @@ function DashboardUniversalInner() {
       {/* ============ CORPO ============ */}
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 60px' }}>
 
+        {/* UX Onda 1: Painel Operacional ContaAzul-like — operacao do dia
+            ANTES dos KPIs estrategicos. companyIdsKey vem do useCompanyIds. */}
+        <PainelOperacionalCompleto
+          companyIds={companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []}
+        />
+
         {erroData && !data && (
           <div style={{ background: 'white', borderRadius: 12, padding: 32, textAlign: 'center', border: '1px solid #E8E2D4', marginBottom: 20 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
@@ -313,16 +326,20 @@ function DashboardUniversalInner() {
         {data && data.camada1 && (
           <>
             <CamadaUm data={data.camada1} qtdEmpresas={data.contexto?.qtd_empresas || 1} dashboardHomeData={dashboardHomeData} />
-            <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
-            <ConsultorInsights data={data.camada1?.consultor_ia} />
-            <RaioXProfundo
-              apiFetch={authFetch}
-              companyIds={data.contexto?.company_ids || []}
-              ano={data.contexto?.ano || null}
-              mes={data.contexto?.mes || null}
-              regime={regime}
-              grupoId={grupoIdSelecionado}
-            />
+            {SHOW_LEGACY_HOME && (
+              <>
+                <PainelExecutivo data={data.camada1?.painel_executivo} regime={regime} />
+                <ConsultorInsights data={data.camada1?.consultor_ia} />
+                <RaioXProfundo
+                  apiFetch={authFetch}
+                  companyIds={data.contexto?.company_ids || []}
+                  ano={data.contexto?.ano || null}
+                  mes={data.contexto?.mes || null}
+                  regime={regime}
+                  grupoId={grupoIdSelecionado}
+                />
+              </>
+            )}
 
             <div style={{ margin: '48px 0 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: 2, color: '#C8941A', fontWeight: 500, textTransform: 'uppercase' }}>Raio-X</div>

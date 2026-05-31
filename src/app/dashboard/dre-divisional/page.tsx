@@ -4,10 +4,12 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { supabase } from '@/lib/supabase'
 import { C, METODO_LABEL, MESES_PT, fmtBRL, fmtPct } from './_components'
 import { ComoCalculadoModal } from './_components/ComoCalculadoModal'
 import { GraficoBarrasEbitda, GraficoSerie12m } from './_components/Graficos'
 import { TabelaDetalhada } from './_components/TabelaDetalhada'
+import VincularCategoriasModal from '@/components/dre/VincularCategoriasModal'
 
 type ViewMode = 'mes' | 'ytd' | 'serie_12m'
 
@@ -65,6 +67,7 @@ export default function DreDivisionalPage() {
   const [data, setData] = useState<DreResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [ordemPersonalizada, setOrdemPersonalizada] = useState<Array<{ linha_id: string; ordem: number; visivel?: boolean }>>([])
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) {
@@ -92,6 +95,45 @@ export default function DreDivisionalPage() {
   }, [empresaUnica, ano, mes, viewMode])
 
   useEffect(() => { carregar() }, [carregar])
+
+  useEffect(() => {
+    let ignore = false
+    if (!empresaUnica) { setOrdemPersonalizada([]); return }
+    ;(async () => {
+      const { data: ordem } = await supabase.rpc('fn_dre_ordem_personalizada_get', { p_company_id: empresaUnica })
+      if (!ignore) setOrdemPersonalizada((ordem ?? []) as Array<{ linha_id: string; ordem: number; visivel?: boolean }>)
+    })()
+    return () => { ignore = true }
+  }, [empresaUnica])
+
+  const linhasOrdenadas = useMemo<Linha[]>(() => {
+    if (!data?.linhas) return []
+    if (ordemPersonalizada.length === 0) return data.linhas
+    const cfgMap = new Map(ordemPersonalizada.map((o) => [o.linha_id, o]))
+    const filtradas = data.linhas.filter((l) => cfgMap.get(l.ln_id)?.visivel !== false)
+    return filtradas.sort((a, b) => {
+      const oa = cfgMap.get(a.ln_id)?.ordem ?? Number.MAX_SAFE_INTEGER
+      const ob = cfgMap.get(b.ln_id)?.ordem ?? Number.MAX_SAFE_INTEGER
+      return oa - ob
+    })
+  }, [data, ordemPersonalizada])
+
+  async function handleReorderLinhas(novaOrdem: Linha[]) {
+    if (!empresaUnica) return
+    const visMap = new Map(ordemPersonalizada.map((o) => [o.linha_id, o.visivel ?? true]))
+    const payload = novaOrdem.map((l, idx) => ({ linha_id: l.ln_id, ordem: idx, visivel: visMap.get(l.ln_id) ?? true }))
+    setOrdemPersonalizada(payload)
+    await supabase.rpc('fn_dre_ordem_personalizada_set', {
+      p_company_id: empresaUnica,
+      p_ordens: payload,
+    })
+  }
+
+  async function handleResetOrdem() {
+    if (!empresaUnica) return
+    await supabase.rpc('fn_dre_ordem_personalizada_reset', { p_company_id: empresaUnica })
+    setOrdemPersonalizada([])
+  }
 
   const anos = useMemo(() => {
     const out: number[] = []
@@ -193,10 +235,16 @@ export default function DreDivisionalPage() {
       {data && data.metadata.tem_lns_suficientes && (
         <>
           <CardsTotais totais={data.totais} viewMode={viewMode} />
-          <CardsPorLN linhas={data.linhas} />
-          <GraficoBarrasEbitda linhas={data.linhas} />
+          <CardsPorLN linhas={linhasOrdenadas} companyId={empresaUnica} onChange={carregar} />
+          <GraficoBarrasEbitda linhas={linhasOrdenadas} />
           {viewMode === 'serie_12m' && <GraficoSerie12m serie={data.serie_12m} />}
-          <TabelaDetalhada linhas={data.linhas} totais={data.totais} />
+          <TabelaDetalhada
+            linhas={linhasOrdenadas}
+            totais={data.totais}
+            onReorder={handleReorderLinhas}
+            onReset={handleResetOrdem}
+            isCustomOrder={ordemPersonalizada.length > 0}
+          />
           <NotaTecnica />
         </>
       )}
@@ -291,17 +339,18 @@ function Card({ label, valor, info, cor }: { label: string; valor: string; info:
 
 // ───────────── Cards por LN ─────────────
 
-function CardsPorLN({ linhas }: { linhas: Linha[] }) {
+function CardsPorLN({ linhas, companyId, onChange }: { linhas: Linha[]; companyId: string | null; onChange?: () => void }) {
   return (
     <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginBottom: 20 }}>
       {linhas.map((l) => (
-        <CardLN key={l.ln_id} linha={l} />
+        <CardLN key={l.ln_id} linha={l} companyId={companyId} onChange={onChange} />
       ))}
     </section>
   )
 }
 
-function CardLN({ linha }: { linha: Linha }) {
+function CardLN({ linha, companyId, onChange }: { linha: Linha; companyId: string | null; onChange?: () => void }) {
+  const [vinculando, setVinculando] = useState(false)
   const positivo = linha.ebitda_pos_rateio >= 0
   const corReal = positivo ? C.green : C.red
   const corRealBg = positivo ? C.greenBg : C.redBg
@@ -309,7 +358,7 @@ function CardLN({ linha }: { linha: Linha }) {
 
   return (
     <div style={{ background: 'white', borderRadius: 12, padding: 18, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', border: `1px solid ${C.borderLt}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: 0, color: C.espresso }}>
           {linha.ln_nome}
         </h3>
@@ -317,6 +366,25 @@ function CardLN({ linha }: { linha: Linha }) {
           {positivo ? 'Lucro real' : 'Prejuízo real'}
         </span>
       </div>
+      {companyId && (
+        <button
+          type="button"
+          onClick={() => setVinculando(true)}
+          style={{ background: 'transparent', color: C.espresso, border: `0.5px solid ${C.borderLt}`, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}
+        >
+          + Vincular categorias
+        </button>
+      )}
+      {companyId && (
+        <VincularCategoriasModal
+          open={vinculando}
+          onClose={() => setVinculando(false)}
+          onSucesso={() => { setVinculando(false); onChange?.() }}
+          companyId={companyId}
+          ldnId={linha.ln_id}
+          ldnNome={linha.ln_nome}
+        />
+      )}
 
       <Row label="Receita Bruta" valor={fmtBRL(linha.rob)} />
       <Row label="EBITDA Antes Rateio" valor={`${fmtBRL(linha.ebitda_pre_rateio)} · ${fmtPct(pctPre)}`} />
@@ -385,12 +453,20 @@ function Layout({
               Resultado por linha de negócio com rateio NBC TG 16{empresa ? ` · ${empresa}` : ''}.
             </p>
           </div>
-          <button
-            onClick={onAbrirModal}
-            style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            ℹ️ Como é calculado
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/dre-divisional/configurar"
+              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+            >
+              ⚙ Configurar ordem
+            </Link>
+            <button
+              onClick={onAbrirModal}
+              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ℹ️ Como é calculado
+            </button>
+          </div>
         </header>
 
         {children}

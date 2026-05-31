@@ -73,11 +73,16 @@ export default function AlertasEpiPage() {
     setErro(null)
     try {
       const ids = companyIdsKey.split(',').filter(Boolean)
+      // M.B.epi-alertas-fix: usa aliases para mapear colunas reais
+      // da tabela epi_alerta (tipo_alerta, prioridade, mensagem, created_at)
+      // mantendo a interface AlertaRow TypeScript intacta downstream.
+      // funcionario_nome / catalogo_nome nao existem na tabela — saem como
+      // undefined e o JSX faz fallback gracioso via && checks.
       let q = supabase
         .from('epi_alerta')
-        .select('id, company_id, tipo, severidade, titulo, descricao, funcionario_id, funcionario_nome, catalogo_id, catalogo_nome, status, criado_em, resolvido_em')
+        .select('id, company_id, tipo:tipo_alerta, severidade:prioridade, titulo, descricao:mensagem, funcionario_id, catalogo_id, status, criado_em:created_at, resolvido_em')
         .in('company_id', ids)
-        .order('criado_em', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(500)
       if (filtroStatus) q = q.eq('status', filtroStatus)
       const { data, error } = await q

@@ -17,6 +17,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { authFetch } from '@/lib/authFetch'
+import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
+import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 
 // ===== Tipos =====
 interface Movimento {
@@ -89,6 +93,8 @@ export default function ConciliacaoLotePage() {
   const params = useParams()
   const router = useRouter()
   const lote_id = params?.lote_id as string
+  const { companyIds, selInfo } = useCompanyIds()
+  const companyId = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
   const [lote, setLote] = useState<Lote | null>(null)
   const [movimentos, setMovimentos] = useState<Movimento[]>([])
@@ -97,6 +103,12 @@ export default function ConciliacaoLotePage() {
   const [processando, setProcessando] = useState(false)
   const [toast, setToast] = useState<{ tipo: 'ok' | 'erro' | 'info'; msg: string } | null>(null)
   const [mostrarAjuda, setMostrarAjuda] = useState(false)
+
+  const [ajustarAberto, setAjustarAberto] = useState<{ id: string; tipo: 'pagar' | 'receber'; valorOriginal: number; valorBanco: number; descricao: string } | null>(null)
+  const [arquivarAberto, setArquivarAberto] = useState<{ id: string; descricao: string } | null>(null)
+  const [tolValor, setTolValor] = useState<string>('0.10')
+  const [tolDias, setTolDias] = useState<string>('3')
+  const [buscandoMatches, setBuscandoMatches] = useState(false)
 
   const movimentoAtual = movimentos[indice]
   const totalPendentes = movimentos.filter(m => m.status === 'pendente').length
@@ -223,6 +235,95 @@ export default function ConciliacaoLotePage() {
     }
   }, [movimentoAtual, processando, avancar])
 
+  const buscarMatches = useCallback(async () => {
+    if (!companyId || !lote_id || buscandoMatches) return
+    setBuscandoMatches(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_ge_conciliacao_sugerir_matches', {
+        p_company_id: companyId,
+        p_lote_id: lote_id,
+        p_tolerancia_valor: parseFloat(tolValor) || 0.10,
+        p_tolerancia_dias: parseInt(tolDias) || 3,
+      })
+      if (error) throw new Error(error.message)
+      const sugestoes = (data as any)?.sugestoes ?? (Array.isArray(data) ? data : [])
+      if (!Array.isArray(sugestoes) || sugestoes.length === 0) {
+        mostrarToast('info', 'Nenhuma sugestão nova com essa tolerância')
+        return
+      }
+      const mapaSug = new Map<string, any>()
+      for (const s of sugestoes) {
+        const mid = s.movimento_id ?? s.id
+        if (mid && !mapaSug.has(mid)) mapaSug.set(mid, s)
+      }
+      setMovimentos(prev => prev.map(m => {
+        const s = mapaSug.get(m.movimento_id)
+        if (!s) return m
+        return {
+          ...m,
+          sugestao_lancamento_tabela: s.lancamento_tabela ?? m.sugestao_lancamento_tabela,
+          sugestao_lancamento_id: s.lancamento_id ?? m.sugestao_lancamento_id,
+          sugestao_data: s.data ?? m.sugestao_data,
+          sugestao_valor: s.valor != null ? String(s.valor) : m.sugestao_valor,
+          sugestao_contraparte: s.contraparte ?? m.sugestao_contraparte,
+          sugestao_score: s.score != null ? Number(s.score) : m.sugestao_score,
+          sugestao_categoria: 'quase',
+        }
+      }))
+      mostrarToast('ok', `🔎 ${sugestoes.length} sugestão${sugestoes.length === 1 ? '' : 'ões'} "quase lá" aplicada${sugestoes.length === 1 ? '' : 's'}`)
+    } catch (e: any) {
+      mostrarToast('erro', e.message || 'Erro ao buscar matches')
+    } finally {
+      setBuscandoMatches(false)
+    }
+  }, [companyId, lote_id, tolValor, tolDias, buscandoMatches])
+
+  const desvincular = useCallback(async () => {
+    if (!movimentoAtual || !movimentoAtual.sugestao_lancamento_id || !movimentoAtual.sugestao_lancamento_tabela) {
+      mostrarToast('info', 'Este movimento não está vinculado')
+      return
+    }
+    if (movimentoAtual.status !== 'conciliado') {
+      mostrarToast('info', 'Movimento ainda não foi conciliado')
+      return
+    }
+    if (!confirm('Desvincular este lançamento? O movimento volta a precisar de match.')) return
+    setProcessando(true)
+    const tipo = movimentoAtual.sugestao_lancamento_tabela === 'erp_pagar' ? 'pagar' : 'receber'
+    try {
+      const { error } = await supabase.rpc('fn_conciliacao_desvincular', {
+        p_lancamento_id: movimentoAtual.sugestao_lancamento_id,
+        p_tipo: tipo,
+      })
+      if (error) throw new Error(error.message)
+      mostrarToast('ok', '🔗‍💥 Lançamento desvinculado')
+      await carregar()
+    } catch (e: any) {
+      mostrarToast('erro', e.message)
+    } finally {
+      setProcessando(false)
+    }
+  }, [movimentoAtual, carregar])
+
+  const abrirAjustar = useCallback(() => {
+    if (!movimentoAtual || !movimentoAtual.sugestao_lancamento_id || !movimentoAtual.sugestao_lancamento_tabela) {
+      mostrarToast('info', 'Sem lançamento vinculado para ajustar')
+      return
+    }
+    setAjustarAberto({
+      id: movimentoAtual.sugestao_lancamento_id,
+      tipo: movimentoAtual.sugestao_lancamento_tabela === 'erp_pagar' ? 'pagar' : 'receber',
+      valorOriginal: parseFloat(movimentoAtual.sugestao_valor || '0') || 0,
+      valorBanco: parseFloat(movimentoAtual.valor || '0') || 0,
+      descricao: movimentoAtual.descricao || '',
+    })
+  }, [movimentoAtual])
+
+  const abrirArquivar = useCallback(() => {
+    if (!movimentoAtual) return
+    setArquivarAberto({ id: movimentoAtual.movimento_id, descricao: movimentoAtual.descricao || '' })
+  }, [movimentoAtual])
+
   const ignorarMovimento = useCallback(async () => {
     if (!movimentoAtual || processando) return
     setProcessando(true)
@@ -280,11 +381,18 @@ export default function ConciliacaoLotePage() {
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
         avancar()
+      } else if ((e.key === 'a' || e.key === 'A') && !processando) {
+        e.preventDefault()
+        if (e.shiftKey) abrirArquivar()
+        else abrirAjustar()
+      } else if ((e.key === 'd' || e.key === 'D') && !processando) {
+        e.preventDefault()
+        desvincular()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [aplicarMatch, rejeitarSugestao, ignorarMovimento, avancar, voltar, processando])
+  }, [aplicarMatch, rejeitarSugestao, ignorarMovimento, avancar, voltar, processando, abrirAjustar, abrirArquivar, desvincular])
 
   // ===== Renderização =====
   if (carregando) {
@@ -321,6 +429,15 @@ export default function ConciliacaoLotePage() {
         onAjuda={() => setMostrarAjuda(s => !s)}
       />
 
+      <BuscarMatchesBar
+        tolValor={tolValor}
+        tolDias={tolDias}
+        onChangeTolValor={setTolValor}
+        onChangeTolDias={setTolDias}
+        onBuscar={buscarMatches}
+        buscando={buscandoMatches}
+      />
+
       <div style={mainStyle}>
         <ColunaMovimento movimento={movimentoAtual} indice={indice} total={movimentos.length} />
         <ColunaSugestao
@@ -329,6 +446,9 @@ export default function ConciliacaoLotePage() {
           onRejeitar={rejeitarSugestao}
           onIgnorar={ignorarMovimento}
           onPular={avancar}
+          onAjustar={abrirAjustar}
+          onArquivar={abrirArquivar}
+          onDesvincular={desvincular}
           processando={processando}
         />
       </div>
@@ -338,6 +458,91 @@ export default function ConciliacaoLotePage() {
       {toast && <Toast {...toast} />}
 
       {mostrarAjuda && <ModalAjuda onFechar={() => setMostrarAjuda(false)} />}
+
+      <AjustarValoresModal
+        open={!!ajustarAberto}
+        onClose={() => setAjustarAberto(null)}
+        onSucesso={() => { setAjustarAberto(null); carregar() }}
+        lancamentoId={ajustarAberto?.id ?? ''}
+        tipo={ajustarAberto?.tipo ?? 'pagar'}
+        valorOriginal={ajustarAberto?.valorOriginal ?? 0}
+        valorBanco={ajustarAberto?.valorBanco}
+        descricao={ajustarAberto?.descricao}
+      />
+
+      <ArquivarMovimentoModal
+        open={!!arquivarAberto}
+        onClose={() => setArquivarAberto(null)}
+        onSucesso={() => { setArquivarAberto(null); carregar() }}
+        movimentoId={arquivarAberto?.id ?? ''}
+        descricao={arquivarAberto?.descricao}
+      />
+    </div>
+  )
+}
+
+function BuscarMatchesBar({ tolValor, tolDias, onChangeTolValor, onChangeTolDias, onBuscar, buscando }: {
+  tolValor: string
+  tolDias: string
+  onChangeTolValor: (v: string) => void
+  onChangeTolDias: (v: string) => void
+  onBuscar: () => void
+  buscando: boolean
+}) {
+  return (
+    <div style={{
+      background: OFFWHITE,
+      borderBottom: `1px solid ${DOURADO}`,
+      padding: '10px 24px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      flexWrap: 'wrap',
+      fontSize: 12,
+      color: ESPRESSO,
+    }}>
+      <span style={{ fontWeight: 600 }}>🔎 Buscar matches sugeridos · tolerância:</span>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        R$
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={tolValor}
+          onChange={(e) => onChangeTolValor(e.target.value)}
+          placeholder="0.10"
+          style={{ width: 80, padding: '4px 8px', border: `1px solid ${ESPRESSO_CLARO}`, borderRadius: 4, fontSize: 12 }}
+        />
+      </label>
+      <span>e</span>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          type="number"
+          step="1"
+          min="0"
+          value={tolDias}
+          onChange={(e) => onChangeTolDias(e.target.value)}
+          placeholder="3"
+          style={{ width: 60, padding: '4px 8px', border: `1px solid ${ESPRESSO_CLARO}`, borderRadius: 4, fontSize: 12 }}
+        />
+        dias
+      </label>
+      <button
+        onClick={onBuscar}
+        disabled={buscando}
+        style={{
+          background: buscando ? AMARELO : DOURADO,
+          color: ESPRESSO,
+          border: 'none',
+          padding: '6px 14px',
+          borderRadius: 4,
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: buscando ? 'wait' : 'pointer',
+        }}
+      >
+        {buscando ? 'Buscando…' : 'Buscar matches'}
+      </button>
     </div>
   )
 }
@@ -408,9 +613,10 @@ function ColunaMovimento({ movimento, indice, total }: { movimento: Movimento; i
   )
 }
 
-function ColunaSugestao({ movimento, onAceitar, onRejeitar, onIgnorar, onPular, processando }: any) {
+function ColunaSugestao({ movimento, onAceitar, onRejeitar, onIgnorar, onPular, onAjustar, onArquivar, onDesvincular, processando }: any) {
   const temSugestao = !!movimento.sugestao_lancamento_id
   const sem = semaforo(movimento.sugestao_categoria)
+  const vinculado = movimento.status === 'conciliado' && !!movimento.sugestao_lancamento_id
 
   return (
     <section style={colunaStyle}>
@@ -436,6 +642,11 @@ function ColunaSugestao({ movimento, onAceitar, onRejeitar, onIgnorar, onPular, 
             <div style={{ fontSize: 14, color: ESPRESSO_CLARO, lineHeight: 1.5 }}>
               {movimento.sugestao_contraparte || '(sem nome)'}
             </div>
+            {movimento.sugestao_categoria === 'quase' && parseFloat(movimento.valor) && parseFloat(movimento.sugestao_valor) && (
+              <div style={{ marginTop: 8, padding: '4px 8px', background: '#FEF3C7', color: ESPRESSO, borderRadius: 4, fontSize: 11, fontWeight: 600, display: 'inline-block' }}>
+                Quase lá · diferença {formatBRL(Math.abs(parseFloat(movimento.valor) - parseFloat(movimento.sugestao_valor)))}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
@@ -452,6 +663,20 @@ function ColunaSugestao({ movimento, onAceitar, onRejeitar, onIgnorar, onPular, 
               → Pular <kbd style={kbdStyle}>Esc</kbd>
             </button>
           </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button onClick={onAjustar} disabled={processando} style={btnSecundario} title="Ajustar juros/desconto do lançamento">
+              🪙 Ajustar <kbd style={kbdStyle}>A</kbd>
+            </button>
+            <button onClick={onArquivar} disabled={processando} style={btnSecundario} title="Arquivar movimento (não precisa conciliar)">
+              🗄 Arquivar <kbd style={kbdStyle}>⇧A</kbd>
+            </button>
+            {vinculado && (
+              <button onClick={onDesvincular} disabled={processando} style={btnSecundario} title="Desvincular lançamento">
+                🔗‍💥 Desvincular <kbd style={kbdStyle}>D</kbd>
+              </button>
+            )}
+          </div>
         </>
       ) : (
         <div style={cardSemSugestao}>
@@ -460,9 +685,12 @@ function ColunaSugestao({ movimento, onAceitar, onRejeitar, onIgnorar, onPular, 
             Não encontrei nada parecido nas contas a {movimento.natureza === 'credito' ? 'receber' : 'pagar'}.
           </div>
           <div style={{ fontSize: 12, color: '#777', marginBottom: 12 }}>
-            Pode ser um lançamento ainda não cadastrado, ou movimento sem contraparte.
+            Pode ser um lançamento ainda não cadastrado, ou movimento sem contraparte. Tente aumentar a tolerância no topo.
           </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={onArquivar} disabled={processando} style={btnSecundario}>
+              🗄 Arquivar <kbd style={kbdStyle}>⇧A</kbd>
+            </button>
             <button onClick={onIgnorar} disabled={processando} style={btnSecundario}>
               ⊘ Ignorar <kbd style={kbdStyle}>I</kbd>
             </button>

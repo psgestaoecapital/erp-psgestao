@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import NovaVendaModal from "@/components/orcamento/NovaVendaModal";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -22,6 +23,7 @@ export default function OrcamentoPage(){
   const [editValues,setEditValues]=useState<Record<string,string>>({});
   const [filtro,setFiltro]=useState<"todos"|"receita"|"despesa">("todos");
   const [showImport,setShowImport]=useState(false);
+  const [showNovaVenda,setShowNovaVenda]=useState(false);
   const [ajustePct,setAjustePct]=useState(0);
 
   useEffect(()=>{loadCompanies();},[]);
@@ -204,6 +206,7 @@ export default function OrcamentoPage(){
         <div style={{display:"flex",gap:4,alignSelf:"flex-end"}}>
           <button onClick={copiarMesAnterior} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${B}30`,background:B+"10",color:B,fontSize:11,fontWeight:500,cursor:"pointer"}}>📋 Copiar Mês Anterior</button>
           <button onClick={()=>setShowImport(true)} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${P}30`,background:P+"10",color:P,fontSize:11,fontWeight:500,cursor:"pointer"}}>📊 Importar do Realizado</button>
+          <button onClick={()=>setShowNovaVenda(true)} disabled={!selectedComp} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${GO}`,background:GO,color:BG,fontSize:11,fontWeight:600,cursor:selectedComp?"pointer":"not-allowed",opacity:selectedComp?1:0.5}}>+ Nova Venda</button>
         </div>
       </div>
 
@@ -368,6 +371,12 @@ export default function OrcamentoPage(){
           <div style={{fontSize:11,color:TXM,marginTop:4}}>Importe dados do Omie/ContaAzul primeiro, ou selecione um mês com dados.</div>
         </div>
       )}
+
+      <NovaVendaModal
+        open={showNovaVenda}
+        onClose={() => setShowNovaVenda(false)}
+        companyId={selectedComp}
+      />
     </div>
   );
 }
