@@ -16,6 +16,7 @@ import type {
   FocusNFeBaseUrl,
   FocusNFeNFSePayload,
   FocusNFeNFSeResponse,
+  FocusNFeNFeResponse,
   FocusNFeAPIError,
 } from './focusnfe.types'
 
@@ -225,15 +226,107 @@ export class FocusNFeProvider implements FiscalProvider {
     }
   }
 
-  // GE-F5 implementa NFe
-  async emitirNFe(_req: NFeRequest): Promise<NFeResponse> {
-    throw new FiscalError('PROVIDER_ERRO_INTERNO', 'emitirNFe sera implementado no GE-F5')
+  // GE-F5 NFe produto
+  async emitirNFe(req: NFeRequest): Promise<NFeResponse> {
+    const referencia = `nfe-${Date.now()}`
+    const finalidadeNum =
+      req.finalidade === 'normal' ? 1
+        : req.finalidade === 'complementar' ? 2
+          : req.finalidade === 'ajuste' ? 3 : 4
+
+    const payload = {
+      natureza_operacao: req.naturezaOperacao,
+      finalidade: finalidadeNum,
+      data_emissao: new Date().toISOString(),
+      presenca_comprador: 1,
+      tipo_documento: 1,
+      cnpj_emitente: req.emitente.cnpj,
+      nome_emitente: req.emitente.razaoSocial,
+      inscricao_estadual_emitente: req.emitente.inscricaoEstadual,
+      cnpj_destinatario: req.destinatario.cnpj,
+      cpf_destinatario: req.destinatario.cpf,
+      nome_destinatario: req.destinatario.razaoSocial,
+      email_destinatario: req.destinatario.email,
+      indicador_inscricao_estadual_destinatario: 9,
+      logradouro_destinatario: req.destinatario.endereco?.logradouro,
+      numero_destinatario: req.destinatario.endereco?.numero,
+      bairro_destinatario: req.destinatario.endereco?.bairro,
+      municipio_destinatario: req.destinatario.endereco?.cidade,
+      uf_destinatario: req.destinatario.endereco?.uf,
+      cep_destinatario: req.destinatario.endereco?.cep,
+      itens: req.itens.map((item, idx) => ({
+        numero_item: idx + 1,
+        codigo_produto: item.codigo,
+        descricao: item.descricao,
+        cfop: item.cfop,
+        unidade_comercial: item.unidade,
+        quantidade_comercial: item.quantidade,
+        valor_unitario_comercial: item.valorUnitario,
+        valor_bruto: item.valorTotal,
+        unidade_tributavel: item.unidade,
+        quantidade_tributavel: item.quantidade,
+        valor_unitario_tributavel: item.valorUnitario,
+        codigo_ncm: item.ncm.replace(/\D/g, ''),
+        cest: item.cest,
+        origem: item.origem ?? '0',
+        icms_situacao_tributaria: item.icms?.cst,
+        icms_aliquota: item.icms?.aliquota,
+        ipi_situacao_tributaria: item.ipi?.cst ?? '99',
+        ipi_aliquota: item.ipi?.aliquota,
+        pis_situacao_tributaria: item.pis?.cst,
+        pis_aliquota_porcentual: item.pis?.aliquota,
+        cofins_situacao_tributaria: item.cofins?.cst,
+        cofins_aliquota_porcentual: item.cofins?.aliquota,
+      })),
+    }
+
+    const data = await this.request<FocusNFeNFeResponse>(
+      'POST',
+      `/v2/nfe?ref=${encodeURIComponent(referencia)}`,
+      payload
+    )
+    return this.mapFocusNFeResponse(referencia, data)
   }
-  async consultarNFe(_chave: string): Promise<NFeResponse> {
-    throw new FiscalError('PROVIDER_ERRO_INTERNO', 'consultarNFe sera implementado no GE-F5')
+
+  async consultarNFe(referenceOrChave: string): Promise<NFeResponse> {
+    const data = await this.request<FocusNFeNFeResponse>(
+      'GET',
+      `/v2/nfe/${encodeURIComponent(referenceOrChave)}`
+    )
+    return this.mapFocusNFeResponse(referenceOrChave, data)
   }
-  async cancelarNFe(_chave: string, _just: string): Promise<NFeResponse> {
-    throw new FiscalError('PROVIDER_ERRO_INTERNO', 'cancelarNFe sera implementado no GE-F5')
+
+  async cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse> {
+    if (justificativa.length < 15) {
+      throw new FiscalError('PAYLOAD_INVALIDO', 'Justificativa de cancelamento exige minimo 15 caracteres')
+    }
+    const data = await this.request<FocusNFeNFeResponse>(
+      'DELETE',
+      `/v2/nfe/${encodeURIComponent(chave)}?justificativa=${encodeURIComponent(justificativa)}`
+    )
+    return this.mapFocusNFeResponse(chave, data)
+  }
+
+  private mapFocusNFeResponse(referencia: string, data: FocusNFeNFeResponse): NFeResponse {
+    const status =
+      data.status === 'autorizado' ? 'autorizada'
+        : data.status === 'cancelado' ? 'cancelada'
+          : data.status === 'denegado' ? 'denegada'
+            : data.status === 'erro_autorizacao' ? 'rejeitada'
+              : 'processando'
+
+    return {
+      ok: status === 'autorizada',
+      numero: data.numero,
+      chave: data.chave_nfe,
+      protocolo: data.protocolo,
+      xmlUrl: data.caminho_xml_nota_fiscal ? `${this.baseUrl}${data.caminho_xml_nota_fiscal}` : undefined,
+      danfeUrl: data.caminho_danfe ? `${this.baseUrl}${data.caminho_danfe}` : data.url_danfe,
+      status,
+      motivoRejeicao: data.mensagem_sefaz,
+      providerReference: referencia,
+      providerRaw: data,
+    }
   }
 
   // GE-F8 implementa MDe

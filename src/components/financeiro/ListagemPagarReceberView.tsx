@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
+import EmitirNFeButton from './EmitirNFeButton'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -101,29 +102,44 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
+  const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
 
   useEffect(() => {
     if (!companyId || tipo !== 'receber') {
       setNfseMap({})
+      setNfeMap({})
       return
     }
     let alive = true
-    supabase
-      .from('erp_nfse_emitidas')
-      .select('erp_receber_id, status')
-      .eq('company_id', companyId)
-      .not('erp_receber_id', 'is', null)
-      .then(({ data, error }) => {
-        if (!alive || error) return
-        const map: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
-        for (const row of data ?? []) {
-          if (!row.erp_receber_id) continue
-          const existing = map[row.erp_receber_id]
-          if (existing === 'autorizada') continue
-          map[row.erp_receber_id] = row.status
-        }
-        setNfseMap(map)
-      })
+    Promise.all([
+      supabase
+        .from('erp_nfse_emitidas')
+        .select('erp_receber_id, status')
+        .eq('company_id', companyId)
+        .not('erp_receber_id', 'is', null),
+      supabase
+        .from('erp_nfe_emitidas')
+        .select('erp_receber_id, status')
+        .eq('company_id', companyId)
+        .not('erp_receber_id', 'is', null),
+    ]).then(([nfseRes, nfeRes]) => {
+      if (!alive) return
+      const nfseMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
+      for (const row of nfseRes.data ?? []) {
+        if (!row.erp_receber_id) continue
+        if (nfseMapNew[row.erp_receber_id] === 'autorizada') continue
+        nfseMapNew[row.erp_receber_id] = row.status
+      }
+      setNfseMap(nfseMapNew)
+
+      const nfeMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'> = {}
+      for (const row of nfeRes.data ?? []) {
+        if (!row.erp_receber_id) continue
+        if (nfeMapNew[row.erp_receber_id] === 'autorizada') continue
+        nfeMapNew[row.erp_receber_id] = row.status
+      }
+      setNfeMap(nfeMapNew)
+    })
     return () => { alive = false }
   }, [companyId, tipo, reloadKey])
 
@@ -434,7 +450,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                     <Th>Vencimento</Th>
                     <Th align="right">Valor</Th>
                     <Th>Status</Th>
-                    {tipo === 'receber' && <Th>NFSe</Th>}
+                    {tipo === 'receber' && <Th>Fiscal</Th>}
                     <Th align="right">Ação</Th>
                   </tr>
                 </thead>
@@ -476,14 +492,23 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td><Pill situacao={r.situacao} /></Td>
                         {tipo === 'receber' && (
                           <Td>
-                            <EmitirNFSeButton
-                              companyId={companyId}
-                              erpReceberId={r.id}
-                              descricao={r.descricao}
-                              valor={r.valor_documento}
-                              jaEmitida={nfseMap[r.id] === 'autorizada'}
-                              onSucesso={() => setReloadKey((k) => k + 1)}
-                            />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <EmitirNFSeButton
+                                companyId={companyId}
+                                erpReceberId={r.id}
+                                descricao={r.descricao}
+                                valor={r.valor_documento}
+                                jaEmitida={nfseMap[r.id] === 'autorizada'}
+                                onSucesso={() => setReloadKey((k) => k + 1)}
+                              />
+                              <EmitirNFeButton
+                                companyId={companyId}
+                                erpReceberId={r.id}
+                                valor={r.valor_documento}
+                                jaEmitida={nfeMap[r.id] === 'autorizada'}
+                                onSucesso={() => setReloadKey((k) => k + 1)}
+                              />
+                            </div>
                           </Td>
                         )}
                         <Td align="right">
