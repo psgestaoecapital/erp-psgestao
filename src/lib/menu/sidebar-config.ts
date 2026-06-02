@@ -6,6 +6,7 @@ export interface SidebarSubItemNode {
   href: string
   status: SidebarStatus
   badge?: string
+  matchPaths?: string[]
 }
 
 export interface SidebarModuleNode {
@@ -15,6 +16,7 @@ export interface SidebarModuleNode {
   items?: SidebarSubItemNode[]
   status: SidebarStatus
   separator?: boolean
+  matchPaths?: string[]
 }
 
 // Sidebar shared default · Gestao Empresarial (Onda 1)
@@ -23,7 +25,8 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
   {
     id: 'inicio',
     label: 'Início',
-    href: '/dashboard/home',
+    href: '/dashboard/gestao-empresarial',
+    matchPaths: ['/dashboard/home', '/dashboard/gestao-empresarial'],
     status: 'pronto',
   },
   {
