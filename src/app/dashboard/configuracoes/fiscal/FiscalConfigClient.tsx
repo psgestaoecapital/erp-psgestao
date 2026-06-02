@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import CertificadoUploadCard from '@/components/fiscal/CertificadoUploadCard'
 import FocusNFeConfigCard from '@/components/fiscal/FocusNFeConfigCard'
 import TestarConexaoButton from '@/components/fiscal/TestarConexaoButton'
+import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
 import { ShieldCheck, AlertCircle, Loader2 } from 'lucide-react'
 
 interface FiscalState {
@@ -136,6 +137,11 @@ export default function FiscalConfigClient() {
         configAtual={state.config}
         certificadoOk={!!state.certificado}
         onAtualizado={carregar}
+      />
+
+      <WebhookConfigCard
+        companyId={state.companyId!}
+        habilitado={!!state.config && !!state.certificado}
       />
 
       <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 text-[12px] text-[#3D2314]/70 leading-relaxed">
