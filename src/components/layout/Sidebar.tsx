@@ -12,13 +12,17 @@ export default function Sidebar() {
   const pathname = usePathname() || ''
   const { expandedModule, toggleModule, setActiveModule, isHydrated } = useSidebarState()
 
-  // Auto-expandir modulo pai do item ativo
+  // Auto-expandir modulo pai do item ativo (respeita matchPaths)
   useEffect(() => {
     if (!isHydrated) return
+    const matches = (p: string, href?: string, extra?: string[]) => {
+      if (extra?.some((m) => p === m || p.startsWith(m + '/'))) return true
+      return !!href && (p === href || p.startsWith(href + '/'))
+    }
     const moduleAtivo = SIDEBAR_GESTAO_EMPRESARIAL.find(
       (m) =>
-        m.items?.some((s) => pathname.startsWith(s.href)) ||
-        (m.href && pathname.startsWith(m.href))
+        m.items?.some((s) => matches(pathname, s.href, s.matchPaths)) ||
+        matches(pathname, m.href, m.matchPaths)
     )
     if (moduleAtivo && moduleAtivo.id !== expandedModule && moduleAtivo.items) {
       setActiveModule(moduleAtivo.id)

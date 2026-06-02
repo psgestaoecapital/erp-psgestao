@@ -8,9 +8,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <SelectedCompanyProvider>
       <div className="min-h-screen bg-[#FAF7F2]">
         <Sidebar />
-        <div className="md:pl-[220px]">
+        <div className="md:ml-[220px] min-h-screen flex flex-col">
           <TopNav />
-          <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
+          <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
             <Suspense fallback={null}>{children}</Suspense>
           </main>
         </div>

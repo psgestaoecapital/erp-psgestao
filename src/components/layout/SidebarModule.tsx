@@ -13,10 +13,15 @@ interface Props {
   onNavigate?: () => void
 }
 
+function itemMatches(pathname: string, href: string, matchPaths?: string[]): boolean {
+  if (matchPaths?.some((p) => pathname === p || pathname.startsWith(p + '/'))) return true
+  return pathname === href || pathname.startsWith(href + '/')
+}
+
 export default function SidebarModule({ modulo, pathname, isExpanded, onToggle, onNavigate }: Props) {
   const hasItems = !!modulo.items?.length
-  const isActiveSelf = modulo.href ? pathname.startsWith(modulo.href) : false
-  const hasActiveChild = modulo.items?.some((item) => pathname.startsWith(item.href)) ?? false
+  const isActiveSelf = modulo.href ? itemMatches(pathname, modulo.href, modulo.matchPaths) : false
+  const hasActiveChild = modulo.items?.some((item) => itemMatches(pathname, item.href, item.matchPaths)) ?? false
   const isActive = isActiveSelf || hasActiveChild
 
   if (!hasItems && modulo.href) {
@@ -68,7 +73,7 @@ export default function SidebarModule({ modulo, pathname, isExpanded, onToggle, 
             <SidebarSubItem
               key={item.id}
               item={item}
-              isActive={pathname.startsWith(item.href)}
+              isActive={itemMatches(pathname, item.href, item.matchPaths)}
               onNavigate={onNavigate}
             />
           ))}
