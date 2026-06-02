@@ -29,20 +29,32 @@
   --shadow-gold: 0 0 20px rgba(198,151,63,0.15);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* box-sizing fica fora de layer (afeta TODOS sem ser clobbed por nada) */
+* { box-sizing: border-box; }
 
-html {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-}
+/*
+ * Reset de margin/padding precisa ficar em @layer base pra Tailwind 4
+ * utilities (md:ml-[220px], px-4, etc) ganharem do reset universal.
+ * Spec CSS Cascade Layers: unlayered > qualquer layer · entao se
+ * '* { margin: 0 }' ficar unlayered, ele clobba todo utility de margin.
+ * Foi exatamente o bug v2/v3: sidebar 220px ignorada · conteudo atras.
+ */
+@layer base {
+  *, *::before, *::after { margin: 0; padding: 0; }
 
-body {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.5;
-  overflow-x: hidden;
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
 }
 
 /* Scrollbar premium */
