@@ -56,11 +56,11 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
   {
     id: 'vendas-fiscal',
     label: 'Vendas & Fiscal',
-    status: 'em_breve',
+    status: 'pronto',
     items: [
-      { id: 'nfse-emitidas', label: 'NFSe Emitidas', href: '/dashboard/fiscal/nfse', status: 'em_breve' },
-      { id: 'nfe-emitidas', label: 'NFe Emitidas', href: '/dashboard/fiscal/nfe', status: 'em_breve', badge: 'NFe' },
-      { id: 'hub-fiscal', label: 'Hub Fiscal', href: '/dashboard/fiscal', status: 'em_breve' },
+      { id: 'hub-fiscal', label: 'Hub Fiscal', href: '/dashboard/fiscal', status: 'pronto' },
+      { id: 'nfse-emitidas', label: 'NFSe Emitidas', href: '/dashboard/fiscal/nfse', status: 'pronto' },
+      { id: 'nfe-emitidas', label: 'NFe Emitidas', href: '/dashboard/fiscal/nfe', status: 'pronto', badge: 'NFe' },
     ],
   },
   {
