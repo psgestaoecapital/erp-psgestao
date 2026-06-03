@@ -14,23 +14,29 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       serieNfsePadrao, proximaNumeracaoNfse,
       serieNfePadrao, proximaNumeracaoNfe,
       cnaePadrao, regimeTributario,
+      provider,
+      govNfseMunicipioCodigo,
+      govNfseMunicipioAderido,
     } = body as Record<string, unknown>
 
     if (typeof companyId !== 'string' || typeof ambiente !== 'string') {
       return NextResponse.json({ ok: false, erro: 'companyId e ambiente são obrigatórios' }, { status: 400 })
     }
 
+    const providerFinal =
+      typeof provider === 'string' && provider.length > 0 ? provider : 'focusnfe'
+
     const { data: existente } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
       .select('id')
       .eq('company_id', companyId)
-      .eq('provider', 'focusnfe')
+      .eq('provider', providerFinal)
       .eq('ativo', true)
       .maybeSingle()
 
     const payload: Record<string, unknown> = {
       company_id: companyId,
-      provider: 'focusnfe',
+      provider: providerFinal,
       ambiente,
       serie_nfse_padrao: typeof serieNfsePadrao === 'string' ? serieNfsePadrao : '1',
       proxima_numeracao_nfse: typeof proximaNumeracaoNfse === 'number' ? proximaNumeracaoNfse : 1,
@@ -42,15 +48,29 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       atualizado_por: userId,
     }
 
-    if (typeof apiKey === 'string' && apiKey.trim()) {
-      // TODO: substituir por pgsodium/vault antes de produção (issue de hardening fiscal)
-      payload.api_key_encrypted = Buffer.from(apiKey, 'utf-8').toString('base64')
-      payload.api_key_hash = createHash('sha256').update(apiKey).digest('hex')
-    } else if (!existente) {
-      return NextResponse.json(
-        { ok: false, erro: 'API key obrigatória na primeira configuração' },
-        { status: 400 }
-      )
+    if (providerFinal === 'gov_nfse_nacional') {
+      const codigo =
+        typeof govNfseMunicipioCodigo === 'string' ? govNfseMunicipioCodigo.replace(/\D/g, '') : null
+      if (!codigo || codigo.length !== 7) {
+        return NextResponse.json(
+          { ok: false, erro: 'Código IBGE do município (7 dígitos) obrigatório pra gov.br NFSe' },
+          { status: 400 }
+        )
+      }
+      payload.gov_nfse_municipio_codigo = codigo
+      payload.gov_nfse_municipio_aderido =
+        typeof govNfseMunicipioAderido === 'boolean' ? govNfseMunicipioAderido : false
+      // gov.br NÃO precisa api_key · ignora campo
+    } else {
+      if (typeof apiKey === 'string' && apiKey.trim()) {
+        payload.api_key_encrypted = Buffer.from(apiKey, 'utf-8').toString('base64')
+        payload.api_key_hash = createHash('sha256').update(apiKey).digest('hex')
+      } else if (!existente) {
+        return NextResponse.json(
+          { ok: false, erro: 'API key obrigatória na primeira configuração do Focus NFe' },
+          { status: 400 }
+        )
+      }
     }
 
     if (existente) {

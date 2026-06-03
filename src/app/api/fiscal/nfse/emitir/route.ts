@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFSeFromReceber } from '@/lib/fiscal/nfse-builder'
 import { validateNFSeRequest } from '@/lib/fiscal/nfse-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import type { NFSeRequest } from '@/lib/fiscal/types'
 
 export const dynamic = 'force-dynamic'
@@ -91,6 +92,68 @@ export const POST = withAuth(async (req: NextRequest) => {
 
     validateNFSeRequest(nfseReq)
 
+    // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
+    const { data: providerCfg } = await supabaseAdmin
+      .from('erp_fiscal_provider_config')
+      .select('provider, gov_nfse_municipio_codigo')
+      .eq('company_id', body.companyId)
+      .eq('ativo', true)
+      .maybeSingle()
+
+    if (providerCfg?.provider === 'gov_nfse_nacional') {
+      const authHeader = req.headers.get('authorization') ?? ''
+      const municipioPrestador = String(providerCfg.gov_nfse_municipio_codigo ?? '').replace(/\D/g, '')
+      if (municipioPrestador.length !== 7) {
+        return NextResponse.json(
+          {
+            ok: false,
+            mensagem:
+              'Configuração gov.br incompleta · cadastre o código IBGE do município em /configuracoes/fiscal',
+          },
+          { status: 400 }
+        )
+      }
+
+      const resultadoGov = await emitirNFSeViaGovServer(
+        {
+          companyId: body.companyId,
+          erpReceberId: body.erpReceberId ?? null,
+          prestador: {
+            cnpj: nfseReq.prestador.cnpj,
+            razaoSocial: nfseReq.prestador.razaoSocial,
+            inscricaoMunicipal: nfseReq.prestador.inscricaoMunicipal ?? null,
+            municipioIbge: municipioPrestador,
+          },
+          tomador: {
+            cnpj: nfseReq.tomador.cnpj,
+            cpf: nfseReq.tomador.cpf,
+            razaoSocial: nfseReq.tomador.razaoSocial,
+            email: nfseReq.tomador.email,
+            municipioIbge: nfseReq.tomador.endereco?.codigoMunicipio,
+            uf: nfseReq.tomador.endereco?.uf,
+          },
+          servico: {
+            codigoTributacaoNacional: nfseReq.codigoServico ?? null,
+            descricao: nfseReq.descricaoServico,
+            valorServico: nfseReq.valorServicos,
+            aliquotaIss: nfseReq.aliquotaIss ?? null,
+            issRetido: !!nfseReq.retemIss,
+          },
+        },
+        authHeader
+      )
+
+      return NextResponse.json({
+        ok: !!resultadoGov.ok,
+        provider: 'gov_nfse_nacional',
+        dpsId: resultadoGov.dpsId,
+        numeroDps: resultadoGov.numeroDps,
+        status: resultadoGov.status ?? 'processando',
+        mensagem: resultadoGov.mensagem ?? resultadoGov.erro,
+      }, { status: resultadoGov.ok ? 200 : 502 })
+    }
+
+    // Default · Focus NFe (provider='focusnfe' ou nao configurado)
     const svc = await createFiscalService(body.companyId)
     const resposta = await svc.emitirNFSe(nfseReq)
 
