@@ -6,8 +6,8 @@ export const revalidate = 0;
 export const maxDuration = 120;
 
 // Sentinel pra debug de deploy. Se a producao retornar _route_version != ROUTE_VERSION,
-// e bundle stale na Vercel. v2 = re-deploy forcado de BUG-OMIE-SYNC-ESTOQUE-RESUMO-v1.
-const ROUTE_VERSION = "v2-2026-06-04-BUG-OMIE-SYNC-ESTOQUE-RESUMO-v1";
+// e bundle stale na Vercel. v3 = BUG-OMIE-SYNC-PRODUTOS-v1 (produtos zerados + paginacao estoque).
+const ROUTE_VERSION = "v3-2026-06-04-BUG-OMIE-SYNC-PRODUTOS-v1";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -64,6 +64,60 @@ async function omieCallAllPages(app_key: string, app_secret: string, endpoint: s
     if (page > 50) break; // safety limit
   }
   return { [arrayKey]: allData, total: allData.length };
+}
+
+// ListarPosEstoque usa ListarEstPosRequest com naming diferente:
+// - paginacao: nPagina / nRegPorPagina (NAO pagina/registros_por_pagina)
+// - response: nTotPaginas / nTotRegistros (NAO total_de_paginas)
+// - array key: produto_servico_lista
+// Por isso precisa de um paginador dedicado (omieCallAllPages generico nao funciona).
+async function omieListarPosEstoqueAllPages(app_key: string, app_secret: string, dDataPosicao: string) {
+  const allData: any[] = [];
+  let page = 1;
+  const perPage = 500;
+  let nTotPaginas = 1;
+  let nTotRegistros = 0;
+
+  while (true) {
+    const result = await omieCall(app_key, app_secret, "estoque/consulta/", "ListarPosEstoque", {
+      nPagina: page,
+      nRegPorPagina: perPage,
+      dDataPosicao,
+    });
+    const fault = extractFault(result);
+    if (fault) {
+      if (page === 1) return result; // raw fault
+      return {
+        produto_servico_lista: allData,
+        nTotPaginas,
+        nTotRegistros,
+        total: allData.length,
+        _partial_fault: fault,
+      };
+    }
+
+    // Omie usa diferentes nomes em diferentes versoes do endpoint · tenta os conhecidos.
+    const items =
+      result.produto_servico_lista ??
+      result.produtoServicoLista ??
+      result.posicao_estoque ??
+      result.lista ??
+      [];
+    if (Array.isArray(items)) allData.push(...items);
+
+    nTotPaginas = Number(result.nTotPaginas ?? result.total_de_paginas ?? 1) || 1;
+    nTotRegistros = Number(result.nTotRegistros ?? nTotRegistros) || nTotRegistros;
+    if (page >= nTotPaginas) break;
+    page++;
+    if (page > 100) break; // safety
+  }
+
+  return {
+    produto_servico_lista: allData,
+    nTotPaginas,
+    nTotRegistros: nTotRegistros || allData.length,
+    total: allData.length,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -127,11 +181,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Products
+    // 3. Products · SEM apenas_importado_api (filtro restringia retorno a produtos
+    //   criados via API · quando "N" SHOULD retornar todos, mas empiricamente zera
+    //   ListagemProdutos pra catalogos cadastrados via UI Omie. Sem filtro = todos).
     if (doAll || sync_type === "produtos") {
       await runCall("produtos", () =>
-        omieCallAllPages(app_key, app_secret, "geral/produtos/", "ListarProdutos", "produto_servico_cadastro", { apenas_importado_api: "N" }),
-        (d) => d?.total ?? 0
+        omieCallAllPages(app_key, app_secret, "geral/produtos/", "ListarProdutos", "produto_servico_cadastro"),
+        (d) => d?.total ?? d?.produto_servico_cadastro?.length ?? 0
       );
     }
 
@@ -167,23 +223,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 8. Stock · ListarPosEstoque consome ListarEstPosRequest (nPagina/nRegPorPagina
-    //   · NUNCA pagina/registros_por_pagina) + dDataPosicao DD/MM/AAAA obrigatorio.
-    //   Antes (pre-PR223): enviava {pagina, registros_por_pagina} -> SOAP-ENV:Client-5001
-    //   "Tag [PAGINA] nao faz parte da estrutura". Body abaixo e o UNICO permitido.
+    // 8. Stock · ListarPosEstoque · paginador DEDICADO (nPagina/nTotPaginas) e
+    //   record_count REAL (era 1 antes · agora reflete nTotRegistros / array length).
     if (doAll || sync_type === "estoque") {
       const hoje = new Date();
       const dd = String(hoje.getDate()).padStart(2, "0");
       const mm = String(hoje.getMonth() + 1).padStart(2, "0");
       const yyyy = hoje.getFullYear();
       const dDataPosicao = `${dd}/${mm}/${yyyy}`;
-      const estoqueBody = {
-        nPagina: 1,
-        nRegPorPagina: 500,
-        dDataPosicao,
-      } as const;
-      await runCall("estoque", () =>
-        omieCall(app_key, app_secret, "estoque/consulta/", "ListarPosEstoque", estoqueBody)
+      await runCall(
+        "estoque",
+        () => omieListarPosEstoqueAllPages(app_key, app_secret, dDataPosicao),
+        (d) => d?.nTotRegistros ?? d?.total ?? d?.produto_servico_lista?.length ?? 0
       );
     }
 
