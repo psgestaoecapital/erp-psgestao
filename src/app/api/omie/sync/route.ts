@@ -27,12 +27,30 @@ async function omieCall(app_key: string, app_secret: string, endpoint: string, m
   return await res.json();
 }
 
+// Detecta SOAP fault no payload do Omie. Erros SOAP voltam com HTTP 200 +
+// {faultcode, faultstring} no body · sem isso o sync gravava fault como
+// import normal (record_count=1) e mascarava o erro.
+function extractFault(r: any): string | null {
+  if (!r || typeof r !== "object") return null;
+  const code = r.faultcode ?? r.fault_code;
+  const str = r.faultstring ?? r.fault_string;
+  if (!code && !str) return null;
+  return [code, str].filter(Boolean).join(" · ");
+}
+
 async function omieCallAllPages(app_key: string, app_secret: string, endpoint: string, method: string, arrayKey: string, extraParams: any = {}) {
   const allData: any[] = [];
   let page = 1;
   const perPage = 500;
   while (true) {
     const result = await omieCall(app_key, app_secret, endpoint, method, { pagina: page, registros_por_pagina: perPage, ...extraParams });
+    // Fault na 1a pagina · retorna raw pra caller detectar via extractFault
+    const fault = extractFault(result);
+    if (fault) {
+      if (page === 1) return result;
+      // Fault em pagina N+1 · retorna o que ja acumulou + flag
+      return { [arrayKey]: allData, total: allData.length, _partial_fault: fault };
+    }
     const items = result[arrayKey];
     if (Array.isArray(items)) allData.push(...items);
     const totalPages = result.total_de_paginas || 1;
@@ -54,6 +72,7 @@ export async function POST(req: NextRequest) {
     const supabase = company_id ? createClient(supabaseUrl, supabaseKey) : null;
     const results: any = {};
     const counts: Record<string, number> = {};
+    const failures: Record<string, string> = {};
     const doAll = !sync_type || sync_type === "all" || sync_type === "full";
 
     // Helper: save to omie_imports
@@ -66,79 +85,145 @@ export async function POST(req: NextRequest) {
       counts[importType] = count;
     };
 
+    // Helper: registra fault como FALHA do modulo (nao grava omie_imports como sucesso)
+    const recordFault = (importType: string, fault: string) => {
+      failures[importType] = fault;
+      results[`${importType}_error`] = fault;
+    };
+
+    // Helper: roda chamada + detecta fault SOAP do Omie (HTTP 200 + faultcode)
+    const runCall = async (importType: string, fn: () => Promise<any>, countFn: (d: any) => number = () => 1) => {
+      try {
+        const data = await fn();
+        const fault = extractFault(data);
+        if (fault) {
+          recordFault(importType, fault);
+          return;
+        }
+        results[importType] = data;
+        await save(importType, data, countFn(data));
+      } catch (e) {
+        recordFault(importType, e instanceof Error ? e.message : String(e));
+      }
+    };
+
     // 1. Company info
     if (doAll || sync_type === "empresa") {
-      try {
-        results.empresa = await omieCall(app_key, app_secret, "geral/empresas/", "ListarEmpresas", { pagina: 1, registros_por_pagina: 10 });
-        await save("empresa", results.empresa, 1);
-      } catch (e) { results.empresa_error = String(e); }
+      await runCall("empresa", () =>
+        omieCall(app_key, app_secret, "geral/empresas/", "ListarEmpresas", { pagina: 1, registros_por_pagina: 10 })
+      );
     }
 
     // 2. Categories
     if (doAll || sync_type === "categorias") {
-      try {
-        results.categorias = await omieCallAllPages(app_key, app_secret, "geral/categorias/", "ListarCategorias", "categoria_cadastro");
-        await save("categorias", results.categorias, results.categorias?.total || 0);
-      } catch (e) { results.categorias_error = String(e); }
+      await runCall("categorias", () =>
+        omieCallAllPages(app_key, app_secret, "geral/categorias/", "ListarCategorias", "categoria_cadastro"),
+        (d) => d?.total ?? 0
+      );
     }
 
     // 3. Products
     if (doAll || sync_type === "produtos") {
-      try {
-        results.produtos = await omieCallAllPages(app_key, app_secret, "geral/produtos/", "ListarProdutos", "produto_servico_cadastro", { apenas_importado_api: "N" });
-        await save("produtos", results.produtos, results.produtos?.total || 0);
-      } catch (e) { results.produtos_error = String(e); }
+      await runCall("produtos", () =>
+        omieCallAllPages(app_key, app_secret, "geral/produtos/", "ListarProdutos", "produto_servico_cadastro", { apenas_importado_api: "N" }),
+        (d) => d?.total ?? 0
+      );
     }
 
     // 4. Clients
     if (doAll || sync_type === "clientes") {
-      try {
-        results.clientes = await omieCallAllPages(app_key, app_secret, "geral/clientes/", "ListarClientes", "clientes_cadastro");
-        await save("clientes", results.clientes, results.clientes?.total || 0);
-      } catch (e) { results.clientes_error = String(e); }
+      await runCall("clientes", () =>
+        omieCallAllPages(app_key, app_secret, "geral/clientes/", "ListarClientes", "clientes_cadastro"),
+        (d) => d?.total ?? 0
+      );
     }
 
     // 5. Accounts Payable
     if (doAll || sync_type === "contas_pagar") {
-      try {
-        results.contas_pagar = await omieCallAllPages(app_key, app_secret, "financas/contapagar/", "ListarContasPagar", "conta_pagar_cadastro");
-        await save("contas_pagar", results.contas_pagar, results.contas_pagar?.total || 0);
-      } catch (e) { results.contas_pagar_error = String(e); }
+      await runCall("contas_pagar", () =>
+        omieCallAllPages(app_key, app_secret, "financas/contapagar/", "ListarContasPagar", "conta_pagar_cadastro"),
+        (d) => d?.total ?? 0
+      );
     }
 
     // 6. Accounts Receivable
     if (doAll || sync_type === "contas_receber") {
-      try {
-        results.contas_receber = await omieCallAllPages(app_key, app_secret, "financas/contareceber/", "ListarContasReceber", "conta_receber_cadastro");
-        await save("contas_receber", results.contas_receber, results.contas_receber?.total || 0);
-      } catch (e) { results.contas_receber_error = String(e); }
+      await runCall("contas_receber", () =>
+        omieCallAllPages(app_key, app_secret, "financas/contareceber/", "ListarContasReceber", "conta_receber_cadastro"),
+        (d) => d?.total ?? 0
+      );
     }
 
     // 7. Sales Orders
     if (doAll || sync_type === "vendas") {
-      try {
-        results.vendas = await omieCallAllPages(app_key, app_secret, "produtos/pedido/", "ListarPedidos", "pedido_venda_produto", { filtrar_por_etapa: "60" });
-        await save("vendas", results.vendas, results.vendas?.total || 0);
-      } catch (e) { results.vendas_error = String(e); }
+      await runCall("vendas", () =>
+        omieCallAllPages(app_key, app_secret, "produtos/pedido/", "ListarPedidos", "pedido_venda_produto", { filtrar_por_etapa: "60" }),
+        (d) => d?.total ?? 0
+      );
     }
 
-    // 8. Stock
+    // 8. Stock · ListarPosEstoque usa ListarEstPosRequest (nPagina/nRegPorPagina · NAO pagina/registros_por_pagina)
+    //   + dDataPosicao obrigatorio (DD/MM/AAAA). Antes enviava {pagina, registros_por_pagina} e
+    //   Omie retornava SOAP-ENV:Client-5001 "Tag [PAGINA] nao faz parte da estrutura".
     if (doAll || sync_type === "estoque") {
-      try {
-        results.estoque = await omieCall(app_key, app_secret, "estoque/consulta/", "ListarPosEstoque", { pagina: 1, registros_por_pagina: 500 });
-        await save("estoque", results.estoque, 1);
-      } catch (e) { results.estoque_error = String(e); }
+      const hoje = new Date();
+      const dd = String(hoje.getDate()).padStart(2, "0");
+      const mm = String(hoje.getMonth() + 1).padStart(2, "0");
+      const yyyy = hoje.getFullYear();
+      const dDataPosicao = `${dd}/${mm}/${yyyy}`;
+      await runCall("estoque", () =>
+        omieCall(app_key, app_secret, "estoque/consulta/", "ListarPosEstoque", {
+          nPagina: 1,
+          nRegPorPagina: 500,
+          dDataPosicao,
+        })
+      );
     }
 
-    // 9. Financial summary
+    // 9. Financial summary · DERIVADO LOCALMENTE
+    //   ObterResumoFinancas exige WS_PARAMS nao-vazio (dDataDe/dDataAte). Em vez de
+    //   manter dependencia frgil da API Omie, derivamos resumo das contas_pagar +
+    //   contas_receber que ja foram sincronizadas neste mesmo run. Menor risco · zero
+    //   chamada adicional · permanece compativel com consumidores de omie_imports.
     if (doAll || sync_type === "resumo") {
       try {
-        results.resumo = await omieCall(app_key, app_secret, "financas/resumo/", "ObterResumoFinancas", {});
-        await save("resumo", results.resumo, 1);
-      } catch (e) { results.resumo_error = String(e); }
+        const pagar = results.contas_pagar?.conta_pagar_cadastro ?? [];
+        const receber = results.contas_receber?.conta_receber_cadastro ?? [];
+        const sum = (arr: any[]) =>
+          arr.reduce((s: number, c: any) => s + (Number(c.valor_documento) || 0), 0);
+        const aPagar = pagar.filter((c: any) => String(c.status_titulo ?? "").toUpperCase() !== "PAGO");
+        const aReceber = receber.filter((c: any) => String(c.status_titulo ?? "").toUpperCase() !== "RECEBIDO");
+        const resumo = {
+          _derivado_local: true,
+          _origem: "agregado de contas_pagar + contas_receber sincronizados neste run",
+          total_pagar: sum(pagar),
+          total_receber: sum(receber),
+          saldo_estimado: sum(receber) - sum(pagar),
+          qtd_pagar_total: pagar.length,
+          qtd_receber_total: receber.length,
+          qtd_a_pagar: aPagar.length,
+          qtd_a_receber: aReceber.length,
+          valor_a_pagar: sum(aPagar),
+          valor_a_receber: sum(aReceber),
+          data_calculo: new Date().toISOString(),
+        };
+        results.resumo = resumo;
+        await save("resumo", resumo, 1);
+      } catch (e) {
+        recordFault("resumo", e instanceof Error ? e.message : String(e));
+      }
     }
 
-    return NextResponse.json({ success: true, counts, company_id: company_id || null }, { headers: corsHeaders });
+    const hasFailures = Object.keys(failures).length > 0;
+    return NextResponse.json(
+      {
+        success: !hasFailures,
+        counts,
+        failures,
+        company_id: company_id || null,
+      },
+      { headers: corsHeaders }
+    );
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
   }
