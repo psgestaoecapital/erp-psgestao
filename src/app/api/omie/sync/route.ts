@@ -3,12 +3,14 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const maxDuration = 120;
+// maxDuration subido 120 -> 300 (Vercel Pro max) pra acomodar sync_type='produtos'
+// completo · catalogo KGF tem 1725 itens em 35 paginas (~100s + ETL ~30s).
+// 'all' nao roda produtos · permanece rapido (sub-30s tipicamente).
+export const maxDuration = 300;
 
 // Sentinel pra debug de deploy. Se a producao retornar _route_version != ROUTE_VERSION,
-// e bundle stale na Vercel. v5 = body comprovado empiricamente via pg_net (Eng Chefe):
-// filtrar_apenas_omiepdv:N era o param faltante · 1725 produtos KGF retornam OK.
-const ROUTE_VERSION = "v5-2026-06-04-BUG-OMIE-SYNC-PRODUTOS-v1";
+// e bundle stale na Vercel. v6 = BUG-OMIE-SYNC-TIMEOUT-v1 (reorder + decouple produtos).
+const ROUTE_VERSION = "v6-2026-06-04-BUG-OMIE-SYNC-TIMEOUT-v1";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -269,43 +271,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Products · BODY COMPROVADO EMPIRICAMENTE via pg_net (Eng Chefe 04/06):
-    //   filtrar_apenas_omiepdv:'N' era o param FALTANTE que zerava ListagemProdutos.
-    //   { pagina, registros_por_pagina:50, filtrar_apenas_omiepdv:'N' } -> 1725 ✅ (KGF)
-    //   { pagina, registros_por_pagina:50, apenas_importado_api:'N' }   -> 0   (irrelevante)
-    //   Sem filtrar_apenas_omiepdv                                       -> 0
-    //   perPage=50 = limite Omie pra ListarProdutos · 500 retorna vazio silencioso.
-    //   ETL idempotente em erp_produtos via upsert por (company_id,
-    //   ref_externa_sistema='OMIE', ref_externa_id=codigo_produto).
-    if (doAll || sync_type === "produtos") {
-      await runCall(
-        "produtos",
-        async () => {
-          const result = await omieCallAllPages(
-            app_key,
-            app_secret,
-            "geral/produtos/",
-            "ListarProdutos",
-            "produto_servico_cadastro",
-            { filtrar_apenas_omiepdv: "N" },
-            50 // perPage especifico pra ListarProdutos
-          );
-          // ETL · roda apenas se temos supabase + company_id + array nao vazio
-          if (supabase && company_id && Array.isArray(result?.produto_servico_cadastro)) {
-            const etl = await upsertProdutosOmie(
-              supabase,
-              company_id,
-              result.produto_servico_cadastro
-            );
-            (result as any)._etl_erp_produtos = etl;
-          }
-          return result;
-        },
-        (d) => d?.total_de_registros ?? d?.total ?? d?.produto_servico_cadastro?.length ?? 0
-      );
-    }
-
-    // 4. Clients
+    // 3. Clients (era 4 · subiu apos decouple de produtos)
     if (doAll || sync_type === "clientes") {
       await runCall("clientes", () =>
         omieCallAllPages(app_key, app_secret, "geral/clientes/", "ListarClientes", "clientes_cadastro"),
@@ -313,7 +279,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Accounts Payable
+    // 4. Accounts Payable (era 5)
     if (doAll || sync_type === "contas_pagar") {
       await runCall("contas_pagar", () =>
         omieCallAllPages(app_key, app_secret, "financas/contapagar/", "ListarContasPagar", "conta_pagar_cadastro"),
@@ -321,7 +287,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. Accounts Receivable
+    // 5. Accounts Receivable (era 6)
     if (doAll || sync_type === "contas_receber") {
       await runCall("contas_receber", () =>
         omieCallAllPages(app_key, app_secret, "financas/contareceber/", "ListarContasReceber", "conta_receber_cadastro"),
@@ -329,7 +295,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. Sales Orders
+    // 6. Sales Orders (era 7)
     if (doAll || sync_type === "vendas") {
       await runCall("vendas", () =>
         omieCallAllPages(app_key, app_secret, "produtos/pedido/", "ListarPedidos", "pedido_venda_produto", { filtrar_por_etapa: "60" }),
@@ -337,7 +303,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 8. Stock · ListarPosEstoque · paginador DEDICADO (nPagina/nTotPaginas) e
+    // 7. Stock (era 8) · ListarPosEstoque · paginador DEDICADO (nPagina/nTotPaginas)
     //   record_count REAL (era 1 antes · agora reflete nTotRegistros / array length).
     if (doAll || sync_type === "estoque") {
       const hoje = new Date();
@@ -352,7 +318,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 9. Financial summary · DERIVADO LOCALMENTE
+    // 8. Financial summary (era 9) · DERIVADO LOCALMENTE
     //   ObterResumoFinancas exige WS_PARAMS nao-vazio (dDataDe/dDataAte). Em vez de
     //   manter dependencia frgil da API Omie, derivamos resumo das contas_pagar +
     //   contas_receber que ja foram sincronizadas neste mesmo run. Menor risco · zero
@@ -384,6 +350,44 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         recordFault("resumo", e instanceof Error ? e.message : String(e));
       }
+    }
+
+    // 9. Products (ULTIMO + DECOUPLED do 'all')
+    //   BUG-OMIE-SYNC-TIMEOUT-v1: catalogo grande (KGF: 1725 itens em 35 paginas
+    //   ~100s + ETL ~30s) starvava o financeiro no sync_type='all' (pg_net
+    //   timeout em 110s). Agora produtos:
+    //     - NAO roda no 'all' · so quando sync_type='produtos' explicito
+    //     - roda por ULTIMO (defensivo · se algum dia voltar pro 'all',
+    //       financeiro completa antes do timeout)
+    //     - maxDuration do route bumpada pra 300s pra acomodar o catalogo
+    //   Body comprovado empiricamente (v5): filtrar_apenas_omiepdv:'N' +
+    //   perPage=50. ETL idempotente em erp_produtos via ref OMIE.
+    //   Recomendado: agendar 1x/dia via cron separado (sync_type='produtos').
+    if (sync_type === "produtos") {
+      await runCall(
+        "produtos",
+        async () => {
+          const result = await omieCallAllPages(
+            app_key,
+            app_secret,
+            "geral/produtos/",
+            "ListarProdutos",
+            "produto_servico_cadastro",
+            { filtrar_apenas_omiepdv: "N" },
+            50 // perPage especifico pra ListarProdutos
+          );
+          if (supabase && company_id && Array.isArray(result?.produto_servico_cadastro)) {
+            const etl = await upsertProdutosOmie(
+              supabase,
+              company_id,
+              result.produto_servico_cadastro
+            );
+            (result as any)._etl_erp_produtos = etl;
+          }
+          return result;
+        },
+        (d) => d?.total_de_registros ?? d?.total ?? d?.produto_servico_cadastro?.length ?? 0
+      );
     }
 
     const hasFailures = Object.keys(failures).length > 0;
