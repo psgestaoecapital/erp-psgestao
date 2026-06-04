@@ -60,7 +60,11 @@ export async function POST(req: Request) {
       (pagina) => ({
         pagina,
         registros_por_pagina: 50,
-        apenas_importado_api: 'N',
+        // BUG-OMIE-SYNC-PRODUTOS-v1: param comprovado empiricamente via pg_net
+        // (Eng Chefe 04/06). apenas_importado_api e IRRELEVANTE · filtrar_apenas_omiepdv:'N'
+        // e o UNICO param que destrava ListarProdutos pra catalogos cadastrados via
+        // UI Omie (1725 produtos KGF confirmados). Espelha body do main route v6.
+        filtrar_apenas_omiepdv: 'N',
       }),
       (response) => ({
         items: response.produto_servico_cadastro || [],
