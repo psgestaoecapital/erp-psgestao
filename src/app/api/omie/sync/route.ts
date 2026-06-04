@@ -6,8 +6,9 @@ export const revalidate = 0;
 export const maxDuration = 120;
 
 // Sentinel pra debug de deploy. Se a producao retornar _route_version != ROUTE_VERSION,
-// e bundle stale na Vercel. v4 = BUG-OMIE-SYNC-PRODUTOS-v1 v2 (perPage=50 + ETL erp_produtos).
-const ROUTE_VERSION = "v4-2026-06-04-BUG-OMIE-SYNC-PRODUTOS-v1";
+// e bundle stale na Vercel. v5 = body comprovado empiricamente via pg_net (Eng Chefe):
+// filtrar_apenas_omiepdv:N era o param faltante · 1725 produtos KGF retornam OK.
+const ROUTE_VERSION = "v5-2026-06-04-BUG-OMIE-SYNC-PRODUTOS-v1";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -47,8 +48,10 @@ async function omieCallAllPages(app_key: string, app_secret: string, endpoint: s
   const allData: any[] = [];
   let page = 1;
   const perPage = perPageOverride ?? 500;
+  let lastResponse: any = null;
   while (true) {
     const result = await omieCall(app_key, app_secret, endpoint, method, { pagina: page, registros_por_pagina: perPage, ...extraParams });
+    lastResponse = result;
     // Fault na 1a pagina · retorna raw pra caller detectar via extractFault
     const fault = extractFault(result);
     if (fault) {
@@ -63,7 +66,14 @@ async function omieCallAllPages(app_key: string, app_secret: string, endpoint: s
     page++;
     if (page > 100) break; // safety (subido pra acomodar produtos com perPage=50)
   }
-  return { [arrayKey]: allData, total: allData.length };
+  // Propaga total_de_registros / total_de_paginas direto do response Omie
+  // (defesa contra parsing futuro · evita confiar so em allData.length).
+  return {
+    [arrayKey]: allData,
+    total: allData.length,
+    total_de_registros: Number(lastResponse?.total_de_registros) || allData.length,
+    total_de_paginas: Number(lastResponse?.total_de_paginas) || 1,
+  };
 }
 
 // ETL Omie produto -> erp_produtos · upsert idempotente por (company_id,
@@ -259,10 +269,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Products · perPage=50 (limite Omie pra ListarProdutos · 500 retorna 0
-    //   silencioso) + apenas_importado_api='N' (espelha /api/sync/omie/produtos
-    //   que funciona em producao). ETL idempotente em erp_produtos via upsert
-    //   por (company_id, ref_externa_sistema='OMIE', ref_externa_id=codigo_produto).
+    // 3. Products · BODY COMPROVADO EMPIRICAMENTE via pg_net (Eng Chefe 04/06):
+    //   filtrar_apenas_omiepdv:'N' era o param FALTANTE que zerava ListagemProdutos.
+    //   { pagina, registros_por_pagina:50, filtrar_apenas_omiepdv:'N' } -> 1725 ✅ (KGF)
+    //   { pagina, registros_por_pagina:50, apenas_importado_api:'N' }   -> 0   (irrelevante)
+    //   Sem filtrar_apenas_omiepdv                                       -> 0
+    //   perPage=50 = limite Omie pra ListarProdutos · 500 retorna vazio silencioso.
+    //   ETL idempotente em erp_produtos via upsert por (company_id,
+    //   ref_externa_sistema='OMIE', ref_externa_id=codigo_produto).
     if (doAll || sync_type === "produtos") {
       await runCall(
         "produtos",
@@ -273,7 +287,7 @@ export async function POST(req: NextRequest) {
             "geral/produtos/",
             "ListarProdutos",
             "produto_servico_cadastro",
-            { apenas_importado_api: "N" },
+            { filtrar_apenas_omiepdv: "N" },
             50 // perPage especifico pra ListarProdutos
           );
           // ETL · roda apenas se temos supabase + company_id + array nao vazio
@@ -287,7 +301,7 @@ export async function POST(req: NextRequest) {
           }
           return result;
         },
-        (d) => d?.total ?? d?.produto_servico_cadastro?.length ?? 0
+        (d) => d?.total_de_registros ?? d?.total ?? d?.produto_servico_cadastro?.length ?? 0
       );
     }
 
