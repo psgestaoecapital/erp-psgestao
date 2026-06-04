@@ -9,8 +9,8 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 // Sentinel pra debug de deploy. Se a producao retornar _route_version != ROUTE_VERSION,
-// e bundle stale na Vercel. v6 = BUG-OMIE-SYNC-TIMEOUT-v1 (reorder + decouple produtos).
-const ROUTE_VERSION = "v6-2026-06-04-BUG-OMIE-SYNC-TIMEOUT-v1";
+// e bundle stale na Vercel. v7 = BUG-OMIE-SYNC-ETL-SLOW-v1 (batch upsert produtos).
+const ROUTE_VERSION = "v7-2026-06-04-BUG-OMIE-SYNC-ETL-SLOW-v1";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -78,34 +78,44 @@ async function omieCallAllPages(app_key: string, app_secret: string, endpoint: s
   };
 }
 
-// ETL Omie produto -> erp_produtos · upsert idempotente por (company_id,
-// ref_externa_sistema='OMIE', ref_externa_id=codigo_produto). Espelha mapper
-// validado em /api/sync/omie/produtos com colunas corrigidas pro schema atual
-// (origem em vez de origem_fiscal · cfop_venda em vez de cfop).
+// ETL Omie produto -> erp_produtos · BATCH upsert idempotente.
+// Antes (v6 · per-row): ~1725 SELECT + INSERT/UPDATE sequenciais (~75-100ms cada)
+// estourava maxDuration 300s antes de save() executar -> sync ficava parcial.
+// Agora (v7): 1 pre-fetch chunkado pra contar inseridos vs atualizados + N
+// upserts em lote de 200 com onConflict 'company_id,codigo' (constraint
+// existente). ETL cai de ~150s pra ~3-5s. Sync produtos < 120s total.
 async function upsertProdutosOmie(
   sb: any,
   companyId: string,
   omieProdutos: any[]
 ): Promise<{ inseridos: number; atualizados: number; erros: number; pulados: number }> {
-  let inseridos = 0;
-  let atualizados = 0;
-  let erros = 0;
+  // 1. Mapear Omie -> shape erp_produtos + filtrar (precisam codigo e nome)
+  type Mapped = { codigo: string; payload: Record<string, unknown> };
+  const mapped: Mapped[] = [];
   let pulados = 0;
 
   for (const omie of omieProdutos) {
-    try {
-      const isServico =
-        omie.tipoItem === "04" ||
-        omie.tipoItem === "05" ||
-        String(omie.descr_detalhada ?? "").toLowerCase().includes("servi");
+    const isServico =
+      omie.tipoItem === "04" ||
+      omie.tipoItem === "05" ||
+      String(omie.descr_detalhada ?? "").toLowerCase().includes("servi");
+    const refId = String(
+      omie.codigo_produto ?? omie.codigo_produto_integracao ?? omie.codigo ?? ""
+    );
+    const codigo = String(omie.codigo ?? omie.codigo_produto_integracao ?? refId).trim();
+    const nome = String(omie.descricao ?? "").trim();
 
-      const refId = String(omie.codigo_produto ?? omie.codigo_produto_integracao ?? omie.codigo ?? "");
-      if (!refId) { pulados++; continue; }
+    if (!codigo || !nome) {
+      pulados++;
+      continue;
+    }
 
-      const dados = {
+    mapped.push({
+      codigo,
+      payload: {
         company_id: companyId,
-        codigo: String(omie.codigo ?? omie.codigo_produto_integracao ?? refId),
-        nome: String(omie.descricao ?? "").trim(),
+        codigo,
+        nome,
         descricao: omie.descr_detalhada ?? null,
         tipo: isServico ? "servico" : "produto",
         unidade: omie.unidade ?? "UN",
@@ -124,32 +134,53 @@ async function upsertProdutosOmie(
         ref_externa_sistema: "OMIE",
         ref_externa_id: refId,
         ativo: omie.inativo !== "S",
-      };
+      },
+    });
+  }
 
-      if (!dados.nome) { pulados++; continue; }
-      if (!dados.codigo) { pulados++; continue; }
+  if (mapped.length === 0) {
+    return { inseridos: 0, atualizados: 0, erros: 0, pulados };
+  }
 
-      const { data: existing, error: selErr } = await sb
-        .from("erp_produtos")
-        .select("id")
-        .eq("company_id", companyId)
-        .eq("ref_externa_sistema", "OMIE")
-        .eq("ref_externa_id", refId)
-        .maybeSingle();
+  // 2. Pre-fetch dos codigos ja existentes pra distinguir insert vs update
+  //    (chunk 200 evita URL length limit do PostgREST com .in())
+  const existingCodes = new Set<string>();
+  const allCodes = mapped.map((m) => m.codigo);
+  const fetchChunkSize = 200;
+  for (let i = 0; i < allCodes.length; i += fetchChunkSize) {
+    const chunk = allCodes.slice(i, i + fetchChunkSize);
+    const { data: existingRows, error } = await sb
+      .from("erp_produtos")
+      .select("codigo")
+      .eq("company_id", companyId)
+      .in("codigo", chunk);
+    if (error) break; // degrada graciosamente · contagem fica aproximada
+    for (const r of existingRows ?? []) existingCodes.add(String(r.codigo));
+  }
 
-      if (selErr) { erros++; continue; }
+  // 3. Batch upsert via onConflict 'company_id,codigo' (constraint existente)
+  let inseridos = 0;
+  let atualizados = 0;
+  let erros = 0;
+  const batchSize = 200;
 
-      if (existing) {
-        const { error } = await sb.from("erp_produtos").update(dados).eq("id", existing.id);
-        if (error) { erros++; continue; }
-        atualizados++;
-      } else {
-        const { error } = await sb.from("erp_produtos").insert(dados);
-        if (error) { erros++; continue; }
-        inseridos++;
-      }
-    } catch {
-      erros++;
+  for (let i = 0; i < mapped.length; i += batchSize) {
+    const batch = mapped.slice(i, i + batchSize);
+    const payloads = batch.map((b) => b.payload);
+
+    const { error } = await sb
+      .from("erp_produtos")
+      .upsert(payloads, { onConflict: "company_id,codigo", ignoreDuplicates: false });
+
+    if (error) {
+      erros += batch.length;
+      continue;
+    }
+
+    // Contagem baseada no pre-fetch (rapido · sem query extra)
+    for (const b of batch) {
+      if (existingCodes.has(b.codigo)) atualizados++;
+      else inseridos++;
     }
   }
 
