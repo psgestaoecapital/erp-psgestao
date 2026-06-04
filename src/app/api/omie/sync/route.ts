@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 export const maxDuration = 120;
+
+// Sentinel pra debug de deploy. Se a producao retornar _route_version != ROUTE_VERSION,
+// e bundle stale na Vercel. v2 = re-deploy forcado de BUG-OMIE-SYNC-ESTOQUE-RESUMO-v1.
+const ROUTE_VERSION = "v2-2026-06-04-BUG-OMIE-SYNC-ESTOQUE-RESUMO-v1";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -162,21 +167,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 8. Stock · ListarPosEstoque usa ListarEstPosRequest (nPagina/nRegPorPagina · NAO pagina/registros_por_pagina)
-    //   + dDataPosicao obrigatorio (DD/MM/AAAA). Antes enviava {pagina, registros_por_pagina} e
-    //   Omie retornava SOAP-ENV:Client-5001 "Tag [PAGINA] nao faz parte da estrutura".
+    // 8. Stock · ListarPosEstoque consome ListarEstPosRequest (nPagina/nRegPorPagina
+    //   · NUNCA pagina/registros_por_pagina) + dDataPosicao DD/MM/AAAA obrigatorio.
+    //   Antes (pre-PR223): enviava {pagina, registros_por_pagina} -> SOAP-ENV:Client-5001
+    //   "Tag [PAGINA] nao faz parte da estrutura". Body abaixo e o UNICO permitido.
     if (doAll || sync_type === "estoque") {
       const hoje = new Date();
       const dd = String(hoje.getDate()).padStart(2, "0");
       const mm = String(hoje.getMonth() + 1).padStart(2, "0");
       const yyyy = hoje.getFullYear();
       const dDataPosicao = `${dd}/${mm}/${yyyy}`;
+      const estoqueBody = {
+        nPagina: 1,
+        nRegPorPagina: 500,
+        dDataPosicao,
+      } as const;
       await runCall("estoque", () =>
-        omieCall(app_key, app_secret, "estoque/consulta/", "ListarPosEstoque", {
-          nPagina: 1,
-          nRegPorPagina: 500,
-          dDataPosicao,
-        })
+        omieCall(app_key, app_secret, "estoque/consulta/", "ListarPosEstoque", estoqueBody)
       );
     }
 
@@ -218,6 +225,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: !hasFailures,
+        _route_version: ROUTE_VERSION,
         counts,
         failures,
         company_id: company_id || null,
