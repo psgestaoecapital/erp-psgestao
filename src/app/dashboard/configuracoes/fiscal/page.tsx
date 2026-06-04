@@ -14,8 +14,8 @@ export default function FiscalConfigPage() {
             Configuração Fiscal
           </h1>
           <p className="text-[13px] text-[#3D2314]/70 mt-1.5 max-w-3xl">
-            Configure o certificado digital A1 e a integração com Focus NFe para emitir
-            NFSe / NFe e receber notas por Manifestação do Destinatário.
+            Configure o certificado digital A1 e o emissor de notas (NFSe Nacional gov.br ou
+            Focus NFe) pra emitir NFSe / NFe e receber notas por Manifestação do Destinatário.
           </p>
         </header>
         <FiscalConfigClient />
