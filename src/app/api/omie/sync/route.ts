@@ -6,8 +6,8 @@ export const revalidate = 0;
 export const maxDuration = 120;
 
 // Sentinel pra debug de deploy. Se a producao retornar _route_version != ROUTE_VERSION,
-// e bundle stale na Vercel. v3 = BUG-OMIE-SYNC-PRODUTOS-v1 (produtos zerados + paginacao estoque).
-const ROUTE_VERSION = "v3-2026-06-04-BUG-OMIE-SYNC-PRODUTOS-v1";
+// e bundle stale na Vercel. v4 = BUG-OMIE-SYNC-PRODUTOS-v1 v2 (perPage=50 + ETL erp_produtos).
+const ROUTE_VERSION = "v4-2026-06-04-BUG-OMIE-SYNC-PRODUTOS-v1";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -43,10 +43,10 @@ function extractFault(r: any): string | null {
   return [code, str].filter(Boolean).join(" · ");
 }
 
-async function omieCallAllPages(app_key: string, app_secret: string, endpoint: string, method: string, arrayKey: string, extraParams: any = {}) {
+async function omieCallAllPages(app_key: string, app_secret: string, endpoint: string, method: string, arrayKey: string, extraParams: any = {}, perPageOverride?: number) {
   const allData: any[] = [];
   let page = 1;
-  const perPage = 500;
+  const perPage = perPageOverride ?? 500;
   while (true) {
     const result = await omieCall(app_key, app_secret, endpoint, method, { pagina: page, registros_por_pagina: perPage, ...extraParams });
     // Fault na 1a pagina · retorna raw pra caller detectar via extractFault
@@ -61,9 +61,87 @@ async function omieCallAllPages(app_key: string, app_secret: string, endpoint: s
     const totalPages = result.total_de_paginas || 1;
     if (page >= totalPages) break;
     page++;
-    if (page > 50) break; // safety limit
+    if (page > 100) break; // safety (subido pra acomodar produtos com perPage=50)
   }
   return { [arrayKey]: allData, total: allData.length };
+}
+
+// ETL Omie produto -> erp_produtos · upsert idempotente por (company_id,
+// ref_externa_sistema='OMIE', ref_externa_id=codigo_produto). Espelha mapper
+// validado em /api/sync/omie/produtos com colunas corrigidas pro schema atual
+// (origem em vez de origem_fiscal · cfop_venda em vez de cfop).
+async function upsertProdutosOmie(
+  sb: any,
+  companyId: string,
+  omieProdutos: any[]
+): Promise<{ inseridos: number; atualizados: number; erros: number; pulados: number }> {
+  let inseridos = 0;
+  let atualizados = 0;
+  let erros = 0;
+  let pulados = 0;
+
+  for (const omie of omieProdutos) {
+    try {
+      const isServico =
+        omie.tipoItem === "04" ||
+        omie.tipoItem === "05" ||
+        String(omie.descr_detalhada ?? "").toLowerCase().includes("servi");
+
+      const refId = String(omie.codigo_produto ?? omie.codigo_produto_integracao ?? omie.codigo ?? "");
+      if (!refId) { pulados++; continue; }
+
+      const dados = {
+        company_id: companyId,
+        codigo: String(omie.codigo ?? omie.codigo_produto_integracao ?? refId),
+        nome: String(omie.descricao ?? "").trim(),
+        descricao: omie.descr_detalhada ?? null,
+        tipo: isServico ? "servico" : "produto",
+        unidade: omie.unidade ?? "UN",
+        categoria: omie.descricao_familia ?? null,
+        marca: omie.marca ?? null,
+        ncm: omie.ncm ?? null,
+        codigo_barras: omie.ean ?? null,
+        preco_venda: Number(omie.valor_unitario) || 0,
+        preco_custo: Number(omie.custo_medio) || 0,
+        estoque_atual: Number(omie.estoque_atual) || 0,
+        estoque_minimo: Number(omie.estoque_minimo) || 0,
+        peso_liquido: Number(omie.peso_liq) || 0,
+        peso_bruto: Number(omie.peso_bruto) || 0,
+        origem: omie.origem_mercadoria ?? "0",
+        cfop_venda: omie.cfop ?? null,
+        ref_externa_sistema: "OMIE",
+        ref_externa_id: refId,
+        ativo: omie.inativo !== "S",
+      };
+
+      if (!dados.nome) { pulados++; continue; }
+      if (!dados.codigo) { pulados++; continue; }
+
+      const { data: existing, error: selErr } = await sb
+        .from("erp_produtos")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("ref_externa_sistema", "OMIE")
+        .eq("ref_externa_id", refId)
+        .maybeSingle();
+
+      if (selErr) { erros++; continue; }
+
+      if (existing) {
+        const { error } = await sb.from("erp_produtos").update(dados).eq("id", existing.id);
+        if (error) { erros++; continue; }
+        atualizados++;
+      } else {
+        const { error } = await sb.from("erp_produtos").insert(dados);
+        if (error) { erros++; continue; }
+        inseridos++;
+      }
+    } catch {
+      erros++;
+    }
+  }
+
+  return { inseridos, atualizados, erros, pulados };
 }
 
 // ListarPosEstoque usa ListarEstPosRequest com naming diferente:
@@ -181,12 +259,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Products · SEM apenas_importado_api (filtro restringia retorno a produtos
-    //   criados via API · quando "N" SHOULD retornar todos, mas empiricamente zera
-    //   ListagemProdutos pra catalogos cadastrados via UI Omie. Sem filtro = todos).
+    // 3. Products · perPage=50 (limite Omie pra ListarProdutos · 500 retorna 0
+    //   silencioso) + apenas_importado_api='N' (espelha /api/sync/omie/produtos
+    //   que funciona em producao). ETL idempotente em erp_produtos via upsert
+    //   por (company_id, ref_externa_sistema='OMIE', ref_externa_id=codigo_produto).
     if (doAll || sync_type === "produtos") {
-      await runCall("produtos", () =>
-        omieCallAllPages(app_key, app_secret, "geral/produtos/", "ListarProdutos", "produto_servico_cadastro"),
+      await runCall(
+        "produtos",
+        async () => {
+          const result = await omieCallAllPages(
+            app_key,
+            app_secret,
+            "geral/produtos/",
+            "ListarProdutos",
+            "produto_servico_cadastro",
+            { apenas_importado_api: "N" },
+            50 // perPage especifico pra ListarProdutos
+          );
+          // ETL · roda apenas se temos supabase + company_id + array nao vazio
+          if (supabase && company_id && Array.isArray(result?.produto_servico_cadastro)) {
+            const etl = await upsertProdutosOmie(
+              supabase,
+              company_id,
+              result.produto_servico_cadastro
+            );
+            (result as any)._etl_erp_produtos = etl;
+          }
+          return result;
+        },
         (d) => d?.total ?? d?.produto_servico_cadastro?.length ?? 0
       );
     }
