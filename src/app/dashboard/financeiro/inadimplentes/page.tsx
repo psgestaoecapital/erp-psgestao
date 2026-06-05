@@ -551,7 +551,7 @@ function ConteudoResolvidas({ companyId, count, totalValor }: { companyId: strin
                 <td style={td}>{l.cliente_nome ?? '—'}</td>
                 <td style={td}>{l.descricao ?? '—'}</td>
                 <td style={td}>{fmtDate(l.data_pagamento ?? '')}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: '#3B6D11' }}>R$ {fmt(l.valor_pago ?? l.valor)}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: '#3B6D11' }}>R$ {fmt(l.valor_pago && l.valor_pago > 0 ? l.valor_pago : l.valor)}</td>
                 <td style={td}>{diasAtraso} dias</td>
               </tr>
             )
