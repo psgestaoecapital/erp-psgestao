@@ -7,7 +7,7 @@ import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
-  Download, FileCode, FileText, ChevronLeft, ChevronRight as ChevR, Plus,
+  Download, FileCode, FileText, ChevronLeft, ChevronRight as ChevR, Plus, RefreshCw,
 } from 'lucide-react'
 
 interface NFSeRow {
@@ -83,6 +83,7 @@ export default function NFSeListClient() {
   const [expandida, setExpandida] = useState<string | null>(null)
   const [baixando, setBaixando] = useState<string | null>(null)
   const [emitirAberto, setEmitirAberto] = useState(false)
+  const [consultando, setConsultando] = useState<string | null>(null)
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -158,6 +159,39 @@ export default function NFSeListClient() {
     setPagina(1)
   }
 
+  async function consultarStatus(recordId: string) {
+    setConsultando(recordId)
+    try {
+      const { error } = await supabase.functions.invoke('gov-nfse-consultar', {
+        body: { record_id: recordId },
+      })
+      if (error) throw new Error(error.message)
+      await carregar()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Falha ao consultar status')
+    } finally {
+      setConsultando(null)
+    }
+  }
+
+  async function consultarPendentes() {
+    const pendentes = lista.filter((r) => r.status === 'processando').map((r) => r.id)
+    if (pendentes.length === 0) return
+    setConsultando('all')
+    try {
+      await Promise.allSettled(
+        pendentes.map((id) =>
+          supabase.functions.invoke('gov-nfse-consultar', { body: { record_id: id } }),
+        ),
+      )
+      await carregar()
+    } finally {
+      setConsultando(null)
+    }
+  }
+
+  const qtdProcessando = lista.filter((r) => r.status === 'processando').length
+
   function resetFiltros() {
     setStatusFiltro('')
     setDataInicio('')
@@ -201,14 +235,32 @@ export default function NFSeListClient() {
             </p>
           </div>
           {companyId && (
-            <button
-              type="button"
-              onClick={() => setEmitirAberto(true)}
-              data-testid="nfse-nova"
-              className="inline-flex items-center gap-2 bg-[#C8941A] hover:bg-[#B07F12] text-[#3D2314] font-medium text-[13px] px-4 py-2.5 rounded-md shadow-sm"
-            >
-              <Plus size={14} /> Emitir NFS-e
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {qtdProcessando > 0 && (
+                <button
+                  type="button"
+                  onClick={consultarPendentes}
+                  disabled={consultando !== null}
+                  data-testid="nfse-atualizar-pendentes"
+                  className="inline-flex items-center gap-2 border border-[#3D2314]/15 hover:bg-[#3D2314]/5 text-[#3D2314] text-[12.5px] px-3 py-2 rounded-md disabled:opacity-50"
+                >
+                  {consultando === 'all' ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={13} />
+                  )}
+                  Atualizar pendentes ({qtdProcessando})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setEmitirAberto(true)}
+                data-testid="nfse-nova"
+                className="inline-flex items-center gap-2 bg-[#C8941A] hover:bg-[#B07F12] text-[#3D2314] font-medium text-[13px] px-4 py-2.5 rounded-md shadow-sm"
+              >
+                <Plus size={14} /> Emitir NFS-e
+              </button>
+            </div>
           )}
         </header>
 
@@ -344,7 +396,25 @@ export default function NFSeListClient() {
                             {fmtBRL(row.valor_servicos)}
                           </td>
                           <td className="px-3 py-2.5">
-                            <FiscalStatusBadge status={row.status} motivo={row.motivo_rejeicao} />
+                            <div className="flex items-center gap-2">
+                              <FiscalStatusBadge status={row.status} motivo={row.motivo_rejeicao} />
+                              {row.status === 'processando' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); consultarStatus(row.id) }}
+                                  disabled={consultando === row.id || consultando === 'all'}
+                                  data-testid="nfse-atualizar-status"
+                                  title="Consultar retorno na Focus"
+                                  className="text-[#BA7517] hover:text-[#8B5612] disabled:opacity-40"
+                                >
+                                  {consultando === row.id ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <RefreshCw size={13} />
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {aberto && (
