@@ -48,8 +48,19 @@ function respond(status: number, body: unknown) {
 
 function baseUrl(amb: Ambiente): string {
   return amb === "producao"
-    ? "https://sefin.nfse.gov.br/sefinnacional"
-    : "https://sefin.producaorestrita.nfse.gov.br/sefinnacional"
+    ? "https://sefin.nfse.gov.br/SefinNacional"
+    : "https://sefin.producaorestrita.nfse.gov.br/SefinNacional"
+}
+
+// GZip(xml) + base64 · formato exigido pelo ADN em { dpsXmlGZipB64 }
+async function gzipBase64(text: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const stream = new Blob([encoder.encode(text)]).stream().pipeThrough(new CompressionStream("gzip"))
+  const buf = await new Response(stream).arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  let bin = ""
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  return btoa(bin)
 }
 
 function decryptB64(b64: string): string { return atob(b64) }
@@ -225,7 +236,13 @@ Deno.serve(async (req: Request) => {
       const { data: nr } = await sb.rpc("fn_gov_nfse_proximo_numero", { p_company_id: p.company_id })
       numeroDps = Number(nr) || 1
     }
-    const idDps = `DPS${muniIbge}${cnpjPrest}${String(numeroDps).padStart(15, "0")}`
+    // idDps · regra ADN: DPS + municipio(7) + tipoInscricao(1) + inscFederal(14)
+    //   + serie(5) + nDPS(15) = "DPS" + 42 digitos. CNPJ -> tipoInscricao=2.
+    //   CPF -> 1 e inscFederal com 000 a esquerda (pra prestador sempre e CNPJ).
+    const tipoInsc = "2"
+    const inscFederal = cnpjPrest.padStart(14, "0")
+    const serieStr = "00001"
+    const idDps = `DPS${muniIbge}${tipoInsc}${inscFederal}${serieStr}${String(numeroDps).padStart(15, "0")}`
     const cnpjTom = p.tomador.cpf_cnpj.length === 14 ? p.tomador.cpf_cnpj : undefined
     const cpfTom = p.tomador.cpf_cnpj.length === 11 ? p.tomador.cpf_cnpj : undefined
     const dpsXml = montarDpsXml({
@@ -243,11 +260,15 @@ Deno.serve(async (req: Request) => {
         p_municipio_ibge: muniIbge, p_municipio_nome: muni.nome_municipio ?? "", p_payload_enviado: { xml: dpsAssinada, idDps }
       })
     }
-    const url = `${baseUrl(ambiente)}/dps`
+    const url = `${baseUrl(ambiente)}/nfse`
     let respStatus = 0, respText = "", errFetch: string | null = null
+    let bodyJson: string | null = null
     try {
-      // ADN do gov.br exige HTTP/1.1 · Deno fetch por padrao negocia h2.
-      // CreateHttpClientOptions tem http2:boolean · false = forca HTTP/1.1.
+      // 1. GZip + base64 do XML DPS assinado · formato exigido pelo ADN
+      const dpsXmlGZipB64 = await gzipBase64(dpsAssinada)
+      bodyJson = JSON.stringify({ dpsXmlGZipB64 })
+
+      // 2. mTLS + HTTP/1.1 obrigatorios
       // deno-lint-ignore no-explicit-any
       const httpClient = (Deno as any).createHttpClient?.({
         cert: parsed.certPem,
@@ -257,8 +278,12 @@ Deno.serve(async (req: Request) => {
       })
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/xml", Accept: "application/xml", "User-Agent": "PSGestao-ERP/2.0" },
-        body: dpsAssinada,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "User-Agent": "PSGestao-ERP/2.0",
+        },
+        body: bodyJson,
         // deno-lint-ignore no-explicit-any
         client: httpClient as any
       })
