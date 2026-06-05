@@ -8,4 +8,7 @@ project_id = "horsymhsinqcimflrtjo"
 verify_jwt = false
 
 [functions.gov-nfse-emitir]
-verify_jwt = true
+# Fase de teste: verify_jwt=false pra simplificar invoke via curl com qualquer
+# Authorization (ou nenhum). Quando entrar em producao real, mudar pra true
+# e exigir JWT do usuario logado.
+verify_jwt = false
