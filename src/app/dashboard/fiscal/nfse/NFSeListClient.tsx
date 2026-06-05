@@ -84,12 +84,21 @@ export default function NFSeListClient() {
   const [baixando, setBaixando] = useState<string | null>(null)
   const [emitirAberto, setEmitirAberto] = useState(false)
   const [consultando, setConsultando] = useState<string | null>(null)
+  const [producaoDisponivel, setProducaoDisponivel] = useState(false)
 
   useEffect(() => {
     const sel = resolveCompanyId()
     if (sel.kind === 'erro') setErroEmpresa(sel.mensagem)
     else setCompanyId(sel.id)
   }, [])
+
+  useEffect(() => {
+    if (!companyId) return
+    supabase.functions.invoke('gov-nfse-flags', {}).then(({ data }) => {
+      const resp = data as { producao_disponivel?: boolean } | null
+      setProducaoDisponivel(!!resp?.producao_disponivel)
+    }).catch(() => setProducaoDisponivel(false))
+  }, [companyId])
 
   const carregar = useCallback(async () => {
     if (!companyId) return
@@ -290,6 +299,7 @@ export default function NFSeListClient() {
             aberto={emitirAberto}
             onFechar={() => setEmitirAberto(false)}
             onEmitida={() => { setPagina(1); carregar() }}
+            producaoDisponivel={producaoDisponivel}
           />
         )}
 
