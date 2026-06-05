@@ -19,3 +19,7 @@ verify_jwt = true
 [functions.gov-nfse-flags]
 # Tela autenticada checa disponibilidade de producao.
 verify_jwt = true
+
+[functions.pluggy-connect-token-financeiro]
+# Tela autenticada chama via supabase.functions.invoke (JWT user).
+verify_jwt = true
