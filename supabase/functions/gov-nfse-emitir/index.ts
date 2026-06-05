@@ -183,7 +183,7 @@ Deno.serve(async (req: Request) => {
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : ((cfg.ambiente as Ambiente) ?? "homologacao")
     const muniIbge = String(cfg.gov_nfse_municipio_codigo ?? "").replace(/\D/g, "")
     if (muniIbge.length !== 7) return respond(400, { ok: false, erro: "gov_nfse_municipio_codigo invalido (7 digitos)" })
-    const { data: muni } = await sb.from("erp_gov_nfse_municipios").select("nome, uf, aderido").eq("codigo_ibge", muniIbge).maybeSingle()
+    const { data: muni } = await sb.from("erp_gov_nfse_municipios").select("nome_municipio, uf, aderido").eq("codigo_ibge", muniIbge).maybeSingle()
     if (!muni?.aderido) return respond(400, { ok: false, erro: "Municipio nao aderiu ao SN NFS-e", municipio: muni })
     const { data: emp } = await sb.from("companies").select("cnpj, razao_social, inscricao_municipal, endereco, cidade_estado").eq("id", p.company_id).single()
     if (!emp?.cnpj) return respond(400, { ok: false, erro: "Empresa sem CNPJ" })
@@ -230,7 +230,7 @@ Deno.serve(async (req: Request) => {
     const cpfTom = p.tomador.cpf_cnpj.length === 11 ? p.tomador.cpf_cnpj : undefined
     const dpsXml = montarDpsXml({
       ambiente, numeroDps, idDps,
-      prestador: { cnpj: cnpjPrest, razao: emp.razao_social, im: emp.inscricao_municipal, muniIbge, muniNome: muni.nome ?? "", uf: muni.uf ?? "", cep: cepPrest, logradouro: logPrest, numero: "S/N", bairro: "Centro" },
+      prestador: { cnpj: cnpjPrest, razao: emp.razao_social, im: emp.inscricao_municipal, muniIbge, muniNome: muni.nome_municipio ?? "", uf: muni.uf ?? "", cep: cepPrest, logradouro: logPrest, numero: "S/N", bairro: "Centro" },
       tomador: { nome: p.tomador.nome, cnpj: cnpjTom, cpf: cpfTom, email: p.tomador.email },
       servico: { codTribNac: p.servico.item_lista_lc116, descricao: p.servico.descricao, valor: p.servico.valor, aliqIss: p.servico.aliquota_iss ?? 5, issRetido: !!p.servico.iss_retido }
     })
@@ -240,7 +240,7 @@ Deno.serve(async (req: Request) => {
     if (!dpsEx) {
       await sb.rpc("fn_gov_nfse_registrar_dps", {
         p_company_id: p.company_id, p_nfse_emitida_id: nfseId, p_numero_dps: numeroDps,
-        p_municipio_ibge: muniIbge, p_municipio_nome: muni.nome ?? "", p_payload_enviado: { xml: dpsAssinada, idDps }
+        p_municipio_ibge: muniIbge, p_municipio_nome: muni.nome_municipio ?? "", p_payload_enviado: { xml: dpsAssinada, idDps }
       })
     }
     const url = `${baseUrl(ambiente)}/dps`
