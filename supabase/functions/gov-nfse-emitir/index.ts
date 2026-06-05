@@ -246,8 +246,15 @@ Deno.serve(async (req: Request) => {
     const url = `${baseUrl(ambiente)}/dps`
     let respStatus = 0, respText = "", errFetch: string | null = null
     try {
+      // ADN do gov.br exige HTTP/1.1 · Deno fetch por padrao negocia h2.
+      // CreateHttpClientOptions tem http2:boolean · false = forca HTTP/1.1.
       // deno-lint-ignore no-explicit-any
-      const httpClient = (Deno as any).createHttpClient?.({ cert: parsed.certPem, key: parsed.privateKeyPem })
+      const httpClient = (Deno as any).createHttpClient?.({
+        cert: parsed.certPem,
+        key: parsed.privateKeyPem,
+        http2: false,
+        http1: true,
+      })
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/xml", Accept: "application/xml", "User-Agent": "PSGestao-ERP/2.0" },
