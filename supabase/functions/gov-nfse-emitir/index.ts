@@ -263,19 +263,33 @@ Deno.serve(async (req: Request) => {
     const url = `${baseUrl(ambiente)}/nfse`
     let respStatus = 0, respText = "", errFetch: string | null = null
     let bodyJson: string | null = null
+    let mtlsCertAnexado = false
+    let httpClientCriado = false
     try {
       // 1. GZip + base64 do XML DPS assinado · formato exigido pelo ADN
       const dpsXmlGZipB64 = await gzipBase64(dpsAssinada)
       bodyJson = JSON.stringify({ dpsXmlGZipB64 })
 
-      // 2. mTLS + HTTP/1.1 obrigatorios
+      // 2. UM UNICO client HTTP com TUDO ao mesmo tempo:
+      //    - cert PEM + key PEM (mTLS · client cert)
+      //    - alpnProtocols ['http/1.1'] · forca HTTP/1.1 via ALPN (API definitiva)
+      //    - http2:false (defesa em camadas · compat com versoes que aceitam)
+      // Garantia: este e o UNICO httpClient usado no fetch · sem fallback
+      // pra um client default sem cert.
+      const certOk = !!parsed.certPem && parsed.certPem.length > 0
+      const keyOk = !!parsed.privateKeyPem && parsed.privateKeyPem.length > 0
+      mtlsCertAnexado = certOk && keyOk
+
       // deno-lint-ignore no-explicit-any
       const httpClient = (Deno as any).createHttpClient?.({
         cert: parsed.certPem,
         key: parsed.privateKeyPem,
+        alpnProtocols: ["http/1.1"],
         http2: false,
         http1: true,
       })
+      httpClientCriado = !!httpClient
+
       const resp = await fetch(url, {
         method: "POST",
         headers: {
@@ -290,7 +304,10 @@ Deno.serve(async (req: Request) => {
       respStatus = resp.status
       respText = await resp.text()
     } catch (e) {
-      errFetch = e instanceof Error ? e.message : String(e)
+      // tls_erro_raw: mensagem COMPLETA do catch (sem truncate)
+      errFetch = e instanceof Error
+        ? `${e.name}: ${e.message}${e.stack ? "\n" + e.stack : ""}`
+        : String(e)
     }
     const sucesso = respStatus >= 200 && respStatus < 300
     const chaveMatch = respText.match(/<chNFSe>([^<]+)<\/chNFSe>/) || respText.match(/<chaveAcesso>([^<]+)<\/chaveAcesso>/)
@@ -321,6 +338,10 @@ Deno.serve(async (req: Request) => {
       chave_acesso: chaveMatch?.[1] || null,
       motivo: motivoMatch?.[1] || null,
       http_status: respStatus, erro_fetch: errFetch,
+      // Diagnostico mTLS (apos ajuste do CEO)
+      mtls_cert_anexado: mtlsCertAnexado,
+      mtls_http_client_criado: httpClientCriado,
+      tls_erro_raw: errFetch,
       cert_cnpj_validado: parsed.cnpjCert,
       endpoint: url, ambiente,
       preview_resposta: respText.slice(0, 800),
