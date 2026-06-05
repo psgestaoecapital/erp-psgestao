@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
+import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
-  Download, FileCode, FileText, ChevronLeft, ChevronRight as ChevR,
+  FileCode, FileText, ChevronLeft, ChevronRight as ChevR, Plus,
 } from 'lucide-react'
 
 interface NFSeRow {
@@ -80,6 +81,7 @@ export default function NFSeListClient() {
   const [busca, setBusca] = useState('')
   const [buscaSubmit, setBuscaSubmit] = useState('')
   const [expandida, setExpandida] = useState<string | null>(null)
+  const [emitirAberto, setEmitirAberto] = useState(false)
   const [baixando, setBaixando] = useState<string | null>(null)
 
   useEffect(() => {
@@ -189,14 +191,35 @@ export default function NFSeListClient() {
         >
           <ArrowLeft size={13} /> Voltar pro Hub Fiscal
         </Link>
-        <header className="mb-5">
-          <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">
-            NFSes Emitidas
-          </h1>
-          <p className="text-[13px] text-[#3D2314]/70 mt-1">
-            Histórico de notas fiscais de serviço · {totalGeral} {totalGeral === 1 ? 'nota' : 'notas'}
-          </p>
+        <header className="mb-5 flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">
+              NFSes Emitidas
+            </h1>
+            <p className="text-[13px] text-[#3D2314]/70 mt-1">
+              Histórico de notas fiscais de serviço · {totalGeral} {totalGeral === 1 ? 'nota' : 'notas'}
+            </p>
+          </div>
+          {companyId && (
+            <button
+              type="button"
+              onClick={() => setEmitirAberto(true)}
+              data-testid="nfse-nova"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2 flex-shrink-0"
+            >
+              <Plus size={15} /> Nova NFS-e
+            </button>
+          )}
         </header>
+
+        {companyId && (
+          <NFSeEmitirGovModal
+            open={emitirAberto}
+            onClose={() => setEmitirAberto(false)}
+            companyId={companyId}
+            onEmitida={() => carregar()}
+          />
+        )}
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
