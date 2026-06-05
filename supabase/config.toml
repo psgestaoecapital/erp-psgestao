@@ -12,3 +12,7 @@ verify_jwt = false
 # Authorization (ou nenhum). Quando entrar em producao real, mudar pra true
 # e exigir JWT do usuario logado.
 verify_jwt = false
+
+[functions.gov-nfse-consultar]
+# Chamado autenticado pela tela (supabase.functions.invoke ja injeta JWT).
+verify_jwt = true
