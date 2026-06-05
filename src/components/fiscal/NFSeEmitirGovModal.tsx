@@ -29,6 +29,7 @@ interface Props {
   aberto: boolean
   onFechar: () => void
   onEmitida: () => void
+  producaoDisponivel?: boolean
 }
 
 function soDigitos(s: string): string {
@@ -70,7 +71,7 @@ function mensagemAmigavel(raw: string | null | undefined): string {
   return s.slice(0, 240)
 }
 
-export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmitida }: Props) {
+export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmitida, producaoDisponivel = false }: Props) {
   const [ambiente, setAmbiente] = useState<'homologacao' | 'producao'>('homologacao')
   const [tomTipo, setTomTipo] = useState<TomadorTipo>('CNPJ')
   const [tomDoc, setTomDoc] = useState('')
@@ -186,9 +187,14 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
                   </button>
                   <button
                     type="button"
-                    disabled
-                    title="Aguardando liberação Focus para CNPJ KGF"
-                    className="flex-1 px-3 py-2 rounded-md text-[13px] font-medium text-[#3D2314]/30 cursor-not-allowed"
+                    onClick={() => producaoDisponivel && setAmbiente('producao')}
+                    disabled={!producaoDisponivel}
+                    title={producaoDisponivel ? 'Emite na Focus produção (real, fiscal)' : 'Aguardando liberação Focus para CNPJ KGF'}
+                    className={`flex-1 px-3 py-2 rounded-md text-[13px] font-medium transition ${
+                      ambiente === 'producao' ? 'bg-[#3D2314] text-[#FAF7F2]' :
+                      producaoDisponivel ? 'text-[#3D2314]/70' :
+                      'text-[#3D2314]/30 cursor-not-allowed'
+                    }`}
                   >
                     Produção
                   </button>

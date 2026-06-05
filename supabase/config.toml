@@ -8,11 +8,14 @@ project_id = "horsymhsinqcimflrtjo"
 verify_jwt = false
 
 [functions.gov-nfse-emitir]
-# Fase de teste: verify_jwt=false pra simplificar invoke via curl com qualquer
-# Authorization (ou nenhum). Quando entrar em producao real, mudar pra true
-# e exigir JWT do usuario logado.
-verify_jwt = false
+# FEAT-NFSE-AUTOMACAO-v1: re-protegido. Frontend chama via
+# supabase.functions.invoke (JWT user) · cron usa service_role (Bearer).
+verify_jwt = true
 
 [functions.gov-nfse-consultar]
-# Chamado autenticado pela tela (supabase.functions.invoke ja injeta JWT).
+# Chamado autenticado pela tela (JWT user) ou pelo cron (service_role).
+verify_jwt = true
+
+[functions.gov-nfse-flags]
+# Tela autenticada checa disponibilidade de producao.
 verify_jwt = true
