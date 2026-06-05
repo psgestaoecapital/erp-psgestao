@@ -1,0 +1,134 @@
+name: Deploy Supabase Edge Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/deploy-functions.yml'
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: 'Deploy todas as funcoes do repo (mesmo nao alteradas)'
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # historico completo pra detectar diffs
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Detectar funcoes a deployar
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          force_all="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            force_all="${{ inputs.force_all }}"
+          fi
+
+          # Lista todas as funcoes do repo (pula dirs comecando com _)
+          all_fns=()
+          for dir in supabase/functions/*/; do
+            [ -d "$dir" ] || continue
+            name="$(basename "$dir")"
+            [[ "$name" == _* ]] && continue
+            all_fns+=("$name")
+          done
+
+          deploy_all="$force_all"
+
+          # Se config.toml ou o proprio workflow mudou, deploy de todas
+          # (pode haver mudanca de verify_jwt ou pipeline)
+          if [ "$deploy_all" != "true" ] && [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            # before=zeros em primeiro push · fallback pra HEAD~1
+            if [ "$base" = "0000000000000000000000000000000000000000" ] || ! git rev-parse "$base" >/dev/null 2>&1; then
+              base="$(git rev-parse HEAD~1 2>/dev/null || echo "$head")"
+            fi
+            if git diff --name-only "$base" "$head" | grep -qE '^(supabase/config\.toml|\.github/workflows/deploy-functions\.yml)$'; then
+              deploy_all="true"
+            fi
+          fi
+
+          changed=()
+          if [ "$deploy_all" = "true" ]; then
+            changed=("${all_fns[@]}")
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            if [ "$base" = "0000000000000000000000000000000000000000" ] || ! git rev-parse "$base" >/dev/null 2>&1; then
+              base="$(git rev-parse HEAD~1 2>/dev/null || echo "$head")"
+            fi
+            mapfile -t changed_dirs < <(
+              git diff --name-only "$base" "$head" \
+                | awk -F/ '$1=="supabase" && $2=="functions" && $3!="" {print $3}' \
+                | sort -u
+            )
+            for name in "${changed_dirs[@]}"; do
+              [[ -z "$name" || "$name" == _* ]] && continue
+              [ -d "supabase/functions/$name" ] || continue
+              changed+=("$name")
+            done
+          fi
+
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "fns=" >> "$GITHUB_OUTPUT"
+            echo "Nenhuma funcao a deployar"
+          else
+            joined="$(printf '%s\n' "${changed[@]}" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+            echo "fns=$joined" >> "$GITHUB_OUTPUT"
+            echo "Vai deployar: $joined"
+          fi
+
+      - name: Link projeto Supabase
+        if: steps.detect.outputs.fns != ''
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy funcoes
+        if: steps.detect.outputs.fns != ''
+        shell: bash
+        run: |
+          set -e
+          ok_count=0
+          fail_count=0
+          failed=()
+          for name in ${{ steps.detect.outputs.fns }}; do
+            echo "::group::Deploy $name"
+            if supabase functions deploy "$name" --project-ref "$SUPABASE_PROJECT_REF"; then
+              ok_count=$((ok_count+1))
+              echo "✓ $name deployada"
+            else
+              fail_count=$((fail_count+1))
+              failed+=("$name")
+              echo "✗ $name FALHOU"
+            fi
+            echo "::endgroup::"
+          done
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "Deploy summary: ✓ $ok_count · ✗ $fail_count"
+          if [ "$fail_count" -gt 0 ]; then
+            echo "Falhas: ${failed[*]}"
+            exit 1
+          fi
+
+      - name: Skip (nada pra deployar)
+        if: steps.detect.outputs.fns == ''
+        run: echo "Nenhuma funcao do repo foi alterada · skip."

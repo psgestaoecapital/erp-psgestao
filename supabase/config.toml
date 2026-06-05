@@ -1,0 +1,11 @@
+project_id = "horsymhsinqcimflrtjo"
+
+# verify_jwt por funcao · CLI lê esses settings ao deployar
+# false = endpoint publico (valida internamente · ex: webhooks com HMAC)
+# true  = exige JWT Supabase no Authorization header (default)
+
+[functions.focus-nfe-webhook]
+verify_jwt = false
+
+[functions.gov-nfse-emitir]
+verify_jwt = true
