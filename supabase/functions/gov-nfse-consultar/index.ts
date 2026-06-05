@@ -7,6 +7,12 @@
 //   { company_id: uuid, ref: string }         (fallback)
 //
 // Auth: verify_jwt=true (chamado autenticado pela tela).
+//
+// FIX-NFSE-CONSULTA-SERVICEROLE-v1:
+//   - CORS preflight (OPTIONS) handler · resolvido 30+ "OPTIONS 405" no log
+//   - .select() apos UPDATE pra confirmar linhas afetadas
+//   - console.log da resposta Focus + resultado do update (diagnostico)
+//   - Surface de erro: ok:false em qualquer falha · sem silenciar
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
@@ -14,6 +20,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+}
 
 type Ambiente = "homologacao" | "producao"
 
@@ -24,7 +36,10 @@ interface Payload {
 }
 
 function respond(s: number, b: unknown) {
-  return new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
+  return new Response(JSON.stringify(b), {
+    status: s,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  })
 }
 
 function focusBase(amb: Ambiente): string {
@@ -37,8 +52,6 @@ function basicAuth(token: string): string {
   return "Basic " + btoa(token + ":")
 }
 
-// Mapeia status Focus -> enum local (erp_nfse_emitidas.status):
-//   processando | autorizada | rejeitada | cancelada
 function mapearStatus(focusStatus: string): "autorizada" | "rejeitada" | "processando" | "cancelada" {
   switch (focusStatus) {
     case "autorizado": return "autorizada"
@@ -66,6 +79,10 @@ function montarMotivoRejeicao(json: Record<string, unknown> | null): string | nu
 }
 
 Deno.serve(async (req: Request) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS })
+  }
   if (req.method !== "POST") return respond(405, { erro: "Method not allowed" })
 
   let p: Payload
@@ -76,7 +93,6 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 1. Carrega o registro
     let recordId = p.record_id
     let companyId = p.company_id
     let ref = p.ref
@@ -89,13 +105,13 @@ Deno.serve(async (req: Request) => {
         .eq("id", recordId)
         .single()
       if (error || !row) {
+        console.log("consultar.select_record_failed", { recordId, error: error?.message })
         return respond(404, { ok: false, erro: "Registro nao encontrado", detalhe: error?.message })
       }
       companyId = row.company_id
       ref = row.provider_reference ?? undefined
       ambiente = (row.ambiente === "producao" ? "producao" : "homologacao")
     } else {
-      // fallback por company_id + ref
       const { data: row } = await sb
         .from("erp_nfse_emitidas")
         .select("id, ambiente")
@@ -112,16 +128,15 @@ Deno.serve(async (req: Request) => {
       return respond(400, { ok: false, erro: "Registro sem provider_reference (NFS-e legada/sem ref Focus)" })
     }
 
-    // 2. Token Focus por ambiente
     const tokenEnv = ambiente === "producao"
       ? "FOCUS_NFE_TOKEN_PRODUCAO"
       : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
     const token = Deno.env.get(tokenEnv)
     if (!token) {
+      console.log("consultar.secret_missing", { tokenEnv })
       return respond(500, { ok: false, erro: `Secret ${tokenEnv} nao configurado` })
     }
 
-    // 3. GET na Focus
     const base = focusBase(ambiente)
     const url = `${base}/v2/nfsen/${encodeURIComponent(ref)}`
     let getStatus = 0
@@ -142,10 +157,28 @@ Deno.serve(async (req: Request) => {
       getErr = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
     }
 
+    console.log("consultar.focus_response", {
+      ref,
+      ambiente,
+      getStatus,
+      getErr,
+      bodyPreview: getBody.slice(0, 500),
+    })
+
     let getJson: Record<string, unknown> | null = null
     try { getJson = getBody ? JSON.parse(getBody) : null } catch { getJson = null }
 
-    // 4. 404 ou ref desconhecida
+    // Token invalido (Focus retorna 401) — nao classificar como rejeitada
+    if (getStatus === 401 || getStatus === 403) {
+      return respond(502, {
+        ok: false,
+        erro: "Focus rejeitou autenticacao (token invalido ou ausente)",
+        get_status: getStatus,
+        body: getBody.slice(0, 1500),
+      })
+    }
+
+    // 404 ou ref desconhecida
     if (getStatus === 404 || (getJson && (getJson.codigo as string) === "nao_encontrado")) {
       const update = {
         status: "rejeitada" as const,
@@ -153,7 +186,13 @@ Deno.serve(async (req: Request) => {
         provider_raw: { get: { status: getStatus, body: getBody.slice(0, 4000), erro: getErr } },
         atualizado_em: new Date().toISOString(),
       }
-      if (recordId) await sb.from("erp_nfse_emitidas").update(update).eq("id", recordId)
+      if (recordId) {
+        const { data: rows, error: upErr } = await sb
+          .from("erp_nfse_emitidas").update(update).eq("id", recordId).select("id")
+        console.log("consultar.update_404", { recordId, rows_affected: rows?.length ?? 0, upErr: upErr?.message })
+        if (upErr) return respond(500, { ok: false, erro: "Falha update", detalhe: upErr.message })
+        if (!rows || rows.length === 0) return respond(500, { ok: false, erro: "Update afetou 0 linhas (RLS?)" })
+      }
       return respond(200, { ok: true, status_novo: "rejeitada", motivo: update.motivo_rejeicao })
     }
 
@@ -166,7 +205,6 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    // 5. Mapeia status
     const focusStatus = (getJson.status as string) ?? "desconhecido"
     const statusLocal = mapearStatus(focusStatus)
     const motivo = statusLocal === "rejeitada" ? montarMotivoRejeicao(getJson) : null
@@ -183,7 +221,6 @@ Deno.serve(async (req: Request) => {
       ?? null
     const dataEmissao = (getJson.data_emissao as string) ?? null
 
-    // Normaliza xml/pdf urls relativas do Focus
     const fullUrl = (u: string | null) =>
       u && u.startsWith("/") ? `${base}${u}` : u
 
@@ -200,9 +237,18 @@ Deno.serve(async (req: Request) => {
     if (dataEmissao) update.data_emissao = dataEmissao
 
     if (recordId) {
-      const { error } = await sb.from("erp_nfse_emitidas").update(update).eq("id", recordId)
-      if (error) {
-        return respond(500, { ok: false, erro: "Falha update", detalhe: error.message })
+      const { data: rows, error: upErr } = await sb
+        .from("erp_nfse_emitidas").update(update).eq("id", recordId).select("id")
+      console.log("consultar.update_main", {
+        recordId,
+        rows_affected: rows?.length ?? 0,
+        upErr: upErr?.message,
+        statusLocal,
+        focusStatus,
+      })
+      if (upErr) return respond(500, { ok: false, erro: "Falha update", detalhe: upErr.message })
+      if (!rows || rows.length === 0) {
+        return respond(500, { ok: false, erro: "Update afetou 0 linhas (RLS?)" })
       }
     }
 
@@ -215,6 +261,7 @@ Deno.serve(async (req: Request) => {
       chave_nfse: chave,
     })
   } catch (e) {
+    console.log("consultar.exception", { erro: e instanceof Error ? e.message : String(e) })
     return respond(500, {
       ok: false,
       erro: "Erro interno",

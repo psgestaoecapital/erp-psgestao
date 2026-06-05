@@ -162,10 +162,14 @@ export default function NFSeListClient() {
   async function consultarStatus(recordId: string) {
     setConsultando(recordId)
     try {
-      const { error } = await supabase.functions.invoke('gov-nfse-consultar', {
+      const { data, error } = await supabase.functions.invoke('gov-nfse-consultar', {
         body: { record_id: recordId },
       })
       if (error) throw new Error(error.message)
+      const resp = data as { ok?: boolean; erro?: string; detalhe?: string } | null
+      if (resp && resp.ok === false) {
+        throw new Error(resp.erro ?? resp.detalhe ?? 'Falha ao consultar')
+      }
       await carregar()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Falha ao consultar status')
@@ -179,12 +183,28 @@ export default function NFSeListClient() {
     if (pendentes.length === 0) return
     setConsultando('all')
     try {
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         pendentes.map((id) =>
           supabase.functions.invoke('gov-nfse-consultar', { body: { record_id: id } }),
         ),
       )
+      const falhas: string[] = []
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          falhas.push(`Nota ${i + 1}: ${r.reason instanceof Error ? r.reason.message : 'falha'}`)
+        } else {
+          const resp = r.value.data as { ok?: boolean; erro?: string; detalhe?: string } | null
+          if (r.value.error) {
+            falhas.push(`Nota ${i + 1}: ${r.value.error.message}`)
+          } else if (resp && resp.ok === false) {
+            falhas.push(`Nota ${i + 1}: ${resp.erro ?? resp.detalhe ?? 'falha'}`)
+          }
+        }
+      })
       await carregar()
+      if (falhas.length > 0) {
+        alert(`Algumas consultas falharam:\n\n${falhas.slice(0, 5).join('\n')}${falhas.length > 5 ? `\n…e mais ${falhas.length - 5}` : ''}`)
+      }
     } finally {
       setConsultando(null)
     }
