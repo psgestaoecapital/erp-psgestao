@@ -129,10 +129,14 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
     setFase('enviando')
     try {
       const { data, error } = await supabase.functions.invoke<EmitirResp>('gov-nfse-emitir', { body })
-      if (error) {
+      // FIX-NFSE-TRIBUTOS-SIMPLES-v1: preferimos data quando existir
+      // (mesmo com error setado, o body pode trazer mensagem real da Focus)
+      if (data) {
+        setResultado(data)
+      } else if (error) {
         setResultado({ erro: error.message })
       } else {
-        setResultado(data ?? { erro: 'Sem resposta da função.' })
+        setResultado({ erro: 'Sem resposta da função.' })
       }
     } catch (e) {
       setResultado({ erro: e instanceof Error ? e.message : 'Erro inesperado' })

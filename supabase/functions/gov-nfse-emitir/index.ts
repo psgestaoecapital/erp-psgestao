@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : "producao"
     const { data: cfg } = await sb
       .from("erp_fiscal_provider_config")
-      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional")
+      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional, percentual_total_tributos_sn")
       .eq("company_id", p.company_id)
       .eq("provider", "gov_nfse_nacional")
       .eq("ativo", true)
@@ -228,6 +228,17 @@ Deno.serve(async (req: Request) => {
       tipo_retencao_iss: 1,
     }
     if (p.servico.codigo_nbs) focusPayload.codigo_nbs = p.servico.codigo_nbs
+
+    // FIX-NFSE-TRIBUTOS-SIMPLES-v1: totTrib obrigatorio no schema ADN.
+    //   Pra Simples Nacional (opcao 2=MEI ou 3=ME/EPP), enviamos
+    //   percentual_total_tributos_simples_nacional (=pTotTribSN no XML),
+    //   parametrizado em erp_fiscal_provider_config.percentual_total_tributos_sn.
+    //   Focus auto-preenche indTotTrib=1 + totTrib quando esse campo vem.
+    const opcaoSN = (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3
+    const pTotTribSN = (cfg as { percentual_total_tributos_sn?: number | string | null }).percentual_total_tributos_sn
+    if ((opcaoSN === 2 || opcaoSN === 3) && pTotTribSN != null) {
+      focusPayload.percentual_total_tributos_simples_nacional = Number(pTotTribSN)
+    }
 
     // inscricao_municipal_prestador · so se cadastrada (ausencia evita rejeicao)
     if (emp.inscricao_municipal && String(emp.inscricao_municipal).trim()) {
@@ -384,7 +395,12 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    return respond(postFalhou ? 502 : 200, {
+    // FIX-NFSE-TRIBUTOS-SIMPLES-v1 (bonus UX):
+    //   Sempre devolve HTTP 200 com ok:false em rejeicao Focus, em vez
+    //   de 502 que faz supabase.functions.invoke() jogar erro generico
+    //   "non-2xx" no front · agora o modal le data.mensagem direto.
+    //   500 fica reservado pra erro interno real (catch).
+    return respond(200, {
       ok: statusLocal === "autorizada" || statusLocal === "processando",
       status_focus: statusFocus,
       status_local: statusLocal,
