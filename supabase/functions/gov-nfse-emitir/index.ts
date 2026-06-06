@@ -15,6 +15,13 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
 
+// FIX-NFSE-EMITIR-CORS-v1 · mesmo padrao do gov-nfse-consultar (PR #248)
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+}
+
 type Ambiente = "homologacao" | "producao"
 
 interface Payload {
@@ -35,7 +42,10 @@ interface Payload {
 }
 
 function respond(s: number, b: unknown) {
-  return new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
+  return new Response(JSON.stringify(b), {
+    status: s,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  })
 }
 
 function focusBase(amb: Ambiente): string {
@@ -70,6 +80,10 @@ function dataAtual(): string {
 }
 
 Deno.serve(async (req: Request) => {
+  // CORS preflight (FIX-NFSE-EMITIR-CORS-v1)
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS })
+  }
   if (req.method !== "POST") return respond(405, { erro: "Method not allowed" })
   let p: Payload
   try { p = await req.json() } catch { return respond(400, { erro: "JSON invalido" }) }
