@@ -128,13 +128,35 @@ Deno.serve(async (req: Request) => {
       return respond(400, { ok: false, erro: "Registro sem provider_reference (NFS-e legada/sem ref Focus)" })
     }
 
-    const tokenEnv = ambiente === "producao"
+    // Token Focus · resolve nome do secret pela config da empresa (fallback nomes legados)
+    let secretConfig: string | null = null
+    if (companyId) {
+      const { data: cfg } = await sb
+        .from("erp_fiscal_provider_config")
+        .select("focus_token_secret_homolog, focus_token_secret_prod")
+        .eq("company_id", companyId)
+        .eq("provider", "gov_nfse_nacional")
+        .eq("ativo", true)
+        .maybeSingle()
+      if (cfg) {
+        secretConfig = ambiente === "producao"
+          ? (cfg as { focus_token_secret_prod?: string | null }).focus_token_secret_prod ?? null
+          : (cfg as { focus_token_secret_homolog?: string | null }).focus_token_secret_homolog ?? null
+      }
+    }
+    const secretLegacyFallback = ambiente === "producao"
       ? "FOCUS_NFE_TOKEN_PRODUCAO"
       : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
+    const tokenEnv = (secretConfig && secretConfig.trim()) || secretLegacyFallback
     const token = Deno.env.get(tokenEnv)
     if (!token) {
-      console.log("consultar.secret_missing", { tokenEnv })
-      return respond(500, { ok: false, erro: `Secret ${tokenEnv} nao configurado` })
+      console.log("consultar.secret_missing", { tokenEnv, ambiente })
+      return respond(500, {
+        ok: false,
+        erro: ambiente === "producao"
+          ? `Token de producao nao configurado para esta empresa (secret ${tokenEnv} ausente).`
+          : `Token de homologacao nao configurado para esta empresa (secret ${tokenEnv} ausente).`,
+      })
     }
 
     const base = focusBase(ambiente)

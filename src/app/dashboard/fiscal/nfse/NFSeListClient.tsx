@@ -94,7 +94,9 @@ export default function NFSeListClient() {
 
   useEffect(() => {
     if (!companyId) return
-    supabase.functions.invoke('gov-nfse-flags', {}).then(({ data }) => {
+    supabase.functions.invoke('gov-nfse-flags', {
+      body: { company_id: companyId },
+    }).then(({ data }) => {
       const resp = data as { producao_disponivel?: boolean } | null
       setProducaoDisponivel(!!resp?.producao_disponivel)
     }).catch(() => setProducaoDisponivel(false))
