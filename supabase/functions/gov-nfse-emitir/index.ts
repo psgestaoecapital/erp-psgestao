@@ -81,24 +81,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 1. Token Focus por ambiente
+    // 1. Config gov.br nacional + empresa (inclui nomes de secrets Focus por empresa)
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : "producao"
-    const tokenEnv = ambiente === "producao"
-      ? "FOCUS_NFE_TOKEN_PRODUCAO"
-      : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
-    const token = Deno.env.get(tokenEnv)
-    if (!token) {
-      return respond(500, {
-        ok: false,
-        erro: `Secret ${tokenEnv} nao configurado no projeto Supabase`,
-        sugestao: "Configure em https://supabase.com/dashboard/project/horsymhsinqcimflrtjo/functions/secrets",
-      })
-    }
-
-    // 2. Config gov.br nacional + empresa
     const { data: cfg } = await sb
       .from("erp_fiscal_provider_config")
-      .select("gov_nfse_municipio_codigo")
+      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod")
       .eq("company_id", p.company_id)
       .eq("provider", "gov_nfse_nacional")
       .eq("ativo", true)
@@ -106,6 +93,26 @@ Deno.serve(async (req: Request) => {
     if (!cfg) {
       return respond(404, { ok: false, erro: "Provider gov_nfse_nacional nao configurado pra esta empresa" })
     }
+
+    // 2. Token Focus · resolve nome do secret pela config (fallback nomes legados)
+    const secretLegacyFallback = ambiente === "producao"
+      ? "FOCUS_NFE_TOKEN_PRODUCAO"
+      : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
+    const secretConfig = ambiente === "producao"
+      ? (cfg as { focus_token_secret_prod?: string | null }).focus_token_secret_prod
+      : (cfg as { focus_token_secret_homolog?: string | null }).focus_token_secret_homolog
+    const tokenEnv = (secretConfig && secretConfig.trim()) || secretLegacyFallback
+    const token = Deno.env.get(tokenEnv)
+    if (!token) {
+      return respond(500, {
+        ok: false,
+        erro: ambiente === "producao"
+          ? `Token de producao nao configurado para esta empresa (secret ${tokenEnv} ausente).`
+          : `Token de homologacao nao configurado para esta empresa (secret ${tokenEnv} ausente).`,
+        sugestao: "Configure em https://supabase.com/dashboard/project/horsymhsinqcimflrtjo/functions/secrets",
+      })
+    }
+
     const muniIbge = String(cfg.gov_nfse_municipio_codigo ?? "").replace(/\D/g, "")
     if (muniIbge.length !== 7) {
       return respond(400, { ok: false, erro: "gov_nfse_municipio_codigo invalido (7 digitos)" })
