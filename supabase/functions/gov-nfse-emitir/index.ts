@@ -160,6 +160,22 @@ Deno.serve(async (req: Request) => {
     // 3. ref idempotente curto
     const ref = `${p.company_id.slice(0, 8)}-${Date.now()}`
 
+    // FEAT-NFSE-NUMERACAO-v1 · numero/serie atomicos da DPS pelo RPC.
+    //   Sempre consome um numero (mesmo se Focus rejeitar) · nunca repete.
+    const { data: numRows, error: numErr } = await sb
+      .rpc("fn_proximo_numero_nfse", { p_company_id: p.company_id })
+    const numRow = Array.isArray(numRows) ? numRows[0] : numRows
+    if (numErr || !numRow || numRow.serie == null || numRow.numero == null) {
+      return respond(500, {
+        ok: false,
+        erro: "Falha obter proximo numero NFS-e (RPC fn_proximo_numero_nfse)",
+        detalhe: numErr?.message,
+      })
+    }
+    const nfseSerie: string = String(numRow.serie)
+    const nfseNumero: number = Number(numRow.numero)
+    console.log("emitir.numero_consumido", { ref, serie: nfseSerie, numero: nfseNumero })
+
     // 4. Cria erp_nfse_emitidas row (status=processando)
     let nfseId = p.nfse_emitida_id
     if (!nfseId) {
@@ -179,7 +195,8 @@ Deno.serve(async (req: Request) => {
         prestador_cnpj: cnpjPrest,
         prestador_razao_social: emp.razao_social,
         prestador_im: emp.inscricao_municipal,
-        serie: "1",
+        serie: nfseSerie,
+        numero: String(nfseNumero),
       }).select("id").single()
       if (error || !row) {
         return respond(500, { ok: false, erro: "Falha criar erp_nfse_emitidas", detalhe: error?.message })
@@ -191,6 +208,9 @@ Deno.serve(async (req: Request) => {
     const aliqIss = p.servico.aliquota_iss ?? 5
     const valorIss = round2(p.servico.valor * aliqIss / 100)
     const focusPayload: Record<string, unknown> = {
+      // FEAT-NFSE-NUMERACAO-v1 · serie/numero atomicos (antes era hardcoded 1/1)
+      serie_rps: nfseSerie,
+      numero_rps: nfseNumero,
       data_emissao: isoBrasilia(),
       data_competencia: dataAtual(),
       codigo_municipio_emissora: Number(muniIbge),
