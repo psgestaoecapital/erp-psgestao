@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : "producao"
     const { data: cfg } = await sb
       .from("erp_fiscal_provider_config")
-      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional, percentual_total_tributos_sn")
+      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn")
       .eq("company_id", p.company_id)
       .eq("provider", "gov_nfse_nacional")
       .eq("ativo", true)
@@ -238,6 +238,14 @@ Deno.serve(async (req: Request) => {
     const pTotTribSN = (cfg as { percentual_total_tributos_sn?: number | string | null }).percentual_total_tributos_sn
     if ((opcaoSN === 2 || opcaoSN === 3) && pTotTribSN != null) {
       focusPayload.percentual_total_tributos_simples_nacional = Number(pTotTribSN)
+    }
+
+    // FIX-NFSE-REGIME-APURACAO-SN-v1: regApTribSN obrigatorio pra optante SN ME/EPP (E0166).
+    //   Focus JSON regime_tributario_simples_nacional · XML regApTribSN
+    //   1 = federais+municipal pelo SN · 2 = federais SN + ISS fora · 3 = ambos fora
+    const regApSN = (cfg as { regime_apuracao_sn?: number | null }).regime_apuracao_sn
+    if ((opcaoSN === 2 || opcaoSN === 3) && regApSN != null) {
+      focusPayload.regime_tributario_simples_nacional = Number(regApSN)
     }
 
     // inscricao_municipal_prestador · so se cadastrada (ausencia evita rejeicao)
