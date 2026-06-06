@@ -118,6 +118,7 @@ type Compra = {
   total: number | null
   nf_numero: string | null
   estoque_baixado: boolean | null
+  titulos_gerados: boolean | null
 }
 
 type Fornecedor = {
@@ -179,6 +180,7 @@ function ComprasInner() {
   const [cotSel, setCotSel] = useState<Cotacao | null>(null)
   const [compSel, setCompSel] = useState<Compra | null>(null)
   const [showNova, setShowNova] = useState(false)
+  const [showNovaCompra, setShowNovaCompra] = useState(false)
   const [showCompare, setShowCompare] = useState<Cotacao | null>(null)
 
   const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
@@ -253,6 +255,32 @@ function ComprasInner() {
     flash('Status atualizado.')
   }
 
+  async function receberCompra(compraId: string) {
+    if (!confirm('Receber esta compra? O estoque vai ser atualizado e o custo médio recalculado.')) return
+    const { data, error } = await supabase.rpc('fn_compra_receber', { p_compra_id: compraId })
+    if (error) { flashErr('Erro: ' + error.message); return }
+    const resp = data as { ok?: boolean; qtd_itens?: number } | null
+    flash(`Mercadoria recebida · estoque atualizado em ${resp?.qtd_itens ?? 0} itens.`)
+    await carregar()
+    if (compSel?.id === compraId) {
+      const fresh = (await supabase.from('erp_compras').select('*').eq('id', compraId).single()).data as Compra | null
+      if (fresh) setCompSel(fresh)
+    }
+  }
+
+  async function gerarTitulosCompra(compraId: string) {
+    if (!confirm('Gerar os títulos a pagar a partir desta compra?')) return
+    const { data, error } = await supabase.rpc('fn_compra_gerar_titulos', { p_compra_id: compraId })
+    if (error) { flashErr('Erro: ' + error.message); return }
+    const resp = data as { ok?: boolean; qtd_parcelas?: number } | null
+    flash(`Títulos gerados · ${resp?.qtd_parcelas ?? 0} parcela(s) em contas a pagar.`)
+    await carregar()
+    if (compSel?.id === compraId) {
+      const fresh = (await supabase.from('erp_compras').select('*').eq('id', compraId).single()).data as Compra | null
+      if (fresh) setCompSel(fresh)
+    }
+  }
+
   const cotFiltradas = useMemo(() => {
     const q = filtroBusca.trim().toLowerCase()
     return cotacoes.filter((c) => {
@@ -293,6 +321,12 @@ function ComprasInner() {
           <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
             style={btnPrincipal(canCreate)}>
             <Plus size={14} /> Nova Cotação
+          </button>
+        )}
+        {tab === 'compras' && (
+          <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+            style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
+            <Plus size={14} /> Nova compra
           </button>
         )}
       </header>
@@ -357,6 +391,23 @@ function ComprasInner() {
           cotacaoOrigem={compSel.cotacao_origem_id ? cotacoes.find((c) => c.id === compSel.cotacao_origem_id) : null}
           onClose={() => setCompSel(null)}
           onAvancar={(novoStatus) => avancarCompra(compSel.id, novoStatus)}
+          onReceber={() => receberCompra(compSel.id)}
+          onGerarTitulos={() => gerarTitulosCompra(compSel.id)}
+        />
+      )}
+
+      {showNovaCompra && companyIdUnico && (
+        <ModalNovaCompra
+          companyId={companyIdUnico}
+          onClose={() => setShowNovaCompra(false)}
+          onCreated={async (id) => {
+            setShowNovaCompra(false)
+            await carregar()
+            const c = (await supabase.from('erp_compras').select('*').eq('id', id).single()).data as Compra | null
+            if (c) { setTab('compras'); setCompSel(c) }
+          }}
+          flash={flash}
+          flashErr={flashErr}
         />
       )}
 
@@ -564,7 +615,7 @@ function DrawerCotacao({ cotacao, onClose, onEnviar, onCancelar, onCompare }: {
   )
 }
 
-function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar }: { compra: Compra; cotacaoOrigem: Cotacao | null | undefined; onClose: () => void; onAvancar: (s: string) => void }) {
+function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar, onReceber, onGerarTitulos }: { compra: Compra; cotacaoOrigem: Cotacao | null | undefined; onClose: () => void; onAvancar: (s: string) => void; onReceber: () => void; onGerarTitulos: () => void }) {
   const [itens, setItens] = useState<{ id: string; produto_nome: string; produto_codigo: string | null; unidade: string | null; quantidade: number; quantidade_recebida: number | null; preco_unitario: number | null; subtotal: number | null }[]>([])
 
   useEffect(() => {
@@ -626,27 +677,24 @@ function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar }: { compra: C
           </Card>
 
           <Card titulo="Recebimento & NF">
-            {compra.nf_numero ? (
-              <Row label="NF-e recebida" value={<strong style={{ color: C.green }}>{compra.nf_numero}</strong>} />
-            ) : (
-              <button type="button" disabled title="Em desenvolvimento (M.B.1.5)"
-                style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', alignSelf: 'flex-start' }}>
-                Lançar NF Entrada (em breve)
-              </button>
+            {compra.nf_numero && (
+              <Row label="NF do fornecedor" value={<strong style={{ color: C.green }}>{compra.nf_numero}</strong>} />
             )}
+            {compra.estoque_baixado && <Row label="Estoque" value={<span style={{ color: C.green, fontWeight: 600 }}>✓ Atualizado pela compra</span>} />}
+            {compra.titulos_gerados && <Row label="Financeiro" value={<span style={{ color: C.green, fontWeight: 600 }}>✓ Títulos gerados em Contas a pagar</span>} />}
           </Card>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
             {compra.status === 'aberta' && (
               <button onClick={() => onAvancar('aguardando_entrega')} style={btnSec}><Truck size={14} /> Aguardando entrega</button>
             )}
-            {['aberta', 'aguardando_entrega', 'recebida_parcial'].includes(compra.status) && (
-              <button onClick={() => onAvancar('recebida_parcial')} style={btnSec}><CheckCircle2 size={14} /> Recebida parcial</button>
+            {!compra.estoque_baixado && ['aberta', 'aguardando_entrega', 'recebida_parcial'].includes(compra.status) && (
+              <button onClick={onReceber} data-testid="commerce-receber" style={{ ...btnPri, background: C.green }}><CheckCircle2 size={14} /> Receber (atualiza estoque)</button>
             )}
-            {['aberta', 'aguardando_entrega', 'recebida_parcial'].includes(compra.status) && (
-              <button onClick={() => onAvancar('recebida_total')} style={{ ...btnPri, background: C.green }}><CheckCircle2 size={14} /> Recebida total</button>
+            {!compra.titulos_gerados && compra.estoque_baixado && (
+              <button onClick={onGerarTitulos} data-testid="commerce-gerar-titulos" style={btnPri}><FileText size={14} /> Gerar financeiro</button>
             )}
-            {compra.status === 'recebida_total' && (
+            {compra.status === 'recebida_total' && compra.estoque_baixado && compra.titulos_gerados && (
               <button onClick={() => onAvancar('finalizada')} style={btnPri}><Award size={14} /> Finalizar</button>
             )}
           </div>
@@ -1111,4 +1159,309 @@ const btnMini: React.CSSProperties = {
 }
 function btnPrincipal(enabled: boolean): React.CSSProperties {
   return { padding: '8px 16px', borderRadius: 8, border: 'none', background: enabled ? C.gold : C.cream, color: enabled ? '#FFF' : C.espressoL, fontSize: 12, fontWeight: 600, cursor: enabled ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 6 }
+}
+
+// ════════════════════════════════════════════════════════════
+// Modal Nova Compra — COMMERCE-F1
+// ════════════════════════════════════════════════════════════
+
+interface NovaCompraProps {
+  companyId: string
+  onClose: () => void
+  onCreated: (id: string) => void | Promise<void>
+  flash: (m: string) => void
+  flashErr: (m: string) => void
+}
+
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string | null; preco_custo: number | null; preco_custo_medio: number | null }
+type FornecedorBusca = { id: string; nome_fantasia: string; cnpj_cpf: string | null; cpf_cnpj: string | null }
+type ItemForm = { tempId: string; produto_id: string; codigo: string; nome: string; unidade: string | null; quantidade: string; preco: string }
+
+function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: NovaCompraProps) {
+  const hoje = new Date().toISOString().slice(0, 10)
+  const [fornecedor, setFornecedor] = useState<FornecedorBusca | null>(null)
+  const [forBusca, setForBusca] = useState('')
+  const [forOpcoes, setForOpcoes] = useState<FornecedorBusca[]>([])
+  const [forCarregando, setForCarregando] = useState(false)
+  const [itens, setItens] = useState<ItemForm[]>([])
+  const [prodBusca, setProdBusca] = useState('')
+  const [prodOpcoes, setProdOpcoes] = useState<ProdutoBusca[]>([])
+  const [prodCarregando, setProdCarregando] = useState(false)
+  const [dataPedido, setDataPedido] = useState(hoje)
+  const [condicao, setCondicao] = useState('a_vista')
+  const [parcelas, setParcelas] = useState('1')
+  const [primeiroVenc, setPrimeiroVenc] = useState(hoje)
+  const [nfNumero, setNfNumero] = useState('')
+  const [nfChave, setNfChave] = useState('')
+  const [nfData, setNfData] = useState('')
+  const [nfValor, setNfValor] = useState('')
+  const [observacoes, setObservacoes] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erroLocal, setErroLocal] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!forBusca.trim() || forBusca.trim().length < 2) { setForOpcoes([]); return }
+    const q = forBusca.trim()
+    setForCarregando(true)
+    const t = window.setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_fornecedores')
+        .select('id, nome_fantasia, cnpj_cpf, cpf_cnpj')
+        .eq('company_id', companyId)
+        .ilike('nome_fantasia', `%${q}%`)
+        .order('nome_fantasia').limit(20)
+      setForOpcoes((data ?? []) as FornecedorBusca[])
+      setForCarregando(false)
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [forBusca, companyId])
+
+  useEffect(() => {
+    if (!prodBusca.trim() || prodBusca.trim().length < 2) { setProdOpcoes([]); return }
+    const q = prodBusca.trim()
+    setProdCarregando(true)
+    const t = window.setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_produtos')
+        .select('id, codigo, nome, unidade, preco_custo, preco_custo_medio')
+        .eq('company_id', companyId).eq('ativo', true)
+        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
+        .order('nome').limit(20)
+      setProdOpcoes((data ?? []) as ProdutoBusca[])
+      setProdCarregando(false)
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [prodBusca, companyId])
+
+  function adicionarProduto(p: ProdutoBusca) {
+    if (itens.some((it) => it.produto_id === p.id)) return
+    const precoSugerido = p.preco_custo_medio ?? p.preco_custo ?? 0
+    setItens((prev) => [...prev, {
+      tempId: crypto.randomUUID(), produto_id: p.id, codigo: p.codigo,
+      nome: p.nome, unidade: p.unidade ?? 'un', quantidade: '1',
+      preco: precoSugerido > 0 ? precoSugerido.toFixed(2).replace('.', ',') : '',
+    }])
+    setProdBusca(''); setProdOpcoes([])
+  }
+
+  function removerItem(tempId: string) { setItens((prev) => prev.filter((i) => i.tempId !== tempId)) }
+  function alterarItem(tempId: string, campo: 'quantidade' | 'preco', valor: string) {
+    setItens((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [campo]: valor } : i))
+  }
+
+  const totalCalc = useMemo(() => itens.reduce((s, it) => {
+    const q = Number(it.quantidade.replace(',', '.')) || 0
+    const p = Number(it.preco.replace(',', '.')) || 0
+    return s + q * p
+  }, 0), [itens])
+
+  async function salvar() {
+    setErroLocal(null)
+    if (!fornecedor) { setErroLocal('Escolha o fornecedor.'); return }
+    if (itens.length === 0) { setErroLocal('Adicione pelo menos um item.'); return }
+    for (const it of itens) {
+      const q = Number(it.quantidade.replace(',', '.')) || 0
+      const p = Number(it.preco.replace(',', '.')) || 0
+      if (q <= 0) { setErroLocal(`Quantidade inválida em ${it.nome}.`); return }
+      if (p < 0) { setErroLocal(`Preço inválido em ${it.nome}.`); return }
+    }
+    const parcN = Math.max(1, parseInt(parcelas, 10) || 1)
+    setSalvando(true)
+    try {
+      const numero = `C${Date.now().toString().slice(-8)}`
+      const { data: compraRow, error: e1 } = await supabase.from('erp_compras').insert({
+        company_id: companyId, numero,
+        fornecedor_id: fornecedor.id, fornecedor_nome: fornecedor.nome_fantasia,
+        fornecedor_cnpj: fornecedor.cnpj_cpf ?? fornecedor.cpf_cnpj,
+        data_pedido: dataPedido, status: 'aberta',
+        condicao_pagamento: condicao, parcelas: parcN,
+        primeiro_vencimento: primeiroVenc || dataPedido,
+        subtotal: totalCalc, total: totalCalc,
+        nf_numero: nfNumero.trim() || null,
+        nf_chave: nfChave.trim() || null,
+        nf_data_emissao: nfData || null,
+        nf_valor: nfValor.trim() ? Number(nfValor.replace(',', '.')) : null,
+        observacoes: observacoes.trim() || null,
+      }).select('id').single()
+      if (e1 || !compraRow) throw new Error(e1?.message ?? 'Falha ao criar compra')
+
+      const linhas = itens.map((it, i) => {
+        const q = Number(it.quantidade.replace(',', '.')) || 0
+        const p = Number(it.preco.replace(',', '.')) || 0
+        return {
+          company_id: companyId, compra_id: compraRow.id, ordem: i + 1,
+          produto_id: it.produto_id, produto_codigo: it.codigo, produto_nome: it.nome,
+          unidade: it.unidade, quantidade: q, preco_unitario: p, subtotal: q * p,
+        }
+      })
+      const { error: e2 } = await supabase.from('erp_compras_itens').insert(linhas)
+      if (e2) throw new Error(e2.message)
+
+      flash('Compra criada.')
+      await onCreated(compraRow.id)
+    } catch (err) {
+      flashErr(err instanceof Error ? err.message : 'Erro ao salvar')
+      setErroLocal(err instanceof Error ? err.message : 'Erro ao salvar')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget && !salvando) onClose() }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 720, maxHeight: '92vh', overflowY: 'auto', background: C.offWhite, borderRadius: 14, boxShadow: '0 12px 32px rgba(0,0,0,0.2)' }}>
+        <header style={{ position: 'sticky', top: 0, background: C.offWhite, borderBottom: `1px solid ${C.border}`, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Nova compra</h3>
+          <button onClick={onClose} disabled={salvando} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
+        </header>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Card titulo="Fornecedor">
+            {fornecedor ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: C.cream, borderRadius: 8 }}>
+                <CheckCircle2 size={16} style={{ color: C.gold }} />
+                <div style={{ flex: 1 }}>
+                  <strong>{fornecedor.nome_fantasia}</strong>
+                  {(fornecedor.cnpj_cpf ?? fornecedor.cpf_cnpj) && <div style={{ fontSize: 11, color: C.espressoM }}>{fornecedor.cnpj_cpf ?? fornecedor.cpf_cnpj}</div>}
+                </div>
+                <button onClick={() => setFornecedor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={14} /></button>
+              </div>
+            ) : (
+              <>
+                <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
+                  style={{ width: '100%', padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                {forCarregando && <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Buscando...</div>}
+                {forOpcoes.length > 0 && (
+                  <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
+                    {forOpcoes.map((f) => (
+                      <button key={f.id} type="button" onClick={() => { setFornecedor(f); setForBusca(''); setForOpcoes([]) }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', borderBottom: `1px solid ${C.borderL}`, cursor: 'pointer', fontSize: 12 }}>
+                        <strong>{f.nome_fantasia}</strong>
+                        {(f.cnpj_cpf ?? f.cpf_cnpj) && <span style={{ marginLeft: 8, color: C.espressoM, fontSize: 11 }}>{f.cnpj_cpf ?? f.cpf_cnpj}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+
+          <Card titulo={`Itens · ${itens.length}`}>
+            <input value={prodBusca} onChange={(e) => setProdBusca(e.target.value)} placeholder="Buscar produto por nome ou código..."
+              style={{ width: '100%', padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, marginBottom: 8 }} />
+            {prodCarregando && <div style={{ fontSize: 11, color: C.espressoM }}>Buscando...</div>}
+            {prodOpcoes.length > 0 && (
+              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 10, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
+                {prodOpcoes.map((p) => (
+                  <button key={p.id} type="button" onClick={() => adicionarProduto(p)}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', borderBottom: `1px solid ${C.borderL}`, cursor: 'pointer', fontSize: 12 }}>
+                    <strong>{p.nome}</strong>
+                    <span style={{ marginLeft: 8, color: C.espressoM, fontFamily: 'monospace', fontSize: 10 }}>{p.codigo}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {itens.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', padding: '8px 0' }}>Busque e adicione produtos acima.</div>
+            ) : (
+              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th>Qtd</Th><Th>Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
+                <tbody>
+                  {itens.map((it) => {
+                    const q = Number(it.quantidade.replace(',', '.')) || 0
+                    const p = Number(it.preco.replace(',', '.')) || 0
+                    return (
+                      <tr key={it.tempId} style={{ borderTop: `1px solid ${C.borderL}` }}>
+                        <Td>
+                          <strong>{it.nome}</strong>
+                          <div style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{it.codigo}</div>
+                        </Td>
+                        <Td>
+                          <input value={it.quantidade} onChange={(e) => alterarItem(it.tempId, 'quantidade', e.target.value)}
+                            style={{ width: 60, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
+                          <span style={{ fontSize: 10, color: C.espressoM, marginLeft: 4 }}>{it.unidade}</span>
+                        </Td>
+                        <Td>
+                          <input value={it.preco} onChange={(e) => alterarItem(it.tempId, 'preco', e.target.value)} placeholder="0,00"
+                            style={{ width: 80, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
+                        </Td>
+                        <Td align="right"><strong>{fmtBRL(q * p)}</strong></Td>
+                        <Td align="right">
+                          <button type="button" onClick={() => removerItem(it.tempId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={12} /></button>
+                        </Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div style={{ marginTop: 10, padding: 10, background: C.goldBg, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong>Total</strong>
+              <strong style={{ color: C.goldD, fontSize: 16 }}>{fmtBRL(totalCalc)}</strong>
+            </div>
+          </Card>
+
+          <Card titulo="Pagamento">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <label style={{ fontSize: 11, color: C.espressoM }}>Condição
+                <select value={condicao} onChange={(e) => setCondicao(e.target.value)} style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                  <option value="a_vista">À vista</option>
+                  <option value="30">30 dias</option>
+                  <option value="30_60">30/60</option>
+                  <option value="30_60_90">30/60/90</option>
+                  <option value="parcelado">Parcelado custom</option>
+                </select>
+              </label>
+              <label style={{ fontSize: 11, color: C.espressoM }}>Parcelas
+                <input type="number" min="1" value={parcelas} onChange={(e) => setParcelas(e.target.value)}
+                  style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+              </label>
+              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Primeiro vencimento
+                <input type="date" value={primeiroVenc} onChange={(e) => setPrimeiroVenc(e.target.value)}
+                  style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+              </label>
+            </div>
+          </Card>
+
+          <Card titulo="NF do fornecedor (opcional)">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <label style={{ fontSize: 11, color: C.espressoM }}>Número
+                <input value={nfNumero} onChange={(e) => setNfNumero(e.target.value)}
+                  style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+              </label>
+              <label style={{ fontSize: 11, color: C.espressoM }}>Data emissão
+                <input type="date" value={nfData} onChange={(e) => setNfData(e.target.value)}
+                  style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+              </label>
+              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Chave (44 dígitos)
+                <input value={nfChave} onChange={(e) => setNfChave(e.target.value)}
+                  style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
+              </label>
+              <label style={{ fontSize: 11, color: C.espressoM }}>Valor NF
+                <input value={nfValor} onChange={(e) => setNfValor(e.target.value)} placeholder="0,00"
+                  style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+              </label>
+            </div>
+          </Card>
+
+          <Card titulo="Observações">
+            <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2}
+              style={{ width: '100%', padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, resize: 'vertical' }} />
+          </Card>
+
+          {erroLocal && (
+            <div style={{ padding: 10, background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, color: C.red, fontSize: 12 }}>{erroLocal}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+            <button type="button" onClick={salvar} disabled={salvando || itens.length === 0 || !fornecedor} data-testid="commerce-nova-compra-salvar"
+              style={btnPrincipal(!salvando && itens.length > 0 && !!fornecedor)}>
+              {salvando ? 'Salvando…' : 'Criar compra'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
