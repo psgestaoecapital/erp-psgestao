@@ -79,6 +79,22 @@ function dataAtual(): string {
   return new Date().toISOString().split("T")[0]
 }
 
+// FIX-NFSE-EMITIR-GRAVAR-RETORNO-v1 · extrai motivo de rejeicao da Focus
+function montarMotivoRejeicao(json: Record<string, unknown> | null): string | null {
+  if (!json) return null
+  const erros = json.erros as Array<{ codigo?: string; mensagem?: string }> | undefined
+  if (Array.isArray(erros) && erros.length > 0) {
+    const e = erros[0]
+    const cod = e.codigo ?? ""
+    const msg = e.mensagem ?? ""
+    return cod && msg ? `${cod}: ${msg}` : (cod || msg || null)
+  }
+  return (json.mensagem_sefaz as string)
+    ?? (json.motivo_status as string)
+    ?? (json.mensagem as string)
+    ?? null
+}
+
 Deno.serve(async (req: Request) => {
   // CORS preflight (FIX-NFSE-EMITIR-CORS-v1)
   if (req.method === "OPTIONS") {
@@ -267,25 +283,42 @@ Deno.serve(async (req: Request) => {
       ?? (erros && erros.length > 0 ? JSON.stringify(erros) : null)
 
     // 9. Mapeia status Focus -> nosso enum
-    const statusLocal =
-      statusFocus === "autorizado" ? "autorizada" :
-      statusFocus === "cancelado" ? "cancelada" :
-      (statusFocus === "erro_autorizacao" || statusFocus === "denegado") ? "rejeitada" :
-      "processando"
+    // FIX-NFSE-EMITIR-GRAVAR-RETORNO-v1:
+    //   - POST nao-2xx (ou erro de rede) -> rejeitada SEMPRE, motivo extraido da Focus.
+    //   - POST 2xx -> usa status do GET pra fechar (caso ja deu tempo) ou processando.
+    const postFalhou = !!postErr || postStatus === 0 || postStatus >= 400
+    let statusLocal: "autorizada" | "rejeitada" | "processando" | "cancelada"
+    let motivoFinal: string | null = null
+
+    if (postFalhou) {
+      statusLocal = "rejeitada"
+      motivoFinal = montarMotivoRejeicao(postJson)
+        ?? postErr
+        ?? (postBody && postBody.length > 0 ? postBody.slice(0, 500) : `Focus retornou HTTP ${postStatus}`)
+    } else {
+      statusLocal =
+        statusFocus === "autorizado" ? "autorizada" :
+        statusFocus === "cancelado" ? "cancelada" :
+        (statusFocus === "erro_autorizacao" || statusFocus === "denegado") ? "rejeitada" :
+        "processando"
+      if (statusLocal === "rejeitada") {
+        motivoFinal = montarMotivoRejeicao(getJson) ?? mensagem
+      }
+    }
 
     // 10. Update erp_nfse_emitidas
     await sb.from("erp_nfse_emitidas").update({
       status: statusLocal,
       chave_acesso: chaveAcesso,
       numero,
-      motivo_rejeicao: statusLocal === "rejeitada" ? mensagem : null,
+      motivo_rejeicao: statusLocal === "rejeitada" ? motivoFinal : null,
       provider_raw: {
         post: { status: postStatus, body: postBody.slice(0, 4000), erro: postErr },
         get: { status: getStatus, body: getBody.slice(0, 4000), erro: getErr },
       },
     }).eq("id", nfseId)
 
-    return respond(postStatus < 400 ? 200 : 502, {
+    return respond(postFalhou ? 502 : 200, {
       ok: statusLocal === "autorizada" || statusLocal === "processando",
       status_focus: statusFocus,
       status_local: statusLocal,
@@ -293,7 +326,7 @@ Deno.serve(async (req: Request) => {
       nfse_emitida_id: nfseId,
       chave_acesso: chaveAcesso,
       numero,
-      mensagem,
+      mensagem: motivoFinal ?? mensagem,
       ambiente,
       cnpj_prestador: cnpjPrest,
       municipio_ibge: muniIbge,
