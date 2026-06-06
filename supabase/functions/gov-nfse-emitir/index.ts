@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : "producao"
     const { data: cfg } = await sb
       .from("erp_fiscal_provider_config")
-      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod")
+      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional")
       .eq("company_id", p.company_id)
       .eq("provider", "gov_nfse_nacional")
       .eq("ativo", true)
@@ -215,7 +215,9 @@ Deno.serve(async (req: Request) => {
       data_competencia: dataAtual(),
       codigo_municipio_emissora: Number(muniIbge),
       cnpj_prestador: cnpjPrest,
-      codigo_opcao_simples_nacional: 1, // 1 = Simples Nacional
+      // FIX-NFSE-OPCAO-SIMPLES-v1: 1=Nao optante, 2=Optante MEI, 3=Optante ME/EPP
+      // (fonte: erp_fiscal_provider_config.opcao_simples_nacional · KGF=3)
+      codigo_opcao_simples_nacional: (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3,
       regime_especial_tributacao: 0,    // 0 = Nenhum
       codigo_municipio_prestacao: Number(muniIbge),
       codigo_tributacao_nacional_iss: p.servico.codigo_tributacao_nacional_iss,
