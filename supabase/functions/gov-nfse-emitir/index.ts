@@ -241,6 +241,14 @@ Deno.serve(async (req: Request) => {
     } catch (e) {
       postErr = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
     }
+    // FIX-NFSE-EMITIR-UPDATE-FINALLY-v1 · log diagnostico (sem token)
+    console.log("emitir.focus_post", {
+      ref,
+      ambiente,
+      postStatus,
+      postErr,
+      bodyPreview: postBody.slice(0, 500),
+    })
 
     // 7. Consulta status (aguarda 2s)
     await new Promise((res) => setTimeout(res, 2000))
@@ -261,6 +269,12 @@ Deno.serve(async (req: Request) => {
     } catch (e) {
       getErr = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
     }
+    console.log("emitir.focus_get", {
+      ref,
+      getStatus,
+      getErr,
+      bodyPreview: getBody.slice(0, 500),
+    })
 
     // 8. Parse resposta Focus
     let getJson: Record<string, unknown> | null = null
@@ -269,9 +283,8 @@ Deno.serve(async (req: Request) => {
     try { postJson = postBody ? JSON.parse(postBody) : null } catch { postJson = null }
 
     const statusFocus = (getJson?.status as string) ?? (postJson?.status as string) ?? "desconhecido"
-    const chaveAcesso = (getJson?.chave_nfse as string)
-      ?? (getJson?.chave_acesso as string)
-      ?? (postJson?.chave_nfse as string)
+    const codigoVerif = (getJson?.codigo_verificacao as string)
+      ?? (postJson?.codigo_verificacao as string)
       ?? null
     const numero = (getJson?.numero as string)
       ?? (getJson?.numero_nfse as string)
@@ -307,16 +320,47 @@ Deno.serve(async (req: Request) => {
     }
 
     // 10. Update erp_nfse_emitidas
-    await sb.from("erp_nfse_emitidas").update({
+    // FIX-NFSE-EMITIR-UPDATE-FINALLY-v1:
+    //   - .select("id") pra confirmar rows_affected
+    //   - log erro do update (causa #253 nao funcionou: coluna 'chave_acesso'
+    //     nao existe na tabela -> PostgREST 400 silenciado).
+    //     Corrigido: usar codigo_verificacao (que existe) e remover chave_acesso.
+    const updatePayload: Record<string, unknown> = {
       status: statusLocal,
-      chave_acesso: chaveAcesso,
       numero,
       motivo_rejeicao: statusLocal === "rejeitada" ? motivoFinal : null,
       provider_raw: {
         post: { status: postStatus, body: postBody.slice(0, 4000), erro: postErr },
         get: { status: getStatus, body: getBody.slice(0, 4000), erro: getErr },
       },
-    }).eq("id", nfseId)
+    }
+    if (codigoVerif) updatePayload.codigo_verificacao = codigoVerif
+
+    const { data: upRows, error: upErr } = await sb
+      .from("erp_nfse_emitidas")
+      .update(updatePayload)
+      .eq("id", nfseId)
+      .select("id")
+    console.log("emitir.update_result", {
+      nfseId,
+      statusLocal,
+      rows_affected: upRows?.length ?? 0,
+      upErr: upErr?.message,
+    })
+    if (upErr || !upRows || upRows.length === 0) {
+      return respond(500, {
+        ok: false,
+        erro: "Falha persistir resposta Focus em erp_nfse_emitidas",
+        detalhe: upErr?.message ?? "Update afetou 0 linhas",
+        status_focus: statusFocus,
+        status_local: statusLocal,
+        mensagem: motivoFinal ?? mensagem,
+        resposta_focus: {
+          post: { status: postStatus, body: postBody.slice(0, 1500), erro: postErr },
+          get: { status: getStatus, body: getBody.slice(0, 1500), erro: getErr },
+        },
+      })
+    }
 
     return respond(postFalhou ? 502 : 200, {
       ok: statusLocal === "autorizada" || statusLocal === "processando",
@@ -324,7 +368,7 @@ Deno.serve(async (req: Request) => {
       status_local: statusLocal,
       ref,
       nfse_emitida_id: nfseId,
-      chave_acesso: chaveAcesso,
+      codigo_verificacao: codigoVerif,
       numero,
       mensagem: motivoFinal ?? mensagem,
       ambiente,
