@@ -233,7 +233,7 @@ function EstoqueInner() {
     const [loc, prod, mov, abc, inv] = await Promise.all([
       supabase.from('erp_estoque_locais').select('*').in('company_id', companyIds).order('principal', { ascending: false }).order('nome'),
       supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
-        .in('company_id', companyIds).eq('ativo', true).order('nome').limit(500),
+        .in('company_id', companyIds).eq('ativo', true).order('nome').limit(5000),
       supabase.from('erp_estoque_movimentacoes').select('*').in('company_id', companyIds).order('data_movimento', { ascending: false }).limit(300),
       supabase.rpc('fn_curva_abc_estoque', { p_company_ids: companyIds }),
       supabase.from('erp_inventarios').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(50),
@@ -382,6 +382,83 @@ function EstoqueInner() {
       return true
     })
   }, [produtos, filtroBusca, filtroCategoria, filtroEstoque])
+
+  // FIX-PRODUTOS-BUSCA-SERVERSIDE-v1 · server-side pagination + search pra TabProdutos
+  // Reusa pattern do PR #262 (2 queries paralelas nome/codigo + dedup).
+  // KGF tem 1725 produtos · cliente-side 500 perdia 1225 · OLEO codigo 576 (pos 1074)
+  // ficava invisivel.
+  const PRODUTOS_PAGE_SIZE = 100
+  const [produtosSrv, setProdutosSrv] = useState<Produto[]>([])
+  const [produtosSrvTotal, setProdutosSrvTotal] = useState(0)
+  const [produtosSrvLoading, setProdutosSrvLoading] = useState(false)
+  const [produtosSrvPage, setProdutosSrvPage] = useState(1)
+
+  // Reset pagina quando filtros mudam
+  useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdsKey])
+
+  // Debounce 300ms · busca server-side
+  useEffect(() => {
+    if (companyIds.length === 0) {
+      setProdutosSrv([]); setProdutosSrvTotal(0)
+      return
+    }
+    setProdutosSrvLoading(true)
+    const handle = window.setTimeout(async () => {
+      const t = filtroBusca.trim().replace(/[%,()]/g, '')
+      const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
+      function baseQuery() {
+        let q = supabase.from('erp_produtos').select(cols, { count: 'exact' })
+          .in('company_id', companyIds).eq('ativo', true)
+        if (filtroCategoria) q = q.eq('categoria', filtroCategoria)
+        return q
+      }
+      try {
+        if (t.length < 2) {
+          // Sem termo · paginado por nome ASC com count exact
+          const from = (produtosSrvPage - 1) * PRODUTOS_PAGE_SIZE
+          const to = from + PRODUTOS_PAGE_SIZE - 1
+          const res = await baseQuery().order('nome', { ascending: true }).range(from, to)
+          if (res.error) throw res.error
+          setProdutosSrv((res.data ?? []) as Produto[])
+          setProdutosSrvTotal(res.count ?? 0)
+        } else {
+          // Com termo · 2 queries paralelas (nome / codigo) + dedup + top 100
+          const [porNome, porCodigo] = await Promise.all([
+            baseQuery().ilike('nome', `%${t}%`).order('nome').limit(PRODUTOS_PAGE_SIZE),
+            baseQuery().ilike('codigo', `%${t}%`).order('nome').limit(PRODUTOS_PAGE_SIZE),
+          ])
+          if (porNome.error) throw porNome.error
+          if (porCodigo.error) throw porCodigo.error
+          const map = new Map<string, Produto>()
+          for (const p of ((porNome.data ?? []) as Produto[])) map.set(p.id, p)
+          for (const p of ((porCodigo.data ?? []) as Produto[])) if (!map.has(p.id)) map.set(p.id, p)
+          const merged = Array.from(map.values()).sort((a, b) => (a.nome ?? '').localeCompare(b.nome ?? '')).slice(0, PRODUTOS_PAGE_SIZE)
+          setProdutosSrv(merged)
+          // total real = soma dos counts unicos (aprox) · usa maior dos dois pra estimativa
+          setProdutosSrvTotal(Math.max(porNome.count ?? 0, porCodigo.count ?? 0, merged.length))
+        }
+      } catch (err) {
+        setErro(err instanceof Error ? `Produtos: ${err.message}` : 'Erro ao buscar produtos')
+      } finally {
+        setProdutosSrvLoading(false)
+      }
+    }, 300)
+    return () => window.clearTimeout(handle)
+  }, [companyIdsKey, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Filtro estoque aplicado client-side na pagina exibida
+  const produtosSrvFiltradosEstoque = useMemo(() => {
+    if (filtroEstoque === 'todos') return produtosSrv
+    return produtosSrv.filter((p) => {
+      const atual = Number(p.estoque_atual ?? 0)
+      const min = Number(p.estoque_minimo ?? 0)
+      const max = Number(p.estoque_maximo ?? 0)
+      if (filtroEstoque === 'baixo' && atual >= min) return false
+      if (filtroEstoque === 'zero' && atual !== 0) return false
+      if (filtroEstoque === 'excedente' && (max === 0 || atual <= max)) return false
+      return true
+    })
+  }, [produtosSrv, filtroEstoque])
 
   const movFiltradas = useMemo(() => {
     return movimentacoes.filter((m) => {
@@ -542,11 +619,15 @@ function EstoqueInner() {
         <TabLocais locais={locais} onEdit={(l) => setLocalEdit(l)} onDelete={deletarLocal} canCreate={canCreate} onCreate={() => setLocalEdit('new')} />
       ) : tab === 'produtos' ? (
         <TabProdutos
-          rows={produtosFiltrados} total={produtos.length}
+          rows={produtosSrvFiltradosEstoque}
+          total={produtosSrvTotal}
+          loading={produtosSrvLoading}
           categorias={categoriasUnicas}
           filtroBusca={filtroBusca} setFiltroBusca={setFiltroBusca}
           filtroCategoria={filtroCategoria} setFiltroCategoria={setFiltroCategoria}
           filtroEstoque={filtroEstoque} setFiltroEstoque={setFiltroEstoque}
+          page={produtosSrvPage} setPage={setProdutosSrvPage} pageSize={PRODUTOS_PAGE_SIZE}
+          buscando={filtroBusca.trim().length >= 2}
           onSelect={setProdutoSel}
         />
       ) : tab === 'movimentacoes' ? (
@@ -690,37 +771,52 @@ function TabLocais({ locais, onEdit, onDelete, canCreate, onCreate }: { locais: 
   )
 }
 
-function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, onSelect }: {
-  rows: Produto[]; total: number; categorias: string[];
+function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, page, setPage, pageSize, buscando, onSelect }: {
+  rows: Produto[]; total: number; loading: boolean; categorias: string[];
   filtroBusca: string; setFiltroBusca: (v: string) => void;
   filtroCategoria: string; setFiltroCategoria: (v: string) => void;
   filtroEstoque: 'todos' | 'baixo' | 'zero' | 'excedente'; setFiltroEstoque: (v: 'todos' | 'baixo' | 'zero' | 'excedente') => void;
+  page: number; setPage: (n: number) => void; pageSize: number;
+  buscando: boolean;
   onSelect: (p: Produto) => void;
 }) {
+  // FIX-PRODUTOS-BUSCA-SERVERSIDE-v1 · paginacao real (sem teto cego de 500)
+  const totalPaginas = Math.max(1, Math.ceil(total / pageSize))
+  const inicio = buscando ? 1 : (page - 1) * pageSize + 1
+  const fim = buscando ? rows.length : Math.min(page * pageSize, total)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
-          <input type="text" placeholder="Buscar por nome ou código…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)} style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <input type="text" placeholder="Buscar por nome ou código (busca em todo cadastro)…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
+            data-testid="produtos-busca" style={{ width: '100%', padding: '8px 10px 8px 32px', minHeight: 44, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
         </div>
-        <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={selInpStyle}>
+        <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...selInpStyle, minHeight: 44 }}>
           <option value="">Todas as categorias</option>
           {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={selInpStyle}>
+        <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={{ ...selInpStyle, minHeight: 44 }}>
           <option value="todos">Todos os estoques</option>
           <option value="baixo">Abaixo do mínimo</option>
           <option value="zero">Estoque zerado</option>
           <option value="excedente">Acima do máximo</option>
         </select>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>{rows.length} de {total}</span>
+        <span data-testid="produtos-contador" style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM, fontWeight: 600 }}>
+          {loading ? 'Buscando…' : buscando
+            ? `${rows.length} resultado(s) de busca`
+            : `${inicio}–${fim} de ${total}`}
+        </span>
       </div>
 
-      {rows.length === 0 ? (
-        total === 0
+      {loading ? (
+        <div style={{ padding: 30, textAlign: 'center', color: C.gold, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Buscando produtos…</div>
+      ) : rows.length === 0 ? (
+        total === 0 && !buscando
           ? <EmptyState titulo="Nenhum produto cadastrado" texto="Os produtos vêm de erp_produtos (cadastro fiscal completo). Importe via Importar Dados ou cadastre manualmente." />
-          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum produto corresponde aos filtros.</div>
+          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>
+              {buscando ? `Nenhum produto encontrado para "${filtroBusca.trim()}".` : 'Nenhum produto corresponde aos filtros.'}
+            </div>
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
@@ -758,6 +854,17 @@ function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, fil
               </tbody>
             </table>
           </div>
+          {!buscando && totalPaginas > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderTop: `1px solid ${C.borderL}`, background: C.cream, fontSize: 12 }}>
+              <div style={{ color: C.espressoM }}>Página <strong>{page}</strong> de <strong>{totalPaginas}</strong></div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" disabled={page <= 1} onClick={() => setPage(Math.max(1, page - 1))} data-testid="produtos-pag-anterior"
+                  style={{ ...btnSec, padding: '6px 12px', opacity: page <= 1 ? 0.4 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>← Anterior</button>
+                <button type="button" disabled={page >= totalPaginas} onClick={() => setPage(Math.min(totalPaginas, page + 1))} data-testid="produtos-pag-proximo"
+                  style={{ ...btnSec, padding: '6px 12px', opacity: page >= totalPaginas ? 0.4 : 1, cursor: page >= totalPaginas ? 'not-allowed' : 'pointer' }}>Próximo →</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
