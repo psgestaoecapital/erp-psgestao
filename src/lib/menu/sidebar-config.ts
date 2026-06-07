@@ -79,8 +79,8 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     label: 'Estoque',
     status: 'parcial',
     items: [
-      { id: 'produtos', label: 'Produtos', href: '/dashboard/cadastros/produtos', status: 'pronto' },
-      { id: 'movimentacoes', label: 'Movimentações', href: '/dashboard/commerce/estoque?area=gestao_empresarial', status: 'pronto', matchPaths: ['/dashboard/commerce/estoque', '/dashboard/estoque'] },
+      { id: 'produtos', label: 'Produtos', href: '/dashboard/commerce/estoque?tab=produtos&area=gestao_empresarial', status: 'pronto', matchPaths: ['/dashboard/commerce/estoque', '/dashboard/estoque'] },
+      { id: 'movimentacoes', label: 'Movimentações', href: '/dashboard/commerce/estoque?tab=movimentacoes&area=gestao_empresarial', status: 'pronto', matchPaths: ['/dashboard/commerce/estoque', '/dashboard/estoque'] },
     ],
   },
   {

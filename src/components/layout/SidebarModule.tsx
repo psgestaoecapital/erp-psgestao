@@ -8,20 +8,38 @@ import SidebarSubItem from './SidebarSubItem'
 interface Props {
   modulo: SidebarModuleNode
   pathname: string
+  /** FIX-ESTOQUE-DEEPLINK-ABAS-v1 · tab atual da URL pra distinguir sub-itens
+   *  com mesmo pathname (ex: Produtos vs Movimentacoes em /commerce/estoque) */
+  currentTab: string | null
   isExpanded: boolean
   onToggle: () => void
   onNavigate?: () => void
 }
 
-function itemMatches(pathname: string, href: string, matchPaths?: string[]): boolean {
-  if (matchPaths?.some((p) => pathname === p || pathname.startsWith(p + '/'))) return true
-  return pathname === href || pathname.startsWith(href + '/')
+function itemMatches(pathname: string, currentTab: string | null, href: string, matchPaths?: string[]): boolean {
+  // Extrai pathname + tab do href configurado
+  const [hrefPath, hrefQs = ''] = href.split('?')
+  let hrefTab: string | null = null
+  try { hrefTab = new URLSearchParams(hrefQs).get('tab') } catch { /* noop */ }
+
+  const pathHit =
+    matchPaths?.some((p) => pathname === p || pathname.startsWith(p + '/'))
+    ?? false
+  const hrefPathHit = pathname === hrefPath || pathname.startsWith(hrefPath + '/')
+
+  if (!pathHit && !hrefPathHit) return false
+  // Se href especifica tab, exige que a tab atual da URL bata.
+  if (hrefTab) return currentTab === hrefTab
+  // Caso href sem tab, qualquer tab (ou sem) ainda casa pelo pathname.
+  // Pra evitar sub-itens "sem tab" pegarem fogo quando ha sub-itens com tab,
+  // so mata se tem outro sub-item com tab vazio (proximo SOC).
+  return true
 }
 
-export default function SidebarModule({ modulo, pathname, isExpanded, onToggle, onNavigate }: Props) {
+export default function SidebarModule({ modulo, pathname, currentTab, isExpanded, onToggle, onNavigate }: Props) {
   const hasItems = !!modulo.items?.length
-  const isActiveSelf = modulo.href ? itemMatches(pathname, modulo.href, modulo.matchPaths) : false
-  const hasActiveChild = modulo.items?.some((item) => itemMatches(pathname, item.href, item.matchPaths)) ?? false
+  const isActiveSelf = modulo.href ? itemMatches(pathname, currentTab, modulo.href, modulo.matchPaths) : false
+  const hasActiveChild = modulo.items?.some((item) => itemMatches(pathname, currentTab, item.href, item.matchPaths)) ?? false
   const isActive = isActiveSelf || hasActiveChild
 
   if (!hasItems && modulo.href) {
@@ -73,7 +91,7 @@ export default function SidebarModule({ modulo, pathname, isExpanded, onToggle, 
             <SidebarSubItem
               key={item.id}
               item={item}
-              isActive={itemMatches(pathname, item.href, item.matchPaths)}
+              isActive={itemMatches(pathname, currentTab, item.href, item.matchPaths)}
               onNavigate={onNavigate}
             />
           ))}

@@ -12,6 +12,7 @@
 //   - RPC fn_curva_abc_estoque(company_ids uuid[])
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
@@ -182,7 +183,37 @@ function EstoqueInner() {
   const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
   const canCreate = !!companyIdUnico
 
-  const [tab, setTab] = useState<Tab>('saldo')
+  // FIX-ESTOQUE-DEEPLINK-ABAS-v1 · deep-link de aba via ?tab=
+  const router = useRouter()
+  const pathname = usePathname()
+  const sp = useSearchParams()
+  const tabUrl = sp?.get('tab') ?? null
+  const TAB_KEYS: Tab[] = ['saldo', 'movimentacoes', 'inventario', 'produtos', 'locais', 'abc']
+  const initialTab: Tab = (TAB_KEYS as string[]).includes(tabUrl ?? '') ? (tabUrl as Tab) : 'saldo'
+  const [tab, setTabState] = useState<Tab>(initialTab)
+
+  // Sync state -> URL (preserva area= e demais query params)
+  function setTab(nextTab: Tab) {
+    setTabState(nextTab)
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(sp?.toString() ?? '')
+    if (nextTab === 'saldo') params.delete('tab')
+    else params.set('tab', nextTab)
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
+
+  // Sync URL -> state (back/forward + click no menu lateral com ?tab=)
+  useEffect(() => {
+    if (tabUrl && (TAB_KEYS as string[]).includes(tabUrl) && tabUrl !== tab) {
+      setTabState(tabUrl as Tab)
+    }
+    if (!tabUrl && tab !== 'saldo') {
+      setTabState('saldo')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabUrl])
+
   const [locais, setLocais] = useState<Local[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([])
