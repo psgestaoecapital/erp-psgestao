@@ -69,6 +69,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     label: 'Compras',
     status: 'parcial',
     items: [
+      { id: 'pedidos', label: 'Pedidos de Compra', href: '/dashboard/commerce/compras?area=gestao_empresarial', status: 'pronto', matchPaths: ['/dashboard/commerce/compras', '/dashboard/compras'] },
       { id: 'mde', label: 'NFes Recebidas (MDe)', href: '/dashboard/fiscal/mde', status: 'em_breve' },
       { id: 'fornecedores', label: 'Fornecedores', href: '/dashboard/cadastros/fornecedores', status: 'parcial' },
     ],
@@ -79,7 +80,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     status: 'parcial',
     items: [
       { id: 'produtos', label: 'Produtos', href: '/dashboard/cadastros/produtos', status: 'pronto' },
-      { id: 'movimentacoes', label: 'Movimentações', href: '/dashboard/estoque/movimentacoes', status: 'em_breve' },
+      { id: 'movimentacoes', label: 'Movimentações', href: '/dashboard/commerce/estoque?area=gestao_empresarial', status: 'pronto', matchPaths: ['/dashboard/commerce/estoque', '/dashboard/estoque'] },
     ],
   },
   {
