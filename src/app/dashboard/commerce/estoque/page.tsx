@@ -48,7 +48,7 @@ const C = {
   gray: '#94A3B8',
 }
 
-type Tab = 'locais' | 'produtos' | 'movimentacoes' | 'abc'
+type Tab = 'saldo' | 'locais' | 'produtos' | 'movimentacoes' | 'abc'
 
 type Local = {
   id: string
@@ -91,6 +91,7 @@ type Movimentacao = {
   custo_unitario: number | null
   valor_total: number | null
   ref_tipo: string | null
+  ref_id: string | null
   ref_numero: string | null
   lote: string | null
   validade: string | null
@@ -147,7 +148,7 @@ function EstoqueInner() {
   const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
   const canCreate = !!companyIdUnico
 
-  const [tab, setTab] = useState<Tab>('produtos')
+  const [tab, setTab] = useState<Tab>('saldo')
   const [locais, setLocais] = useState<Local[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([])
@@ -161,8 +162,21 @@ function EstoqueInner() {
   const [filtroCategoria, setFiltroCategoria] = useState('')
   const [filtroEstoque, setFiltroEstoque] = useState<'todos' | 'baixo' | 'zero' | 'excedente'>('todos')
 
+  // F2.1 · Filtros saldo
+  const [filtroSaldoProduto, setFiltroSaldoProduto] = useState('')
+  const [filtroSaldoLocal, setFiltroSaldoLocal] = useState('')
+  const [filtroSaldoSomenteComSaldo, setFiltroSaldoSomenteComSaldo] = useState(true)
+
   // Filtros movimentacoes
   const [filtroTipo, setFiltroTipo] = useState('')
+  // F2.1 · novos filtros
+  const hojeIso = new Date().toISOString().slice(0, 10)
+  const trintaDiasAtrasIso = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+  const [filtroMovInicio, setFiltroMovInicio] = useState(trintaDiasAtrasIso)
+  const [filtroMovFim, setFiltroMovFim] = useState(hojeIso)
+  const [filtroMovProduto, setFiltroMovProduto] = useState('')
+  const [filtroMovLocal, setFiltroMovLocal] = useState('')
+  const [filtroMovRefTipo, setFiltroMovRefTipo] = useState('')
 
   const [produtoSel, setProdutoSel] = useState<Produto | null>(null)
   const [localEdit, setLocalEdit] = useState<Local | 'new' | null>(null)
@@ -297,12 +311,100 @@ function EstoqueInner() {
   const movFiltradas = useMemo(() => {
     return movimentacoes.filter((m) => {
       if (filtroTipo && m.tipo !== filtroTipo) return false
+      if (filtroMovProduto && m.produto_id !== filtroMovProduto) return false
+      if (filtroMovLocal && m.local_id !== filtroMovLocal) return false
+      if (filtroMovRefTipo && m.ref_tipo !== filtroMovRefTipo) return false
+      if (m.data_movimento) {
+        const d = (m.data_movimento ?? '').slice(0, 10)
+        if (filtroMovInicio && d < filtroMovInicio) return false
+        if (filtroMovFim && d > filtroMovFim) return false
+      }
       return true
     })
-  }, [movimentacoes, filtroTipo])
+  }, [movimentacoes, filtroTipo, filtroMovProduto, filtroMovLocal, filtroMovRefTipo, filtroMovInicio, filtroMovFim])
 
   const produtosPorId = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos])
   const locaisPorId = useMemo(() => Object.fromEntries(locais.map((l) => [l.id, l])), [locais])
+
+  // F2.1 · saldo derivado: por (produto_id, local_id) pega ultima quantidade_depois
+  // da movimentacao mais recente. Fallback: erp_produtos.estoque_atual (1 local).
+  type SaldoRow = {
+    produto_id: string; produto_nome: string; produto_codigo: string | null
+    local_id: string | null; local_nome: string
+    saldo: number; custo_medio: number; valor_total: number
+  }
+  const saldoRows = useMemo<SaldoRow[]>(() => {
+    const map = new Map<string, SaldoRow>()
+    // 1. Para cada movimentacao (em ordem desc), grava a primeira que aparece (mais recente).
+    for (const m of movimentacoes) {
+      const key = `${m.produto_id}|${m.local_id ?? ''}`
+      if (map.has(key)) continue
+      const p = produtosPorId[m.produto_id]
+      if (!p) continue
+      const local = m.local_id ? locaisPorId[m.local_id] : null
+      const custoMedio = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      const saldo = Number(m.quantidade_depois ?? 0)
+      map.set(key, {
+        produto_id: m.produto_id,
+        produto_nome: p.nome,
+        produto_codigo: p.codigo,
+        local_id: m.local_id ?? null,
+        local_nome: local?.nome ?? 'Sem local',
+        saldo,
+        custo_medio: custoMedio,
+        valor_total: saldo * custoMedio,
+      })
+    }
+    // 2. Produtos sem movimento mas com estoque_atual > 0 (consolidacao 1 local)
+    const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
+    for (const p of produtos) {
+      const atual = Number(p.estoque_atual ?? 0)
+      if (atual === 0) continue
+      const localId = principal?.id ?? null
+      const key = `${p.id}|${localId ?? ''}`
+      if (map.has(key)) continue
+      const custoMedio = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      map.set(key, {
+        produto_id: p.id,
+        produto_nome: p.nome,
+        produto_codigo: p.codigo,
+        local_id: localId,
+        local_nome: principal?.nome ?? 'Sem local',
+        saldo: atual,
+        custo_medio: custoMedio,
+        valor_total: atual * custoMedio,
+      })
+    }
+    return Array.from(map.values()).sort((a, b) => a.produto_nome.localeCompare(b.produto_nome))
+  }, [movimentacoes, produtos, produtosPorId, locais, locaisPorId])
+
+  const saldoFiltrado = useMemo(() => {
+    const q = filtroSaldoProduto.trim().toLowerCase()
+    return saldoRows.filter((r) => {
+      if (filtroSaldoSomenteComSaldo && r.saldo <= 0) return false
+      if (filtroSaldoLocal && r.local_id !== filtroSaldoLocal) return false
+      if (q) {
+        const hay = `${r.produto_nome} ${r.produto_codigo ?? ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [saldoRows, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoSomenteComSaldo])
+
+  const saldoKpis = useMemo(() => {
+    const totalSku = saldoRows.length
+    const skusComSaldo = saldoRows.filter((r) => r.saldo > 0).length
+    const skusZerados = saldoRows.filter((r) => r.saldo <= 0).length
+    const valorImobilizado = saldoRows.reduce((s, r) => s + r.valor_total, 0)
+    return { totalSku, skusComSaldo, skusZerados, valorImobilizado }
+  }, [saldoRows])
+
+  // F2.1 · ref_tipos unicos pro filtro de movimentacoes
+  const refTiposUnicos = useMemo(() => {
+    const set = new Set<string>()
+    movimentacoes.forEach((m) => { if (m.ref_tipo) set.add(m.ref_tipo) })
+    return Array.from(set).sort()
+  }, [movimentacoes])
 
   const movimentacoesDoProduto = useMemo(() => {
     if (!produtoSel) return []
@@ -338,9 +440,10 @@ function EstoqueInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, overflowX: 'auto' }}>
-        <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
-        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} />
+        <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} />
         <TabBtn ativo={tab === 'movimentacoes'} onClick={() => setTab('movimentacoes')} icon={<ArrowRightLeft size={14} />} label="Movimentações" count={movimentacoes.length} />
+        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} />
+        <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
       </div>
 
@@ -361,6 +464,14 @@ function EstoqueInner() {
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Selecione uma empresa no menu superior ou peça ao administrador para te vincular." />
+      ) : tab === 'saldo' ? (
+        <TabSaldo
+          rows={saldoFiltrado} total={saldoRows.length} kpis={saldoKpis}
+          locais={locais} produtos={produtos}
+          filtroSaldoProduto={filtroSaldoProduto} setFiltroSaldoProduto={setFiltroSaldoProduto}
+          filtroSaldoLocal={filtroSaldoLocal} setFiltroSaldoLocal={setFiltroSaldoLocal}
+          filtroSaldoSomenteComSaldo={filtroSaldoSomenteComSaldo} setFiltroSaldoSomenteComSaldo={setFiltroSaldoSomenteComSaldo}
+        />
       ) : tab === 'locais' ? (
         <TabLocais locais={locais} onEdit={(l) => setLocalEdit(l)} onDelete={deletarLocal} canCreate={canCreate} onCreate={() => setLocalEdit('new')} />
       ) : tab === 'produtos' ? (
@@ -376,6 +487,13 @@ function EstoqueInner() {
         <TabMovimentacoes
           rows={movFiltradas} total={movimentacoes.length}
           filtroTipo={filtroTipo} setFiltroTipo={setFiltroTipo}
+          locais={locais} produtos={produtos}
+          refTiposUnicos={refTiposUnicos}
+          filtroMovProduto={filtroMovProduto} setFiltroMovProduto={setFiltroMovProduto}
+          filtroMovLocal={filtroMovLocal} setFiltroMovLocal={setFiltroMovLocal}
+          filtroMovRefTipo={filtroMovRefTipo} setFiltroMovRefTipo={setFiltroMovRefTipo}
+          filtroMovInicio={filtroMovInicio} setFiltroMovInicio={setFiltroMovInicio}
+          filtroMovFim={filtroMovFim} setFiltroMovFim={setFiltroMovFim}
           produtosPorId={produtosPorId} locaisPorId={locaisPorId}
         />
       ) : (
@@ -527,39 +645,91 @@ function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, fil
   )
 }
 
-function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorId, locaisPorId }: {
+function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorId, locaisPorId,
+  locais, produtos, refTiposUnicos,
+  filtroMovProduto, setFiltroMovProduto, filtroMovLocal, setFiltroMovLocal,
+  filtroMovRefTipo, setFiltroMovRefTipo,
+  filtroMovInicio, setFiltroMovInicio, filtroMovFim, setFiltroMovFim,
+}: {
   rows: Movimentacao[]; total: number;
   filtroTipo: string; setFiltroTipo: (v: string) => void;
+  locais: Local[]; produtos: Produto[];
+  refTiposUnicos: string[];
+  filtroMovProduto: string; setFiltroMovProduto: (v: string) => void;
+  filtroMovLocal: string; setFiltroMovLocal: (v: string) => void;
+  filtroMovRefTipo: string; setFiltroMovRefTipo: (v: string) => void;
+  filtroMovInicio: string; setFiltroMovInicio: (v: string) => void;
+  filtroMovFim: string; setFiltroMovFim: (v: string) => void;
   produtosPorId: Record<string, Produto>; locaisPorId: Record<string, Local>;
 }) {
+  function refHref(ref_tipo: string | null, ref_id: string | null): string | null {
+    if (!ref_id) return null
+    if (ref_tipo === 'compra') return `/dashboard/commerce/compras?area=gestao_empresarial`
+    if (ref_tipo === 'venda') return `/dashboard/commerce/otc?area=gestao_empresarial`
+    return null
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-        <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={selInpStyle}>
-          <option value="">Todos os tipos</option>
-          {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
-        </select>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>{rows.length} de {total}</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          De
+          <input type="date" value={filtroMovInicio} onChange={(e) => setFiltroMovInicio(e.target.value)} style={selInpStyle} />
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Até
+          <input type="date" value={filtroMovFim} onChange={(e) => setFiltroMovFim(e.target.value)} style={selInpStyle} />
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Tipo
+          <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={selInpStyle}>
+            <option value="">Todos</option>
+            {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Produto
+          <select value={filtroMovProduto} onChange={(e) => setFiltroMovProduto(e.target.value)} style={selInpStyle}>
+            <option value="">Todos</option>
+            {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Local
+          <select value={filtroMovLocal} onChange={(e) => setFiltroMovLocal(e.target.value)} style={selInpStyle}>
+            <option value="">Todos</option>
+            {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Origem
+          <select value={filtroMovRefTipo} onChange={(e) => setFiltroMovRefTipo(e.target.value)} style={selInpStyle}>
+            <option value="">Todas</option>
+            {refTiposUnicos.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
       </div>
+      <div style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} movimento(s)</div>
 
       {rows.length === 0 ? (
         total === 0
-          ? <EmptyState titulo="Nenhuma movimentação registrada" texto="Use o botão Nova Movimentação para registrar entradas, saídas, ajustes e inventários." />
-          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Sem movimentações neste filtro.</div>
+          ? <EmptyState titulo="Nenhuma movimentação registrada" texto="Movimentações chegam aqui automaticamente quando você cria compras, vendas ou ajustes." />
+          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhuma movimentação no período.</div>
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
               <thead style={{ background: C.cream }}>
-                <tr><Th>Data</Th><Th>Tipo</Th><Th>Produto</Th><Th>Local</Th><Th align="right">Quantidade</Th><Th align="right">Antes → Depois</Th><Th align="right">Valor</Th><Th>Motivo</Th></tr>
+                <tr><Th>Data</Th><Th>Tipo</Th><Th>Produto</Th><Th>Local</Th><Th align="right">Quantidade</Th><Th align="right">Custo un.</Th><Th align="right">Valor total</Th><Th>Origem</Th></tr>
               </thead>
               <tbody>
                 {rows.map((m) => {
                   const t = TIPOS_MOV.find((x) => x.value === m.tipo)
                   const sinal = t?.sinal ?? '='
-                  const cor = sinal === '+' ? C.green : sinal === '-' ? C.red : C.blue
+                  const cor = sinal === '+' ? C.green : sinal === '-' ? C.red : C.amber
                   const prod = produtosPorId[m.produto_id]
                   const local = m.local_id ? locaisPorId[m.local_id] : null
+                  const origemHref = refHref(m.ref_tipo ?? null, m.ref_id ?? null)
+                  const origemLabel = m.ref_tipo ? `${m.ref_tipo} ${m.ref_numero ?? ''}`.trim() : (m.motivo ?? '—')
                   return (
                     <tr key={m.id} style={{ borderTop: `1px solid ${C.borderL}` }}>
                       <Td>{fmtDateTime(m.data_movimento)}</Td>
@@ -574,9 +744,15 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
                       </Td>
                       <Td>{local?.nome ?? '—'}</Td>
                       <Td align="right"><strong style={{ color: cor }}>{sinal} {fmtNum(Math.abs(Number(m.quantidade)))}</strong></Td>
-                      <Td align="right"><span style={{ fontSize: 11, color: C.espressoM }}>{fmtNum(Number(m.quantidade_antes))} → <strong style={{ color: C.espresso }}>{fmtNum(Number(m.quantidade_depois))}</strong></span></Td>
+                      <Td align="right">{Number(m.custo_unitario) > 0 ? fmtBRL(Number(m.custo_unitario)) : '—'}</Td>
                       <Td align="right">{Number(m.valor_total) > 0 ? fmtBRL(Number(m.valor_total)) : '—'}</Td>
-                      <Td>{m.motivo ?? m.ref_numero ?? '—'}</Td>
+                      <Td>
+                        {origemHref ? (
+                          <a href={origemHref} style={{ color: C.gold, textDecoration: 'underline', fontSize: 11 }}>{origemLabel}</a>
+                        ) : (
+                          <span style={{ fontSize: 11, color: C.espressoM }}>{origemLabel}</span>
+                        )}
+                      </Td>
                     </tr>
                   )
                 })}
@@ -585,6 +761,123 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// F2.1 · Tab Saldo · KPIs + filtros + tabela
+function TabSaldo({
+  rows, total, kpis, locais, produtos,
+  filtroSaldoProduto, setFiltroSaldoProduto,
+  filtroSaldoLocal, setFiltroSaldoLocal,
+  filtroSaldoSomenteComSaldo, setFiltroSaldoSomenteComSaldo,
+}: {
+  rows: { produto_id: string; produto_nome: string; produto_codigo: string | null;
+    local_id: string | null; local_nome: string; saldo: number; custo_medio: number; valor_total: number }[];
+  total: number;
+  kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; valorImobilizado: number };
+  locais: Local[]; produtos: Produto[];
+  filtroSaldoProduto: string; setFiltroSaldoProduto: (v: string) => void;
+  filtroSaldoLocal: string; setFiltroSaldoLocal: (v: string) => void;
+  filtroSaldoSomenteComSaldo: boolean; setFiltroSaldoSomenteComSaldo: (v: boolean) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+        <KpiCard label="Valor imobilizado" valor={fmtBRL(kpis.valorImobilizado)} cor={C.gold} destaque />
+        <KpiCard label="SKUs com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} />
+        <KpiCard label="SKUs zerados" valor={String(kpis.skusZerados)} cor={C.amber} />
+        <KpiCard label="Total SKUs" valor={String(kpis.totalSku)} cor={C.espresso} />
+      </div>
+
+      {/* Filtros */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Produto
+          <input
+            type="text"
+            value={filtroSaldoProduto}
+            onChange={(e) => setFiltroSaldoProduto(e.target.value)}
+            placeholder="Buscar por nome ou código"
+            style={selInpStyle}
+            list="saldo-produtos-list"
+            data-testid="saldo-filtro-produto"
+          />
+          <datalist id="saldo-produtos-list">
+            {produtos.map((p) => <option key={p.id} value={p.nome} />)}
+          </datalist>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Local
+          <select value={filtroSaldoLocal} onChange={(e) => setFiltroSaldoLocal(e.target.value)} style={selInpStyle} data-testid="saldo-filtro-local">
+            <option value="">Todos os locais</option>
+            {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'end', paddingBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={filtroSaldoSomenteComSaldo}
+            onChange={(e) => setFiltroSaldoSomenteComSaldo(e.target.checked)}
+            data-testid="saldo-filtro-com-saldo"
+          />
+          Só com saldo
+        </label>
+      </div>
+
+      <div style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
+
+      {rows.length === 0 ? (
+        total === 0
+          ? <EmptyState titulo="Sem saldo no estoque" texto="Quando você receber a primeira compra, o estoque aparece aqui." />
+          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum item bate com os filtros.</div>
+      ) : (
+        <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 800 }}>
+              <thead style={{ background: C.cream }}>
+                <tr>
+                  <Th>Produto</Th>
+                  <Th>Local</Th>
+                  <Th align="right">Saldo</Th>
+                  <Th align="right">Custo médio</Th>
+                  <Th align="right">Valor total</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={`${r.produto_id}|${r.local_id ?? ''}`} style={{ borderTop: `1px solid ${C.borderL}` }} data-testid="saldo-row">
+                    <Td>
+                      <div style={{ fontWeight: 600 }}>{r.produto_nome}</div>
+                      {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
+                    </Td>
+                    <Td>{r.local_nome}</Td>
+                    <Td align="right"><strong style={{ color: r.saldo > 0 ? C.green : C.espressoL }}>{fmtNum(r.saldo)}</strong></Td>
+                    <Td align="right">{r.custo_medio > 0 ? fmtBRL(r.custo_medio) : '—'}</Td>
+                    <Td align="right"><strong>{r.valor_total > 0 ? fmtBRL(r.valor_total) : '—'}</strong></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function KpiCard({ label, valor, cor, destaque }: { label: string; valor: string; cor: string; destaque?: boolean }) {
+  return (
+    <div style={{
+      background: destaque ? '#FDF7E8' : C.white,
+      border: `1px solid ${C.border}`,
+      borderLeft: `3px solid ${cor}`,
+      borderRadius: 10,
+      padding: '12px 14px',
+    }}>
+      <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
     </div>
   )
 }
