@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo, Suspense } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { ChevronDown, Sparkles, type LucideIcon } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { useAreasVisiveis, type AreaVisivel } from '@/hooks/useAreasVisiveis'
+
+// FIX-NAV-COMMERCE-EM-GE-v1 · area selection prioriza ?area= e persiste em localStorage
+const AREA_STORAGE_KEY = 'ps_area_sel'
 
 function resolveSelectedCompanyId(): string | null {
   if (typeof window === 'undefined') return null
@@ -28,6 +31,21 @@ function detectarAreaAtivaPorPath(areas: AreaVisivel[], pathname: string): AreaV
     }
   }
   return melhor
+}
+
+function detectarAreaPorSlug(areas: AreaVisivel[], slug: string | null): AreaVisivel | null {
+  if (!slug || areas.length === 0) return null
+  return areas.find((a) => a.area_slug === slug) ?? null
+}
+
+function lerAreaPersistida(): string | null {
+  if (typeof window === 'undefined') return null
+  try { return localStorage.getItem(AREA_STORAGE_KEY) } catch { return null }
+}
+
+function persistirArea(slug: string) {
+  if (typeof window === 'undefined') return
+  try { localStorage.setItem(AREA_STORAGE_KEY, slug) } catch { /* noop */ }
 }
 
 function resolveIcon(nome: string | null | undefined): LucideIcon {
@@ -54,16 +72,41 @@ function StatusBadge({ status }: { status: AreaVisivel['status_comercial'] }) {
   return null
 }
 
+// FIX-NAV-COMMERCE-EM-GE-v1 · wrap em Suspense pq useSearchParams forca CSR
+// bailout · sem isso o prerender estatico falha em paginas tipo redirect-only.
 export default function AreaSwitcher() {
+  return (
+    <Suspense fallback={<AreaSwitcherFallback />}>
+      <AreaSwitcherInner />
+    </Suspense>
+  )
+}
+
+function AreaSwitcherFallback() {
+  return (
+    <div className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#C8941A]/18 border border-[#C8941A]/45 text-[12px] font-medium text-[#FAF7F2]">
+      <span className="flex items-center gap-2 min-w-0">
+        <Sparkles size={14} className="text-[#C8941A] flex-shrink-0" />
+        <span className="truncate">Carregando…</span>
+      </span>
+    </div>
+  )
+}
+
+function AreaSwitcherInner() {
   const [open, setOpen] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [areaPersistida, setAreaPersistida] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const pathname = usePathname() || ''
+  const searchParams = useSearchParams()
+  const queryArea = searchParams?.get('area') ?? null
 
   // Resolve company atual + escuta trocas via polling (mesmo padrão de useCompanyIds)
   useEffect(() => {
     if (typeof window === 'undefined') return
     setCompanyId(resolveSelectedCompanyId())
+    setAreaPersistida(lerAreaPersistida())
     const interval = setInterval(() => {
       const atual = resolveSelectedCompanyId()
       setCompanyId((prev) => (prev === atual ? prev : atual))
@@ -72,7 +115,26 @@ export default function AreaSwitcher() {
   }, [])
 
   const { areas, loading } = useAreasVisiveis(companyId)
-  const areaAtiva = detectarAreaAtivaPorPath(areas, pathname)
+
+  // FIX-NAV-COMMERCE-EM-GE-v1 · ordem de prioridade pra detectar area ativa:
+  //   1. ?area= no querystring (ex.: /dashboard/commerce/compras?area=gestao_empresarial)
+  //   2. area persistida em localStorage (mantida ao navegar entre rotas)
+  //   3. match pelo prefixo do pathname (rota_raiz)
+  const areaAtiva: AreaVisivel | null = useMemo(() => {
+    return (
+      detectarAreaPorSlug(areas, queryArea) ??
+      detectarAreaAtivaPorPath(areas, pathname) ??
+      detectarAreaPorSlug(areas, areaPersistida)
+    )
+  }, [areas, queryArea, pathname, areaPersistida])
+
+  // Persiste area atual em localStorage pra sobreviver a navegacoes sem ?area=
+  useEffect(() => {
+    if (areaAtiva && areaAtiva.area_slug && areaAtiva.area_slug !== areaPersistida) {
+      persistirArea(areaAtiva.area_slug)
+      setAreaPersistida(areaAtiva.area_slug)
+    }
+  }, [areaAtiva, areaPersistida])
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -171,7 +233,7 @@ export default function AreaSwitcher() {
                       key={area.area_slug}
                       href={area.rota_raiz}
                       role="menuitem"
-                      onClick={() => setOpen(false)}
+                      onClick={() => { persistirArea(area.area_slug); setAreaPersistida(area.area_slug); setOpen(false) }}
                       data-testid={`area-${area.area_slug}`}
                       className={`${base} ${
                         isAtual

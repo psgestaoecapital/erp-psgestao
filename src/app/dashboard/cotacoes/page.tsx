@@ -511,7 +511,7 @@ export default function CotacoesPage(){
             {showComparar.status==='aprovada'&&showComparar.compra_gerada_id&&(
               <div style={{background:G+"15",borderRadius:10,padding:14,border:`1px solid ${G}40`,textAlign:"center"}}>
                 <div style={{fontSize:13,fontWeight:600,color:G,marginBottom:4}}>✅ Cotação aprovada e Pedido de Compra gerado</div>
-                <a href="/dashboard/compras" style={{fontSize:11,color:G,textDecoration:"underline"}}>Ver Pedidos de Compra →</a>
+                <a href="/dashboard/commerce/compras?area=gestao_empresarial" style={{fontSize:11,color:G,textDecoration:"underline"}}>Ver Pedidos de Compra →</a>
               </div>
             )}
 

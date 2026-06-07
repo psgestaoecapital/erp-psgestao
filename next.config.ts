@@ -28,6 +28,22 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   compress: true,
+  // FIX-NAV-COMMERCE-EM-GE-v1 · redirects 308 permanentes pras rotas canonicas
+  // Next.js redirects() preserva query string automaticamente.
+  async redirects() {
+    return [
+      {
+        source: '/dashboard/compras',
+        destination: '/dashboard/commerce/compras',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/estoque',
+        destination: '/dashboard/commerce/estoque',
+        permanent: true,
+      },
+    ]
+  },
 }
 
 export default nextConfig
