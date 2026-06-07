@@ -326,57 +326,30 @@ function EstoqueInner() {
   const produtosPorId = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos])
   const locaisPorId = useMemo(() => Object.fromEntries(locais.map((l) => [l.id, l])), [locais])
 
-  // F2.1 · saldo derivado: por (produto_id, local_id) pega ultima quantidade_depois
-  // da movimentacao mais recente. Fallback: erp_produtos.estoque_atual (1 local).
+  // FIX-F2.1-ABA-SALDO-v1 · usa RPC fn_curva_abc_estoque (ja carregada
+  // em `curva`) como fonte unica de saldo. Antes derivava de movs+produtos
+  // e dava 0/0/0 em prod. Tabela perdeu granularidade por local · RPC
+  // nao retorna por local (gap conhecido · cf. F2.3 com fn_estoque_saldo_por_local).
   type SaldoRow = {
     produto_id: string; produto_nome: string; produto_codigo: string | null
     local_id: string | null; local_nome: string
     saldo: number; custo_medio: number; valor_total: number
+    classe_abc: 'A' | 'B' | 'C' | null
   }
   const saldoRows = useMemo<SaldoRow[]>(() => {
-    const map = new Map<string, SaldoRow>()
-    // 1. Para cada movimentacao (em ordem desc), grava a primeira que aparece (mais recente).
-    for (const m of movimentacoes) {
-      const key = `${m.produto_id}|${m.local_id ?? ''}`
-      if (map.has(key)) continue
-      const p = produtosPorId[m.produto_id]
-      if (!p) continue
-      const local = m.local_id ? locaisPorId[m.local_id] : null
-      const custoMedio = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
-      const saldo = Number(m.quantidade_depois ?? 0)
-      map.set(key, {
-        produto_id: m.produto_id,
-        produto_nome: p.nome,
-        produto_codigo: p.codigo,
-        local_id: m.local_id ?? null,
-        local_nome: local?.nome ?? 'Sem local',
-        saldo,
-        custo_medio: custoMedio,
-        valor_total: saldo * custoMedio,
-      })
-    }
-    // 2. Produtos sem movimento mas com estoque_atual > 0 (consolidacao 1 local)
     const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
-    for (const p of produtos) {
-      const atual = Number(p.estoque_atual ?? 0)
-      if (atual === 0) continue
-      const localId = principal?.id ?? null
-      const key = `${p.id}|${localId ?? ''}`
-      if (map.has(key)) continue
-      const custoMedio = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
-      map.set(key, {
-        produto_id: p.id,
-        produto_nome: p.nome,
-        produto_codigo: p.codigo,
-        local_id: localId,
-        local_nome: principal?.nome ?? 'Sem local',
-        saldo: atual,
-        custo_medio: custoMedio,
-        valor_total: atual * custoMedio,
-      })
-    }
-    return Array.from(map.values()).sort((a, b) => a.produto_nome.localeCompare(b.produto_nome))
-  }, [movimentacoes, produtos, produtosPorId, locais, locaisPorId])
+    return curva.map((r) => ({
+      produto_id: r.produto_id,
+      produto_nome: r.nome,
+      produto_codigo: r.codigo,
+      local_id: principal?.id ?? null,
+      local_nome: principal?.nome ?? 'Estoque Principal',
+      saldo: Number(r.estoque_atual ?? 0),
+      custo_medio: Number(r.preco_custo_medio ?? 0),
+      valor_total: Number(r.valor_total ?? 0),
+      classe_abc: r.classe_abc ?? null,
+    }))
+  }, [curva, locais])
 
   const saldoFiltrado = useMemo(() => {
     const q = filtroSaldoProduto.trim().toLowerCase()
@@ -773,7 +746,8 @@ function TabSaldo({
   filtroSaldoSomenteComSaldo, setFiltroSaldoSomenteComSaldo,
 }: {
   rows: { produto_id: string; produto_nome: string; produto_codigo: string | null;
-    local_id: string | null; local_nome: string; saldo: number; custo_medio: number; valor_total: number }[];
+    local_id: string | null; local_nome: string; saldo: number; custo_medio: number; valor_total: number;
+    classe_abc?: 'A' | 'B' | 'C' | null }[];
   total: number;
   kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; valorImobilizado: number };
   locais: Local[]; produtos: Produto[];
@@ -843,21 +817,30 @@ function TabSaldo({
                   <Th align="right">Saldo</Th>
                   <Th align="right">Custo médio</Th>
                   <Th align="right">Valor total</Th>
+                  <Th>Classe</Th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={`${r.produto_id}|${r.local_id ?? ''}`} style={{ borderTop: `1px solid ${C.borderL}` }} data-testid="saldo-row">
-                    <Td>
-                      <div style={{ fontWeight: 600 }}>{r.produto_nome}</div>
-                      {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
-                    </Td>
-                    <Td>{r.local_nome}</Td>
-                    <Td align="right"><strong style={{ color: r.saldo > 0 ? C.green : C.espressoL }}>{fmtNum(r.saldo)}</strong></Td>
-                    <Td align="right">{r.custo_medio > 0 ? fmtBRL(r.custo_medio) : '—'}</Td>
-                    <Td align="right"><strong>{r.valor_total > 0 ? fmtBRL(r.valor_total) : '—'}</strong></Td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const corClasse = r.classe_abc === 'A' ? C.gold : r.classe_abc === 'B' ? C.blue : C.espressoM
+                  return (
+                    <tr key={`${r.produto_id}|${r.local_id ?? ''}`} style={{ borderTop: `1px solid ${C.borderL}` }} data-testid="saldo-row">
+                      <Td>
+                        <div style={{ fontWeight: 600 }}>{r.produto_nome}</div>
+                        {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
+                      </Td>
+                      <Td>{r.local_nome}</Td>
+                      <Td align="right"><strong style={{ color: r.saldo > 0 ? C.green : C.espressoL }}>{fmtNum(r.saldo)}</strong></Td>
+                      <Td align="right">{r.custo_medio > 0 ? fmtBRL(r.custo_medio) : '—'}</Td>
+                      <Td align="right"><strong>{r.valor_total > 0 ? fmtBRL(r.valor_total) : '—'}</strong></Td>
+                      <Td>
+                        {r.classe_abc ? (
+                          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: corClasse + '20', color: corClasse, fontWeight: 700 }}>{r.classe_abc}</span>
+                        ) : <span style={{ color: C.espressoL }}>—</span>}
+                      </Td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
