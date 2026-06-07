@@ -931,20 +931,35 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
     return () => clearTimeout(t)
   }, [fornBusca, companyId])
 
-  // FIX-COTACAO-AUTOCOMPLETE-v1: busca produto na linha do item (debounced)
+  // FIX-COTACAO-PRODUTO-AUTOCOMPLETE-v1: busca produto na linha do item.
+  //   - Dispara a partir do 1º caractere (era >= 2)
+  //   - Prioriza candidatos que COMECAM com o termo (2 queries unidas, dedup)
+  //   - Mesmo padrao de cartao do fornecedor (CheckCircle + nome + codigo)
   async function buscarProduto(idx: number, q: string) {
     setItens((prev) => prev.map((it, i) => i === idx ? { ...it, busca: q } : it))
-    if (q.trim().length < 2) {
+    if (q.trim().length < 1) {
       setItens((prev) => prev.map((it, i) => i === idx ? { ...it, candidatos: [] } : it))
       return
     }
-    const { data } = await supabase
+    const t = q.trim()
+    const inicia = supabase
       .from('erp_produtos')
       .select('id, codigo, nome, unidade')
       .eq('company_id', companyId).eq('ativo', true)
-      .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
+      .or(`nome.ilike.${t}%,codigo.ilike.${t}%`)
       .order('nome').limit(50)
-    setItens((prev) => prev.map((it, i) => i === idx ? { ...it, candidatos: (data ?? []) } : it))
+    const contem = supabase
+      .from('erp_produtos')
+      .select('id, codigo, nome, unidade')
+      .eq('company_id', companyId).eq('ativo', true)
+      .ilike('nome', `%${t}%`)
+      .order('nome').limit(50)
+    const [resInicia, resContem] = await Promise.all([inicia, contem])
+    const map = new Map<string, { id: string; codigo: string; nome: string; unidade: string | null }>()
+    for (const p of (resInicia.data ?? [])) map.set(p.id, p)
+    for (const p of (resContem.data ?? [])) if (!map.has(p.id)) map.set(p.id, p)
+    const candidatos = Array.from(map.values()).slice(0, 50)
+    setItens((prev) => prev.map((it, i) => i === idx ? { ...it, candidatos } : it))
   }
 
   function selecionarProduto(idx: number, p: { id: string; codigo: string; nome: string; unidade: string | null }) {
