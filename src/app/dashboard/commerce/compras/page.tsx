@@ -899,8 +899,17 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
   const [descricao, setDescricao] = useState('')
   const [solicitante, setSolicitante] = useState('')
   const [dataLimite, setDataLimite] = useState(() => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10))
-  const [itens, setItens] = useState<{ produto_nome: string; quantidade: number; unidade: string }[]>([
-    { produto_nome: '', quantidade: 1, unidade: 'un' },
+  // FIX-COTACAO-AUTOCOMPLETE-v1: itens agora carregam produto_id (UUID real)
+  const [itens, setItens] = useState<{
+    produto_id: string | null;
+    produto_nome: string;
+    produto_codigo: string | null;
+    quantidade: number;
+    unidade: string;
+    busca: string;
+    candidatos: { id: string; codigo: string; nome: string; unidade: string | null }[];
+  }[]>([
+    { produto_id: null, produto_nome: '', produto_codigo: null, quantidade: 1, unidade: 'un', busca: '', candidatos: [] },
   ])
   const [fornBusca, setFornBusca] = useState('')
   const [fornCandidatos, setFornCandidatos] = useState<Fornecedor[]>([])
@@ -922,6 +931,40 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
     return () => clearTimeout(t)
   }, [fornBusca, companyId])
 
+  // FIX-COTACAO-AUTOCOMPLETE-v1: busca produto na linha do item (debounced)
+  async function buscarProduto(idx: number, q: string) {
+    setItens((prev) => prev.map((it, i) => i === idx ? { ...it, busca: q } : it))
+    if (q.trim().length < 2) {
+      setItens((prev) => prev.map((it, i) => i === idx ? { ...it, candidatos: [] } : it))
+      return
+    }
+    const { data } = await supabase
+      .from('erp_produtos')
+      .select('id, codigo, nome, unidade')
+      .eq('company_id', companyId).eq('ativo', true)
+      .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
+      .order('nome').limit(50)
+    setItens((prev) => prev.map((it, i) => i === idx ? { ...it, candidatos: (data ?? []) } : it))
+  }
+
+  function selecionarProduto(idx: number, p: { id: string; codigo: string; nome: string; unidade: string | null }) {
+    setItens((prev) => prev.map((it, i) => i === idx ? {
+      ...it,
+      produto_id: p.id,
+      produto_nome: p.nome,
+      produto_codigo: p.codigo,
+      unidade: p.unidade ?? it.unidade,
+      busca: '',
+      candidatos: [],
+    } : it))
+  }
+
+  function limparProduto(idx: number) {
+    setItens((prev) => prev.map((it, i) => i === idx ? {
+      ...it, produto_id: null, produto_nome: '', produto_codigo: null, busca: '', candidatos: [],
+    } : it))
+  }
+
   function toggleFornecedor(f: Fornecedor) {
     setFornSelecionados((prev) => prev.find((x) => x.id === f.id) ? prev.filter((x) => x.id !== f.id) : [...prev, f])
   }
@@ -942,13 +985,15 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
     }).select().single()
     if (error || !cot) { flashErr('Erro: ' + (error?.message ?? 'desconhecido')); setSalvando(false); return }
 
-    // Itens
-    const itensValidos = itens.filter((i) => i.produto_nome.trim() && i.quantidade > 0)
+    // Itens · FIX-COTACAO-AUTOCOMPLETE-v1: agora exige produto_id
+    const itensValidos = itens.filter((i) => i.produto_id && i.produto_nome.trim() && i.quantidade > 0)
     if (itensValidos.length > 0) {
       await supabase.from('erp_cotacoes_itens').insert(itensValidos.map((it, idx) => ({
         cotacao_id: cot.id,
         company_id: companyId,
         ordem: idx + 1,
+        produto_id: it.produto_id,
+        produto_codigo: it.produto_codigo,
         produto_nome: it.produto_nome.trim(),
         quantidade: it.quantidade,
         unidade: it.unidade,
@@ -975,7 +1020,8 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
   const stepNum: Record<typeof step, number> = { identif: 1, itens: 2, fornec: 3 }
   const podeAvancarIdent = !!descricao.trim()
-  const podeAvancarItens = itens.some((i) => i.produto_nome.trim() && i.quantidade > 0)
+  // FIX-COTACAO-AUTOCOMPLETE-v1: exige produto_id vinculado (UUID real)
+  const podeAvancarItens = itens.some((i) => i.produto_id && i.produto_nome.trim() && i.quantidade > 0)
   const podeFinalizar = fornSelecionados.length > 0 && podeAvancarItens
 
   return (
@@ -1010,20 +1056,52 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens a cotar *</label>
             {itens.map((it, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '3fr 0.8fr 0.8fr auto', gap: 6, alignItems: 'center' }}>
-                <input placeholder="Nome do produto/material" value={it.produto_nome} onChange={(e) => { const copy = [...itens]; copy[i].produto_nome = e.target.value; setItens(copy) }} style={inp} />
-                <input type="number" step="0.01" value={it.quantidade} onChange={(e) => { const copy = [...itens]; copy[i].quantidade = parseFloat(e.target.value) || 0; setItens(copy) }} style={{ ...inp, textAlign: 'right' }} />
-                <select value={it.unidade} onChange={(e) => { const copy = [...itens]; copy[i].unidade = e.target.value; setItens(copy) }} style={inp}>
-                  <option value="un">un</option><option value="m">m</option><option value="m²">m²</option><option value="kg">kg</option><option value="L">L</option><option value="pç">pç</option>
-                </select>
-                {itens.length > 1 && <button onClick={() => setItens(itens.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={14} /></button>}
+              <div key={i} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {it.produto_id ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 6, background: C.goldBg, borderRadius: 6 }}>
+                    <CheckCircle2 size={14} style={{ color: C.gold, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{it.produto_nome}</div>
+                      {it.produto_codigo && <div style={{ fontSize: 10, color: C.espressoM, fontFamily: 'monospace' }}>{it.produto_codigo}</div>}
+                    </div>
+                    <button onClick={() => limparProduto(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={12} /></button>
+                  </div>
+                ) : (
+                  <>
+                    <input placeholder="Buscar produto (nome ou código) · escolha da lista" value={it.busca} onChange={(e) => buscarProduto(i, e.target.value)} style={inp} data-testid={`cot-produto-busca-${i}`} />
+                    {it.candidatos.length > 0 && (
+                      <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 6, background: '#fff' }}>
+                        {it.candidatos.map((p) => (
+                          <button key={p.id} type="button" onClick={() => selecionarProduto(i, p)} data-testid={`cot-produto-opt-${p.id}`}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', borderBottom: `1px solid ${C.borderL}`, cursor: 'pointer', fontSize: 12 }}>
+                            <strong>{p.nome}</strong>
+                            <span style={{ marginLeft: 8, fontSize: 10, color: C.espressoM, fontFamily: 'monospace' }}>{p.codigo}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {it.busca.trim().length >= 2 && it.candidatos.length === 0 && (
+                      <div style={{ fontSize: 11, color: C.espressoM, fontStyle: 'italic' }}>Nenhum produto encontrado. Cadastre antes em Produtos.</div>
+                    )}
+                  </>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 0.8fr auto', gap: 6, alignItems: 'center' }}>
+                  <input type="number" step="0.01" placeholder="Qtd" value={it.quantidade} onChange={(e) => { const copy = [...itens]; copy[i] = { ...copy[i], quantidade: parseFloat(e.target.value) || 0 }; setItens(copy) }} style={{ ...inp, textAlign: 'right' }} />
+                  <select value={it.unidade} onChange={(e) => { const copy = [...itens]; copy[i] = { ...copy[i], unidade: e.target.value }; setItens(copy) }} style={inp}>
+                    <option value="un">un</option><option value="m">m</option><option value="m²">m²</option><option value="kg">kg</option><option value="L">L</option><option value="pç">pç</option>
+                  </select>
+                  {itens.length > 1 && <button onClick={() => setItens(itens.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={14} /></button>}
+                </div>
               </div>
             ))}
-            <button onClick={() => setItens([...itens, { produto_nome: '', quantidade: 1, unidade: 'un' }])} style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 11, border: `1px solid ${C.gold}`, borderRadius: 6, background: C.goldBg, color: C.goldD, fontWeight: 600, cursor: 'pointer' }}>+ Adicionar item</button>
+            <button onClick={() => setItens([...itens, { produto_id: null, produto_nome: '', produto_codigo: null, quantidade: 1, unidade: 'un', busca: '', candidatos: [] }])} style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 11, border: `1px solid ${C.gold}`, borderRadius: 6, background: C.goldBg, color: C.goldD, fontWeight: 600, cursor: 'pointer' }}>+ Adicionar item</button>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 12 }}>
               <button onClick={() => setStep('identif')} style={btnSec}>← Voltar</button>
               <button onClick={() => setStep('fornec')} disabled={!podeAvancarItens} style={{ ...btnPri, opacity: podeAvancarItens ? 1 : 0.5 }}>Próximo →</button>
             </div>
+            {!podeAvancarItens && itens.some((i) => i.busca.trim()) && (
+              <div style={{ fontSize: 11, color: C.espressoM, fontStyle: 'italic' }}>Escolha o produto na lista (digitar e não selecionar não vincula ao cadastro).</div>
+            )}
           </div>
         )}
 
