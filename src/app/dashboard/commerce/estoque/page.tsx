@@ -485,9 +485,9 @@ function EstoqueInner() {
               onClick={() => setShowAjuste(true)}
               disabled={!canCreate || locais.length === 0 || produtos.length === 0}
               title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')}
-              data-testid="estoque-ajuste-btn"
+              data-testid="estoque-nova-mov-btn"
               style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
-              <Plus size={14} /> Ajuste de estoque
+              <Plus size={14} /> Nova Movimentação
             </button>
           </div>
         )}
