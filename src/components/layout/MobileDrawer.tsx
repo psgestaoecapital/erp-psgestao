@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
 import { SIDEBAR_GESTAO_EMPRESARIAL } from '@/lib/menu/sidebar-config'
 import { useSidebarState } from '@/lib/menu/sidebar-state'
@@ -9,8 +9,18 @@ import SidebarHeader from './SidebarHeader'
 import SidebarModule from './SidebarModule'
 
 export default function MobileDrawer() {
+  return (
+    <Suspense fallback={null}>
+      <MobileDrawerInner />
+    </Suspense>
+  )
+}
+
+function MobileDrawerInner() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname() || ''
+  const searchParams = useSearchParams()
+  const currentTab = searchParams?.get('tab') ?? null
   const { expandedModule, toggleModule } = useSidebarState()
 
   // Fecha drawer ao mudar de rota
@@ -67,6 +77,7 @@ export default function MobileDrawer() {
               key={modulo.id}
               modulo={modulo}
               pathname={pathname}
+              currentTab={currentTab}
               isExpanded={expandedModule === modulo.id}
               onToggle={() => toggleModule(modulo.id)}
               onNavigate={closeDrawer}
@@ -81,6 +92,7 @@ export default function MobileDrawer() {
                 key={modulo.id}
                 modulo={modulo}
                 pathname={pathname}
+                currentTab={currentTab}
                 isExpanded={expandedModule === modulo.id}
                 onToggle={() => toggleModule(modulo.id)}
                 onNavigate={closeDrawer}
