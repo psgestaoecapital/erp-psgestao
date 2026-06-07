@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil,
@@ -683,7 +684,7 @@ function EstoqueInner() {
       {/* F2.2 · Modal Ajuste */}
       {showAjuste && companyIdUnico && (
         <ModalAjuste
-          produtos={produtos}
+          companyId={companyIdUnico}
           locais={locais}
           movimentacoes={movimentacoes}
           onClose={() => setShowAjuste(false)}
@@ -1572,16 +1573,17 @@ function btnPrincipal(enabled: boolean): React.CSSProperties {
 // F2.2 · ModalAjuste — focado em ajustes positivo/negativo
 // ════════════════════════════════════════════════════════════
 
-function ModalAjuste({ produtos, locais, movimentacoes, onClose, onSubmit }: {
-  produtos: Produto[]
+function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
+  companyId: string
   locais: Local[]
   movimentacoes: Movimentacao[]
   onClose: () => void
   onSubmit: (args: { produto_id: string; local_id: string | null; positivo: boolean;
     quantidade: number; custo_unitario: number; motivo: string; observacoes: string | null }) => Promise<boolean>
 }) {
-  const [busca, setBusca] = useState('')
-  const [produtoSel, setProdutoSel] = useState<Produto | null>(null)
+  // FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 · usa componente compartilhado
+  // (server-side · acaba com filtro client-side fragil)
+  const [produtoSel, setProdutoSel] = useState<ProdutoSelecionado | null>(null)
   const localPrincipal = locais.find((l) => l.principal) ?? locais[0] ?? null
   const [localId, setLocalId] = useState<string>(localPrincipal?.id ?? '')
   const [positivo, setPositivo] = useState(true)
@@ -1592,25 +1594,9 @@ function ModalAjuste({ produtos, locais, movimentacoes, onClose, onSubmit }: {
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Candidatos com prioridade starts-with
-  const candidatos = useMemo<Produto[]>(() => {
-    if (busca.trim().length < 1) return []
-    const t = busca.trim().toLowerCase()
-    const inicia: Produto[] = []
-    const contem: Produto[] = []
-    for (const p of produtos) {
-      const n = p.nome.toLowerCase()
-      const c = (p.codigo ?? '').toLowerCase()
-      if (n.startsWith(t) || c.startsWith(t)) inicia.push(p)
-      else if (n.includes(t)) contem.push(p)
-    }
-    return [...inicia, ...contem].slice(0, 50)
-  }, [busca, produtos])
-
-  // Saldo atual do produto (no local escolhido se possivel; senao soma do produto)
+  // Saldo atual do produto (no local escolhido se possivel; senao estoque_atual do produto)
   const saldoAtual = useMemo(() => {
     if (!produtoSel) return null
-    // Encontra ultima mov do par
     for (const m of movimentacoes) {
       if (m.produto_id !== produtoSel.id) continue
       if (localId && m.local_id && m.local_id !== localId) continue
@@ -1620,9 +1606,8 @@ function ModalAjuste({ produtos, locais, movimentacoes, onClose, onSubmit }: {
   }, [produtoSel, localId, movimentacoes])
 
   // Quando seleciona produto, preenche custo sugerido
-  function selecionar(p: Produto) {
+  function aoSelecionar(p: ProdutoSelecionado) {
     setProdutoSel(p)
-    setBusca('')
     if (!custo) {
       const c = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
       if (c > 0) setCusto(c.toFixed(2).replace('.', ','))
@@ -1663,43 +1648,22 @@ function ModalAjuste({ produtos, locais, movimentacoes, onClose, onSubmit }: {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Produto */}
+          {/* Produto · componente compartilhado FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Produto *</label>
-            {produtoSel ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, padding: 10, background: C.goldBg, borderRadius: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{produtoSel.nome}</div>
-                  <div style={{ fontSize: 10, color: C.espressoM, fontFamily: 'monospace' }}>{produtoSel.codigo}</div>
-                  {saldoAtual != null && (
-                    <div style={{ fontSize: 11, color: C.espresso, marginTop: 2 }}>
-                      Saldo atual: <strong>{fmtNum(saldoAtual)} {produtoSel.unidade ?? ''}</strong>
-                    </div>
-                  )}
-                </div>
-                <button onClick={() => setProdutoSel(null)} data-testid="ajuste-prod-clear"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={14} /></button>
-              </div>
-            ) : (
-              <>
-                <input
-                  type="text" autoFocus value={busca} onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar produto (nome ou código) · escolha da lista"
-                  data-testid="ajuste-prod-busca"
-                  style={{ ...selInpStyle, marginTop: 4, width: '100%' }} />
-                {candidatos.length > 0 && (
-                  <div style={{ maxHeight: 180, overflowY: 'auto', marginTop: 6, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
-                    {candidatos.map((p) => (
-                      <button key={p.id} type="button" onClick={() => selecionar(p)} data-testid={`ajuste-prod-opt-${p.id}`}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', borderBottom: `1px solid ${C.borderL}`, cursor: 'pointer', fontSize: 12 }}>
-                        <strong>{p.nome}</strong>
-                        <span style={{ marginLeft: 8, fontSize: 10, color: C.espressoM, fontFamily: 'monospace' }}>{p.codigo}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
+            <div style={{ marginTop: 4 }}>
+              <ProdutoAutocomplete
+                companyId={companyId}
+                selecionado={produtoSel}
+                onSelect={aoSelecionar}
+                onClear={() => setProdutoSel(null)}
+                autoFocus
+                testId="ajuste-prod"
+                detalheSelecionado={(p) => saldoAtual != null
+                  ? (<>Saldo atual: <strong>{fmtNum(saldoAtual)} {p.unidade ?? ''}</strong></>)
+                  : null}
+              />
+            </div>
           </div>
 
           {/* Local */}

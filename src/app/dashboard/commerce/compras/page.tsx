@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3, X, Info, Trash2,
   CheckCircle2, Send, Award, Truck,
@@ -1277,9 +1278,6 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
   const [forOpcoes, setForOpcoes] = useState<FornecedorBusca[]>([])
   const [forCarregando, setForCarregando] = useState(false)
   const [itens, setItens] = useState<ItemForm[]>([])
-  const [prodBusca, setProdBusca] = useState('')
-  const [prodOpcoes, setProdOpcoes] = useState<ProdutoBusca[]>([])
-  const [prodCarregando, setProdCarregando] = useState(false)
   const [dataPedido, setDataPedido] = useState(hoje)
   const [condicao, setCondicao] = useState('a_vista')
   const [parcelas, setParcelas] = useState('1')
@@ -1309,32 +1307,15 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
     return () => window.clearTimeout(t)
   }, [forBusca, companyId])
 
-  useEffect(() => {
-    if (!prodBusca.trim() || prodBusca.trim().length < 2) { setProdOpcoes([]); return }
-    const q = prodBusca.trim()
-    setProdCarregando(true)
-    const t = window.setTimeout(async () => {
-      const { data } = await supabase
-        .from('erp_produtos')
-        .select('id, codigo, nome, unidade, preco_custo, preco_custo_medio')
-        .eq('company_id', companyId).eq('ativo', true)
-        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
-        .order('nome').limit(20)
-      setProdOpcoes((data ?? []) as ProdutoBusca[])
-      setProdCarregando(false)
-    }, 250)
-    return () => window.clearTimeout(t)
-  }, [prodBusca, companyId])
-
-  function adicionarProduto(p: ProdutoBusca) {
+  // FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 · usa ProdutoAutocomplete shared
+  function adicionarProduto(p: ProdutoSelecionado) {
     if (itens.some((it) => it.produto_id === p.id)) return
-    const precoSugerido = p.preco_custo_medio ?? p.preco_custo ?? 0
+    const precoSugerido = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
     setItens((prev) => [...prev, {
-      tempId: crypto.randomUUID(), produto_id: p.id, codigo: p.codigo,
+      tempId: crypto.randomUUID(), produto_id: p.id, codigo: p.codigo ?? '',
       nome: p.nome, unidade: p.unidade ?? 'un', quantidade: '1',
       preco: precoSugerido > 0 ? precoSugerido.toFixed(2).replace('.', ',') : '',
     }])
-    setProdBusca(''); setProdOpcoes([])
   }
 
   function removerItem(tempId: string) { setItens((prev) => prev.filter((i) => i.tempId !== tempId)) }
@@ -1440,20 +1421,16 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
           </Card>
 
           <Card titulo={`Itens · ${itens.length}`}>
-            <input value={prodBusca} onChange={(e) => setProdBusca(e.target.value)} placeholder="Buscar produto por nome ou código..."
-              style={{ width: '100%', padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, marginBottom: 8 }} />
-            {prodCarregando && <div style={{ fontSize: 11, color: C.espressoM }}>Buscando...</div>}
-            {prodOpcoes.length > 0 && (
-              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 10, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
-                {prodOpcoes.map((p) => (
-                  <button key={p.id} type="button" onClick={() => adicionarProduto(p)}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', borderBottom: `1px solid ${C.borderL}`, cursor: 'pointer', fontSize: 12 }}>
-                    <strong>{p.nome}</strong>
-                    <span style={{ marginLeft: 8, color: C.espressoM, fontFamily: 'monospace', fontSize: 10 }}>{p.codigo}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 · componente compartilhado */}
+            <div style={{ marginBottom: 10 }}>
+              <ProdutoAutocomplete
+                companyId={companyId}
+                selecionado={null}
+                onSelect={adicionarProduto}
+                placeholder="Buscar produto (nome ou código) · adicione ao pedido"
+                testId="compra-prod"
+              />
+            </div>
             {itens.length === 0 ? (
               <div style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', padding: '8px 0' }}>Busque e adicione produtos acima.</div>
             ) : (
