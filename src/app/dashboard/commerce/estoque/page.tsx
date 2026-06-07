@@ -48,7 +48,41 @@ const C = {
   gray: '#94A3B8',
 }
 
-type Tab = 'saldo' | 'locais' | 'produtos' | 'movimentacoes' | 'abc'
+type Tab = 'saldo' | 'locais' | 'produtos' | 'movimentacoes' | 'inventario' | 'abc'
+
+// F2.2 · Inventarios
+type Inventario = {
+  id: string
+  company_id: string
+  numero: string | null
+  local_id: string | null
+  status: string | null
+  data_inicio: string | null
+  data_fim: string | null
+  responsavel: string | null
+  total_produtos: number | null
+  total_contados: number | null
+  total_divergencias: number | null
+  valor_divergencia: number | null
+  observacoes: string | null
+  created_by: string | null
+  fechado_por: string | null
+  created_at: string | null
+}
+
+type InventarioItem = {
+  id: string
+  inventario_id: string
+  company_id: string
+  produto_id: string
+  quantidade_sistema: number | null
+  quantidade_contada: number | null
+  diferenca: number | null
+  custo_unitario: number | null
+  valor_diferenca: number | null
+  contado_em: string | null
+  observacoes: string | null
+}
 
 type Local = {
   id: string
@@ -181,6 +215,11 @@ function EstoqueInner() {
   const [produtoSel, setProdutoSel] = useState<Produto | null>(null)
   const [localEdit, setLocalEdit] = useState<Local | 'new' | null>(null)
   const [showMovimentar, setShowMovimentar] = useState<{ produto?: Produto } | null>(null)
+  // F2.2 · estados de ajuste/inventario
+  const [showAjuste, setShowAjuste] = useState(false)
+  const [showNovoInventario, setShowNovoInventario] = useState(false)
+  const [inventarios, setInventarios] = useState<Inventario[]>([])
+  const [inventarioSel, setInventarioSel] = useState<Inventario | null>(null)
 
   const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
 
@@ -191,12 +230,13 @@ function EstoqueInner() {
     }
     setLoading(true)
     setErro('')
-    const [loc, prod, mov, abc] = await Promise.all([
+    const [loc, prod, mov, abc, inv] = await Promise.all([
       supabase.from('erp_estoque_locais').select('*').in('company_id', companyIds).order('principal', { ascending: false }).order('nome'),
       supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
         .in('company_id', companyIds).eq('ativo', true).order('nome').limit(500),
       supabase.from('erp_estoque_movimentacoes').select('*').in('company_id', companyIds).order('data_movimento', { ascending: false }).limit(300),
       supabase.rpc('fn_curva_abc_estoque', { p_company_ids: companyIds }),
+      supabase.from('erp_inventarios').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(50),
     ])
     if (loc.error) setErro('Locais: ' + loc.error.message)
     else setLocais((loc.data ?? []) as Local[])
@@ -206,6 +246,8 @@ function EstoqueInner() {
     else setMovimentacoes((mov.data ?? []) as Movimentacao[])
     if (abc.error) setErro('Curva ABC: ' + abc.error.message)
     else setCurva((abc.data ?? []) as CurvaABCRow[])
+    if (inv.error) setErro('Inventários: ' + inv.error.message)
+    else setInventarios((inv.data ?? []) as Inventario[])
     setLoading(false)
   }, [companyIds])
 
@@ -262,23 +304,56 @@ function EstoqueInner() {
     quantidade: number; custo_unitario: number; motivo: string | null;
     observacoes: string | null; lote: string | null; validade: string | null;
   }) {
-    const { error } = await supabase.rpc('fn_movimentar_estoque', {
+    // F2.2 · usa RPC eleita (com usuario_id pra rastreio LGPD).
+    // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
+    // passados aqui ainda (gap conhecido F2.3).
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.rpc('registrar_movimento_estoque', {
+      p_company_id: companyIdUnico,
       p_produto_id: args.produto_id,
-      p_local_id: args.local_id,
       p_tipo: args.tipo,
       p_quantidade: args.quantidade,
       p_custo_unitario: args.custo_unitario || 0,
       p_motivo: args.motivo,
       p_observacoes: args.observacoes,
-      p_lote: args.lote,
-      p_validade: args.validade,
+      p_usuario_id: user?.id ?? null,
+      p_local_id: args.local_id,
     })
     if (error) {
-      flashErr('Falha na movimentação: ' + error.message)
+      flashErr('Não foi possível registrar a movimentação: ' + error.message)
       return false
     }
-    flash('Movimentação registrada.')
+    flash('Movimentação criada · estoque atualizado.')
     setShowMovimentar(null)
+    void carregar()
+    return true
+  }
+
+  // F2.2 · cria ajuste de estoque via RPC eleita
+  async function criarAjuste(args: {
+    produto_id: string; local_id: string | null; positivo: boolean;
+    quantidade: number; custo_unitario: number; motivo: string; observacoes: string | null;
+  }) {
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.rpc('registrar_movimento_estoque', {
+      p_company_id: companyIdUnico,
+      p_produto_id: args.produto_id,
+      p_tipo: args.positivo ? 'ajuste_positivo' : 'ajuste_negativo',
+      p_quantidade: args.quantidade,
+      p_custo_unitario: args.custo_unitario || 0,
+      p_motivo: args.motivo,
+      p_observacoes: args.observacoes,
+      p_usuario_id: user?.id ?? null,
+      p_local_id: args.local_id,
+    })
+    if (error) {
+      flashErr('Não foi possível criar o ajuste: ' + error.message)
+      return false
+    }
+    flash('Ajuste CRIADO · saldo atualizado.')
+    setShowAjuste(false)
     void carregar()
     return true
   }
@@ -404,9 +479,26 @@ function EstoqueInner() {
             <Plus size={14} /> Novo Local
           </button>
         )}
-        {tab === 'movimentacoes' && (
-          <button onClick={() => setShowMovimentar({})} disabled={!canCreate || locais.length === 0 || produtos.length === 0} title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')} style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
-            <Plus size={14} /> Nova Movimentação
+        {(tab === 'saldo' || tab === 'movimentacoes') && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setShowAjuste(true)}
+              disabled={!canCreate || locais.length === 0 || produtos.length === 0}
+              title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')}
+              data-testid="estoque-nova-mov-btn"
+              style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
+              <Plus size={14} /> Nova Movimentação
+            </button>
+          </div>
+        )}
+        {tab === 'inventario' && (
+          <button
+            onClick={() => setShowNovoInventario(true)}
+            disabled={!canCreate || locais.length === 0 || produtos.length === 0}
+            title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')}
+            data-testid="estoque-inventario-btn"
+            style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
+            📋 Iniciar inventário
           </button>
         )}
       </header>
@@ -415,6 +507,7 @@ function EstoqueInner() {
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, overflowX: 'auto' }}>
         <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} />
         <TabBtn ativo={tab === 'movimentacoes'} onClick={() => setTab('movimentacoes')} icon={<ArrowRightLeft size={14} />} label="Movimentações" count={movimentacoes.length} />
+        <TabBtn ativo={tab === 'inventario'} onClick={() => setTab('inventario')} icon={<Package size={14} />} label="Inventário" count={inventarios.length} />
         <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} />
         <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
@@ -469,8 +562,61 @@ function EstoqueInner() {
           filtroMovFim={filtroMovFim} setFiltroMovFim={setFiltroMovFim}
           produtosPorId={produtosPorId} locaisPorId={locaisPorId}
         />
+      ) : tab === 'inventario' ? (
+        <TabInventario rows={inventarios} locaisPorId={locaisPorId} onSelect={setInventarioSel} />
       ) : (
         <TabCurvaABC rows={curva} />
+      )}
+
+      {/* F2.2 · Modal Ajuste */}
+      {showAjuste && companyIdUnico && (
+        <ModalAjuste
+          produtos={produtos}
+          locais={locais}
+          movimentacoes={movimentacoes}
+          onClose={() => setShowAjuste(false)}
+          onSubmit={criarAjuste}
+        />
+      )}
+
+      {/* F2.2 · Modal Novo Inventario */}
+      {showNovoInventario && companyIdUnico && (
+        <ModalNovoInventario
+          companyId={companyIdUnico}
+          locais={locais}
+          produtos={produtos}
+          onClose={() => setShowNovoInventario(false)}
+          onCreated={async (inventarioId) => {
+            setShowNovoInventario(false)
+            await carregar()
+            const inv = inventarios.find((x) => x.id === inventarioId)
+            if (inv) setInventarioSel(inv)
+            else {
+              const r = (await supabase.from('erp_inventarios').select('*').eq('id', inventarioId).single()).data as Inventario | null
+              if (r) setInventarioSel(r)
+            }
+            flash('Inventário CRIADO.')
+            setTab('inventario')
+          }}
+          flashErr={flashErr}
+        />
+      )}
+
+      {/* F2.2 · Drawer Inventario (contar + fechar) */}
+      {inventarioSel && (
+        <DrawerInventario
+          inventario={inventarioSel}
+          produtos={produtos}
+          locaisPorId={locaisPorId}
+          onClose={() => setInventarioSel(null)}
+          onFechado={async () => {
+            await carregar()
+            setInventarioSel(null)
+            flash('Inventário FECHADO · ajustes gerados.')
+          }}
+          flash={flash}
+          flashErr={flashErr}
+        />
       )}
 
       {/* Drawer produto */}
@@ -1282,4 +1428,547 @@ function btnPrincipal(enabled: boolean): React.CSSProperties {
     cursor: enabled ? 'pointer' : 'not-allowed',
     display: 'inline-flex', alignItems: 'center', gap: 6,
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// F2.2 · ModalAjuste — focado em ajustes positivo/negativo
+// ════════════════════════════════════════════════════════════
+
+function ModalAjuste({ produtos, locais, movimentacoes, onClose, onSubmit }: {
+  produtos: Produto[]
+  locais: Local[]
+  movimentacoes: Movimentacao[]
+  onClose: () => void
+  onSubmit: (args: { produto_id: string; local_id: string | null; positivo: boolean;
+    quantidade: number; custo_unitario: number; motivo: string; observacoes: string | null }) => Promise<boolean>
+}) {
+  const [busca, setBusca] = useState('')
+  const [produtoSel, setProdutoSel] = useState<Produto | null>(null)
+  const localPrincipal = locais.find((l) => l.principal) ?? locais[0] ?? null
+  const [localId, setLocalId] = useState<string>(localPrincipal?.id ?? '')
+  const [positivo, setPositivo] = useState(true)
+  const [quantidade, setQuantidade] = useState('')
+  const [custo, setCusto] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [obs, setObs] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  // Candidatos com prioridade starts-with
+  const candidatos = useMemo<Produto[]>(() => {
+    if (busca.trim().length < 1) return []
+    const t = busca.trim().toLowerCase()
+    const inicia: Produto[] = []
+    const contem: Produto[] = []
+    for (const p of produtos) {
+      const n = p.nome.toLowerCase()
+      const c = (p.codigo ?? '').toLowerCase()
+      if (n.startsWith(t) || c.startsWith(t)) inicia.push(p)
+      else if (n.includes(t)) contem.push(p)
+    }
+    return [...inicia, ...contem].slice(0, 50)
+  }, [busca, produtos])
+
+  // Saldo atual do produto (no local escolhido se possivel; senao soma do produto)
+  const saldoAtual = useMemo(() => {
+    if (!produtoSel) return null
+    // Encontra ultima mov do par
+    for (const m of movimentacoes) {
+      if (m.produto_id !== produtoSel.id) continue
+      if (localId && m.local_id && m.local_id !== localId) continue
+      return Number(m.quantidade_depois ?? 0)
+    }
+    return Number(produtoSel.estoque_atual ?? 0)
+  }, [produtoSel, localId, movimentacoes])
+
+  // Quando seleciona produto, preenche custo sugerido
+  function selecionar(p: Produto) {
+    setProdutoSel(p)
+    setBusca('')
+    if (!custo) {
+      const c = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      if (c > 0) setCusto(c.toFixed(2).replace('.', ','))
+    }
+  }
+
+  const qtdN = Number(quantidade.replace(',', '.')) || 0
+  const custoN = Number(custo.replace(',', '.')) || 0
+  const saldoFinal = saldoAtual != null ? (positivo ? saldoAtual + qtdN : saldoAtual - qtdN) : null
+
+  async function salvar() {
+    setErro(null)
+    if (!produtoSel) { setErro('Escolha um produto da lista.'); return }
+    if (!localId) { setErro('Escolha o local.'); return }
+    if (qtdN <= 0) { setErro('Quantidade deve ser maior que zero.'); return }
+    if (!motivo.trim()) { setErro('Informe o motivo do ajuste.'); return }
+    if (!positivo && saldoAtual != null && qtdN > saldoAtual) {
+      setErro(`Não dá pra ajustar -${qtdN}: saldo atual é ${saldoAtual}.`); return
+    }
+    setSalvando(true)
+    const ok = await onSubmit({
+      produto_id: produtoSel.id,
+      local_id: localId || null,
+      positivo, quantidade: qtdN, custo_unitario: custoN,
+      motivo: motivo.trim(), observacoes: obs.trim() || null,
+    })
+    setSalvando(false)
+    if (!ok) setErro('Falha ao salvar ajuste.')
+  }
+
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget && !salvando) onClose() }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.offWhite, borderRadius: 12, padding: 22, width: '100%', maxWidth: 560, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Ajuste de estoque</h3>
+          <button onClick={onClose} disabled={salvando} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Produto */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Produto *</label>
+            {produtoSel ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, padding: 10, background: C.goldBg, borderRadius: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{produtoSel.nome}</div>
+                  <div style={{ fontSize: 10, color: C.espressoM, fontFamily: 'monospace' }}>{produtoSel.codigo}</div>
+                  {saldoAtual != null && (
+                    <div style={{ fontSize: 11, color: C.espresso, marginTop: 2 }}>
+                      Saldo atual: <strong>{fmtNum(saldoAtual)} {produtoSel.unidade ?? ''}</strong>
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setProdutoSel(null)} data-testid="ajuste-prod-clear"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={14} /></button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text" autoFocus value={busca} onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar produto (nome ou código) · escolha da lista"
+                  data-testid="ajuste-prod-busca"
+                  style={{ ...selInpStyle, marginTop: 4, width: '100%' }} />
+                {candidatos.length > 0 && (
+                  <div style={{ maxHeight: 180, overflowY: 'auto', marginTop: 6, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
+                    {candidatos.map((p) => (
+                      <button key={p.id} type="button" onClick={() => selecionar(p)} data-testid={`ajuste-prod-opt-${p.id}`}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', borderBottom: `1px solid ${C.borderL}`, cursor: 'pointer', fontSize: 12 }}>
+                        <strong>{p.nome}</strong>
+                        <span style={{ marginLeft: 8, fontSize: 10, color: C.espressoM, fontFamily: 'monospace' }}>{p.codigo}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Local */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <select value={localId} onChange={(e) => setLocalId(e.target.value)} data-testid="ajuste-local"
+              style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+              {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </div>
+
+          {/* Tipo · radio */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Tipo *</label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="button" onClick={() => setPositivo(true)} data-testid="ajuste-tipo-pos"
+                style={{
+                  flex: 1, padding: '10px 14px', borderRadius: 8, border: `1.5px solid ${positivo ? C.green : C.border}`,
+                  background: positivo ? '#ECFDF5' : '#fff', color: positivo ? '#047857' : C.espresso, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                }}>
+                + Positivo (entrou estoque)
+              </button>
+              <button type="button" onClick={() => setPositivo(false)} data-testid="ajuste-tipo-neg"
+                style={{
+                  flex: 1, padding: '10px 14px', borderRadius: 8, border: `1.5px solid ${!positivo ? C.red : C.border}`,
+                  background: !positivo ? '#FEE2E2' : '#fff', color: !positivo ? '#B91C1C' : C.espresso, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                }}>
+                – Negativo (perda/saída)
+              </button>
+            </div>
+          </div>
+
+          {/* Qtd + Custo */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Quantidade *</label>
+              <input type="text" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="0"
+                data-testid="ajuste-qtd" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Custo unitário</label>
+              <input type="text" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00"
+                data-testid="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
+            </div>
+          </div>
+
+          {/* Preview */}
+          {produtoSel && saldoAtual != null && qtdN > 0 && (
+            <div style={{ padding: 10, background: C.cream, borderRadius: 8, fontSize: 12, color: C.espresso }}>
+              Saldo atual: <strong>{fmtNum(saldoAtual)}</strong> → Saldo após ajuste: <strong style={{ color: positivo ? C.green : C.red }}>{fmtNum(saldoFinal ?? 0)}</strong>
+            </div>
+          )}
+
+          {/* Motivo */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo *</label>
+            <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: avaria · encontrado no fundo · contagem física"
+              data-testid="ajuste-motivo" style={{ ...selInpStyle, marginTop: 4, width: '100%' }} />
+          </div>
+
+          {/* Observacoes */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
+              style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
+          </div>
+
+          {erro && (
+            <div style={{ padding: 10, background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, color: C.red, fontSize: 12 }}>{erro}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+            <button type="button" onClick={salvar} disabled={salvando || !produtoSel || qtdN <= 0 || !motivo.trim()}
+              data-testid="ajuste-salvar" style={btnPrincipal(!salvando && !!produtoSel && qtdN > 0 && !!motivo.trim())}>
+              {salvando ? 'Salvando…' : 'Criar ajuste'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// F2.2 · Tab Inventário (lista) + Modal Novo Inventário
+// ════════════════════════════════════════════════════════════
+
+function TabInventario({ rows, locaisPorId, onSelect }: {
+  rows: Inventario[]; locaisPorId: Record<string, Local>; onSelect: (i: Inventario) => void
+}) {
+  if (rows.length === 0) {
+    return <EmptyState titulo="Nenhum inventário ainda" texto="Use o botão Iniciar inventário pra fazer a contagem física e gerar ajustes automaticamente pelas diferenças." />
+  }
+  return (
+    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+          <thead style={{ background: C.cream }}>
+            <tr><Th>Número</Th><Th>Local</Th><Th>Status</Th><Th>Início</Th><Th>Fim</Th><Th align="right">Itens</Th><Th align="right">Divergências</Th></tr>
+          </thead>
+          <tbody>
+            {rows.map((i) => {
+              const corStatus = i.status === 'fechado' ? C.green : i.status === 'em_andamento' ? C.blue : C.espressoM
+              const local = i.local_id ? locaisPorId[i.local_id] : null
+              return (
+                <tr key={i.id} onClick={() => onSelect(i)} data-testid="inventario-row"
+                  style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                  <Td><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{i.numero ?? '—'}</span></Td>
+                  <Td>{local?.nome ?? '—'}</Td>
+                  <Td>
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: corStatus + '20', color: corStatus, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {i.status ?? '—'}
+                    </span>
+                  </Td>
+                  <Td>{i.data_inicio ? new Date(i.data_inicio).toLocaleDateString('pt-BR') : '—'}</Td>
+                  <Td>{i.data_fim ? new Date(i.data_fim).toLocaleDateString('pt-BR') : '—'}</Td>
+                  <Td align="right">{i.total_produtos ?? 0}</Td>
+                  <Td align="right"><strong style={{ color: (i.total_divergencias ?? 0) > 0 ? C.amber : C.espressoL }}>{i.total_divergencias ?? 0}</strong></Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ModalNovoInventario({ companyId, locais, produtos, onClose, onCreated, flashErr }: {
+  companyId: string; locais: Local[]; produtos: Produto[];
+  onClose: () => void; onCreated: (id: string) => void | Promise<void>;
+  flashErr: (m: string) => void
+}) {
+  const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
+  const [localId, setLocalId] = useState<string>(principal?.id ?? '')
+  const [obs, setObs] = useState('')
+  const [categoria, setCategoria] = useState('')
+  const [marca, setMarca] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const categorias = useMemo(() => Array.from(new Set(produtos.map((p) => p.categoria).filter(Boolean) as string[])).sort(), [produtos])
+  const marcasUnique = useMemo(() => Array.from(new Set(produtos.map((p) => (p as Produto & { marca?: string | null }).marca).filter(Boolean) as string[])).sort(), [produtos])
+
+  // Snapshot: produtos do local com saldo > 0 (filtros opcionais)
+  const snapshot = useMemo(() => {
+    return produtos.filter((p) => {
+      if (Number(p.estoque_atual ?? 0) <= 0) return false
+      if (categoria && p.categoria !== categoria) return false
+      if (marca && (p as Produto & { marca?: string | null }).marca !== marca) return false
+      return true
+    })
+  }, [produtos, categoria, marca])
+
+  async function criar() {
+    if (!localId) { flashErr('Escolha o local.'); return }
+    if (snapshot.length === 0) { flashErr('Nenhum produto pra inventariar com os filtros.'); return }
+    setSalvando(true)
+    try {
+      // Numero
+      const { data: numero } = await supabase.rpc('next_inventario_numero', { p_company_id: companyId })
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: inv, error: e1 } = await supabase.from('erp_inventarios').insert({
+        company_id: companyId,
+        numero: numero ?? `INV-${Date.now().toString().slice(-6)}`,
+        local_id: localId,
+        status: 'em_andamento',
+        data_inicio: new Date().toISOString().slice(0, 10),
+        responsavel: user?.email ?? null,
+        total_produtos: snapshot.length,
+        observacoes: obs.trim() || null,
+        created_by: user?.id ?? null,
+      }).select('id').single()
+      if (e1 || !inv) throw new Error(e1?.message ?? 'Falha ao criar inventário')
+
+      const itens = snapshot.map((p) => ({
+        inventario_id: inv.id,
+        company_id: companyId,
+        produto_id: p.id,
+        quantidade_sistema: Number(p.estoque_atual ?? 0),
+        custo_unitario: Number(p.preco_custo_medio ?? p.preco_custo ?? 0),
+      }))
+      const { error: e2 } = await supabase.from('erp_inventario_itens').insert(itens)
+      if (e2) throw new Error(e2.message)
+      await onCreated(inv.id)
+    } catch (err) {
+      flashErr(err instanceof Error ? err.message : 'Erro ao criar inventário')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget && !salvando) onClose() }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.offWhite, borderRadius: 12, padding: 22, width: '100%', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📋 Iniciar inventário</h3>
+          <button onClick={onClose} disabled={salvando} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+              {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </div>
+          {categorias.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar categoria (opc.)</label>
+                <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+                  <option value="">Todas</option>
+                  {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar marca (opc.)</label>
+                <select value={marca} onChange={(e) => setMarca(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+                  <option value="">Todas</option>
+                  {marcasUnique.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
+              style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
+          </div>
+          <div style={{ padding: 10, background: C.goldBg, borderRadius: 8, fontSize: 12, color: C.goldD }}>
+            Vai inventariar <strong>{snapshot.length}</strong> produto(s) deste local com saldo &gt; 0.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+            <button type="button" onClick={criar} disabled={salvando || snapshot.length === 0} data-testid="inventario-criar"
+              style={btnPrincipal(!salvando && snapshot.length > 0)}>
+              {salvando ? 'Criando…' : 'Criar inventário'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechado, flash, flashErr }: {
+  inventario: Inventario
+  produtos: Produto[]
+  locaisPorId: Record<string, Local>
+  onClose: () => void
+  onFechado: () => void | Promise<void>
+  flash: (m: string) => void
+  flashErr: (m: string) => void
+}) {
+  const [itens, setItens] = useState<InventarioItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [salvandoIdx, setSalvandoIdx] = useState<string | null>(null)
+  const [fechando, setFechando] = useState(false)
+  const fechado = inventario.status === 'fechado'
+  const produtosPorId = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos])
+  const local = inventario.local_id ? locaisPorId[inventario.local_id] : null
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('erp_inventario_itens')
+        .select('*').eq('inventario_id', inventario.id)
+      if (alive) {
+        setItens((data ?? []) as InventarioItem[])
+        setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [inventario.id])
+
+  async function alterarContado(it: InventarioItem, novaQtd: number) {
+    setSalvandoIdx(it.id)
+    const sistema = Number(it.quantidade_sistema ?? 0)
+    const diferenca = novaQtd - sistema
+    const valor_diferenca = diferenca * Number(it.custo_unitario ?? 0)
+    const { error } = await supabase.from('erp_inventario_itens')
+      .update({
+        quantidade_contada: novaQtd,
+        diferenca, valor_diferenca,
+        contado_em: new Date().toISOString(),
+      })
+      .eq('id', it.id)
+    if (error) {
+      flashErr('Não foi possível salvar a contagem: ' + error.message)
+      setSalvandoIdx(null)
+      return
+    }
+    setItens((prev) => prev.map((x) => x.id === it.id ? { ...x, quantidade_contada: novaQtd, diferenca, valor_diferenca } : x))
+    setSalvandoIdx(null)
+  }
+
+  async function fechar() {
+    if (!confirm('Fechar o inventário? Vai gerar movimentações de ajuste pelas diferenças.')) return
+    setFechando(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.rpc('fechar_inventario', {
+      p_inventario_id: inventario.id,
+      p_usuario_id: user?.id ?? null,
+    })
+    if (error) {
+      flashErr('Falha ao fechar: ' + error.message)
+      setFechando(false)
+      return
+    }
+    flash('Inventário FECHADO · ajustes criados.')
+    setFechando(false)
+    await onFechado()
+  }
+
+  const contados = itens.filter((i) => i.quantidade_contada != null).length
+  const divergencias = itens.filter((i) => (i.diferenca ?? 0) !== 0).length
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
+      <aside onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(780px, 100%)', height: '100%', background: C.offWhite, overflowY: 'auto', boxShadow: '-8px 0 24px rgba(0,0,0,0.15)' }}>
+        <header style={{ position: 'sticky', top: 0, background: C.offWhite, borderBottom: `1px solid ${C.border}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', fontWeight: 600 }}>Inventário</div>
+            <h2 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 700, fontFamily: 'monospace' }}>{inventario.numero ?? '—'}</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: C.espressoM }}>{local?.nome ?? '—'} · {contados}/{itens.length} contados · {divergencias} divergência(s)</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM }}><X size={16} /></button>
+        </header>
+
+        <div style={{ padding: 20 }}>
+          {loading ? (
+            <div style={{ padding: 30, textAlign: 'center', color: C.espressoM }}>Carregando itens…</div>
+          ) : itens.length === 0 ? (
+            <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Sem itens.</div>
+          ) : (
+            <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead style={{ background: C.cream }}>
+                  <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado</Th><Th align="right">Diferença</Th></tr>
+                </thead>
+                <tbody>
+                  {itens.map((it) => {
+                    const p = produtosPorId[it.produto_id]
+                    const sistema = Number(it.quantidade_sistema ?? 0)
+                    const contado = it.quantidade_contada
+                    const diff = it.diferenca ?? (contado != null ? Number(contado) - sistema : 0)
+                    const corDiff = diff > 0 ? C.green : diff < 0 ? C.red : C.espressoL
+                    return (
+                      <tr key={it.id} style={{ borderTop: `1px solid ${C.borderL}` }}>
+                        <Td>
+                          <div style={{ fontWeight: 600 }}>{p?.nome ?? '—'}</div>
+                          {p?.codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{p.codigo}</span>}
+                        </Td>
+                        <Td align="right">{fmtNum(sistema)}</Td>
+                        <Td align="right">
+                          {fechado ? (
+                            <span>{contado != null ? fmtNum(Number(contado)) : '—'}</span>
+                          ) : (
+                            <input
+                              type="number" step="0.001"
+                              defaultValue={contado ?? ''}
+                              onBlur={(e) => {
+                                const v = parseFloat(e.target.value)
+                                if (!isNaN(v)) void alterarContado(it, v)
+                              }}
+                              data-testid={`inv-contado-${it.id}`}
+                              disabled={salvandoIdx === it.id}
+                              style={{ width: 90, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12, textAlign: 'right' }}
+                            />
+                          )}
+                        </Td>
+                        <Td align="right">
+                          {contado != null ? (
+                            <strong style={{ color: corDiff }}>{diff > 0 ? '+' : ''}{fmtNum(diff)}</strong>
+                          ) : <span style={{ color: C.espressoL }}>—</span>}
+                        </Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!fechado && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button type="button" onClick={onClose} disabled={fechando} style={btnSec}>Continuar depois</button>
+              <button type="button" onClick={fechar} disabled={fechando || contados === 0} data-testid="inv-fechar"
+                style={btnPrincipal(!fechando && contados > 0)}>
+                {fechando ? 'Fechando…' : '🔒 Fechar inventário'}
+              </button>
+            </div>
+          )}
+          {fechado && (
+            <div style={{ marginTop: 14, padding: 12, background: C.greenBg, borderRadius: 8, color: C.green, fontSize: 12 }}>
+              ✓ Inventário FECHADO. Ajustes gerados nas movimentações.
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  )
 }
