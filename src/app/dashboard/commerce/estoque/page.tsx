@@ -1972,22 +1972,24 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
 
   async function alterarContado(it: InventarioItem, novaQtd: number) {
     setSalvandoIdx(it.id)
-    const sistema = Number(it.quantidade_sistema ?? 0)
-    const diferenca = novaQtd - sistema
-    const valor_diferenca = diferenca * Number(it.custo_unitario ?? 0)
-    const { error } = await supabase.from('erp_inventario_itens')
-      .update({
-        quantidade_contada: novaQtd,
-        diferenca, valor_diferenca,
-        contado_em: new Date().toISOString(),
-      })
-      .eq('id', it.id)
+    // FIX-INVENTARIO-CONTAGEM-PERSIST-v1
+    // UPDATE direto falhava silenciosamente (diferenca e GENERATED) · usa RPC.
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.rpc('fn_inventario_registrar_contagem', {
+      p_item_id: it.id,
+      p_quantidade_contada: novaQtd,
+      p_usuario: user?.email ?? null,
+    })
     if (error) {
       flashErr('Não foi possível salvar a contagem: ' + error.message)
       setSalvandoIdx(null)
       return
     }
-    setItens((prev) => prev.map((x) => x.id === it.id ? { ...x, quantidade_contada: novaQtd, diferenca, valor_diferenca } : x))
+    // Releitura do item pra refletir diferenca generated + valor_diferenca.
+    const { data: row } = await supabase.from('erp_inventario_itens').select('*').eq('id', it.id).single()
+    if (row) {
+      setItens((prev) => prev.map((x) => x.id === it.id ? (row as InventarioItem) : x))
+    }
     setSalvandoIdx(null)
   }
 
@@ -2009,8 +2011,10 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
     await onFechado()
   }
 
+  // FIX-INVENTARIO-CONTAGEM-PERSIST-v1: divergencia so existe pra item contado.
+  // (diferenca e GENERATED · vem != 0 antes da contagem · nao e divergencia real)
   const contados = itens.filter((i) => i.quantidade_contada != null).length
-  const divergencias = itens.filter((i) => (i.diferenca ?? 0) !== 0).length
+  const divergencias = itens.filter((i) => i.quantidade_contada != null && Number(i.diferenca ?? 0) !== 0).length
 
   return (
     <div onClick={onClose}
@@ -2061,6 +2065,12 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
                               onBlur={(e) => {
                                 const v = parseFloat(e.target.value)
                                 if (!isNaN(v)) void alterarContado(it, v)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  ;(e.target as HTMLInputElement).blur()
+                                }
                               }}
                               data-testid={`inv-contado-${it.id}`}
                               disabled={salvandoIdx === it.id}
