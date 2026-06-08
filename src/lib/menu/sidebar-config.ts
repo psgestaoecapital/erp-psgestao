@@ -100,6 +100,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'clientes', label: 'Clientes', href: '/dashboard/cadastros/clientes', status: 'parcial' },
       { id: 'fornecedores', label: 'Fornecedores', href: '/dashboard/cadastros/fornecedores', status: 'parcial' },
       { id: 'produtos', label: 'Produtos', href: '/dashboard/cadastros/produtos', status: 'pronto' },
+      { id: 'servicos', label: 'Serviços', href: '/dashboard/cadastros/servicos', status: 'pronto', badge: 'NFSe' },
       { id: 'plano-contas', label: 'Plano de Contas', href: '/dashboard/cadastros/plano-contas', status: 'pronto' },
       { id: 'contas-bancarias', label: 'Contas Bancárias', href: '/dashboard/cadastros/contas-bancarias', status: 'parcial' },
       { id: 'divisoes-ldn', label: 'Divisões / LDN', href: '/dashboard/cadastros/linhas-negocio', status: 'parcial' },
