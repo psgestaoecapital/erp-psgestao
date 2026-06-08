@@ -34,6 +34,9 @@ interface Payload {
     codigo_tributacao_nacional_iss: string
     codigo_nbs?: string
     aliquota_iss?: number
+    // FEAT-NFSE-SERVICO-AUTOFILL-v1 · vem do <ServicoAutocomplete> ou input
+    cnae?: string | null
+    iss_retido?: boolean
   }
   tomador?: {
     cpf_cnpj: string
@@ -189,6 +192,8 @@ Deno.serve(async (req: Request) => {
         aliquota_iss: p.servico.aliquota_iss ?? 5,
         descricao_servico: p.servico.descricao,
         codigo_servico: p.servico.codigo_tributacao_nacional_iss,
+        cnae: p.servico.cnae ?? null,
+        retem_iss: p.servico.iss_retido ?? false,
         tomador_cnpj: (p.tomador?.cpf_cnpj?.length === 14) ? p.tomador.cpf_cnpj : null,
         tomador_cpf: (p.tomador?.cpf_cnpj?.length === 11) ? p.tomador.cpf_cnpj : null,
         tomador_razao_social: p.tomador?.razao_social,

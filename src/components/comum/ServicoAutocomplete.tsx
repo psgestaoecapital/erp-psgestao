@@ -12,6 +12,7 @@ export interface ServicoSelecionado {
   id: string
   codigo: string | null
   descricao_resumida: string
+  descricao_detalhada?: string | null
   codigo_servico_municipio?: string | null
   codigo_lc116?: string | null
   cnae?: string | null
@@ -64,7 +65,7 @@ export default function ServicoAutocomplete({
     const t = busca.trim().replace(/[%,()]/g, '')
     const handle = window.setTimeout(async () => {
       try {
-        const cols = 'id, codigo, descricao_resumida, codigo_servico_municipio, codigo_lc116, cnae, aliquota_iss, iss_retido, valor_unitario'
+        const cols = 'id, codigo, descricao_resumida, descricao_detalhada, codigo_servico_municipio, codigo_lc116, cnae, aliquota_iss, iss_retido, valor_unitario'
         const inicia = supabase
           .from('erp_servicos').select(cols)
           .eq('company_id', companyId).eq('ativo', true)

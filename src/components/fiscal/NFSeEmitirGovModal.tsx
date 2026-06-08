@@ -5,9 +5,10 @@
 // Mobile-first · form curto · erros em linguagem humana.
 // Defaults KGF: codigo tributacao 140101 · aliquota 0 (Simples Nacional).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { X, Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react'
+import ServicoAutocomplete, { type ServicoSelecionado } from '@/components/comum/ServicoAutocomplete'
 
 type TomadorTipo = 'CPF' | 'CNPJ'
 type Fase = 'form' | 'enviando' | 'concluido'
@@ -76,20 +77,53 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
   const [tomTipo, setTomTipo] = useState<TomadorTipo>('CNPJ')
   const [tomDoc, setTomDoc] = useState('')
   const [tomNome, setTomNome] = useState('')
+  // FEAT-NFSE-SERVICO-AUTOFILL-v1
+  const [servicoSel, setServicoSel] = useState<ServicoSelecionado | null>(null)
+  const [cnaePadrao, setCnaePadrao] = useState<string | null>(null)
   const [descricao, setDescricao] = useState('')
   const [valor, setValor] = useState('')
   const [codigoTrib, setCodigoTrib] = useState('140101')
   const [aliquota, setAliquota] = useState('0')
+  const [cnae, setCnae] = useState('')
+  const [retemIss, setRetemIss] = useState(false)
   const [fase, setFase] = useState<Fase>('form')
   const [resultado, setResultado] = useState<EmitirResp | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+
+  // Carrega CNAE padrao da empresa (fallback ao autofill do servico)
+  useEffect(() => {
+    if (!aberto || !companyId) return
+    let alive = true
+    void (async () => {
+      const { data } = await supabase
+        .from('erp_fiscal_provider_config')
+        .select('cnae_padrao')
+        .eq('company_id', companyId)
+        .maybeSingle()
+      if (alive) setCnaePadrao((data?.cnae_padrao as string | null) ?? null)
+    })()
+    return () => { alive = false }
+  }, [aberto, companyId])
 
   if (!aberto) return null
 
   function resetForm() {
     setTomDoc(''); setTomNome(''); setDescricao(''); setValor('')
     setCodigoTrib('140101'); setAliquota('0')
+    setCnae(''); setRetemIss(false); setServicoSel(null)
     setResultado(null); setErroLocal(null); setFase('form')
+  }
+
+  function aplicarServico(s: ServicoSelecionado) {
+    setServicoSel(s)
+    setDescricao(((s.descricao_detalhada || s.descricao_resumida) ?? '').trim())
+    const v = s.valor_unitario != null ? Number(s.valor_unitario) : 0
+    if (v > 0) setValor(v.toFixed(2).replace('.', ','))
+    const codTrib = (s.codigo_servico_municipio || s.codigo_lc116 || '').trim()
+    if (codTrib) setCodigoTrib(codTrib)
+    if (s.aliquota_iss != null) setAliquota(String(Number(s.aliquota_iss)).replace('.', ','))
+    setCnae(((s.cnae || cnaePadrao) ?? '').trim())
+    setRetemIss(!!s.iss_retido)
   }
 
   function fechar() {
@@ -116,6 +150,8 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
         valor: valorNum,
         codigo_tributacao_nacional_iss: codigoTrib.trim(),
         aliquota_iss: aliquotaNum,
+        cnae: cnae.trim() || null,
+        iss_retido: retemIss,
       },
     }
     const docDigitos = soDigitos(tomDoc)
@@ -240,6 +276,18 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
                 <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">
                   Serviço
                 </legend>
+                <div>
+                  <span className="block text-[11px] text-[#3D2314]/60 mb-1">
+                    Buscar do cadastro (auto-preenche · campos editáveis)
+                  </span>
+                  <ServicoAutocomplete
+                    companyId={companyId}
+                    selecionado={servicoSel}
+                    onSelect={aplicarServico}
+                    onClear={() => setServicoSel(null)}
+                    testId="nfse-servico-autocomplete"
+                  />
+                </div>
                 <textarea
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
@@ -280,6 +328,27 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
                     className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
                   />
                 </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">CNAE</span>
+                    <input
+                      type="text"
+                      value={cnae}
+                      onChange={(e) => setCnae(e.target.value)}
+                      placeholder={cnaePadrao ?? '0000-0/00'}
+                      className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314] font-mono"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 self-end px-3 py-2.5 bg-white border border-[#3D2314]/15 rounded-md cursor-pointer text-[13px] text-[#3D2314]">
+                    <input
+                      type="checkbox"
+                      checked={retemIss}
+                      onChange={(e) => setRetemIss(e.target.checked)}
+                      className="accent-[#C8941A]"
+                    />
+                    ISS retido na fonte
+                  </label>
+                </div>
               </fieldset>
 
               {erroLocal && (
