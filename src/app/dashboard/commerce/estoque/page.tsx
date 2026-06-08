@@ -697,7 +697,6 @@ function EstoqueInner() {
         <ModalNovoInventario
           companyId={companyIdUnico}
           locais={locais}
-          produtos={produtos}
           onClose={() => setShowNovoInventario(false)}
           onCreated={async (inventarioId) => {
             setShowNovoInventario(false)
@@ -1795,8 +1794,8 @@ function TabInventario({ rows, locaisPorId, onSelect }: {
   )
 }
 
-function ModalNovoInventario({ companyId, locais, produtos, onClose, onCreated, flashErr }: {
-  companyId: string; locais: Local[]; produtos: Produto[];
+function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }: {
+  companyId: string; locais: Local[];
   onClose: () => void; onCreated: (id: string) => void | Promise<void>;
   flashErr: (m: string) => void
 }) {
@@ -1807,18 +1806,43 @@ function ModalNovoInventario({ companyId, locais, produtos, onClose, onCreated, 
   const [marca, setMarca] = useState('')
   const [salvando, setSalvando] = useState(false)
 
-  const categorias = useMemo(() => Array.from(new Set(produtos.map((p) => p.categoria).filter(Boolean) as string[])).sort(), [produtos])
-  const marcasUnique = useMemo(() => Array.from(new Set(produtos.map((p) => (p as Produto & { marca?: string | null }).marca).filter(Boolean) as string[])).sort(), [produtos])
+  // FIX-INVENTARIO-INICIAR-SALDO-v1
+  // Fonte unica de verdade: erp_produtos.estoque_atual GLOBAL (mesma fonte
+  // da aba Saldo · fn_curva_abc_estoque). NAO usar texto localizacao nem
+  // depender de produtos do parent (pode estar paginado/stale).
+  // Sistema single-local por enquanto · saldo por local fica pra depois
+  // quando houver multi-deposito real (deriva por local_id das movimentacoes).
+  const [universo, setUniverso] = useState<Produto[]>([])
+  const [carregandoUniv, setCarregandoUniv] = useState(false)
 
-  // Snapshot: produtos do local com saldo > 0 (filtros opcionais)
+  useEffect(() => {
+    if (!companyId) { setUniverso([]); return }
+    setCarregandoUniv(true)
+    let cancelado = false
+    void (async () => {
+      const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
+      const { data } = await supabase.from('erp_produtos').select(cols)
+        .eq('company_id', companyId).eq('ativo', true).gt('estoque_atual', 0)
+        .order('nome').limit(10000)
+      if (cancelado) return
+      setUniverso((data ?? []) as Produto[])
+      setCarregandoUniv(false)
+    })()
+    return () => { cancelado = true }
+  }, [companyId])
+
+  const categorias = useMemo(() => Array.from(new Set(universo.map((p) => p.categoria).filter(Boolean) as string[])).sort(), [universo])
+  const marcasUnique = useMemo(() => Array.from(new Set(universo.map((p) => (p as Produto & { marca?: string | null }).marca).filter(Boolean) as string[])).sort(), [universo])
+
+  // Snapshot: estoque_atual GLOBAL > 0 + filtros opcionais.
   const snapshot = useMemo(() => {
-    return produtos.filter((p) => {
+    return universo.filter((p) => {
       if (Number(p.estoque_atual ?? 0) <= 0) return false
       if (categoria && p.categoria !== categoria) return false
       if (marca && (p as Produto & { marca?: string | null }).marca !== marca) return false
       return true
     })
-  }, [produtos, categoria, marca])
+  }, [universo, categoria, marca])
 
   async function criar() {
     if (!localId) { flashErr('Escolha o local.'); return }
@@ -1897,12 +1921,14 @@ function ModalNovoInventario({ companyId, locais, produtos, onClose, onCreated, 
               style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
           </div>
           <div style={{ padding: 10, background: C.goldBg, borderRadius: 8, fontSize: 12, color: C.goldD }}>
-            Vai inventariar <strong>{snapshot.length}</strong> produto(s) deste local com saldo &gt; 0.
+            {carregandoUniv
+              ? 'Carregando produtos com saldo…'
+              : <>Vai inventariar <strong>{snapshot.length}</strong> produto(s) com saldo &gt; 0.</>}
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
             <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
-            <button type="button" onClick={criar} disabled={salvando || snapshot.length === 0} data-testid="inventario-criar"
-              style={btnPrincipal(!salvando && snapshot.length > 0)}>
+            <button type="button" onClick={criar} disabled={salvando || carregandoUniv || snapshot.length === 0} data-testid="inventario-criar"
+              style={btnPrincipal(!salvando && !carregandoUniv && snapshot.length > 0)}>
               {salvando ? 'Criando…' : 'Criar inventário'}
             </button>
           </div>
