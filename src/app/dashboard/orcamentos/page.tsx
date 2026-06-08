@@ -2,15 +2,19 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
 const BD="var(--ps-border,#E0D8CC)",GO="var(--ps-gold,#C8941A)";
 const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B",P="#8B5CF6",T="#14B8A6";
 
+// FEAT-OS-ONDA1-ITENS-SERVICO-BOM-v1 · item polimorfico
 type ItemOrc = {
   id?:string; ordem:number;
+  tipo_item:'produto'|'servico';
   produto_id?:string; produto_codigo:string; produto_nome:string; produto_descricao?:string;
+  servico_id?:string; servico_codigo?:string; servico_descricao?:string;
   unidade:string; quantidade:number; preco_unitario:number; preco_custo?:number;
   desconto_percentual:number; desconto_valor:number;
   subtotal:number; margem_percentual?:number;
@@ -51,7 +55,8 @@ const fmtQ=(v:number)=>(v||0).toLocaleString("pt-BR",{maximumFractionDigits:3});
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
 
-const EMPTY_ITEM:ItemOrc = {ordem:0,produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 
 export default function OrcamentosPage(){
   const { companyIds, selInfo, companies, sel } = useCompanyIds();
@@ -143,7 +148,13 @@ export default function OrcamentosPage(){
   const abrirEdicao=async(o:Orcamento)=>{
     setEditing(o);setForm({...o});
     const{data}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
-    setItens((data||[]).map(i=>({...i,quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),subtotal:Number(i.subtotal)})));
+    setItens((data||[]).map(i=>({
+      ...i,
+      tipo_item:(i.tipo_item==='servico'?'servico':'produto') as 'produto'|'servico',
+      quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
+      desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),
+      subtotal:Number(i.subtotal),
+    })));
     setBuscaCliente(o.cliente_nome||'');
     setShowForm(true);
   };
@@ -162,6 +173,26 @@ export default function OrcamentosPage(){
   };
 
   const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
+  const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
+  const selecionarServico=(idx:number,s:ServicoSelecionado)=>{
+    const novosItens=[...itens];
+    novosItens[idx]={
+      ...novosItens[idx],
+      tipo_item:'servico',
+      servico_id:s.id,
+      servico_codigo:s.codigo ?? '',
+      servico_descricao:s.descricao_resumida,
+      produto_nome:s.descricao_resumida, // pra exibicao + filtro de "valido"
+      unidade:'SV',
+      preco_unitario:Number(s.valor_unitario ?? 0),
+    };
+    recalcularItem(idx,novosItens);
+  };
+  const limparServico=(idx:number)=>{
+    const novosItens=[...itens];
+    novosItens[idx]={...novosItens[idx],servico_id:undefined,servico_codigo:'',servico_descricao:'',produto_nome:''};
+    setItens(novosItens);
+  };
   const removerItem=(idx:number)=>setItens(itens.filter((_,i)=>i!==idx).map((it,i)=>({...it,ordem:i+1})));
   
   const atualizarItem=(idx:number,campo:keyof ItemOrc,valor:any)=>{
@@ -189,7 +220,8 @@ export default function OrcamentosPage(){
 
   const salvar=async()=>{
     if(!form.cliente_id&&!form.cliente_nome){setMsg("❌ Selecione um cliente.");return;}
-    if(itens.length===0||!itens.some(i=>i.produto_nome)){setMsg("❌ Adicione pelo menos um item.");return;}
+    const itensValidosCheck = itens.filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
+    if(itensValidosCheck.length===0){setMsg("❌ Adicione pelo menos um item (produto ou serviço).");return;}
 
     // Em modo consolidado, usa a empresa do cliente selecionado (se tiver) ou a primeira
     const clienteSel = clientesBusca.find(c=>c.id===form.cliente_id);
@@ -226,16 +258,25 @@ export default function OrcamentosPage(){
       orcId=data.id;
     }
 
-    // Salvar itens: delete all e re-insert
+    // Salvar itens: delete all e re-insert (inclui tipo_item + servico_*)
     if(orcId){
       await supabase.from("erp_orcamentos_itens").delete().eq("orcamento_id",orcId);
-      const itensValidos=itens.filter(i=>i.produto_nome).map((i,idx)=>({
-        orcamento_id:orcId,company_id:companyIdOrc,ordem:idx+1,
-        produto_id:i.produto_id,produto_codigo:i.produto_codigo,produto_nome:i.produto_nome,produto_descricao:i.produto_descricao,
-        unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
-        desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
-        margem_percentual:i.margem_percentual,observacoes:i.observacoes,
-      }));
+      const itensValidos=itens
+        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome)
+        .map((i,idx)=>({
+          orcamento_id:orcId,company_id:companyIdOrc,ordem:idx+1,
+          tipo_item:i.tipo_item,
+          produto_id:i.tipo_item==='produto'?i.produto_id:null,
+          produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
+          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
+          servico_id:i.tipo_item==='servico'?i.servico_id:null,
+          servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
+          servico_descricao:i.tipo_item==='servico'?(i.servico_descricao || i.produto_nome):null,
+          unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
+          desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
+          margem_percentual:i.margem_percentual,observacoes:i.observacoes,
+        }));
       if(itensValidos.length>0)await supabase.from("erp_orcamentos_itens").insert(itensValidos);
     }
 
@@ -393,7 +434,10 @@ export default function OrcamentosPage(){
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>📦 Itens do Orçamento</span>
-            <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Adicionar Item</button>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Produto</button>
+              <button onClick={addItemServico} data-testid="orc-add-servico" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:P+"15",color:P,border:`1px solid ${P}40`,cursor:"pointer",fontWeight:600}}>+ Serviço</button>
+            </div>
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
             <div style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
@@ -401,19 +445,32 @@ export default function OrcamentosPage(){
             </div>
             {itens.map((it,idx)=>(
               <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
-                <div style={{fontSize:10,color:TXD,textAlign:"center"}}>{it.ordem}</div>
+                <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
+                  {it.ordem}
+                  <div style={{fontSize:8,fontWeight:700,color:it.tipo_item==='servico'?P:GO,marginTop:2}}>{it.tipo_item==='servico'?'SRV':'PRD'}</div>
+                </div>
                 <div style={{position:"relative"}}>
-                  <input value={it.produto_nome} onChange={e=>{atualizarItem(idx,'produto_nome',e.target.value);setBuscaProduto({idx,termo:e.target.value});}} onFocus={()=>setBuscaProduto({idx,termo:it.produto_nome||''})} placeholder="Buscar produto ou digitar manualmente" style={{...inp,padding:"6px 8px",fontSize:11}}/>
-                  {buscaProduto?.idx===idx&&produtosBusca.length>0&&(
-                    <div style={{position:"absolute",top:"100%",left:0,right:0,background:BG2,border:`1px solid ${BD}`,borderRadius:6,marginTop:2,zIndex:20,maxHeight:200,overflowY:"auto",boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
-                      {produtosBusca.map(p=>(
-                        <div key={p.id} onClick={()=>selecionarProduto(idx,p)} style={{padding:"6px 10px",cursor:"pointer",borderBottom:`1px solid ${BD}`,fontSize:11}} onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-                          <div style={{fontWeight:500,color:TX}}><span style={{color:P,fontFamily:"monospace",fontSize:10}}>{p.codigo}</span> {p.nome}</div>
-                          <div style={{fontSize:9,color:G}}>{fmtR(Number(p.preco_venda))}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {it.tipo_item==='servico' ? (
+                    <ServicoAutocomplete
+                      companyId={companyIdParaCadastro || ''}
+                      selecionado={it.servico_id ? { id: it.servico_id, codigo: it.servico_codigo ?? null, descricao_resumida: it.servico_descricao || it.produto_nome, valor_unitario: it.preco_unitario } : null}
+                      onSelect={s=>selecionarServico(idx,s)}
+                      onClear={()=>limparServico(idx)}
+                      testId={`orc-servico-${idx}`}
+                    />
+                  ) : (<>
+                    <input value={it.produto_nome} onChange={e=>{atualizarItem(idx,'produto_nome',e.target.value);setBuscaProduto({idx,termo:e.target.value});}} onFocus={()=>setBuscaProduto({idx,termo:it.produto_nome||''})} placeholder="Buscar produto ou digitar manualmente" style={{...inp,padding:"6px 8px",fontSize:11}}/>
+                    {buscaProduto?.idx===idx&&produtosBusca.length>0&&(
+                      <div style={{position:"absolute",top:"100%",left:0,right:0,background:BG2,border:`1px solid ${BD}`,borderRadius:6,marginTop:2,zIndex:20,maxHeight:200,overflowY:"auto",boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
+                        {produtosBusca.map(p=>(
+                          <div key={p.id} onClick={()=>selecionarProduto(idx,p)} style={{padding:"6px 10px",cursor:"pointer",borderBottom:`1px solid ${BD}`,fontSize:11}} onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+                            <div style={{fontWeight:500,color:TX}}><span style={{color:P,fontFamily:"monospace",fontSize:10}}>{p.codigo}</span> {p.nome}</div>
+                            <div style={{fontSize:9,color:G}}>{fmtR(Number(p.preco_venda))}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>)}
                 </div>
                 <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
@@ -423,6 +480,13 @@ export default function OrcamentosPage(){
                 <button onClick={()=>removerItem(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
               </div>
             ))}
+            {/* FEAT-OS-ONDA1: Subtotais separados Servicos vs Produtos */}
+            {itens.length>0 && (
+              <div style={{display:"flex",justifyContent:"flex-end",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
+                <span>Serviços: <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                <span>Produtos: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+              </div>
+            )}
           </div>
 
           {/* Condições */}
