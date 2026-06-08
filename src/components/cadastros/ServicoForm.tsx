@@ -7,7 +7,8 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { X, Save, Loader2, AlertCircle } from 'lucide-react'
+import { X, Save, Loader2, AlertCircle, Trash2 } from 'lucide-react'
+import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 
 export interface Servico {
   id: string
@@ -248,11 +249,7 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
           )}
 
           {aba === 'produtos_utilizados' && (
-            <div className="py-8 text-center text-[#3D2314]/60 text-[12.5px]">
-              <p className="font-medium text-[#3D2314] mb-1">Em breve</p>
-              <p>Lista de produtos consumidos pra prestar este serviço (BOM).</p>
-              <p className="mt-1 text-[11px]">Vai ligar baixa de estoque automática à emissão da NFS-e.</p>
-            </div>
+            <ProdutosUtilizadosEditor companyId={companyId} servicoId={servico?.id ?? null} />
           )}
 
           {aba === 'reforma_trib' && (
@@ -387,6 +384,167 @@ function Select({ label, value, onChange, options }: SelectProps) {
       >
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
+    </div>
+  )
+}
+
+// FEAT-OS-ONDA1-ITENS-SERVICO-BOM-v1 · editor BOM (substitui placeholder "Em breve")
+// Persiste em erp_servicos_produtos (RLS por company_id).
+// So habilitado em modo edicao (servicoId NOT NULL) · em modo criar, salve o
+// servico primeiro pra liberar a aba (nao queremos optimistic linkage).
+
+interface BomItem {
+  id: string
+  produto_id: string
+  produto_codigo: string | null
+  produto_nome: string | null
+  quantidade_padrao: number
+}
+
+interface ProdutosUtilizadosEditorProps {
+  companyId: string
+  servicoId: string | null
+}
+
+function ProdutosUtilizadosEditor({ companyId, servicoId }: ProdutosUtilizadosEditorProps) {
+  const [itens, setItens] = useState<BomItem[]>([])
+  const [carregando, setCarregando] = useState(false)
+  const [novoProd, setNovoProd] = useState<ProdutoSelecionado | null>(null)
+  const [novaQtd, setNovaQtd] = useState('1')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function recarregar() {
+    if (!servicoId) return
+    setCarregando(true)
+    const { data, error } = await supabase
+      .from('erp_servicos_produtos')
+      .select('id,produto_id,produto_codigo,produto_nome,quantidade_padrao')
+      .eq('servico_id', servicoId)
+      .order('produto_nome')
+    if (!error) setItens((data ?? []) as BomItem[])
+    setCarregando(false)
+  }
+
+  useEffect(() => { void recarregar() }, [servicoId])
+
+  async function adicionar() {
+    if (!servicoId || !novoProd) return
+    const qtd = parseFloat(novaQtd.replace(',', '.'))
+    if (!isFinite(qtd) || qtd <= 0) { setErro('Quantidade deve ser maior que zero.'); return }
+    setSalvando(true)
+    setErro(null)
+    const { error } = await supabase.from('erp_servicos_produtos').insert({
+      company_id: companyId,
+      servico_id: servicoId,
+      produto_id: novoProd.id,
+      produto_codigo: novoProd.codigo,
+      produto_nome: novoProd.nome,
+      quantidade_padrao: qtd,
+    })
+    if (error) {
+      setErro(error.message.includes('uq_servicos_produtos_serv_prod')
+        ? 'Esse produto já está na lista. Remova antes de adicionar de novo.'
+        : error.message)
+      setSalvando(false)
+      return
+    }
+    setNovoProd(null)
+    setNovaQtd('1')
+    setSalvando(false)
+    await recarregar()
+  }
+
+  async function remover(id: string) {
+    if (!confirm('EXCLUIR este produto da composição?')) return
+    const { error } = await supabase.from('erp_servicos_produtos').delete().eq('id', id)
+    if (!error) await recarregar()
+  }
+
+  if (!servicoId) {
+    return (
+      <div className="py-8 text-center text-[#3D2314]/60 text-[12.5px]">
+        <p className="font-medium text-[#3D2314] mb-1">Salve o serviço primeiro</p>
+        <p>Após salvar, esta aba libera a lista de produtos consumidos (BOM).</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <span className="block text-[11px] text-[#3D2314]/60">Adicionar produto à composição</span>
+        <ProdutoAutocomplete
+          companyId={companyId}
+          selecionado={novoProd}
+          onSelect={setNovoProd}
+          onClear={() => setNovoProd(null)}
+          testId="bom-produto"
+        />
+        {novoProd && (
+          <div className="flex items-end gap-2">
+            <label className="flex-1">
+              <span className="block text-[11px] text-[#3D2314]/60 mb-1">Quantidade padrão</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={novaQtd}
+                onChange={(e) => setNovaQtd(e.target.value)}
+                placeholder="1"
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={adicionar}
+              disabled={salvando}
+              data-testid="bom-adicionar"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40"
+            >
+              {salvando ? '...' : 'Adicionar'}
+            </button>
+          </div>
+        )}
+        {erro && <div className="text-[12px] text-[#791F1F] bg-[#FCEBEB] p-2 rounded">{erro}</div>}
+      </div>
+
+      <div className="border-t border-[#3D2314]/10 pt-3">
+        <div className="text-[11px] text-[#3D2314]/60 mb-2">
+          {carregando ? 'Carregando…' : itens.length === 0
+            ? 'Nenhum produto na composição ainda.'
+            : `${itens.length} produto(s) na composição`}
+        </div>
+        {itens.length > 0 && (
+          <ul className="divide-y divide-[#3D2314]/8 border border-[#3D2314]/10 rounded-lg">
+            {itens.map((i) => (
+              <li key={i.id} className="px-3 py-2 flex items-center justify-between gap-3" data-testid="bom-item">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] text-[#3D2314] font-medium truncate">{i.produto_nome ?? '—'}</div>
+                  {i.produto_codigo && (
+                    <div className="text-[10px] text-[#3D2314]/55 font-mono">{i.produto_codigo}</div>
+                  )}
+                </div>
+                <div className="text-[12.5px] text-[#3D2314] tabular-nums whitespace-nowrap">
+                  {Number(i.quantidade_padrao).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => remover(i.id)}
+                  data-testid="bom-remover"
+                  className="text-[#EF4444] hover:text-[#C53030] p-1"
+                  aria-label="Excluir"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <p className="text-[11px] text-[#3D2314]/55">
+        Estes produtos serão baixados do estoque automaticamente quando o serviço for faturado (Onda 3).
+      </p>
     </div>
   )
 }
