@@ -21,6 +21,7 @@ import {
   X, Info, Send, CheckCircle2, ArrowRight, Trash2,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
+import ParcelasEditor from '@/components/comum/ParcelasEditor'
 
 // useSearchParams exige Suspense boundary em pages prerenderizadas (Next 16)
 export const dynamic = 'force-dynamic'
@@ -792,6 +793,10 @@ function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: O
               <strong>Total</strong>
               <strong style={{ color: C.gold }}>{fmtBRL(ped.total)}</strong>
             </div>
+          </Card>
+
+          <Card titulo="Parcelas">
+            <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} />
           </Card>
 
           <Card titulo="Faturamento">
