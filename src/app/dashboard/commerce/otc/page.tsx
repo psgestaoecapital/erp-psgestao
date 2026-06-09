@@ -20,6 +20,7 @@ import {
   Plus, Search, FileText, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight, Trash2,
 } from 'lucide-react'
+import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 
 // useSearchParams exige Suspense boundary em pages prerenderizadas (Next 16)
 export const dynamic = 'force-dynamic'
@@ -824,9 +825,8 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null)
   const [searchingClientes, setSearchingClientes] = useState(false)
-  const [itens, setItens] = useState<{ produto_nome: string; quantidade: number; preco_unitario: number; unidade: string }[]>([
-    { produto_nome: '', quantidade: 1, preco_unitario: 0, unidade: 'un' },
-  ])
+  // FEAT-OS-ONDA1B-EDITOR-NO-OTC-v1 · itens polimorficos via shared editor
+  const [itens, setItens] = useState<EditorItem[]>([])
   const [observacoes, setObservacoes] = useState('')
   const [salvando, setSalvando] = useState(false)
 
@@ -850,7 +850,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
     return () => clearTimeout(handle)
   }, [clienteBusca, companyId])
 
-  const subtotal = itens.reduce((s, i) => s + (i.quantidade || 0) * (i.preco_unitario || 0), 0)
+  const subtotal = itens.reduce((s, i) => s + (i.subtotal || 0), 0)
 
   async function criar() {
     if (!clienteSel) return
@@ -884,18 +884,28 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
       setSalvando(false)
       return
     }
-    // Inserir itens (apenas os preenchidos)
-    const validos = itens.filter((i) => i.produto_nome.trim() && i.quantidade > 0)
+    // Inserir itens polimorficos · usa IDs reais do autocomplete
+    const validos = itens.filter((i) =>
+      i.quantidade > 0 && (i.tipo_item === 'servico' ? !!i.servico_id : !!i.produto_id)
+    )
     if (validos.length > 0) {
       await supabase.from('erp_orcamentos_itens').insert(validos.map((it, idx) => ({
         orcamento_id: orc.id,
         company_id: companyId,
         ordem: idx + 1,
-        produto_nome: it.produto_nome.trim(),
-        quantidade: it.quantidade,
+        tipo_item: it.tipo_item,
+        produto_id: it.tipo_item === 'produto' ? it.produto_id : null,
+        produto_codigo: it.tipo_item === 'produto' ? it.produto_codigo : null,
+        produto_nome: it.tipo_item === 'produto' ? it.produto_nome : null,
+        produto_descricao: it.tipo_item === 'produto' ? it.produto_descricao : null,
+        servico_id: it.tipo_item === 'servico' ? it.servico_id : null,
+        servico_codigo: it.tipo_item === 'servico' ? it.servico_codigo : null,
+        servico_descricao: it.tipo_item === 'servico' ? it.servico_descricao : null,
         unidade: it.unidade,
+        quantidade: it.quantidade,
         preco_unitario: it.preco_unitario,
-        subtotal: it.quantidade * it.preco_unitario,
+        preco_custo: it.preco_custo ?? null,
+        subtotal: it.subtotal,
       })))
     }
     // Historico
@@ -961,47 +971,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
             </div>
 
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {itens.map((it, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2.5fr 0.6fr 0.6fr 1fr auto', gap: 6, alignItems: 'center' }}>
-                  <input
-                    placeholder="Nome do produto/serviço"
-                    value={it.produto_nome}
-                    onChange={(e) => { const copy = [...itens]; copy[i].produto_nome = e.target.value; setItens(copy) }}
-                    style={inp}
-                  />
-                  <input
-                    type="number" step="0.01" value={it.quantidade}
-                    onChange={(e) => { const copy = [...itens]; copy[i].quantidade = parseFloat(e.target.value) || 0; setItens(copy) }}
-                    style={{ ...inp, textAlign: 'right' }} placeholder="Qtd"
-                  />
-                  <select
-                    value={it.unidade}
-                    onChange={(e) => { const copy = [...itens]; copy[i].unidade = e.target.value; setItens(copy) }}
-                    style={inp}
-                  >
-                    <option value="un">un</option><option value="m²">m²</option><option value="m">m</option>
-                    <option value="kg">kg</option><option value="h">h</option><option value="serv.">serv.</option>
-                  </select>
-                  <input
-                    type="number" step="0.01" value={it.preco_unitario}
-                    onChange={(e) => { const copy = [...itens]; copy[i].preco_unitario = parseFloat(e.target.value) || 0; setItens(copy) }}
-                    style={{ ...inp, textAlign: 'right' }} placeholder="Preço un."
-                  />
-                  {itens.length > 1 && (
-                    <button onClick={() => setItens(itens.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}>
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                onClick={() => setItens([...itens, { produto_nome: '', quantidade: 1, preco_unitario: 0, unidade: 'un' }])}
-                style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 11, border: `1px solid ${C.gold}`, borderRadius: 6, background: C.goldBg, color: C.goldD, fontWeight: 600, cursor: 'pointer' }}
-              >
-                + Adicionar item
-              </button>
-            </div>
+            <OrcamentoItensEditor companyId={companyId} itens={itens} onChange={setItens} />
 
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />
