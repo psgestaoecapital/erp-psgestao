@@ -414,7 +414,7 @@ function OTCPageInner() {
       )}
 
       {/* Drawer detalhe pedido */}
-      {pedSel && <DrawerPedido ped={pedSel} orcamentos={orcamentos} onClose={() => setPedSel(null)} />}
+      {pedSel && <DrawerPedido ped={pedSel} orcamentos={orcamentos} onClose={() => setPedSel(null)} onFaturado={() => carregar()} />}
 
       {/* Modal novo orcamento */}
       {showNova && companyIdUnico && (
@@ -727,9 +727,13 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
   )
 }
 
-function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: Orcamento[]; onClose: () => void }) {
+function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; orcamentos: Orcamento[]; onClose: () => void; onFaturado?: () => void | Promise<void> }) {
   const [itens, setItens] = useState<{ id: string; produto_nome: string; produto_codigo: string | null; unidade: string | null; quantidade: number | null; preco_unitario: number | null; subtotal: number | null }[]>([])
   const orcOrigem = ped.orcamento_origem_id ? orcamentos.find((o) => o.id === ped.orcamento_origem_id) : null
+  // FEAT-OS-ONDA3A-FATURAMENTO-v1 · status local pra refletir faturamento sem reload
+  const [statusLocal, setStatusLocal] = useState(ped.status)
+  const [faturando, setFaturando] = useState(false)
+  const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -748,7 +752,7 @@ function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: O
             <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Pedido</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, fontFamily: 'monospace' }}>{ped.numero ?? '—'}</h2>
-              <StatusBadge status={ped.status} mapa={STATUS_PED} />
+              <StatusBadge status={statusLocal} mapa={STATUS_PED} />
             </div>
             {orcOrigem && (
               <p style={{ margin: '4px 0 0', fontSize: 11, color: C.purple }}>📂 Originado do orçamento <strong>{orcOrigem.numero}</strong></p>
@@ -800,16 +804,66 @@ function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: O
           </Card>
 
           <Card titulo="Faturamento">
-            {ped.nf_emitida && ped.nf_numero ? (
-              <Row label="NF-e emitida" value={ped.nf_numero} />
+            {/* FEAT-OS-ONDA3A-FATURAMENTO-v1 */}
+            {statusLocal === 'faturado' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ Pedido FATURADO</p>
+                {faturaResult?.ok && (
+                  <div style={{ fontSize: 12, color: C.espresso, lineHeight: 1.5 }}>
+                    CRIOU <strong>{faturaResult.qtd_titulos_receber}</strong> título(s) a receber<br />
+                    BAIXOU <strong>{faturaResult.qtd_movimentos_estoque}</strong> item(ns) do estoque<br />
+                    CMV: <strong>{fmtBRL(faturaResult.cmv)}</strong>
+                  </div>
+                )}
+              </div>
+            ) : statusLocal === 'cancelado' ? (
+              <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Pedido cancelado · não pode ser faturado.</p>
             ) : (
-              <div>
-                <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Nenhuma NF-e emitida.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+                  Gere os títulos a receber + baixa de estoque (produtos + BOM dos serviços) em 1 clique.
+                </p>
+                {faturaResult?.erro && (
+                  <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {faturaResult.erro}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={faturando}
+                  onClick={async () => {
+                    if (!confirm('Vai gerar os recebíveis e baixar o estoque. Confirma?')) return
+                    setFaturando(true)
+                    setFaturaResult(null)
+                    const { data, error } = await supabase.rpc('fn_faturar', { p_pedido_id: ped.id })
+                    setFaturando(false)
+                    if (error) {
+                      setFaturaResult({ ok: false, erro: error.message })
+                      return
+                    }
+                    const r = data as { ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null }
+                    setFaturaResult(r)
+                    if (r?.ok) {
+                      setStatusLocal('faturado')
+                      await onFaturado?.()
+                    }
+                  }}
+                  data-testid="pedido-faturar"
+                  style={{
+                    minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                    border: 'none', background: faturando ? C.cream : C.gold,
+                    color: faturando ? C.espressoL : '#fff',
+                    fontSize: 13, fontWeight: 700,
+                    cursor: faturando ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {faturando ? 'Faturando…' : '💰 Faturar pedido'}
+                </button>
+                <hr style={{ border: 'none', borderTop: `1px solid ${C.borderL}`, margin: '4px 0' }} />
+                <p style={{ fontSize: 11, color: C.espressoL, margin: 0 }}>NF-e fica pra próxima onda.</p>
                 <button
                   type="button"
                   disabled
-                  title="Em desenvolvimento (M.B.1.5)"
-                  style={{ marginTop: 8, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed' }}
+                  title="Em desenvolvimento (Onda 3c)"
+                  style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', alignSelf: 'flex-start' }}
                 >
                   Emitir NF-e (em breve)
                 </button>
