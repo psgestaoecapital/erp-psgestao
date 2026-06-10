@@ -5,7 +5,7 @@
 // Mobile-first · form curto · erros em linguagem humana.
 // Defaults KGF: codigo tributacao 140101 · aliquota 0 (Simples Nacional).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { X, Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react'
 
@@ -109,6 +109,26 @@ export default function NFSeEmitirGovModal({
   const [fase, setFase] = useState<Fase>('form')
   const [resultado, setResultado] = useState<EmitirResp | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+
+  // FIX-O3B-NFSE-MODAL-SEED-v1
+  // useState so roda no mount · se o pai renderiza com aberto=false antes
+  // dos dados chegarem, o state fica vazio. Esse useEffect ressincroniza
+  // TODO o form quando o modal abre (aberto vira true).
+  useEffect(() => {
+    if (!aberto) return
+    setAmbiente(producaoDisponivel ? 'producao' : 'homologacao')
+    setTomTipo(tomTipoSeed)
+    setTomDoc(tomDocSeed)
+    setTomNome(tomadorNome ?? '')
+    setDescricao(descricaoServico ?? '')
+    setValor(valorSeed)
+    setCodigoTrib(codTribSeed)
+    setAliquota(aliquotaSeed)
+    setFase('form')
+    setResultado(null)
+    setErroLocal(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
   if (!aberto) return null
 
