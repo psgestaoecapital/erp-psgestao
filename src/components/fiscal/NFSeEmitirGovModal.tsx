@@ -28,8 +28,19 @@ interface Props {
   companyId: string
   aberto: boolean
   onFechar: () => void
-  onEmitida: () => void
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · expõe provider_reference pra DrawerPedido vincular ao pedido
+  onEmitida: (providerReference?: string) => void
   producaoDisponivel?: boolean
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · valores iniciais (pre-preenche o form)
+  tomadorDocumento?: string
+  tomadorTipo?: 'cpf' | 'cnpj' | 'indefinido'
+  tomadorNome?: string
+  tomadorEmail?: string
+  descricaoServico?: string
+  codigoServicoMunicipio?: string
+  codigoLC116?: string
+  aliquotaIss?: number
+  valorServicos?: number
 }
 
 function soDigitos(s: string): string {
@@ -71,16 +82,30 @@ function mensagemAmigavel(raw: string | null | undefined): string {
   return s.slice(0, 240)
 }
 
-export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmitida, producaoDisponivel = false }: Props) {
+export default function NFSeEmitirGovModal({
+  companyId, aberto, onFechar, onEmitida, producaoDisponivel = false,
+  tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
+  descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
+}: Props) {
   // FIX-NFSE-MODAL-PRODUCAO-v1 · quando producao esta liberada, default = producao
   const [ambiente, setAmbiente] = useState<'homologacao' | 'producao'>(producaoDisponivel ? 'producao' : 'homologacao')
-  const [tomTipo, setTomTipo] = useState<TomadorTipo>('CNPJ')
-  const [tomDoc, setTomDoc] = useState('')
-  const [tomNome, setTomNome] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [valor, setValor] = useState('')
-  const [codigoTrib, setCodigoTrib] = useState('140101')
-  const [aliquota, setAliquota] = useState('0')
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · seeds vindas do pedido (read-only · usuario pode editar)
+  const tomTipoSeed: TomadorTipo = tomadorTipo === 'cpf' ? 'CPF' : 'CNPJ'
+  const tomDocSeed = tomadorDocumento ? mascaraDoc(tomadorDocumento, tomTipoSeed) : ''
+  const codTribSeed = (codigoServicoMunicipio ?? codigoLC116 ?? '140101').trim() || '140101'
+  const aliquotaSeed = aliquotaIss != null ? String(aliquotaIss).replace('.', ',') : '0'
+  const valorSeed = valorServicos != null
+    ? Number(valorServicos).toFixed(2).replace('.', ',')
+    : ''
+  const [tomTipo, setTomTipo] = useState<TomadorTipo>(tomTipoSeed)
+  const [tomDoc, setTomDoc] = useState(tomDocSeed)
+  const [tomNome, setTomNome] = useState(tomadorNome ?? '')
+  // tomadorEmail nao tem input no modal hoje · guardamos pra payload futuro
+  void tomadorEmail
+  const [descricao, setDescricao] = useState(descricaoServico ?? '')
+  const [valor, setValor] = useState(valorSeed)
+  const [codigoTrib, setCodigoTrib] = useState(codTribSeed)
+  const [aliquota, setAliquota] = useState(aliquotaSeed)
   const [fase, setFase] = useState<Fase>('form')
   const [resultado, setResultado] = useState<EmitirResp | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
@@ -88,8 +113,11 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
   if (!aberto) return null
 
   function resetForm() {
-    setTomDoc(''); setTomNome(''); setDescricao(''); setValor('')
-    setCodigoTrib('140101'); setAliquota('0')
+    // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · reset volta pros seeds (se houver) ou vazio
+    setTomDoc(tomDocSeed); setTomNome(tomadorNome ?? '')
+    setDescricao(descricaoServico ?? '')
+    setValor(valorSeed)
+    setCodigoTrib(codTribSeed); setAliquota(aliquotaSeed)
     setResultado(null); setErroLocal(null); setFase('form')
   }
 
@@ -369,7 +397,7 @@ export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmit
                 </button>
                 <button
                   type="button"
-                  onClick={() => { onEmitida(); fechar() }}
+                  onClick={() => { onEmitida(resultado?.ref); fechar() }}
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#3D2314] text-[#FAF7F2] text-[13px] font-medium hover:bg-[#2A1810]"
                 >
                   Fechar
