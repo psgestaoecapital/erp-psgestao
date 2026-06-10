@@ -72,7 +72,8 @@ function mensagemAmigavel(raw: string | null | undefined): string {
 }
 
 export default function NFSeEmitirGovModal({ companyId, aberto, onFechar, onEmitida, producaoDisponivel = false }: Props) {
-  const [ambiente, setAmbiente] = useState<'homologacao' | 'producao'>('homologacao')
+  // FIX-NFSE-MODAL-PRODUCAO-v1 · quando producao esta liberada, default = producao
+  const [ambiente, setAmbiente] = useState<'homologacao' | 'producao'>(producaoDisponivel ? 'producao' : 'homologacao')
   const [tomTipo, setTomTipo] = useState<TomadorTipo>('CNPJ')
   const [tomDoc, setTomDoc] = useState('')
   const [tomNome, setTomNome] = useState('')

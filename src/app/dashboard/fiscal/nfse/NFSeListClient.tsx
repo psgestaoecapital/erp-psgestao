@@ -94,12 +94,22 @@ export default function NFSeListClient() {
 
   useEffect(() => {
     if (!companyId) return
-    supabase.functions.invoke('gov-nfse-flags', {
-      body: { company_id: companyId },
-    }).then(({ data }) => {
-      const resp = data as { producao_disponivel?: boolean } | null
-      setProducaoDisponivel(!!resp?.producao_disponivel)
-    }).catch(() => setProducaoDisponivel(false))
+    // FIX-NFSE-MODAL-PRODUCAO-v1
+    // producaoDisponivel agora vem direto de erp_fiscal_provider_config.ambiente.
+    // Quando o CEO troca pra 'producao' (UPDATE direto na config), a tela
+    // libera o toggle automaticamente · token e validado server-side dentro
+    // de gov-nfse-emitir (mensagem amigavel se faltar).
+    supabase
+      .from('erp_fiscal_provider_config')
+      .select('ambiente')
+      .eq('company_id', companyId)
+      .eq('provider', 'gov_nfse_nacional')
+      .eq('ativo', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        const amb = (data as { ambiente?: string | null } | null)?.ambiente
+        setProducaoDisponivel(amb === 'producao')
+      })
   }, [companyId])
 
   const carregar = useCallback(async () => {
