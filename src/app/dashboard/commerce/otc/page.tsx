@@ -22,6 +22,43 @@ import {
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
+import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+
+// FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
+type NfsePedidoTomador = {
+  documento?: string | null
+  tipo?: 'cpf' | 'cnpj' | 'indefinido' | null
+  nome?: string | null
+  email?: string | null
+}
+type NfsePedidoServico = {
+  servico_id?: string | null
+  descricao?: string | null
+  codigo_servico_municipio?: string | null
+  codigo_lc116?: string | null
+  aliquota_iss?: number | null
+  iss_retido?: boolean | null
+  cnae?: string | null
+  valor?: number | null
+}
+type NfsePedidoExistente = {
+  id: string
+  numero: string | null
+  status: string
+  pdf_url: string | null
+}
+type NfsePedidoDados = {
+  pedido_id?: string
+  pedido_numero?: string | null
+  status?: string
+  tem_servico: boolean
+  valor_servicos?: number | null
+  tomador?: NfsePedidoTomador
+  servicos: NfsePedidoServico[]
+  ja_emitida: boolean
+  nfse_existente: NfsePedidoExistente | null
+  erro?: string
+}
 
 // useSearchParams exige Suspense boundary em pages prerenderizadas (Next 16)
 export const dynamic = 'force-dynamic'
@@ -734,6 +771,10 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   const [statusLocal, setStatusLocal] = useState(ped.status)
   const [faturando, setFaturando] = useState(false)
   const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string } | null>(null)
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pra emitir NFS-e do pedido faturado
+  const [nfseDados, setNfseDados] = useState<NfsePedidoDados | null>(null)
+  const [nfseModalAberto, setNfseModalAberto] = useState(false)
+  const [nfseProducaoDisponivel, setNfseProducaoDisponivel] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -743,6 +784,46 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
     })()
     return () => { alive = false }
   }, [ped.id])
+
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · le ambiente do provider fiscal (libera default 'producao' no modal)
+  useEffect(() => {
+    if (!ped.company_id) return
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase
+        .from('erp_fiscal_provider_config')
+        .select('ambiente')
+        .eq('company_id', ped.company_id)
+        .eq('provider', 'gov_nfse_nacional')
+        .eq('ativo', true)
+        .maybeSingle()
+      if (alive) setNfseProducaoDisponivel((data as { ambiente?: string | null } | null)?.ambiente === 'producao')
+    })()
+    return () => { alive = false }
+  }, [ped.company_id])
+
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pro card NFS-e
+  const carregarNfseDados = useCallback(async () => {
+    if (statusLocal !== 'faturado') return
+    const { data } = await supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id })
+    setNfseDados(data as NfsePedidoDados | null)
+  }, [ped.id, statusLocal])
+
+  useEffect(() => { void carregarNfseDados() }, [carregarNfseDados])
+
+  // Consolidacao multi-servico: junta descricoes + soma valor + usa servicos[0] pra LC116/codigo/aliquota
+  const nfseSeed = useMemo(() => {
+    if (!nfseDados || !nfseDados.tem_servico || nfseDados.servicos.length === 0) return null
+    const descricoes = Array.from(new Set(nfseDados.servicos.map((s) => s.descricao).filter(Boolean))).join(' · ')
+    const primeiro = nfseDados.servicos[0]
+    return {
+      descricao: descricoes || primeiro.descricao || '',
+      codigoServicoMunicipio: primeiro.codigo_servico_municipio ?? undefined,
+      codigoLC116: primeiro.codigo_lc116 ?? undefined,
+      aliquotaIss: Number(primeiro.aliquota_iss ?? 0),
+      valorServicos: Number(nfseDados.valor_servicos ?? 0),
+    }
+  }, [nfseDados])
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -802,6 +883,66 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           <Card titulo="Parcelas">
             <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} />
           </Card>
+
+          {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço */}
+          {statusLocal === 'faturado' && nfseDados && nfseDados.tem_servico && (
+            <Card titulo="NFS-e do serviço">
+              {nfseDados.ja_emitida && nfseDados.nfse_existente ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
+                    ✅ NFS-e emitida — nº {nfseDados.nfse_existente.numero ?? '—'}
+                  </p>
+                  <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+                    Status: {nfseDados.nfse_existente.status}
+                  </p>
+                  {nfseDados.nfse_existente.pdf_url && (
+                    <a
+                      href={nfseDados.nfse_existente.pdf_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="nfse-ver-pdf"
+                      style={{
+                        alignSelf: 'flex-start',
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.gold}`,
+                        background: C.goldBg,
+                        color: C.goldD,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Ver PDF
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+                    Valor: <strong style={{ color: C.gold }}>{fmtBRL(nfseDados.valor_servicos)}</strong>
+                    {nfseDados.servicos.length > 1 && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: C.espressoL }}>
+                        ({nfseDados.servicos.length} serviços consolidados)
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setNfseModalAberto(true)}
+                    data-testid="nfse-emitir-abrir"
+                    style={{
+                      minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                      border: 'none', background: C.gold, color: '#fff',
+                      fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                    }}
+                  >
+                    📄 Emitir NFS-e
+                  </button>
+                </div>
+              )}
+            </Card>
+          )}
 
           <Card titulo="Faturamento">
             {/* FEAT-OS-ONDA3A-FATURAMENTO-v1 */}
@@ -872,6 +1013,32 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           </Card>
         </div>
       </aside>
+      {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · modal de emissao pre-preenchido */}
+      <NFSeEmitirGovModal
+        companyId={ped.company_id}
+        aberto={nfseModalAberto}
+        producaoDisponivel={nfseProducaoDisponivel}
+        tomadorDocumento={nfseDados?.tomador?.documento ?? undefined}
+        tomadorTipo={nfseDados?.tomador?.tipo ?? undefined}
+        tomadorNome={nfseDados?.tomador?.nome ?? undefined}
+        tomadorEmail={nfseDados?.tomador?.email ?? undefined}
+        descricaoServico={nfseSeed?.descricao}
+        codigoServicoMunicipio={nfseSeed?.codigoServicoMunicipio}
+        codigoLC116={nfseSeed?.codigoLC116}
+        aliquotaIss={nfseSeed?.aliquotaIss}
+        valorServicos={nfseSeed?.valorServicos}
+        onFechar={() => setNfseModalAberto(false)}
+        onEmitida={async (providerReference?: string) => {
+          setNfseModalAberto(false)
+          if (providerReference) {
+            await supabase.rpc('fn_pedido_nfse_marcar_emitida', {
+              p_pedido_id: ped.id,
+              p_provider_reference: providerReference,
+            })
+          }
+          await carregarNfseDados()
+        }}
+      />
     </div>
   )
 }
