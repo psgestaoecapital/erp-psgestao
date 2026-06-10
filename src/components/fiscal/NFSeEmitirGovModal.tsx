@@ -182,6 +182,11 @@ export default function NFSeEmitirGovModal({
       // (mesmo com error setado, o body pode trazer mensagem real da Focus)
       if (data) {
         setResultado(data)
+        // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1
+        // Vincula pedido<->NFS-e assim que a edge retorna ref (autorizada OU
+        // processando OU rejeitada). Antes so disparava se usuario clicasse
+        // "Fechar" · agora pedido_id grava sozinho · idempotente.
+        if (data.ref) onEmitida(data.ref)
       } else if (error) {
         setResultado({ erro: error.message })
       } else {

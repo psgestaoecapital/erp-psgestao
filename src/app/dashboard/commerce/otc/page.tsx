@@ -775,6 +775,9 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   const [nfseDados, setNfseDados] = useState<NfsePedidoDados | null>(null)
   const [nfseModalAberto, setNfseModalAberto] = useState(false)
   const [nfseProducaoDisponivel, setNfseProducaoDisponivel] = useState(false)
+  // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
+  const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; motivo_rejeicao: string | null } | null>(null)
+  const [nfseAtualizando, setNfseAtualizando] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -803,10 +806,24 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   }, [ped.company_id])
 
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pro card NFS-e
+  // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · tambem busca a ultima NFS-e (qualquer status)
+  // direto da tabela pra cobrir rejeitada · ordena por criado_em DESC.
   const carregarNfseDados = useCallback(async () => {
     if (statusLocal !== 'faturado') return
-    const { data } = await supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id })
-    setNfseDados(data as NfsePedidoDados | null)
+    setNfseAtualizando(true)
+    const [dadosRes, ultimaRes] = await Promise.all([
+      supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id }),
+      supabase
+        .from('erp_nfse_emitidas')
+        .select('id,numero,status,pdf_url,motivo_rejeicao')
+        .eq('pedido_id', ped.id)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+    setNfseDados(dadosRes.data as NfsePedidoDados | null)
+    setNfseUltima(ultimaRes.data as typeof nfseUltima)
+    setNfseAtualizando(false)
   }, [ped.id, statusLocal])
 
   useEffect(() => { void carregarNfseDados() }, [carregarNfseDados])
@@ -884,65 +901,121 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} />
           </Card>
 
-          {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço */}
-          {statusLocal === 'faturado' && nfseDados && nfseDados.tem_servico && (
-            <Card titulo="NFS-e do serviço">
-              {nfseDados.ja_emitida && nfseDados.nfse_existente ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
-                    ✅ NFS-e emitida — nº {nfseDados.nfse_existente.numero ?? '—'}
-                  </p>
-                  <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
-                    Status: {nfseDados.nfse_existente.status}
-                  </p>
-                  {nfseDados.nfse_existente.pdf_url && (
-                    <a
-                      href={nfseDados.nfse_existente.pdf_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-testid="nfse-ver-pdf"
+          {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço · 4 estados */}
+          {statusLocal === 'faturado' && nfseDados && nfseDados.tem_servico && (() => {
+            const ultStatus = nfseUltima?.status
+            const eAutorizada = ultStatus === 'autorizada'
+            const eProcessando = ultStatus === 'processando'
+            const eRejeitada = ultStatus === 'rejeitada' || ultStatus === 'erro' || ultStatus === 'cancelada'
+            const semNota = !nfseUltima
+            const btnAtualizar = (
+              <button
+                type="button"
+                onClick={() => void carregarNfseDados()}
+                disabled={nfseAtualizando}
+                data-testid="nfse-atualizar-status"
+                style={{
+                  fontSize: 11, padding: '4px 10px', borderRadius: 6,
+                  border: `1px solid ${C.border}`, background: 'transparent',
+                  color: C.espressoM, cursor: nfseAtualizando ? 'not-allowed' : 'pointer',
+                  alignSelf: 'flex-start',
+                }}
+              >
+                {nfseAtualizando ? 'Atualizando…' : '↻ Atualizar status'}
+              </button>
+            )
+            return (
+              <Card titulo="NFS-e do serviço">
+                {eAutorizada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
+                      ✅ NFS-e emitida — nº {nfseUltima?.numero ?? '—'}
+                    </p>
+                    {nfseUltima?.pdf_url && (
+                      <a
+                        href={nfseUltima.pdf_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="nfse-ver-pdf"
+                        style={{
+                          alignSelf: 'flex-start',
+                          padding: '8px 14px', borderRadius: 8,
+                          border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
+                          fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                        }}
+                      >
+                        Ver PDF
+                      </a>
+                    )}
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eProcessando && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <p style={{ fontSize: 12, color: C.amber, fontWeight: 600, margin: 0 }}>
+                      ⏳ NFS-e em processamento na prefeitura
+                    </p>
+                    <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+                      O número sai assim que a prefeitura autorizar.
+                    </p>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eRejeitada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <p style={{ fontSize: 12, color: C.red, fontWeight: 600, margin: 0 }}>
+                      ❌ NFS-e rejeitada
+                    </p>
+                    {nfseUltima?.motivo_rejeicao && (
+                      <p style={{ fontSize: 11, color: C.espressoM, margin: 0, padding: 8, background: '#FCEBEB', borderRadius: 6 }}>
+                        {nfseUltima.motivo_rejeicao}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setNfseModalAberto(true)}
+                      data-testid="nfse-reemitir"
                       style={{
-                        alignSelf: 'flex-start',
-                        padding: '8px 14px',
-                        borderRadius: 8,
-                        border: `1px solid ${C.gold}`,
-                        background: C.goldBg,
-                        color: C.goldD,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        textDecoration: 'none',
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
                       }}
                     >
-                      Ver PDF
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
-                    Valor: <strong style={{ color: C.gold }}>{fmtBRL(nfseDados.valor_servicos)}</strong>
-                    {nfseDados.servicos.length > 1 && (
-                      <span style={{ marginLeft: 8, fontSize: 11, color: C.espressoL }}>
-                        ({nfseDados.servicos.length} serviços consolidados)
-                      </span>
-                    )}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setNfseModalAberto(true)}
-                    data-testid="nfse-emitir-abrir"
-                    style={{
-                      minHeight: 44, padding: '10px 16px', borderRadius: 8,
-                      border: 'none', background: C.gold, color: '#fff',
-                      fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
-                    }}
-                  >
-                    📄 Emitir NFS-e
-                  </button>
-                </div>
-              )}
-            </Card>
-          )}
+                      📄 Emitir novamente
+                    </button>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {semNota && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+                      Valor: <strong style={{ color: C.gold }}>{fmtBRL(nfseDados.valor_servicos)}</strong>
+                      {nfseDados.servicos.length > 1 && (
+                        <span style={{ marginLeft: 8, fontSize: 11, color: C.espressoL }}>
+                          ({nfseDados.servicos.length} serviços consolidados)
+                        </span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setNfseModalAberto(true)}
+                      data-testid="nfse-emitir-abrir"
+                      style={{
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                      }}
+                    >
+                      📄 Emitir NFS-e
+                    </button>
+                  </div>
+                )}
+              </Card>
+            )
+          })()}
 
           <Card titulo="Faturamento">
             {/* FEAT-OS-ONDA3A-FATURAMENTO-v1 */}
