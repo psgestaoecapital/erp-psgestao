@@ -12,6 +12,8 @@ export interface NFeBuilderItemInput {
 export interface NFeBuilderInput {
   companyId: string
   erpReceberId?: string
+  // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo: monta a partir do pedido
+  pedidoId?: string
   manual?: {
     destinatario: {
       razaoSocial: string
@@ -52,7 +54,48 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   let naturezaOp = 'Venda de mercadoria'
   let finalidade: 'normal' | 'complementar' | 'ajuste' | 'devolucao' = 'normal'
 
-  if (input.erpReceberId) {
+  if (input.pedidoId) {
+    // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
+    // fn_pedido_nfe_dados consolida destinatario + itens · builder mantem
+    // erp_produtos como single source of truth pra fiscal (NCM/CSOSN/CFOP/...)
+    const { data: dados, error: rpcErr } = await supabaseAdmin.rpc('fn_pedido_nfe_dados', {
+      p_pedido_id: input.pedidoId,
+    })
+    if (rpcErr) throw new FiscalError('PAYLOAD_INVALIDO', `Falha ao montar NF-e do pedido: ${rpcErr.message}`)
+    const d = (dados ?? {}) as {
+      erro?: string
+      tem_produto?: boolean
+      destinatario?: {
+        tipo?: string; documento?: string; nome?: string; email?: string
+        logradouro?: string; numero?: string; bairro?: string
+        municipio?: string; uf?: string; cep?: string
+      }
+      itens?: Array<{ produto_id: string; quantidade: number; valor_unitario: number }>
+    }
+    if (d.erro) throw new FiscalError('PAYLOAD_INVALIDO', d.erro)
+    if (!d.tem_produto) throw new FiscalError('PAYLOAD_INVALIDO', 'Pedido sem itens de produto para NF-e')
+    const dest = d.destinatario ?? {}
+    destinatario = {
+      razaoSocial: dest.nome ?? '',
+      ...(dest.tipo === 'cnpj' ? { cnpj: dest.documento } : { cpf: dest.documento }),
+      email: dest.email,
+      endereco: {
+        logradouro: dest.logradouro ?? '',
+        numero: dest.numero,
+        bairro: dest.bairro ?? '',
+        cidade: dest.municipio ?? '',
+        uf: dest.uf ?? '',
+        cep: dest.cep ?? '',
+      },
+    }
+    itensInput = (d.itens ?? []).map((it) => ({
+      produtoId: it.produto_id,
+      quantidade: Number(it.quantidade),
+      valorUnitarioOverride: Number(it.valor_unitario),
+    }))
+    naturezaOp = 'Venda de mercadoria'
+    finalidade = 'normal'
+  } else if (input.erpReceberId) {
     const { data: rec } = await supabaseAdmin
       .from('erp_receber')
       .select('id, cliente_id, cliente_nome, descricao, valor')
@@ -107,7 +150,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   } else {
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
-      'Forneca erpReceberId+overrides.itens OU manual.itens'
+      'Forneca pedidoId OU erpReceberId+overrides.itens OU manual.itens'
     )
   }
 

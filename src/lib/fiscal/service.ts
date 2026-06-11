@@ -32,7 +32,16 @@ export interface FiscalService {
   mdeBaixarXml(chave: string): Promise<string>
 }
 
-export async function createFiscalService(companyId: string): Promise<FiscalService> {
+interface CreateFiscalServiceOpts {
+  // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · override SO desce pra homologacao
+  // body NUNCA consegue subir pra producao a partir desta opcao
+  ambienteOverride?: 'homologacao' | 'producao'
+}
+
+export async function createFiscalService(
+  companyId: string,
+  opts: CreateFiscalServiceOpts = {},
+): Promise<FiscalService> {
   const { data, error } = await supabaseAdmin.rpc('fn_buscar_provider_config_ativa', {
     p_company_id: companyId,
     p_provider: 'focusnfe',
@@ -74,7 +83,12 @@ export async function createFiscalService(companyId: string): Promise<FiscalServ
   }
 
   const apiKey = decryptApiKey(configRow.api_key_encrypted)
-  const ambiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
+  // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
+  // ambiente da config + override anti-engano: SO desce pra homologacao;
+  // body NUNCA consegue subir pra producao
+  const configAmbiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
+  const ambiente: FiscalAmbiente =
+    opts.ambienteOverride === 'homologacao' ? 'homologacao' : configAmbiente
 
   const { data: company, error: companyErr } = await supabaseAdmin
     .from('companies')

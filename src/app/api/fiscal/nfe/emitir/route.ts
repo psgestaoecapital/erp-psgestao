@@ -12,6 +12,10 @@ export const runtime = 'nodejs'
 interface EmitirNFeBody {
   companyId: string
   erpReceberId?: string
+  // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo de emissao (a partir do pedido)
+  pedidoId?: string
+  // Override de ambiente · SO desce pra homologacao (anti-engano em service.ts)
+  ambiente?: 'homologacao' | 'producao'
   manual?: {
     destinatario: {
       razaoSocial: string
@@ -47,13 +51,14 @@ export const POST = withAuth(async (req: NextRequest) => {
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       erpReceberId: body.erpReceberId,
+      pedidoId: body.pedidoId,
       manual: body.manual,
       overrides: body.overrides,
     })
 
     validateNFeRequest(nfeReq)
 
-    const svc = await createFiscalService(body.companyId)
+    const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente })
     const resposta = await svc.emitirNFe(nfeReq)
 
     const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
