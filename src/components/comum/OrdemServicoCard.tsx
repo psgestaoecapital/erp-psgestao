@@ -5,8 +5,9 @@
 // Le erp_os por pedido_id · cria via fn_os_criar_de_pedido · edita via fn_os_salvar.
 // Mobile-first · touch 44px+ · linguagem CRIOU/ALTEROU.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AssinaturaCanvas, { type AssinaturaCanvasHandle } from '@/components/comum/AssinaturaCanvas'
 
 interface OS {
   id: string
@@ -23,6 +24,9 @@ interface OS {
   horas_previstas: number | null
   horas_executadas: number | null
   valor_hora: number | null
+  // O4.3 · assinatura
+  assinatura_cliente: string | null
+  assinatura_data: string | null
   data_abertura: string | null
   data_execucao: string | null
   data_conclusao: string | null
@@ -105,6 +109,9 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [msgOk, setMsgOk] = useState<string | null>(null)
+  // O4.3 · assinatura
+  const [assinando, setAssinando] = useState(false)
+  const canvasRef = useRef<AssinaturaCanvasHandle | null>(null)
 
   function flash(msg: string) {
     setMsgOk(msg)
@@ -128,7 +135,7 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
     setLoading(true)
     const { data, error } = await supabase
       .from('erp_os')
-      .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,data_abertura,data_execucao,data_conclusao')
+      .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
       .eq('pedido_id', pedidoId)
       .neq('status', 'cancelada')
       .order('created_at', { ascending: false })
@@ -203,6 +210,39 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
     const resp = data as { ok?: boolean; erro?: string }
     if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao salvar OS'); return }
     flash('Ordem de serviço ALTERADA.')
+    await carregar()
+  }
+
+  // O4.3 · assinatura
+  async function confirmarAssinatura() {
+    if (!os) return
+    const c = canvasRef.current
+    if (!c || c.isEmpty()) { setErro('Assine no quadro antes de confirmar.'); return }
+    const dataURL = c.toDataURL()
+    setAssinando(true)
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_assinar', {
+      p_os_id: os.id,
+      p_assinatura_base64: dataURL,
+    })
+    setAssinando(false)
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao registrar assinatura'); return }
+    flash('Assinatura registrada.')
+    await carregar()
+  }
+
+  async function refazerAssinatura() {
+    if (!os) return
+    if (!confirm('Apagar a assinatura atual e refazer?')) return
+    setAssinando(true)
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_remover_assinatura', { p_os_id: os.id })
+    setAssinando(false)
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao limpar assinatura'); return }
     await carregar()
   }
 
@@ -375,6 +415,72 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
             valor informativo — o faturamento é pelo pedido.
           </span>
         </div>
+      </div>
+
+      {/* FEAT-OS-ONDA4-O43-ASSINATURA-v1 · bloco Assinatura */}
+      <div style={{
+        marginTop: 4, padding: '12px 0 0',
+        borderTop: `1px solid ${C.border}`,
+        display: 'flex', flexDirection: 'column', gap: 10,
+      }}>
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: C.espressoM,
+          textTransform: 'uppercase', letterSpacing: 1,
+        }}>Assinatura de recebimento do cliente</div>
+
+        {os.assinatura_cliente ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', padding: 6 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={os.assinatura_cliente}
+                alt="Assinatura do cliente"
+                style={{ display: 'block', width: '100%', maxHeight: 180, objectFit: 'contain' }}
+              />
+            </div>
+            <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+              Assinado em <strong style={{ color: C.espresso }}>
+                {os.assinatura_data ? new Date(os.assinatura_data).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+              </strong>
+            </p>
+            <button
+              type="button"
+              onClick={refazerAssinatura}
+              disabled={assinando}
+              data-testid="os-assinar-refazer"
+              style={{ ...btnSec, alignSelf: 'flex-start', minHeight: 44, padding: '10px 14px', fontSize: 12 }}
+            >
+              Refazer assinatura
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+              Peça ao cliente para assinar no quadro abaixo e clique em "Confirmar".
+            </p>
+            <AssinaturaCanvas ref={canvasRef} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => canvasRef.current?.clear()}
+                disabled={assinando}
+                data-testid="os-assinar-limpar"
+                style={{ ...btnSec, minHeight: 44, padding: '10px 14px', fontSize: 12 }}
+              >
+                Limpar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarAssinatura}
+                disabled={assinando}
+                data-testid="os-assinar-confirmar"
+                style={{ ...btnPri, opacity: assinando ? 0.6 : 1 }}
+              >
+                {assinando ? 'Salvando…' : 'Confirmar assinatura'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
