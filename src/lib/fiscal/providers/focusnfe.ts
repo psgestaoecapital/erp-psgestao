@@ -339,4 +339,44 @@ export class FocusNFeProvider implements FiscalProvider {
   async mdeBaixarXml(_chave: string): Promise<string> {
     throw new FiscalError('PROVIDER_ERRO_INTERNO', 'mdeBaixarXml sera implementado no GE-F8')
   }
+
+  // FEAT-NFE-DIAGNOSTICO-FOCUS-v1 · GET /v2/empresas · zero emissao · sanitiza
+  async diagnosticoEmpresas(): Promise<{
+    status: number
+    autenticou: boolean
+    empresas: Array<{
+      cnpj: string; nome: string;
+      habilita_nfe: boolean; habilita_nfce: boolean;
+      habilita_nfse: boolean; habilita_cte: boolean; habilita_mdfe: boolean;
+    }>
+  }> {
+    const url = `${this.baseUrl}/v2/empresas`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: this.authHeader, 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+      })
+      const text = await resp.text()
+      let parsed: unknown = null
+      try { parsed = text ? JSON.parse(text) : null } catch { parsed = null }
+      const lista = Array.isArray(parsed) ? parsed : []
+      const empresas = lista.map((e: Record<string, unknown>) => ({
+        cnpj: String(e?.cnpj ?? ''),
+        nome: String(e?.nome ?? e?.nome_fantasia ?? ''),
+        habilita_nfe: Boolean(e?.habilita_nfe),
+        habilita_nfce: Boolean(e?.habilita_nfce),
+        habilita_nfse: Boolean(e?.habilita_nfse),
+        habilita_cte: Boolean(e?.habilita_cte),
+        habilita_mdfe: Boolean(e?.habilita_mdfe),
+      }))
+      return { status: resp.status, autenticou: resp.status === 200, empresas }
+    } catch {
+      return { status: 0, autenticou: false, empresas: [] }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
 }

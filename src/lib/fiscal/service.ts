@@ -21,6 +21,16 @@ export interface FiscalService {
   readonly ambiente: FiscalAmbiente
 
   testarConexao(): Promise<TestarConexaoResponse>
+  // FEAT-NFE-DIAGNOSTICO-FOCUS-v1
+  diagnosticoEmpresas(): Promise<{
+    status: number
+    autenticou: boolean
+    empresas: Array<{
+      cnpj: string; nome: string;
+      habilita_nfe: boolean; habilita_nfce: boolean;
+      habilita_nfse: boolean; habilita_cte: boolean; habilita_mdfe: boolean;
+    }>
+  }>
   emitirNFSe(req: NFSeRequest): Promise<NFSeResponse>
   consultarNFSe(ref: string): Promise<NFSeResponse>
   cancelarNFSe(ref: string, justificativa: string): Promise<NFSeResponse>
@@ -120,6 +130,7 @@ export async function createFiscalService(
     providerName: provider.name,
     ambiente,
     testarConexao: () => provider.testarConexao(),
+    diagnosticoEmpresas: () => provider.diagnosticoEmpresas(),
     emitirNFSe: (req) => provider.emitirNFSe(req),
     consultarNFSe: (ref) => provider.consultarNFSe(ref),
     cancelarNFSe: (ref, j) => provider.cancelarNFSe(ref, j),
