@@ -1024,10 +1024,10 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             )
           })()}
 
-          {/* FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · NF-e do produto */}
+          {/* FEAT-NFE-PRODUTO-3-PRODUCAO-v1 · NF-e do produto · ambiente vem da config (producao) */}
           {statusLocal === 'faturado' && (
             <Card titulo="NF-E DO PRODUTO">
-              <NFeCard companyId={ped.company_id} pedidoId={ped.id} ambientePadrao="homologacao" />
+              <NFeCard companyId={ped.company_id} pedidoId={ped.id} />
             </Card>
           )}
 
