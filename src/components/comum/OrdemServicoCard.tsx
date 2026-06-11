@@ -499,6 +499,15 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
         >
           Recarregar
         </button>
+        {/* FEAT-OS-ONDA4-O44-IMPRESSAO-v1 */}
+        <button
+          type="button"
+          onClick={() => window.open(`/dashboard/commerce/otc/imprimir/${os.id}`, '_blank', 'noopener,noreferrer')}
+          data-testid="os-imprimir"
+          style={btnSec}
+        >
+          🖨️ Imprimir OS
+        </button>
         <button
           type="button"
           onClick={salvar}
