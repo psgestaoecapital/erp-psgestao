@@ -18,6 +18,11 @@ interface OS {
   endereco_servico: string | null
   observacoes_cliente: string | null
   observacoes_internas: string | null
+  // O4.2 · execucao
+  tecnico_nome: string | null
+  horas_previstas: number | null
+  horas_executadas: number | null
+  valor_hora: number | null
   data_abertura: string | null
   data_execucao: string | null
   data_conclusao: string | null
@@ -48,6 +53,8 @@ const C = {
   redBg: '#FEE2E2',
   neutralBg: '#F5F2EB',
 }
+
+const fmtBRL = (v: number) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const STATUS: Array<{ value: string; label: string; cor: string; bg: string }> = [
   { value: 'aberta',                 label: 'Aberta',                  cor: C.espresso, bg: C.neutralBg },
@@ -111,12 +118,17 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
   const [descricao, setDescricao] = useState('')
   const [endereco, setEndereco] = useState('')
   const [obsCliente, setObsCliente] = useState('')
+  // O4.2 · execucao (strings pra preservar input vazio sem sobrescrever DB)
+  const [tecnicoNome, setTecnicoNome] = useState('')
+  const [horasPrevistas, setHorasPrevistas] = useState('')
+  const [horasExecutadas, setHorasExecutadas] = useState('')
+  const [valorHora, setValorHora] = useState('')
 
   const carregar = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
       .from('erp_os')
-      .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,data_abertura,data_execucao,data_conclusao')
+      .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,data_abertura,data_execucao,data_conclusao')
       .eq('pedido_id', pedidoId)
       .neq('status', 'cancelada')
       .order('created_at', { ascending: false })
@@ -131,6 +143,10 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
       setDescricao(row.descricao_servico ?? '')
       setEndereco(row.endereco_servico ?? '')
       setObsCliente(row.observacoes_cliente ?? '')
+      setTecnicoNome(row.tecnico_nome ?? '')
+      setHorasPrevistas(row.horas_previstas != null ? String(row.horas_previstas) : '')
+      setHorasExecutadas(row.horas_executadas != null ? String(row.horas_executadas) : '')
+      setValorHora(row.valor_hora != null ? String(row.valor_hora) : '')
     }
     setLoading(false)
   }, [pedidoId])
@@ -175,6 +191,11 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
         descricao_servico: descricao.trim() || null,
         endereco_servico: endereco.trim() || null,
         observacoes_cliente: obsCliente.trim() || null,
+        // O4.2 · execucao · NULLIF no server descarta '' sem sobrescrever
+        tecnico_nome: tecnicoNome.trim() || null,
+        horas_previstas: horasPrevistas.replace(',', '.'),
+        horas_executadas: horasExecutadas.replace(',', '.'),
+        valor_hora: valorHora.replace(',', '.'),
       },
     })
     setSalvando(false)
@@ -268,7 +289,7 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
         <input
           value={endereco}
           onChange={(e) => setEndereco(e.target.value)}
-          placeholder="Ex: oficina / endereço do cliente"
+          placeholder="Ex: no cliente / endereço de execução"
           data-testid="os-endereco"
           style={inp}
         />
@@ -284,6 +305,77 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
           style={ta}
         />
       </label>
+
+      {/* FEAT-OS-ONDA4-O42-EXECUCAO-v1 · bloco Execução */}
+      <div style={{
+        marginTop: 4, padding: '12px 0 0',
+        borderTop: `1px solid ${C.border}`,
+        display: 'flex', flexDirection: 'column', gap: 12,
+      }}>
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: C.espressoM,
+          textTransform: 'uppercase', letterSpacing: 1,
+        }}>Execução</div>
+
+        <label style={{ display: 'block' }}>
+          <span style={lbl}>Responsável</span>
+          <input
+            value={tecnicoNome}
+            onChange={(e) => setTecnicoNome(e.target.value)}
+            placeholder="Nome do responsável pela execução"
+            data-testid="os-tecnico"
+            style={inp}
+          />
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <label style={{ display: 'block' }}>
+            <span style={lbl}>Horas previstas</span>
+            <input
+              type="number" inputMode="decimal" step="0.5" min="0"
+              value={horasPrevistas}
+              onChange={(e) => setHorasPrevistas(e.target.value)}
+              data-testid="os-horas-previstas"
+              style={inp}
+            />
+          </label>
+          <label style={{ display: 'block' }}>
+            <span style={lbl}>Horas executadas</span>
+            <input
+              type="number" inputMode="decimal" step="0.5" min="0"
+              value={horasExecutadas}
+              onChange={(e) => setHorasExecutadas(e.target.value)}
+              data-testid="os-horas-executadas"
+              style={inp}
+            />
+          </label>
+        </div>
+
+        <label style={{ display: 'block' }}>
+          <span style={lbl}>Valor/hora (R$)</span>
+          <input
+            type="number" inputMode="decimal" step="0.01" min="0"
+            value={valorHora}
+            onChange={(e) => setValorHora(e.target.value)}
+            data-testid="os-valor-hora"
+            style={inp}
+          />
+        </label>
+
+        <div style={{
+          padding: '10px 12px', borderRadius: 8, background: C.neutralBg,
+          fontSize: 12, color: C.espresso, display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+          <span>
+            Mão de obra estimada: <strong style={{ color: C.gold }}>
+              {fmtBRL((Number((horasExecutadas || '0').replace(',', '.')) || 0) * (Number((valorHora || '0').replace(',', '.')) || 0))}
+            </strong>
+          </span>
+          <span style={{ fontSize: 10, color: C.espressoL, fontStyle: 'italic' }}>
+            valor informativo — o faturamento é pelo pedido.
+          </span>
+        </div>
+      </div>
 
       {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
       {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
