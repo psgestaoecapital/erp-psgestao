@@ -23,6 +23,7 @@ import {
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 
 // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
 type NfsePedidoTomador = {
@@ -895,6 +896,11 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
               <strong>Total</strong>
               <strong style={{ color: C.gold }}>{fmtBRL(ped.total)}</strong>
             </div>
+          </Card>
+
+          {/* FEAT-OS-ONDA4-O41-FICHA-GENERICA-v1 · Ordem de Serviço */}
+          <Card titulo="ORDEM DE SERVIÇO">
+            <OrdemServicoCard pedidoId={ped.id} />
           </Card>
 
           <Card titulo="Parcelas">
