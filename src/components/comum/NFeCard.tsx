@@ -12,7 +12,10 @@ import { supabase } from '@/lib/supabase'
 interface Props {
   companyId: string
   pedidoId: string
-  ambientePadrao?: 'homologacao' | 'producao'
+  // FEAT-NFE-PRODUTO-3-PRODUCAO-v1
+  // forcarHomologacao=true mantem comportamento NFe-2 (banner amarelo + override)
+  // por default = false → usa ambiente da config (producao em KGF) com confirmacao explicita
+  forcarHomologacao?: boolean
 }
 
 interface NFeDados {
@@ -54,7 +57,7 @@ const C = {
 const fmtBRL = (v: number | null | undefined) =>
   v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export default function NFeCard({ companyId, pedidoId, ambientePadrao = 'homologacao' }: Props) {
+export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false }: Props) {
   const [dados, setDados] = useState<NFeDados | null>(null)
   const [ultima, setUltima] = useState<NFeUltima | null>(null)
   const [emitindo, setEmitindo] = useState(false)
@@ -82,13 +85,29 @@ export default function NFeCard({ companyId, pedidoId, ambientePadrao = 'homolog
   useEffect(() => { void carregar() }, [carregar])
 
   async function emitir() {
+    // FEAT-NFE-PRODUTO-3-PRODUCAO-v1
+    // Trava de confirmacao (Pilar 1) quando NAO e homologacao · evita
+    // emissao acidental com valor fiscal real
+    if (!forcarHomologacao) {
+      const ok = window.confirm(
+        'Esta NF-e tem VALOR FISCAL REAL e será enviada à SEFAZ em nome da empresa.\n\n' +
+        'Confirmar emissão?'
+      )
+      if (!ok) return
+    }
     setEmitindo(true)
     setErro(null)
     try {
+      // body so envia ambiente quando forcarHomologacao=true · NF-3 default:
+      // sem campo ambiente → motor usa config (producao em KGF)
+      const payload: { companyId: string; pedidoId: string; ambiente?: 'homologacao' } = {
+        companyId, pedidoId,
+      }
+      if (forcarHomologacao) payload.ambiente = 'homologacao'
       const res = await fetch('/api/fiscal/nfe/emitir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, pedidoId, ambiente: ambientePadrao }),
+        body: JSON.stringify(payload),
       })
       const json = await res.json()
       if (!res.ok || json?.ok === false) {
@@ -119,7 +138,7 @@ export default function NFeCard({ companyId, pedidoId, ambientePadrao = 'homolog
   const eProcessando = status === 'processando'
   const eRejeitada = status === 'rejeitada' || status === 'erro' || status === 'cancelada' || status === 'denegada'
   const semNota = !ultima
-  const eTeste = ambientePadrao === 'homologacao'
+  const eTeste = forcarHomologacao
 
   const btnAtualizar = (
     <button
@@ -140,12 +159,19 @@ export default function NFeCard({ companyId, pedidoId, ambientePadrao = 'homolog
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {eTeste && (
+      {eTeste ? (
         <div style={{
           padding: '8px 10px', borderRadius: 6, background: C.amberBg,
           color: C.amber, fontSize: 11, fontWeight: 600, display: 'flex', gap: 6,
         }}>
           ⚠️ Ambiente de TESTE (homologação) — sem valor fiscal
+        </div>
+      ) : semNota && (
+        <div style={{
+          padding: '8px 10px', borderRadius: 6, background: C.goldBg,
+          color: C.goldD, fontSize: 11, fontWeight: 600, display: 'flex', gap: 6,
+        }}>
+          🧾 NF-e com <strong>valor fiscal</strong> — será transmitida à SEFAZ.
         </div>
       )}
 
@@ -238,7 +264,7 @@ export default function NFeCard({ companyId, pedidoId, ambientePadrao = 'homolog
               fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
             }}
           >
-            {emitindo ? 'Emitindo…' : eTeste ? '📄 Emitir NF-e (teste/homologação)' : '📄 Emitir NF-e'}
+            {emitindo ? 'Emitindo…' : '📄 Emitir NF-e'}
           </button>
         </div>
       )}
