@@ -24,6 +24,7 @@ import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/Orcame
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
+import NFeCard from '@/components/comum/NFeCard'
 
 // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
 type NfsePedidoTomador = {
@@ -1022,6 +1023,13 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
               </Card>
             )
           })()}
+
+          {/* FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · NF-e do produto */}
+          {statusLocal === 'faturado' && (
+            <Card titulo="NF-E DO PRODUTO">
+              <NFeCard companyId={ped.company_id} pedidoId={ped.id} ambientePadrao="homologacao" />
+            </Card>
+          )}
 
           <Card titulo="Faturamento">
             {/* FEAT-OS-ONDA3A-FATURAMENTO-v1 */}
