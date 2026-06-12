@@ -238,6 +238,13 @@ export class FocusNFeProvider implements FiscalProvider {
       natureza_operacao: req.naturezaOperacao,
       finalidade_emissao: finalidadeNum,
       modalidade_frete: 9,
+      // FIX-NFE-SERIE-PAYLOAD-v1
+      // Sem este campo, Focus numerava na sua serie padrao (1) ·
+      // colidia com numeracao Omie historica → rejeicao SEFAZ 539
+      // (duplicidade). req.serie vem de erp_fiscal_provider_config
+      // .serie_nfe_padrao (KGF='2'). NAO enviar 'numero': Focus numera
+      // sozinha por serie/empresa.
+      serie: Number(req.serie ?? '2'),
       data_emissao: new Date().toISOString(),
       presenca_comprador: 1,
       tipo_documento: 1,
