@@ -1015,8 +1015,9 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
     }).select().single()
     if (error || !cot) { flashErr('Erro: ' + (error?.message ?? 'desconhecido')); setSalvando(false); return }
 
-    // Itens · FIX-COTACAO-AUTOCOMPLETE-v1: agora exige produto_id
-    const itensValidos = itens.filter((i) => i.produto_id && i.produto_nome.trim() && i.quantidade > 0)
+    // Itens · FIX-COTACAO-ITEM-LIVRE-PROXIMO-v1: item livre passa quando
+    // produto_nome preenchido (produto_id null vira auto-cadastro no recebimento)
+    const itensValidos = itens.filter((i) => (i.produto_id || i.produto_nome.trim()) && i.quantidade > 0)
     if (itensValidos.length > 0) {
       await supabase.from('erp_cotacoes_itens').insert(itensValidos.map((it, idx) => ({
         cotacao_id: cot.id,
@@ -1050,8 +1051,8 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
   const stepNum: Record<typeof step, number> = { identif: 1, itens: 2, fornec: 3 }
   const podeAvancarIdent = !!descricao.trim()
-  // FIX-COTACAO-AUTOCOMPLETE-v1: exige produto_id vinculado (UUID real)
-  const podeAvancarItens = itens.some((i) => i.produto_id && i.produto_nome.trim() && i.quantidade > 0)
+  // FIX-COTACAO-ITEM-LIVRE-PROXIMO-v1: aceita item livre (produto_nome sem produto_id)
+  const podeAvancarItens = itens.some((i) => (i.produto_id || i.produto_nome.trim()) && i.quantidade > 0)
   const podeFinalizar = fornSelecionados.length > 0 && podeAvancarItens
 
   return (
@@ -1096,9 +1097,23 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
                     </div>
                     <button onClick={() => limparProduto(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}><Trash2 size={12} /></button>
                   </div>
+                ) : it.produto_nome && !it.busca ? (
+                  // FIX-COTACAO-ITEM-LIVRE-PROXIMO-v1 · item livre confirmado
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 6, background: C.cream, borderRadius: 6 }}>
+                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: C.amberBg, color: C.amber, fontWeight: 700, letterSpacing: 0.5 }}>LIVRE</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{it.produto_nome}</div>
+                      <div style={{ fontSize: 10, color: C.espressoM, fontStyle: 'italic' }}>Auto-cadastra ao receber a compra</div>
+                    </div>
+                    <button
+                      onClick={() => setItens((prev) => prev.map((x, idx) => idx === i ? { ...x, produto_nome: '', produto_codigo: null } : x))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}
+                      title="Trocar"
+                    ><Trash2 size={12} /></button>
+                  </div>
                 ) : (
                   <>
-                    <input placeholder="Buscar produto (nome ou código) · escolha da lista" value={it.busca} onChange={(e) => buscarProduto(i, e.target.value)} style={inp} data-testid={`cot-produto-busca-${i}`} />
+                    <input placeholder="Buscar produto (nome ou código) · ou digitar item livre" value={it.busca} onChange={(e) => buscarProduto(i, e.target.value)} style={inp} data-testid={`cot-produto-busca-${i}`} />
                     {it.candidatos.length > 0 && (
                       <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 6, background: '#fff' }}>
                         {it.candidatos.map((p) => (
@@ -1111,7 +1126,14 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
                       </div>
                     )}
                     {it.busca.trim().length >= 2 && it.candidatos.length === 0 && (
-                      <div style={{ fontSize: 11, color: C.espressoM, fontStyle: 'italic' }}>Nenhum produto encontrado. Cadastre antes em Produtos.</div>
+                      <button
+                        type="button"
+                        onClick={() => setItens((prev) => prev.map((x, idx) => idx === i ? { ...x, produto_nome: x.busca.trim(), produto_id: null, produto_codigo: null, busca: '', candidatos: [] } : x))}
+                        data-testid={`cot-produto-livre-${i}`}
+                        style={{ padding: '6px 10px', fontSize: 11, border: `1px dashed ${C.amber}`, borderRadius: 6, background: C.amberBg, color: C.amber, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}
+                      >
+                        ✓ Usar &quot;{it.busca.trim()}&quot; como item livre
+                      </button>
                     )}
                   </>
                 )}
