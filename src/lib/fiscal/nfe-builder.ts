@@ -190,7 +190,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       cest: prod.cest ?? undefined,
       origem: prod.origem ?? '0',
       icms: { cst: prod.cst_icms ?? undefined, aliquota: prod.aliquota_icms ?? undefined },
-      ipi: { cst: '99', aliquota: prod.aliquota_ipi ?? undefined },
+      ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
       pis: { cst: prod.cst_pis ?? undefined, aliquota: prod.aliquota_pis ?? undefined },
       cofins: { cst: prod.cst_cofins ?? undefined, aliquota: prod.aliquota_cofins ?? undefined },
     }
