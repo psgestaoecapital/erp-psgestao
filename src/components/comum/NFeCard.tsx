@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 
 interface Props {
   companyId: string
@@ -104,14 +105,13 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
         companyId, pedidoId,
       }
       if (forcarHomologacao) payload.ambiente = 'homologacao'
-      const res = await fetch('/api/fiscal/nfe/emitir', {
+      const res = await authFetch('/api/fiscal/nfe/emitir', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       const json = await res.json()
       if (!res.ok || json?.ok === false) {
-        const msg = json?.mensagem ?? json?.message ?? `HTTP ${res.status}`
+        const msg = json?.mensagem ?? json?.message ?? json?.error ?? `HTTP ${res.status}`
         setErro(msg)
         setEmitindo(false)
         return
