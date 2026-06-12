@@ -112,7 +112,8 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
       const json = await res.json()
       if (!res.ok || json?.ok === false) {
         const msg = json?.mensagem ?? json?.message ?? json?.error ?? `HTTP ${res.status}`
-        setErro(msg)
+        const det = json?.details?.body ?? json?.details ?? null
+        setErro(det ? `${msg}\n\n${JSON.stringify(det, null, 2)}` : msg)
         setEmitindo(false)
         return
       }
