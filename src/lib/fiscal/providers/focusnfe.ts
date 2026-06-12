@@ -236,7 +236,8 @@ export class FocusNFeProvider implements FiscalProvider {
 
     const payload = {
       natureza_operacao: req.naturezaOperacao,
-      finalidade: finalidadeNum,
+      finalidade_emissao: finalidadeNum,
+      modalidade_frete: 9,
       data_emissao: new Date().toISOString(),
       presenca_comprador: 1,
       tipo_documento: 1,
