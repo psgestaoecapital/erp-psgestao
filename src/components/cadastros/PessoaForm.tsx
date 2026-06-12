@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import FornecedorContatosCard from './FornecedorContatosCard'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 
 export interface Pessoa {
@@ -254,6 +255,16 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
               style={{ ...inputStyle, fontSize: 12 }}
             />
           </Campo>
+
+          {/* FEAT-FORNECEDOR-VENDEDORES-WHATSAPP-v1 · so em fornecedor ja salvo */}
+          {tipo === 'fornecedor' && pessoa?.id && (
+            <div style={{
+              marginTop: 16, padding: 16, borderRadius: 8,
+              background: '#FAF7F2', border: '1px solid #E0D8CC',
+            }}>
+              <FornecedorContatosCard companyId={companyId} fornecedorId={pessoa.id} />
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" onClick={onClose} disabled={salvando} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '10px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>

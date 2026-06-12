@@ -17,8 +17,9 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3, X, Info, Trash2,
-  CheckCircle2, Send, Award, Truck,
+  CheckCircle2, Send, Award, Truck, MessageCircle,
 } from 'lucide-react'
+import CotacaoWhatsAppModal from '@/components/comum/CotacaoWhatsAppModal'
 
 export const dynamic = 'force-dynamic'
 
@@ -526,6 +527,8 @@ function DrawerCotacao({ cotacao, onClose, onEnviar, onCancelar, onCompare }: {
 }) {
   const [itens, setItens] = useState<CotacaoItem[]>([])
   const [fornecedores, setFornecedores] = useState<CotacaoFornecedor[]>([])
+  // FEAT-FORNECEDOR-VENDEDORES-WHATSAPP-v1
+  const [waAberto, setWaAberto] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -606,12 +609,23 @@ function DrawerCotacao({ cotacao, onClose, onEnviar, onCancelar, onCompare }: {
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
             {canEnviar && <button onClick={onEnviar} style={btnSec}><Send size={14} /> Marcar enviada</button>}
+            {/* FEAT-FORNECEDOR-VENDEDORES-WHATSAPP-v1 */}
+            <button onClick={() => setWaAberto(true)} data-testid="cot-wa-abrir" style={{ ...btnSec, borderColor: '#25D366', color: '#1A8849' }}>
+              <MessageCircle size={14} /> Enviar por WhatsApp
+            </button>
             <button onClick={onCompare} style={btnPri}><BarChart3 size={14} /> Comparar propostas</button>
             {canCancelar && <button onClick={onCancelar} style={{ ...btnSec, borderColor: C.red, color: C.red }}><X size={14} /> Cancelar cotação</button>}
             {cotacao.compra_gerada_id && <span style={{ fontSize: 11, color: C.purple, fontWeight: 600, alignSelf: 'center' }}>✓ Compra gerada</span>}
           </div>
         </div>
       </aside>
+      {waAberto && (
+        <CotacaoWhatsAppModal
+          cotacaoId={cotacao.id}
+          numero={cotacao.numero}
+          onClose={() => setWaAberto(false)}
+        />
+      )}
     </div>
   )
 }
