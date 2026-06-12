@@ -72,6 +72,15 @@ export default function FornecedorContatosCard({ companyId, fornecedorId }: Prop
 
   async function adicionar() {
     if (!nome.trim()) { setErro('Informe o nome.'); return }
+    // FIX-FORNECEDOR-CONTATO-SAVE-v1 · garantir company_id obrigatorio
+    if (!companyId) {
+      setErro('Empresa nao identificada · selecione uma empresa antes de cadastrar contato.')
+      return
+    }
+    if (!fornecedorId) {
+      setErro('Fornecedor sem id · salve o fornecedor antes de cadastrar contato.')
+      return
+    }
     setSalvando(true)
     setErro(null)
     const { error } = await supabase.from('erp_fornecedor_contatos').insert({
@@ -81,9 +90,15 @@ export default function FornecedorContatosCard({ companyId, fornecedorId }: Prop
       telefone: telefone.trim() || null,
       cargo: cargo.trim() || null,
       principal,
+      ativo: true,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) {
+      // FIX-FORNECEDOR-CONTATO-SAVE-v1 · NAO engolir · mostrar + logar
+      console.error('[FornecedorContatosCard] INSERT erp_fornecedor_contatos falhou:', error)
+      setErro(`Erro ao salvar: ${error.message}${error.details ? ` · ${error.details}` : ''}`)
+      return
+    }
     setNome(''); setTelefone(''); setCargo(''); setPrincipal(false)
     flash('Vendedor CRIADO.')
     await carregar()
