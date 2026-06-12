@@ -33,20 +33,21 @@ export const GET = withAuth(async (
         const svc = await createFiscalService(nota.company_id)
         const atual = await svc.consultarNFe(nota.provider_reference)
 
-        if (atual.status !== 'processando') {
-          await supabaseAdmin
-            .from('erp_nfe_emitidas')
-            .update({
-              status: atual.status,
-              chave: atual.chave ?? nota.chave,
-              numero: atual.numero ?? nota.numero,
-              xml_url: atual.xmlUrl,
-              danfe_url: atual.danfeUrl,
-              motivo_rejeicao: atual.motivoRejeicao,
-              provider_raw: atual.providerRaw ?? null,
-            })
-            .eq('id', params.id)
-        }
+        // FIX-NFE-CONSULTA-OBSERVAVEL-v1
+        // Grava provider_raw em TODA consulta (mesmo se ainda processando) ·
+        // mantem motivo/numero/chave/url existentes se Focus nao trouxer.
+        await supabaseAdmin
+          .from('erp_nfe_emitidas')
+          .update({
+            status: atual.status,
+            chave: atual.chave ?? nota.chave,
+            numero: atual.numero ?? nota.numero,
+            xml_url: atual.xmlUrl ?? nota.xml_url,
+            danfe_url: atual.danfeUrl ?? nota.danfe_url,
+            motivo_rejeicao: atual.motivoRejeicao ?? nota.motivo_rejeicao,
+            provider_raw: atual.providerRaw ?? null,
+          })
+          .eq('id', params.id)
 
         return NextResponse.json({
           ok: atual.status === 'autorizada',
@@ -58,6 +59,12 @@ export const GET = withAuth(async (
           motivoRejeicao: atual.motivoRejeicao,
         })
       } catch (err) {
+        // FIX-NFE-CONSULTA-OBSERVAVEL-v1 · grava o erro pra diagnostico
+        const detalhe = isFiscalError(err) ? err.toJSON() : { mensagem: (err as Error)?.message }
+        await supabaseAdmin
+          .from('erp_nfe_emitidas')
+          .update({ provider_raw: { consulta_erro: detalhe } })
+          .eq('id', params.id)
         if (isFiscalError(err)) return NextResponse.json(err.toJSON(), { status: 502 })
         throw err
       }
