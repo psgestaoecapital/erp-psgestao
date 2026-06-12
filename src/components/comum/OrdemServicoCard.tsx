@@ -166,10 +166,37 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
     const { data, error } = await supabase.rpc('fn_os_criar_de_pedido', { p_pedido_id: pedidoId })
     setCriando(false)
     if (error) { setErro(error.message); return }
-    const resp = data as { ok?: boolean; erro?: string; ja_existia?: boolean; numero?: string }
+    const resp = data as { ok?: boolean; erro?: string; ja_existia?: boolean; numero?: string; os_id?: string }
     if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao criar OS'); return }
+    // FIX-OS-ABRIR-COM-OS-ID-v1
+    // Abrir ficha SEMPRE com resp.os_id (campo da RPC), independente de
+    // ja_existia. Fetch direto por id e mais robusto que filtrar por
+    // pedido_id + status na re-query.
+    if (resp?.os_id) {
+      const { data: row } = await supabase
+        .from('erp_os')
+        .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .eq('id', resp.os_id)
+        .maybeSingle()
+      if (row) {
+        const r = row as OS
+        setOs(r)
+        setEquipamento(r.equipamento ?? '')
+        setDefeito(r.defeito_relatado ?? '')
+        setDescricao(r.descricao_servico ?? '')
+        setEndereco(r.endereco_servico ?? '')
+        setObsCliente(r.observacoes_cliente ?? '')
+        setTecnicoNome(r.tecnico_nome ?? '')
+        setHorasPrevistas(r.horas_previstas != null ? String(r.horas_previstas) : '')
+        setHorasExecutadas(r.horas_executadas != null ? String(r.horas_executadas) : '')
+        setValorHora(r.valor_hora != null ? String(r.valor_hora) : '')
+      } else {
+        await carregar() // fallback
+      }
+    } else {
+      await carregar()
+    }
     flash(resp?.ja_existia ? `Ordem de serviço Nº ${resp.numero} já existia.` : `Ordem de serviço CRIADA · Nº ${resp.numero}.`)
-    await carregar()
   }
 
   async function alterarStatus(novoStatus: string) {
