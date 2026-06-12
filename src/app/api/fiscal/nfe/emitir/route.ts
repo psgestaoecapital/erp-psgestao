@@ -110,6 +110,16 @@ export const POST = withAuth(async (req: NextRequest) => {
       )
     }
 
+    // FIX-NFE-ICMS-ORIGEM-v1 · vinculo pedido_id (anti-duplicata)
+    // fn_registrar_nfe_emitida nao tem param p_pedido_id · grava via UPDATE
+    // separado pra que o NFeCard consiga achar a nota (.eq('pedido_id', ...))
+    if (registroId && body.pedidoId) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({ pedido_id: body.pedidoId })
+        .eq('id', registroId)
+    }
+
     return NextResponse.json({
       ok: resposta.ok,
       nfeId: registroId,

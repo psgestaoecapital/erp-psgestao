@@ -269,7 +269,11 @@ export class FocusNFeProvider implements FiscalProvider {
         valor_unitario_tributavel: item.valorUnitario,
         codigo_ncm: item.ncm.replace(/\D/g, ''),
         cest: item.cest,
-        origem: item.origem ?? '0',
+        // FIX-NFE-ICMS-ORIGEM-v1
+        // SEFAZ 966: chave correta da API Focus e 'icms_origem' (grupo ICMS) ·
+        // antes mandavamos 'origem' solto · rejeitava com "obrigatorio o
+        // preenchimento da origem da mercadoria"
+        icms_origem: String(item.origem ?? '0'),
         icms_situacao_tributaria: item.icms?.cst,
         icms_aliquota: item.icms?.aliquota,
         ...(item.ipi?.cst ? { ipi_situacao_tributaria: item.ipi.cst, ipi_aliquota: item.ipi.aliquota } : {}),
