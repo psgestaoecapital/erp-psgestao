@@ -85,6 +85,18 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // FIX-NFE-CONSULTAR-STATUS-v1 · botao "Atualizar status" agora consulta a SEFAZ
+  // via /api/fiscal/nfe/consultar/[id] (rota que ja atualiza o banco) ·
+  // depois relê o banco. Sem id ainda, so relê o banco.
+  const atualizarStatus = useCallback(async () => {
+    if (!ultima?.id) { await carregar(); return }
+    setCarregando(true)
+    try {
+      await authFetch(`/api/fiscal/nfe/consultar/${ultima.id}`, { method: 'GET' })
+    } catch { /* segue · carregar() rele do banco */ }
+    await carregar()
+  }, [ultima?.id, carregar])
+
   async function emitir() {
     // FEAT-NFE-PRODUTO-3-PRODUCAO-v1
     // Trava de confirmacao (Pilar 1) quando NAO e homologacao · evita
@@ -110,6 +122,14 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
         body: JSON.stringify(payload),
       })
       const json = await res.json()
+      // FIX-NFE-CONSULTAR-STATUS-v1 · 'processando' = autorizacao assincrona da Focus
+      // nao e erro · estado neutro · re-fetcha dados e libera UI
+      if (json?.status === 'processando') {
+        setErro(null)
+        await carregar()
+        setEmitindo(false)
+        return
+      }
       if (!res.ok || json?.ok === false) {
         const msg = json?.mensagem ?? json?.message ?? json?.error ?? `HTTP ${res.status}`
         const det = json?.details?.body ?? json?.details ?? null
@@ -144,7 +164,7 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
   const btnAtualizar = (
     <button
       type="button"
-      onClick={() => void carregar()}
+      onClick={() => void atualizarStatus()}
       disabled={carregando}
       data-testid="nfe-pedido-atualizar"
       style={{
