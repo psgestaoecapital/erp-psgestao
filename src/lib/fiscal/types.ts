@@ -174,4 +174,15 @@ export interface FiscalProvider {
   mdeListar(req: MDeListaRequest): Promise<MDeListaResponse>
   mdeManifestar(req: MDeManifestarRequest): Promise<MDeManifestarResponse>
   mdeBaixarXml(chave: string): Promise<string>
+
+  // FEAT-NFE-DIAGNOSTICO-FOCUS-v1 · zero emissao · sanitiza
+  diagnosticoEmpresas(): Promise<{
+    status: number
+    autenticou: boolean
+    empresas: Array<{
+      cnpj: string; nome: string;
+      habilita_nfe: boolean; habilita_nfce: boolean;
+      habilita_nfse: boolean; habilita_cte: boolean; habilita_mdfe: boolean;
+    }>
+  }>
 }
