@@ -110,7 +110,7 @@ BEGIN
     FROM companies WHERE id = v_cot.company_id;
 
   SELECT string_agg(E'• '||COALESCE(NULLIF(btrim(produto_nome),''), NULLIF(btrim(produto_descricao),''), 'item')
-                    ||E' — '||replace(to_char(COALESCE(quantidade,0),'FM999999999990.999'),'.',',')
+                    ||E' — '||trim(trailing ',' from replace(to_char(COALESCE(quantidade,0),'FM999999999990.999'),'.',','))
                     ||' '||COALESCE(unidade,'UN'),
                     E'\n' ORDER BY ordem NULLS LAST, id)
     INTO v_itens FROM erp_cotacoes_itens WHERE cotacao_id = p_cotacao_id;
