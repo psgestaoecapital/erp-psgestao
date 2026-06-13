@@ -71,10 +71,11 @@ export default function FornecedorContatosCard({ companyId, fornecedorId }: Prop
   }
 
   async function adicionar() {
-    if (!nome.trim()) { setErro('Informe o nome.'); return }
-    // FIX-FORNECEDOR-CONTATO-SAVE-v1 · garantir company_id obrigatorio
+    // FIX-FORNECEDOR-CONTATO-SAVE-v2 · validacoes + .select() + erro visivel
+    const nomeT = nome.trim()
+    if (!nomeT) { setErro('Informe o nome.'); return }
     if (!companyId) {
-      setErro('Empresa nao identificada · selecione uma empresa antes de cadastrar contato.')
+      setErro('Empresa não identificada · selecione uma empresa antes de cadastrar contato.')
       return
     }
     if (!fornecedorId) {
@@ -83,24 +84,38 @@ export default function FornecedorContatosCard({ companyId, fornecedorId }: Prop
     }
     setSalvando(true)
     setErro(null)
-    const { error } = await supabase.from('erp_fornecedor_contatos').insert({
-      company_id: companyId,
-      fornecedor_id: fornecedorId,
-      nome: nome.trim(),
-      telefone: telefone.trim() || null,
-      cargo: cargo.trim() || null,
-      principal,
-      ativo: true,
-    })
+
+    // .select() devolve a linha inserida pra confirmar o sucesso de verdade ·
+    // supabase client da sessao (anon + auth) · NUNCA admin/service_role
+    const { data, error } = await supabase
+      .from('erp_fornecedor_contatos')
+      .insert({
+        company_id: companyId,
+        fornecedor_id: fornecedorId,
+        nome: nomeT,
+        telefone: telefone.trim() || null,
+        cargo: cargo.trim() || null,
+        principal,
+        ativo: true,
+      })
+      .select()
+
     setSalvando(false)
+
     if (error) {
-      // FIX-FORNECEDOR-CONTATO-SAVE-v1 · NAO engolir · mostrar + logar
       console.error('[FornecedorContatosCard] INSERT erp_fornecedor_contatos falhou:', error)
       setErro(`Erro ao salvar: ${error.message}${error.details ? ` · ${error.details}` : ''}`)
+      return // NAO fecha · NAO limpa form · usuario pode corrigir e tentar de novo
+    }
+    if (!data || data.length === 0) {
+      console.error('[FornecedorContatosCard] INSERT retornou sem linha · provavel bloqueio RLS')
+      setErro('Erro ao salvar: nenhuma linha foi gravada. Verifique se voce esta vinculado a esta empresa.')
       return
     }
+
+    // Sucesso · limpa form + recarrega lista
     setNome(''); setTelefone(''); setCargo(''); setPrincipal(false)
-    flash('Vendedor CRIADO.')
+    flash(`Vendedor "${nomeT}" salvo.`)
     await carregar()
   }
 
