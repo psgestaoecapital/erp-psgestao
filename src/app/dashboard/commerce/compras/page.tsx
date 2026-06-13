@@ -417,7 +417,7 @@ function ComprasInner() {
         <ModalComparativo
           cotacao={showCompare}
           onClose={() => setShowCompare(null)}
-          onAprovar={(fornecedorId) => aprovarFornecedor(showCompare.id, fornecedorId)}
+          onAprovar={(fornecedorRealId) => aprovarFornecedor(showCompare.id, fornecedorRealId)}
         />
       )}
 
@@ -723,12 +723,24 @@ function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar, onReceber, on
 // Modal Comparativo
 // ════════════════════════════════════════════════════════════
 
-function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; onClose: () => void; onAprovar: (fornecedorId: string) => void }) {
+function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; onClose: () => void; onAprovar: (fornecedorRealId: string) => void }) {
+  // ONDA-COTACAO-LANCAR-PROPOSTA-v1 · cells viraram inputs · botao Salvar propostas
   const [itens, setItens] = useState<CotacaoItem[]>([])
   const [fornecedores, setFornecedores] = useState<CotacaoFornecedor[]>([])
   const [propostas, setPropostas] = useState<CotacaoProposta[]>([])
   const [resumo, setResumo] = useState<{ menor_valor_total?: number; maior_valor_total?: number; total_propostas?: number; fornecedor_menor_valor?: string } | null>(null)
   const [loading, setLoading] = useState(true)
+  // chave: `${itemId}|${cotacaoFornecedorId}` => string do input (preco_unitario)
+  const [precosLocais, setPrecosLocais] = useState<Record<string, string>>({})
+  const [salvando, setSalvando] = useState(false)
+  const [erroSalvar, setErroSalvar] = useState<string | null>(null)
+  const [okSalvar, setOkSalvar] = useState<string | null>(null)
+
+  const recarregarPropostas = useCallback(async (fornIds: string[]) => {
+    if (fornIds.length === 0) return [] as CotacaoProposta[]
+    const { data: props } = await supabase.from('erp_cotacoes_propostas').select('*').in('cotacao_fornecedor_id', fornIds)
+    return (props ?? []) as CotacaoProposta[]
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -741,19 +753,78 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
       ])
       if (!alive) return
       const fornArr = (fo.data ?? []) as CotacaoFornecedor[]
-      setItens((it.data ?? []) as CotacaoItem[])
+      const itArr = (it.data ?? []) as CotacaoItem[]
+      setItens(itArr)
       setFornecedores(fornArr)
       const resumoRow = Array.isArray(rp.data) ? rp.data[0] : null
       setResumo(resumoRow)
-      // Carregar propostas
-      if (fornArr.length > 0) {
-        const { data: props } = await supabase.from('erp_cotacoes_propostas').select('*').in('cotacao_fornecedor_id', fornArr.map((f) => f.id))
-        if (alive) setPropostas((props ?? []) as CotacaoProposta[])
-      }
+      const props = await recarregarPropostas(fornArr.map((f) => f.id))
+      if (!alive) return
+      setPropostas(props)
+      // Pre-carrega state local com precos ja salvos
+      const seed: Record<string, string> = {}
+      props.forEach((p) => {
+        if (p.disponivel !== false && p.preco_unitario != null) {
+          seed[`${p.cotacao_item_id}|${p.cotacao_fornecedor_id}`] = String(p.preco_unitario)
+        }
+      })
+      setPrecosLocais(seed)
       setLoading(false)
     })()
     return () => { alive = false }
-  }, [cotacao.id])
+  }, [cotacao.id, recarregarPropostas])
+
+  const cotReadOnly = cotacao.status === 'aprovada' || cotacao.status === 'cancelada'
+
+  async function salvarPropostas() {
+    setErroSalvar(null); setOkSalvar(null)
+    setSalvando(true)
+    const tarefas: { itemId: string; cfId: string; preco: number }[] = []
+    for (const it of itens) {
+      for (const f of fornecedores) {
+        const k = `${it.id}|${f.id}`
+        const raw = precosLocais[k]
+        if (raw == null || raw === '') continue
+        const preco = Number(String(raw).replace(',', '.'))
+        if (!Number.isFinite(preco) || preco < 0) continue
+        // Skip se nao mudou em relacao ao banco
+        const existente = propostas.find((p) => p.cotacao_item_id === it.id && p.cotacao_fornecedor_id === f.id)
+        if (existente && Number(existente.preco_unitario ?? 0) === preco && existente.disponivel !== false) continue
+        tarefas.push({ itemId: it.id, cfId: f.id, preco })
+      }
+    }
+    if (tarefas.length === 0) {
+      setSalvando(false)
+      setErroSalvar('Nada para salvar · digite ao menos um preço novo.')
+      return
+    }
+    let salvas = 0
+    for (const t of tarefas) {
+      const { data, error } = await supabase.rpc('fn_cotacao_proposta_salvar', {
+        p_cotacao_fornecedor_id: t.cfId,
+        p_cotacao_item_id: t.itemId,
+        p_preco_unitario: t.preco,
+        p_desconto_percentual: 0,
+      })
+      if (error || !(data as { ok?: boolean } | null)?.ok) {
+        setSalvando(false)
+        setErroSalvar(`Erro ao salvar: ${error?.message ?? ((data as { erro?: string } | null)?.erro ?? 'desconhecido')}`)
+        return
+      }
+      salvas++
+    }
+    // Recarrega propostas + totais de fornecedores
+    const fornIds = fornecedores.map((f) => f.id)
+    const [novasProps, novosForn] = await Promise.all([
+      recarregarPropostas(fornIds),
+      supabase.from('erp_cotacoes_fornecedores').select('*').eq('cotacao_id', cotacao.id).order('fornecedor_nome'),
+    ])
+    setPropostas(novasProps)
+    setFornecedores((novosForn.data ?? []) as CotacaoFornecedor[])
+    setSalvando(false)
+    setOkSalvar(`${salvas} proposta${salvas === 1 ? '' : 's'} salva${salvas === 1 ? '' : 's'}.`)
+    window.setTimeout(() => setOkSalvar(null), 3500)
+  }
 
   // Indexar propostas por (item, fornecedor)
   const propostaMap = useMemo(() => {
@@ -800,7 +871,10 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.offWhite, borderRadius: 12, padding: 24, width: '100%', maxWidth: 1100, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Comparativo de propostas</h3>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              Comparativo de propostas
+              <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: C.goldBg, color: C.gold, fontWeight: 700, letterSpacing: 0.5 }}>cot-prop-v1</span>
+            </h3>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: C.espressoM }}>Cotação <strong style={{ fontFamily: 'monospace' }}>{cotacao.numero}</strong> · {cotacao.descricao}</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM }}><X size={16} /></button>
@@ -843,19 +917,49 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                 <tbody>
                   {itens.map((it) => {
                     const menorFid = menorFornecedorPorItem(it.id)
+                    const qtd = Number(it.quantidade ?? 0)
                     return (
                       <tr key={it.id} style={{ borderTop: `1px solid ${C.borderL}` }}>
-                        <Td><strong>{it.produto_nome}</strong><div style={{ fontSize: 10, color: C.espressoM }}>Qtd: {it.quantidade} {it.unidade}</div></Td>
+                        <Td><strong>{it.produto_nome}</strong><div style={{ fontSize: 10, color: C.espressoM }}>Qtd: {fmtQtd(qtd)} {it.unidade}</div></Td>
                         {fornecedores.map((f) => {
-                          const p = propostaMap[`${it.id}|${f.id}`]
+                          const k = `${it.id}|${f.id}`
+                          const p = propostaMap[k]
+                          const valorLocal = precosLocais[k] ?? ''
+                          const precoNum = Number(String(valorLocal).replace(',', '.'))
+                          const subtotalCalc = Number.isFinite(precoNum) && precoNum > 0 ? precoNum * qtd : 0
                           const isMenor = menorFid === f.id && p && p.disponivel !== false
-                          if (!p) return <Td key={f.id} align="right"><span style={{ color: C.espressoL, fontStyle: 'italic' }}>sem proposta</span></Td>
-                          if (p.disponivel === false) return <Td key={f.id} align="right"><span style={{ color: C.red, fontWeight: 600 }}>indisponível</span></Td>
+                          const indisp = p?.disponivel === false
                           return (
                             <Td key={f.id} align="right">
-                              <span style={{ fontWeight: isMenor ? 700 : 500, color: isMenor ? C.green : C.espresso, padding: isMenor ? '2px 6px' : 0, borderRadius: 4, background: isMenor ? C.greenBg : 'transparent' }}>
-                                {isMenor && '🟢 '}{fmtBRL(p.preco_unitario)}
-                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                {indisp ? (
+                                  <span style={{ color: C.red, fontWeight: 600 }}>indisponível</span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="R$ 0,00"
+                                    value={valorLocal}
+                                    onChange={(e) => setPrecosLocais({ ...precosLocais, [k]: e.target.value })}
+                                    disabled={cotReadOnly}
+                                    style={{
+                                      width: 110, minHeight: 32, padding: '6px 8px', textAlign: 'right',
+                                      border: `1px solid ${isMenor ? C.green : C.border}`, borderRadius: 6,
+                                      background: isMenor ? C.greenBg : C.white,
+                                      color: isMenor ? C.green : C.espresso,
+                                      fontWeight: isMenor ? 700 : 500, fontSize: 12, outline: 'none',
+                                    }}
+                                    data-testid={`cot-prop-input-${it.id}-${f.id}`}
+                                  />
+                                )}
+                                {subtotalCalc > 0 && (
+                                  <span style={{ fontSize: 9, color: C.espressoL }}>
+                                    = {fmtBRL(subtotalCalc)}
+                                  </span>
+                                )}
+                              </div>
                             </Td>
                           )
                         })}
@@ -865,7 +969,7 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                   <tr style={{ background: C.cream, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
                     <Td>TOTAL</Td>
                     {fornecedores.map((f) => {
-                      const total = totaisPorFornecedor[f.id] ?? 0
+                      const total = Number(f.total ?? 0) > 0 ? Number(f.total) : (totaisPorFornecedor[f.id] ?? 0)
                       const isMenor = f.id === fornecedorMenor
                       return (
                         <Td key={f.id} align="right">
@@ -879,12 +983,12 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                   <tr style={{ borderTop: `1px solid ${C.borderL}` }}>
                     <Td></Td>
                     {fornecedores.map((f) => {
-                      const total = totaisPorFornecedor[f.id] ?? 0
-                      const canApprove = cotacao.status !== 'aprovada' && cotacao.status !== 'cancelada' && total > 0
+                      const total = Number(f.total ?? 0) > 0 ? Number(f.total) : (totaisPorFornecedor[f.id] ?? 0)
+                      const canApprove = !cotReadOnly && total > 0
                       return (
                         <Td key={f.id} align="right">
                           {canApprove && (
-                            <button onClick={() => onAprovar(f.id)} style={{ ...btnPri, padding: '6px 10px', fontSize: 11 }}>
+                            <button onClick={() => onAprovar(f.fornecedor_id)} style={{ ...btnPri, padding: '6px 10px', fontSize: 11 }}>
                               <Award size={12} /> Aprovar
                             </button>
                           )}
@@ -895,11 +999,37 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                 </tbody>
               </table>
             </div>
+
+            {/* Acoes · Salvar propostas */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 11, color: C.espressoM, flex: 1 }}>
+                {erroSalvar && <span style={{ color: C.red, fontWeight: 600 }}>❌ {erroSalvar}</span>}
+                {okSalvar && <span style={{ color: C.green, fontWeight: 600 }}>✓ {okSalvar}</span>}
+                {!erroSalvar && !okSalvar && !cotReadOnly && <span>Digite os preços recebidos e clique em Salvar propostas. O menor total fica em verde.</span>}
+                {cotReadOnly && <span>Cotação {cotacao.status} · somente leitura.</span>}
+              </div>
+              {!cotReadOnly && (
+                <button
+                  onClick={salvarPropostas}
+                  disabled={salvando}
+                  style={{ ...btnPri, padding: '10px 18px', fontSize: 13, opacity: salvando ? 0.6 : 1, cursor: salvando ? 'wait' : 'pointer' }}
+                  data-testid="cot-prop-salvar"
+                >
+                  {salvando ? 'Salvando…' : 'Salvar propostas'}
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>
     </div>
   )
+}
+
+function fmtQtd(v: number): string {
+  // ONDA-COTACAO-LANCAR-PROPOSTA-v1 · igual ao SQL: tira zeros a toa, vírgula BR
+  if (!Number.isFinite(v)) return '0'
+  return v.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
 }
 
 // ════════════════════════════════════════════════════════════
