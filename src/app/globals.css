@@ -115,3 +115,16 @@ option { font-weight: 400; color: var(--text-primary); background: var(--bg-elev
 
 /* Selection */
 ::selection { background: var(--gold); color: var(--bg-primary); }
+
+/* FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1 · Impressao limpa */
+/* Esconde sidebar/topnav/elementos marcados .no-print quando o usuario imprime */
+/* qualquer pagina do dashboard (orcamento, pedido, OS). */
+@media print {
+  body { background: #fff !important; }
+  aside, header { display: none !important; }
+  .no-print, [data-no-print="true"] { display: none !important; }
+  /* Tira o offset do sidebar quando imprimindo */
+  .md\:ml-\[220px\] { margin-left: 0 !important; }
+  main { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  @page { size: A4; margin: 14mm 14mm; }
+}
