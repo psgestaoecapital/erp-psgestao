@@ -1,12 +1,13 @@
 'use client'
 
-// FEAT-FORNECEDOR-VENDEDORES-WHATSAPP-v1
+// FEAT-FORNECEDOR-CONTATO-RPC-v3
 // CRUD inline de vendedores/contatos por fornecedor.
+// Save via RPC fn_fornecedor_contato_salvar · deriva company_id no servidor.
 // Light theme · mobile-first · linguagem CRIOU/ALTEROU/EXCLUIU.
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Plus, Trash2, Star, Save, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Star, Loader2 } from 'lucide-react'
 
 interface Contato {
   id: string
@@ -18,7 +19,6 @@ interface Contato {
 }
 
 interface Props {
-  companyId: string
   fornecedorId: string
 }
 
@@ -36,7 +36,7 @@ const inp: React.CSSProperties = {
   fontSize: 12, color: C.espresso, background: C.white, outline: 'none',
 }
 
-export default function FornecedorContatosCard({ companyId, fornecedorId }: Props) {
+export default function FornecedorContatosCard({ fornecedorId }: Props) {
   const [contatos, setContatos] = useState<Contato[]>([])
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -71,13 +71,9 @@ export default function FornecedorContatosCard({ companyId, fornecedorId }: Prop
   }
 
   async function adicionar() {
-    // FIX-FORNECEDOR-CONTATO-SAVE-v2 · validacoes + .select() + erro visivel
+    // FEAT-FORNECEDOR-CONTATO-RPC-v3 · RPC deriva company_id do fornecedor
     const nomeT = nome.trim()
     if (!nomeT) { setErro('Informe o nome.'); return }
-    if (!companyId) {
-      setErro('Empresa não identificada · selecione uma empresa antes de cadastrar contato.')
-      return
-    }
     if (!fornecedorId) {
       setErro('Fornecedor sem id · salve o fornecedor antes de cadastrar contato.')
       return
@@ -85,32 +81,20 @@ export default function FornecedorContatosCard({ companyId, fornecedorId }: Prop
     setSalvando(true)
     setErro(null)
 
-    // .select() devolve a linha inserida pra confirmar o sucesso de verdade ·
-    // supabase client da sessao (anon + auth) · NUNCA admin/service_role
-    const { data, error } = await supabase
-      .from('erp_fornecedor_contatos')
-      .insert({
-        company_id: companyId,
-        fornecedor_id: fornecedorId,
-        nome: nomeT,
-        telefone: telefone.trim() || null,
-        cargo: cargo.trim() || null,
-        principal,
-        ativo: true,
-      })
-      .select()
+    const { data, error } = await supabase.rpc('fn_fornecedor_contato_salvar', {
+      p_fornecedor_id: fornecedorId,
+      p_nome: nomeT,
+      p_telefone: telefone.trim() || null,
+      p_cargo: cargo.trim() || null,
+      p_principal: principal,
+    })
 
     setSalvando(false)
 
-    if (error) {
-      console.error('[FornecedorContatosCard] INSERT erp_fornecedor_contatos falhou:', error)
-      setErro(`Erro ao salvar: ${error.message}${error.details ? ` · ${error.details}` : ''}`)
+    if (error || !data?.ok) {
+      console.error('[FornecedorContatosCard] fn_fornecedor_contato_salvar falhou:', error, data)
+      setErro(`Erro ao salvar: ${error?.message || data?.erro || 'erro desconhecido'}`)
       return // NAO fecha · NAO limpa form · usuario pode corrigir e tentar de novo
-    }
-    if (!data || data.length === 0) {
-      console.error('[FornecedorContatosCard] INSERT retornou sem linha · provavel bloqueio RLS')
-      setErro('Erro ao salvar: nenhuma linha foi gravada. Verifique se voce esta vinculado a esta empresa.')
-      return
     }
 
     // Sucesso · limpa form + recarrega lista
