@@ -262,7 +262,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
               marginTop: 16, padding: 16, borderRadius: 8,
               background: '#FAF7F2', border: '1px solid #E0D8CC',
             }}>
-              <FornecedorContatosCard companyId={companyId} fornecedorId={pessoa.id} />
+              <FornecedorContatosCard fornecedorId={pessoa.id} />
             </div>
           )}
 
