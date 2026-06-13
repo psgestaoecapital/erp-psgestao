@@ -53,6 +53,10 @@ export default function PedidosPage(){
   const [showDetalhes,setShowDetalhes]=useState<Pedido|null>(null);
   const [itensDetalhe,setItensDetalhe]=useState<any[]>([]);
   const [showGerarTitulos,setShowGerarTitulos]=useState<Pedido|null>(null);
+  // FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1 · editor de itens do pedido
+  const [editarItens,setEditarItens]=useState<Pedido|null>(null);
+  const [itensEdicao,setItensEdicao]=useState<any[]>([]);
+  const [salvandoItens,setSalvandoItens]=useState(false);
 
   useEffect(()=>{
     if(companyIds.length>0){loadPedidos();loadOrcamentosAprovados();}
@@ -97,6 +101,76 @@ export default function PedidosPage(){
     setShowDetalhes(p);
     const{data}=await supabase.from("erp_pedidos_itens").select("*").eq("pedido_id",p.id).order("ordem");
     setItensDetalhe(data||[]);
+  };
+
+  const pedidoEditavel=(p:Pedido)=>!['faturado','cancelado'].includes(p.status);
+
+  const abrirEditarItens=async(p:Pedido)=>{
+    const{data}=await supabase.from("erp_pedidos_itens").select("*").eq("pedido_id",p.id).order("ordem");
+    setItensEdicao((data||[]).map(i=>({...i,
+      quantidade:Number(i.quantidade)||0,
+      preco_unitario:Number(i.preco_unitario)||0,
+      desconto_percentual:Number(i.desconto_percentual)||0,
+      desconto_valor:Number(i.desconto_valor)||0,
+      subtotal:Number(i.subtotal)||0,
+    })));
+    setEditarItens(p);
+  };
+
+  const recalcSubtotalLinha=(it:any)=>{
+    const bruto=(Number(it.quantidade)||0)*(Number(it.preco_unitario)||0);
+    const descPct=bruto*(Number(it.desconto_percentual)||0)/100;
+    return Math.max(bruto-descPct-(Number(it.desconto_valor)||0),0);
+  };
+
+  const atualizarItemEd=(idx:number,campo:string,valor:any)=>{
+    const arr=[...itensEdicao];
+    arr[idx]={...arr[idx],[campo]:valor};
+    arr[idx].subtotal=recalcSubtotalLinha(arr[idx]);
+    setItensEdicao(arr);
+  };
+
+  const addItemEd=()=>setItensEdicao([...itensEdicao,{
+    id:undefined,pedido_id:editarItens?.id,company_id:editarItens?.company_id,
+    ordem:itensEdicao.length+1,tipo_item:'produto',
+    produto_codigo:'',produto_nome:'',unidade:'UN',
+    quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0,
+  }]);
+
+  const removerItemEd=(idx:number)=>{
+    setItensEdicao(itensEdicao.filter((_,i)=>i!==idx).map((it,i)=>({...it,ordem:i+1})));
+  };
+
+  const salvarItensEdicao=async()=>{
+    if(!editarItens)return;
+    setSalvandoItens(true);
+    // Estrategia: delete all e re-insert · o trigger recalc_pedido_total atualiza o total do pedido
+    await supabase.from("erp_pedidos_itens").delete().eq("pedido_id",editarItens.id);
+    const validos=itensEdicao.filter(it=>(it.produto_nome||'').trim()!=='').map((it,idx)=>({
+      pedido_id:editarItens.id,
+      company_id:editarItens.company_id,
+      ordem:idx+1,
+      tipo_item:it.tipo_item||'produto',
+      produto_id:it.produto_id||null,
+      produto_codigo:it.produto_codigo||null,
+      produto_nome:it.produto_nome,
+      unidade:it.unidade||'UN',
+      quantidade:Number(it.quantidade)||0,
+      preco_unitario:Number(it.preco_unitario)||0,
+      desconto_percentual:Number(it.desconto_percentual)||0,
+      desconto_valor:Number(it.desconto_valor)||0,
+      subtotal:recalcSubtotalLinha(it),
+      observacoes:it.observacoes||null,
+    }));
+    if(validos.length>0){
+      const{error}=await supabase.from("erp_pedidos_itens").insert(validos);
+      if(error){setSalvandoItens(false);setMsg("❌ "+error.message);return;}
+    }
+    setSalvandoItens(false);
+    setEditarItens(null);
+    setMsg("✅ Itens do pedido ALTERADOS · total recalculado.");
+    loadPedidos();
+    setTimeout(()=>setMsg(""),3000);
   };
 
   const gerarTitulosReceber=async(p:Pedido)=>{
@@ -162,7 +236,10 @@ export default function PedidosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>🎯 Pedidos de Venda</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX,display:'flex',alignItems:'center',gap:8}}>
+            🎯 Pedidos de Venda
+            <span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:GO+'20',color:GO,fontWeight:700,letterSpacing:0.5}}>v4</span>
+          </div>
           <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
             <span>Gestão completa: do pedido à entrega e faturamento</span>
             <span>·</span>
@@ -182,7 +259,7 @@ export default function PedidosPage(){
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":msg.startsWith("❌")?R+"15":Y+"15",border:`1px solid ${msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
       {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
           {l:"Pedidos Ativos",v:String(kpiTotal),c:B,icon:"🎯"},
           {l:"Em Produção",v:String(kpiProducao),c:P,icon:"🔨"},
@@ -198,7 +275,7 @@ export default function PedidosPage(){
       </div>
 
       {/* Filtros */}
-      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div className="no-print" style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200,position:"relative"}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, cliente, CNPJ..." style={{...inp,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
@@ -266,8 +343,28 @@ export default function PedidosPage(){
               <div style={{background:BG3,borderRadius:8,padding:10}}><div style={{fontSize:9,color:TXD}}>TOTAL</div><div style={{fontSize:15,fontWeight:700,color:G}}>{fmtR(showDetalhes.total)}</div></div>
             </div>
 
+            {/* FEAT-ONDA-4: TOTAL GERAL com composicao Servicos/Produtos/Total */}
+            <div style={{background:BG3,borderRadius:10,padding:14,marginBottom:14,border:`1px solid ${GO}40`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>TOTAL GERAL</div>
+                  <div style={{fontSize:24,fontWeight:700,color:G}}>{fmtR(showDetalhes.total)}</div>
+                </div>
+                <div style={{fontSize:11,color:TXM,display:"flex",gap:14,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  <span>Serviços <strong style={{color:P}}>{fmtR(itensDetalhe.filter((i:any)=>i.tipo_item==='servico').reduce((s:number,i:any)=>s+Number(i.subtotal||0),0))}</strong></span>
+                  <span>·</span>
+                  <span>Produtos <strong style={{color:GO}}>{fmtR(itensDetalhe.filter((i:any)=>(i.tipo_item||'produto')==='produto').reduce((s:number,i:any)=>s+Number(i.subtotal||0),0))}</strong></span>
+                </div>
+              </div>
+            </div>
+
             {/* Itens */}
-            <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>📦 Itens</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:11,fontWeight:600,color:GO}}>📦 Itens</div>
+              {pedidoEditavel(showDetalhes)&&(
+                <button className="no-print" onClick={()=>{abrirEditarItens(showDetalhes);setShowDetalhes(null);}} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:B+"15",color:B,border:`1px solid ${B}40`,cursor:"pointer",fontWeight:600}}>✏️ Editar Itens</button>
+              )}
+            </div>
             <div style={{background:BG3,borderRadius:10,overflow:"hidden",marginBottom:16}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                 <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
@@ -293,7 +390,7 @@ export default function PedidosPage(){
             </div>
 
             {/* Ações */}
-            <div style={{background:BG3,borderRadius:10,padding:14,marginBottom:12}}>
+            <div className="no-print" style={{background:BG3,borderRadius:10,padding:14,marginBottom:12}}>
               <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:10}}>🔄 Atualizar Status</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {Object.entries(STATUS_CFG).filter(([k])=>k!==showDetalhes.status).map(([k,cfg])=>(
@@ -310,6 +407,57 @@ export default function PedidosPage(){
             {showDetalhes.titulos_gerados&&(
               <div style={{padding:"10px",borderRadius:8,background:G+"15",color:G,textAlign:"center",fontSize:11,fontWeight:600}}>✅ Títulos já foram gerados no Operacional</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* FEAT-ONDA-4: Modal Editar Itens do Pedido (status nao faturado/cancelado) */}
+      {editarItens&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:105,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setEditarItens(null)}>
+          <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:1000,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`1px solid ${BD}`}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:700,color:TX}}>✏️ Editar Itens · <span style={{color:GO,fontFamily:"monospace"}}>{editarItens.numero}</span></div>
+                <div style={{fontSize:11,color:TXD}}>Status: {STATUS_CFG[editarItens.status]?.label || editarItens.status} · O total será recalculado automaticamente.</div>
+              </div>
+              <button onClick={()=>setEditarItens(null)} style={{background:"none",border:"none",color:TXD,fontSize:22,cursor:"pointer"}}>✕</button>
+            </div>
+
+            <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
+              <div style={{display:"grid",gridTemplateColumns:"40px 2fr 90px 70px 110px 70px 110px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
+                <div>#</div><div>Produto / Serviço</div><div>Qtd</div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
+              </div>
+              {itensEdicao.map((it:any,idx:number)=>(
+                <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 90px 70px 110px 70px 110px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`}}>
+                  <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
+                    {idx+1}
+                    <div style={{fontSize:8,fontWeight:700,color:it.tipo_item==='servico'?P:GO,marginTop:2}}>{it.tipo_item==='servico'?'SRV':'PRD'}</div>
+                  </div>
+                  <input value={it.produto_nome||''} onChange={e=>atualizarItemEd(idx,'produto_nome',e.target.value)} placeholder="Descrição do item" style={{...inp,padding:"6px 8px",fontSize:11}}/>
+                  <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItemEd(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                  <input value={it.unidade||'UN'} onChange={e=>atualizarItemEd(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
+                  <input type="number" step="0.01" value={it.preco_unitario||''} onChange={e=>atualizarItemEd(idx,'preco_unitario',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                  <input type="number" step="0.1" value={it.desconto_percentual||''} onChange={e=>atualizarItemEd(idx,'desconto_percentual',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                  <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:G}}>{fmtR(it.subtotal)}</div>
+                  <button onClick={()=>removerItemEd(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,marginTop:4,borderTop:`1px solid ${BD}`}}>
+                <button onClick={addItemEd} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Adicionar item</button>
+                <div style={{display:"flex",gap:14,fontSize:11,color:TXM}}>
+                  <span>Serviços <strong style={{color:P}}>{fmtR(itensEdicao.filter((i:any)=>i.tipo_item==='servico').reduce((s:number,i:any)=>s+Number(i.subtotal||0),0))}</strong></span>
+                  <span>·</span>
+                  <span>Produtos <strong style={{color:GO}}>{fmtR(itensEdicao.filter((i:any)=>(i.tipo_item||'produto')==='produto').reduce((s:number,i:any)=>s+Number(i.subtotal||0),0))}</strong></span>
+                  <span>·</span>
+                  <span>Total <strong style={{color:G}}>{fmtR(itensEdicao.reduce((s:number,i:any)=>s+Number(i.subtotal||0),0))}</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setEditarItens(null)} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={salvarItensEdicao} disabled={salvandoItens} style={{padding:"10px 24px",borderRadius:8,background:GO,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:salvandoItens?"wait":"pointer",opacity:salvandoItens?0.6:1}}>{salvandoItens?'Salvando…':'Salvar Itens'}</button>
+            </div>
           </div>
         </div>
       )}

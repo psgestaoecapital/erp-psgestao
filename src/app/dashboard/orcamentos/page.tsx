@@ -350,7 +350,10 @@ export default function OrcamentosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>💰 Orçamentos</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX,display:'flex',alignItems:'center',gap:8}}>
+            💰 Orçamentos
+            <span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:GO+'20',color:GO,fontWeight:700,letterSpacing:0.5}}>v4</span>
+          </div>
           <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
             <span>Ciclo de vendas — propostas comerciais com aprovação digital</span>
             <span>·</span>
@@ -368,7 +371,7 @@ export default function OrcamentosPage(){
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":msg.startsWith("❌")?R+"15":Y+"15",border:`1px solid ${msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
       {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
           {l:"Total Ativos",v:String(kpiTotal),c:B,icon:"📋"},
           {l:"Aguardando",v:String(kpiPendentes),c:Y,icon:"⏳"},
@@ -384,7 +387,7 @@ export default function OrcamentosPage(){
       </div>
 
       {/* Filtros */}
-      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div className="no-print" style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200,position:"relative"}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, cliente, CNPJ..." style={{...inp,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
@@ -516,7 +519,7 @@ export default function OrcamentosPage(){
               <input type="number" step="0.01" value={form.desconto_valor||''} onChange={e=>setForm({...form,desconto_valor:parseFloat(e.target.value)||0})} style={inp}/></div>
           </div>
 
-          {/* Totais */}
+          {/* Totais · FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1: composicao Servicos/Produtos/Total */}
           <div style={{background:BG3,borderRadius:8,padding:16,marginBottom:12,border:`1px solid ${GO}40`}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,fontSize:11}}>
               <div>
@@ -533,8 +536,15 @@ export default function OrcamentosPage(){
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:TXD,fontSize:9}}>TOTAL GERAL</div>
-                <div style={{color:G,fontWeight:700,fontSize:20}}>{fmtR(totalFinal)}</div>
+                <div style={{color:G,fontWeight:700,fontSize:22}}>{fmtR(totalFinal)}</div>
               </div>
+            </div>
+            <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${BD}`,display:"flex",justifyContent:"flex-end",gap:18,fontSize:11,color:TXM}}>
+              <span>Serviços <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+              <span>·</span>
+              <span>Produtos <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+              <span>·</span>
+              <span>Total <strong style={{color:G}}>{fmtR(totalFinal)}</strong></span>
             </div>
           </div>
 
