@@ -81,6 +81,40 @@ function scoreParaPercent(s: number | null | undefined): number {
   return Math.round(v)
 }
 
+// ONDA-A-IMPORTADOR-OFX-v1: parser OFX simples (regex sobre STMTTRN)
+interface MovimentoOFX {
+  data_transacao: string
+  valor: number
+  natureza: 'debito' | 'credito'
+  descricao: string
+  id_externo: string | null
+}
+
+function parseOFX(text: string): MovimentoOFX[] {
+  const movimentos: MovimentoOFX[] = []
+  const blocos = text.split(/<STMTTRN>/i).slice(1)
+  for (const b of blocos) {
+    const tx = b.split(/<\/STMTTRN>/i)[0]
+    const get = (tag: string) => {
+      const m = tx.match(new RegExp('<' + tag + '>([^<\\r\\n]+)', 'i'))
+      return m ? m[1].trim() : ''
+    }
+    const dt = get('DTPOSTED').slice(0, 8)
+    if (dt.length < 8) continue
+    const data_transacao = `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`
+    const amt = parseFloat(get('TRNAMT').replace(',', '.'))
+    if (isNaN(amt)) continue
+    movimentos.push({
+      data_transacao,
+      valor: Math.abs(amt),
+      natureza: amt < 0 ? 'debito' : 'credito',
+      descricao: (get('MEMO') || get('NAME') || 'Movimento').slice(0, 200),
+      id_externo: get('FITID') || null,
+    })
+  }
+  return movimentos
+}
+
 export default function InboxPage() {
   const router = useRouter()
   const { companyIds, selInfo } = useCompanyIds()
@@ -96,6 +130,12 @@ export default function InboxPage() {
   const [conciliandoLote, setConciliandoLote] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [arquivando, setArquivando] = useState<Item | null>(null)
+  // ONDA-A-IMPORTADOR-OFX-v1
+  const [showImport, setShowImport] = useState(false)
+  const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
+  const [contaImportId, setContaImportId] = useState<string>('')
+  const [arquivoOFX, setArquivoOFX] = useState<File | null>(null)
+  const [importando, setImportando] = useState(false)
 
   async function carregar() {
     if (!empresaUnica) return
@@ -130,6 +170,59 @@ export default function InboxPage() {
     setAutoGlobal(data?.auto_conciliar_global ?? false)
   }
 
+  async function carregarContas() {
+    if (!empresaUnica) return
+    const { data } = await supabase
+      .from('erp_banco_contas')
+      .select('id,nome,banco')
+      .eq('company_id', empresaUnica)
+      .eq('ativo', true)
+      .order('nome')
+    setContas(data ?? [])
+  }
+
+  async function importarOFX() {
+    if (!empresaUnica || !contaImportId || !arquivoOFX) {
+      alert('Escolha a conta e o arquivo OFX.')
+      return
+    }
+    setImportando(true)
+    try {
+      const text = await arquivoOFX.text()
+      const movimentos = parseOFX(text)
+      if (movimentos.length === 0) {
+        alert('Nenhuma transação encontrada no arquivo OFX.')
+        setImportando(false)
+        return
+      }
+      const hash = `${text.length}-${movimentos[0]?.id_externo ?? ''}-${movimentos[movimentos.length - 1]?.id_externo ?? ''}`
+      const { data, error } = await supabase.rpc('fn_conciliacao_criar_lote', {
+        p_company_id: empresaUnica,
+        p_tipo: 'bancario',
+        p_origem: 'ofx',
+        p_nome: arquivoOFX.name,
+        p_arquivo_nome: arquivoOFX.name,
+        p_arquivo_hash: hash,
+        p_storage_path: null,
+        p_movimentos: movimentos,
+        p_conta_bancaria_id: contaImportId,
+      })
+      if (error) throw error
+      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; total_movimentos?: number }
+      if (r.sucesso === false) throw new Error(r.erro ?? 'Falha ao criar lote')
+      alert(`IMPORTOU ${r.total_movimentos ?? movimentos.length} movimento(s) do extrato. Já estão na conciliação.`)
+      setShowImport(false)
+      setArquivoOFX(null)
+      setContaImportId('')
+      await carregar()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert('Erro ao importar OFX: ' + msg)
+    } finally {
+      setImportando(false)
+    }
+  }
+
   async function toggleAutoGlobal(v: boolean) {
     if (!empresaUnica) return
     setAutoGlobal(v)
@@ -148,6 +241,7 @@ export default function InboxPage() {
     void carregar()
     void carregarConciliados()
     void carregarConfig()
+    void carregarContas()
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [empresaUnica])
 
@@ -283,8 +377,8 @@ export default function InboxPage() {
           </label>
         </div>
 
-        {/* Abas */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {/* Abas + botao Importar OFX */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => setAba('pendentes')}
             style={aba === 'pendentes' ? tabActive : tabInactive}
@@ -293,7 +387,56 @@ export default function InboxPage() {
             onClick={() => setAba('conciliados')}
             style={aba === 'conciliados' ? tabActive : tabInactive}
           >Conciliados ({conciliados.length})</button>
+          <button
+            onClick={() => setShowImport((v) => !v)}
+            style={{ ...tabInactive, marginLeft: 'auto', borderStyle: 'dashed' }}
+            data-testid="inbox-importar-ofx"
+          >+ Importar extrato (OFX)</button>
         </div>
+
+        {/* Painel: Importar OFX */}
+        {showImport && (
+          <div style={{ border: '1px solid #E3D9CC', borderRadius: 8, padding: 16, marginBottom: 16, background: '#FAF7F2' }}>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: '#3D2314' }}>Importar extrato bancário (.ofx)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <select
+                value={contaImportId}
+                onChange={(e) => setContaImportId(e.target.value)}
+                style={{ padding: '8px 10px', border: '1px solid #E3D9CC', borderRadius: 6, fontSize: 13, background: '#FFF', color: '#3D2314' }}
+              >
+                <option value="">Selecione a conta bancária…</option>
+                {contas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome ?? '(sem nome)'}{c.banco ? ` · ${c.banco}` : ''}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="file"
+                accept=".ofx,application/x-ofx,text/plain"
+                onChange={(e) => setArquivoOFX(e.target.files?.[0] ?? null)}
+                style={{ fontSize: 13 }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  disabled={importando}
+                  onClick={() => void importarOFX()}
+                  style={primaryBtnLoad(importando)}
+                  data-testid="inbox-importar-confirmar"
+                >
+                  {importando ? 'Importando…' : 'Importar e conciliar'}
+                </button>
+                <button
+                  onClick={() => { setShowImport(false); setArquivoOFX(null) }}
+                  style={secondaryBtn(false)}
+                >Cancelar</button>
+              </div>
+              <div style={{ fontSize: 12, color: '#7A6B5A', marginTop: 2 }}>
+                Baixe o extrato em .OFX no internet banking do seu banco e suba aqui. Funciona com qualquer banco.
+              </div>
+            </div>
+          </div>
+        )}
 
         {erro && (
           <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 12 }}>
