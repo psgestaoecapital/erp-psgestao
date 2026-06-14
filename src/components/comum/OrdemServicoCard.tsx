@@ -33,7 +33,8 @@ interface OS {
 }
 
 interface Props {
-  pedidoId: string
+  pedidoId?: string
+  osId?: string
   onFlash?: (msg: string) => void
 }
 
@@ -102,7 +103,7 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
+export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
   const [os, setOs] = useState<OS | null>(null)
   const [loading, setLoading] = useState(true)
   const [criando, setCriando] = useState(false)
@@ -133,14 +134,12 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('erp_os')
-      .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
-      .eq('pedido_id', pedidoId)
-      .neq('status', 'cancelada')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
+    const cols = 'id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const q = supabase.from('erp_os').select(cols)
+    const { data, error } = osId
+      ? await q.eq('id', osId).maybeSingle()
+      : await q.eq('pedido_id', pedidoId as string).neq('status', 'cancelada').order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (error) setErro(error.message)
     const row = (data ?? null) as OS | null
     setOs(row)
@@ -156,7 +155,7 @@ export default function OrdemServicoCard({ pedidoId, onFlash }: Props) {
       setValorHora(row.valor_hora != null ? String(row.valor_hora) : '')
     }
     setLoading(false)
-  }, [pedidoId])
+  }, [pedidoId, osId])
 
   useEffect(() => { void carregar() }, [carregar])
 

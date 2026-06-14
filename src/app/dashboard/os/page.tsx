@@ -1,0 +1,473 @@
+'use client'
+
+// ONDA-OS-MECANICO-MOBILE-v1
+// /dashboard/os · ponto de entrada do mecanico no celular.
+// Lista OS da empresa ativa + Nova OS avulsa via fn_os_criar.
+// Mobile-first · touch 44px+ · linguagem CRIOU/ABRIU.
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
+
+export const dynamic = 'force-dynamic'
+
+const C = {
+  espresso: '#3D2314', espressoM: '#6B5D4F', espressoL: '#9C8E80',
+  bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3', border: '#E0D8CC',
+  gold: '#C8941A', goldBg: '#FDF7E8',
+  green: '#10B981', greenBg: '#ECFDF5', greenD: '#047857',
+  amber: '#C88A1A', amberBg: '#FFF8E1',
+  red: '#EF4444', redBg: '#FEE2E2',
+  blue: '#3B82F6',
+}
+
+const STATUS_CFG: Record<string, { label: string; cor: string; bg: string }> = {
+  aberta:                { label: 'Aberta',                  cor: C.espresso, bg: C.cream },
+  em_execucao:           { label: 'Em execução',             cor: C.gold,     bg: C.goldBg },
+  aguardando_peca:       { label: 'Aguardando peça',         cor: C.amber,    bg: C.amberBg },
+  aguardando_aprovacao:  { label: 'Aguardando aprovação',    cor: C.amber,    bg: C.amberBg },
+  pronta:                { label: 'Pronta',                  cor: C.green,    bg: C.greenBg },
+  entregue:              { label: 'Entregue',                cor: C.greenD,   bg: C.greenBg },
+  cancelada:             { label: 'Cancelada',               cor: C.red,      bg: C.redBg },
+}
+const STATUS_ORDER = ['aberta','em_execucao','aguardando_peca','aguardando_aprovacao','pronta','entregue','cancelada'] as const
+
+interface OSRow {
+  id: string
+  numero: string | null
+  cliente_nome: string | null
+  equipamento: string | null
+  status: string
+  data_abertura: string | null
+  total: number | null
+}
+
+interface Cliente {
+  id: string
+  razao_social: string | null
+  nome_fantasia: string | null
+  cpf_cnpj: string | null
+  company_id: string
+}
+
+const fmtBRL = (v: number | null | undefined) =>
+  v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtD = (s: string | null | undefined) =>
+  s ? new Date(s + (s.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR') : '—'
+
+const inp: React.CSSProperties = {
+  width: '100%', minHeight: 44, padding: '10px 12px',
+  border: `1px solid ${C.border}`, borderRadius: 8,
+  fontSize: 14, color: C.espresso, background: C.white, outline: 'none',
+}
+const lbl: React.CSSProperties = { display: 'block', fontSize: 11, color: C.espressoM, fontWeight: 600, marginBottom: 4 }
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_CFG[status] ?? STATUS_CFG.aberta
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      padding: '3px 9px', borderRadius: 999,
+      background: s.bg, color: s.cor,
+      fontSize: 10, fontWeight: 700, letterSpacing: 0.2,
+      whiteSpace: 'nowrap',
+    }}>{s.label}</span>
+  )
+}
+
+export default function OSMecanicoPage() {
+  const { companyIds, sel, companies } = useCompanyIds()
+  const [oss, setOss] = useState<OSRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filtroStatus, setFiltroStatus] = useState<string>('todas')
+  const [busca, setBusca] = useState('')
+  const [novoAberto, setNovoAberto] = useState(false)
+  const [osAberta, setOsAberta] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [okMsg, setOkMsg] = useState<string | null>(null)
+
+  // empresa individual ativa (igual ao padrao de orcamentos)
+  const companyIdAtiva = useMemo(() => {
+    if (sel && !sel.startsWith('group_') && sel !== 'consolidado') return sel
+    return companyIds[0] || ''
+  }, [sel, companyIds])
+
+  const carregar = useCallback(async () => {
+    if (companyIds.length === 0) { setLoading(false); return }
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('erp_os')
+      .select('id, numero, cliente_nome, equipamento, status, data_abertura, total')
+      .in('company_id', companyIds)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) setErro(error.message)
+    setOss((data ?? []) as OSRow[])
+    setLoading(false)
+  }, [companyIds])
+
+  useEffect(() => { void carregar() }, [carregar])
+
+  const filtradas = useMemo(() => {
+    let r = oss
+    if (filtroStatus !== 'todas') r = r.filter((o) => o.status === filtroStatus)
+    if (busca.trim()) {
+      const b = busca.toLowerCase()
+      r = r.filter((o) =>
+        (o.numero ?? '').toLowerCase().includes(b) ||
+        (o.cliente_nome ?? '').toLowerCase().includes(b) ||
+        (o.equipamento ?? '').toLowerCase().includes(b)
+      )
+    }
+    return r
+  }, [oss, filtroStatus, busca])
+
+  const contagens = useMemo(() => {
+    const c: Record<string, number> = {}
+    STATUS_ORDER.forEach((s) => { c[s] = 0 })
+    oss.forEach((o) => { c[o.status] = (c[o.status] ?? 0) + 1 })
+    return c
+  }, [oss])
+
+  function abrirFichaOS(id: string) {
+    setOsAberta(id)
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, padding: 16 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: C.espresso, display: 'flex', alignItems: 'center', gap: 8 }}>
+            🛠 Ordens de Serviço
+            <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: C.goldBg, color: C.gold, fontWeight: 700, letterSpacing: 0.5 }}>os-mec-v1</span>
+          </div>
+          <div style={{ fontSize: 11, color: C.espressoL }}>Abra, preencha e assine a OS direto no celular.</div>
+        </div>
+        <button
+          onClick={() => { setErro(null); setOkMsg(null); setNovoAberto(true) }}
+          style={{
+            minHeight: 44, padding: '10px 18px', borderRadius: 8,
+            background: C.gold, color: C.white, border: 'none',
+            fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          }}
+          data-testid="os-nova"
+        >
+          + Nova OS
+        </button>
+      </div>
+
+      {erro && <div className="no-print" style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 10, fontSize: 12, fontWeight: 600 }} onClick={() => setErro(null)}>❌ {erro}</div>}
+      {okMsg && <div className="no-print" style={{ background: C.greenBg, color: C.green, padding: '10px 12px', borderRadius: 8, marginBottom: 10, fontSize: 12, fontWeight: 600 }} onClick={() => setOkMsg(null)}>✓ {okMsg}</div>}
+
+      {/* Filtros */}
+      <div className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+        <input
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por número, cliente ou veículo…"
+          style={inp}
+        />
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+          <button
+            onClick={() => setFiltroStatus('todas')}
+            style={{
+              minHeight: 36, padding: '6px 12px', borderRadius: 999,
+              border: `1px solid ${filtroStatus === 'todas' ? C.gold : C.border}`,
+              background: filtroStatus === 'todas' ? C.goldBg : C.white,
+              color: filtroStatus === 'todas' ? C.gold : C.espressoM,
+              fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >Todas ({oss.length})</button>
+          {STATUS_ORDER.map((s) => (
+            <button
+              key={s}
+              onClick={() => setFiltroStatus(s)}
+              style={{
+                minHeight: 36, padding: '6px 12px', borderRadius: 999,
+                border: `1px solid ${filtroStatus === s ? STATUS_CFG[s].cor : C.border}`,
+                background: filtroStatus === s ? STATUS_CFG[s].bg : C.white,
+                color: filtroStatus === s ? STATUS_CFG[s].cor : C.espressoM,
+                fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >{STATUS_CFG[s].label} ({contagens[s] ?? 0})</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Lista */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: C.espressoL, fontSize: 13 }}>Carregando…</div>
+      ) : filtradas.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: C.espressoL, fontSize: 13, background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          {oss.length === 0 ? 'Nenhuma OS ainda. Clique em + Nova OS pra começar.' : 'Nenhuma OS com esses filtros.'}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {filtradas.map((o) => (
+            <button
+              key={o.id}
+              onClick={() => abrirFichaOS(o.id)}
+              style={{
+                textAlign: 'left', background: C.white, border: `1px solid ${C.border}`,
+                borderRadius: 10, padding: 12, cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', gap: 4,
+              }}
+              data-testid="os-row"
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.gold, fontSize: 13 }}>{o.numero ?? '—'}</span>
+                <StatusBadge status={o.status} />
+              </div>
+              <div style={{ fontSize: 13, color: C.espresso, fontWeight: 600 }}>{o.cliente_nome ?? 'Sem cliente'}</div>
+              {o.equipamento && <div style={{ fontSize: 11, color: C.espressoM }}>🚗 {o.equipamento}</div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: C.espressoL, marginTop: 2 }}>
+                <span>{fmtD(o.data_abertura)}</span>
+                {Number(o.total ?? 0) > 0 && <span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Modal: Nova OS */}
+      {novoAberto && (
+        <ModalNovaOS
+          companyIdAtiva={companyIdAtiva}
+          companies={companies}
+          onClose={() => setNovoAberto(false)}
+          onCriada={(osId, numero) => {
+            setNovoAberto(false)
+            setOkMsg(`OS criada · Nº ${numero}`)
+            window.setTimeout(() => setOkMsg(null), 3500)
+            void carregar()
+            abrirFichaOS(osId)
+          }}
+          onErro={(m) => setErro(m)}
+        />
+      )}
+
+      {/* Modal: Ficha de OS (reusa OrdemServicoCard) */}
+      {osAberta && (
+        <div onClick={() => { setOsAberta(null); void carregar() }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 12, overflowY: 'auto' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, width: '100%', maxWidth: 720, padding: 16, marginTop: 12, marginBottom: 12, border: `1px solid ${C.border}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Ficha de OS</div>
+              <button onClick={() => { setOsAberta(null); void carregar() }} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM, minHeight: 36 }}>Fechar ✕</button>
+            </div>
+            <OrdemServicoCard osId={osAberta} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// Modal Nova OS · mobile-first
+// ════════════════════════════════════════════════════════════
+
+function ModalNovaOS({
+  companyIdAtiva, companies, onClose, onCriada, onErro,
+}: {
+  companyIdAtiva: string
+  companies: { id: string; nome_fantasia?: string | null; razao_social?: string | null }[]
+  onClose: () => void
+  onCriada: (osId: string, numero: string) => void
+  onErro: (m: string) => void
+}) {
+  const [descricao, setDescricao] = useState('')
+  const [veiculo, setVeiculo] = useState('')
+  const [defeito, setDefeito] = useState('')
+  const [tecnicoNome, setTecnicoNome] = useState('')
+  const [prioridade, setPrioridade] = useState('normal')
+  const [salvando, setSalvando] = useState(false)
+  const [erroLocal, setErroLocal] = useState<string | null>(null)
+  // cliente
+  const [busca, setBusca] = useState('')
+  const [resultados, setResultados] = useState<Cliente[]>([])
+  const [cliente, setCliente] = useState<Cliente | null>(null)
+
+  // Pre-fill tecnicoNome com o email do usuario
+  useEffect(() => {
+    void (async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      const nome = user?.user_metadata?.full_name || user?.email || ''
+      setTecnicoNome(nome)
+    })()
+  }, [])
+
+  // Search clientes (debounced)
+  useEffect(() => {
+    if (cliente) return
+    if (busca.trim().length < 2) { setResultados([]); return }
+    if (!companyIdAtiva) return
+    const t = window.setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_clientes')
+        .select('id, razao_social, nome_fantasia, cpf_cnpj, company_id')
+        .eq('company_id', companyIdAtiva)
+        .eq('ativo', true)
+        .or(`razao_social.ilike.%${busca}%,nome_fantasia.ilike.%${busca}%,cpf_cnpj.ilike.%${busca.replace(/\D/g, '')}%`)
+        .limit(8)
+      setResultados((data ?? []) as Cliente[])
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [busca, companyIdAtiva, cliente])
+
+  async function salvar() {
+    setErroLocal(null)
+    if (!descricao.trim()) { setErroLocal('Descrição do serviço é obrigatória.'); return }
+    if (!companyIdAtiva) { setErroLocal('Selecione uma empresa antes de criar a OS.'); return }
+    setSalvando(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_os_criar', {
+      p_company_id: companyIdAtiva,
+      p_descricao_servico: descricao.trim(),
+      p_cliente_id: cliente?.id ?? null,
+      p_cliente_nome: cliente ? (cliente.nome_fantasia || cliente.razao_social) : null,
+      p_cliente_cnpj: cliente?.cpf_cnpj ?? null,
+      p_equipamento: veiculo.trim() || null,
+      p_defeito_relatado: defeito.trim() || null,
+      p_tecnico_id: user?.id ?? null,
+      p_tecnico_nome: tecnicoNome.trim() || null,
+      p_prioridade: prioridade,
+    })
+    setSalvando(false)
+    if (error) { setErroLocal('Erro: ' + error.message); return }
+    const r = data as { ok?: boolean; erro?: string; os_id?: string; numero?: string } | null
+    if (!r?.ok) {
+      const msg = r?.erro ?? 'Falha ao criar OS'
+      setErroLocal(msg)
+      onErro(msg)
+      return
+    }
+    onCriada(r.os_id as string, r.numero as string)
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 210, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 12, overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, width: '100%', maxWidth: 540, padding: 16, marginTop: 12, marginBottom: 12, border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.espresso }}>Nova OS</div>
+          <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM, minHeight: 36 }}>Fechar ✕</button>
+        </div>
+
+        {companies.length > 1 && companyIdAtiva && (
+          <div style={{ background: C.cream, borderRadius: 8, padding: 8, marginBottom: 10, fontSize: 11, color: C.espressoM }}>
+            Empresa: <strong style={{ color: C.espresso }}>{companies.find((c) => c.id === companyIdAtiva)?.nome_fantasia || companies.find((c) => c.id === companyIdAtiva)?.razao_social || '—'}</strong>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={lbl}>Descrição do serviço *</label>
+            <textarea
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              placeholder="Ex.: Troca de pastilhas dianteiras"
+              style={{ ...inp, minHeight: 70, resize: 'vertical' }}
+              data-testid="os-nova-descricao"
+            />
+          </div>
+
+          <div>
+            <label style={lbl}>Cliente (opcional)</label>
+            {cliente ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: 10, background: C.cream, borderRadius: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso }}>{cliente.nome_fantasia || cliente.razao_social}</div>
+                  {cliente.cpf_cnpj && <div style={{ fontSize: 10, color: C.espressoL, fontFamily: 'monospace' }}>{cliente.cpf_cnpj}</div>}
+                </div>
+                <button onClick={() => { setCliente(null); setBusca('') }} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 10px', cursor: 'pointer', color: C.espressoM, fontSize: 11, minHeight: 36 }}>Trocar</button>
+              </div>
+            ) : (
+              <>
+                <input
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar cliente por nome ou CNPJ (ou deixar sem cliente)"
+                  style={inp}
+                />
+                {resultados.length > 0 && (
+                  <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
+                    {resultados.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => { setCliente(c); setResultados([]) }}
+                        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}`, padding: 10, cursor: 'pointer', minHeight: 44 }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 500, color: C.espresso }}>{c.nome_fantasia || c.razao_social}</div>
+                        {c.cpf_cnpj && <div style={{ fontSize: 10, color: C.espressoL, fontFamily: 'monospace' }}>{c.cpf_cnpj}</div>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div>
+            <label style={lbl}>Veículo / equipamento (opcional)</label>
+            <input
+              value={veiculo}
+              onChange={(e) => setVeiculo(e.target.value)}
+              placeholder="Ex.: Gol 2015 - ABC1D23"
+              style={inp}
+              data-testid="os-nova-veiculo"
+            />
+          </div>
+
+          <div>
+            <label style={lbl}>Defeito relatado (opcional)</label>
+            <textarea
+              value={defeito}
+              onChange={(e) => setDefeito(e.target.value)}
+              placeholder="O que o cliente relatou"
+              style={{ ...inp, minHeight: 60, resize: 'vertical' }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={lbl}>Mecânico</label>
+              <input
+                value={tecnicoNome}
+                onChange={(e) => setTecnicoNome(e.target.value)}
+                placeholder="Seu nome"
+                style={inp}
+              />
+            </div>
+            <div>
+              <label style={lbl}>Prioridade</label>
+              <select value={prioridade} onChange={(e) => setPrioridade(e.target.value)} style={{ ...inp, cursor: 'pointer' }}>
+                <option value="baixa">Baixa</option>
+                <option value="normal">Normal</option>
+                <option value="alta">Alta</option>
+                <option value="urgente">Urgente</option>
+              </select>
+            </div>
+          </div>
+
+          {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>❌ {erroLocal}</div>}
+
+          <button
+            onClick={salvar}
+            disabled={salvando || !descricao.trim()}
+            style={{
+              minHeight: 48, padding: '12px 18px', borderRadius: 10,
+              background: salvando || !descricao.trim() ? C.cream : C.gold,
+              color: salvando || !descricao.trim() ? C.espressoL : C.white,
+              border: 'none', fontSize: 14, fontWeight: 700,
+              cursor: salvando || !descricao.trim() ? 'not-allowed' : 'pointer',
+            }}
+            data-testid="os-nova-salvar"
+          >
+            {salvando ? 'Criando…' : 'Criar OS'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
