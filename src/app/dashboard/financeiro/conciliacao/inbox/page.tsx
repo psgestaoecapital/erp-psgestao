@@ -115,7 +115,7 @@ export default function InboxPage() {
     if (!empresaUnica) return
     const { data, error } = await supabase.rpc('fn_conciliacao_conciliados', {
       p_company_id: empresaUnica,
-      p_limite: 100,
+      p_limite: 500,
     })
     if (!error) setConciliados((data ?? []) as Conciliado[])
   }
@@ -271,16 +271,17 @@ export default function InboxPage() {
           )}
         </div>
 
-        {/* Toggle auto-conciliar por empresa */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, color: '#3D2314', cursor: 'pointer' }}>
-          <input type="checkbox" checked={autoGlobal} onChange={(e) => void toggleAutoGlobal(e.target.checked)} />
-          Auto-conciliar OURO desta empresa (perfeitos 1:1 entram sozinhos)
-        </label>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 13, color: '#3D2314', cursor: 'pointer' }}>
-          <input type="checkbox" checked={soOuro} onChange={(e) => setSoOuro(e.target.checked)} />
-          Mostrar só matches OURO
-        </label>
+        {/* Toggles agrupados, alinhados a direita */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', marginBottom: 16, fontSize: 13, color: '#3D2314' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
+            <input type="checkbox" checked={autoGlobal} onChange={(e) => void toggleAutoGlobal(e.target.checked)} />
+            Auto-conciliar OURO desta empresa (perfeitos 1:1 entram sozinhos)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
+            <input type="checkbox" checked={soOuro} onChange={(e) => setSoOuro(e.target.checked)} />
+            Mostrar só matches OURO
+          </label>
+        </div>
 
         {/* Abas */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
