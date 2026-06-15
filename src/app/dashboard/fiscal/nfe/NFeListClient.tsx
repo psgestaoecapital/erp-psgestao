@@ -6,8 +6,9 @@ import { supabase } from '@/lib/supabase'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
-  FileCode, FileText, ChevronLeft, ChevronRight as ChevR,
+  FileCode, FileText, ChevronLeft, ChevronRight as ChevR, XCircle,
 } from 'lucide-react'
+import { authFetch } from '@/lib/authFetch'
 
 interface NFeRow {
   id: string
@@ -89,6 +90,43 @@ export default function NFeListClient() {
   const [buscaSubmit, setBuscaSubmit] = useState('')
   const [expandida, setExpandida] = useState<string | null>(null)
   const [baixando, setBaixando] = useState<string | null>(null)
+  // fiscal-cancelamento-nfe-v1
+  const [cancelando, setCancelando] = useState<NFeRow | null>(null)
+  const [justifCancel, setJustifCancel] = useState('')
+  const [enviandoCancel, setEnviandoCancel] = useState(false)
+  const [erroCancel, setErroCancel] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  async function cancelarNFe() {
+    if (!cancelando) return
+    if (justifCancel.trim().length < 15) {
+      setErroCancel('Justificativa precisa de no minimo 15 caracteres (regra SEFAZ).')
+      return
+    }
+    if (!confirm(`Tem certeza? Esta acao eh definitiva.\n\nCANCELAR a NF-e nº ${cancelando.numero ?? cancelando.id} na SEFAZ?`)) return
+    setEnviandoCancel(true); setErroCancel(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfe/cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nfeId: cancelando.id, justificativa: justifCancel.trim() }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false) {
+        setErroCancel(json?.mensagem ?? 'Falha ao cancelar')
+        setEnviandoCancel(false)
+        return
+      }
+      // sucesso · fecha modal + recarrega lista
+      setCancelando(null); setJustifCancel(''); setErroCancel(null)
+      setEnviandoCancel(false)
+      alert(`CANCELOU a nota nº ${cancelando.numero ?? cancelando.id}.`)
+      setReloadKey((k) => k + 1)
+    } catch (e) {
+      setErroCancel((e as Error)?.message ?? 'Erro ao cancelar')
+      setEnviandoCancel(false)
+    }
+  }
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -119,7 +157,7 @@ export default function NFeListClient() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, statusFiltro, dataInicio, dataFim, buscaSubmit, pagina])
+  }, [companyId, statusFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -398,6 +436,16 @@ export default function NFeListClient() {
                                   )}
                                   DANFE
                                 </button>
+                                {row.status === 'autorizada' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setCancelando(row); setJustifCancel(''); setErroCancel(null) }}
+                                    data-testid="nfe-cancelar"
+                                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#A32D2D]/40 text-[#A32D2D] hover:bg-[#A32D2D]/10 flex items-center gap-1.5"
+                                  >
+                                    <XCircle size={12} /> Cancelar nota
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -436,6 +484,73 @@ export default function NFeListClient() {
           )}
         </div>
       </div>
+
+      {/* fiscal-cancelamento-nfe-v1 · Modal de cancelamento */}
+      {cancelando && (
+        <div onClick={() => !enviandoCancel && setCancelando(null)} className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl max-w-md w-full p-5 border border-[#A32D2D]/40">
+            <div className="flex items-start gap-3 mb-4">
+              <XCircle size={20} className="text-[#A32D2D] flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-[15px] font-semibold text-[#3D2314]">Cancelar NF-e nº {cancelando.numero ?? cancelando.id}</h3>
+                <p className="text-[12px] text-[#3D2314]/70 mt-1">
+                  Prazo legal: 24 horas após a autorização (SEFAZ-SC). Após esse prazo, use carta de correção ou nota de ajuste.
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">
+                Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span>
+              </label>
+              <textarea
+                value={justifCancel}
+                onChange={(e) => setJustifCancel(e.target.value)}
+                rows={3}
+                maxLength={255}
+                placeholder="Ex: Erro no destinatário · Reemissão necessária"
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#A32D2D] resize-none"
+                disabled={enviandoCancel}
+                data-testid="nfe-cancelar-justificativa"
+              />
+              <div className="flex justify-between mt-1 text-[10.5px]">
+                <span className={justifCancel.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>
+                  {justifCancel.length}/15 mínimo
+                </span>
+                <span className="text-[#3D2314]/55">{justifCancel.length}/255</span>
+              </div>
+            </div>
+
+            {erroCancel && (
+              <div className="mb-3 p-2 bg-[#FCEBEB] text-[#A32D2D] text-[12px] rounded-lg flex items-start gap-2">
+                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                <span>{erroCancel}</span>
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setCancelando(null)}
+                disabled={enviandoCancel}
+                className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={cancelarNFe}
+                disabled={enviandoCancel || justifCancel.trim().length < 15}
+                data-testid="nfe-cancelar-confirmar"
+                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#A32D2D] text-white hover:bg-[#8A2525] disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {enviandoCancel ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
+                {enviandoCancel ? 'Cancelando…' : 'Cancelar nota'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
