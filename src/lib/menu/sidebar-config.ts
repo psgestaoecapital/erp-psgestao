@@ -83,6 +83,8 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'nfse-emitidas', label: 'NFSe Emitidas', href: '/dashboard/fiscal/nfse', status: 'pronto' },
       { id: 'nfe-emitidas', label: 'NFe Emitidas', href: '/dashboard/fiscal/nfe', status: 'pronto', badge: 'NFe' },
       { id: 'nfe-devolucao', label: 'NFe Devolução de compra', href: '/dashboard/fiscal/nfe/devolucao', status: 'pronto' },
+      { id: 'nfe-devol-venda', label: 'NFe Devolução de venda', href: '/dashboard/fiscal/nfe/devolucao-venda', status: 'pronto' },
+      { id: 'nfe-remessa', label: 'NFe Remessa / diversa', href: '/dashboard/fiscal/nfe/remessa', status: 'pronto' },
       { id: 'gov-nfse', label: 'NFSe Nacional gov.br', href: '/dashboard/fiscal/gov-nfse', status: 'parcial', badge: 'gov.br' },
     ],
   },
