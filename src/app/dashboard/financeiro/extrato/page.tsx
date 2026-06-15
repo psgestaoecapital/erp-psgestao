@@ -29,6 +29,8 @@ interface Extrato {
     saldo_atual: number
     total_entradas: number
     total_saidas: number
+    saldo_base?: number
+    data_ancora?: string | null
   }
 }
 
@@ -201,7 +203,10 @@ export default function ExtratoPage() {
 
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#FAF7F2', padding: '8px 0 16px', marginBottom: 16, borderBottom: '0.5px solid rgba(61,35,20,0.08)' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <button type="button" onClick={() => { setDataInicio(isoToday()); setDataFim(isoToday()) }} style={quickBtn}>Hoje</button>
+            <button type="button" onClick={() => { setDataInicio(isoMinus(7)); setDataFim(isoToday()) }} style={quickBtn}>7 dias</button>
             <button type="button" onClick={() => { setDataInicio(isoMinus(30)); setDataFim(isoToday()) }} style={quickBtn}>30 dias</button>
+            <button type="button" onClick={() => { setDataInicio(isoMinus(90)); setDataFim(isoToday()) }} style={quickBtn}>90 dias</button>
             <button type="button" onClick={() => { const h = new Date(); setDataInicio(toISO(new Date(h.getFullYear(), h.getMonth(), 1))); setDataFim(toISO(new Date(h.getFullYear(), h.getMonth() + 1, 0))) }} style={quickBtn}>Mês atual</button>
             <button type="button" onClick={() => { const h = new Date(); setDataInicio(toISO(new Date(h.getFullYear(), h.getMonth() - 1, 1))); setDataFim(toISO(new Date(h.getFullYear(), h.getMonth(), 0))) }} style={quickBtn}>Mês passado</button>
           </div>
@@ -221,32 +226,22 @@ export default function ExtratoPage() {
           </div>
         </div>
 
-        {(() => {
-          const contaSel = contaId ? contas.find((c) => c.id === contaId) : null
-          const saldoAtual = contaSel
-            ? Number(contaSel.saldo_atual ?? contaSel.saldo_inicial ?? 0)
-            : contas.reduce((s, c) => s + Number(c.saldo_atual ?? c.saldo_inicial ?? 0), 0)
-          const limite = contaSel
-            ? Number(contaSel.limite_credito ?? 0)
-            : contas.reduce((s, c) => s + Number(c.limite_credito ?? 0), 0)
-          const pendentePagar = Math.max(0, Number(total?.total_saidas ?? 0))
-          const conciliado = saldoAtual - pendentePagar
-          const disponivel = saldoAtual + limite
-          return (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <Card label="Saldo Conciliado" valor={`R$ ${fmt(conciliado)}`} cor="#C8941A" />
-              <Card label="Saldo Atual" valor={`R$ ${fmt(saldoAtual)}`} cor="#3D2314" destaque />
-              <Card label="Limite de Crédito" valor={`R$ ${fmt(limite)}`} cor="rgba(61,35,20,0.55)" />
-              <Card label="Disponível" valor={`R$ ${fmt(disponivel)}`} cor="#3B6D11" />
-            </div>
-          )
-        })()}
-
+        {/* ONDA-A-EXTRATO-KPIs-UNIFICADOS-v1: fonte unica = totalizadores do RPC (ancorados no saldo_inicial) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
-          <Card label="Saldo Anterior" valor={`R$ ${fmt(total?.saldo_anterior)}`} cor="rgba(61,35,20,0.5)" />
-          <Card label="Entradas no período" valor={`+ R$ ${fmt(total?.total_entradas)}`} cor="#3B6D11" />
-          <Card label="Saídas no período" valor={`− R$ ${fmt(total?.total_saidas)}`} cor="#A32D2D" />
-          <Card label="Saldo Atual" valor={`R$ ${fmt(total?.saldo_atual)}`} cor="#C8941A" destaque />
+          <Card
+            label="Saldo inicial"
+            valor={`R$ ${fmt(total?.saldo_base)}`}
+            cor="rgba(61,35,20,0.55)"
+            sub={total?.data_ancora ? `em ${fmtDate(total.data_ancora)}` : '—'}
+          />
+          <Card label="Entradas (período)" valor={`+ R$ ${fmt(total?.total_entradas)}`} cor="#3B6D11" />
+          <Card label="Saídas (período)" valor={`− R$ ${fmt(total?.total_saidas)}`} cor="#A32D2D" />
+          <Card
+            label="Saldo atual"
+            valor={`R$ ${fmt(total?.saldo_atual)}`}
+            cor={Number(total?.saldo_atual ?? 0) < 0 ? '#A32D2D' : '#3B6D11'}
+            destaque
+          />
         </div>
 
         {loading ? (
@@ -349,7 +344,7 @@ export default function ExtratoPage() {
   )
 }
 
-function Card({ label, valor, cor, destaque }: { label: string; valor: string; cor: string; destaque?: boolean }) {
+function Card({ label, valor, cor, destaque, sub }: { label: string; valor: string; cor: string; destaque?: boolean; sub?: string }) {
   return (
     <div style={{
       background: destaque ? '#FFF8E7' : '#FFFFFF',
@@ -360,6 +355,7 @@ function Card({ label, valor, cor, destaque }: { label: string; valor: string; c
     }}>
       <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 600, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
+      {sub && <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.45)', marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
