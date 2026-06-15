@@ -82,6 +82,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'hub-fiscal', label: 'Hub Fiscal', href: '/dashboard/fiscal', status: 'pronto' },
       { id: 'nfse-emitidas', label: 'NFSe Emitidas', href: '/dashboard/fiscal/nfse', status: 'pronto' },
       { id: 'nfe-emitidas', label: 'NFe Emitidas', href: '/dashboard/fiscal/nfe', status: 'pronto', badge: 'NFe' },
+      { id: 'nfe-devolucao', label: 'NFe Devolução de compra', href: '/dashboard/fiscal/nfe/devolucao', status: 'pronto' },
       { id: 'gov-nfse', label: 'NFSe Nacional gov.br', href: '/dashboard/fiscal/gov-nfse', status: 'parcial', badge: 'gov.br' },
     ],
   },

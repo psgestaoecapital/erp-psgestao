@@ -7,6 +7,8 @@ export interface NFeBuilderItemInput {
   quantidade: number
   valorUnitarioOverride?: number
   descontoUnitario?: number
+  // fiscal-devolucao-compra-v1: CFOP override por item (devolucao usa 5202/6202)
+  cfopOverride?: string
 }
 
 export interface NFeBuilderInput {
@@ -25,6 +27,8 @@ export interface NFeBuilderInput {
     itens: NFeBuilderItemInput[]
     naturezaOperacao?: string
     finalidade?: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
+    // fiscal-devolucao-compra-v1: chave 44 digitos da NFe original
+    chaveReferenciada?: string
   }
   overrides?: {
     itens: NFeBuilderItemInput[]
@@ -182,7 +186,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       codigo: prod.codigo ?? prod.id,
       descricao: prod.descricao || prod.nome,
       ncm: prod.ncm ?? '',
-      cfop: prod.cfop_venda ?? '5102',
+      cfop: it.cfopOverride ?? prod.cfop_venda ?? '5102',
       unidade: prod.unidade ?? 'UN',
       quantidade: it.quantidade,
       valorUnitario: valorUnit,
@@ -215,5 +219,6 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     },
     destinatario,
     itens: itensNFe,
+    chaveReferenciada: input.manual?.chaveReferenciada,
   }
 }
