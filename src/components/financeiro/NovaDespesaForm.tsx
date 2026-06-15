@@ -159,15 +159,16 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     }
 
     if (jaPago && ids.length > 0 && contaBancaria) {
-      for (const id of ids) {
-        await supabase.rpc('fn_pagar_baixar_pagamento', {
-          p_pagar_id: id,
-          p_data_pagamento: dataPagamento,
-          p_conta_bancaria_id: contaBancaria,
-          p_forma_pagamento: (formaPagamento || 'PIX').toUpperCase(),
-          p_valor_pago: null,
-        })
-      }
+      // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
+      // ids[0] eh a parcela 1/N (fn_pagar_criar_com_parcelas retorna na ordem).
+      const primeiroId = ids[0]
+      await supabase.rpc('fn_pagar_baixar_pagamento', {
+        p_pagar_id: primeiroId,
+        p_data_pagamento: dataPagamento,
+        p_conta_bancaria_id: contaBancaria,
+        p_forma_pagamento: (formaPagamento || 'PIX').toUpperCase(),
+        p_valor_pago: null,
+      })
     }
 
     setLoading(false)
@@ -423,7 +424,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
                 checked={jaPago}
                 onChange={(e) => setJaPago(e.target.checked)}
               />
-              Já paguei essa despesa
+              {parcelas > 1 ? 'Já paguei a 1ª parcela' : 'Já paguei essa despesa'}
             </label>
             {jaPago && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
