@@ -94,6 +94,9 @@ export interface NFeRequest {
     valor: number
   }
   observacoes?: string
+  // fiscal-devolucao-compra-v1: chave 44 digitos da NF-e original
+  // (usado em finalidade='devolucao'/'ajuste' · grupo NFref/refNFe)
+  chaveReferenciada?: string
 }
 
 export interface NFeResponse {

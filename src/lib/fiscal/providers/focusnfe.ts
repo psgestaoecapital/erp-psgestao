@@ -234,9 +234,16 @@ export class FocusNFeProvider implements FiscalProvider {
         : req.finalidade === 'complementar' ? 2
           : req.finalidade === 'ajuste' ? 3 : 4
 
+    // fiscal-devolucao-compra-v1: grupo NFref · refNFe com chave 44 digitos
+    const chaveRef = req.chaveReferenciada?.replace(/\D/g, '')
+    const nfesReferenciadas = chaveRef && chaveRef.length === 44
+      ? [{ chave: chaveRef }]
+      : undefined
+
     const payload = {
       natureza_operacao: req.naturezaOperacao,
       finalidade_emissao: finalidadeNum,
+      ...(nfesReferenciadas ? { nfes_referenciadas: nfesReferenciadas } : {}),
       modalidade_frete: 9,
       // FIX-NFE-SERIE-PAYLOAD-v1
       // Sem este campo, Focus numerava na sua serie padrao (1) ·
