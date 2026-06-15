@@ -37,6 +37,14 @@ export default function AdminPage(){
   const [usuarios,setUsuarios]=useState<any[]>([]);
   const [convites,setConvites]=useState<any[]>([]);
   const [tab,setTab]=useState("empresas");
+  // ADMIN-AREAS-DINAMICAS-v1: aba "📂 Áreas" · le area_menu_config via RPCs
+  const [areasSubTab,setAreasSubTab]=useState<"empresa"|"usuario">("empresa");
+  const [areaCompanyId,setAreaCompanyId]=useState<string>("");
+  const [areaUserId,setAreaUserId]=useState<string>("");
+  const [areasEmpresa,setAreasEmpresa]=useState<any[]>([]);
+  const [areasUsuario,setAreasUsuario]=useState<any[]>([]);
+  const [areasLoading,setAreasLoading]=useState(false);
+  const [areasError,setAreasError]=useState<string|null>(null);
   const [showForm,setShowForm]=useState(false);
   const [showInvite,setShowInvite]=useState(false);
   const [selectedCompany,setSelectedCompany]=useState("");
@@ -204,6 +212,28 @@ export default function AdminPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // ADMIN-AREAS-DINAMICAS-v1: loaders das RPCs ja existentes
+  const loadAreasEmpresa=async(cid:string|null)=>{
+    setAreasLoading(true);setAreasError(null);
+    const{data,error}=await supabase.rpc('fn_listar_areas_visiveis',{p_company_id:cid});
+    if(error){setAreasError(error.message);setAreasEmpresa([]);}
+    else{setAreasEmpresa(data??[]);}
+    setAreasLoading(false);
+  };
+  const loadAreasUsuario=async(uid:string)=>{
+    setAreasLoading(true);setAreasError(null);
+    const{data,error}=await supabase.rpc('fn_areas_visiveis_usuario',{p_user_id:uid});
+    if(error){setAreasError(error.message);setAreasUsuario([]);}
+    else{setAreasUsuario(data??[]);}
+    setAreasLoading(false);
+  };
+  useEffect(()=>{
+    if(tab!=='areas')return;
+    if(areasSubTab==='empresa')loadAreasEmpresa(areaCompanyId||null);
+    if(areasSubTab==='usuario'&&areaUserId)loadAreasUsuario(areaUserId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tab,areasSubTab,areaCompanyId,areaUserId]);
+
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   // ═══ EMPRESA ROW — reutilizado em grupos e sem grupo ═══
@@ -263,7 +293,7 @@ export default function AdminPage(){
     {msg&&<div style={{background:G+"20",border:`1px solid ${G}`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:G,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
     <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
-      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].map(t=>(
+      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"areas",n:"📂 Áreas"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:20,fontSize:11,border:`1px solid ${tab===t.id?GO:BD}`,background:tab===t.id?`${G}08`:"transparent",color:tab===t.id?GO:TXM,fontWeight:tab===t.id?600:400,cursor:"pointer"}}>{t.n}</button>
       ))}
     </div>
@@ -787,6 +817,108 @@ export default function AdminPage(){
               </div>
             );
           })}
+        </div>
+      )}
+    </div>)}
+
+    {/* ═══ ADMIN-AREAS-DINAMICAS-v1: aba 📂 Áreas (le area_menu_config via RPC) ═══ */}
+    {tab==="areas"&&(<div>
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:6}}>Áreas do catálogo · area_menu_config</div>
+      <div style={{fontSize:11,color:TXD,marginBottom:14}}>Fonte da verdade: RPC <code style={{background:BG3,padding:"1px 6px",borderRadius:4}}>fn_listar_areas_visiveis</code> / <code style={{background:BG3,padding:"1px 6px",borderRadius:4}}>fn_areas_visiveis_usuario</code>. Catálogo dinâmico — sem lista hardcoded.</div>
+
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        <button onClick={()=>setAreasSubTab('empresa')} style={{padding:"6px 14px",borderRadius:8,fontSize:11,border:`1px solid ${areasSubTab==='empresa'?GO:BD}`,background:areasSubTab==='empresa'?`${GO}10`:"transparent",color:areasSubTab==='empresa'?GO:TXM,fontWeight:areasSubTab==='empresa'?600:400,cursor:"pointer"}}>Por empresa</button>
+        <button onClick={()=>setAreasSubTab('usuario')} style={{padding:"6px 14px",borderRadius:8,fontSize:11,border:`1px solid ${areasSubTab==='usuario'?GO:BD}`,background:areasSubTab==='usuario'?`${GO}10`:"transparent",color:areasSubTab==='usuario'?GO:TXM,fontWeight:areasSubTab==='usuario'?600:400,cursor:"pointer"}}>Por usuário</button>
+      </div>
+
+      {areasSubTab==='empresa'&&(
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+            <span style={{fontSize:11,color:TXM,minWidth:80}}>Empresa:</span>
+            <select value={areaCompanyId} onChange={e=>setAreaCompanyId(e.target.value)} style={{...inp,maxWidth:380}}>
+              <option value="">— Todas (catálogo geral, sem contexto) —</option>
+              {empresas.map(e=><option key={e.id} value={e.id}>{e.nome_fantasia||e.razao_social}</option>)}
+            </select>
+          </div>
+          {areasLoading?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Carregando áreas…</div>
+          ):areasError?(
+            <div style={{background:R+"15",border:`1px solid ${R}40`,borderRadius:8,padding:"10px 14px",fontSize:12,color:R}}>❌ {areasError}</div>
+          ):areasEmpresa.length===0?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Nenhuma área retornada pela RPC.</div>
+          ):(
+            <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden"}}>
+              {[...areasEmpresa].sort((a,b)=>(a.ordem??999)-(b.ordem??999)).map((a:any)=>(
+                <div key={a.area_slug} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:`0.5px solid ${BD}`,gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+                    <span style={{fontSize:18}}>{a.icone||"📁"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:TX,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        {a.nome_menu}
+                        {a.status_comercial&&(
+                          <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,background:(a.cor_destaque||GO)+"20",color:a.cor_destaque||GO,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{a.status_comercial}</span>
+                        )}
+                      </div>
+                      <div style={{fontSize:10,color:TXD}}><code>{a.area_slug}</code> · {a.rota_raiz}</div>
+                      {a.descricao_curta&&<div style={{fontSize:11,color:TXM,marginTop:2}}>{a.descricao_curta}</div>}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    {areaCompanyId?(
+                      <span title={a.motivo_acesso||""} style={{fontSize:11,padding:"3px 10px",borderRadius:6,background:a.empresa_tem_acesso?G+"20":TXD+"20",color:a.empresa_tem_acesso?G:TXD,fontWeight:600,border:`1px solid ${a.empresa_tem_acesso?G:TXD}40`}}>
+                        {a.empresa_tem_acesso?"✓ tem acesso":"sem acesso"}
+                      </span>
+                    ):(
+                      <span style={{fontSize:10,color:TXD,fontStyle:"italic"}}>selecione empresa pra ver acesso</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {areasSubTab==='usuario'&&(
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+            <span style={{fontSize:11,color:TXM,minWidth:80}}>Usuário:</span>
+            <select value={areaUserId} onChange={e=>setAreaUserId(e.target.value)} style={{...inp,maxWidth:380}}>
+              <option value="">— Selecione um usuário —</option>
+              {usuarios.map(u=><option key={u.id} value={u.id}>{u.full_name||u.email||u.id}</option>)}
+            </select>
+          </div>
+          {!areaUserId?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Selecione um usuário acima.</div>
+          ):areasLoading?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Carregando áreas do usuário…</div>
+          ):areasError?(
+            <div style={{background:R+"15",border:`1px solid ${R}40`,borderRadius:8,padding:"10px 14px",fontSize:12,color:R}}>❌ {areasError}</div>
+          ):areasUsuario.length===0?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Nenhuma área visível para este usuário.</div>
+          ):(
+            <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden"}}>
+              {[...areasUsuario].sort((a,b)=>(a.ordem??999)-(b.ordem??999)).map((a:any)=>(
+                <div key={a.area_id||a.area_slug} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:`0.5px solid ${BD}`,gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+                    <span style={{fontSize:18}}>{a.icone||"📁"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:TX,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        {a.nome_menu}
+                        {a.status_comercial&&(
+                          <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,background:(a.cor_destaque||GO)+"20",color:a.cor_destaque||GO,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{a.status_comercial}</span>
+                        )}
+                      </div>
+                      <div style={{fontSize:10,color:TXD}}>{a.rota_raiz}</div>
+                    </div>
+                  </div>
+                  <span style={{fontSize:11,padding:"3px 10px",borderRadius:6,background:a.restrito?Y+"20":G+"20",color:a.restrito?Y:G,fontWeight:600,border:`1px solid ${a.restrito?Y:G}40`}}>
+                    {a.restrito?"restrito":"liberado"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>)}
