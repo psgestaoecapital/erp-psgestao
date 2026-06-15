@@ -19,6 +19,25 @@ export interface SidebarModuleNode {
   matchPaths?: string[]
 }
 
+// ADMIN-CONECTORES-NO-MENU-v1 · bloco reutilizavel
+// Quando outras areas (BPO, Wealth, Industrial) ganharem config propria,
+// basta dar o mesmo ...MODULOS_ADMIN no array delas.
+const MODULOS_ADMIN: SidebarModuleNode[] = [
+  {
+    id: 'administracao',
+    label: 'Administração',
+    status: 'pronto',
+    items: [
+      { id: 'admin', label: 'Admin', href: '/dashboard/admin',
+        status: 'pronto', matchPaths: ['/dashboard/admin'] },
+      { id: 'conectores', label: 'Conectores & APIs', href: '/dashboard/conectores',
+        status: 'pronto', matchPaths: ['/dashboard/conectores'] },
+      { id: 'conexoes-bancarias', label: 'Conexões Bancárias', href: '/dashboard/financeiro/conexoes-bancarias',
+        status: 'pronto', matchPaths: ['/dashboard/financeiro/conexoes-bancarias'] },
+    ],
+  },
+];
+
 // Sidebar shared default · Gestao Empresarial (Onda 1)
 // Outros areas (BPO, Wealth, Industrial etc) ganham configs proprias no proximo PR
 export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
@@ -130,6 +149,8 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'anti-fraude', label: 'Anti-Fraude', href: '/dashboard/anti-fraude', status: 'parcial' },
     ],
   },
+  // ADMIN-CONECTORES-NO-MENU-v1: bloco reutilizavel · ver MODULOS_ADMIN no topo
+  ...MODULOS_ADMIN,
   // separator
   {
     id: 'configuracoes',
