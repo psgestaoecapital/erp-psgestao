@@ -37,6 +37,12 @@ export interface FiscalService {
   emitirNFe(req: NFeRequest): Promise<NFeResponse>
   consultarNFe(chave: string): Promise<NFeResponse>
   cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse>
+  cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
+    status: 'registrado' | 'rejeitado' | 'processando'
+    protocolo?: string
+    motivoRejeicao?: string
+    providerRaw: unknown
+  }>
   mdeListar(req: MDeListaRequest): Promise<MDeListaResponse>
   mdeManifestar(req: MDeManifestarRequest): Promise<MDeManifestarResponse>
   mdeBaixarXml(chave: string): Promise<string>
@@ -137,6 +143,7 @@ export async function createFiscalService(
     emitirNFe: (req) => provider.emitirNFe(req),
     consultarNFe: (c) => provider.consultarNFe(c),
     cancelarNFe: (c, j) => provider.cancelarNFe(c, j),
+    cartaCorrecaoNFe: (c, x) => provider.cartaCorrecaoNFe(c, x),
     mdeListar: (req) => provider.mdeListar(req),
     mdeManifestar: (req) => provider.mdeManifestar(req),
     mdeBaixarXml: (c) => provider.mdeBaixarXml(c),
