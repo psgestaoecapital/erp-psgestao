@@ -318,6 +318,34 @@ export class FocusNFeProvider implements FiscalProvider {
     return this.mapFocusNFeResponse(chave, data)
   }
 
+  // fiscal-carta-correcao-nfe-v1 · POST /v2/nfe/{ref}/carta_correcao
+  async cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
+    status: 'registrado' | 'rejeitado' | 'processando'
+    protocolo?: string
+    motivoRejeicao?: string
+    providerRaw: unknown
+  }> {
+    if (correcao.length < 15 || correcao.length > 1000) {
+      throw new FiscalError('PAYLOAD_INVALIDO', 'Correcao da CC-e exige entre 15 e 1000 caracteres')
+    }
+    const data = await this.request<Record<string, unknown>>(
+      'POST',
+      `/v2/nfe/${encodeURIComponent(chave)}/carta_correcao`,
+      { correcao }
+    )
+    const statusRaw = String(data?.status ?? '')
+    const status: 'registrado' | 'rejeitado' | 'processando' =
+      statusRaw === 'registrado' ? 'registrado'
+        : statusRaw === 'erro' || statusRaw === 'rejeitado' ? 'rejeitado'
+          : 'processando'
+    return {
+      status,
+      protocolo: (data?.protocolo as string) ?? (data?.numero_protocolo as string) ?? undefined,
+      motivoRejeicao: (data?.mensagem_sefaz as string) ?? (data?.mensagem as string) ?? undefined,
+      providerRaw: data,
+    }
+  }
+
   private mapFocusNFeResponse(referencia: string, data: FocusNFeNFeResponse): NFeResponse {
     const status =
       data.status === 'autorizado' ? 'autorizada'

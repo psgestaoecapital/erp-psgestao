@@ -170,6 +170,12 @@ export interface FiscalProvider {
   emitirNFe(req: NFeRequest): Promise<NFeResponse>
   consultarNFe(referenceOrChave: string): Promise<NFeResponse>
   cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse>
+  cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
+    status: 'registrado' | 'rejeitado' | 'processando'
+    protocolo?: string
+    motivoRejeicao?: string
+    providerRaw: unknown
+  }>
 
   mdeListar(req: MDeListaRequest): Promise<MDeListaResponse>
   mdeManifestar(req: MDeManifestarRequest): Promise<MDeManifestarResponse>

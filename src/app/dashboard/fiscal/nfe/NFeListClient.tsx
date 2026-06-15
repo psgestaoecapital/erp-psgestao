@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
-  FileCode, FileText, ChevronLeft, ChevronRight as ChevR, XCircle,
+  FileCode, FileText, ChevronLeft, ChevronRight as ChevR, XCircle, Edit3,
 } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
 
@@ -96,6 +96,53 @@ export default function NFeListClient() {
   const [enviandoCancel, setEnviandoCancel] = useState(false)
   const [erroCancel, setErroCancel] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  // fiscal-carta-correcao-nfe-v1
+  const [ccAberta, setCcAberta] = useState<NFeRow | null>(null)
+  const [ccCorrecao, setCcCorrecao] = useState('')
+  const [enviandoCC, setEnviandoCC] = useState(false)
+  const [erroCC, setErroCC] = useState<string | null>(null)
+  type EventoCC = { id: string; sequencia: number; correcao: string | null; status: string; protocolo: string | null; motivo_rejeicao: string | null; criado_em: string }
+  const [historicoCC, setHistoricoCC] = useState<Record<string, EventoCC[]>>({})
+
+  async function carregarHistoricoCC(nfeId: string) {
+    const { data } = await supabase
+      .from('erp_nfe_eventos')
+      .select('id, sequencia, correcao, status, protocolo, motivo_rejeicao, criado_em')
+      .eq('nfe_id', nfeId)
+      .eq('tipo', 'carta_correcao')
+      .order('sequencia', { ascending: true })
+    setHistoricoCC((m) => ({ ...m, [nfeId]: (data ?? []) as EventoCC[] }))
+  }
+
+  async function emitirCartaCorrecao() {
+    if (!ccAberta) return
+    const correcao = ccCorrecao.trim()
+    if (correcao.length < 15 || correcao.length > 1000) {
+      setErroCC('Correção precisa ter entre 15 e 1000 caracteres.')
+      return
+    }
+    if (!confirm(`EMITIR carta de correção para a NF-e nº ${ccAberta.numero ?? ccAberta.id}?\n\nAtenção: CC-e NÃO pode alterar valores, impostos ou dados do destinatário.`)) return
+    setEnviandoCC(true); setErroCC(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfe/carta-correcao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nfeId: ccAberta.id, correcao }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false) {
+        setErroCC(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir CC-e')
+        setEnviandoCC(false)
+        return
+      }
+      alert(`EMITIU carta de correção nº ${json.sequencia} (status: ${json.status}).`)
+      void carregarHistoricoCC(ccAberta.id)
+      setCcAberta(null); setCcCorrecao(''); setErroCC(null); setEnviandoCC(false)
+    } catch (e) {
+      setErroCC((e as Error)?.message ?? 'Erro ao emitir CC-e')
+      setEnviandoCC(false)
+    }
+  }
 
   async function cancelarNFe() {
     if (!cancelando) return
@@ -351,7 +398,11 @@ export default function NFeListClient() {
                           key={row.id}
                           data-testid="nfe-list-row"
                           className="border-t border-[#3D2314]/8 hover:bg-[#FAEEDA]/30 cursor-pointer"
-                          onClick={() => setExpandida(aberto ? null : row.id)}
+                          onClick={() => {
+                            const nv = aberto ? null : row.id
+                            setExpandida(nv)
+                            if (nv) void carregarHistoricoCC(row.id)
+                          }}
                         >
                           <td className="px-3 py-2.5">
                             {aberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -437,16 +488,54 @@ export default function NFeListClient() {
                                   DANFE
                                 </button>
                                 {row.status === 'autorizada' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => { setCancelando(row); setJustifCancel(''); setErroCancel(null) }}
-                                    data-testid="nfe-cancelar"
-                                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#A32D2D]/40 text-[#A32D2D] hover:bg-[#A32D2D]/10 flex items-center gap-1.5"
-                                  >
-                                    <XCircle size={12} /> Cancelar nota
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setCcAberta(row); setCcCorrecao(''); setErroCC(null) }}
+                                      data-testid="nfe-carta-correcao"
+                                      className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#C8941A]/40 text-[#3D2314] hover:bg-[#C8941A]/10 flex items-center gap-1.5"
+                                    >
+                                      <Edit3 size={12} /> Carta de correção
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setCancelando(row); setJustifCancel(''); setErroCancel(null) }}
+                                      data-testid="nfe-cancelar"
+                                      className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#A32D2D]/40 text-[#A32D2D] hover:bg-[#A32D2D]/10 flex items-center gap-1.5"
+                                    >
+                                      <XCircle size={12} /> Cancelar nota
+                                    </button>
+                                  </>
                                 )}
                               </div>
+
+                              {/* fiscal-carta-correcao-nfe-v1 · historico CC-e */}
+                              {(historicoCC[row.id] ?? []).length > 0 && (
+                                <div className="mt-4 pt-3 border-t border-[#3D2314]/8">
+                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-2">
+                                    Cartas de correção (CC-e)
+                                  </div>
+                                  <div className="flex flex-col gap-1.5">
+                                    {(historicoCC[row.id] ?? []).map((ev) => (
+                                      <div key={ev.id} className="text-[11.5px] text-[#3D2314] bg-[#FAF7F2]/80 rounded px-2 py-1.5">
+                                        <div className="flex justify-between gap-2 flex-wrap">
+                                          <span className="font-semibold">CC-e {ev.sequencia}</span>
+                                          <span className={
+                                            ev.status === 'registrado' ? 'text-[#3B6D11]' :
+                                            ev.status === 'rejeitado' ? 'text-[#A32D2D]' :
+                                            'text-[#C8941A]'
+                                          }>
+                                            {ev.status === 'registrado' ? '✓ registrado' : ev.status === 'rejeitado' ? '✕ rejeitado' : '⏳ processando'}
+                                          </span>
+                                        </div>
+                                        <div className="mt-0.5 text-[#3D2314]/85 break-words">{ev.correcao}</div>
+                                        {ev.protocolo && <div className="mt-0.5 text-[10.5px] text-[#3D2314]/55 font-mono">prot {ev.protocolo}</div>}
+                                        {ev.motivo_rejeicao && <div className="mt-0.5 text-[10.5px] text-[#A32D2D]">{ev.motivo_rejeicao}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )}
@@ -484,6 +573,79 @@ export default function NFeListClient() {
           )}
         </div>
       </div>
+
+      {/* fiscal-carta-correcao-nfe-v1 · Modal de CC-e */}
+      {ccAberta && (
+        <div onClick={() => !enviandoCC && setCcAberta(null)} className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl max-w-lg w-full p-5 border border-[#C8941A]/40">
+            <div className="flex items-start gap-3 mb-4">
+              <Edit3 size={20} className="text-[#3D2314] flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-[15px] font-semibold text-[#3D2314]">Carta de correção · NF-e nº {ccAberta.numero ?? ccAberta.id}</h3>
+                <p className="text-[11.5px] text-[#3D2314]/70 mt-1.5 leading-snug">
+                  Use para corrigir <strong>informações complementares</strong>. CC-e <strong>NÃO</strong> pode alterar:
+                  valores/impostos, dados do destinatário, data de emissão ou regra tributária.
+                </p>
+                <p className="text-[10.5px] text-[#3D2314]/55 mt-1">
+                  Limite legal: 20 CC-e por NF-e (a última válida prevalece).
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">
+                Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span>
+              </label>
+              <textarea
+                value={ccCorrecao}
+                onChange={(e) => setCcCorrecao(e.target.value)}
+                rows={5}
+                maxLength={1000}
+                placeholder="Ex: Onde se lê 'Av. das Flores 123', leia-se 'Av. das Flores 132'."
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A] resize-none"
+                disabled={enviandoCC}
+                data-testid="nfe-cc-texto"
+              />
+              <div className="flex justify-between mt-1 text-[10.5px]">
+                <span className={ccCorrecao.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>
+                  {ccCorrecao.length}/15 mínimo
+                </span>
+                <span className={ccCorrecao.length > 1000 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>
+                  {ccCorrecao.length}/1000
+                </span>
+              </div>
+            </div>
+
+            {erroCC && (
+              <div className="mb-3 p-2 bg-[#FCEBEB] text-[#A32D2D] text-[12px] rounded-lg flex items-start gap-2">
+                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                <span>{erroCC}</span>
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setCcAberta(null)}
+                disabled={enviandoCC}
+                className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={emitirCartaCorrecao}
+                disabled={enviandoCC || ccCorrecao.trim().length < 15 || ccCorrecao.trim().length > 1000}
+                data-testid="nfe-cc-confirmar"
+                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12] disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {enviandoCC ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />}
+                {enviandoCC ? 'Emitindo…' : 'Emitir CC-e'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* fiscal-cancelamento-nfe-v1 · Modal de cancelamento */}
       {cancelando && (
