@@ -161,15 +161,16 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     }
 
     if (jaRecebido && ids.length > 0 && contaBancaria) {
-      for (const id of ids) {
-        await supabase.rpc('fn_receber_baixar_pagamento', {
-          p_receber_id: id,
-          p_data_pagamento: dataPagamento,
-          p_conta_bancaria_id: contaBancaria,
-          p_forma_pagamento: (formaRecebimento || 'PIX').toUpperCase(),
-          p_valor_pago: null,
-        })
-      }
+      // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
+      // ids[0] eh a parcela 1/N (fn_receber_criar_com_parcelas retorna na ordem).
+      const primeiroId = ids[0]
+      await supabase.rpc('fn_receber_baixar_pagamento', {
+        p_receber_id: primeiroId,
+        p_data_pagamento: dataPagamento,
+        p_conta_bancaria_id: contaBancaria,
+        p_forma_pagamento: (formaRecebimento || 'PIX').toUpperCase(),
+        p_valor_pago: null,
+      })
     }
 
     setLoading(false)
@@ -392,7 +393,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
                 checked={jaRecebido}
                 onChange={(e) => setJaRecebido(e.target.checked)}
               />
-              Já recebi essa receita
+              {parcelas > 1 ? 'Já recebi a 1ª parcela' : 'Já recebi essa receita'}
             </label>
             {jaRecebido && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
