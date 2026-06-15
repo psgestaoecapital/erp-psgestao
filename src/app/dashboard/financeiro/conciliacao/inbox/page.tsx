@@ -90,6 +90,19 @@ interface MovimentoOFX {
   id_externo: string | null
 }
 
+// conciliacao-tela-sugestoes-acoes-v1
+interface SugestaoMatch {
+  lancamento_tabela: 'erp_pagar' | 'erp_receber' | string
+  lancamento_id: string
+  data_lancamento: string | null
+  valor_lancamento: number | null
+  descricao_lancamento: string | null
+  contraparte: string | null
+  match_score: number
+  match_categoria: 'perfeito' | 'quase' | 'fraco' | string
+  motivo: string | null
+}
+
 function parseOFX(text: string): MovimentoOFX[] {
   const movimentos: MovimentoOFX[] = []
   const blocos = text.split(/<STMTTRN>/i).slice(1)
@@ -130,6 +143,10 @@ export default function InboxPage() {
   const [conciliandoLote, setConciliandoLote] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [arquivando, setArquivando] = useState<Item | null>(null)
+  // conciliacao-tela-sugestoes-acoes-v1: top-N sugestoes via fn_conciliacao_sugerir_match
+  const [sugestoesPorMov, setSugestoesPorMov] = useState<Record<string, SugestaoMatch[]>>({})
+  const [carregandoSug, setCarregandoSug] = useState<Set<string>>(new Set())
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
   // ONDA-A-IMPORTADOR-OFX-v1
   const [showImport, setShowImport] = useState(false)
   const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
@@ -292,12 +309,100 @@ export default function InboxPage() {
     const ns = new Set(aplicandoIds); ns.delete(it.movimento_id); setAplicandoIds(ns)
   }
 
+  // conciliacao-tela-sugestoes-acoes-v1: top-N sugestoes (cached por mov)
+  async function carregarSugestoes(movId: string) {
+    if (sugestoesPorMov[movId] !== undefined) return
+    setCarregandoSug(new Set([...carregandoSug, movId]))
+    const { data, error } = await supabase.rpc('fn_conciliacao_sugerir_match', {
+      p_movimento_id: movId,
+      p_max_sugestoes: 5,
+    })
+    if (error) {
+      setErro('Erro ao carregar sugestões: ' + error.message)
+      setSugestoesPorMov({ ...sugestoesPorMov, [movId]: [] })
+    } else {
+      setSugestoesPorMov({ ...sugestoesPorMov, [movId]: (data ?? []) as SugestaoMatch[] })
+    }
+    const ns = new Set(carregandoSug); ns.delete(movId); setCarregandoSug(ns)
+  }
+
+  async function toggleExpandir(it: Item) {
+    const ns = new Set(expandidos)
+    if (ns.has(it.movimento_id)) {
+      ns.delete(it.movimento_id)
+    } else {
+      ns.add(it.movimento_id)
+      await carregarSugestoes(it.movimento_id)
+    }
+    setExpandidos(ns)
+  }
+
+  async function aplicarSugestao(movId: string, sug: SugestaoMatch) {
+    const { data: userResp } = await supabase.auth.getUser()
+    const operadorId = userResp.user?.id ?? null
+    if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
+    setAplicandoIds(new Set([...aplicandoIds, movId]))
+    const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+      p_movimento_id: movId,
+      p_lancamento_tabela: sug.lancamento_tabela,
+      p_lancamento_id: sug.lancamento_id,
+      p_operador_id: operadorId,
+      p_origem: 'manual',
+    })
+    if (error) { setErro(error.message) }
+    else {
+      // limpa cache e fecha expand
+      const novo = { ...sugestoesPorMov }; delete novo[movId]; setSugestoesPorMov(novo)
+      const ne = new Set(expandidos); ne.delete(movId); setExpandidos(ne)
+    }
+    await carregar()
+    await carregarConciliados()
+    const ns = new Set(aplicandoIds); ns.delete(movId); setAplicandoIds(ns)
+  }
+
+  async function rejeitarSugestao(movId: string, sug: SugestaoMatch) {
+    const { data: userResp } = await supabase.auth.getUser()
+    const operadorId = userResp.user?.id ?? null
+    if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
+    const { error } = await supabase.rpc('fn_conciliacao_rejeitar_sugestao', {
+      p_movimento_id: movId,
+      p_lancamento_tabela: sug.lancamento_tabela,
+      p_lancamento_id: sug.lancamento_id,
+      p_operador_id: operadorId,
+    })
+    if (error) { setErro(error.message); return }
+    // remove a sugestao da lista local
+    setSugestoesPorMov({
+      ...sugestoesPorMov,
+      [movId]: (sugestoesPorMov[movId] ?? []).filter((s) => !(s.lancamento_id === sug.lancamento_id && s.lancamento_tabela === sug.lancamento_tabela)),
+    })
+  }
+
+  function abrirNovaConta(it: Item) {
+    // natureza credito => receita (a receber) · debito => despesa (a pagar)
+    const tipo = it.natureza === 'credito' ? 'receita' : 'despesa'
+    const params = new URLSearchParams({
+      valor: String(Math.abs(Number(it.valor) || 0)),
+      data: it.data_transacao,
+      descricao: it.descricao ?? '',
+      origem_conciliacao: it.movimento_id,
+    })
+    router.push(`/dashboard/financeiro/nova-${tipo}?${params.toString()}`)
+  }
+
+  function pesquisarConta(it: Item) {
+    // redireciona pra listagem com busca pre-preenchida
+    const tipo = it.natureza === 'credito' ? 'receber' : 'pagar'
+    const params = new URLSearchParams({ busca: String(Math.abs(Number(it.valor) || 0).toFixed(2)) })
+    router.push(`/dashboard/financeiro/${tipo}?${params.toString()}`)
+  }
+
   // ONDA-A-INBOX-SELO-v1: agora usa fn_conciliacao_rodar_lote (blindado anti-colisao)
   // em vez de loop client-side. Override manual: auto=true, score>=80 (cobre OURO).
   async function aplicarTodosOuro() {
     const companyId = empresaUnica
     if (!companyId) return
-    if (!confirm('Conciliar automaticamente os matches OURO seguros (1:1)? Movimentos em disputa ficam pra revisão manual.')) return
+    if (!confirm('AUTO: conciliar automaticamente os matches perfeitos (score ≥ 90)? Movimentos em disputa ficam pra revisão manual.')) return
     setConciliandoLote(true)
     setErro(null)
     try {
@@ -305,7 +410,7 @@ export default function InboxPage() {
         p_company_id: companyId,
         p_lote_id: null,
         p_auto_aplicar: true,
-        p_score_auto: 80,
+        p_score_auto: 90,
       })
       if (error) throw error
       const r = (data ?? {}) as {
@@ -360,7 +465,7 @@ export default function InboxPage() {
           </div>
           {qtdOuro > 0 && aba === 'pendentes' && (
             <button onClick={aplicarTodosOuro} disabled={conciliandoLote} style={primaryBtnLoad(conciliandoLote)}>
-              {conciliandoLote ? 'Conciliando…' : `Aplicar todos OURO (${qtdOuro})`}
+              {conciliandoLote ? 'Conciliando…' : `⚡ AUTO (${qtdOuro})`}
             </button>
           )}
         </div>
@@ -507,17 +612,77 @@ export default function InboxPage() {
                       <button onClick={() => setArquivando(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
                         ✕ Arquivar
                       </button>
+                      <button onClick={() => void toggleExpandir(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-toggle-expand">
+                        {expandidos.has(it.movimento_id) ? '▲ Recolher' : '▼ Ver opções'}
+                      </button>
                       {temSugestao && (
                         <>
                           <button onClick={() => rejeitar(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
-                            Rejeitar
+                            Não é essa
                           </button>
                           <button onClick={() => aplicarMatch(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>
-                            {aplicando ? 'Aplicando…' : 'Aplicar match'}
+                            {aplicando ? 'Conciliando…' : 'Conciliar'}
                           </button>
                         </>
                       )}
                     </div>
+
+                    {/* conciliacao-tela-sugestoes-acoes-v1: painel expand · top-N sugestoes + acoes */}
+                    {expandidos.has(it.movimento_id) && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(61,35,20,0.15)' }}>
+                        {carregandoSug.has(it.movimento_id) ? (
+                          <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', padding: 8 }}>Buscando sugestões…</div>
+                        ) : (
+                          <>
+                            {(sugestoesPorMov[it.movimento_id] ?? []).length > 0 && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(61,35,20,0.65)', marginBottom: 8 }}>
+                                Opções rankeadas:
+                              </div>
+                            )}
+                            {(sugestoesPorMov[it.movimento_id] ?? []).map((sug) => {
+                              const seloSug = seloPrecisao(sug.match_score)
+                              return (
+                                <div key={`${sug.lancamento_tabela}:${sug.lancamento_id}`} style={{
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  gap: 10, padding: '8px 10px', background: '#FAF7F2', borderRadius: 6, marginBottom: 6, flexWrap: 'wrap',
+                                }}>
+                                  <div style={{ flex: 1, minWidth: 200 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                      <span style={{ background: seloSug.bg, color: seloSug.cor, padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
+                                        {seloSug.emoji} {seloSug.label} · {Math.round(Number(sug.match_score ?? 0))}
+                                      </span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>
+                                        {sug.contraparte ?? sug.descricao_lancamento ?? '(sem nome)'}
+                                      </span>
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>
+                                      {sug.lancamento_tabela} · {fmtDate(sug.data_lancamento)} · R$ {fmt(sug.valor_lancamento)}
+                                    </div>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onClick={() => void rejeitarSugestao(it.movimento_id, sug)} disabled={aplicando} style={secondaryBtn(aplicando)}>Não é essa</button>
+                                    <button onClick={() => void aplicarSugestao(it.movimento_id, sug)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>Conciliar</button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                            {(sugestoesPorMov[it.movimento_id] ?? []).length === 0 && (
+                              <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', padding: 8 }}>
+                                Sem sugestões automáticas pra este movimento. Use os botões abaixo:
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                              <button onClick={() => abrirNovaConta(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)} data-testid="conc-nova-conta">
+                                ➕ Incluir nova conta a {it.natureza === 'credito' ? 'receber' : 'pagar'}
+                              </button>
+                              <button onClick={() => pesquisarConta(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-pesquisar">
+                                🔍 Pesquisar conta existente
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
