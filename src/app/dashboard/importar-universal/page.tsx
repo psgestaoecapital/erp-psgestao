@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ImportLoteXlsxCard from '@/components/importar/ImportLoteXlsxCard'
+import ImportProdutosFiscalCard from '@/components/importar/ImportProdutosFiscalCard'
 
 const C = {
   bg: '#FAF7F2',
@@ -21,9 +22,12 @@ interface Company {
   nome?: string | null
 }
 
+type Modo = 'lancamentos' | 'produtos_fiscal'
+
 export default function ImportarUniversalPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [companyId, setCompanyId] = useState('')
+  const [modo, setModo] = useState<Modo>('lancamentos')
 
   useEffect(() => {
     ;(async () => {
@@ -56,7 +60,7 @@ export default function ImportarUniversalPage() {
             Importer Universal
           </h1>
           <p style={{ fontSize: 11, color: 'rgba(250,247,242,0.75)', margin: '2px 0 0' }}>
-            Upload em lote · auto-detecta SIGA / ContaAzul / Omie · vai pro PSGC automaticamente
+            Lançamentos · Produtos (fiscal) · planilha livre com auto-detecção
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -83,13 +87,57 @@ export default function ImportarUniversalPage() {
             Selecione uma empresa para começar.
           </div>
         ) : (
-          <ImportLoteXlsxCard companyId={companyId} />
+          <>
+            <div style={{ fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 8 }}>
+              O que importar?
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 20 }}>
+              <ModoCard
+                ativo={modo === 'lancamentos'}
+                onClick={() => setModo('lancamentos')}
+                icone="📋"
+                titulo="Lançamentos"
+                sub="Pagar / Receber em lote"
+              />
+              <ModoCard
+                ativo={modo === 'produtos_fiscal'}
+                onClick={() => setModo('produtos_fiscal')}
+                icone="🧾"
+                titulo="Produtos — atualização fiscal"
+                sub="NCM · ICMS-ST · CEST · PIS/COFINS"
+              />
+            </div>
+
+            {modo === 'lancamentos' && <ImportLoteXlsxCard companyId={companyId} />}
+            {modo === 'produtos_fiscal' && <ImportProdutosFiscalCard companyId={companyId} />}
+          </>
         )}
 
         <div style={{ background: C.douradoSoft, border: `0.5px solid ${C.dourado}`, borderRadius: 8, padding: '12px 16px', marginTop: 16, fontSize: 12, color: C.espresso, lineHeight: 1.5 }}>
-          <strong>💡 Dica:</strong> A importação em lote suporta XLSX/CSV. Templates prontos no wizard acima evitam erro de mapeamento. Os lançamentos vão direto para o DRE consolidado.
+          <strong>💡 Dica:</strong> Planilha livre · preview com semáforo antes de aplicar. Lançamentos vão pro DRE; produtos atualizam CST/CFOP/CEST por <code>codigo</code>.
         </div>
       </main>
     </div>
+  )
+}
+
+function ModoCard({ ativo, onClick, icone, titulo, sub }: { ativo: boolean; onClick: () => void; icone: string; titulo: string; sub: string }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: ativo ? '#FFF8E7' : '#FFFFFF',
+        border: `2px solid ${ativo ? '#C8941A' : 'rgba(61,35,20,0.12)'}`,
+        borderRadius: 8, padding: '14px 16px',
+        cursor: 'pointer', textAlign: 'left', font: 'inherit',
+        display: 'flex', alignItems: 'center', gap: 12, minHeight: 56,
+      }}
+    >
+      <span style={{ fontSize: 24 }}>{icone}</span>
+      <span>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>{titulo}</div>
+        <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>{sub}</div>
+      </span>
+    </button>
   )
 }
