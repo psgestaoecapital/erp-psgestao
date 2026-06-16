@@ -5,7 +5,7 @@ import {
   Settings, Briefcase, BookOpen, Package, Users, Truck, Banknote,
   Network, Layers, Inbox, Sun, Target, Eye, MessageSquare, Lock,
   Bot, Clock, Calendar, UserCheck, HardHat, Files, CheckCircle, FileCheck,
-  Sliders,
+  Sliders, Landmark,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -51,6 +51,7 @@ export const DASHBOARD_MENU_GROUPS: MenuGroup[] = [
       { label: 'Conciliação · Inbox', href: '/dashboard/financeiro/conciliacao/inbox', icon: Inbox, status: 'pronto' },
       { label: 'Fluxo de Caixa', href: '/dashboard/financeiro/fluxo-caixa', icon: TrendingUp, status: 'pronto' },
       { label: 'Saúde Financeira', href: '/dashboard/financeiro/saude', icon: HeartPulse, status: 'pronto' },
+      { label: 'Financiamento', href: '/dashboard/gestao-empresarial/financiamento', icon: Landmark, status: 'pronto' },
       { label: 'Contas Unificado', href: '/dashboard/contas', icon: Banknote, status: 'pronto' },
       { label: 'Nova Despesa', href: '/dashboard/financeiro/nova-despesa', icon: Plus, status: 'pronto' },
       { label: 'Nova Receita', href: '/dashboard/financeiro/nova-receita', icon: Plus, status: 'pronto' },

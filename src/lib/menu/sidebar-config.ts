@@ -64,6 +64,12 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     ],
   },
   {
+    id: 'financiamento',
+    label: 'Financiamento',
+    href: '/dashboard/gestao-empresarial/financiamento',
+    status: 'pronto',
+  },
+  {
     id: 'conciliacao',
     label: 'Conciliação',
     status: 'pronto',
