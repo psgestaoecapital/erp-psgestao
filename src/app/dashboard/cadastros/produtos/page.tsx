@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
+import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload,
+  ArrowUp, ArrowDown, X, Upload, Sparkles,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -59,6 +60,7 @@ export default function ProdutosPage() {
   const [editando, setEditando] = useState<Produto | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
   const [importarFiscalAberto, setImportarFiscalAberto] = useState(false)
+  const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
 
   const offsetRef = useRef(0)
 
@@ -207,6 +209,14 @@ export default function ProdutosPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setAutoclassificarAberto(true)}
+              data-testid="produto-autoclassificar"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Sparkles size={15} /> Auto-classificar pela base PS
+            </button>
             <button
               type="button"
               onClick={() => setImportarFiscalAberto(true)}
@@ -516,6 +526,14 @@ export default function ProdutosPage() {
           <ImportProdutosFiscalModal
             companyId={companyId}
             onClose={() => setImportarFiscalAberto(false)}
+            onAtualizado={() => carregar(true)}
+          />
+        )}
+
+        {autoclassificarAberto && (
+          <AutoclassificarProdutosModal
+            companyId={companyId}
+            onClose={() => setAutoclassificarAberto(false)}
             onAtualizado={() => carregar(true)}
           />
         )}
