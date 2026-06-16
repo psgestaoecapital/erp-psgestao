@@ -7,7 +7,7 @@
 //   3. Preview com semaforo (verde/amarelo/vermelho)
 //   4. Aplicar → fn_import_produtos_fiscal grava + registra em erp_importacoes.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { authFetch } from '@/lib/authFetch'
 import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, Loader2, Eye, Play, CheckCircle2 } from 'lucide-react'
@@ -58,8 +58,11 @@ const CAMPOS: Array<{ key: Campo; label: string; obrig: boolean }> = [
 ]
 
 export default function ProdutosFiscalImportClient() {
-  const [companyId, setCompanyId] = useState<string | null>(null)
-  const [erroEmpresa, setErroEmpresa] = useState<string | null>(null)
+  // resolve uma vez (lazy init · localStorage so existe no client)
+  const [companyId] = useState<string | null>(() => resolveCompanyId())
+  const erroEmpresa: string | null = companyId
+    ? null
+    : 'Selecione uma empresa específica no trocador da TopNav.'
   const [file, setFile] = useState<File | null>(null)
   const [parsing, setParsing] = useState(false)
   const [parseResp, setParseResp] = useState<ParseResp | null>(null)
@@ -70,12 +73,6 @@ export default function ProdutosFiscalImportClient() {
   const [aplicado, setAplicado] = useState<PreviewResp | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'verde' | 'amarelo' | 'vermelho'>('todos')
-
-  useEffect(() => {
-    const cid = resolveCompanyId()
-    if (!cid) { setErroEmpresa('Selecione uma empresa específica no trocador da TopNav.'); return }
-    setCompanyId(cid)
-  }, [])
 
   async function fazerParse() {
     if (!file || !companyId) return
