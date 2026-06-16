@@ -48,14 +48,6 @@ interface ResultadoRPC {
 
 type Mapping = Record<Campo, string | null>
 
-const SINONIMOS: Record<Campo, string[]> = {
-  codigo: ['codigo do produto', 'codigo produto', 'codigo', 'sku', 'cod', 'ref', 'referencia', 'id'],
-  ncm: ['codigo ncm', 'ncm', 'ncm/sh'],
-  icms_st: ['icms st', 'icms-st', 'st', 'substituicao tributaria', 'tem st', 'possui st'],
-  cest: ['cest'],
-  pis_cofins: ['pis/cofins', 'pis cofins', 'piscofins', 'tributacao pis', 'monofasico', 'pis'],
-}
-
 function normalize(s: string): string {
   return s
     .toString()
@@ -68,12 +60,24 @@ function normalize(s: string): string {
 }
 
 function autoDetect(headers: string[]): Mapping {
-  const normHeaders = headers.map((h) => ({ raw: h, norm: normalize(h) }))
   const out: Mapping = { codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null }
-  for (const campo of Object.keys(SINONIMOS) as Campo[]) {
-    const sinNorm = SINONIMOS[campo].map(normalize)
-    const match = normHeaders.find((h) => sinNorm.some((s) => h.norm === s || h.norm.includes(s)))
-    if (match) out[campo] = match.raw
+  for (const h of headers) {
+    const n = normalize(h)
+    if (!out.codigo
+        && n.includes('codigo')
+        && !n.includes('ncm')
+        && !n.includes('barra')
+        && !n.includes('ean')) {
+      out.codigo = h
+    } else if (!out.ncm && n.includes('ncm')) {
+      out.ncm = h
+    } else if (!out.icms_st && (n.includes('icms') || n === 'st')) {
+      out.icms_st = h
+    } else if (!out.cest && n.includes('cest')) {
+      out.cest = h
+    } else if (!out.pis_cofins && (n.includes('pis') || n.includes('cofins'))) {
+      out.pis_cofins = h
+    }
   }
   return out
 }
@@ -99,21 +103,38 @@ async function parseXlsx(file: File): Promise<ParsedFile> {
   await wb.xlsx.load(buf)
   const ws = pickSheet(wb)
   if (!ws) throw new Error('Planilha sem abas')
-  const headers: string[] = []
-  ws.getRow(1).eachCell({ includeEmpty: false }, (cell) => {
-    headers.push(String(cell.value ?? '').trim())
-  })
-  const rowsBruto: Array<Record<string, unknown>> = []
-  for (let r = 2; r <= ws.rowCount; r++) {
-    const row = ws.getRow(r)
-    const obj: Record<string, unknown> = {}
-    headers.forEach((h, idx) => {
-      const cell = row.getCell(idx + 1)
-      obj[h] = cell.value ?? null
+
+  // Le como matriz · planilhas com titulo mesclado na linha 1 ("Relacao de Produtos")
+  // fazem o cabecalho real cair na linha 2+. Detectar a linha com >=2 termos esperados.
+  const aoa: unknown[][] = []
+  ws.eachRow({ includeEmpty: true }, (row) => {
+    const arr: unknown[] = []
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      arr[col - 1] = cell.value ?? ''
     })
-    rowsBruto.push(obj)
-  }
-  return { headers, rowsBruto, sheetName: ws.name }
+    aoa.push(arr)
+  })
+
+  const ALVO = /(c[óo]digo|ncm|icms|st\b|cest|pis|cofins|descri)/i
+  let hIdx = aoa.findIndex(
+    (row) => row.filter((c) => ALVO.test(String(c ?? ''))).length >= 2,
+  )
+  if (hIdx < 0) hIdx = 0
+
+  const headers = (aoa[hIdx] || []).map((h) => String(h ?? '').trim())
+
+  const rowsBruto: Array<Record<string, unknown>> = aoa
+    .slice(hIdx + 1)
+    .filter((r) => r.some((c) => String(c ?? '').trim() !== ''))
+    .map((r) => {
+      const obj: Record<string, unknown> = {}
+      headers.forEach((h, i) => {
+        if (h) obj[h] = r[i] ?? null
+      })
+      return obj
+    })
+
+  return { headers: headers.filter((h) => h !== ''), rowsBruto, sheetName: ws.name }
 }
 
 function valorTexto(raw: unknown): string {
