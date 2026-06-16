@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
+import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 
 interface Item {
   movimento_id: string
@@ -153,6 +154,7 @@ export default function InboxPage() {
   const [conciliandoLote, setConciliandoLote] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [arquivando, setArquivando] = useState<Item | null>(null)
+  const [vinculandoVarios, setVinculandoVarios] = useState<Item | null>(null)
   // conciliacao-tela-sugestoes-acoes-v1: top-N sugestoes via fn_conciliacao_sugerir_match
   const [sugestoesPorMov, setSugestoesPorMov] = useState<Record<string, SugestaoMatch[]>>({})
   const [carregandoSug, setCarregandoSug] = useState<Set<string>>(new Set())
@@ -693,6 +695,9 @@ export default function InboxPage() {
                               <button onClick={() => pesquisarConta(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-pesquisar">
                                 🔍 Pesquisar conta existente
                               </button>
+                              <button onClick={() => setVinculandoVarios(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-vincular-varios">
+                                🔗 Vincular vários (fatura)
+                              </button>
                             </div>
                           </>
                         )}
@@ -770,6 +775,18 @@ export default function InboxPage() {
         movimentoId={arquivando?.movimento_id ?? ''}
         descricao={arquivando ? `${arquivando.descricao ?? '(sem descrição)'} · R$ ${Math.abs(arquivando.valor).toFixed(2)}` : undefined}
       />
+
+      {vinculandoVarios && empresaUnica && (
+        <VincularVariosModal
+          movimentoId={vinculandoVarios.movimento_id}
+          companyId={empresaUnica}
+          valorMovimento={Number(vinculandoVarios.valor)}
+          natureza={(vinculandoVarios.natureza === 'credito' ? 'credito' : 'debito')}
+          descricao={vinculandoVarios.descricao}
+          onClose={() => setVinculandoVarios(null)}
+          onConciliado={() => { setVinculandoVarios(null); void carregar() }}
+        />
+      )}
     </div>
   )
 }
