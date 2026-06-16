@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
+import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X,
+  ArrowUp, ArrowDown, X, Upload,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -57,6 +58,7 @@ export default function ProdutosPage() {
   // Modal edicao
   const [editando, setEditando] = useState<Produto | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
+  const [importarFiscalAberto, setImportarFiscalAberto] = useState(false)
 
   const offsetRef = useRef(0)
 
@@ -204,14 +206,24 @@ export default function ProdutosPage() {
               Catalogo pra emissao de NFe · vendas de produto fisico
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setNovoAberto(true)}
-            data-testid="produto-novo"
-            className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2 flex-shrink-0"
-          >
-            <Plus size={15} /> Novo Produto
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setImportarFiscalAberto(true)}
+              data-testid="produto-importar-fiscal"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Upload size={15} /> Importar planilha fiscal
+            </button>
+            <button
+              type="button"
+              onClick={() => setNovoAberto(true)}
+              data-testid="produto-novo"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
+            >
+              <Plus size={15} /> Novo Produto
+            </button>
+          </div>
         </header>
 
         <div className="bg-white rounded-xl border border-[#3D2314]/10 overflow-hidden">
@@ -497,6 +509,14 @@ export default function ProdutosPage() {
               setEditando(null)
               carregar(true)
             }}
+          />
+        )}
+
+        {importarFiscalAberto && (
+          <ImportProdutosFiscalModal
+            companyId={companyId}
+            onClose={() => setImportarFiscalAberto(false)}
+            onAtualizado={() => carregar(true)}
           />
         )}
       </div>
