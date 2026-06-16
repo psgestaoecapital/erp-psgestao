@@ -50,6 +50,16 @@ function fmt(n: number | null | undefined): string {
   return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// fix-conciliacao-exibicao-sinal-cor-por-natureza-v1
+// Sinal/cor SEMPRE seguem `natureza` (debito = vermelho-, credito = verde+).
+// valor positivo no banco; o sinal vem 100% da natureza.
+function formatarValorMovimento(valor: number | null | undefined, natureza: string | null | undefined): { texto: string; cor: string } {
+  const ehDebito = natureza === 'debito'
+  const sinal = ehDebito ? '−' : '+'
+  const cor = ehDebito ? '#A32D2D' : '#3B6D11'
+  return { texto: `${sinal} R$ ${fmt(Math.abs(Number(valor) || 0))}`, cor }
+}
+
 function fmtDate(s: string | null): string {
   if (!s) return '—'
   const d = s.split('T')[0]
@@ -577,9 +587,14 @@ export default function InboxPage() {
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', marginBottom: 6, wordBreak: 'break-word' }}>
                           {it.descricao ?? '(sem descrição)'}
                         </div>
-                        <div style={{ fontSize: 18, fontWeight: 600, color: Number(it.valor) < 0 ? '#A32D2D' : '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>
-                          {Number(it.valor) < 0 ? '−' : '+'} R$ {fmt(Math.abs(it.valor))}
-                        </div>
+                        {(() => {
+                          const v = formatarValorMovimento(it.valor, it.natureza)
+                          return (
+                            <div style={{ fontSize: 18, fontWeight: 600, color: v.cor, fontVariantNumeric: 'tabular-nums' }}>
+                              {v.texto}
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       <div style={{ flex: 1, minWidth: 200, borderLeft: '1px solid rgba(61,35,20,0.08)', paddingLeft: 16 }}>
@@ -703,7 +718,7 @@ export default function InboxPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {conciliados.map((c) => {
                 const selo = seloPrecisao(c.precisao)
-                const valNeg = Number(c.valor) < 0 || c.natureza === 'debito'
+                const v = formatarValorMovimento(c.valor, c.natureza)
                 return (
                   <div key={c.movimento_id} style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: '14px 16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
@@ -714,8 +729,8 @@ export default function InboxPage() {
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', marginBottom: 6, wordBreak: 'break-word' }}>
                           {c.descricao ?? '(sem descrição)'}
                         </div>
-                        <div style={{ fontSize: 18, fontWeight: 600, color: valNeg ? '#A32D2D' : '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>
-                          {valNeg ? '−' : '+'} R$ {fmt(Math.abs(Number(c.valor)))}
+                        <div style={{ fontSize: 18, fontWeight: 600, color: v.cor, fontVariantNumeric: 'tabular-nums' }}>
+                          {v.texto}
                         </div>
                       </div>
 
