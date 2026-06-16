@@ -16,15 +16,23 @@ export const maxDuration = 300
 type Campo = 'codigo' | 'ncm' | 'st' | 'cest' | 'monofasico'
 
 const SINONIMOS: Record<Campo, string[]> = {
-  codigo: ['codigo','código','code','sku','ref','referencia','referência','id','cod','codigo do produto','codigo produto'],
-  ncm: ['ncm','ncm/sh','codigo ncm','código ncm'],
-  st: ['st','icms st','icms-st','substituicao tributaria','substituição tributária','tem st','possui st'],
+  codigo: ['codigo','codigo','code','sku','ref','referencia','referencia','id','cod','codigo do produto','codigo produto'],
+  ncm: ['ncm','ncm/sh','codigo ncm','codigo ncm'],
+  st: ['st','icms st','icms-st','substituicao tributaria','substituicao tributaria','tem st','possui st'],
   cest: ['cest'],
-  monofasico: ['monofasico','monofásico','pis/cofins','pis cofins','tributacao pis','tributação pis'],
+  monofasico: ['monofasico','monofasico','pis/cofins','pis cofins','tributacao pis','tributacao pis'],
 }
 
 function normalize(s: string): string {
-  return s.toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  // remove acentos via NFD (decompose) + filtra combining marks (̀-ͯ)
+  return s
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function autoDetect(headers: string[]): Record<Campo, string | null> {

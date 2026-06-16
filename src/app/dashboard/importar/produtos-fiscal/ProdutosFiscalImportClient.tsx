@@ -13,7 +13,7 @@ import { authFetch } from '@/lib/authFetch'
 import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, Loader2, Eye, Play, CheckCircle2 } from 'lucide-react'
 
 type Campo = 'codigo' | 'ncm' | 'st' | 'cest' | 'monofasico'
-type Mapping = Record<Campo, string>
+type Mapping = Record<Campo, string | null>
 
 interface ParseResp {
   ok: boolean
