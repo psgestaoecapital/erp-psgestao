@@ -32,6 +32,7 @@ interface Item {
 
 interface Conciliado {
   movimento_id: string
+  lote_id: string | null
   lote_nome: string | null
   data_transacao: string
   valor: number
@@ -45,6 +46,31 @@ interface Conciliado {
   precisao: number | null
   match_origem: string | null
   conciliado_em: string | null
+}
+
+// conciliacao-reorg-tela-v1
+interface Lote {
+  id: string
+  nome: string | null
+  tipo: string | null
+  periodo_inicio: string | null
+  periodo_fim: string | null
+  total_movimentos: number | null
+  total_conciliados: number | null
+  total_pendentes: number | null
+  created_at: string | null
+}
+
+interface PendenciaSistema {
+  tabela: 'erp_pagar' | 'erp_receber' | string
+  id: string
+  natureza: 'debito' | 'credito' | string
+  nome: string | null
+  descricao: string | null
+  categoria: string | null
+  valor: number | null
+  data_vencimento: string | null
+  status: string | null
 }
 
 function fmt(n: number | null | undefined): string {
@@ -149,6 +175,14 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true)
   const [soOuro, setSoOuro] = useState(false)
   const [aba, setAba] = useState<'pendentes' | 'conciliados'>('pendentes')
+  // conciliacao-reorg-tela-v1: ancorar inbox no extrato (por lote) + aba "Sistema"
+  const [modo, setModo] = useState<'extrato' | 'sistema'>('extrato')
+  const [lotes, setLotes] = useState<Lote[]>([])
+  const [tipoExtrato, setTipoExtrato] = useState<'bancario' | 'cartao_despesa'>('bancario')
+  const [loteSelId, setLoteSelId] = useState<string | null>(null)
+  const [filtroNat, setFiltroNat] = useState<'todos' | 'debito' | 'credito'>('todos')
+  const [pendenciasSistema, setPendenciasSistema] = useState<PendenciaSistema[]>([])
+  const [loadingSistema, setLoadingSistema] = useState(false)
   const [autoGlobal, setAutoGlobal] = useState(false)
   const [aplicandoIds, setAplicandoIds] = useState<Set<string>>(new Set())
   const [conciliandoLote, setConciliandoLote] = useState(false)
@@ -170,7 +204,7 @@ export default function InboxPage() {
     if (!empresaUnica) return
     setLoading(true)
     const { data, error } = await supabase.rpc('fn_conciliacao_inbox', {
-      p_lote_id: null,
+      p_lote_id: loteSelId,
       p_company_id: empresaUnica,
       p_status: 'pendente',
       p_limite: 200,
@@ -178,6 +212,41 @@ export default function InboxPage() {
     if (error) setErro(error.message)
     setItems((data ?? []) as Item[])
     setLoading(false)
+  }
+
+  async function carregarLotes(seletor?: (lst: Lote[]) => Lote | undefined) {
+    if (!empresaUnica) return
+    const { data } = await supabase
+      .from('conciliacao_lote')
+      .select('id,nome,tipo,periodo_inicio,periodo_fim,total_movimentos,total_conciliados,total_pendentes,created_at')
+      .eq('company_id', empresaUnica)
+      .order('created_at', { ascending: false })
+    const lst = (data ?? []) as Lote[]
+    setLotes(lst)
+    if (seletor) {
+      const escolhido = seletor(lst)
+      if (escolhido) setLoteSelId(escolhido.id)
+    } else if (loteSelId == null || !lst.some((l) => l.id === loteSelId)) {
+      const primeiroDoTipo = lst.find((l) => l.tipo === tipoExtrato)
+      setLoteSelId(primeiroDoTipo?.id ?? lst[0]?.id ?? null)
+    }
+  }
+
+  async function carregarPendenciasSistema() {
+    if (!empresaUnica) return
+    setLoadingSistema(true)
+    const loteSel = lotes.find((l) => l.id === loteSelId)
+    const ini = loteSel?.periodo_inicio ?? new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+    const fim = loteSel?.periodo_fim ?? null
+    const { data, error } = await supabase.rpc('fn_conciliacao_pendencias_sistema', {
+      p_company_id: empresaUnica,
+      p_natureza: filtroNat === 'todos' ? null : filtroNat,
+      p_data_ini: ini,
+      p_data_fim: fim,
+      p_limite: 200,
+    })
+    if (!error) setPendenciasSistema((data ?? []) as PendenciaSistema[])
+    setLoadingSistema(false)
   }
 
   async function carregarConciliados() {
@@ -237,13 +306,16 @@ export default function InboxPage() {
         p_conta_bancaria_id: contaImportId,
       })
       if (error) throw error
-      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; total_movimentos?: number }
+      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; total_movimentos?: number; lote_id?: string }
       if (r.sucesso === false) throw new Error(r.erro ?? 'Falha ao criar lote')
       alert(`IMPORTOU ${r.total_movimentos ?? movimentos.length} movimento(s) do extrato. Já estão na conciliação.`)
       setShowImport(false)
       setArquivoOFX(null)
       setContaImportId('')
-      await carregar()
+      // re-carrega lotes e seleciona o novo
+      await carregarLotes((lst) =>
+        r.lote_id ? lst.find((l) => l.id === r.lote_id) : lst[0],
+      )
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       alert('Erro ao importar OFX: ' + msg)
@@ -267,17 +339,35 @@ export default function InboxPage() {
   }
 
   useEffect(() => {
-    void carregar()
-    void carregarConciliados()
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    void carregarLotes()
     void carregarConfig()
     void carregarContas()
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [empresaUnica])
 
   useEffect(() => {
-    if (aba === 'conciliados') void carregarConciliados()
+    // quando troca o tipo de extrato, escolher o 1o lote daquele tipo
+    if (lotes.length === 0) return
+    const sel = lotes.find((l) => l.tipo === tipoExtrato)
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setLoteSelId(sel?.id ?? null)
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [aba])
+  }, [tipoExtrato])
+
+  useEffect(() => {
+    if (modo !== 'extrato') return
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    void carregar()
+    void carregarConciliados()
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [loteSelId, modo])
+
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    if (modo === 'sistema') void carregarPendenciasSistema()
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [modo, filtroNat, loteSelId])
 
   const filtrados = useMemo(() => {
     if (soOuro) return items.filter((i) => (i.sugestao_score ?? 0) >= 0.8)
@@ -420,7 +510,7 @@ export default function InboxPage() {
     try {
       const { data, error } = await supabase.rpc('fn_conciliacao_rodar_lote', {
         p_company_id: companyId,
-        p_lote_id: null,
+        p_lote_id: loteSelId,
         p_auto_aplicar: true,
         p_score_auto: 90,
       })
@@ -458,6 +548,14 @@ export default function InboxPage() {
   }
 
   const qtdOuro = items.filter((i) => (i.sugestao_score ?? 0) >= 0.8).length
+  const lotesDoTipo = lotes.filter((l) => l.tipo === tipoExtrato)
+  const loteSel = lotes.find((l) => l.id === loteSelId) ?? null
+  const conciliadosLote = loteSelId
+    ? conciliados.filter((c) => c.lote_id === loteSelId)
+    : conciliados
+  const pctFech = loteSel && loteSel.total_movimentos
+    ? Math.round(100 * (loteSel.total_conciliados ?? 0) / loteSel.total_movimentos)
+    : 0
 
   return (
     <div style={{ background: '#FAF7F2', minHeight: '100vh', padding: '24px 16px' }}>
@@ -469,19 +567,88 @@ export default function InboxPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
           <div>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: '#3D2314', margin: '0 0 6px' }}>
-              Inbox · Movimentos pendentes
+              Conciliação
             </h1>
             <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
-              {items.length} pendentes · {qtdOuro} com match OURO (score ≥ 0.8)
+              {modo === 'extrato'
+                ? `${items.length} pendentes · ${qtdOuro} com match OURO (score ≥ 0.8)`
+                : `${pendenciasSistema.length} pendências no sistema (não vinculadas ao extrato)`}
             </p>
           </div>
-          {qtdOuro > 0 && aba === 'pendentes' && (
+          {modo === 'extrato' && qtdOuro > 0 && aba === 'pendentes' && (
             <button onClick={aplicarTodosOuro} disabled={conciliandoLote} style={primaryBtnLoad(conciliandoLote)}>
               {conciliandoLote ? 'Conciliando…' : `⚡ AUTO (${qtdOuro})`}
             </button>
           )}
         </div>
 
+        {/* conciliacao-reorg-tela-v1: tabs de modo (Extrato | Sistema) */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <button onClick={() => setModo('extrato')} style={modo === 'extrato' ? tabActive : tabInactive}>
+            🧾 Conciliação do Extrato
+          </button>
+          <button onClick={() => setModo('sistema')} style={modo === 'sistema' ? tabActive : tabInactive}>
+            📥 Pendências do Sistema
+          </button>
+        </div>
+
+        {modo === 'extrato' && (
+          <>
+            {/* tipo de extrato + seletor de lote + placar */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setTipoExtrato('bancario')}
+                style={{
+                  background: tipoExtrato === 'bancario' ? '#3D2314' : '#FAF7F2',
+                  color: tipoExtrato === 'bancario' ? '#FAF7F2' : '#3D2314',
+                  border: '0.5px solid rgba(61,35,20,0.2)', padding: '6px 14px', borderRadius: 20,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >🏦 Banco</button>
+              <button
+                onClick={() => setTipoExtrato('cartao_despesa')}
+                style={{
+                  background: tipoExtrato === 'cartao_despesa' ? '#3D2314' : '#FAF7F2',
+                  color: tipoExtrato === 'cartao_despesa' ? '#FAF7F2' : '#3D2314',
+                  border: '0.5px solid rgba(61,35,20,0.2)', padding: '6px 14px', borderRadius: 20,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >💳 Cartão</button>
+            </div>
+            <select
+              value={loteSelId ?? ''}
+              onChange={(e) => setLoteSelId(e.target.value || null)}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', marginBottom: 12, fontFamily: 'inherit' }}
+            >
+              {lotesDoTipo.length === 0 && <option value="">Nenhum lote {tipoExtrato === 'bancario' ? 'bancário' : 'de cartão'} importado</option>}
+              {lotesDoTipo.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.nome ?? '(sem nome)'} — {l.total_conciliados ?? 0}/{l.total_movimentos ?? 0} ok
+                </option>
+              ))}
+            </select>
+
+            {loteSel && (
+              <div style={{ background: '#FAF7F2', border: '0.5px solid #E7DED3', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>
+                  Extrato {loteSel.nome ?? '—'}
+                  {loteSel.periodo_inicio && <> · {fmtDate(loteSel.periodo_inicio)} a {fmtDate(loteSel.periodo_fim)}</>}
+                </div>
+                <div style={{ fontSize: 12, color: '#3D2314', marginTop: 4 }}>
+                  <b style={{ color: '#C8941A' }}>{loteSel.total_conciliados ?? 0}</b> de {loteSel.total_movimentos ?? 0} conciliados
+                  {(loteSel.total_pendentes ?? 0) > 0
+                    ? <> · faltam <b>{loteSel.total_pendentes}</b></>
+                    : <> · ✅ extrato fechado</>}
+                </div>
+                <div style={{ height: 8, borderRadius: 4, marginTop: 8, background: '#E7DED3', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${pctFech}%`, background: '#C8941A', transition: 'width 0.2s' }} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {modo === 'extrato' && (<>
         {/* Toggles agrupados, alinhados a direita */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', marginBottom: 16, fontSize: 13, color: '#3D2314' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
@@ -503,7 +670,7 @@ export default function InboxPage() {
           <button
             onClick={() => setAba('conciliados')}
             style={aba === 'conciliados' ? tabActive : tabInactive}
-          >Conciliados ({conciliados.length})</button>
+          >Conciliados ({conciliadosLote.length})</button>
           <button
             onClick={() => setShowImport((v) => !v)}
             style={{ ...tabInactive, marginLeft: 'auto', borderStyle: 'dashed' }}
@@ -710,7 +877,7 @@ export default function InboxPage() {
           )
         ) : (
           /* Aba CONCILIADOS */
-          conciliados.length === 0 ? (
+          conciliadosLote.length === 0 ? (
             <div style={emptyBox}>
               <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600, marginBottom: 6 }}>
                 Nenhum movimento conciliado ainda
@@ -721,7 +888,7 @@ export default function InboxPage() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {conciliados.map((c) => {
+              {conciliadosLote.map((c) => {
                 const selo = seloPrecisao(c.precisao)
                 const v = formatarValorMovimento(c.valor, c.natureza)
                 return (
@@ -765,6 +932,82 @@ export default function InboxPage() {
               })}
             </div>
           )
+        )}
+        </>)}
+
+        {modo === 'sistema' && (
+          <>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              {(['todos', 'debito', 'credito'] as const).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setFiltroNat(n)}
+                  style={{
+                    background: filtroNat === n ? '#3D2314' : '#FAF7F2',
+                    color: filtroNat === n ? '#FAF7F2' : '#3D2314',
+                    border: '0.5px solid rgba(61,35,20,0.2)', padding: '6px 14px', borderRadius: 20,
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >{n === 'todos' ? 'Todos' : n === 'debito' ? 'A pagar' : 'A receber'}</button>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 12 }}>
+              {loteSel?.periodo_inicio
+                ? <>Período do lote selecionado: <b>{fmtDate(loteSel.periodo_inicio)}</b> a <b>{fmtDate(loteSel.periodo_fim)}</b></>
+                : <>Últimos 90 dias · selecione um lote no modo Extrato para fixar o período.</>}
+            </div>
+
+            {loadingSistema ? (
+              <div style={emptyBox}>Carregando…</div>
+            ) : pendenciasSistema.length === 0 ? (
+              <div style={emptyBox}>
+                <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600, marginBottom: 6 }}>
+                  Nenhuma pendência no período
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
+                  Todas as contas a {filtroNat === 'credito' ? 'receber' : filtroNat === 'debito' ? 'pagar' : 'pagar/receber'} foram conciliadas ou vinculadas.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {pendenciasSistema.map((p) => {
+                  const v = formatarValorMovimento(p.valor, p.natureza)
+                  const ehReceber = p.natureza === 'credito'
+                  return (
+                    <div key={`${p.tabela}:${p.id}`} style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              background: ehReceber ? '#EAF3DE' : '#FCEBEB',
+                              color: ehReceber ? '#3B6D11' : '#A32D2D',
+                              padding: '1px 8px', borderRadius: 8, fontSize: 10, fontWeight: 700,
+                            }}>{ehReceber ? 'A receber' : 'A pagar'}</span>
+                            {p.data_vencimento && <span>venc {fmtDate(p.data_vencimento)}</span>}
+                            {p.categoria && <span>· {p.categoria}</span>}
+                            {p.status && <span>· {p.status}</span>}
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', marginBottom: 2, wordBreak: 'break-word' }}>
+                            {p.nome ?? '(sem contraparte)'}
+                          </div>
+                          {p.descricao && (
+                            <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', wordBreak: 'break-word' }}>
+                              {p.descricao}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 18, fontWeight: 600, color: v.cor, fontVariantNumeric: 'tabular-nums' }}>
+                          {v.texto}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 
