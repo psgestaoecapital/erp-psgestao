@@ -88,10 +88,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       return NextResponse.json({ ok: false, mensagem: 'Sem permissao para essa empresa' }, { status: 403 })
     }
 
-    // Parse XLSX
-    const buf = Buffer.from(await file.arrayBuffer())
+    // Parse XLSX · usa ArrayBuffer (Buffer<ArrayBuffer> nao bate com Buffer no novo @types/node)
+    const arrayBuffer = await file.arrayBuffer()
     const wb = new ExcelJS.Workbook()
-    await wb.xlsx.load(buf)
+    await wb.xlsx.load(arrayBuffer)
     const ws = wb.worksheets[0]
     if (!ws) {
       return NextResponse.json({ ok: false, mensagem: 'Planilha sem abas' }, { status: 400 })
