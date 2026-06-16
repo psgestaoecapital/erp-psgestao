@@ -202,6 +202,7 @@ export default function InboxPage() {
 
   async function carregar() {
     if (!empresaUnica) return
+    if (!loteSelId) { setItems([]); setLoading(false); return }
     setLoading(true)
     const { data, error } = await supabase.rpc('fn_conciliacao_inbox', {
       p_lote_id: loteSelId,
@@ -212,6 +213,12 @@ export default function InboxPage() {
     if (error) setErro(error.message)
     setItems((data ?? []) as Item[])
     setLoading(false)
+  }
+
+  // fix-conciliacao-pendentes-filtro-lote-v1: trocar tipo Banco/Cartao reseta lote
+  function trocarTipo(t: 'bancario' | 'cartao_despesa') {
+    setTipoExtrato(t)
+    setLoteSelId(lotes.find((l) => l.tipo === t)?.id ?? null)
   }
 
   async function carregarLotes(seletor?: (lst: Lote[]) => Lote | undefined) {
@@ -556,6 +563,9 @@ export default function InboxPage() {
   const pctFech = loteSel && loteSel.total_movimentos
     ? Math.round(100 * (loteSel.total_conciliados ?? 0) / loteSel.total_movimentos)
     : 0
+  // fix-conciliacao-pendentes-filtro-lote-v1: contadores por lote, nao global
+  const totPend = loteSel?.total_pendentes ?? items.length
+  const totConc = loteSel?.total_conciliados ?? conciliadosLote.length
 
   return (
     <div style={{ background: '#FAF7F2', minHeight: '100vh', padding: '24px 16px' }}>
@@ -571,7 +581,7 @@ export default function InboxPage() {
             </h1>
             <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
               {modo === 'extrato'
-                ? `${items.length} pendentes · ${qtdOuro} com match OURO (score ≥ 0.8)`
+                ? `${totPend} pendentes · ${qtdOuro} com match OURO (score ≥ 0.8)`
                 : `${pendenciasSistema.length} pendências no sistema (não vinculadas ao extrato)`}
             </p>
           </div>
@@ -597,7 +607,7 @@ export default function InboxPage() {
             {/* tipo de extrato + seletor de lote + placar */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
               <button
-                onClick={() => setTipoExtrato('bancario')}
+                onClick={() => trocarTipo('bancario')}
                 style={{
                   background: tipoExtrato === 'bancario' ? '#3D2314' : '#FAF7F2',
                   color: tipoExtrato === 'bancario' ? '#FAF7F2' : '#3D2314',
@@ -606,7 +616,7 @@ export default function InboxPage() {
                 }}
               >🏦 Banco</button>
               <button
-                onClick={() => setTipoExtrato('cartao_despesa')}
+                onClick={() => trocarTipo('cartao_despesa')}
                 style={{
                   background: tipoExtrato === 'cartao_despesa' ? '#3D2314' : '#FAF7F2',
                   color: tipoExtrato === 'cartao_despesa' ? '#FAF7F2' : '#3D2314',
@@ -666,11 +676,11 @@ export default function InboxPage() {
           <button
             onClick={() => setAba('pendentes')}
             style={aba === 'pendentes' ? tabActive : tabInactive}
-          >Pendentes ({items.length})</button>
+          >Pendentes ({totPend})</button>
           <button
             onClick={() => setAba('conciliados')}
             style={aba === 'conciliados' ? tabActive : tabInactive}
-          >Conciliados ({conciliadosLote.length})</button>
+          >Conciliados ({totConc})</button>
           <button
             onClick={() => setShowImport((v) => !v)}
             style={{ ...tabInactive, marginLeft: 'auto', borderStyle: 'dashed' }}
