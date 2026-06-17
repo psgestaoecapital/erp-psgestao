@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import CertificadoUploadCard from '@/components/fiscal/CertificadoUploadCard'
+import ConfigFiscalEditCard from '@/components/fiscal/ConfigFiscalEditCard'
 import FocusNFeConfigCard from '@/components/fiscal/FocusNFeConfigCard'
 import TestarConexaoButton from '@/components/fiscal/TestarConexaoButton'
 import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
@@ -379,6 +380,12 @@ export default function FiscalConfigClient() {
         companyId={state.companyId!}
         certificadoAtual={state.certificado as unknown as Record<string, unknown> | null}
         onAtualizado={carregar}
+      />
+
+      <ConfigFiscalEditCard
+        companyId={state.companyId!}
+        imAtual={state.empresa?.inscricao_municipal ?? null}
+        onSalvo={carregar}
       />
 
       <FocusNFeConfigCard
