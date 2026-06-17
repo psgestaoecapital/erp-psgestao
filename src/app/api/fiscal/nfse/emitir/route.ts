@@ -157,7 +157,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
     const { data: providerCfg } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('provider, gov_nfse_municipio_codigo')
+      .select('provider, gov_nfse_municipio_codigo, ambiente')
       .eq('company_id', body.companyId)
       .eq('ativo', true)
       .maybeSingle()
@@ -176,9 +176,11 @@ export const POST = withAuth(async (req: NextRequest) => {
         )
       }
 
+      const ambienteGov = providerCfg?.ambiente === 'producao' ? 'producao' : 'homologacao'
       const resultadoGov = await emitirNFSeViaGovServer(
         {
           companyId: body.companyId,
+          ambiente: ambienteGov,
           erpReceberId: body.erpReceberId ?? null,
           prestador: {
             cnpj: nfseReq.prestador.cnpj,
