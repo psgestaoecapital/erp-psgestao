@@ -14,6 +14,8 @@ export const runtime = 'nodejs'
 interface EmitirNFSeBody {
   companyId: string
   erpReceberId?: string
+  // receber-nfse-seletor-servico-v1
+  servicoId?: string
   manual?: {
     descricaoServico: string
     valorServicos: number
@@ -37,6 +39,27 @@ interface EmitirNFSeBody {
   }
 }
 
+interface DadosNFSeRPC {
+  ok?: boolean
+  erro?: string
+  receber_id?: string
+  company_id?: string
+  valor?: number
+  tomador?: {
+    documento: string
+    tipo: 'cpf' | 'cnpj' | 'indefinido'
+    nome: string
+    email: string | null
+  }
+  servico?: {
+    codigo_servico_municipio: string
+    codigo_lc116: string
+    aliquota_iss: number
+    iss_retido: boolean
+    descricao: string
+  }
+}
+
 export const POST = withAuth(async (req: NextRequest) => {
   try {
     const body = (await req.json()) as EmitirNFSeBody
@@ -51,13 +74,52 @@ export const POST = withAuth(async (req: NextRequest) => {
       )
     }
 
+    // receber-nfse-seletor-servico-v1: quando servicoId vem junto, busca os
+    // dados via RPC (servico + tomador) e injeta como overrides confiaveis,
+    // alem de devolver mensagens claras (sem "cadastre em /configuracoes/fiscal").
+    let servicoOverride: NonNullable<EmitirNFSeBody['overrides']> | undefined
+    let dadosRpc: DadosNFSeRPC | null = null
+    if (body.erpReceberId && body.servicoId) {
+      const { data, error } = await supabaseAdmin.rpc('fn_receber_nfse_dados', {
+        p_receber_id: body.erpReceberId,
+        p_servico_id: body.servicoId,
+      })
+      if (error) {
+        return NextResponse.json({ ok: false, mensagem: error.message }, { status: 400 })
+      }
+      dadosRpc = (data as DadosNFSeRPC | null) ?? null
+      if (dadosRpc?.erro) {
+        return NextResponse.json({ ok: false, mensagem: dadosRpc.erro }, { status: 400 })
+      }
+      if (dadosRpc?.servico) {
+        servicoOverride = {
+          ...(body.overrides ?? {}),
+          codigoServico: dadosRpc.servico.codigo_servico_municipio,
+          aliquotaIss: body.overrides?.aliquotaIss ?? dadosRpc.servico.aliquota_iss,
+          retemIss: body.overrides?.retemIss ?? dadosRpc.servico.iss_retido,
+          descricaoServico: body.overrides?.descricaoServico ?? dadosRpc.servico.descricao,
+        }
+      }
+    }
+
     let nfseReq: NFSeRequest
     if (body.erpReceberId) {
       nfseReq = await buildNFSeFromReceber({
         companyId: body.companyId,
         erpReceberId: body.erpReceberId,
-        overrides: body.overrides,
+        overrides: servicoOverride ?? body.overrides,
       })
+      // Sobrescreve tomador pelo cadastro consolidado da RPC (doc/email/nome)
+      if (dadosRpc?.tomador && dadosRpc.tomador.documento) {
+        const tomDoc = dadosRpc.tomador.documento
+        nfseReq.tomador = {
+          ...nfseReq.tomador,
+          razaoSocial: dadosRpc.tomador.nome ?? nfseReq.tomador.razaoSocial,
+          cnpj: dadosRpc.tomador.tipo === 'cnpj' ? tomDoc : undefined,
+          cpf: dadosRpc.tomador.tipo === 'cpf' ? tomDoc : undefined,
+          email: dadosRpc.tomador.email ?? nfseReq.tomador.email,
+        }
+      }
     } else if (body.manual) {
       const { data: emp } = await supabaseAdmin
         .from('companies')
@@ -108,7 +170,7 @@ export const POST = withAuth(async (req: NextRequest) => {
           {
             ok: false,
             mensagem:
-              'Configuração gov.br incompleta · cadastre o código IBGE do município em /configuracoes/fiscal',
+              'Configuração gov.br incompleta · cadastre o código IBGE do município do prestador em Configurações › Fiscal',
           },
           { status: 400 }
         )
