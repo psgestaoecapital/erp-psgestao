@@ -17,7 +17,7 @@ type Estado = 'idle' | 'lendo' | 'parseando' | 'enviando' | 'sucesso' | 'erro'
 interface MovimentoOfx {
   data_transacao: string
   valor: number
-  natureza: 'credit' | 'debit'
+  natureza: 'credito' | 'debito'
   descricao: string
   id_externo: string | null
   documento: string | null
@@ -68,7 +68,7 @@ function extrairMovimentos(parsed: { OFX: Record<string, unknown> }): {
     return {
       data_transacao: parseDataOfx(t.DTPOSTED ?? ''),
       valor: Math.abs(valorRaw),
-      natureza: valorRaw >= 0 ? 'credit' : 'debit',
+      natureza: valorRaw >= 0 ? 'credito' : 'debito',
       descricao: (t.MEMO ?? t.NAME ?? '(sem descrição)').trim(),
       id_externo: t.FITID ?? null,
       documento: t.CHECKNUM ?? null,
