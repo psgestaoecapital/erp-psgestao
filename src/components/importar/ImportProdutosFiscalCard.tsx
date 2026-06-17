@@ -1,16 +1,19 @@
 'use client'
 
-// importador-universal-produtos-fiscal-v1
+// importador-universal-produtos-fiscal-v1 (+ v3: precos e saldo)
 // Wizard 3 passos: upload XLSX -> mapeamento + preview -> aplicar.
 // RPC pronta: fn_import_produtos_fiscal(company, rows, dry_run, user, arquivo)
-//   - rows aceita { codigo, ncm, icms_st (texto), cest, pis_cofins (texto) }
-//   - retorno: { total, atualizados, avisos, nao_encontrados, detalhes[] }
+//   - rows aceita { codigo, ncm, icms_st (texto), cest, pis_cofins (texto),
+//                   preco_venda, preco_custo, saldo (numericos opcionais) }
+//   - retorno: { total, atualizados, fiscais_atualizados, precos_atualizados,
+//                custos_atualizados, saldos_ajustados, avisos, nao_encontrados,
+//                valor_total_estoque, detalhes[] }
 
 import { useMemo, useState } from 'react'
 import ExcelJS from 'exceljs'
 import { supabase } from '@/lib/supabase'
 
-type Campo = 'codigo' | 'ncm' | 'icms_st' | 'cest' | 'pis_cofins'
+type Campo = 'codigo' | 'ncm' | 'icms_st' | 'cest' | 'pis_cofins' | 'preco_venda' | 'preco_custo' | 'saldo'
 type Passo = 'upload' | 'preview' | 'resultado'
 
 interface Detalhe {
@@ -24,6 +27,9 @@ interface Detalhe {
     cfop_venda?: string | null
     cst_pis?: string | null
     cst_cofins?: string | null
+    preco_venda?: number | string | null
+    preco_custo?: number | string | null
+    estoque_atual?: number | string | null
   }
   depois?: {
     ncm?: string | null
@@ -32,6 +38,10 @@ interface Detalhe {
     cfop_venda?: string | null
     cst_pis?: string | null
     cst_cofins?: string | null
+    preco_venda?: number | string | null
+    preco_custo?: number | string | null
+    estoque_atual?: number | string | null
+    delta_saldo?: number | string | null
   }
 }
 
@@ -41,8 +51,13 @@ interface ResultadoRPC {
   importacao_id?: string | null
   total: number
   atualizados: number
+  fiscais_atualizados?: number
+  precos_atualizados?: number
+  custos_atualizados?: number
+  saldos_ajustados?: number
   avisos: number
   nao_encontrados: number
+  valor_total_estoque?: number
   detalhes: Detalhe[]
 }
 
@@ -60,7 +75,10 @@ function normalize(s: string): string {
 }
 
 function autoDetect(headers: string[]): Mapping {
-  const out: Mapping = { codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null }
+  const out: Mapping = {
+    codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null,
+    preco_venda: null, preco_custo: null, saldo: null,
+  }
   for (const h of headers) {
     const n = normalize(h)
     if (!out.codigo
@@ -77,6 +95,12 @@ function autoDetect(headers: string[]): Mapping {
       out.cest = h
     } else if (!out.pis_cofins && (n.includes('pis') || n.includes('cofins'))) {
       out.pis_cofins = h
+    } else if (!out.preco_venda && n.includes('preco') && n.includes('venda')) {
+      out.preco_venda = h
+    } else if (!out.preco_custo && n.includes('preco') && n.includes('custo')) {
+      out.preco_custo = h
+    } else if (!out.saldo && (n === 'saldo' || n.includes('estoque') || n.includes('qtd em estoque'))) {
+      out.saldo = h
     }
   }
   return out
@@ -115,7 +139,7 @@ async function parseXlsx(file: File): Promise<ParsedFile> {
     aoa.push(arr)
   })
 
-  const ALVO = /(c[óo]digo|ncm|icms|st\b|cest|pis|cofins|descri)/i
+  const ALVO = /(c[óo]digo|ncm|icms|st\b|cest|pis|cofins|descri|pre[çc]o|sald|estoque)/i
   let hIdx = aoa.findIndex(
     (row) => row.filter((c) => ALVO.test(String(c ?? ''))).length >= 2,
   )
@@ -153,7 +177,7 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
   const [sheetName, setSheetName] = useState<string>('')
   const [headers, setHeaders] = useState<string[]>([])
   const [rowsBruto, setRowsBruto] = useState<Array<Record<string, unknown>>>([])
-  const [mapping, setMapping] = useState<Mapping>({ codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null })
+  const [mapping, setMapping] = useState<Mapping>({ codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null, preco_venda: null, preco_custo: null, saldo: null })
   const [resultado, setResultado] = useState<ResultadoRPC | null>(null)
   const [aplicando, setAplicando] = useState(false)
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'verde' | 'amarelo' | 'vermelho'>('todos')
@@ -195,6 +219,9 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
       if (map.icms_st) obj.icms_st = valorTexto(r[map.icms_st])
       if (map.cest) obj.cest = valorTexto(r[map.cest])
       if (map.pis_cofins) obj.pis_cofins = valorTexto(r[map.pis_cofins])
+      if (map.preco_venda) obj.preco_venda = valorTexto(r[map.preco_venda])
+      if (map.preco_custo) obj.preco_custo = valorTexto(r[map.preco_custo])
+      if (map.saldo) obj.saldo = valorTexto(r[map.saldo])
       out.push(obj)
     }
     return out
@@ -249,7 +276,7 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
   function resetar() {
     setHeaders([])
     setRowsBruto([])
-    setMapping({ codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null })
+    setMapping({ codigo: null, ncm: null, icms_st: null, cest: null, pis_cofins: null, preco_venda: null, preco_custo: null, saldo: null })
     setResultado(null)
     setErro(null)
     setArquivoNome('')
@@ -288,7 +315,7 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
           <UploadArea onFile={handleFile} loading={loading} />
           <p style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 8 }}>
             Sem template fixo · lê a aba <strong>&quot;Relação de Produtos&quot;</strong> ou a primeira.
-            Auto-mapeia: Código do Produto → codigo · Código NCM → ncm · ICMS-ST → icms_st (texto SIM/NÃO) · CEST → cest · PIS/COFINS → pis_cofins (MONOFASICO/NÃO MONOFASICO).
+            Auto-mapeia: Código → codigo · NCM · ICMS-ST · CEST · PIS/COFINS · Preço de venda · Preço de custo · Saldo em estoque (todos opcionais exceto código).
           </p>
         </div>
       )}
@@ -303,7 +330,7 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
             Mapeamento (editável)
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 16 }}>
-            {(['codigo', 'ncm', 'icms_st', 'cest', 'pis_cofins'] as Campo[]).map((c) => (
+            {(['codigo', 'ncm', 'icms_st', 'cest', 'pis_cofins', 'preco_venda', 'preco_custo', 'saldo'] as Campo[]).map((c) => (
               <MapField
                 key={c}
                 campo={c}
@@ -323,12 +350,21 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
 
           {resultado && !loading && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 8 }}>
                 <KpiCard label="Total" valor={resultado.total} cor="#3D2314" ativo={filtroStatus === 'todos'} onClick={() => setFiltroStatus('todos')} />
                 <KpiCard label="🟢 Casaram" valor={resultado.atualizados} cor="#3B6D11" ativo={filtroStatus === 'verde'} onClick={() => setFiltroStatus('verde')} />
                 <KpiCard label="🟡 Avisos" valor={resultado.avisos} cor="#BA7517" ativo={filtroStatus === 'amarelo'} onClick={() => setFiltroStatus('amarelo')} />
                 <KpiCard label="🔴 Não enc." valor={resultado.nao_encontrados} cor="#A32D2D" ativo={filtroStatus === 'vermelho'} onClick={() => setFiltroStatus('vermelho')} />
               </div>
+
+              {((resultado.precos_atualizados ?? 0) + (resultado.custos_atualizados ?? 0) + (resultado.saldos_ajustados ?? 0) > 0 || (resultado.valor_total_estoque ?? 0) > 0) && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+                  <KpiCard label="💰 Preços venda" valor={resultado.precos_atualizados ?? 0} cor="#3D2314" ativo={false} onClick={() => {}} />
+                  <KpiCard label="🏷️ Preços custo" valor={resultado.custos_atualizados ?? 0} cor="#3D2314" ativo={false} onClick={() => {}} />
+                  <KpiCard label="📦 Saldos" valor={resultado.saldos_ajustados ?? 0} cor="#3D2314" ativo={false} onClick={() => {}} />
+                  <KpiCard label="Σ Estoque (R$)" valor={Math.round((resultado.valor_total_estoque ?? 0) * 100) / 100} cor="#C8941A" ativo={false} onClick={() => {}} brl />
+                </div>
+              )}
 
               <div style={{ border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, overflow: 'auto', maxHeight: 420, marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -340,7 +376,9 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
                       <th style={th}>CFOP</th>
                       <th style={th}>CEST</th>
                       <th style={th}>CST PIS</th>
-                      <th style={th}>CST COFINS</th>
+                      <th style={th}>Preço venda</th>
+                      <th style={th}>Preço custo</th>
+                      <th style={th}>Saldo</th>
                       <th style={th}>Aviso</th>
                     </tr>
                   </thead>
@@ -353,7 +391,9 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
                         <td style={td}>{antesDepois(d.antes?.cfop_venda, d.depois?.cfop_venda)}</td>
                         <td style={td}>{antesDepois(d.antes?.cest, d.depois?.cest)}</td>
                         <td style={td}>{antesDepois(d.antes?.cst_pis, d.depois?.cst_pis)}</td>
-                        <td style={td}>{antesDepois(d.antes?.cst_cofins, d.depois?.cst_cofins)}</td>
+                        <td style={td}>{antesDepoisNum(d.antes?.preco_venda, d.depois?.preco_venda)}</td>
+                        <td style={td}>{antesDepoisNum(d.antes?.preco_custo, d.depois?.preco_custo)}</td>
+                        <td style={td}>{antesDepoisNum(d.antes?.estoque_atual, d.depois?.estoque_atual)}</td>
                         <td style={{ ...td, color: '#BA7517', fontSize: 10 }}>{d.msg ?? ''}</td>
                       </tr>
                     ))}
@@ -395,6 +435,16 @@ export default function ImportProdutosFiscalCard({ companyId, onAplicado }: { co
             <div style={{ fontSize: 13, color: '#3D2314' }}>
               IMPORTOU <strong>{resultado.atualizados}</strong> produto(s) · 🟡 <strong>{resultado.avisos}</strong> aviso(s) · 🔴 <strong>{resultado.nao_encontrados}</strong> não encontrado(s)
             </div>
+            {((resultado.precos_atualizados ?? 0) + (resultado.custos_atualizados ?? 0) + (resultado.saldos_ajustados ?? 0) > 0) && (
+              <div style={{ fontSize: 12, color: '#3D2314', marginTop: 6 }}>
+                💰 <strong>{resultado.precos_atualizados ?? 0}</strong> preços de venda · 🏷️ <strong>{resultado.custos_atualizados ?? 0}</strong> preços de custo · 📦 <strong>{resultado.saldos_ajustados ?? 0}</strong> saldos ajustados
+              </div>
+            )}
+            {(resultado.valor_total_estoque ?? 0) > 0 && (
+              <div style={{ fontSize: 12, color: '#3D2314', marginTop: 4 }}>
+                Σ Estoque: <strong>R$ {Number(resultado.valor_total_estoque).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </div>
+            )}
             {resultado.importacao_id && (
               <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 6 }}>
                 Lote: <code>{resultado.importacao_id}</code>
@@ -423,6 +473,9 @@ function MapField({
     icms_st: 'ICMS-ST (texto SIM/NÃO)',
     cest: 'CEST',
     pis_cofins: 'PIS/COFINS (texto MONOFASICO/NÃO)',
+    preco_venda: 'Preço de venda',
+    preco_custo: 'Preço de custo',
+    saldo: 'Saldo em estoque',
   }
   return (
     <div>
@@ -443,7 +496,7 @@ function MapField({
   )
 }
 
-function KpiCard({ label, valor, cor, ativo, onClick }: { label: string; valor: number; cor: string; ativo: boolean; onClick: () => void }) {
+function KpiCard({ label, valor, cor, ativo, onClick, brl }: { label: string; valor: number; cor: string; ativo: boolean; onClick: () => void; brl?: boolean }) {
   return (
     <button
       onClick={onClick}
@@ -455,7 +508,9 @@ function KpiCard({ label, valor, cor, ativo, onClick }: { label: string; valor: 
       }}
     >
       <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: cor, marginTop: 2 }}>{valor}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: cor, marginTop: 2 }}>
+        {brl ? Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : valor}
+      </div>
     </button>
   )
 }
@@ -498,6 +553,26 @@ function statusEmoji(s: Detalhe['status']): string {
 function antesDepois(antes: string | null | undefined, depois: string | null | undefined): React.ReactNode {
   const a = antes ?? '—'
   const d = depois ?? '—'
+  if (a === d) return <span style={{ color: 'rgba(61,35,20,0.5)' }}>{d}</span>
+  return (
+    <span>
+      <span style={{ color: 'rgba(61,35,20,0.45)', textDecoration: 'line-through' }}>{a}</span>
+      {' → '}
+      <strong style={{ color: '#3D2314' }}>{d}</strong>
+    </span>
+  )
+}
+
+function fmtNum(v: number | string | null | undefined): string {
+  if (v == null || v === '') return '—'
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'))
+  if (Number.isNaN(n)) return '—'
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function antesDepoisNum(antes: number | string | null | undefined, depois: number | string | null | undefined): React.ReactNode {
+  const a = fmtNum(antes)
+  const d = fmtNum(depois)
   if (a === d) return <span style={{ color: 'rgba(61,35,20,0.5)' }}>{d}</span>
   return (
     <span>
