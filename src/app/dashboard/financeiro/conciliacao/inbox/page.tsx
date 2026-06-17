@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
+import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 
 interface Item {
   movimento_id: string
@@ -189,6 +190,15 @@ export default function InboxPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [arquivando, setArquivando] = useState<Item | null>(null)
   const [vinculandoVarios, setVinculandoVarios] = useState<Item | null>(null)
+  // conciliacao-ajuste-diferenca-no-conciliar-v1
+  const [ajuste, setAjuste] = useState<null | {
+    lancamentoId: string
+    tipo: 'pagar' | 'receber'
+    valorOriginal: number
+    valorBanco: number
+    descricao?: string
+    aplicar: () => Promise<void>
+  }>(null)
   // conciliacao-tela-sugestoes-acoes-v1: top-N sugestoes via fn_conciliacao_sugerir_match
   const [sugestoesPorMov, setSugestoesPorMov] = useState<Record<string, SugestaoMatch[]>>({})
   const [carregandoSug, setCarregandoSug] = useState<Set<string>>(new Set())
@@ -381,23 +391,58 @@ export default function InboxPage() {
     return items
   }, [items, soOuro])
 
+  // conciliacao-ajuste-diferenca-no-conciliar-v1: tolerancia 1 centavo
+  const TOL_DIF = 0.01
+  function conciliarComAjuste(p: {
+    valorBanco: number
+    valorLancamento: number
+    lancamentoId: string
+    lancamentoTabela: string
+    descricao?: string
+    aplicar: () => Promise<void>
+  }) {
+    if (Math.abs(p.valorBanco - p.valorLancamento) <= TOL_DIF) {
+      void p.aplicar()
+      return
+    }
+    setAjuste({
+      lancamentoId: p.lancamentoId,
+      tipo: p.lancamentoTabela === 'erp_receber' ? 'receber' : 'pagar',
+      valorOriginal: p.valorLancamento,
+      valorBanco: p.valorBanco,
+      descricao: p.descricao,
+      aplicar: p.aplicar,
+    })
+  }
+
   async function aplicarMatch(it: Item) {
     if (!it.sugestao_lancamento_tabela || !it.sugestao_lancamento_id) return
     const { data: userResp } = await supabase.auth.getUser()
     const operadorId = userResp.user?.id ?? null
     if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
+    const lancTabela = it.sugestao_lancamento_tabela
+    const lancId = it.sugestao_lancamento_id
 
-    setAplicandoIds(new Set([...aplicandoIds, it.movimento_id]))
-    const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
-      p_movimento_id: it.movimento_id,
-      p_lancamento_tabela: it.sugestao_lancamento_tabela,
-      p_lancamento_id: it.sugestao_lancamento_id,
-      p_operador_id: operadorId,
-      p_origem: 'manual',
+    conciliarComAjuste({
+      valorBanco: Math.abs(Number(it.valor) || 0),
+      valorLancamento: Number(it.sugestao_valor ?? 0),
+      lancamentoId: lancId,
+      lancamentoTabela: lancTabela,
+      descricao: it.descricao ?? undefined,
+      aplicar: async () => {
+        setAplicandoIds(new Set([...aplicandoIds, it.movimento_id]))
+        const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+          p_movimento_id: it.movimento_id,
+          p_lancamento_tabela: lancTabela,
+          p_lancamento_id: lancId,
+          p_operador_id: operadorId,
+          p_origem: 'manual',
+        })
+        if (error) setErro(error.message)
+        await carregar()
+        const ns = new Set(aplicandoIds); ns.delete(it.movimento_id); setAplicandoIds(ns)
+      },
     })
-    if (error) setErro(error.message)
-    await carregar()
-    const ns = new Set(aplicandoIds); ns.delete(it.movimento_id); setAplicandoIds(ns)
   }
 
   async function rejeitar(it: Item) {
@@ -446,27 +491,38 @@ export default function InboxPage() {
     setExpandidos(ns)
   }
 
-  async function aplicarSugestao(movId: string, sug: SugestaoMatch) {
+  async function aplicarSugestao(it: Item, sug: SugestaoMatch) {
     const { data: userResp } = await supabase.auth.getUser()
     const operadorId = userResp.user?.id ?? null
     if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
-    setAplicandoIds(new Set([...aplicandoIds, movId]))
-    const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
-      p_movimento_id: movId,
-      p_lancamento_tabela: sug.lancamento_tabela,
-      p_lancamento_id: sug.lancamento_id,
-      p_operador_id: operadorId,
-      p_origem: 'manual',
+    const movId = it.movimento_id
+
+    conciliarComAjuste({
+      valorBanco: Math.abs(Number(it.valor) || 0),
+      valorLancamento: Number(sug.valor_lancamento ?? 0),
+      lancamentoId: sug.lancamento_id,
+      lancamentoTabela: sug.lancamento_tabela,
+      descricao: it.descricao ?? undefined,
+      aplicar: async () => {
+        setAplicandoIds(new Set([...aplicandoIds, movId]))
+        const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+          p_movimento_id: movId,
+          p_lancamento_tabela: sug.lancamento_tabela,
+          p_lancamento_id: sug.lancamento_id,
+          p_operador_id: operadorId,
+          p_origem: 'manual',
+        })
+        if (error) { setErro(error.message) }
+        else {
+          // limpa cache e fecha expand
+          const novo = { ...sugestoesPorMov }; delete novo[movId]; setSugestoesPorMov(novo)
+          const ne = new Set(expandidos); ne.delete(movId); setExpandidos(ne)
+        }
+        await carregar()
+        await carregarConciliados()
+        const ns = new Set(aplicandoIds); ns.delete(movId); setAplicandoIds(ns)
+      },
     })
-    if (error) { setErro(error.message) }
-    else {
-      // limpa cache e fecha expand
-      const novo = { ...sugestoesPorMov }; delete novo[movId]; setSugestoesPorMov(novo)
-      const ne = new Set(expandidos); ne.delete(movId); setExpandidos(ne)
-    }
-    await carregar()
-    await carregarConciliados()
-    const ns = new Set(aplicandoIds); ns.delete(movId); setAplicandoIds(ns)
   }
 
   async function rejeitarSugestao(movId: string, sug: SugestaoMatch) {
@@ -855,7 +911,7 @@ export default function InboxPage() {
                                   </div>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button onClick={() => void rejeitarSugestao(it.movimento_id, sug)} disabled={aplicando} style={secondaryBtn(aplicando)}>Não é essa</button>
-                                    <button onClick={() => void aplicarSugestao(it.movimento_id, sug)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>Conciliar</button>
+                                    <button onClick={() => void aplicarSugestao(it, sug)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>Conciliar</button>
                                   </div>
                                 </div>
                               )
@@ -1038,6 +1094,19 @@ export default function InboxPage() {
           descricao={vinculandoVarios.descricao}
           onClose={() => setVinculandoVarios(null)}
           onConciliado={() => { setVinculandoVarios(null); void carregar() }}
+        />
+      )}
+
+      {ajuste && (
+        <AjustarValoresModal
+          open
+          onClose={() => setAjuste(null)}
+          onSucesso={() => { const a = ajuste; setAjuste(null); void a.aplicar() }}
+          lancamentoId={ajuste.lancamentoId}
+          tipo={ajuste.tipo}
+          valorOriginal={ajuste.valorOriginal}
+          valorBanco={ajuste.valorBanco}
+          descricao={ajuste.descricao}
         />
       )}
     </div>
