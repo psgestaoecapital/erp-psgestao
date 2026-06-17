@@ -36,6 +36,7 @@ export async function verificarMunicipioAderido(
 // Recebe authorization (Bearer user JWT) pra passthrough na Edge Function
 export interface GovNFSeEmitirInput {
   companyId: string
+  ambiente?: 'homologacao' | 'producao'
   prestador: {
     cnpj: string
     razaoSocial: string
@@ -76,6 +77,27 @@ export async function emitirNFSeViaGovServer(
   const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '')
   const url = `${baseUrl}/functions/v1/gov-nfse-emitir`
 
+  // nfse-edge-payload-shape-v1: a edge gov-nfse-emitir valida payload em
+  // snake_case ({ company_id, servico:{ descricao, valor,
+  // codigo_tributacao_nacional_iss, aliquota_iss }, tomador:{ cpf_cnpj,
+  // razao_social } }). Transforma o input camelCase antes de enviar.
+  const cpfCnpjTomador = (input.tomador.cnpj ?? input.tomador.cpf ?? '').replace(/\D/g, '')
+  const codigoServico = (input.servico.codigoTributacaoNacional ?? '').toString()
+  const edgePayload: Record<string, unknown> = {
+    company_id: input.companyId,
+    teste_homologacao: input.ambiente === 'homologacao',
+    servico: {
+      descricao: input.servico.descricao,
+      valor: input.servico.valorServico,
+      codigo_tributacao_nacional_iss: codigoServico,
+      aliquota_iss: input.servico.aliquotaIss ?? undefined,
+    },
+    tomador: {
+      cpf_cnpj: cpfCnpjTomador || undefined,
+      razao_social: input.tomador.razaoSocial,
+    },
+  }
+
   try {
     const resp = await fetch(url, {
       method: 'POST',
@@ -83,7 +105,7 @@ export async function emitirNFSeViaGovServer(
         'Content-Type': 'application/json',
         Authorization: authorizationHeader,
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify(edgePayload),
     })
     const text = await resp.text()
     let data: unknown = null
