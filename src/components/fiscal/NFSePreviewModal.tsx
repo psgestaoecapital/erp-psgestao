@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Loader2, FileCheck, AlertTriangle, X, ExternalLink } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
+import { supabase } from '@/lib/supabase'
 
 interface Props {
   open: boolean
@@ -29,6 +30,14 @@ interface RespostaEmissao {
   mensagem?: string
 }
 
+interface ServicoOpt {
+  id: string
+  descricao_resumida: string | null
+  codigo_lc116: string | null
+  codigo_servico_municipio: string | null
+  aliquota_iss: number | null
+}
+
 export default function NFSePreviewModal(props: Props) {
   const [status, setStatus] = useState<Status>('preview')
   const [descricao, setDescricao] = useState(props.descricaoSugerida ?? '')
@@ -36,6 +45,10 @@ export default function NFSePreviewModal(props: Props) {
   const [retemIss, setRetemIss] = useState(false)
   const [resposta, setResposta] = useState<RespostaEmissao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  // receber-nfse-seletor-servico-v1: lista de servicos da empresa
+  const [servicos, setServicos] = useState<ServicoOpt[]>([])
+  const [servicoId, setServicoId] = useState<string>('')
+  const [carregandoServicos, setCarregandoServicos] = useState(false)
 
   useEffect(() => {
     if (props.open) {
@@ -45,6 +58,33 @@ export default function NFSePreviewModal(props: Props) {
       setErro(null)
     }
   }, [props.open, props.descricaoSugerida])
+
+  useEffect(() => {
+    if (!props.open || !props.companyId) return
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCarregandoServicos(true)
+    ;(async () => {
+      const { data } = await supabase
+        .from('erp_servicos')
+        .select('id,descricao_resumida,codigo_lc116,codigo_servico_municipio,aliquota_iss')
+        .eq('company_id', props.companyId)
+        .eq('ativo', true)
+        .order('descricao_resumida')
+      if (!alive) return
+      const lista = (data ?? []) as ServicoOpt[]
+      setServicos(lista)
+      // pre-seleciona se houver so um
+      if (lista.length === 1) {
+        setServicoId(lista[0].id)
+        if (lista[0].aliquota_iss != null) setAliquota(String(lista[0].aliquota_iss))
+      } else {
+        setServicoId('')
+      }
+      setCarregandoServicos(false)
+    })()
+    return () => { alive = false }
+  }, [props.open, props.companyId])
 
   if (!props.open) return null
 
@@ -82,6 +122,7 @@ export default function NFSePreviewModal(props: Props) {
         body: JSON.stringify({
           companyId: props.companyId,
           erpReceberId: props.erpReceberId,
+          servicoId,
           overrides: {
             descricaoServico: descricao,
             aliquotaIss: parseFloat(aliquota),
@@ -112,6 +153,9 @@ export default function NFSePreviewModal(props: Props) {
     }
   }
 
+  const servicoSel = servicos.find((s) => s.id === servicoId) ?? null
+  const podeEmitir = !!servicoId && descricao.trim().length >= 3
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl">
@@ -133,6 +177,51 @@ export default function NFSePreviewModal(props: Props) {
               <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-lg p-3 text-[12px] text-[#633806]">
                 Valor: <strong>R$ {props.valor?.toFixed(2) ?? '—'}</strong>
               </div>
+
+              {/* receber-nfse-seletor-servico-v1: seletor de servico */}
+              <div>
+                <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
+                  Serviço prestado *
+                </label>
+                {carregandoServicos ? (
+                  <div className="text-[12px] text-[#3D2314]/60 flex items-center gap-2 px-3 py-2 border border-[#3D2314]/15 rounded-lg">
+                    <Loader2 size={13} className="animate-spin" /> Carregando serviços…
+                  </div>
+                ) : servicos.length === 0 ? (
+                  <div className="text-[12px] text-[#791F1F] bg-[#FCEBEB] px-3 py-2 rounded-lg">
+                    Nenhum serviço cadastrado para esta empresa.{' '}
+                    <a href="/dashboard/cadastros/servicos" className="underline font-medium">
+                      Cadastrar serviço
+                    </a>
+                  </div>
+                ) : (
+                  <select
+                    value={servicoId}
+                    onChange={(e) => {
+                      const id = e.target.value
+                      setServicoId(id)
+                      const s = servicos.find((x) => x.id === id)
+                      if (s?.aliquota_iss != null) setAliquota(String(s.aliquota_iss))
+                    }}
+                    className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
+                  >
+                    <option value="">— Selecione um serviço —</option>
+                    {servicos.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.descricao_resumida ?? '(sem descrição)'}
+                        {s.codigo_lc116 ? ` · LC ${s.codigo_lc116}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {servicoSel && (
+                  <div className="text-[10.5px] text-[#3D2314]/55 mt-1">
+                    Município: <strong>{servicoSel.codigo_servico_municipio ?? '—'}</strong> · LC116:{' '}
+                    <strong>{servicoSel.codigo_lc116 ?? '—'}</strong>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
                   Descricao do servico
@@ -189,7 +278,7 @@ export default function NFSePreviewModal(props: Props) {
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={!descricao || descricao.length < 3}
+                  disabled={!podeEmitir}
                   data-testid="nfse-emitir-confirmar"
                   className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40"
                 >
