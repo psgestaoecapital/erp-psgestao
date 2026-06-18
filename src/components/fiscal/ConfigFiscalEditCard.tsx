@@ -28,12 +28,14 @@ interface ChecklistItem {
   apuracao_sn?: number | null
   pct_trib?: number | string | null
   regime?: string | null
+  vault_id_presente?: boolean
 }
 
 interface ChecklistResp {
   ok: boolean
   total: number
   concluidos: number
+  pronto_para_emitir?: boolean
   itens: ChecklistItem[]
   erro?: string
 }
@@ -62,6 +64,10 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [resumo, setResumo] = useState<ChecklistResp | null>(null)
+  // fiscal-token-vault-self-service-v1
+  const [token, setToken] = useState('')
+  const [salvandoToken, setSalvandoToken] = useState(false)
+  const [trocarToken, setTrocarToken] = useState(false)
 
   // carrega checklist inicial pra pre-preencher
   useEffect(() => {
@@ -114,6 +120,33 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     if (!Number.isFinite(Number(proximo)) || Number(proximo) <= 0) return false
     return true
   }, [inscricaoMunicipal, serie, proximo])
+
+  async function salvarToken() {
+    setErro(null)
+    setToast(null)
+    if (!token || token.trim().length < 8) {
+      setErro('Token inválido (mínimo 8 caracteres).')
+      return
+    }
+    setSalvandoToken(true)
+    const { data, error } = await supabase.rpc('fn_fiscal_salvar_token', {
+      p_company_id: companyId,
+      p_token: token.trim(),
+      p_ambiente: ambiente,
+    })
+    setSalvandoToken(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; vault_id?: string }
+    if (!r.ok) { setErro(r.erro ?? 'Erro ao salvar token'); return }
+    setToken('')
+    setTrocarToken(false)
+    setToast('🔒 ALTEROU o token (cofre cifrado) · vault_id ' + (r.vault_id ?? '').slice(0, 8) + '…')
+    // recarregar checklist
+    const { data: novo } = await supabase.rpc('fn_fiscal_config_checklist', { p_company_id: companyId })
+    if (novo) setResumo(novo as ChecklistResp)
+    onSalvo?.()
+    setTimeout(() => setToast(null), 4000)
+  }
 
   async function salvar() {
     setErro(null)
@@ -288,6 +321,64 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                 />
               </Field>
             </div>
+          </Section>
+
+          {/* Passo 6 · Token do emissor (Vault cifrado) */}
+          <Section titulo="6. Token do emissor (cofre cifrado)">
+            {(() => {
+              const passo6 = resumo?.itens.find((i) => i.passo === 6)
+              const temToken = passo6?.ok === true
+              if (temToken && !trocarToken) {
+                return (
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[#FAF7F2] border border-[#3D2314]/15 rounded-md">
+                    <div className="text-[12px] text-[#3D2314]">
+                      🔒 Token cifrado no cofre · <code>••••••••</code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTrocarToken(true)}
+                      className="text-[11px] text-[#BA7517] font-medium hover:underline"
+                    >
+                      Trocar
+                    </button>
+                  </div>
+                )
+              }
+              return (
+                <div className="space-y-2">
+                  <input
+                    type="password"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="Cole o token Focus (ambiente atual: este wizard)"
+                    autoComplete="off"
+                    className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px] font-mono"
+                  />
+                  <div className="flex items-center gap-2 justify-end">
+                    {trocarToken && (
+                      <button
+                        type="button"
+                        onClick={() => { setToken(''); setTrocarToken(false) }}
+                        className="text-[12px] text-[#3D2314]/70 hover:underline"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void salvarToken()}
+                      disabled={salvandoToken || token.trim().length < 8}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#3D2314] text-white text-[12px] font-medium disabled:opacity-40"
+                    >
+                      {salvandoToken ? 'Salvando…' : '🔒 Salvar no cofre'}
+                    </button>
+                  </div>
+                  <div className="text-[10.5px] text-[#3D2314]/55">
+                    O token vai cifrado pro Vault (Pilar 2). Nem o ERP nem logs registram em texto.
+                  </div>
+                </div>
+              )
+            })()}
           </Section>
 
           {erro && (
