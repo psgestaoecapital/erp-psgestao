@@ -67,7 +67,7 @@ const CORES_SITUACAO: Record<Situacao, string> = {
   pago: '#16A34A',
 }
 
-type PeriodoChoice = 'mes_atual' | 'mes_passado' | 'ano_atual' | 'personalizado'
+type PeriodoChoice = 'mes_atual' | 'mes_passado' | 'ano_atual' | 'todos_periodos' | 'personalizado'
 
 interface Props {
   companyId: string
@@ -235,6 +235,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     } else if (choice === 'ano_atual') {
       setDataInicio(toISO(new Date(ref.getFullYear(), 0, 1)))
       setDataFim(toISO(new Date(ref.getFullYear(), 11, 31)))
+    } else if (choice === 'todos_periodos') {
+      // fix-contas-filtro-todos-incluir-futuras-v1: range amplo cobre passado + presente + futuro
+      setDataInicio('1900-01-01')
+      setDataFim('2999-12-31')
     }
   }
 
@@ -314,6 +318,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             <option value="mes_atual">Mês atual ({MESES[hoje.getMonth()]})</option>
             <option value="mes_passado">Mês passado</option>
             <option value="ano_atual">Este ano</option>
+            <option value="todos_periodos">Todos os períodos (inclui a vencer)</option>
             <option value="personalizado">Personalizado</option>
           </select>
         </Campo>
