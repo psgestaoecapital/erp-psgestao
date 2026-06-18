@@ -141,6 +141,27 @@ interface SugestaoMatch {
   motivo: string | null
 }
 
+// conciliacao-busca-faixa-valor-v1
+interface BuscaLancamento {
+  lancamento_tabela: 'erp_pagar' | 'erp_receber' | string
+  lancamento_id: string
+  data_lancamento: string | null
+  valor_lancamento: number | null
+  contraparte: string | null
+  descricao_lancamento: string | null
+  status: string | null
+  ja_conciliado: boolean
+}
+
+interface BuscaState {
+  valor_min: string
+  valor_max: string
+  termo: string
+  resultados: BuscaLancamento[]
+  loading: boolean
+  aberta: boolean
+}
+
 function parseOFX(text: string): MovimentoOFX[] {
   const movimentos: MovimentoOFX[] = []
   const blocos = text.split(/<STMTTRN>/i).slice(1)
@@ -203,6 +224,8 @@ export default function InboxPage() {
   const [sugestoesPorMov, setSugestoesPorMov] = useState<Record<string, SugestaoMatch[]>>({})
   const [carregandoSug, setCarregandoSug] = useState<Set<string>>(new Set())
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  // conciliacao-busca-faixa-valor-v1: busca por faixa de valor
+  const [buscaPorMov, setBuscaPorMov] = useState<Record<string, BuscaState>>({})
   // ONDA-A-IMPORTADOR-OFX-v1
   const [showImport, setShowImport] = useState(false)
   const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
@@ -555,11 +578,108 @@ export default function InboxPage() {
     router.push(`/dashboard/financeiro/nova-${tipo}?${params.toString()}`)
   }
 
-  function pesquisarConta(it: Item) {
-    // redireciona pra listagem com busca pre-preenchida
-    const tipo = it.natureza === 'credito' ? 'receber' : 'pagar'
-    const params = new URLSearchParams({ busca: String(Math.abs(Number(it.valor) || 0).toFixed(2)) })
-    router.push(`/dashboard/financeiro/${tipo}?${params.toString()}`)
+  // conciliacao-busca-faixa-valor-v1
+  function abrirBusca(it: Item, preset: 'todas' | 'manual' = 'manual') {
+    const valor = Math.abs(Number(it.valor) || 0)
+    const min = preset === 'todas' ? (valor * 0.85).toFixed(2) : (valor * 0.85).toFixed(2)
+    const max = preset === 'todas' ? (valor * 1.15).toFixed(2) : (valor * 1.15).toFixed(2)
+    const estadoAtual = buscaPorMov[it.movimento_id]
+    setBuscaPorMov({
+      ...buscaPorMov,
+      [it.movimento_id]: {
+        valor_min: estadoAtual?.valor_min ?? min,
+        valor_max: estadoAtual?.valor_max ?? max,
+        termo: estadoAtual?.termo ?? '',
+        resultados: estadoAtual?.resultados ?? [],
+        loading: false,
+        aberta: true,
+      },
+    })
+    if (preset === 'todas') {
+      void rodarBusca(it, min, max, '')
+    }
+  }
+
+  function fecharBusca(movId: string) {
+    const estado = buscaPorMov[movId]
+    if (!estado) return
+    setBuscaPorMov({ ...buscaPorMov, [movId]: { ...estado, aberta: false } })
+  }
+
+  function atualizarBuscaCampo(movId: string, campo: 'valor_min' | 'valor_max' | 'termo', valor: string) {
+    const estado = buscaPorMov[movId]
+    if (!estado) return
+    setBuscaPorMov({ ...buscaPorMov, [movId]: { ...estado, [campo]: valor } })
+  }
+
+  async function rodarBusca(it: Item, valorMinInput?: string, valorMaxInput?: string, termoInput?: string) {
+    if (!empresaUnica) return
+    const natureza = it.natureza === 'credito' ? 'credito' : 'debito'
+    const valorRef = Math.abs(Number(it.valor) || 0)
+    const estado = buscaPorMov[it.movimento_id]
+    const vMin = valorMinInput ?? estado?.valor_min ?? ''
+    const vMax = valorMaxInput ?? estado?.valor_max ?? ''
+    const termo = termoInput ?? estado?.termo ?? ''
+    setBuscaPorMov({
+      ...buscaPorMov,
+      [it.movimento_id]: {
+        valor_min: vMin, valor_max: vMax, termo,
+        resultados: estado?.resultados ?? [],
+        loading: true, aberta: true,
+      },
+    })
+    const { data, error } = await supabase.rpc('fn_conciliacao_buscar_lancamentos', {
+      p_company_id: empresaUnica,
+      p_natureza: natureza,
+      p_valor_min: vMin ? Number(vMin) : null,
+      p_valor_max: vMax ? Number(vMax) : null,
+      p_termo: termo.trim() || null,
+      p_valor_ref: valorRef,
+      p_limite: 50,
+    })
+    if (error) {
+      setErro('Erro na busca: ' + error.message)
+      setBuscaPorMov({
+        ...buscaPorMov,
+        [it.movimento_id]: {
+          valor_min: vMin, valor_max: vMax, termo,
+          resultados: [],
+          loading: false, aberta: true,
+        },
+      })
+    } else {
+      setBuscaPorMov({
+        ...buscaPorMov,
+        [it.movimento_id]: {
+          valor_min: vMin, valor_max: vMax, termo,
+          resultados: (data ?? []) as BuscaLancamento[],
+          loading: false, aberta: true,
+        },
+      })
+    }
+  }
+
+  async function vincularBuscado(movId: string, b: BuscaLancamento) {
+    const { data: userResp } = await supabase.auth.getUser()
+    const operadorId = userResp.user?.id ?? null
+    if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
+    setAplicandoIds(new Set([...aplicandoIds, movId]))
+    const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+      p_movimento_id: movId,
+      p_lancamento_tabela: b.lancamento_tabela,
+      p_lancamento_id: b.lancamento_id,
+      p_operador_id: operadorId,
+      p_origem: 'manual',
+    })
+    if (error) { setErro(error.message) }
+    else {
+      // limpa busca e expand
+      const novoBusca = { ...buscaPorMov }; delete novoBusca[movId]; setBuscaPorMov(novoBusca)
+      const ne = new Set(expandidos); ne.delete(movId); setExpandidos(ne)
+    }
+    await carregar()
+    await carregarConciliados()
+    const ns = new Set(aplicandoIds); ns.delete(movId); setAplicandoIds(ns)
   }
 
   // ONDA-A-INBOX-SELO-v1: agora usa fn_conciliacao_rodar_lote (blindado anti-colisao)
@@ -925,13 +1045,96 @@ export default function InboxPage() {
                               <button onClick={() => abrirNovaConta(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)} data-testid="conc-nova-conta">
                                 ➕ Incluir nova conta a {it.natureza === 'credito' ? 'receber' : 'pagar'}
                               </button>
-                              <button onClick={() => pesquisarConta(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-pesquisar">
+                              <button onClick={() => abrirBusca(it, 'todas')} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-ver-todas">
+                                🔎 Ver todas as opções (±15%)
+                              </button>
+                              <button onClick={() => abrirBusca(it, 'manual')} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-pesquisar">
                                 🔍 Pesquisar conta existente
                               </button>
                               <button onClick={() => setVinculandoVarios(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-vincular-varios">
                                 🔗 Vincular vários (fatura)
                               </button>
                             </div>
+
+                            {/* conciliacao-busca-faixa-valor-v1: painel de busca por faixa */}
+                            {buscaPorMov[it.movimento_id]?.aberta && (
+                              <div style={{ marginTop: 10, padding: 10, background: '#FFFFFF', border: '1px solid rgba(61,35,20,0.15)', borderRadius: 6 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
+                                    Pesquisar conta existente · {it.natureza === 'credito' ? 'A receber' : 'A pagar'}
+                                  </div>
+                                  <button onClick={() => fecharBusca(it.movimento_id)} style={secondaryBtn(false)} data-testid="conc-busca-voltar">
+                                    ‹ Voltar
+                                  </button>
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                                  <label style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>
+                                    De R$
+                                    <input
+                                      type="number" step="0.01" min="0"
+                                      value={buscaPorMov[it.movimento_id]?.valor_min ?? ''}
+                                      onChange={(e) => atualizarBuscaCampo(it.movimento_id, 'valor_min', e.target.value)}
+                                      style={{ marginLeft: 4, width: 100, padding: '4px 6px', fontSize: 12, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 4 }}
+                                    />
+                                  </label>
+                                  <label style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>
+                                    até R$
+                                    <input
+                                      type="number" step="0.01" min="0"
+                                      value={buscaPorMov[it.movimento_id]?.valor_max ?? ''}
+                                      onChange={(e) => atualizarBuscaCampo(it.movimento_id, 'valor_max', e.target.value)}
+                                      style={{ marginLeft: 4, width: 100, padding: '4px 6px', fontSize: 12, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 4 }}
+                                    />
+                                  </label>
+                                  <input
+                                    placeholder="Nome (opcional)"
+                                    value={buscaPorMov[it.movimento_id]?.termo ?? ''}
+                                    onChange={(e) => atualizarBuscaCampo(it.movimento_id, 'termo', e.target.value)}
+                                    style={{ flex: 1, minWidth: 140, padding: '4px 6px', fontSize: 12, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 4 }}
+                                  />
+                                  <button onClick={() => void rodarBusca(it)} disabled={buscaPorMov[it.movimento_id]?.loading} style={primaryBtnLoad(buscaPorMov[it.movimento_id]?.loading ?? false)}>
+                                    🔎 Buscar
+                                  </button>
+                                </div>
+
+                                {buscaPorMov[it.movimento_id]?.loading ? (
+                                  <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', padding: 6 }}>Buscando…</div>
+                                ) : (buscaPorMov[it.movimento_id]?.resultados ?? []).length === 0 ? (
+                                  <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', padding: 6 }}>
+                                    Nenhuma conta encontrada nessa faixa.
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 280, overflowY: 'auto' }}>
+                                    {(buscaPorMov[it.movimento_id]?.resultados ?? []).map((b) => (
+                                      <div key={`${b.lancamento_tabela}:${b.lancamento_id}`} style={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        gap: 8, padding: '6px 8px', background: '#FAF7F2', borderRadius: 4,
+                                        opacity: b.ja_conciliado ? 0.55 : 1,
+                                      }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
+                                            {b.contraparte ?? b.descricao_lancamento ?? '(sem nome)'}
+                                            {b.ja_conciliado && (
+                                              <span style={{ background: '#FBF3E0', color: '#B7791F', padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 700 }}>já conciliado</span>
+                                            )}
+                                          </div>
+                                          <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.65)' }}>
+                                            {b.lancamento_tabela} · {fmtDate(b.data_lancamento)} · R$ {fmt(b.valor_lancamento)} · {b.status ?? '—'}
+                                          </div>
+                                        </div>
+                                        <button
+                                          onClick={() => void vincularBuscado(it.movimento_id, b)}
+                                          disabled={aplicando || b.ja_conciliado}
+                                          style={b.ja_conciliado ? secondaryBtn(true) : primaryBtnLoad(aplicando)}
+                                        >
+                                          Vincular
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
