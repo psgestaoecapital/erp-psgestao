@@ -285,6 +285,57 @@ Deno.serve(async (req: Request) => {
       if (!rows || rows.length === 0) {
         return respond(500, { ok: false, erro: "Update afetou 0 linhas (RLS?)" })
       }
+
+      // fiscal-token-vault-self-service-v1: salva XML+PDF no bucket
+      // fiscal-xmls quando autorizada. Bucket privado · acessos via
+      // fn_fiscal_get_storage_url. Token usado para baixar com basic auth.
+      if (statusLocal === "autorizada" && companyId && (xmlUrl || pdfUrl)) {
+        const bucket = "fiscal-xmls"
+        const refSan = ref.replace(/[^a-zA-Z0-9_-]/g, "_")
+        const baseKey = `nfse/${companyId}/${refSan}`
+        const storagePatch: Record<string, unknown> = {}
+
+        async function baixarESubir(remoteUrl: string, key: string, mime: string): Promise<string | null> {
+          try {
+            const dl = await fetch(remoteUrl, {
+              headers: { Authorization: basicAuth(token!), "User-Agent": "PSGestao-ERP/3.0" },
+            })
+            if (!dl.ok) {
+              console.log("consultar.storage.download_failed", { key, status: dl.status })
+              return null
+            }
+            const bytes = new Uint8Array(await dl.arrayBuffer())
+            const up = await sb.storage.from(bucket).upload(key, bytes, {
+              contentType: mime,
+              upsert: true,
+            })
+            if (up.error) {
+              console.log("consultar.storage.upload_failed", { key, erro: up.error.message })
+              return null
+            }
+            return key
+          } catch (e) {
+            console.log("consultar.storage.exception", { key, erro: e instanceof Error ? e.message : String(e) })
+            return null
+          }
+        }
+
+        if (xmlUrl) {
+          const xmlKey = `${baseKey}.xml`
+          const saved = await baixarESubir(xmlUrl, xmlKey, "application/xml")
+          if (saved) storagePatch.xml_storage_path = saved
+        }
+        if (pdfUrl) {
+          const pdfKey = `${baseKey}.pdf`
+          const saved = await baixarESubir(pdfUrl, pdfKey, "application/pdf")
+          if (saved) storagePatch.pdf_storage_path = saved
+        }
+        if (Object.keys(storagePatch).length > 0) {
+          const { error: spErr } = await sb
+            .from("erp_nfse_emitidas").update(storagePatch).eq("id", recordId)
+          if (spErr) console.log("consultar.storage.path_update_failed", { erro: spErr.message })
+        }
+      }
     }
 
     return respond(200, {
