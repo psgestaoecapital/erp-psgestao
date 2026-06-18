@@ -7,14 +7,14 @@ type FormState = Record<string, string | number | boolean | null>
 
 interface Props {
   companyId: string
-  initial?: Partial<FormState> & { id?: string }
+  initial?: (Record<string, unknown> & { id?: string }) | null
   onClose: () => void
   onSaved: () => void
 }
 
 export default function FinanciamentoFormModal({ companyId, initial, onClose, onSaved }: Props) {
   const [form, setForm] = useState<FormState>(
-    (initial as FormState) ?? {
+    (initial as FormState | null | undefined) ?? {
       status: 'ativo',
       tipo_operacao: 'financiamento',
       periodicidade: 'mensal',
