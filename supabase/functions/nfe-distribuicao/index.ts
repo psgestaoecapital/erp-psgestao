@@ -143,6 +143,8 @@ interface ResultadoEmpresa {
   geradas_pagar?: number
   novo_ultimo_nsu?: number
   erro?: string
+  focus_status?: number
+  focus_body?: string
 }
 
 async function resolverToken(company_id: string, ambiente: Ambiente): Promise<string> {
@@ -194,14 +196,21 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       const motivo = r.status === 401 || r.status === 403
         ? "token invalido ou conta sem permissao 'Recebimento de NFes'"
         : `HTTP ${r.status}`
+      const bodyPreview = body.slice(0, 800)
       await sbAdmin.from("erp_nfe_distribuicao_controle")
         .update({
           ultima_consulta_em: new Date().toISOString(),
-          ultima_consulta_status: `erro_focus:${r.status}`,
+          ultima_consulta_status: `erro_focus:${r.status} · ${bodyPreview.slice(0, 400)}`,
           updated_at: new Date().toISOString(),
         })
         .eq("company_id", company_id)
-      return { company_id, ok: false, erro: "Focus rejeitou listagem · " + motivo }
+      return {
+        company_id,
+        ok: false,
+        erro: "Focus rejeitou listagem · " + motivo,
+        focus_status: r.status,
+        focus_body: bodyPreview,
+      }
     }
 
     let lista: Record<string, unknown>[] = []
