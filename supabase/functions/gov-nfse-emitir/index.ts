@@ -124,22 +124,40 @@ Deno.serve(async (req: Request) => {
       return respond(404, { ok: false, erro: "Provider gov_nfse_nacional nao configurado pra esta empresa" })
     }
 
-    // 2. Token Focus · resolve nome do secret pela config (fallback nomes legados)
-    const secretLegacyFallback = ambiente === "producao"
-      ? "FOCUS_NFE_TOKEN_PRODUCAO"
-      : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
-    const secretConfig = ambiente === "producao"
-      ? (cfg as { focus_token_secret_prod?: string | null }).focus_token_secret_prod
-      : (cfg as { focus_token_secret_homolog?: string | null }).focus_token_secret_homolog
-    const tokenEnv = (secretConfig && secretConfig.trim()) || secretLegacyFallback
-    const token = Deno.env.get(tokenEnv)
+    // 2. Token Focus · dual-read: Vault (preferencial) -> env var (transitorio)
+    //    fiscal-token-vault-self-service-v1 · Pilar 2.
+    //    fn_fiscal_obter_token e SECURITY DEFINER + REVOKE de authenticated,
+    //    so service_role (esta edge) decifra do Vault.
+    let token: string | undefined
+    try {
+      const { data: tokenVault } = await sb.rpc("fn_fiscal_obter_token", {
+        p_company_id: p.company_id,
+        p_ambiente: ambiente,
+      })
+      if (typeof tokenVault === "string" && tokenVault.trim().length > 0) {
+        token = tokenVault.trim()
+      }
+    } catch (_e) {
+      // RPC indisponivel · cai no fallback
+    }
+    let tokenEnvNome = ""
+    if (!token) {
+      // fallback transitorio · remover em PR futuro quando todos vault_id estiverem preenchidos
+      const secretLegacyFallback = ambiente === "producao"
+        ? "FOCUS_NFE_TOKEN_PRODUCAO"
+        : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
+      const secretConfig = ambiente === "producao"
+        ? (cfg as { focus_token_secret_prod?: string | null }).focus_token_secret_prod
+        : (cfg as { focus_token_secret_homolog?: string | null }).focus_token_secret_homolog
+      tokenEnvNome = (secretConfig && secretConfig.trim()) || secretLegacyFallback
+      token = Deno.env.get(tokenEnvNome)
+    }
     if (!token) {
       return respond(500, {
         ok: false,
-        erro: ambiente === "producao"
-          ? `Token de producao nao configurado para esta empresa (secret ${tokenEnv} ausente).`
-          : `Token de homologacao nao configurado para esta empresa (secret ${tokenEnv} ausente).`,
-        sugestao: "Configure em https://supabase.com/dashboard/project/horsymhsinqcimflrtjo/functions/secrets",
+        erro:
+          "Token Focus nao configurado para esta empresa · cole o token no wizard (Configuracoes > Fiscal) ou peca pro admin definir o secret " +
+          tokenEnvNome,
       })
     }
 
