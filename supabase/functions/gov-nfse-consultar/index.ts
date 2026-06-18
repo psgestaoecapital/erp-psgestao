@@ -128,34 +128,47 @@ Deno.serve(async (req: Request) => {
       return respond(400, { ok: false, erro: "Registro sem provider_reference (NFS-e legada/sem ref Focus)" })
     }
 
-    // Token Focus · resolve nome do secret pela config da empresa (fallback nomes legados)
-    let secretConfig: string | null = null
-    if (companyId) {
-      const { data: cfg } = await sb
-        .from("erp_fiscal_provider_config")
-        .select("focus_token_secret_homolog, focus_token_secret_prod")
-        .eq("company_id", companyId)
-        .eq("provider", "gov_nfse_nacional")
-        .eq("ativo", true)
-        .maybeSingle()
-      if (cfg) {
-        secretConfig = ambiente === "producao"
-          ? (cfg as { focus_token_secret_prod?: string | null }).focus_token_secret_prod ?? null
-          : (cfg as { focus_token_secret_homolog?: string | null }).focus_token_secret_homolog ?? null
+    // fiscal-token-vault-self-service-v1: dual-read Vault -> env var (transitorio)
+    let token: string | undefined
+    try {
+      const { data: tokenVault } = await sb.rpc("fn_fiscal_obter_token", {
+        p_company_id: companyId,
+        p_ambiente: ambiente,
+      })
+      if (typeof tokenVault === "string" && tokenVault.trim().length > 0) {
+        token = tokenVault.trim()
       }
+    } catch (_e) {
+      // RPC indisponivel · cai no fallback
     }
-    const secretLegacyFallback = ambiente === "producao"
-      ? "FOCUS_NFE_TOKEN_PRODUCAO"
-      : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
-    const tokenEnv = (secretConfig && secretConfig.trim()) || secretLegacyFallback
-    const token = Deno.env.get(tokenEnv)
+    let tokenEnvNome = ""
     if (!token) {
-      console.log("consultar.secret_missing", { tokenEnv, ambiente })
+      let secretConfig: string | null = null
+      if (companyId) {
+        const { data: cfg } = await sb
+          .from("erp_fiscal_provider_config")
+          .select("focus_token_secret_homolog, focus_token_secret_prod")
+          .eq("company_id", companyId)
+          .eq("provider", "gov_nfse_nacional")
+          .eq("ativo", true)
+          .maybeSingle()
+        if (cfg) {
+          secretConfig = ambiente === "producao"
+            ? (cfg as { focus_token_secret_prod?: string | null }).focus_token_secret_prod ?? null
+            : (cfg as { focus_token_secret_homolog?: string | null }).focus_token_secret_homolog ?? null
+        }
+      }
+      const secretLegacyFallback = ambiente === "producao"
+        ? "FOCUS_NFE_TOKEN_PRODUCAO"
+        : "FOCUS_NFE_TOKEN_HOMOLOGACAO"
+      tokenEnvNome = (secretConfig && secretConfig.trim()) || secretLegacyFallback
+      token = Deno.env.get(tokenEnvNome)
+    }
+    if (!token) {
+      console.log("consultar.token_missing", { tokenEnvNome, ambiente })
       return respond(500, {
         ok: false,
-        erro: ambiente === "producao"
-          ? `Token de producao nao configurado para esta empresa (secret ${tokenEnv} ausente).`
-          : `Token de homologacao nao configurado para esta empresa (secret ${tokenEnv} ausente).`,
+        erro: "Token Focus nao configurado para esta empresa · cole o token no wizard (Configuracoes > Fiscal) ou peca pro admin definir o secret " + tokenEnvNome,
       })
     }
 
