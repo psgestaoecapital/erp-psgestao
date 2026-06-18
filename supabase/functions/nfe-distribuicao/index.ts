@@ -30,6 +30,8 @@ type Modo = "manual" | "auto"
 interface Payload {
   company_id?: string
   modo?: Modo
+  // default false · permite importacao "so resumo" sem disparar F2
+  gerar_pagar?: boolean
 }
 
 function respond(s: number, b: unknown) {
@@ -129,6 +131,7 @@ interface EmpresaJob {
   cnpj: string | null
   ambiente: Ambiente
   ultimo_nsu: number
+  gerar_pagar: boolean
 }
 
 interface ResultadoEmpresa {
@@ -158,7 +161,7 @@ async function resolverToken(company_id: string, ambiente: Ambiente): Promise<st
 }
 
 async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
-  const { company_id, ambiente, ultimo_nsu } = job
+  const { company_id, ambiente, ultimo_nsu, gerar_pagar } = job
   try {
     const token = await resolverToken(company_id, ambiente)
     if (!token) {
@@ -278,8 +281,8 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
         }
       }
 
-      // F2 trigger: gera fornecedor + contas a pagar idempotente
-      if (nfeId && !jaPagar) {
+      // F2 trigger (opt-in): gera fornecedor + contas a pagar idempotente
+      if (gerar_pagar && nfeId && !jaPagar) {
         const { data: gerado } = await sbAdmin.rpc("fn_nfe_recebida_gerar_pagar", {
           p_nfe_recebida_id: nfeId,
         })
@@ -337,6 +340,8 @@ Deno.serve(async (req: Request) => {
   }
 
   const modo: Modo = payload.modo === "auto" ? "auto" : "manual"
+  // gerar_pagar default false · modo auto pode forcar true via payload
+  const gerar_pagar = payload.gerar_pagar === true
 
   // ============== MODO AUTO (cron / service-role) ==============
   if (modo === "auto") {
@@ -364,6 +369,7 @@ Deno.serve(async (req: Request) => {
         cnpj: e.cnpj,
         ambiente: e.ambiente === "producao" ? "producao" : "homologacao",
         ultimo_nsu: Number(e.ultimo_nsu ?? 0),
+        gerar_pagar,
       }
       resultados.push(await processarEmpresa(job))
     }
@@ -375,17 +381,30 @@ Deno.serve(async (req: Request) => {
     return respond(400, { ok: false, erro: "company_id obrigatorio em modo=manual" })
   }
 
-  const sbUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false },
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-  })
-  const { data: empresaCheck, error: empCheckErr } = await sbUser
+  // Aceita service_role como autorizacao plena (uso interno via pg_net).
+  // Caso contrario, valida acesso do usuario pela RLS.
+  if (jwt !== SUPABASE_SERVICE_KEY) {
+    const sbUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    })
+    const { data: empresaCheck, error: empCheckErr } = await sbUser
+      .from("companies")
+      .select("id")
+      .eq("id", payload.company_id)
+      .maybeSingle()
+    if (empCheckErr || !empresaCheck) {
+      return respond(403, { ok: false, erro: "sem acesso a empresa" })
+    }
+  }
+
+  const { data: empresa } = await sbAdmin
     .from("companies")
     .select("id, cnpj")
     .eq("id", payload.company_id)
     .maybeSingle()
-  if (empCheckErr || !empresaCheck) {
-    return respond(403, { ok: false, erro: "sem acesso a empresa" })
+  if (!empresa) {
+    return respond(404, { ok: false, erro: "empresa nao encontrada" })
   }
 
   const { data: cfg } = await sbAdmin
@@ -405,9 +424,10 @@ Deno.serve(async (req: Request) => {
 
   const result = await processarEmpresa({
     company_id: payload.company_id,
-    cnpj: String(empresaCheck.cnpj ?? "").replace(/\D/g, "") || null,
+    cnpj: String(empresa.cnpj ?? "").replace(/\D/g, "") || null,
     ambiente,
     ultimo_nsu,
+    gerar_pagar,
   })
 
   if (!result.ok) {
