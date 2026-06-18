@@ -100,6 +100,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     status: 'parcial',
     items: [
       { id: 'pedidos', label: 'Pedidos de Compra', href: '/dashboard/commerce/compras?area=gestao_empresarial', status: 'pronto', matchPaths: ['/dashboard/commerce/compras', '/dashboard/compras'] },
+      { id: 'docs-recebidos', label: 'Documentos Recebidos (NFe)', href: '/dashboard/compras/documentos-recebidos', status: 'parcial' },
       { id: 'mde', label: 'NFes Recebidas (MDe)', href: '/dashboard/fiscal/mde', status: 'em_breve' },
       { id: 'fornecedores', label: 'Fornecedores', href: '/dashboard/cadastros/fornecedores', status: 'parcial' },
     ],
