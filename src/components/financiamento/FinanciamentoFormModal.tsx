@@ -1,39 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
-
-type Field = {
-  key: string
-  label: string
-  type: 'text' | 'number' | 'date' | 'bool' | 'select'
-  opts?: string[]
-}
-
-const FIELDS: Field[] = [
-  { key: 'banco', label: 'Banco', type: 'text' },
-  { key: 'contrato', label: 'Contrato', type: 'text' },
-  { key: 'modalidade', label: 'Modalidade', type: 'text' },
-  { key: 'tipo', label: 'Tipo', type: 'text' },
-  { key: 'valor_original', label: 'Valor de origem', type: 'number' },
-  { key: 'valor_liquido', label: 'Valor líquido', type: 'number' },
-  { key: 'saldo_devedor', label: 'Saldo de quitação', type: 'number' },
-  { key: 'saldo_total_parcelas', label: 'Saldo total em parcelas', type: 'number' },
-  { key: 'valor_parcela', label: 'Parcela atual', type: 'number' },
-  { key: 'parcela_futura', label: 'Parcela futura (pós-carência)', type: 'number' },
-  { key: 'parcelas', label: 'Parcelas totais', type: 'number' },
-  { key: 'parcelas_restantes', label: 'Parcelas restantes', type: 'number' },
-  { key: 'taxa_mensal', label: 'Taxa a.m. (%)', type: 'number' },
-  { key: 'taxa_anual', label: 'Taxa a.a. (%)', type: 'number' },
-  { key: 'data_origem', label: 'Data de origem', type: 'date' },
-  { key: 'data_posicao', label: 'Data da posição', type: 'date' },
-  { key: 'vencimento', label: 'Vencimento final', type: 'text' },
-  { key: 'em_carencia', label: 'Em carência', type: 'bool' },
-  { key: 'garantia', label: 'Garantia', type: 'text' },
-  { key: 'status', label: 'Status', type: 'select', opts: ['ativo', 'quitado', 'encerrado'] },
-  { key: 'situacao', label: 'Situação', type: 'text' },
-  { key: 'fonte_verificacao', label: 'Fonte / verificação', type: 'text' },
-  { key: 'observacao', label: 'Observação', type: 'text' },
-]
+import { SECTIONS, type Field } from './fields'
 
 type FormState = Record<string, string | number | boolean | null>
 
@@ -46,11 +14,18 @@ interface Props {
 
 export default function FinanciamentoFormModal({ companyId, initial, onClose, onSaved }: Props) {
   const [form, setForm] = useState<FormState>(
-    (initial as FormState) ?? { status: 'ativo', em_carencia: false }
+    (initial as FormState) ?? {
+      status: 'ativo',
+      tipo_operacao: 'financiamento',
+      periodicidade: 'mensal',
+      em_carencia: false,
+      contemplado: false,
+    }
   )
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const isEdit = !!initial?.id
+  const isConsorcio = form.tipo_operacao === 'consorcio'
 
   const set = (k: string, v: string | number | boolean | null) =>
     setForm((f) => ({ ...f, [k]: v }))
@@ -70,6 +45,55 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
     onSaved()
   }
 
+  const renderInput = (fd: Field) => {
+    const value = form[fd.key]
+    if (fd.type === 'bool') {
+      return (
+        <input
+          type="checkbox"
+          checked={!!value}
+          disabled={fd.readOnly}
+          onChange={(e) => set(fd.key, e.target.checked)}
+        />
+      )
+    }
+    if (fd.type === 'select') {
+      return (
+        <select
+          value={(value as string) ?? ''}
+          disabled={fd.readOnly}
+          onChange={(e) => set(fd.key, e.target.value)}
+          style={inp}
+        >
+          <option value="">—</option>
+          {fd.opts!.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      )
+    }
+    const t =
+      fd.type === 'date' ? 'date' :
+      (fd.type === 'number' || fd.type === 'money' || fd.type === 'percent') ? 'number' : 'text'
+    const isNum = t === 'number'
+    return (
+      <input
+        type={t}
+        value={(value as string | number | null) ?? ''}
+        disabled={fd.readOnly}
+        onChange={(e) =>
+          set(
+            fd.key,
+            isNum
+              ? e.target.value === '' ? null : Number(e.target.value)
+              : e.target.value
+          )
+        }
+        style={inp}
+      />
+    )
+  }
+
   return (
     <div style={overlay}>
       <div style={card}>
@@ -79,48 +103,20 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
           </h2>
           <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
         </div>
-        <div style={grid}>
-          {FIELDS.map((fd) => {
-            const value = form[fd.key]
-            return (
-              <label key={fd.key} style={lbl}>
-                {fd.label}
-                {fd.type === 'bool' ? (
-                  <input
-                    type="checkbox"
-                    checked={!!value}
-                    onChange={(e) => set(fd.key, e.target.checked)}
-                  />
-                ) : fd.type === 'select' ? (
-                  <select
-                    value={(value as string) ?? ''}
-                    onChange={(e) => set(fd.key, e.target.value)}
-                    style={inp}
-                  >
-                    {fd.opts!.map((o) => (
-                      <option key={o} value={o}>{o}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type={fd.type === 'number' ? 'number' : fd.type === 'date' ? 'date' : 'text'}
-                    value={(value as string | number | null) ?? ''}
-                    onChange={(e) =>
-                      set(
-                        fd.key,
-                        fd.type === 'number'
-                          ? e.target.value === '' ? null : Number(e.target.value)
-                          : e.target.value
-                      )
-                    }
-                    style={inp}
-                  />
-                )}
-              </label>
-            )
-          })}
-        </div>
-        {err && <p style={{ color: '#b00', fontSize: 13, marginTop: 12 }}>Erro: {err}</p>}
+        {SECTIONS.filter((s) => !s.soConsorcio || isConsorcio).map((sec) => (
+          <div key={sec.id} style={{ marginBottom: 16 }}>
+            <div style={secHead}>{sec.label}</div>
+            <div style={grid}>
+              {sec.fields.map((fd) => (
+                <label key={fd.key} style={lbl}>
+                  {fd.label}{fd.readOnly ? ' (auto)' : ''}
+                  {renderInput(fd)}
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+        {err && <p style={{ color: '#b00', fontSize: 13 }}>Erro: {err}</p>}
         <div style={actions}>
           <button onClick={onClose} style={btnGhost}>Cancelar</button>
           <button onClick={save} disabled={saving} style={btnPrimary}>
@@ -132,7 +128,7 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
   )
 }
 
-const overlay: React.CSSProperties = {
+const overlay: CSSProperties = {
   position: 'fixed',
   inset: 0,
   background: 'rgba(0,0,0,.45)',
@@ -143,20 +139,20 @@ const overlay: React.CSSProperties = {
   zIndex: 50,
   overflow: 'auto',
 }
-const card: React.CSSProperties = {
+const card: CSSProperties = {
   background: '#fff',
   borderRadius: 16,
   padding: 20,
   width: '100%',
-  maxWidth: 720,
+  maxWidth: 760,
 }
-const head: React.CSSProperties = {
+const head: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  marginBottom: 16,
+  marginBottom: 12,
 }
-const closeBtn: React.CSSProperties = {
+const closeBtn: CSSProperties = {
   border: 'none',
   background: 'none',
   fontSize: 20,
@@ -164,32 +160,40 @@ const closeBtn: React.CSSProperties = {
   minWidth: 44,
   minHeight: 44,
 }
-const grid: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-  gap: 12,
+const secHead: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#C8941A',
+  marginBottom: 8,
+  borderBottom: '1px solid #efe9e2',
+  paddingBottom: 4,
 }
-const lbl: React.CSSProperties = {
+const grid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 10,
+}
+const lbl: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 4,
   fontSize: 12,
   color: '#6b6b6b',
 }
-const inp: React.CSSProperties = {
+const inp: CSSProperties = {
   border: '1px solid #E7DED3',
   borderRadius: 8,
   padding: '8px 10px',
   fontSize: 13,
   minHeight: 40,
 }
-const actions: React.CSSProperties = {
+const actions: CSSProperties = {
   display: 'flex',
   gap: 8,
   justifyContent: 'flex-end',
-  marginTop: 20,
+  marginTop: 8,
 }
-const btnGhost: React.CSSProperties = {
+const btnGhost: CSSProperties = {
   border: '1px solid #E7DED3',
   background: '#fff',
   borderRadius: 10,
@@ -197,7 +201,7 @@ const btnGhost: React.CSSProperties = {
   cursor: 'pointer',
   minHeight: 44,
 }
-const btnPrimary: React.CSSProperties = {
+const btnPrimary: CSSProperties = {
   border: 'none',
   background: '#C8941A',
   color: '#fff',
