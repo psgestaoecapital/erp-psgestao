@@ -6,7 +6,7 @@
 // Lancar em Contas a Pagar -> em breve (F2).
 
 import { useEffect, useMemo, useState } from 'react'
-import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle } from 'lucide-react'
+import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -87,6 +87,9 @@ export default function DocumentosRecebidosPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   const [busca, setBusca] = useState('')
+  // Habilitacao DF-e por empresa · RPC valida cert A1 + token no vault + admin
+  const [habilitado, setHabilitado] = useState<boolean | null>(null)
+  const [habilitando, setHabilitando] = useState(false)
 
   async function carregar() {
     if (!empresaUnica) return
@@ -109,6 +112,46 @@ export default function DocumentosRecebidosPage() {
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresaUnica, filtroStatus])
+
+  async function loadHabilitacao() {
+    if (!empresaUnica) { setHabilitado(null); return }
+    const { data } = await supabase
+      .from('erp_nfe_distribuicao_controle')
+      .select('habilitado')
+      .eq('company_id', empresaUnica)
+      .maybeSingle()
+    setHabilitado(!!data?.habilitado)
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadHabilitacao()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaUnica])
+
+  async function habilitarDfe(novo: boolean) {
+    if (!empresaUnica) return
+    setHabilitando(true); setErro(null); setToast(null)
+    const { data, error } = await supabase.rpc('fn_nfe_distribuicao_habilitar', {
+      p_company_id: empresaUnica,
+      p_habilitar: novo,
+    })
+    setHabilitando(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok: boolean; habilitado: boolean; motivo?: string } | null
+    if (!r || !r.ok) {
+      const motivo = r?.motivo === 'cert_a1_ausente_ou_expirado'
+        ? 'Certificado A1 ausente ou expirado.'
+        : r?.motivo === 'token_focus_ausente_no_cofre'
+        ? 'Token Focus ausente no cofre.'
+        : (r?.motivo ?? 'motivo desconhecido')
+      setErro('Nao foi possivel habilitar: ' + motivo)
+      return
+    }
+    setHabilitado(novo)
+    setToast(novo ? 'DF-e habilitado para esta empresa.' : 'DF-e desabilitado.')
+    setTimeout(() => setToast(null), 4000)
+  }
 
   async function buscarAgora() {
     if (!empresaUnica) return
@@ -179,15 +222,42 @@ export default function DocumentosRecebidosPage() {
               Os itens e duplicatas chegam quando a manifestação for feita (F2).
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void buscarAgora()}
-            disabled={buscando}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#C8941A] text-white text-[13px] font-medium hover:bg-[#A87810] disabled:opacity-50 min-h-[44px]"
-          >
-            {buscando ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
-            {buscando ? 'Buscando…' : 'Buscar agora'}
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {habilitado === false && (
+              <button
+                type="button"
+                onClick={() => void habilitarDfe(true)}
+                disabled={habilitando}
+                title="Cria/ativa o controle de Distribuicao DF-e para esta empresa (valida cert A1 + token)"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3F7012] text-white text-[13px] font-medium hover:bg-[#2F5510] disabled:opacity-50 min-h-[44px]"
+              >
+                {habilitando ? <Loader2 className="animate-spin" size={15} /> : <Power size={15} />}
+                {habilitando ? 'Habilitando…' : 'Habilitar recebimento'}
+              </button>
+            )}
+            {habilitado === true && (
+              <button
+                type="button"
+                onClick={() => { if (confirm('Desabilitar recebimento DF-e desta empresa?')) void habilitarDfe(false) }}
+                disabled={habilitando}
+                title="Pausa o recebimento automatico para esta empresa (controle nao e apagado)"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/65 hover:bg-[#3D2314]/5 disabled:opacity-50 min-h-[44px]"
+              >
+                <PowerOff size={14} />
+                Desabilitar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void buscarAgora()}
+              disabled={buscando || habilitado === false}
+              title={habilitado === false ? 'Habilite o recebimento DF-e primeiro' : undefined}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#C8941A] text-white text-[13px] font-medium hover:bg-[#A87810] disabled:opacity-50 min-h-[44px]"
+            >
+              {buscando ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
+              {buscando ? 'Buscando…' : 'Buscar agora'}
+            </button>
+          </div>
         </header>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">

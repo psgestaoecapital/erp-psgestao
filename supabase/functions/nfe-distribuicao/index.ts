@@ -184,11 +184,25 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       return { company_id, ok: false, erro: "token_focus_ausente" }
     }
 
-    // Focus DF-e: /v2/nfes_recebidas?ultimo_nsu=N
-    // Param `ultimo_nsu` retoma incremental do ultimo processado.
+    // Focus DF-e: /v2/nfes_recebidas?cnpj=<cnpj>&ultimo_nsu=N
+    // O `cnpj` da empresa destinataria e OBRIGATORIO (sem ele Focus retorna
+    // 401/403 mesmo com token valido · confirmado no ticket #228601).
+    // `ultimo_nsu` retoma incremental do ultimo processado.
+    const cnpjLimpo = (job.cnpj ?? "").replace(/\D/g, "")
+    if (!cnpjLimpo) {
+      await sbAdmin.from("erp_nfe_distribuicao_controle")
+        .update({
+          ultima_consulta_em: new Date().toISOString(),
+          ultima_consulta_status: "sem_cnpj",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("company_id", company_id)
+      return { company_id, ok: false, erro: "cnpj_empresa_ausente" }
+    }
     const qs = new URLSearchParams()
+    qs.set("cnpj", cnpjLimpo)
     if (ultimo_nsu > 0) qs.set("ultimo_nsu", String(ultimo_nsu))
-    const url = `${focusBase(ambiente)}/v2/nfes_recebidas${qs.toString() ? "?" + qs.toString() : ""}`
+    const url = `${focusBase(ambiente)}/v2/nfes_recebidas?${qs.toString()}`
 
     const r = await fetch(url, {
       method: "GET",
