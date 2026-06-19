@@ -1,0 +1,123 @@
+name: Migration Repair (One-Shot Reconciliation)
+
+# ONE-SHOT manual. Reconcilia supabase_migrations.schema_migrations remoto
+# com supabase/migrations/ local: marca orfas (no remoto sem arquivo local)
+# como reverted; marca locais como applied EXCETO 3 reservadas que ainda
+# precisam rodar de verdade no proximo db push. Termina com dry-run pra
+# confirmar exatamente 3 pendentes.
+#
+# NAO roda em push. Trigger so manual via "Run workflow".
+# NAO altera deploy-migrations.yml.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: horsymhsinqcimflrtjo
+      # Migrations cujo schema AINDA NAO esta no banco e que devem rodar
+      # pelo db push da proxima execucao. NAO entram no batch "applied".
+      RESERVADAS: "20260619100000 20260619140518 20260619200000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link no projeto
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Computar listas (local x remoto x reservadas)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/repair
+
+          # Local: tudo em supabase/migrations/ com timestamp 14 digitos
+          ls supabase/migrations/ \
+            | grep -oE '^[0-9]{14}' \
+            | sort -u > /tmp/repair/local.txt
+          local_n=$(wc -l < /tmp/repair/local.txt)
+          echo "Locais: $local_n"
+
+          # Sanity: as 3 reservadas precisam existir localmente
+          for v in $RESERVADAS; do
+            if ! grep -qx "$v" /tmp/repair/local.txt; then
+              echo "::error::Reservada $v nao encontrada em supabase/migrations/. Abortando."
+              exit 1
+            fi
+          done
+
+          # Remoto via CLI. Output e tabela texto com separador unicode '│'.
+          supabase migration list --linked > /tmp/repair/list_raw.txt 2>&1 || true
+          echo "--- bruto de 'supabase migration list --linked' ---"
+          cat /tmp/repair/list_raw.txt
+          echo "--- fim bruto ---"
+
+          awk -F'│' '{
+              gsub(/[[:space:]]/,"",$2);
+              if ($2 ~ /^[0-9]{14}$/) print $2
+            }' /tmp/repair/list_raw.txt \
+            | sort -u > /tmp/repair/remote.txt
+          remote_n=$(wc -l < /tmp/repair/remote.txt)
+          echo "Remotos: $remote_n"
+
+          # Reservadas em arquivo (sort -u pra comm)
+          for v in $RESERVADAS; do echo "$v"; done | sort -u > /tmp/repair/reservadas.txt
+
+          # to_revert = remote \ local  (orfas que precisam sair do tracker)
+          comm -23 /tmp/repair/remote.txt /tmp/repair/local.txt > /tmp/repair/to_revert.txt
+          revert_n=$(wc -l < /tmp/repair/to_revert.txt)
+          echo "A reverter (orfas): $revert_n"
+
+          # to_apply = local \ reservadas  (todas locais MENOS as 3 nao aplicadas)
+          comm -23 /tmp/repair/local.txt /tmp/repair/reservadas.txt > /tmp/repair/to_apply.txt
+          apply_n=$(wc -l < /tmp/repair/to_apply.txt)
+          echo "A marcar applied: $apply_n"
+
+          # Guardrails: faixas esperadas (medidas no diagnostico)
+          if [ "$local_n" -lt 100 ] || [ "$local_n" -gt 200 ]; then
+            echo "::error::Locais fora de faixa (~123) -> $local_n. Abortando."
+            exit 1
+          fi
+          if [ "$remote_n" -lt 700 ] || [ "$remote_n" -gt 1000 ]; then
+            echo "::error::Remotos fora de faixa (~837) -> $remote_n. Abortando."
+            exit 1
+          fi
+          if [ "$revert_n" -lt 700 ] || [ "$revert_n" -gt 900 ]; then
+            echo "::error::A reverter fora de faixa (~809) -> $revert_n. Abortando."
+            exit 1
+          fi
+          if [ "$apply_n" -ne 120 ]; then
+            echo "::error::A marcar applied != 120 -> $apply_n. Abortando."
+            exit 1
+          fi
+
+          echo "--- primeiras 5 a reverter ---"; head -5 /tmp/repair/to_revert.txt || true
+          echo "--- primeiras 5 a applied  ---"; head -5 /tmp/repair/to_apply.txt  || true
+
+      - name: Repair status=reverted (orfas no tracker remoto)
+        run: |
+          set -euo pipefail
+          # CLI aceita varias versoes em uma chamada; xargs fatia em blocos seguros.
+          xargs -a /tmp/repair/to_revert.txt -r -n 50 \
+            supabase migration repair --status reverted
+
+      - name: Repair status=applied (locais EXCETO 3 reservadas)
+        run: |
+          set -euo pipefail
+          xargs -a /tmp/repair/to_apply.txt -r -n 50 \
+            supabase migration repair --status applied
+
+      - name: db push --dry-run (esperado 3 pendentes)
+        run: |
+          set -euo pipefail
+          echo "=== Pendentes apos reconciliacao (esperado: 3) ==="
+          supabase db push --dry-run
