@@ -73,6 +73,9 @@ export default function AdminPage(){
   const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
   // empresa-habilitar-areas · modal de areas contratadas por empresa
   const [areasModalEmp,setAreasModalEmp]=useState<{id:string;nome:string}|null>(null);
+  // badge-empresa-areas-reais · mapa company_id -> areas contratadas (chips)
+  type AreaChip={area_slug:string;nome_menu:string;ordem:number};
+  const [areasByCompany,setAreasByCompany]=useState<Map<string,AreaChip[]>>(new Map());
   // saneamento-verticais · planos vivos lidos do plan_catalog (ativo=true, legacy=false)
   // agrupados por vertical · ate aqui a lista estava hardcoded em PLANOS.
   const [planCat,setPlanCat]=useState<Array<{id:string;nome:string;vertical:string|null}>>([]);
@@ -127,6 +130,67 @@ export default function AdminPage(){
     // saneamento-verticais · planos vivos pro dropdown de empresas
     const{data:pc}=await supabase.from("plan_catalog").select("id,nome,vertical,prioridade_comercial").eq("ativo",true).eq("legacy",false).order("vertical",{ascending:true}).order("prioridade_comercial",{ascending:true,nullsFirst:false});
     if(pc)setPlanCat(pc as any);
+    // badge-empresa-areas-reais · carrega areas contratadas (1 query batch)
+    await loadAreasContratadas();
+  };
+
+  // Computa areas contratadas por empresa a partir de tenant_subscriptions + area_menu_config.
+  // Mesma logica do fn_empresa_areas_status mas em batch (1 query · evita N RPCs).
+  const loadAreasContratadas=async()=>{
+    const[tsR,amcR,pcAll]=await Promise.all([
+      supabase.from("tenant_subscriptions").select("company_id,plan_id").eq("status","active"),
+      supabase.from("area_menu_config").select("area_slug,nome_menu,ordem,plano_principal_id").eq("ativo",true).order("ordem"),
+      supabase.from("plan_catalog").select("id,vertical"),
+    ]);
+    const ts=(tsR.data??[]) as Array<{company_id:string;plan_id:string}>;
+    const amc=(amcR.data??[]) as Array<{area_slug:string;nome_menu:string;ordem:number;plano_principal_id:string|null}>;
+    const planosAll=(pcAll.data??[]) as Array<{id:string;vertical:string|null}>;
+    const verticalDe=new Map(planosAll.map(p=>[p.id,p.vertical]));
+    // multi: vertical com >1 area no amc
+    const areaCountPorVert=new Map<string,number>();
+    amc.forEach(a=>{
+      if(!a.plano_principal_id)return;
+      const v=verticalDe.get(a.plano_principal_id);
+      if(!v)return;
+      areaCountPorVert.set(v,(areaCountPorVert.get(v)??0)+1);
+    });
+    const out=new Map<string,AreaChip[]>();
+    ts.forEach(sub=>{
+      const subVert=verticalDe.get(sub.plan_id);
+      if(!subVert)return;
+      const isMulti=(areaCountPorVert.get(subVert)??0)>1;
+      const matches=amc.filter(a=>{
+        if(!a.plano_principal_id)return false;
+        const av=verticalDe.get(a.plano_principal_id);
+        if(av!==subVert)return false;
+        if(isMulti)return a.plano_principal_id===sub.plan_id;
+        return true;
+      });
+      const list=out.get(sub.company_id)??[];
+      matches.forEach(a=>{
+        if(!list.some(x=>x.area_slug===a.area_slug))list.push({area_slug:a.area_slug,nome_menu:a.nome_menu,ordem:a.ordem});
+      });
+      out.set(sub.company_id,list);
+    });
+    out.forEach(l=>l.sort((a,b)=>a.ordem-b.ordem));
+    setAreasByCompany(out);
+  };
+
+  // Render dos chips de areas contratadas pra uma empresa.
+  // Fallback "Sem area contratada" quando nenhuma · NUNCA "Comercio & Servicos".
+  const ChipsAreas=({companyId,max=3}:{companyId:string;max?:number})=>{
+    const areas=areasByCompany.get(companyId)??[];
+    if(areas.length===0){
+      return <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:"rgba(61,35,20,0.08)",color:TXM,fontWeight:500,whiteSpace:"nowrap"}}>Sem área contratada</span>;
+    }
+    const visiveis=areas.slice(0,max);
+    const sobra=areas.length-visiveis.length;
+    return(<>
+      {visiveis.map(a=>(
+        <span key={a.area_slug} style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:"#FAEEDA",color:"#854F0B",fontWeight:600,whiteSpace:"nowrap"}}>{a.nome_menu}</span>
+      ))}
+      {sobra>0&&<span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:"rgba(133,79,11,0.10)",color:"#854F0B",fontWeight:600,whiteSpace:"nowrap"}}>+{sobra}</span>}
+    </>);
   };
 
   // agrupa plan_catalog por vertical para optgroup. mantem ordem estavel.
@@ -286,21 +350,19 @@ export default function AdminPage(){
 
   // ═══ EMPRESA ROW — reutilizado em grupos e sem grupo ═══
   const EmpresaRow=({emp,grupoId}:{emp:any;grupoId?:string})=>{
-    const pb=getPlanBadge(emp.plano||"erp_cs");
+    // badge-empresa-areas-reais: badge "Comercio & Servicos" era hardcoded.
+    // Agora chips das areas contratadas reais via tenant_subscriptions.
     return(
       <div style={{padding:"8px 16px 8px 44px",borderBottom:`0.5px solid ${BD}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <span style={{fontSize:13,fontWeight:500,color:TX}}>{emp.nome_fantasia||emp.razao_social}</span>
-            <span style={{fontSize:8,padding:"2px 8px",borderRadius:6,background:pb.cor+"15",color:pb.cor,fontWeight:600,whiteSpace:"nowrap"}}>{pb.icon} {pb.nome}</span>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:500,color:TX,marginRight:2}}>{emp.nome_fantasia||emp.razao_social}</span>
+            <ChipsAreas companyId={emp.id}/>
           </div>
           <div style={{fontSize:10,color:TXD}}>{emp.cnpj||"Sem CNPJ"} · {emp.cidade_estado||""}</div>
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
-          <select value={emp.plano||""} onChange={e=>atualizarPlano(emp.id,e.target.value)} style={{fontSize:9,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer"}}>
-            <PlanoOpcoes selected={emp.plano||""}/>
-          </select>
-          <button onClick={()=>setAreasModalEmp({id:emp.id,nome:emp.nome_fantasia||emp.razao_social})} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,color:TXM,fontSize:10,cursor:"pointer",padding:"3px 8px"}} title="Áreas contratadas">⚙️</button>
+          <button onClick={()=>setAreasModalEmp({id:emp.id,nome:emp.nome_fantasia||emp.razao_social})} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,color:TXM,fontSize:11,cursor:"pointer",padding:"6px 10px"}} title="Áreas contratadas">⚙️ Áreas</button>
           {movingEmpresa===emp.id?(
             <select onChange={e=>{moverEmpresaGrupo(emp.id,e.target.value||null);}} style={{...inp,width:"auto",fontSize:10,padding:"4px 8px"}}>
               <option value="">Sem grupo</option>
@@ -974,7 +1036,7 @@ export default function AdminPage(){
 
     <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:24}}>PS Gestão e Capital — Painel Administrativo v9.1</div>
     {areasModalEmp&&(
-      <AreasContratadasModal companyId={areasModalEmp.id} companyName={areasModalEmp.nome} onClose={()=>setAreasModalEmp(null)}/>
+      <AreasContratadasModal companyId={areasModalEmp.id} companyName={areasModalEmp.nome} onClose={()=>{setAreasModalEmp(null);loadAreasContratadas();}}/>
     )}
   </div>);
 }
