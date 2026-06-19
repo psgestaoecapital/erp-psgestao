@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { ChevronDown, ChevronRight, Sparkles, type LucideIcon } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { useAreasVisiveis, type AreaVisivel } from '@/hooks/useAreasVisiveis'
+import { supabase } from '@/lib/supabase'
 
 // FIX-NAV-COMMERCE-EM-GE-v1 · seletor-areas-lista-unica-v1
 const AREA_STORAGE_KEY = 'ps_area_sel'
@@ -117,6 +118,7 @@ function AreaSwitcherFallback() {
 function AreaSwitcherInner() {
   const [open, setOpen] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [companyNome, setCompanyNome] = useState<string | null>(null)
   const [areaPersistida, setAreaPersistida] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const pathname = usePathname() || ''
@@ -133,6 +135,26 @@ function AreaSwitcherInner() {
     }, 800)
     return () => clearInterval(interval)
   }, [])
+
+  // seletor-header-empresa · busca nome da empresa selecionada
+  useEffect(() => {
+    let alive = true
+    if (!companyId) {
+      setCompanyNome(null)
+      return
+    }
+    ;(async () => {
+      const { data } = await supabase
+        .from('companies')
+        .select('nome_fantasia, razao_social')
+        .eq('id', companyId)
+        .maybeSingle()
+      if (!alive) return
+      const nome = (data?.nome_fantasia || data?.razao_social || null) as string | null
+      setCompanyNome(nome)
+    })()
+    return () => { alive = false }
+  }, [companyId])
 
   const { areas, loading } = useAreasVisiveis(companyId)
 
@@ -207,8 +229,13 @@ function AreaSwitcherInner() {
           className="absolute top-full left-0 mt-2 w-[min(470px,calc(100vw-32px))] rounded-2xl p-3 z-50 shadow-[0_1px_2px_rgba(61,35,20,0.05),0_16px_40px_rgba(61,35,20,0.18),0_0_0_0.5px_rgba(61,35,20,0.08)] max-h-[80vh] overflow-y-auto"
           style={{ background: '#FAF7F2' }}
         >
-          <div className="px-1 pb-2 text-[10px] tracking-[0.8px] font-medium uppercase" style={{ color: 'rgba(61,35,20,0.55)' }}>
-            Trocar de área
+          <div className="px-1 pb-3">
+            <div className="text-[10px] tracking-[0.8px] font-medium uppercase" style={{ color: 'rgba(61,35,20,0.55)' }}>
+              Trocar de área
+            </div>
+            <div className="text-[13px] mt-0.5" style={{ color: 'rgba(61,35,20,0.60)' }}>
+              {companyNome ? `${companyNome} · ` : ''}selecione a área de trabalho
+            </div>
           </div>
 
           {loading && areas.length === 0 ? (
