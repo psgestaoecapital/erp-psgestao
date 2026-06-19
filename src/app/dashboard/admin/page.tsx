@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import AreasContratadasModal from "@/components/admin/AreasContratadasModal";
 import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
 
 // ═══ CORES COM CSS VARIABLES (adapta ao tema claro/escuro) ═══
@@ -70,6 +71,8 @@ export default function AdminPage(){
   const [newGroupName,setNewGroupName]=useState("");
   const [newGroupCor,setNewGroupCor]=useState("#C8941A");
   const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
+  // empresa-habilitar-areas · modal de areas contratadas por empresa
+  const [areasModalEmp,setAreasModalEmp]=useState<{id:string;nome:string}|null>(null);
   // saneamento-verticais · planos vivos lidos do plan_catalog (ativo=true, legacy=false)
   // agrupados por vertical · ate aqui a lista estava hardcoded em PLANOS.
   const [planCat,setPlanCat]=useState<Array<{id:string;nome:string;vertical:string|null}>>([]);
@@ -297,6 +300,7 @@ export default function AdminPage(){
           <select value={emp.plano||""} onChange={e=>atualizarPlano(emp.id,e.target.value)} style={{fontSize:9,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer"}}>
             <PlanoOpcoes selected={emp.plano||""}/>
           </select>
+          <button onClick={()=>setAreasModalEmp({id:emp.id,nome:emp.nome_fantasia||emp.razao_social})} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,color:TXM,fontSize:10,cursor:"pointer",padding:"3px 8px"}} title="Áreas contratadas">⚙️</button>
           {movingEmpresa===emp.id?(
             <select onChange={e=>{moverEmpresaGrupo(emp.id,e.target.value||null);}} style={{...inp,width:"auto",fontSize:10,padding:"4px 8px"}}>
               <option value="">Sem grupo</option>
@@ -969,5 +973,8 @@ export default function AdminPage(){
     </div>)}
 
     <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:24}}>PS Gestão e Capital — Painel Administrativo v9.1</div>
+    {areasModalEmp&&(
+      <AreasContratadasModal companyId={areasModalEmp.id} companyName={areasModalEmp.nome} onClose={()=>setAreasModalEmp(null)}/>
+    )}
   </div>);
 }
