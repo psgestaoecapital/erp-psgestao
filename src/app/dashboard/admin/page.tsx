@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import AreasContratadasModal from "@/components/admin/AreasContratadasModal";
 import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
@@ -78,7 +78,10 @@ export default function AdminPage(){
   const [areasByCompany,setAreasByCompany]=useState<Map<string,AreaChip[]>>(new Map());
   // saneamento-verticais · planos vivos lidos do plan_catalog (ativo=true, legacy=false)
   // agrupados por vertical · ate aqui a lista estava hardcoded em PLANOS.
-  const [planCat,setPlanCat]=useState<Array<{id:string;nome:string;vertical:string|null}>>([]);
+  const [planCat,setPlanCat]=useState<Array<{id:string;nome:string;vertical:string|null;preco_min?:number|null;preco_max?:number|null}>>([]);
+  // mapa-permissoes-catalogo-novo · modulos + plan_modules pra matriz
+  const [moduleCat,setModuleCat]=useState<Array<{id:string;nome:string;grupo:string|null;ordem:number|null}>>([]);
+  const [planModulesSet,setPlanModulesSet]=useState<Map<string,Set<string>>>(new Map());
   const groupColors=["#C8941A","#FF9800","#4CAF50","#3B82F6","#A855F7","#EF4444","#14B8A6","#FF5722","#8BC34A","#E91E63"];
 
   // ═══ Screen Watcher + Visual Truth (M.A.7.5.1) ═══
@@ -128,8 +131,22 @@ export default function AdminPage(){
     if(ac)setAccessConfigs(ac);
     try{const res=await fetch("/api/audit?limit=100");const d=await res.json();if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}}catch{}
     // saneamento-verticais · planos vivos pro dropdown de empresas
-    const{data:pc}=await supabase.from("plan_catalog").select("id,nome,vertical,prioridade_comercial").eq("ativo",true).eq("legacy",false).order("vertical",{ascending:true}).order("prioridade_comercial",{ascending:true,nullsFirst:false});
+    const{data:pc}=await supabase.from("plan_catalog").select("id,nome,vertical,prioridade_comercial,preco_min,preco_max").eq("ativo",true).eq("legacy",false).order("vertical",{ascending:true}).order("prioridade_comercial",{ascending:true,nullsFirst:false});
     if(pc)setPlanCat(pc as any);
+    // mapa-permissoes-catalogo-novo · modulos + plan_modules pra matriz
+    const[mcR,pmR]=await Promise.all([
+      supabase.from("module_catalog").select("id,nome,grupo,ordem").eq("ativo",true).order("grupo",{ascending:true}).order("ordem",{ascending:true,nullsFirst:false}),
+      supabase.from("plan_modules").select("plan_id,module_id"),
+    ]);
+    if(mcR.data)setModuleCat(mcR.data as any);
+    if(pmR.data){
+      const m=new Map<string,Set<string>>();
+      (pmR.data as Array<{plan_id:string;module_id:string}>).forEach(r=>{
+        if(!m.has(r.plan_id))m.set(r.plan_id,new Set());
+        m.get(r.plan_id)!.add(r.module_id);
+      });
+      setPlanModulesSet(m);
+    }
     // badge-empresa-areas-reais · carrega areas contratadas (1 query batch)
     await loadAreasContratadas();
   };
@@ -629,38 +646,88 @@ export default function AdminPage(){
     </div>)}
 
     {/* ═══ MAPA DE PERMISSÕES ═══ */}
-    {tab==="niveis"&&(<div>
-      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:14}}>Permissões por Plano — Módulos e Roles</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:16}}>
-        {(Object.entries(PLANOS) as [Plano,any][]).map(([k,p])=>(
-          <div key={k} style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${p.cor}`}}>
-            <div style={{fontSize:9,color:TXD}}>{p.icon} {p.nome}</div>
-            <div style={{fontSize:13,fontWeight:600,color:p.cor}}>{p.preco.split("/")[0]}</div>
-            <div style={{fontSize:8,color:TXM}}>{Object.values(PLANO_MODULOS).filter(m=>m[k]==="full").length} módulos</div>
-          </div>
-        ))}
+    {tab==="niveis"&&(()=>{
+      // mapa-permissoes-catalogo-novo · matriz vertical x modulo a partir do catalogo vivo.
+      // Colunas: 1 por vertical (planos agrupados por plan_catalog.vertical).
+      // Linhas: modulos do module_catalog que aparecem em pelo menos 1 plan_modules de plano ativo+!legacy.
+      // Celula: vertical contem o modulo se ANY plano da vertical tem ele em plan_modules.
+      const VERT_LABELS:Record<string,string>={
+        gestao_empresarial:"Gestão Empresarial",bpo:"BPO Financeiro",oficina:"Oficina",
+        pm:"P&M",industrial:"Industrial",hub:"Hub Projetos",wealth:"Wealth MFO",
+        agro:"Agro",compliance:"Compliance",custeio:"Custeio",odonto:"Clínica Odontológica",medica:"Clínica Médica",
+      };
+      const VERT_COLOR="#C8941A";
+      // agrupa planos por vertical
+      const vertMap=new Map<string,{planos:string[];preco_min:number|null;preco_max:number|null;modules:Set<string>}>();
+      planCat.forEach(p=>{
+        if(!p.vertical)return;
+        if(!vertMap.has(p.vertical))vertMap.set(p.vertical,{planos:[],preco_min:null,preco_max:null,modules:new Set()});
+        const v=vertMap.get(p.vertical)!;
+        v.planos.push(p.id);
+        if(p.preco_min!=null)v.preco_min=v.preco_min==null?p.preco_min:Math.min(v.preco_min,p.preco_min);
+        if(p.preco_max!=null)v.preco_max=v.preco_max==null?p.preco_max:Math.max(v.preco_max,p.preco_max);
+        const mods=planModulesSet.get(p.id);
+        if(mods)mods.forEach(m=>v.modules.add(m));
+      });
+      const verticais=Array.from(vertMap.entries()).map(([v,d])=>({vertical:v,label:VERT_LABELS[v]||v,...d})).sort((a,b)=>a.label.localeCompare(b.label,"pt-BR"));
+      // modulos relevantes: aparecem em ao menos 1 vertical
+      const modulosUsadosIds=new Set<string>();
+      verticais.forEach(v=>v.modules.forEach(m=>modulosUsadosIds.add(m)));
+      const modulosFiltrados=moduleCat.filter(m=>modulosUsadosIds.has(m.id));
+      // agrupa por grupo
+      const grupoOrder=modulosFiltrados.reduce<Array<{grupo:string;mods:typeof modulosFiltrados}>>((acc,m)=>{
+        const g=m.grupo||"outros";
+        let bucket=acc.find(x=>x.grupo===g);
+        if(!bucket){bucket={grupo:g,mods:[]};acc.push(bucket);}
+        bucket.mods.push(m);
+        return acc;
+      },[]);
+      const GRUPO_LABELS:Record<string,string>={
+        erp_core:"CORE",erp_ext:"GESTÃO",gestao_empresarial:"Gestão Empresarial",
+        industrial:"Industrial",pm:"P&M",hub:"Hub Projetos",oficina:"Oficina",
+        bpo:"BPO Financeiro",wealth:"Wealth",compliance:"Compliance",
+        custeio_a:"Custeio Sub-A",custeio_b:"Custeio Sub-B",agro:"Agro",
+        odonto:"Clínica Odontológica",medica:"Clínica Médica",
+        contador:"Contador",assessor:"Assessor",fiscal:"Fiscal",admin:"Admin",dev:"Dev",
+      };
+      const brl=(n:number|null)=>n==null?null:n.toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+      return(<div>
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:14}}>Mapa de Permissões — Verticais × Módulos</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginBottom:16}}>
+        {verticais.map(v=>{
+          const preco=v.preco_min!=null||v.preco_max!=null
+            ? (v.preco_min===v.preco_max?brl(v.preco_min):`${brl(v.preco_min)??"—"}–${brl(v.preco_max)??"—"}`)
+            : "a definir";
+          return(
+            <div key={v.vertical} style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${VERT_COLOR}`}}>
+              <div style={{fontSize:10,color:TXD,fontWeight:500}}>{v.label}</div>
+              <div style={{fontSize:12,fontWeight:600,color:VERT_COLOR}}>{preco}</div>
+              <div style={{fontSize:9,color:TXM,marginTop:2}}>{v.modules.size} módulos · {v.planos.length} tier{v.planos.length>1?"s":""}</div>
+            </div>
+          );
+        })}
       </div>
       <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:Math.max(640,200+verticais.length*64)}}>
           <thead><tr style={{borderBottom:`2px solid ${BD}`}}>
-            <th style={{padding:"10px 12px",textAlign:"left",color:GO,fontSize:10,width:200}}>Módulo</th>
-            {(Object.entries(PLANOS) as [Plano,any][]).map(([k,p])=>(<th key={k} style={{padding:"8px 4px",textAlign:"center",color:p.cor,fontSize:8,lineHeight:1.3}}>{p.nome.split(" ").slice(0,2).join(" ")}</th>))}
+            <th style={{padding:"10px 12px",textAlign:"left",color:GO,fontSize:10,width:220,position:"sticky",left:0,background:BG2}}>Módulo</th>
+            {verticais.map(v=>(<th key={v.vertical} style={{padding:"8px 4px",textAlign:"center",color:VERT_COLOR,fontSize:9,lineHeight:1.3,whiteSpace:"nowrap",minWidth:60}}>{v.label}</th>))}
           </tr></thead>
           <tbody>
-            {[{section:"CORE"},{mod:"visao-diaria",nome:"Visão Diária"},{mod:"dados",nome:"Dados"},{mod:"importar",nome:"Importar"},{mod:"ajuda",nome:"Ajuda"},
-              {section:"GESTÃO"},{mod:"operacional",nome:"Operacional"},{mod:"rateio",nome:"Rateio"},{mod:"orcamento",nome:"Orçamento"},{mod:"viabilidade",nome:"Viabilidade"},
-              {section:"INTELIGÊNCIA"},{mod:"consultor-ia",nome:"Consultor IA"},{mod:"contador",nome:"Contador"},{mod:"assessor",nome:"PS Assessor"},{mod:"anti-fraude-basico",nome:"Anti-Fraude"},{mod:"custeio",nome:"Custeio"},
-              {section:"EXCLUSIVOS"},{mod:"ficha-tecnica",nome:"Ficha Técnica"},{mod:"industrial",nome:"Industrial"},{mod:"custo",nome:"Custo"},{mod:"noc",nome:"NOC"},{mod:"wealth",nome:"Wealth"},{mod:"producao",nome:"Produção"},
-            ].map((row,i)=>{
-              if("section" in row)return(<tr key={i}><td colSpan={8} style={{padding:"8px 12px",fontSize:9,fontWeight:700,color:GO,background:BG3,borderTop:`1px solid ${BD}`}}>{row.section}</td></tr>);
-              const perms=PLANO_MODULOS[row.mod!]||{};
-              return(<tr key={i} style={{borderBottom:`0.5px solid ${BD}`}}>
-                <td style={{padding:"6px 12px",fontWeight:500,color:TX,fontSize:11}}>{row.nome}</td>
-                {(Object.keys(PLANOS) as Plano[]).map(plan=>{const a=perms[plan]||"none";return(
-                  <td key={plan} style={{padding:6,textAlign:"center"}}><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:12,fontWeight:600,background:a==="full"?G+"18":a==="addon"?Y+"18":R+"10",color:a==="full"?G:a==="addon"?Y:R,minWidth:28}}>{a==="full"?"✓":a==="addon"?"🔒":"✕"}</span></td>
-                );})}
-              </tr>);
-            })}
+            {grupoOrder.map(g=>(<Fragment key={g.grupo}>
+              <tr><td colSpan={1+verticais.length} style={{padding:"8px 12px",fontSize:9,fontWeight:700,color:GO,background:BG3,borderTop:`1px solid ${BD}`,letterSpacing:.4,textTransform:"uppercase"}}>{GRUPO_LABELS[g.grupo]||g.grupo}</td></tr>
+              {g.mods.map(mod=>(
+                <tr key={mod.id} style={{borderBottom:`0.5px solid ${BD}`}}>
+                  <td style={{padding:"6px 12px",fontWeight:500,color:TX,fontSize:11,position:"sticky",left:0,background:BG2}}>{mod.nome}</td>
+                  {verticais.map(v=>{
+                    const tem=v.modules.has(mod.id);
+                    return(<td key={v.vertical} style={{padding:6,textAlign:"center"}}>
+                      <span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:12,fontWeight:600,background:tem?G+"18":R+"08",color:tem?G:R+"a0",minWidth:28}}>{tem?"✓":"✕"}</span>
+                    </td>);
+                  })}
+                </tr>
+              ))}
+            </Fragment>))}
           </tbody>
         </table>
       </div>
@@ -679,7 +746,7 @@ export default function AdminPage(){
           </div>
         );})}
       </div>
-    </div>)}
+    </div>);})()}
 
     {/* ═══ SEGURANÇA (mantido igual, cores adaptadas) ═══ */}
     {tab==="seguranca"&&(<div>
