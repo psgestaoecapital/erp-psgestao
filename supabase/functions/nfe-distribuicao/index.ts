@@ -145,6 +145,13 @@ interface ResultadoEmpresa {
   erro?: string
   focus_status?: number
   focus_body?: string
+  debug?: {
+    url: string
+    status: number
+    body_preview: string
+    token_prefixo: string
+    ambiente: Ambiente
+  }
 }
 
 async function resolverToken(company_id: string, ambiente: Ambiente): Promise<string> {
@@ -197,6 +204,16 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
         ? "token invalido ou conta sem permissao 'Recebimento de NFes'"
         : `HTTP ${r.status}`
       const bodyPreview = body.slice(0, 800)
+      const tokenPrefixo = (token || "").slice(0, 5)
+      const debug = {
+        url,
+        status: r.status,
+        body_preview: body.slice(0, 500),
+        token_prefixo: tokenPrefixo,
+        ambiente,
+      }
+      // Pilar 2: token_prefixo (5 digitos) eh debug autorizado p/ ticket Focus
+      console.log("[nfe-distribuicao][debug]", JSON.stringify(debug))
       await sbAdmin.from("erp_nfe_distribuicao_controle")
         .update({
           ultima_consulta_em: new Date().toISOString(),
@@ -210,6 +227,7 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
         erro: "Focus rejeitou listagem · " + motivo,
         focus_status: r.status,
         focus_body: bodyPreview,
+        debug,
       }
     }
 
@@ -416,12 +434,18 @@ Deno.serve(async (req: Request) => {
     return respond(404, { ok: false, erro: "empresa nao encontrada" })
   }
 
-  const { data: cfg } = await sbAdmin
+  // KGF tem 2 configs ativas (ambiguidade conhecida); usa o mesmo desempate
+  // do fn_fiscal_obter_token: atualizado_em DESC > criado_em DESC > id DESC.
+  const { data: cfgs } = await sbAdmin
     .from("erp_fiscal_provider_config")
-    .select("ambiente")
+    .select("ambiente, atualizado_em, criado_em, id")
     .eq("company_id", payload.company_id)
     .eq("ativo", true)
-    .maybeSingle()
+    .order("atualizado_em", { ascending: false, nullsFirst: false })
+    .order("criado_em", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: false })
+    .limit(1)
+  const cfg = cfgs?.[0] ?? null
   const ambiente: Ambiente = cfg?.ambiente === "producao" ? "producao" : "homologacao"
 
   const { data: ctrl } = await sbAdmin
