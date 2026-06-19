@@ -117,6 +117,7 @@ function AreaSwitcherFallback() {
 
 function AreaSwitcherInner() {
   const [open, setOpen] = useState(false)
+  const [outrasExpand, setOutrasExpand] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [companyNome, setCompanyNome] = useState<string | null>(null)
   const [areaPersistida, setAreaPersistida] = useState<string | null>(null)
@@ -179,6 +180,11 @@ function AreaSwitcherInner() {
     }
     if (open) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  // foco-contratadas · ao fechar, volta "outras areas" pra colapsado
+  useEffect(() => {
+    if (!open) setOutrasExpand(false)
   }, [open])
 
   useEffect(() => {
@@ -253,8 +259,8 @@ function AreaSwitcherInner() {
                 <AreaAtualCard area={areaAtiva} />
               )}
 
-              {/* 4 grupos · contratadas no topo, depois por estagio */}
-              {(['contratadas', 'disponiveis', 'em_dev', 'roadmap'] as Grupo[]).map((g) => {
+              {/* Sempre visivel · area atual + contratadas */}
+              {(['contratadas'] as Grupo[]).map((g) => {
                 const itens = grupos[g]
                 if (itens.length === 0) return null
                 return (
@@ -292,6 +298,78 @@ function AreaSwitcherInner() {
                   </section>
                 )
               })}
+
+              {/* Upsell recolhivel · areas nao contratadas (Disponiveis + Em desenvolvimento + Roadmap) */}
+              {(() => {
+                const totalOutras = grupos.disponiveis.length + grupos.em_dev.length + grupos.roadmap.length
+                if (totalOutras === 0) return null
+                return (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setOutrasExpand((v) => !v)}
+                      aria-expanded={outrasExpand}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-white hover:bg-[rgba(200,148,26,0.06)] transition-colors text-left"
+                      style={{ boxShadow: '0 0 0 0.5px rgba(61,35,20,0.10)', minHeight: 44 }}
+                    >
+                      <span className="text-[13px] font-medium" style={{ color: 'rgba(61,35,20,0.75)' }}>
+                        Conhecer outras áreas ({totalOutras})
+                      </span>
+                      <ChevronDown
+                        size={16}
+                        style={{
+                          color: 'rgba(61,35,20,0.50)',
+                          transform: outrasExpand ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.15s',
+                        }}
+                      />
+                    </button>
+
+                    {outrasExpand && (
+                      <div className="flex flex-col gap-3 mt-3">
+                        {(['disponiveis', 'em_dev', 'roadmap'] as Grupo[]).map((g) => {
+                          const itens = grupos[g]
+                          if (itens.length === 0) return null
+                          return (
+                            <section key={g} aria-label={GRUPO_LABEL[g]}>
+                              <div
+                                className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-[0.6px]"
+                                style={{ color: 'rgba(61,35,20,0.45)' }}
+                              >
+                                {GRUPO_LABEL[g]}
+                              </div>
+                              <ul
+                                className="rounded-xl bg-white overflow-hidden"
+                                style={{ boxShadow: '0 0 0 0.5px rgba(61,35,20,0.10)' }}
+                              >
+                                {itens.map((area, i) => (
+                                  <li key={area.area_slug}>
+                                    {i > 0 && (
+                                      <div
+                                        className="mx-3"
+                                        style={{ height: 0.5, background: 'rgba(61,35,20,0.08)' }}
+                                      />
+                                    )}
+                                    <AreaListItem
+                                      area={area}
+                                      grupo={g}
+                                      onClick={() => {
+                                        persistirArea(area.area_slug)
+                                        setAreaPersistida(area.area_slug)
+                                        setOpen(false)
+                                      }}
+                                    />
+                                  </li>
+                                ))}
+                              </ul>
+                            </section>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )}
         </div>
