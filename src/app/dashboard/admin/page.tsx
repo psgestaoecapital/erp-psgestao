@@ -54,6 +54,13 @@ export default function AdminPage(){
   const [inviteEmail,setInviteEmail]=useState("");
   const [generatedLink,setGeneratedLink]=useState("");
   const [copied,setCopied]=useState(false);
+  // RD-41 · escopo de area no convite. Teto = areas habilitadas da empresa.
+  // inviteAreasAll=true (default) envia areas_liberadas=null (sem restricao).
+  type InviteArea={area_slug:string;nome_menu:string};
+  const [inviteAreasTeto,setInviteAreasTeto]=useState<InviteArea[]>([]);
+  const [inviteAreasSel,setInviteAreasSel]=useState<Set<string>>(new Set());
+  const [inviteAreasAll,setInviteAreasAll]=useState(true);
+  const [inviteAreasLoading,setInviteAreasLoading]=useState(false);
   const [newEmp,setNewEmp]=useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",group_id:"",plano:"erp_cs"});
   const [msg,setMsg]=useState("");
   const [userComps,setUserComps]=useState<any[]>([]);
@@ -274,6 +281,38 @@ export default function AdminPage(){
   const expandAllGroups=()=>{const all:any={};grupos.forEach(g=>{all[g.id]=true;});all["sem_grupo"]=true;setExpandedGroups(all);};
   const collapseAllGroups=()=>setExpandedGroups({});
 
+  // RD-41 · ao trocar de empresa no form de convite, carrega teto de areas
+  // (fn_empresa_areas_status, mesma fonte do admin). Grupos: oculta seletor
+  // (cada empresa do grupo tem teto distinto · escopo so para empresa unica).
+  useEffect(()=>{
+    if(!showInvite||selectedGroup||!selectedCompany){
+      setInviteAreasTeto([]);setInviteAreasSel(new Set());setInviteAreasAll(true);return;
+    }
+    let cancelled=false;
+    (async()=>{
+      setInviteAreasLoading(true);
+      const{data,error}=await supabase.rpc('fn_empresa_areas_status',{p_company_id:selectedCompany});
+      if(cancelled)return;
+      if(error||!data){setInviteAreasTeto([]);setInviteAreasSel(new Set());setInviteAreasLoading(false);return;}
+      const teto=(data as any[]).filter(a=>a.habilitada).sort((a,b)=>(a.ordem??0)-(b.ordem??0))
+        .map(a=>({area_slug:a.area_slug,nome_menu:a.nome_menu}));
+      setInviteAreasTeto(teto);
+      setInviteAreasSel(new Set(teto.map(t=>t.area_slug)));
+      setInviteAreasAll(true);
+      setInviteAreasLoading(false);
+    })();
+    return()=>{cancelled=true;};
+  },[selectedCompany,selectedGroup,showInvite]);
+
+  const toggleInviteArea=(slug:string)=>{
+    setInviteAreasSel(prev=>{
+      const next=new Set(prev);
+      if(next.has(slug))next.delete(slug);else next.add(slug);
+      setInviteAreasAll(next.size===inviteAreasTeto.length);
+      return next;
+    });
+  };
+
   const gerarConvite=async()=>{
     if(!selectedCompany&&!selectedGroup){setMsg("Selecione uma empresa ou grupo.");return;}
     const{data:{user}}=await supabase.auth.getUser();if(!user)return;
@@ -281,6 +320,11 @@ export default function AdminPage(){
     const code="conv_"+Math.random().toString(36).substring(2,10)+Date.now().toString(36);
     const inviteData:any={org_id:up?.org_id,email:inviteEmail||null,role:inviteRole,invite_code:code,created_by:user.id};
     if(selectedGroup){inviteData.group_id=selectedGroup;const fc=empresas.find(e=>e.group_id===selectedGroup);inviteData.company_id=fc?.id||null;}else{inviteData.company_id=selectedCompany;}
+    // RD-41 · escopo de area. Somente para empresa unica. Todas marcadas = null.
+    if(!selectedGroup&&inviteAreasTeto.length>0&&!inviteAreasAll){
+      if(inviteAreasSel.size===0){setMsg("Selecione ao menos uma area liberada.");return;}
+      inviteData.areas_liberadas=Array.from(inviteAreasSel);
+    }
     const{error}=await supabase.from("invites").insert(inviteData);
     if(error){setMsg("Erro: "+error.message);return;}
     setGeneratedLink("https://erp-psgestao.vercel.app/convite?code="+code);setCopied(false);loadData();
@@ -615,6 +659,29 @@ export default function AdminPage(){
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>E-mail (opcional)</div>
             <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@empresa.com" style={inp}/></div>
           </div>
+          {/* RD-41 · escopo de area no convite (apenas empresa unica) */}
+          {!selectedGroup&&selectedCompany&&(
+            <div style={{marginBottom:12,padding:10,background:BG3,borderRadius:8,border:`1px solid ${BD}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{fontSize:10,fontWeight:600,color:TXM}}>📂 Áreas liberadas {inviteAreasAll?<span style={{color:G,fontWeight:500}}>(todas habilitadas)</span>:<span style={{color:Y,fontWeight:500}}>({inviteAreasSel.size}/{inviteAreasTeto.length})</span>}</div>
+                {inviteAreasTeto.length>0&&(
+                  <button type="button" onClick={()=>{if(inviteAreasAll){setInviteAreasSel(new Set());setInviteAreasAll(false);}else{setInviteAreasSel(new Set(inviteAreasTeto.map(t=>t.area_slug)));setInviteAreasAll(true);}}} style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"transparent",border:`1px solid ${BD}`,color:TXM,cursor:"pointer"}}>{inviteAreasAll?"Limpar":"Marcar todas"}</button>
+                )}
+              </div>
+              {inviteAreasLoading?(
+                <div style={{fontSize:10,color:TXD}}>Carregando áreas contratadas...</div>
+              ):inviteAreasTeto.length===0?(
+                <div style={{fontSize:10,color:TXD}}>Empresa sem áreas habilitadas. Convite ficará sem escopo.</div>
+              ):(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {inviteAreasTeto.map(a=>{const sel=inviteAreasSel.has(a.area_slug);return(
+                    <button key={a.area_slug} type="button" onClick={()=>toggleInviteArea(a.area_slug)} style={{fontSize:10,padding:"4px 10px",borderRadius:14,border:`1px solid ${sel?G:BD}`,background:sel?G+"15":"transparent",color:sel?G:TXM,fontWeight:sel?600:500,cursor:"pointer"}}>{sel?"✓":"○"} {a.nome_menu}</button>
+                  );})}
+                </div>
+              )}
+              <div style={{fontSize:9,color:TXD,marginTop:6}}>Todas marcadas = acesso integral. Subconjunto = usuário fica restrito às áreas escolhidas (cerca do teto aplicada no consumo).</div>
+            </div>
+          )}
           <button onClick={gerarConvite} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Gerar Link</button>
           {generatedLink&&(
             <div style={{marginTop:12,background:BG3,borderRadius:8,padding:12,border:`1px solid ${G}`}}>
@@ -635,7 +702,15 @@ export default function AdminPage(){
         <div key={inv.id||i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,border:`1px solid ${BD}`,borderLeft:`3px solid ${inv.is_used?G:getRC(inv.role)}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div><div style={{fontSize:12,fontWeight:600,color:TX}}>{inv.companies?.nome_fantasia||inv.companies?.razao_social||"Grupo"}</div>
-            <div style={{fontSize:9,color:TXD}}>{inv.email||"Sem e-mail"} | <span style={{color:getRC(inv.role),fontWeight:600}}>{getRN(inv.role)}</span> | {new Date(inv.created_at).toLocaleDateString("pt-BR")}</div></div>
+            <div style={{fontSize:9,color:TXD}}>{inv.email||"Sem e-mail"} | <span style={{color:getRC(inv.role),fontWeight:600}}>{getRN(inv.role)}</span> | {new Date(inv.created_at).toLocaleDateString("pt-BR")}</div>
+            {/* RD-41 · chips de escopo de area */}
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+              {Array.isArray(inv.areas_liberadas)&&inv.areas_liberadas.length>0?(
+                inv.areas_liberadas.map((s:string)=>(<span key={s} style={{fontSize:8,padding:"1px 6px",borderRadius:10,background:Y+"18",color:Y,fontWeight:600,border:`1px solid ${Y}40`}}>📂 {s}</span>))
+              ):(
+                <span style={{fontSize:8,padding:"1px 6px",borderRadius:10,background:G+"15",color:G,fontWeight:600,border:`1px solid ${G}30`}}>📂 Todas as áreas</span>
+              )}
+            </div></div>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:inv.is_used?G+"20":Y+"20",color:inv.is_used?G:Y,fontWeight:600}}>{inv.is_used?"Usado":"Pendente"}</span>
               <button onClick={async()=>{if(!confirm("Excluir?"))return;await supabase.from("invites").delete().eq("id",inv.id);setConvites(prev=>prev.filter(c=>c.id!==inv.id));setMsg("Excluído!");}} style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:R+"10",border:`1px solid ${R}25`,color:R,cursor:"pointer"}}>✕</button>
