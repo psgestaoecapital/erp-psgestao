@@ -70,6 +70,9 @@ export default function AdminPage(){
   const [newGroupName,setNewGroupName]=useState("");
   const [newGroupCor,setNewGroupCor]=useState("#C8941A");
   const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
+  // saneamento-verticais · planos vivos lidos do plan_catalog (ativo=true, legacy=false)
+  // agrupados por vertical · ate aqui a lista estava hardcoded em PLANOS.
+  const [planCat,setPlanCat]=useState<Array<{id:string;nome:string;vertical:string|null}>>([]);
   const groupColors=["#C8941A","#FF9800","#4CAF50","#3B82F6","#A855F7","#EF4444","#14B8A6","#FF5722","#8BC34A","#E91E63"];
 
   // ═══ Screen Watcher + Visual Truth (M.A.7.5.1) ═══
@@ -118,6 +121,48 @@ export default function AdminPage(){
     const{data:ac}=await supabase.from("access_config").select("*").order("role");
     if(ac)setAccessConfigs(ac);
     try{const res=await fetch("/api/audit?limit=100");const d=await res.json();if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}}catch{}
+    // saneamento-verticais · planos vivos pro dropdown de empresas
+    const{data:pc}=await supabase.from("plan_catalog").select("id,nome,vertical,prioridade_comercial").eq("ativo",true).eq("legacy",false).order("vertical",{ascending:true}).order("prioridade_comercial",{ascending:true,nullsFirst:false});
+    if(pc)setPlanCat(pc as any);
+  };
+
+  // agrupa plan_catalog por vertical para optgroup. mantem ordem estavel.
+  const planosPorVertical=()=>{
+    const grupos=new Map<string,Array<{id:string;nome:string}>>();
+    planCat.forEach(p=>{
+      const v=p.vertical||"sem_vertical";
+      if(!grupos.has(v))grupos.set(v,[]);
+      grupos.get(v)!.push({id:p.id,nome:p.nome});
+    });
+    return Array.from(grupos.entries());
+  };
+  const VERTICAL_LABELS:Record<string,string>={
+    gestao_empresarial:"Gestão Empresarial",
+    bpo:"BPO Financeiro",
+    oficina:"Oficina",
+    pm:"P&M",
+    industrial:"Industrial",
+    hub:"Hub Projetos",
+    wealth:"Wealth",
+    agro:"Agro",
+    compliance:"Compliance",
+    custeio:"Custeio",
+    odonto:"Clínica Odontológica",
+    medica:"Clínica Médica",
+    sem_vertical:"Outros",
+  };
+  // mostra fallback (id-only) se o plano atual nao esta na lista (ex: legacy)
+  const PlanoOpcoes=({selected}:{selected:string})=>{
+    const grupos=planosPorVertical();
+    const idsConhecidos=new Set(planCat.map(p=>p.id));
+    return(<>
+      {!idsConhecidos.has(selected)&&selected&&<option value={selected}>{selected} (legado)</option>}
+      {grupos.map(([vert,planos])=>(
+        <optgroup key={vert} label={VERTICAL_LABELS[vert]||vert}>
+          {planos.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+        </optgroup>
+      ))}
+    </>);
   };
 
   const getUserCompIds=(uid:string)=>userComps.filter(uc=>uc.user_id===uid).map(uc=>uc.company_id);
@@ -249,8 +294,8 @@ export default function AdminPage(){
           <div style={{fontSize:10,color:TXD}}>{emp.cnpj||"Sem CNPJ"} · {emp.cidade_estado||""}</div>
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
-          <select value={emp.plano||"erp_cs"} onChange={e=>atualizarPlano(emp.id,e.target.value)} style={{fontSize:9,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer"}}>
-            {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(<option key={k} value={k}>{v.icon} {v.nome}</option>))}
+          <select value={emp.plano||""} onChange={e=>atualizarPlano(emp.id,e.target.value)} style={{fontSize:9,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer"}}>
+            <PlanoOpcoes selected={emp.plano||""}/>
           </select>
           {movingEmpresa===emp.id?(
             <select onChange={e=>{moverEmpresaGrupo(emp.id,e.target.value||null);}} style={{...inp,width:"auto",fontSize:10,padding:"4px 8px"}}>
@@ -342,7 +387,7 @@ export default function AdminPage(){
                 </select></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Plano</div>
                 <select value={newEmp.plano} onChange={e=>setNewEmp({...newEmp,plano:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                  {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(<option key={k} value={k}>{v.icon} {v.nome}</option>))}
+                  <PlanoOpcoes selected={newEmp.plano}/>
                 </select></div>
             </div>
             <div style={{marginTop:10,display:"flex",gap:8}}>
@@ -561,8 +606,8 @@ export default function AdminPage(){
             <div><span style={{fontSize:12,fontWeight:500,color:TX}}>{c.nome_fantasia||c.razao_social}</span><span style={{fontSize:9,color:TXD,marginLeft:8}}>{c.cnpj}</span></div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:pb.cor+"18",color:pb.cor,fontWeight:600}}>{pb.icon} {pb.nome}</span>
-              <select value={c.plano||"erp_cs"} onChange={e=>atualizarPlano(c.id,e.target.value)} style={{fontSize:10,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`}}>
-                {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(<option key={k} value={k}>{v.icon} {v.nome}</option>))}
+              <select value={c.plano||""} onChange={e=>atualizarPlano(c.id,e.target.value)} style={{fontSize:10,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`}}>
+                <PlanoOpcoes selected={c.plano||""}/>
               </select>
             </div>
           </div>
