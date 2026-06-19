@@ -53,15 +53,19 @@ function resolveIcon(nome: string | null | undefined): LucideIcon {
   return found ?? Sparkles
 }
 
-type Grupo = 'disponiveis' | 'em_dev' | 'roadmap'
+type Grupo = 'contratadas' | 'disponiveis' | 'em_dev' | 'roadmap'
 
-function classificarGrupo(status: AreaVisivel['status_comercial']): Grupo {
-  if (status === 'piloto' || status === 'em_producao') return 'disponiveis'
-  if (status === 'backlog') return 'em_dev'
+// Precedencia: se habilitada (contratada), vai pra 'contratadas' independente
+// de status_comercial · estagio do produto nao rebaixa area contratada.
+function classificarGrupo(area: AreaVisivel): Grupo {
+  if (area.empresa_tem_acesso) return 'contratadas'
+  if (area.status_comercial === 'piloto' || area.status_comercial === 'em_producao') return 'disponiveis'
+  if (area.status_comercial === 'backlog') return 'em_dev'
   return 'roadmap'
 }
 
 const GRUPO_LABEL: Record<Grupo, string> = {
+  contratadas: 'Contratadas',
   disponiveis: 'Disponíveis',
   em_dev: 'Em desenvolvimento',
   roadmap: 'Roadmap',
@@ -165,13 +169,14 @@ function AreaSwitcherInner() {
 
   const grupos = useMemo(() => {
     const buckets: Record<Grupo, AreaVisivel[]> = {
+      contratadas: [],
       disponiveis: [],
       em_dev: [],
       roadmap: [],
     }
     for (const a of areas) {
       if (areaAtiva && a.area_slug === areaAtiva.area_slug) continue
-      buckets[classificarGrupo(a.status_comercial)].push(a)
+      buckets[classificarGrupo(a)].push(a)
     }
     return buckets
   }, [areas, areaAtiva])
@@ -221,8 +226,8 @@ function AreaSwitcherInner() {
                 <AreaAtualCard area={areaAtiva} />
               )}
 
-              {/* 3 grupos */}
-              {(['disponiveis', 'em_dev', 'roadmap'] as Grupo[]).map((g) => {
+              {/* 4 grupos · contratadas no topo, depois por estagio */}
+              {(['contratadas', 'disponiveis', 'em_dev', 'roadmap'] as Grupo[]).map((g) => {
                 const itens = grupos[g]
                 if (itens.length === 0) return null
                 return (
