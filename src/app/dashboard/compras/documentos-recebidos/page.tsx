@@ -8,9 +8,10 @@
 // gera contas a pagar).
 
 import { useEffect, useMemo, useState } from 'react'
-import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap } from 'lucide-react'
+import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { ItensNfeRecebida } from './_components/ItensNfeRecebida'
 
 interface Linha {
   id: string
@@ -100,6 +101,8 @@ export default function DocumentosRecebidosPage() {
   const [processando, setProcessando] = useState<Record<string, boolean>>({})
   const [processandoTodos, setProcessandoTodos] = useState(false)
   const [progresso, setProgresso] = useState<{ feitas: number; total: number } | null>(null)
+  // Onda 3 · expansao por card pra ver/vincular itens
+  const [expandido, setExpandido] = useState<Record<string, boolean>>({})
 
   async function carregar() {
     if (!empresaUnica) return
@@ -226,50 +229,47 @@ export default function DocumentosRecebidosPage() {
 
   async function lancarPagar(nfeId: string): Promise<{ ok: boolean; msg: string }> {
     if (!empresaUnica) return { ok: false, msg: 'sem empresa' }
-    const { data: { session } } = await supabase.auth.getSession()
-    const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '')
-    try {
-      const r = await fetch(`${baseUrl}/functions/v1/nfe-recebida-processar`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token ?? ''}`,
-        },
-        body: JSON.stringify({ company_id: empresaUnica, nfe_recebida_id: nfeId }),
-      })
-      const json = await r.json() as {
+    // Onda 3.2 · wrapper RPC: gera pagar + da entrada no estoque (itens
+    // elegiveis pelo CFOP + produto vinculado).
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_lancar', {
+      p_nfe_recebida_id: nfeId,
+    })
+    if (error) return { ok: false, msg: `Não consegui lançar: ${error.message}` }
+    const r = data as {
+      ok: boolean
+      erro?: string
+      pagar?: {
         ok: boolean
-        ja_processada?: boolean
-        status?: string
-        mensagem?: string
         pagar_criadas?: number
+        ja_lancado?: boolean
         fornecedor_id?: string | null
         valor_total?: number | null
-        etapa?: string
-        body_preview?: string
-        erro?: string
       }
-      if (!r.ok || !json.ok) {
-        const etapa = json.etapa ?? 'erro'
-        const detalhe = json.body_preview ? ` (${json.body_preview.slice(0, 80)})` : ''
-        return { ok: false, msg: `Não consegui lançar: ${etapa}${detalhe}` }
+      estoque?: {
+        ok: boolean
+        itens_movidos?: number
+        pendentes_vinculo?: number
+        valor_entrada?: number
       }
-      const linha = lista.find((l) => l.id === nfeId)
-      const forn = linha?.fornecedor ?? 'fornecedor'
-      if (json.status === 'aguardando_xml') {
-        return {
-          ok: true,
-          msg: json.mensagem ?? 'Ciência enviada à SEFAZ. O XML chega em até 2h e a conta é criada sozinha.',
-        }
-      }
-      if (json.ja_processada) {
-        return { ok: true, msg: `Já processada antes — ${forn}.` }
-      }
-      const qtd = json.pagar_criadas ?? 0
-      return { ok: true, msg: `✅ CRIOU ${qtd} conta(s) a pagar de ${forn}` }
-    } catch (e) {
-      return { ok: false, msg: 'Erro de rede: ' + (e instanceof Error ? e.message : 'desconhecido') }
+    } | null
+    if (!r?.ok) return { ok: false, msg: `Não consegui lançar: ${r?.erro ?? 'sem retorno'}` }
+
+    const linha = lista.find((l) => l.id === nfeId)
+    const forn = linha?.fornecedor ?? 'fornecedor'
+    const criadas = r.pagar?.pagar_criadas ?? 0
+    const jaLancado = r.pagar?.ja_lancado === true
+    const mov = r.estoque?.itens_movidos ?? 0
+    const pend = r.estoque?.pendentes_vinculo ?? 0
+
+    const partes: string[] = []
+    if (jaLancado) {
+      partes.push(`Já tinha sido lançada antes — ${forn}`)
+    } else {
+      partes.push(`✅ CRIOU ${criadas} conta(s) a pagar de ${forn}`)
     }
+    if (mov > 0) partes.push(`${mov} item(ns) deram entrada no estoque`)
+    if (pend > 0) partes.push(`${pend} pendente(s) de vínculo`)
+    return { ok: true, msg: partes.join(' · ') }
   }
 
   async function lancarUma(nfeId: string) {
@@ -490,58 +490,80 @@ export default function DocumentosRecebidosPage() {
               {filtrada.map((n) => {
                 const cm = chipManifestacao(n.manifestacao)
                 const cs = chipStatus(n.status)
+                const podeExpandir = n.status !== 'ignorada'
+                const isExpandido = !!expandido[n.id]
                 return (
-                  <div key={n.id} className="px-4 py-3 sm:px-5 sm:py-4 flex items-start justify-between gap-3 flex-wrap">
-                    <div className="flex-1 min-w-[220px]">
-                      <div className="text-[13.5px] font-medium text-[#3D2314]">
-                        {n.fornecedor ?? '(sem fornecedor)'}
+                  <div key={n.id} className="px-4 py-3 sm:px-5 sm:py-4">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="flex-1 min-w-[220px]">
+                        <div className="text-[13.5px] font-medium text-[#3D2314]">
+                          {n.fornecedor ?? '(sem fornecedor)'}
+                        </div>
+                        <div className="text-[11px] text-[#3D2314]/60 mt-0.5">
+                          {fmtCNPJ(n.cnpj)} · NFe {n.numero ?? '—'}/{n.serie ?? '—'} · {fmtData(n.data_emissao)}
+                        </div>
+                        <div className="text-[10.5px] text-[#3D2314]/45 mt-0.5 font-mono break-all">
+                          {n.chave_acesso}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-[#3D2314]/60 mt-0.5">
-                        {fmtCNPJ(n.cnpj)} · NFe {n.numero ?? '—'}/{n.serie ?? '—'} · {fmtData(n.data_emissao)}
-                      </div>
-                      <div className="text-[10.5px] text-[#3D2314]/45 mt-0.5 font-mono break-all">
-                        {n.chave_acesso}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span style={{ background: cm.bg, color: cm.cor }} className="px-2 py-0.5 rounded-full text-[10.5px] font-medium">
+                          {cm.texto}
+                        </span>
+                        <span style={{ background: cs.bg, color: cs.cor }} className="px-2 py-0.5 rounded-full text-[10.5px] font-medium">
+                          {cs.texto}
+                        </span>
+                        <div className="text-[14px] font-semibold text-[#C8941A] tabular-nums min-w-[100px] text-right">
+                          {fmtBRL(n.valor_total)}
+                        </div>
+                        {podeExpandir && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandido((p) => ({ ...p, [n.id]: !p[n.id] }))}
+                            title={isExpandido ? 'Ocultar itens' : 'Ver itens da nota'}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5"
+                          >
+                            {isExpandido ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                            {isExpandido ? 'Ocultar' : 'Itens'}
+                          </button>
+                        )}
+                        {n.lancado_pagar || n.status === 'lancada' ? (
+                          <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
+                            ✓ Lançada
+                          </span>
+                        ) : n.status === 'aguardando_xml' ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#BA7517]/30 text-[#BA7517] font-medium bg-[#FAEEDA]"
+                            title="A SEFAZ libera o XML completo em até 2h após a manifestação. A conta é criada sozinha assim que chegar."
+                          >
+                            <Loader2 className="animate-pulse" size={11} />
+                            Aguardando SEFAZ
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void lancarUma(n.id)}
+                            disabled={!!processando[n.id] || processandoTodos}
+                            title={
+                              n.status === 'completa'
+                                ? 'Gera contas a pagar + dá entrada no estoque dos itens elegíveis (CFOP + produto vinculado).'
+                                : 'Gera contas a pagar pela total (sem itens vinculados ainda).'
+                            }
+                            className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50"
+                          >
+                            {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
+                            {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span style={{ background: cm.bg, color: cm.cor }} className="px-2 py-0.5 rounded-full text-[10.5px] font-medium">
-                        {cm.texto}
-                      </span>
-                      <span style={{ background: cs.bg, color: cs.cor }} className="px-2 py-0.5 rounded-full text-[10.5px] font-medium">
-                        {cs.texto}
-                      </span>
-                      <div className="text-[14px] font-semibold text-[#C8941A] tabular-nums min-w-[100px] text-right">
-                        {fmtBRL(n.valor_total)}
-                      </div>
-                      {n.lancado_pagar || n.status === 'lancada' ? (
-                        <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
-                          ✓ Lançada
-                        </span>
-                      ) : n.status === 'aguardando_xml' ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#BA7517]/30 text-[#BA7517] font-medium bg-[#FAEEDA]"
-                          title="A SEFAZ libera o XML completo em até 2h após a manifestação. A conta é criada sozinha assim que chegar."
-                        >
-                          <Loader2 className="animate-pulse" size={11} />
-                          Aguardando SEFAZ
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => void lancarUma(n.id)}
-                          disabled={!!processando[n.id] || processandoTodos}
-                          title={
-                            n.status === 'completa'
-                              ? 'XML já no banco · gera contas a pagar agora'
-                              : 'Manifesta ciência. O XML chega em até 2h e a conta é criada sozinha.'
-                          }
-                          className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50"
-                        >
-                          {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
-                          {processando[n.id] ? 'Enviando…' : 'Lançar em Contas a Pagar'}
-                        </button>
-                      )}
-                    </div>
+                    {isExpandido && empresaUnica && (
+                      <ItensNfeRecebida
+                        nfeId={n.id}
+                        companyId={empresaUnica}
+                        onChange={() => void carregar()}
+                      />
+                    )}
                   </div>
                 )
               })}
