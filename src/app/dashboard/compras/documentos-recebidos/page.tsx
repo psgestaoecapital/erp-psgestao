@@ -72,7 +72,7 @@ function chipManifestacao(m: string): { cor: string; bg: string; texto: string }
 }
 
 function chipStatus(s: string): { cor: string; bg: string; texto: string } {
-  if (s === 'completo' || s === 'completa') return { cor: '#3F7012', bg: '#E8F4DC', texto: 'Pronta' }
+  if (s === 'completa') return { cor: '#3F7012', bg: '#E8F4DC', texto: 'Pronta' }
   if (s === 'lancada') return { cor: '#3F7012', bg: '#E8F4DC', texto: 'Lançada' }
   if (s === 'aguardando_xml') return { cor: '#BA7517', bg: '#FAEEDA', texto: 'Aguardando SEFAZ (~2h)' }
   if (s === 'ignorada') return { cor: 'rgba(61,35,20,0.55)', bg: 'rgba(61,35,20,0.06)', texto: 'Ignorada' }
@@ -393,7 +393,7 @@ export default function DocumentosRecebidosPage() {
               <option value="todos">Todos os status</option>
               <option value="resumo">Resumo</option>
               <option value="aguardando_xml">Aguardando SEFAZ</option>
-              <option value="completo">Pronta</option>
+              <option value="completa">Pronta</option>
               <option value="lancada">Lançada</option>
               <option value="ignorada">Ignorada</option>
             </select>
@@ -476,7 +476,7 @@ export default function DocumentosRecebidosPage() {
                           onClick={() => void lancarUma(n.id)}
                           disabled={!!processando[n.id] || processandoTodos}
                           title={
-                            n.status === 'completo' || n.status === 'completa'
+                            n.status === 'completa'
                               ? 'XML já no banco · gera contas a pagar agora'
                               : 'Manifesta ciência. O XML chega em até 2h e a conta é criada sozinha.'
                           }
