@@ -1,11 +1,16 @@
-// F2 · Edge nfe-recebida-processar
-// Manifesta ciencia, baixa XML completo, parseia, popula tabelas e gera
-// contas a pagar de uma NFe recebida que esta como 'resumo'.
+// DF-e Onda 2.1 · Edge nfe-recebida-processar (fluxo assincrono)
 //
-// Pilar 1 (Conformidade): manifestacao 'ciencia' (210210, neutra).
-// Pilar 2 (Seguranca):    token nunca em log; Vault via fn_fiscal_obter_token;
-//                         RLS por company + is_admin().
-// Pilar 3 (UX):           1 clique no front; este edge resolve tudo.
+// Fluxo:
+//   1. GET /v2/nfes_recebidas/{chave}.xml direto. Se vier 200 + XML,
+//      manifestacao previa ja foi feita e o Focus tem o procNFe ->
+//      parseia, aplica no banco, gera pagar se pedido.
+//   2. Caso contrario (404 / corpo nao-XML), POST /manifesto
+//      {tipo:'ciencia'} e marca status='aguardando_xml'. O worker
+//      nfe-baixar-xml-pendentes pega depois (cron 30 min).
+//
+// Pilar 1: ciencia (210210) e neutra. 1-a-1 por chave.
+// Pilar 2: token via Vault (fn_fiscal_obter_token). NUNCA em log.
+// Pilar 3: lag de ~2h e EXPOSTO no toast da UI, sem spinner infinito.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
@@ -49,14 +54,7 @@ interface Payload {
   tipo_manifestacao?: "ciencia" | "confirmacao" | "desconhecimento" | "nao_realizada"
 }
 
-interface ErroEtapa {
-  ok: false
-  etapa: string
-  http_status?: number
-  body_preview?: string
-}
-
-function erroEtapa(etapa: string, http_status?: number, bodyPreview?: string): ErroEtapa {
+function erro(etapa: string, http_status?: number, bodyPreview?: string) {
   return {
     ok: false,
     etapa,
@@ -65,43 +63,45 @@ function erroEtapa(etapa: string, http_status?: number, bodyPreview?: string): E
   }
 }
 
-interface FocusNotaInfo {
-  caminho_xml?: string | null
-  caminho_xml_nota_fiscal?: string | null
-  status?: string
-  status_protocolo?: string
-  manifesto?: { tipo?: string } | null
-  [k: string]: unknown
-}
+// ----- Helpers Focus -----------------------------------------------
 
-// Tenta GET na nota. Se houver caminho do XML, retorna; senao, retorna null.
-async function focusObterCaminhoXml(
+// GET /v2/nfes_recebidas/{chave}.xml · sem ?cnpj=, Basic token:.
+// Retorna { xml, status, body_preview }. Aceita gzip via DecompressionStream.
+async function focusBaixarXml(
   chave: string,
-  cnpj: string,
   token: string,
-): Promise<{ caminho: string | null; status: number; body: string }> {
-  const url = `${FOCUS_BASE}/v2/nfes_recebidas/${chave}?cnpj=${cnpj}`
+): Promise<{ xml: string | null; status: number; body_preview: string }> {
+  const url = `${FOCUS_BASE}/v2/nfes_recebidas/${chave}.xml`
   const r = await fetch(url, {
-    method: "GET",
     headers: {
-      Accept: "application/json",
       Authorization: basicAuth(token),
       "User-Agent": "PSGestao-ERP/3.0",
+      Accept: "application/xml, text/xml, */*",
     },
   })
-  const body = await r.text()
-  if (!r.ok) return { caminho: null, status: r.status, body }
-  let json: FocusNotaInfo
-  try { json = JSON.parse(body) as FocusNotaInfo } catch { return { caminho: null, status: r.status, body } }
-  const caminho =
-    (typeof json.caminho_xml_nota_fiscal === "string" && json.caminho_xml_nota_fiscal) ||
-    (typeof json.caminho_xml === "string" && json.caminho_xml) ||
-    null
-  return { caminho, status: r.status, body }
+  if (!r.ok) {
+    const txt = await r.text()
+    return { xml: null, status: r.status, body_preview: txt.slice(0, 500) }
+  }
+  const ce = (r.headers.get("Content-Encoding") ?? "").toLowerCase()
+  let text: string
+  if (ce === "gzip") {
+    const ds = new DecompressionStream("gzip")
+    text = await new Response(r.body!.pipeThrough(ds)).text()
+  } else {
+    text = await r.text()
+  }
+  const trimmed = text.trimStart()
+  const ehXml = trimmed.startsWith("<?xml") || trimmed.startsWith("<nfeProc") || trimmed.startsWith("<NFe")
+  if (!ehXml) {
+    // 200 sem XML (Focus pode mandar JSON de resumo ou aviso)
+    return { xml: null, status: r.status, body_preview: text.slice(0, 500) }
+  }
+  return { xml: text, status: r.status, body_preview: text.slice(0, 200) }
 }
 
-// POST manifestacao. Tolera 'ja manifestada' (Focus geralmente retorna 400 com
-// codigo de duplicidade · tratamos como sucesso pra seguir o fluxo).
+// POST /v2/nfes_recebidas/{chave}/manifesto {"tipo":...}
+// Tolera "duplicidade / ja manifestada" como ok.
 async function focusManifestar(
   chave: string,
   tipo: string,
@@ -121,52 +121,17 @@ async function focusManifestar(
   const body = await r.text()
   if (r.ok) return { ok: true, status: r.status, body }
   const lower = body.toLowerCase()
-  const jaManifestada =
+  const jaManif =
     lower.includes("duplicidade") ||
     lower.includes("duplicada") ||
     lower.includes("ja registrad") ||
     lower.includes("já registrad") ||
     lower.includes("ja manifest") ||
     lower.includes("já manifest")
-  if (jaManifestada) return { ok: true, status: r.status, body }
-  return { ok: false, status: r.status, body }
+  return { ok: jaManif, status: r.status, body }
 }
 
-// Baixa o XML do caminho retornado pelo Focus. Aceita gzip via DecompressionStream.
-async function focusBaixarXml(
-  caminho: string,
-  token: string,
-): Promise<{ xml: string | null; status: number; body_preview: string }> {
-  const url = caminho.startsWith("http") ? caminho : `${FOCUS_BASE}${caminho.startsWith("/") ? "" : "/"}${caminho}`
-  const r = await fetch(url, {
-    headers: {
-      Authorization: basicAuth(token),
-      "User-Agent": "PSGestao-ERP/3.0",
-    },
-  })
-  if (!r.ok) {
-    const txt = await r.text()
-    return { xml: null, status: r.status, body_preview: txt.slice(0, 500) }
-  }
-  const ct = (r.headers.get("Content-Type") ?? "").toLowerCase()
-  const ce = (r.headers.get("Content-Encoding") ?? "").toLowerCase()
-  if (ce === "gzip" || ct.includes("gzip")) {
-    const ds = new DecompressionStream("gzip")
-    const decoded = r.body!.pipeThrough(ds)
-    const txt = await new Response(decoded).text()
-    return { xml: txt, status: r.status, body_preview: txt.slice(0, 200) }
-  }
-  const txt = await r.text()
-  return { xml: txt, status: r.status, body_preview: txt.slice(0, 200) }
-}
-
-interface InfNFe {
-  emit?: Record<string, unknown>
-  ide?: Record<string, unknown>
-  total?: { ICMSTot?: Record<string, unknown> }
-  det?: Array<Record<string, unknown>> | Record<string, unknown>
-  cobr?: { dup?: Array<Record<string, unknown>> | Record<string, unknown> }
-}
+// ----- Parser ------------------------------------------------------
 
 interface DadosParseados {
   emitente: { cnpj: string | null; razao: string | null; ie: string | null }
@@ -177,22 +142,8 @@ interface DadosParseados {
     natureza_operacao: string | null
   }
   totais: { valor_total: number | null; valor_produtos: number | null }
-  itens: Array<{
-    numero_item: number | null
-    codigo_produto: string | null
-    descricao: string | null
-    ncm: string | null
-    cfop: string | null
-    unidade: string | null
-    quantidade: number | null
-    valor_unitario: number | null
-    valor_total: number | null
-  }>
-  duplicatas: Array<{
-    numero_dup: string | null
-    data_vencimento: string | null
-    valor: number | null
-  }>
+  itens: Array<Record<string, unknown>>
+  duplicatas: Array<Record<string, unknown>>
   manifestacao: string
 }
 
@@ -205,13 +156,20 @@ function n(v: unknown): number | null {
   const x = Number(v)
   return Number.isFinite(x) ? x : null
 }
-function i(v: unknown): number | null {
+function intOf(v: unknown): number | null {
   const x = n(v)
-  if (x === null) return null
-  return Math.trunc(x)
+  return x === null ? null : Math.trunc(x)
 }
 
-function parseXml(xml: string, manifestacao: string): DadosParseados | null {
+interface InfNFe {
+  emit?: Record<string, unknown>
+  ide?: Record<string, unknown>
+  total?: { ICMSTot?: Record<string, unknown> }
+  det?: Array<Record<string, unknown>> | Record<string, unknown>
+  cobr?: { dup?: Array<Record<string, unknown>> | Record<string, unknown> }
+}
+
+export function parseProcNFe(xml: string, manifestacao: string): DadosParseados | null {
   const parser = new XMLParser({
     removeNSPrefix: true,
     ignoreAttributes: false,
@@ -234,7 +192,7 @@ function parseXml(xml: string, manifestacao: string): DadosParseados | null {
   const itens = detArr.map((det) => {
     const prod = (det.prod ?? {}) as Record<string, unknown>
     return {
-      numero_item: i(det["@_nItem"]),
+      numero_item: intOf(det["@_nItem"]),
       codigo_produto: s(prod.cProd),
       descricao: s(prod.xProd),
       ncm: s(prod.NCM),
@@ -282,55 +240,47 @@ async function resolverToken(company_id: string): Promise<string> {
   return typeof data === "string" ? data.trim() : ""
 }
 
+// ----- Handler -----------------------------------------------------
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS })
-  if (req.method !== "POST") return respond(405, { ok: false, erro: "metodo nao permitido" })
+  if (req.method !== "POST") return respond(405, erro("metodo_nao_permitido"))
 
   let payload: Payload
-  try {
-    payload = (await req.json()) as Payload
-  } catch {
-    return respond(400, erroEtapa("payload_invalido"))
-  }
+  try { payload = (await req.json()) as Payload }
+  catch { return respond(400, erro("payload_invalido")) }
 
   const company_id = payload.company_id
   const nfe_id = payload.nfe_recebida_id
   const gerarPagar = payload.gerar_pagar !== false
   const tipoManif = payload.tipo_manifestacao ?? "ciencia"
 
-  if (!company_id || !nfe_id) {
-    return respond(400, erroEtapa("payload_invalido"))
-  }
+  if (!company_id || !nfe_id) return respond(400, erro("payload_invalido"))
 
-  // --- Guarda de acesso: RLS via JWT do usuario ---
+  // --- Guarda RLS via JWT do usuario ---
   const authHeader = req.headers.get("Authorization") ?? ""
-  if (!authHeader) return respond(401, erroEtapa("nao_autenticado"))
+  if (!authHeader) return respond(401, erro("nao_autenticado"))
   const sbUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false },
     global: { headers: { Authorization: authHeader } },
   })
   const { data: userData } = await sbUser.auth.getUser()
-  if (!userData?.user) return respond(401, erroEtapa("nao_autenticado"))
+  if (!userData?.user) return respond(401, erro("nao_autenticado"))
 
-  // Tenta ler a NFe via cliente do usuario (RLS). Se RLS bloquear OU a nota
-  // nao for da company informada, nega acesso. Cobre as duas pontas: company
-  // pertence ao usuario E nfe pertence aquela company.
   const { data: nfeGuard, error: guardErr } = await sbUser
     .from("erp_nfe_recebidas")
     .select("id, company_id, chave_acesso, status, lancado_pagar")
     .eq("id", nfe_id)
     .maybeSingle()
-  if (guardErr) return respond(500, erroEtapa("rls_check", undefined, guardErr.message))
+  if (guardErr) return respond(500, erro("rls_check", undefined, guardErr.message))
   if (!nfeGuard || nfeGuard.company_id !== company_id) {
-    return respond(403, erroEtapa("sem_acesso"))
+    return respond(403, erro("sem_acesso"))
   }
 
   const chave = digitsOnly(nfeGuard.chave_acesso)
-  if (!chave || chave.length !== 44) {
-    return respond(400, erroEtapa("chave_acesso_invalida"))
-  }
+  if (!chave || chave.length !== 44) return respond(400, erro("chave_acesso_invalida"))
 
-  // Idempotencia preguicosa: ja completa + ja lancada -> retorna estado atual
+  // Idempotencia: ja lancada -> retorna estado atual sem chamar Focus
   if (nfeGuard.lancado_pagar) {
     const { data: detail } = await sbAdmin
       .from("erp_nfe_recebidas")
@@ -341,109 +291,89 @@ Deno.serve(async (req: Request) => {
       ok: true,
       ja_processada: true,
       status: detail?.status ?? "completo",
-      itens: 0,
-      duplicatas: 0,
       fornecedor_id: detail?.fornecedor_id ?? null,
       pagar_criadas: 0,
       valor_total: detail?.valor_total ?? null,
     })
   }
 
-  // --- Token ---
+  // --- Token Vault ---
   const token = await resolverToken(company_id)
-  if (!token) return respond(412, erroEtapa("token_focus_ausente"))
+  if (!token) return respond(412, erro("token_focus_ausente"))
 
-  // --- CNPJ da empresa ---
-  const { data: comp } = await sbAdmin
-    .from("companies")
-    .select("cnpj")
-    .eq("id", company_id)
-    .maybeSingle()
-  const cnpj = digitsOnly(comp?.cnpj)
-  if (!cnpj || cnpj.length !== 14) {
-    return respond(412, erroEtapa("cnpj_empresa_ausente"))
-  }
-
-  // --- Caminho do XML (tenta primeiro, manifesta so se faltar) ---
-  let info = await focusObterCaminhoXml(chave, cnpj, token)
-  if (info.status >= 500) {
-    return respond(502, erroEtapa("focus_get_info", info.status, info.body))
-  }
-  if (!info.caminho) {
-    const manif = await focusManifestar(chave, tipoManif, token)
-    if (!manif.ok) {
-      return respond(502, erroEtapa("focus_manifestacao", manif.status, manif.body))
+  // ===================================================================
+  // PASSO 1 · Tenta GET do XML direto (manifesto previo + Focus sync OK)
+  // ===================================================================
+  const xmlResp = await focusBaixarXml(chave, token)
+  if (xmlResp.xml) {
+    let dados: DadosParseados | null
+    try { dados = parseProcNFe(xmlResp.xml, tipoManif) }
+    catch (e) {
+      return respond(500, erro("parse_xml", undefined, e instanceof Error ? e.message : String(e)))
     }
-    info = await focusObterCaminhoXml(chave, cnpj, token)
-    if (!info.caminho) {
-      return respond(502, erroEtapa("xml_indisponivel_pos_manifesto", info.status, info.body))
+    if (!dados) {
+      return respond(500, erro("infNFe_nao_encontrado", undefined, xmlResp.xml.slice(0, 300)))
     }
-  }
 
-  // --- Download do XML completo ---
-  const xmlResp = await focusBaixarXml(info.caminho, token)
-  if (!xmlResp.xml) {
-    return respond(502, erroEtapa("focus_download_xml", xmlResp.status, xmlResp.body_preview))
-  }
-  const xml = xmlResp.xml
-
-  // --- Parse ---
-  let dados: DadosParseados | null
-  try {
-    dados = parseXml(xml, tipoManif)
-  } catch (e) {
-    return respond(500, erroEtapa("parse_xml", undefined, e instanceof Error ? e.message : String(e)))
-  }
-  if (!dados) {
-    return respond(500, erroEtapa("infNFe_nao_encontrado", undefined, xml.slice(0, 300)))
-  }
-
-  // --- Aplicar no banco ---
-  const aplicar = await sbAdmin.rpc("fn_nfe_recebida_aplicar_xml", {
-    p_id: nfe_id,
-    p_xml: xml,
-    p_dados: dados,
-  })
-  if (aplicar.error) {
-    return respond(500, erroEtapa("rpc_aplicar_xml", undefined, aplicar.error.message))
-  }
-  const aplicarRes = aplicar.data as { ok: boolean; itens?: number; duplicatas?: number; erro?: string } | null
-  if (!aplicarRes?.ok) {
-    return respond(500, erroEtapa("rpc_aplicar_xml", undefined, aplicarRes?.erro ?? "sem retorno"))
-  }
-
-  // --- Gerar pagar ---
-  let pagarCriadas = 0
-  let fornecedorId: string | null = null
-  let valorTotal: number | null = dados.totais.valor_total
-  if (gerarPagar) {
-    const gp = await sbAdmin.rpc("fn_nfe_recebida_gerar_pagar", { p_nfe_recebida_id: nfe_id })
-    if (gp.error) {
-      return respond(500, erroEtapa("rpc_gerar_pagar", undefined, gp.error.message))
+    const aplicar = await sbAdmin.rpc("fn_nfe_recebida_aplicar_xml", {
+      p_id: nfe_id, p_xml: xmlResp.xml, p_dados: dados,
+    })
+    if (aplicar.error) {
+      return respond(500, erro("rpc_aplicar_xml", undefined, aplicar.error.message))
     }
-    const gpRes = gp.data as {
-      ok: boolean
-      fornecedor_id?: string
-      pagar_criadas?: number
-      valor_total?: number
-      ja_lancado?: boolean
-      erro?: string
-    } | null
-    if (!gpRes?.ok) {
-      return respond(500, erroEtapa("rpc_gerar_pagar", undefined, gpRes?.erro ?? "sem retorno"))
+
+    let pagarCriadas = 0
+    let fornecedorId: string | null = null
+    let valorTotal: number | null = dados.totais.valor_total
+    if (gerarPagar) {
+      const gp = await sbAdmin.rpc("fn_nfe_recebida_gerar_pagar", { p_nfe_recebida_id: nfe_id })
+      if (gp.error) {
+        return respond(500, erro("rpc_gerar_pagar", undefined, gp.error.message))
+      }
+      const gpRes = gp.data as { ok: boolean; fornecedor_id?: string; pagar_criadas?: number; valor_total?: number; erro?: string } | null
+      if (!gpRes?.ok) {
+        return respond(500, erro("rpc_gerar_pagar", undefined, gpRes?.erro ?? "sem retorno"))
+      }
+      pagarCriadas = gpRes.pagar_criadas ?? 0
+      fornecedorId = gpRes.fornecedor_id ?? null
+      if (typeof gpRes.valor_total === "number") valorTotal = gpRes.valor_total
     }
-    pagarCriadas = gpRes.pagar_criadas ?? 0
-    fornecedorId = gpRes.fornecedor_id ?? null
-    if (typeof gpRes.valor_total === "number") valorTotal = gpRes.valor_total
+
+    return respond(200, {
+      ok: true,
+      status: "completo",
+      fornecedor_id: fornecedorId,
+      pagar_criadas: pagarCriadas,
+      valor_total: valorTotal,
+    })
+  }
+
+  // ===================================================================
+  // PASSO 2 · XML ainda nao liberado -> manifesta e marca aguardando
+  // ===================================================================
+  const manif = await focusManifestar(chave, tipoManif, token)
+  if (!manif.ok) {
+    return respond(502, erro("focus_manifestacao", manif.status, manif.body))
+  }
+
+  const up = await sbAdmin
+    .from("erp_nfe_recebidas")
+    .update({
+      status: "aguardando_xml",
+      status_manifestacao: tipoManif,
+      manifestado_em: new Date().toISOString(),
+      lancar_ao_completar: gerarPagar,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", nfe_id)
+  if (up.error) {
+    return respond(500, erro("update_aguardando_xml", undefined, up.error.message))
   }
 
   return respond(200, {
     ok: true,
-    status: "completo",
-    itens: aplicarRes.itens ?? 0,
-    duplicatas: aplicarRes.duplicatas ?? 0,
-    fornecedor_id: fornecedorId,
-    pagar_criadas: pagarCriadas,
-    valor_total: valorTotal,
+    status: "aguardando_xml",
+    mensagem:
+      "Ciência registrada na SEFAZ. O XML completo é liberado em até 2h — a conta é criada automaticamente quando chegar.",
   })
 })
