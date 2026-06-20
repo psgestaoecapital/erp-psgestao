@@ -72,10 +72,11 @@ function chipManifestacao(m: string): { cor: string; bg: string; texto: string }
 }
 
 function chipStatus(s: string): { cor: string; bg: string; texto: string } {
-  if (s === 'completa') return { cor: '#3F7012', bg: '#E8F4DC', texto: 'Completa' }
+  if (s === 'completo' || s === 'completa') return { cor: '#3F7012', bg: '#E8F4DC', texto: 'Pronta' }
   if (s === 'lancada') return { cor: '#3F7012', bg: '#E8F4DC', texto: 'Lançada' }
+  if (s === 'aguardando_xml') return { cor: '#BA7517', bg: '#FAEEDA', texto: 'Aguardando SEFAZ (~2h)' }
   if (s === 'ignorada') return { cor: 'rgba(61,35,20,0.55)', bg: 'rgba(61,35,20,0.06)', texto: 'Ignorada' }
-  return { cor: '#BA7517', bg: '#FAEEDA', texto: 'Resumo' }
+  return { cor: 'rgba(61,35,20,0.65)', bg: 'rgba(61,35,20,0.08)', texto: 'Resumo' }
 }
 
 export default function DocumentosRecebidosPage() {
@@ -208,6 +209,8 @@ export default function DocumentosRecebidosPage() {
       const json = await r.json() as {
         ok: boolean
         ja_processada?: boolean
+        status?: string
+        mensagem?: string
         pagar_criadas?: number
         fornecedor_id?: string | null
         valor_total?: number | null
@@ -222,10 +225,16 @@ export default function DocumentosRecebidosPage() {
       }
       const linha = lista.find((l) => l.id === nfeId)
       const forn = linha?.fornecedor ?? 'fornecedor'
-      const qtd = json.pagar_criadas ?? 0
+      if (json.status === 'aguardando_xml') {
+        return {
+          ok: true,
+          msg: json.mensagem ?? 'Ciência enviada à SEFAZ. O XML chega em até 2h e a conta é criada sozinha.',
+        }
+      }
       if (json.ja_processada) {
         return { ok: true, msg: `Já processada antes — ${forn}.` }
       }
+      const qtd = json.pagar_criadas ?? 0
       return { ok: true, msg: `✅ CRIOU ${qtd} conta(s) a pagar de ${forn}` }
     } catch (e) {
       return { ok: false, msg: 'Erro de rede: ' + (e instanceof Error ? e.message : 'desconhecido') }
@@ -254,7 +263,7 @@ export default function DocumentosRecebidosPage() {
       setTimeout(() => setToast(null), 3000)
       return
     }
-    if (!confirm(`Processar ${pendentes.length} nota(s) pendente(s)?`)) return
+    if (!confirm(`Processar ${pendentes.length} nota(s) pendente(s)? (throttle 2s/nota — respeitando limite SEFAZ)`)) return
     setProcessandoTodos(true)
     setErro(null)
     setToast(null)
@@ -268,12 +277,14 @@ export default function DocumentosRecebidosPage() {
       setProcessando((p) => ({ ...p, [nfe.id]: false }))
       if (r.ok) ok++; else falha++
       setProgresso({ feitas: idx + 1, total: pendentes.length })
+      // Throttle 2s entre chamadas Focus (limite recomendado SEFAZ)
+      if (idx < pendentes.length - 1) await new Promise((r) => setTimeout(r, 2000))
     }
     setProcessandoTodos(false)
     setProgresso(null)
     await carregar()
-    setToast(`Processado: ${ok} ok · ${falha} falha(s)`)
-    setTimeout(() => setToast(null), 5000)
+    setToast(`Processado: ${ok} ok · ${falha} falha(s) · pendentes voltarão sozinhas quando o XML chegar.`)
+    setTimeout(() => setToast(null), 6000)
   }
 
   const filtrada = useMemo(() => {
@@ -381,7 +392,8 @@ export default function DocumentosRecebidosPage() {
             >
               <option value="todos">Todos os status</option>
               <option value="resumo">Resumo</option>
-              <option value="completa">Completa</option>
+              <option value="aguardando_xml">Aguardando SEFAZ</option>
+              <option value="completo">Pronta</option>
               <option value="lancada">Lançada</option>
               <option value="ignorada">Ignorada</option>
             </select>
@@ -450,16 +462,28 @@ export default function DocumentosRecebidosPage() {
                         <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
                           ✓ Lançada
                         </span>
+                      ) : n.status === 'aguardando_xml' ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#BA7517]/30 text-[#BA7517] font-medium bg-[#FAEEDA]"
+                          title="A SEFAZ libera o XML completo em até 2h após a manifestação. A conta é criada sozinha assim que chegar."
+                        >
+                          <Loader2 className="animate-pulse" size={11} />
+                          Aguardando SEFAZ
+                        </span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => void lancarUma(n.id)}
                           disabled={!!processando[n.id] || processandoTodos}
-                          title="Manifesta ciência, baixa XML completo e gera contas a pagar"
+                          title={
+                            n.status === 'completo' || n.status === 'completa'
+                              ? 'XML já no banco · gera contas a pagar agora'
+                              : 'Manifesta ciência. O XML chega em até 2h e a conta é criada sozinha.'
+                          }
                           className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50"
                         >
                           {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
-                          {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
+                          {processando[n.id] ? 'Enviando…' : 'Lançar em Contas a Pagar'}
                         </button>
                       )}
                     </div>
