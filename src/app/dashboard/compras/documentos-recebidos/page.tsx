@@ -93,6 +93,9 @@ export default function DocumentosRecebidosPage() {
   // Habilitacao DF-e por empresa · RPC valida cert A1 + token no vault + admin
   const [habilitado, setHabilitado] = useState<boolean | null>(null)
   const [habilitando, setHabilitando] = useState(false)
+  // Onda 2.2 · sincronizacao automatica
+  const [ultimoCiclo, setUltimoCiclo] = useState<string | null>(null)
+  const [autoCiencia, setAutoCiencia] = useState<boolean>(true)
   // F2 · estado por card pra "Lancar em Contas a Pagar"
   const [processando, setProcessando] = useState<Record<string, boolean>>({})
   const [processandoTodos, setProcessandoTodos] = useState(false)
@@ -120,14 +123,32 @@ export default function DocumentosRecebidosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresaUnica, filtroStatus])
 
+  async function toggleAutoCiencia(novo: boolean) {
+    if (!empresaUnica) return
+    setAutoCiencia(novo) // otimista
+    const { error } = await supabase
+      .from('erp_nfe_distribuicao_controle')
+      .update({ auto_ciencia: novo, updated_at: new Date().toISOString() })
+      .eq('company_id', empresaUnica)
+    if (error) {
+      setAutoCiencia(!novo)
+      setErro('Não consegui salvar a preferência: ' + error.message)
+      return
+    }
+    setToast(novo ? 'Ciência automática LIGADA' : 'Ciência automática DESLIGADA')
+    setTimeout(() => setToast(null), 3000)
+  }
+
   async function loadHabilitacao() {
-    if (!empresaUnica) { setHabilitado(null); return }
+    if (!empresaUnica) { setHabilitado(null); setUltimoCiclo(null); return }
     const { data } = await supabase
       .from('erp_nfe_distribuicao_controle')
-      .select('habilitado')
+      .select('habilitado, ultimo_ciclo_em, auto_ciencia')
       .eq('company_id', empresaUnica)
       .maybeSingle()
     setHabilitado(!!data?.habilitado)
+    setUltimoCiclo((data?.ultimo_ciclo_em as string | undefined) ?? null)
+    setAutoCiencia(data?.auto_ciencia !== false)
   }
 
   useEffect(() => {
@@ -322,6 +343,30 @@ export default function DocumentosRecebidosPage() {
               Notas emitidas contra o CNPJ desta empresa · puxa direto da Distribuição DF-e (Focus NFe).
               Os itens e duplicatas chegam quando a manifestação for feita (F2).
             </p>
+            {habilitado === true && (
+              <div className="mt-3 flex items-center gap-3 flex-wrap text-[11.5px] text-[#3D2314]/70">
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium"
+                  title="O cron de 1h busca notas novas e dá ciência automática. O cron de 30min baixa o XML quando a SEFAZ liberar."
+                >
+                  ● Sincronização automática ativa
+                  {ultimoCiclo && (
+                    <span className="text-[#3F7012]/70 font-normal">
+                      · última {new Date(ultimoCiclo).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </span>
+                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoCiencia}
+                    onChange={(e) => void toggleAutoCiencia(e.target.checked)}
+                    className="cursor-pointer"
+                  />
+                  Dar ciência automática
+                </label>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {habilitado === false && (
