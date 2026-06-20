@@ -125,17 +125,27 @@ export default function DocumentosRecebidosPage() {
 
   async function toggleAutoCiencia(novo: boolean) {
     if (!empresaUnica) return
-    setAutoCiencia(novo) // otimista
-    const { error } = await supabase
-      .from('erp_nfe_distribuicao_controle')
-      .update({ auto_ciencia: novo, updated_at: new Date().toISOString() })
-      .eq('company_id', empresaUnica)
+    const anterior = autoCiencia
+    // sem otimismo · so reflete na UI quando o servidor confirmar.
+    // (UPDATE direto era silenciosamente bloqueado pelo RLS · agora vai
+    //  via RPC SECURITY DEFINER com check de get_user_company_ids/is_admin.)
+    const { data, error } = await supabase.rpc('fn_nfe_distribuicao_set_auto_ciencia', {
+      p_company_id: empresaUnica,
+      p_auto: novo,
+    })
     if (error) {
-      setAutoCiencia(!novo)
-      setErro('Não consegui salvar a preferência: ' + error.message)
+      setErro('Não foi possível alterar a ciência automática: ' + error.message)
+      setAutoCiencia(anterior)
       return
     }
-    setToast(novo ? 'Ciência automática LIGADA' : 'Ciência automática DESLIGADA')
+    const r = data as { ok: boolean; auto_ciencia?: boolean; erro?: string } | null
+    if (!r?.ok) {
+      setErro('Não foi possível alterar a ciência automática: ' + (r?.erro ?? 'sem retorno'))
+      setAutoCiencia(anterior)
+      return
+    }
+    setAutoCiencia(r.auto_ciencia === true)
+    setToast(r.auto_ciencia ? 'Ciência automática LIGADA' : 'Ciência automática DESLIGADA')
     setTimeout(() => setToast(null), 3000)
   }
 
