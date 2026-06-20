@@ -1,12 +1,14 @@
 'use client'
 
-// nfe-recebidas-f1 · Documentos Recebidos (Compras)
+// nfe-recebidas · Documentos Recebidos (Compras)
 // Mostra NFes recebidas (modelo 55) destinadas ao CNPJ da empresa.
 // "Buscar agora" chama a edge nfe-distribuicao (Focus DF-e).
-// Lancar em Contas a Pagar -> em breve (F2).
+// "Lancar em Contas a Pagar (F2)" chama a edge nfe-recebida-processar
+// (manifesta ciencia, baixa XML completo, popula itens + duplicatas,
+// gera contas a pagar).
 
 import { useEffect, useMemo, useState } from 'react'
-import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power } from 'lucide-react'
+import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -90,6 +92,10 @@ export default function DocumentosRecebidosPage() {
   // Habilitacao DF-e por empresa · RPC valida cert A1 + token no vault + admin
   const [habilitado, setHabilitado] = useState<boolean | null>(null)
   const [habilitando, setHabilitando] = useState(false)
+  // F2 · estado por card pra "Lancar em Contas a Pagar"
+  const [processando, setProcessando] = useState<Record<string, boolean>>({})
+  const [processandoTodos, setProcessandoTodos] = useState(false)
+  const [progresso, setProgresso] = useState<{ feitas: number; total: number } | null>(null)
 
   async function carregar() {
     if (!empresaUnica) return
@@ -186,6 +192,90 @@ export default function DocumentosRecebidosPage() {
     }
   }
 
+  async function lancarPagar(nfeId: string): Promise<{ ok: boolean; msg: string }> {
+    if (!empresaUnica) return { ok: false, msg: 'sem empresa' }
+    const { data: { session } } = await supabase.auth.getSession()
+    const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '')
+    try {
+      const r = await fetch(`${baseUrl}/functions/v1/nfe-recebida-processar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ company_id: empresaUnica, nfe_recebida_id: nfeId }),
+      })
+      const json = await r.json() as {
+        ok: boolean
+        ja_processada?: boolean
+        pagar_criadas?: number
+        fornecedor_id?: string | null
+        valor_total?: number | null
+        etapa?: string
+        body_preview?: string
+        erro?: string
+      }
+      if (!r.ok || !json.ok) {
+        const etapa = json.etapa ?? 'erro'
+        const detalhe = json.body_preview ? ` (${json.body_preview.slice(0, 80)})` : ''
+        return { ok: false, msg: `Não consegui lançar: ${etapa}${detalhe}` }
+      }
+      const linha = lista.find((l) => l.id === nfeId)
+      const forn = linha?.fornecedor ?? 'fornecedor'
+      const qtd = json.pagar_criadas ?? 0
+      if (json.ja_processada) {
+        return { ok: true, msg: `Já processada antes — ${forn}.` }
+      }
+      return { ok: true, msg: `✅ CRIOU ${qtd} conta(s) a pagar de ${forn}` }
+    } catch (e) {
+      return { ok: false, msg: 'Erro de rede: ' + (e instanceof Error ? e.message : 'desconhecido') }
+    }
+  }
+
+  async function lancarUma(nfeId: string) {
+    setProcessando((p) => ({ ...p, [nfeId]: true }))
+    setErro(null)
+    setToast(null)
+    const r = await lancarPagar(nfeId)
+    setProcessando((p) => ({ ...p, [nfeId]: false }))
+    if (r.ok) {
+      setToast(r.msg)
+      await carregar()
+      setTimeout(() => setToast(null), 4000)
+    } else {
+      setErro(r.msg)
+    }
+  }
+
+  async function lancarPendentes() {
+    const pendentes = lista.filter((l) => l.status === 'resumo' && !l.lancado_pagar)
+    if (pendentes.length === 0) {
+      setToast('Nenhum resumo pendente — todas já estão lançadas.')
+      setTimeout(() => setToast(null), 3000)
+      return
+    }
+    if (!confirm(`Processar ${pendentes.length} nota(s) pendente(s)?`)) return
+    setProcessandoTodos(true)
+    setErro(null)
+    setToast(null)
+    setProgresso({ feitas: 0, total: pendentes.length })
+    let ok = 0
+    let falha = 0
+    for (let idx = 0; idx < pendentes.length; idx++) {
+      const nfe = pendentes[idx]
+      setProcessando((p) => ({ ...p, [nfe.id]: true }))
+      const r = await lancarPagar(nfe.id)
+      setProcessando((p) => ({ ...p, [nfe.id]: false }))
+      if (r.ok) ok++; else falha++
+      setProgresso({ feitas: idx + 1, total: pendentes.length })
+    }
+    setProcessandoTodos(false)
+    setProgresso(null)
+    await carregar()
+    setToast(`Processado: ${ok} ok · ${falha} falha(s)`)
+    setTimeout(() => setToast(null), 5000)
+  }
+
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return lista
@@ -257,6 +347,20 @@ export default function DocumentosRecebidosPage() {
               {buscando ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
               {buscando ? 'Buscando…' : 'Buscar agora'}
             </button>
+            {habilitado === true && lista.some((l) => l.status === 'resumo' && !l.lancado_pagar) && (
+              <button
+                type="button"
+                onClick={() => void lancarPendentes()}
+                disabled={processandoTodos}
+                title="Manifesta e lança em pagar todas as notas em resumo"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3D2314] text-[#FAF7F2] text-[13px] font-medium hover:bg-[#5A3520] disabled:opacity-50 min-h-[44px]"
+              >
+                {processandoTodos ? <Loader2 className="animate-spin" size={15} /> : <Zap size={15} />}
+                {processandoTodos
+                  ? `Processando ${progresso?.feitas ?? 0}/${progresso?.total ?? 0}…`
+                  : 'Processar pendentes'}
+              </button>
+            )}
           </div>
         </header>
 
@@ -342,14 +446,22 @@ export default function DocumentosRecebidosPage() {
                       <div className="text-[14px] font-semibold text-[#C8941A] tabular-nums min-w-[100px] text-right">
                         {fmtBRL(n.valor_total)}
                       </div>
-                      <button
-                        type="button"
-                        disabled
-                        title="Em breve (F2)"
-                        className="text-[11px] px-2.5 py-1 rounded-md border border-[#3D2314]/15 text-[#3D2314]/45 cursor-not-allowed"
-                      >
-                        Lançar em Contas a Pagar (F2)
-                      </button>
+                      {n.lancado_pagar || n.status === 'lancada' ? (
+                        <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
+                          ✓ Lançada
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void lancarUma(n.id)}
+                          disabled={!!processando[n.id] || processandoTodos}
+                          title="Manifesta ciência, baixa XML completo e gera contas a pagar"
+                          className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50"
+                        >
+                          {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
+                          {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
