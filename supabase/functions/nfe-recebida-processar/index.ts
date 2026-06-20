@@ -290,7 +290,7 @@ Deno.serve(async (req: Request) => {
     return respond(200, {
       ok: true,
       ja_processada: true,
-      status: detail?.status ?? "completo",
+      status: detail?.status ?? "completa",
       fornecedor_id: detail?.fornecedor_id ?? null,
       pagar_criadas: 0,
       valor_total: detail?.valor_total ?? null,
@@ -341,7 +341,7 @@ Deno.serve(async (req: Request) => {
 
     return respond(200, {
       ok: true,
-      status: "completo",
+      status: "completa",
       fornecedor_id: fornecedorId,
       pagar_criadas: pagarCriadas,
       valor_total: valorTotal,
