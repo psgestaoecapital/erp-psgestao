@@ -10,10 +10,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ExcelJS from 'exceljs'
 import { supabase } from '@/lib/supabase'
+import { sigaDetect, sigaParseRows, type SigaRecordV3 } from '@/lib/import/siga'
 
 type Tipo = 'pagar' | 'receber'
 type Passo = 'tipo' | 'upload' | 'resultado'
-type Formato = 'template_ps' | 'contaazul'
+type Formato = 'template_ps' | 'siga'
 
 interface LinhaParse {
   linha_num: number
@@ -28,16 +29,8 @@ interface LinhaParse {
   fornecedor_id?: string | null
   cliente_id?: string | null
   pessoa_nome?: string | null
-  // contaazul (por linha)
+  // siga (so pra preview · records ja vem prontos via sigaParseRows)
   tipo_linha?: Tipo
-  data_emissao?: string
-  data_pagamento?: string
-  status?: 'pago' | 'aberto'
-  categoria?: string | null
-  centro_custo?: string | null
-  forma_pagamento?: string | null
-  codigo?: string | null
-  nome_pessoa_ca?: string
   // status da linha
   valida: boolean
   erros: string[]
@@ -116,19 +109,17 @@ async function baixarTemplate(tipo: Tipo) {
 }
 
 // Detecta o formato da planilha pelos headers (case-insensitive).
-// 'contaazul' = export do Conta Azul (tem coluna 'receber' E 'pagar' + nome/situacao).
-// 'template_ps' = template baixavel deste card (descricao*, valor*, etc).
-function detectarFormato(hLower: string[]): Formato {
-  const has = (term: string) => hLower.some((h) => h === term || h.includes(term))
-  const hasReceber = hLower.includes('receber')
-  const hasPagar = hLower.includes('pagar')
-  const hasNF = has('nome fantasia/apelido') || has('nome fantasia') || has('apelido')
-  const hasSituacao = hLower.includes('situacao') || hLower.includes('situação')
-  if (hasReceber && hasPagar && (hasNF || hasSituacao)) return 'contaazul'
-  return 'template_ps'
-}
-
-async function parseXlsx(file: File): Promise<{ formato: Formato; linhas: LinhaParse[] }> {
+// SIGA tambem captura o export do Conta Azul (mesma regra
+// receber+pagar+quitado/saldo) e roteia pro helper unificado.
+async function parseXlsx(
+  file: File,
+  companyId: string,
+): Promise<{
+  formato: Formato
+  linhas: LinhaParse[]
+  records?: SigaRecordV3[]                                 // pre-built quando formato='siga'
+  sigaErros?: Array<{ linha: number; motivo: string }>
+}> {
   const buf = await file.arrayBuffer()
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
@@ -139,12 +130,43 @@ async function parseXlsx(file: File): Promise<{ formato: Formato; linhas: LinhaP
   ws.getRow(1).eachCell((cell, col) => {
     header[col - 1] = String(cell.value ?? '').replace('*', '').trim().toLowerCase()
   })
-  const formato = detectarFormato(header)
 
-  if (formato === 'contaazul') {
-    return { formato, linhas: parseContaAzul(ws, header) }
+  if (sigaDetect(header)) {
+    // Le rows como array de arrays · contrato do helper.
+    const rows: unknown[][] = []
+    ws.eachRow((row, num) => {
+      if (num === 1) return
+      const r: unknown[] = []
+      row.eachCell((cell, col) => { r[col - 1] = cell.value })
+      rows.push(r)
+    })
+    const { records, erros } = sigaParseRows(header, rows, companyId)
+    const linhasPreview: LinhaParse[] = records.map((rec, i) => ({
+      linha_num: i + 2,
+      raw: {},
+      descricao: rec.descricao,
+      valor: rec.valor_documento,
+      data_vencimento: rec.data_vencimento,
+      tipo_linha: rec.tipo,
+      pessoa_nome: rec.nome_pessoa,
+      valida: true,
+      erros: [],
+    }))
+    for (const e of erros) {
+      linhasPreview.push({
+        linha_num: e.linha,
+        raw: {},
+        descricao: '',
+        valor: 0,
+        data_vencimento: '',
+        valida: false,
+        erros: [e.motivo],
+      })
+    }
+    return { formato: 'siga', linhas: linhasPreview, records, sigaErros: erros }
   }
-  return { formato, linhas: parseTemplatePS(ws, header) }
+
+  return { formato: 'template_ps', linhas: parseTemplatePS(ws, header) }
 }
 
 function parseTemplatePS(ws: ExcelJS.Worksheet, header: string[]): LinhaParse[] {
@@ -173,98 +195,6 @@ function parseTemplatePS(ws: ExcelJS.Worksheet, header: string[]): LinhaParse[] 
       raw, descricao, valor, data_vencimento, data_competencia,
       cnpj: cnpj || undefined,
       categoria_codigo,
-      valida: erros.length === 0,
-      erros,
-    })
-  })
-  return linhas
-}
-
-// Parser do export Conta Azul · le por nome exato de coluna (case-insensitive).
-// Pula 'Saldo Inicial' e linhas sem valor. tipo determinado por receber>0 vs pagar>0.
-function parseContaAzul(ws: ExcelJS.Worksheet, header: string[]): LinhaParse[] {
-  const hLower = header.map((h) => (h || '').toLowerCase())
-  function idx(...candidatos: string[]): number {
-    for (const c of candidatos) {
-      const i = hLower.findIndex((h) => h === c.toLowerCase())
-      if (i !== -1) return i
-    }
-    for (const c of candidatos) {
-      const i = hLower.findIndex((h) => h.includes(c.toLowerCase()))
-      if (i !== -1) return i
-    }
-    return -1
-  }
-
-  const cols = {
-    emissao:    idx('emissao', 'emissão'),
-    vencimento: idx('vencimento'),
-    quitado:    idx('quitado em', 'quitado'),
-    situacao:   idx('situacao', 'situação'),
-    meio:       idx('meio de pagamento'),
-    codigo:     idx('codigo', 'código'),
-    descricao:  idx('descricao', 'descrição'),
-    nome:       idx('nome fantasia/apelido', 'nome fantasia', 'apelido'),
-    receber:    idx('receber'),
-    pagar:      idx('pagar'),
-    categoria:  idx('categoria'),
-    centro:     idx('centro de custos', 'centro de custo', 'centro custo'),
-  }
-
-  const linhas: LinhaParse[] = []
-  ws.eachRow((row, rowNum) => {
-    if (rowNum === 1) return
-    const raw: Record<string, unknown> = {}
-    row.eachCell((cell, col) => {
-      const key = header[col - 1]
-      if (key) raw[key] = cell.value
-    })
-    function cellAt(i: number): unknown {
-      return i >= 0 ? row.getCell(i + 1).value : null
-    }
-    function strAt(i: number): string {
-      return String(cellAt(i) ?? '').trim()
-    }
-
-    const nome = strAt(cols.nome)
-    const receber = parseValor(cellAt(cols.receber))
-    const pagar = parseValor(cellAt(cols.pagar))
-
-    // Pular Saldo Inicial e linhas sem valor
-    if (nome.toLowerCase() === 'saldo inicial') return
-    if (receber <= 0 && pagar <= 0) return
-
-    const tipo_linha: Tipo = receber > 0 ? 'receber' : 'pagar'
-    const valor = receber > 0 ? receber : pagar
-    const situacao = strAt(cols.situacao)
-    const status: 'pago' | 'aberto' = /quit/i.test(situacao) ? 'pago' : 'aberto'
-    const data_vencimento = parseData(cellAt(cols.vencimento))
-    const data_emissao = parseData(cellAt(cols.emissao))
-    const data_pagamento = parseData(cellAt(cols.quitado))
-    const descricao = strAt(cols.descricao)
-    const codigo = strAt(cols.codigo) || null
-    const categoria = strAt(cols.categoria) || null
-    const centro = strAt(cols.centro) || null
-    const meio = strAt(cols.meio) || null
-
-    const erros: string[] = []
-    if (!descricao) erros.push('descrição vazia')
-    if (valor <= 0) erros.push('valor inválido')
-    if (!data_vencimento) erros.push('data_vencimento inválida')
-
-    linhas.push({
-      linha_num: rowNum,
-      raw,
-      descricao, valor, data_vencimento,
-      tipo_linha,
-      data_emissao: data_emissao || undefined,
-      data_pagamento: data_pagamento || undefined,
-      status,
-      categoria,
-      centro_custo: centro,
-      forma_pagamento: meio,
-      codigo,
-      nome_pessoa_ca: nome,
       valida: erros.length === 0,
       erros,
     })
@@ -319,6 +249,8 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
   const [passo, setPasso] = useState<Passo>('tipo')
   const [linhas, setLinhas] = useState<LinhaParse[]>([])
   const [formato, setFormato] = useState<Formato>('template_ps')
+  // SIGA: records ja vem prontos do helper, sem reconstruir no importar.
+  const [sigaRecords, setSigaRecords] = useState<SigaRecordV3[] | null>(null)
   const [arquivoNome, setArquivoNome] = useState('')
   const [loading, setLoading] = useState(false)
   const [resultado, setResultado] = useState<ResultadoDispatch | null>(null)
@@ -328,19 +260,20 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
     setErro(null)
     setLoading(true)
     try {
-      const parsed = await parseXlsx(file)
+      const parsed = await parseXlsx(file, companyId)
       if (parsed.linhas.length === 0) {
         setErro('Planilha vazia ou sem dados além do cabeçalho')
         setLoading(false)
         return
       }
       // resolverPessoas (lookup por CNPJ) so se aplica ao template_ps · o
-      // Conta Azul nao traz CNPJ, usa nome_pessoa direto.
+      // helper SIGA usa nome_pessoa direto da planilha.
       if (parsed.formato === 'template_ps') {
         await resolverPessoas(parsed.linhas, companyId, tipo)
       }
       setLinhas(parsed.linhas)
       setFormato(parsed.formato)
+      setSigaRecords(parsed.records ?? null)
       setArquivoNome(file.name)
       setPasso('upload')
     } catch (e) {
@@ -359,42 +292,23 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
     const userId = userData?.user?.id ?? null
 
     // Contrato fn_import_financeiro_v3: por linha o 'tipo' = pagar|receber.
-    // import_hash null → o RPC gera md5 deterministico de fallback
-    // (company + tipo + valor + data_vencimento + descricao), suficiente
-    // pra dedupar reimportacoes da mesma planilha. Pro Conta Azul, usamos
-    // 'contaazul:{company}:{codigo}' como chave estavel quando a planilha
-    // traz o codigo do titulo · re-export atualiza dedup pelo codigo.
-    const records = validas.map((l) => {
-      if (formato === 'contaazul') {
-        return {
+    // SIGA: helper ja entregou records prontos no contrato v3 (com hash
+    // 'siga:{company}:{codigo}' pra idempotencia estavel).
+    // template_ps: monta no client · import_hash null deixa o RPC gerar
+    // md5 deterministico de fallback (company+tipo+valor+venc+desc).
+    const records = formato === 'siga' && sigaRecords
+      ? sigaRecords
+      : validas.map((l) => ({
           company_id: companyId,
-          tipo: l.tipo_linha, // POR LINHA · ignora wizard tipo
+          tipo, // 'pagar' | 'receber' do wizard
           valor_documento: l.valor,
           data_vencimento: l.data_vencimento,
-          data_emissao: l.data_emissao || null,
-          data_pagamento: l.data_pagamento || null,
+          data_emissao: l.data_competencia || l.data_vencimento,
           descricao: l.descricao,
-          status: l.status || 'aberto',
-          categoria: l.categoria ?? null,
-          centro_custo: l.centro_custo ?? null,
-          forma_pagamento: l.forma_pagamento ?? null,
-          nome_pessoa: l.nome_pessoa_ca ?? null,
-          import_hash: l.codigo ? `contaazul:${companyId}:${l.codigo}` : null,
-        }
-      }
-      // template_ps (mesmo do PR anterior · sem regressao)
-      return {
-        company_id: companyId,
-        tipo, // 'pagar' | 'receber' do wizard
-        valor_documento: l.valor,
-        data_vencimento: l.data_vencimento,
-        data_emissao: l.data_competencia || l.data_vencimento,
-        descricao: l.descricao,
-        categoria: l.categoria_codigo ?? null,
-        nome_pessoa: l.pessoa_nome ?? null,
-        import_hash: null,
-      }
-    })
+          categoria: l.categoria_codigo ?? null,
+          nome_pessoa: l.pessoa_nome ?? null,
+          import_hash: null,
+        }))
 
     const { data, error } = await supabase.rpc('fn_import_universal_dispatch', {
       p_tipo: 'planilha_modelo_ps',
