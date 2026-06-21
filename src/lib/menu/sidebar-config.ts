@@ -34,6 +34,8 @@ const MODULOS_ADMIN: SidebarModuleNode[] = [
         status: 'pronto', matchPaths: ['/dashboard/conectores'] },
       { id: 'conexoes-bancarias', label: 'Conexões Bancárias', href: '/dashboard/financeiro/conexoes-bancarias',
         status: 'pronto', matchPaths: ['/dashboard/financeiro/conexoes-bancarias'] },
+      { id: 'importar-universal', label: 'Importador Universal', href: '/dashboard/importar-universal',
+        status: 'pronto', matchPaths: ['/dashboard/importar-universal'] },
     ],
   },
 ];
