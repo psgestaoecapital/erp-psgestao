@@ -35,11 +35,13 @@ export async function POST(req: NextRequest) {
       .order('calculado_em', { ascending: false })
       .limit(6);
 
-    // Busca últimos 20 lançamentos
+    // Busca últimos 20 lançamentos (view consolidada · so cliente_id ·
+    // cliente_cnpj nao existe nem em erp_lancamentos nem na view ·
+    // referencia antiga removida).
     const { data: lancamentos } = await sb
-      .from('erp_lancamentos')
+      .from('v_lancamentos_consolidado')
       .select('valor, data_emissao, data_vencimento, data_pagamento, status, descricao')
-      .or(`cliente_id.eq.${cliente_id},cliente_cnpj.eq.${cliente.cpf_cnpj}`)
+      .eq('cliente_id', cliente_id)
       .eq('company_id', cliente.company_id)
       .in('tipo', ['receita', 'entrada', 'receber'])
       .order('data_emissao', { ascending: false })
