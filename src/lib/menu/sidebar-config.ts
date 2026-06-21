@@ -60,6 +60,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'nova-receita', label: 'Nova Receita', href: '/dashboard/financeiro/nova-receita', status: 'pronto' },
       { id: 'nova-despesa', label: 'Nova Despesa', href: '/dashboard/financeiro/nova-despesa', status: 'pronto' },
       { id: 'fluxo-caixa', label: 'Fluxo de Caixa', href: '/dashboard/financeiro/fluxo-caixa', status: 'pronto' },
+      { id: 'visao-mensal', label: 'Visão Mensal', href: '/dashboard/visao-mensal', status: 'pronto', matchPaths: ['/dashboard/visao-mensal'] },
       { id: 'extrato', label: 'Extrato Bancário', href: '/dashboard/financeiro/extrato', status: 'parcial' },
       { id: 'inadimplentes', label: 'Inadimplentes', href: '/dashboard/financeiro/inadimplentes', status: 'pronto' },
       { id: 'saude', label: 'Saúde Financeira', href: '/dashboard/financeiro/saude', status: 'pronto' },
