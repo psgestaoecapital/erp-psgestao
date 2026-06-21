@@ -1,8 +1,10 @@
 'use client'
 
 // Import Lote XLSX · Sub-frente 4.5 Onda 4 (CEO 27/05/2026)
-// Wizard 4 passos: tipo → template → upload+preview → confirma RPC.
-// RPC pronta: fn_importar_planilha_lote(company_id, tipo, jsonb[])
+// Wizard 3 passos: tipo → template → upload+preview → confirma.
+// Onda 4/v3 (CEO Jun-2026): troca a RPC legada fn_importar_planilha_lote
+// pelo dispatch novo (fn_import_universal_dispatch · planilha_modelo_ps).
+// Ganha idempotencia (ON CONFLICT por hash) + trilha em erp_importacoes.
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -23,17 +25,19 @@ interface LinhaParse {
   categoria_codigo?: string
   fornecedor_id?: string | null
   cliente_id?: string | null
+  pessoa_nome?: string | null
   valida: boolean
   erros: string[]
 }
 
-interface ResultadoRPC {
-  tipo: string
-  total_processados: number
-  sucesso: number
-  falha: number
-  total_valor_importado: number
-  erros: Array<{ linha?: number; mensagem: string }>
+interface ResultadoDispatch {
+  status?: string
+  total?: number
+  inseridos?: number
+  duplicados?: number
+  erros?: number
+  lista_erros?: Array<{ linha?: number; descricao?: string; erro: string }>
+  importacao_id?: string
 }
 
 function fmtBRL(v: number): string {
@@ -149,28 +153,36 @@ async function resolverPessoas(linhas: LinhaParse[], companyId: string, tipo: Ti
   if (tipo === 'pagar') {
     const { data } = await supabase
       .from('erp_fornecedores')
-      .select('id, cpf_cnpj')
+      .select('id, cpf_cnpj, nome_fantasia')
       .eq('company_id', companyId)
       .in('cpf_cnpj', cnpjs)
-    const map = new Map<string, string>()
-    for (const f of (data ?? []) as Array<{ id: string; cpf_cnpj: string }>) {
-      map.set(cnpjLimpo(f.cpf_cnpj), f.id)
+    const map = new Map<string, { id: string; nome: string | null }>()
+    for (const f of (data ?? []) as Array<{ id: string; cpf_cnpj: string; nome_fantasia: string | null }>) {
+      map.set(cnpjLimpo(f.cpf_cnpj), { id: f.id, nome: f.nome_fantasia })
     }
     for (const l of linhas) {
-      if (l.cnpj) l.fornecedor_id = map.get(l.cnpj) ?? null
+      if (l.cnpj) {
+        const hit = map.get(l.cnpj)
+        l.fornecedor_id = hit?.id ?? null
+        l.pessoa_nome = hit?.nome ?? null
+      }
     }
   } else {
     const { data } = await supabase
       .from('erp_clientes')
-      .select('id, cnpj_cpf, cpf_cnpj')
+      .select('id, cnpj_cpf, cpf_cnpj, nome_fantasia')
       .eq('company_id', companyId)
-    const map = new Map<string, string>()
-    for (const c of (data ?? []) as Array<{ id: string; cnpj_cpf: string | null; cpf_cnpj: string | null }>) {
+    const map = new Map<string, { id: string; nome: string | null }>()
+    for (const c of (data ?? []) as Array<{ id: string; cnpj_cpf: string | null; cpf_cnpj: string | null; nome_fantasia: string | null }>) {
       const key = cnpjLimpo(c.cnpj_cpf ?? c.cpf_cnpj)
-      if (key) map.set(key, c.id)
+      if (key) map.set(key, { id: c.id, nome: c.nome_fantasia })
     }
     for (const l of linhas) {
-      if (l.cnpj) l.cliente_id = map.get(l.cnpj) ?? null
+      if (l.cnpj) {
+        const hit = map.get(l.cnpj)
+        l.cliente_id = hit?.id ?? null
+        l.pessoa_nome = hit?.nome ?? null
+      }
     }
   }
 }
@@ -180,8 +192,9 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
   const [tipo, setTipo] = useState<Tipo>('pagar')
   const [passo, setPasso] = useState<Passo>('tipo')
   const [linhas, setLinhas] = useState<LinhaParse[]>([])
+  const [arquivoNome, setArquivoNome] = useState('')
   const [loading, setLoading] = useState(false)
-  const [resultado, setResultado] = useState<ResultadoRPC | null>(null)
+  const [resultado, setResultado] = useState<ResultadoDispatch | null>(null)
   const [erro, setErro] = useState<string | null>(null)
 
   async function handleFile(file: File) {
@@ -196,6 +209,7 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
       }
       await resolverPessoas(parsed, companyId, tipo)
       setLinhas(parsed)
+      setArquivoNome(file.name)
       setPasso('upload')
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e))
@@ -208,23 +222,37 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
     const validas = linhas.filter((l) => l.valida)
     if (validas.length === 0) { setErro('Nenhuma linha válida pra importar'); return }
     setLoading(true)
-    const payload = validas.map((l) => ({
-      descricao: l.descricao,
-      valor: l.valor,
+
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData?.user?.id ?? null
+
+    // Contrato fn_import_financeiro_v3: por linha o 'tipo' = pagar|receber.
+    // import_hash null → o RPC gera md5 deterministico de fallback
+    // (company + tipo + valor + data_vencimento + descricao), suficiente
+    // pra dedupar reimportacoes da mesma planilha. Quando a planilha
+    // tiver numero_documento futuramente, podemos incluir no hash aqui.
+    const records = validas.map((l) => ({
+      company_id: companyId,
+      tipo, // 'pagar' | 'receber' (mesmo pra todas as linhas neste card)
+      valor_documento: l.valor,
       data_vencimento: l.data_vencimento,
-      data_competencia: l.data_competencia,
-      fornecedor_id: tipo === 'pagar' ? l.fornecedor_id ?? null : undefined,
-      cliente_id: tipo === 'receber' ? l.cliente_id ?? null : undefined,
-      plano_contas_codigo: l.categoria_codigo ?? null,
+      data_emissao: l.data_competencia || l.data_vencimento,
+      descricao: l.descricao,
+      categoria: l.categoria_codigo ?? null,
+      nome_pessoa: l.pessoa_nome ?? null,
+      import_hash: null,
     }))
-    const { data, error } = await supabase.rpc('fn_importar_planilha_lote', {
+
+    const { data, error } = await supabase.rpc('fn_import_universal_dispatch', {
+      p_tipo: 'planilha_modelo_ps',
       p_company_id: companyId,
-      p_tipo: tipo,
-      p_lancamentos: payload,
+      p_user_id: userId,
+      p_arquivo_nome: arquivoNome || `import_${tipo}.xlsx`,
+      p_records: records,
     })
     setLoading(false)
     if (error) { setErro(error.message); return }
-    setResultado(data as ResultadoRPC)
+    setResultado(data as ResultadoDispatch)
     setPasso('resultado')
   }
 
@@ -346,45 +374,65 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
         </div>
       )}
 
-      {passo === 'resultado' && resultado && (
-        <div>
-          <div style={{ background: resultado.falha > 0 ? '#FAEEDA' : '#EAF3DE', border: `1px solid ${resultado.falha > 0 ? '#BA7517' : '#3B6D11'}`, borderRadius: 8, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>
-              {resultado.falha === 0 ? '✅ Tudo importado!' : '⚠ Importado com erros'}
+      {passo === 'resultado' && resultado && (() => {
+        const inseridos = resultado.inseridos ?? 0
+        const duplicados = resultado.duplicados ?? 0
+        const erros = resultado.erros ?? 0
+        const total = resultado.total ?? (inseridos + duplicados + erros)
+        const valorInseridos = totalValor * (total > 0 ? inseridos / total : 0)
+        const headerBg = erros > 0 ? '#FAEEDA' : '#EAF3DE'
+        const headerBorder = erros > 0 ? '#BA7517' : '#3B6D11'
+        return (
+          <div>
+            <div style={{ background: headerBg, border: `1px solid ${headerBorder}`, borderRadius: 8, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>
+                {erros === 0 ? '✅ Tudo importado!' : '⚠ Importado com erros'}
+              </div>
+              <div style={{ fontSize: 13, color: '#3D2314', marginBottom: 4 }}>
+                ✅ <strong>{inseridos}</strong> criado{inseridos === 1 ? '' : 's'}
+                {inseridos > 0 && ` · R$ ${fmtBRL(valorInseridos)}`}
+              </div>
+              {duplicados > 0 && (
+                <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.7)', marginBottom: 4 }}>
+                  🔁 <strong>{duplicados}</strong> já existia{duplicados === 1 ? '' : 'm'} (pulado{duplicados === 1 ? '' : 's'} pela idempotência)
+                </div>
+              )}
+              {erros > 0 && (
+                <div style={{ fontSize: 13, color: '#A32D2D' }}>
+                  ❌ <strong>{erros}</strong> falhar{erros === 1 ? 'am' : 'am'}
+                </div>
+              )}
+              {resultado.importacao_id && (
+                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 6, fontFamily: 'monospace' }}>
+                  trilha: {resultado.importacao_id.slice(0, 8)}…
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 13, color: '#3D2314', marginBottom: 4 }}>
-              ✅ <strong>{resultado.sucesso}</strong> lançamentos criados · R$ {fmtBRL(resultado.total_valor_importado)}
-            </div>
-            {resultado.falha > 0 && (
-              <div style={{ fontSize: 13, color: '#A32D2D' }}>
-                ❌ <strong>{resultado.falha}</strong> falharam
+
+            {resultado.lista_erros && resultado.lista_erros.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
+                  Erros detalhados
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {resultado.lista_erros.map((e, i) => (
+                    <div key={i} style={{ background: '#FCEBEB', padding: '6px 10px', borderRadius: 4, fontSize: 12, color: '#A32D2D' }}>
+                      {e.linha != null ? `Linha ${e.linha}: ` : ''}{e.descricao ? `"${e.descricao}" — ` : ''}{e.erro}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
-          </div>
 
-          {resultado.erros && resultado.erros.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
-                Erros detalhados
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {resultado.erros.map((e, i) => (
-                  <div key={i} style={{ background: '#FCEBEB', padding: '6px 10px', borderRadius: 4, fontSize: 12, color: '#A32D2D' }}>
-                    {e.linha != null ? `Linha ${e.linha}: ` : ''}{e.mensagem}
-                  </div>
-                ))}
-              </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => router.push(`/dashboard/financeiro/${tipo}`)} style={primaryBtn(false)}>
+                Ver {tipo === 'pagar' ? 'despesas' : 'receitas'}
+              </button>
+              <button onClick={resetar} style={ghostBtn}>Importar outra planilha</button>
             </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => router.push(`/dashboard/financeiro/${tipo}`)} style={primaryBtn(false)}>
-              Ver {tipo === 'pagar' ? 'despesas' : 'receitas'}
-            </button>
-            <button onClick={resetar} style={ghostBtn}>Importar outra planilha</button>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
