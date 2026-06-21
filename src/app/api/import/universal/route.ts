@@ -510,19 +510,28 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      // 5-6-7) Preparar registros COM HASH pra idempotência
-      const recordsReceber: any[] = [];
-      const recordsPagar: any[] = [];
-      const recordsLancamentos: any[] = [];
-      
-      // Contador de sequencial por chave base (pra permitir duplicatas intencionais)
+      // 5) Preparar records no contrato do dispatch (fn_import_financeiro_v3)
+      //    e disparar UMA chamada. Mantemos a chave de hash composta (com seq
+      //    pra duplicatas intencionais), so trocamos o destino: em vez de
+      //    INSERT/UPDATE diretos em erp_pagar/erp_receber/erp_lancamentos,
+      //    o dispatch encapsula tudo e faz ON CONFLICT DO NOTHING via UNIQUE
+      //    (company_id, ref_externa_sistema, ref_externa_id).
+      //
+      // Trade-off conhecido: o UPDATE de campos volateis (status,
+      // data_pagamento, valor_pago) sumiu nesta versao. Reimportar uma
+      // planilha SIGA com mudancas de quitacao agora vai contar como
+      // duplicata e NAO atualiza o status pre-existente. Quando isso virar
+      // requisito, estender fn_import_financeiro_v3 com upsert de campos
+      // volateis num PR separado.
+
+      const records: Record<string, unknown>[] = [];
       const seqCounter = new Map<string, number>();
       function nextSeq(base: string): number {
         const n = (seqCounter.get(base) || 0) + 1;
         seqCounter.set(base, n);
         return n;
       }
-      
+
       for (const l of lancReceber) {
         const baseKey = `R|${l.data_emissao}|${l.data_vencimento}|${l.valor_documento.toFixed(2)}|${normalizeStr(l.nome_pessoa)}|${normalizeStr(l.descricao)}`;
         const seq = nextSeq(baseKey);
@@ -537,48 +546,24 @@ export async function POST(req: NextRequest) {
           l.centro_custo_original,
           seq
         );
-        
-        recordsReceber.push({
-          company_id: companyId,
-          cliente_id: clientesMap.get(l._nome_norm) || null,
-          cliente_nome: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 250),
-          valor: l.valor_documento,
-          valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-          numero_nf: (l.numero_nf || "").slice(0, 100) || null,
-          categoria: (l.categoria_original || "").slice(0, 250) || null,
-          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          ref_externa_sistema: "siga",
-          importado_em: new Date().toISOString(),
-          import_hash: hash,
-        });
-        
-        recordsLancamentos.push({
+        records.push({
           company_id: companyId,
           tipo: "receber",
-          cliente_id: clientesMap.get(l._nome_norm) || null,
-          nome_pessoa: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 500),
           valor_documento: l.valor_documento,
           valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
           data_vencimento: l.data_vencimento,
+          data_emissao: l.data_emissao,
           data_pagamento: l.data_pagamento,
+          descricao: (l.descricao || "sem descricao").slice(0, 500),
           status: l.status,
           categoria: (l.categoria_original || "").slice(0, 250) || null,
           centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
           forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
+          nome_pessoa: (l.nome_pessoa || "").slice(0, 250),
           import_hash: hash,
         });
       }
-      
+
       for (const l of lancPagar) {
         const baseKey = `P|${l.data_emissao}|${l.data_vencimento}|${l.valor_documento.toFixed(2)}|${normalizeStr(l.nome_pessoa)}|${normalizeStr(l.descricao)}`;
         const seq = nextSeq(baseKey);
@@ -593,219 +578,74 @@ export async function POST(req: NextRequest) {
           l.centro_custo_original,
           seq
         );
-        
-        recordsPagar.push({
-          company_id: companyId,
-          fornecedor_id: fornecMap.get(l._nome_norm) || null,
-          fornecedor_nome: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 250),
-          valor: l.valor_documento,
-          valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
-          data_vencimento: l.data_vencimento,
-          data_pagamento: l.data_pagamento,
-          status: l.status,
-          forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
-          numero_nf: (l.numero_nf || "").slice(0, 100) || null,
-          categoria: (l.categoria_original || "").slice(0, 250) || null,
-          centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          ref_externa_sistema: "siga",
-          importado_em: new Date().toISOString(),
-          import_hash: hash,
-        });
-        
-        recordsLancamentos.push({
+        records.push({
           company_id: companyId,
           tipo: "pagar",
-          fornecedor_id: fornecMap.get(l._nome_norm) || null,
-          nome_pessoa: (l.nome_pessoa || "").slice(0, 250),
-          descricao: (l.descricao || "sem descricao").slice(0, 500),
           valor_documento: l.valor_documento,
           valor_pago: l.valor_pago,
-          data_emissao: l.data_emissao,
           data_vencimento: l.data_vencimento,
+          data_emissao: l.data_emissao,
           data_pagamento: l.data_pagamento,
+          descricao: (l.descricao || "sem descricao").slice(0, 500),
           status: l.status,
           categoria: (l.categoria_original || "").slice(0, 250) || null,
           centro_custo: (l.centro_custo_original || "").slice(0, 250) || null,
-          numero_documento: (l.numero_documento || "").slice(0, 100) || null,
           forma_pagamento: (l.forma_pagamento || "").slice(0, 100) || null,
+          nome_pessoa: (l.nome_pessoa || "").slice(0, 250),
           import_hash: hash,
         });
       }
-      
-      // 8) DEDUPLICAÇÃO defensiva: remover hashes EXATAMENTE iguais dentro do mesmo import
-      // (com o seq, só acontece se a planilha tem linhas byte-a-byte idênticas — raro)
-      const seenRec = new Set<string>();
-      const recordsReceberUnique = recordsReceber.filter(r => {
-        if (seenRec.has(r.import_hash)) return false;
-        seenRec.add(r.import_hash);
-        return true;
-      });
-      const seenPag = new Set<string>();
-      const recordsPagarUnique = recordsPagar.filter(r => {
-        if (seenPag.has(r.import_hash)) return false;
-        seenPag.add(r.import_hash);
-        return true;
-      });
-      const seenLanc = new Set<string>();
-      const recordsLancamentosUnique = recordsLancamentos.filter(r => {
-        const k = r.tipo + ":" + r.import_hash;
-        if (seenLanc.has(k)) return false;
-        seenLanc.add(k);
-        return true;
-      });
-      
-      const dupDentroImport = 
-        (recordsReceber.length - recordsReceberUnique.length) +
-        (recordsPagar.length - recordsPagarUnique.length);
-      
-      // 9) Verificar quais hashes JÁ EXISTEM no banco
-      const allHashesRec = recordsReceberUnique.map(r => r.import_hash);
-      const allHashesPag = recordsPagarUnique.map(r => r.import_hash);
-      
-      const hashesExistentesRec = new Set<string>();
-      const hashesExistentesPag = new Set<string>();
-      
-      // Consulta em lotes de 500 IDs (limite de query GET)
-      for (let i = 0; i < allHashesRec.length; i += 500) {
-        const batch = allHashesRec.slice(i, i + 500);
-        const { data } = await sb.from("erp_receber")
-          .select("import_hash")
-          .eq("company_id", companyId)
-          .in("import_hash", batch);
-        (data || []).forEach((r: any) => hashesExistentesRec.add(r.import_hash));
+
+      // user_id opcional (futuro · cliente pode mandar pra audit trail)
+      const userIdParam = (formData.get("user_id") as string) || null;
+
+      const { data: dispatchResult, error: dispatchErr } = await sb.rpc(
+        "fn_import_universal_dispatch",
+        {
+          p_tipo: "planilha_modelo_ps",
+          p_company_id: companyId,
+          p_user_id: userIdParam,
+          p_arquivo_nome: file.name,
+          p_records: records,
+        }
+      );
+      if (dispatchErr) {
+        return NextResponse.json(
+          { error: `Dispatch falhou: ${dispatchErr.message}` },
+          { status: 500 }
+        );
       }
-      for (let i = 0; i < allHashesPag.length; i += 500) {
-        const batch = allHashesPag.slice(i, i + 500);
-        const { data } = await sb.from("erp_pagar")
-          .select("import_hash")
-          .eq("company_id", companyId)
-          .in("import_hash", batch);
-        (data || []).forEach((r: any) => hashesExistentesPag.add(r.import_hash));
-      }
-      
-      // Contagens finais
-      const novosRec = recordsReceberUnique.filter(r => !hashesExistentesRec.has(r.import_hash));
-      const novosPag = recordsPagarUnique.filter(r => !hashesExistentesPag.has(r.import_hash));
-      const jaExistiamRec = recordsReceberUnique.length - novosRec.length;
-      const jaExistiamPag = recordsPagarUnique.length - novosPag.length;
-      
-      // 10) INSERT dos NOVOS + UPDATE dos EXISTENTES com campos voláteis
-      //
-      // Regra: campos FIXOS (datas de emissão/vencimento, valor_documento, nome, descrição, 
-      // categoria, centro_custo) NUNCA mudam após importado — são a "identidade" do lançamento.
-      // Campos VOLÁTEIS (data_pagamento, valor_pago, status) podem mudar quando o SIGA atualiza
-      // o título (ex: de "Em aberto" pra "Quitado em 15/04"). A reimportação atualiza só esses.
-      let impReceber = 0, impPagar = 0, impLanc = 0;
-      let updReceber = 0, updPagar = 0, updLanc = 0;
-      let errReceber = 0, errPagar = 0, errLanc = 0;
-      
-      // Helper: separar em (novos para INSERT) e (existentes para UPDATE)
-      const existentesRec = recordsReceberUnique.filter(r => hashesExistentesRec.has(r.import_hash));
-      const existentesPag = recordsPagarUnique.filter(r => hashesExistentesPag.has(r.import_hash));
-      
-      // Pra erp_lancamentos, precisamos consultar separadamente qual já existe
-      const hashesLanc = new Set<string>();
-      const allHashesLanc = Array.from(new Set(recordsLancamentosUnique.map(r => r.import_hash)));
-      for (let i = 0; i < allHashesLanc.length; i += 500) {
-        const batch = allHashesLanc.slice(i, i + 500);
-        const { data } = await sb.from("erp_lancamentos")
-          .select("import_hash")
-          .eq("company_id", companyId)
-          .in("import_hash", batch);
-        (data || []).forEach((r: any) => hashesLanc.add(r.import_hash));
-      }
-      const novosLanc = recordsLancamentosUnique.filter(r => !hashesLanc.has(r.import_hash));
-      const existentesLanc = recordsLancamentosUnique.filter(r => hashesLanc.has(r.import_hash));
-      
-      // ===== INSERTS dos novos =====
-      for (let i = 0; i < novosRec.length; i += 100) {
-        const batch = novosRec.slice(i, i + 100);
-        const { error } = await sb.from("erp_receber").insert(batch);
-        if (error) { errReceber += batch.length; console.error("Erro erp_receber insert:", error.message); }
-        else impReceber += batch.length;
-      }
-      for (let i = 0; i < novosPag.length; i += 100) {
-        const batch = novosPag.slice(i, i + 100);
-        const { error } = await sb.from("erp_pagar").insert(batch);
-        if (error) { errPagar += batch.length; console.error("Erro erp_pagar insert:", error.message); }
-        else impPagar += batch.length;
-      }
-      for (let i = 0; i < novosLanc.length; i += 100) {
-        const batch = novosLanc.slice(i, i + 100);
-        const { error } = await sb.from("erp_lancamentos").insert(batch);
-        if (error) { errLanc += batch.length; console.error("Erro erp_lancamentos insert:", error.message); }
-        else impLanc += batch.length;
-      }
-      
-      // ===== UPDATES dos existentes (só campos voláteis) =====
-      // Campos voláteis: data_pagamento, valor_pago, status
-      // Updates individuais pra cada hash (Supabase não suporta update em lote com valores diferentes)
-      for (const rec of existentesRec) {
-        const { error } = await sb.from("erp_receber")
-          .update({
-            data_pagamento: rec.data_pagamento,
-            valor_pago: rec.valor_pago,
-            status: rec.status,
-          })
-          .eq("company_id", companyId)
-          .eq("import_hash", rec.import_hash);
-        if (error) { console.error("Erro update erp_receber:", error.message); }
-        else updReceber++;
-      }
-      for (const pag of existentesPag) {
-        const { error } = await sb.from("erp_pagar")
-          .update({
-            data_pagamento: pag.data_pagamento,
-            valor_pago: pag.valor_pago,
-            status: pag.status,
-          })
-          .eq("company_id", companyId)
-          .eq("import_hash", pag.import_hash);
-        if (error) { console.error("Erro update erp_pagar:", error.message); }
-        else updPagar++;
-      }
-      for (const lanc of existentesLanc) {
-        const { error } = await sb.from("erp_lancamentos")
-          .update({
-            data_pagamento: lanc.data_pagamento,
-            valor_pago: lanc.valor_pago,
-            status: lanc.status,
-          })
-          .eq("company_id", companyId)
-          .eq("import_hash", lanc.import_hash)
-          .eq("tipo", lanc.tipo);
-        if (error) { console.error("Erro update erp_lancamentos:", error.message); }
-        else updLanc++;
-      }
-      
+      const r = (dispatchResult ?? {}) as {
+        importacao_id?: string;
+        total?: number;
+        inseridos?: number;
+        duplicados?: number;
+        erros?: number;
+        lista_erros?: Array<{ linha: number; descricao?: string; erro: string }>;
+        status?: string;
+      };
+
+      const totalReceber = records.filter((rec) => rec.tipo === "receber").length;
+      const totalPagar = records.filter((rec) => rec.tipo === "pagar").length;
+
       return NextResponse.json({
         success: true,
         action: "import",
         preset: "siga",
         totalRows: rows.length,
-        imported: impReceber + impPagar,
-        impReceber,
-        impPagar,
-        impLanc,
-        updReceber,
-        updPagar,
-        updLanc,
-        errors: errReceber + errPagar + errLanc,
-        errReceber,
-        errPagar,
-        errLanc,
+        imported: r.inseridos ?? 0,
+        jaExistiam: r.duplicados ?? 0,
+        errors: r.erros ?? 0,
+        totalReceber,
+        totalPagar,
         clientesNovos: clientesNovos.size,
         fornecNovos: fornecNovos.size,
-        jaExistiamRec,
-        jaExistiamPag,
-        dupDentroImport,
-        message: 
-          `Importação SIGA: ${impReceber} novo(s) a receber + ${impPagar} novo(s) a pagar. ` +
-          (updReceber + updPagar > 0 ? `${updReceber + updPagar} lançamento(s) atualizado(s) (status/pagamento). ` : "") +
-          (dupDentroImport > 0 ? `${dupDentroImport} duplicata(s) inline ignorada(s). ` : "") +
+        importacaoId: r.importacao_id,
+        status: r.status,
+        listaErros: (r.lista_erros ?? []).slice(0, 50),
+        message:
+          `Importação SIGA via dispatch: ${r.inseridos ?? 0} novos · ` +
+          `${r.duplicados ?? 0} duplicados · ${r.erros ?? 0} erros. ` +
           `${clientesNovos.size} cliente(s) e ${fornecNovos.size} fornecedor(es) novo(s).`,
       });
     }
