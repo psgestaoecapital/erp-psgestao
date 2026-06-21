@@ -154,7 +154,7 @@ function VisaoMensalPageInner(){
     }
 
     // ═══ DADOS erp_receber (digitados no PS Gestão) ═══
-    const{data:erpRec}=await supabase.from("erp_lancamentos").select("*").eq("tipo","receber").in("company_id",cIds).neq("status","CANCELADO");
+    const{data:erpRec}=await supabase.from("v_lancamentos_consolidado").select("*").eq("tipo","receber").in("company_id",cIds).neq("status","CANCELADO");
     if(erpRec)for(const r of erpRec){
       const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
@@ -205,7 +205,7 @@ function VisaoMensalPageInner(){
     }
 
     // ═══ DADOS erp_pagar (digitados no PS Gestão) ═══
-    const{data:erpPag}=await supabase.from("erp_lancamentos").select("*").eq("tipo","pagar").in("company_id",cIds).neq("status","CANCELADO");
+    const{data:erpPag}=await supabase.from("v_lancamentos_consolidado").select("*").eq("tipo","pagar").in("company_id",cIds).neq("status","CANCELADO");
     if(erpPag)for(const r of erpPag){
       const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;

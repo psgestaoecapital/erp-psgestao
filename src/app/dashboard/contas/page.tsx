@@ -54,7 +54,7 @@ export default function ContasPage(){
     
     // Lançamentos (usa IN pra consolidar múltiplas empresas)
     const{data:lancs}=await supabase
-      .from("erp_lancamentos")
+      .from("v_lancamentos_consolidado")
       .select("*")
       .in("company_id",companyIds)
       .order("data_vencimento",{ascending:true})

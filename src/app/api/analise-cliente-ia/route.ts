@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     // Busca últimos 20 lançamentos
     const { data: lancamentos } = await sb
-      .from('erp_lancamentos')
+      .from('v_lancamentos_consolidado')
       .select('valor, data_emissao, data_vencimento, data_pagamento, status, descricao')
       .or(`cliente_id.eq.${cliente_id},cliente_cnpj.eq.${cliente.cpf_cnpj}`)
       .eq('company_id', cliente.company_id)
