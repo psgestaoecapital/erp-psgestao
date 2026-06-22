@@ -182,7 +182,7 @@ export default function AgendaPorCadeiraPage(){
 
 function Sel({value,onChange,options}:{value:string;onChange:(v:string)=>void;options:string[]}){
   return (<span className="inline-flex items-center gap-1 rounded-full px-2 py-1" style={{background:"#fff",border:`1px solid ${LINE}`}}>
-    <select value={value} onChange={e=>onChange(e.target.value)} className="text-sm bg-transparent outline-none" style={{color:ESP}}>
+    <select value={value} onChange={e=>onChange(e.target.value)} className="text-sm bg-white outline-none" style={{background:"#fff",color:ESP,colorScheme:"light"}}>
       {options.map(o=><option key={o} value={o}>{o}</option>)}</select></span>);
 }
 function Row({l,v}:{l:string;v:string}){return(<div className="flex justify-between border-b pb-2" style={{borderColor:LINE}}>
@@ -198,10 +198,10 @@ function FormNovo({cadeira,start,profs,procs,onCancel,onAdd}:{cadeira:string;sta
     <div className="flex items-center justify-between mb-1"><h3 className="text-lg font-semibold" style={{fontFamily:"ui-serif,Georgia,serif",color:ESP}}>Novo agendamento</h3>
       <button onClick={onCancel} style={{color:ESP60}}><X size={20}/></button></div>
     <div className="text-xs mb-4" style={{color:ESP60}}>{cadeira} · início {start}</div>
-    <L t="Paciente"/><input value={pac} onChange={e=>setPac(e.target.value)} placeholder="Nome do paciente" className="w-full rounded-xl px-3 py-2 text-sm mb-3 outline-none" style={{border:`1px solid ${LINE}`,color:ESP}}/>
-    <L t="Profissional"/><select value={prof} onChange={e=>setProf(e.target.value)} className="w-full rounded-xl px-3 py-2 text-sm mb-3 outline-none bg-white" style={{border:`1px solid ${LINE}`,color:ESP}}>{profs.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}</select>
-    <L t="Procedimento"/><select value={proc} onChange={e=>setProc(e.target.value)} className="w-full rounded-xl px-3 py-2 text-sm mb-3 outline-none bg-white" style={{border:`1px solid ${LINE}`,color:ESP}}>{procs.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}</select>
-    <L t="Duração"/><select value={dur} onChange={e=>setDur(e.target.value)} className="w-full rounded-xl px-3 py-2 text-sm mb-4 outline-none bg-white" style={{border:`1px solid ${LINE}`,color:ESP}}>
+    <L t="Paciente"/><input value={pac} onChange={e=>setPac(e.target.value)} placeholder="Nome do paciente" className="w-full rounded-xl px-3 py-2 text-sm mb-3 outline-none" style={{border:`1px solid ${LINE}`,color:ESP,background:"#fff",colorScheme:"light"}}/>
+    <L t="Profissional"/><select value={prof} onChange={e=>setProf(e.target.value)} className="w-full rounded-xl px-3 py-2 text-sm mb-3 outline-none bg-white" style={{border:`1px solid ${LINE}`,color:ESP,background:"#fff",colorScheme:"light"}}>{profs.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}</select>
+    <L t="Procedimento"/><select value={proc} onChange={e=>setProc(e.target.value)} className="w-full rounded-xl px-3 py-2 text-sm mb-3 outline-none bg-white" style={{border:`1px solid ${LINE}`,color:ESP,background:"#fff",colorScheme:"light"}}>{procs.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}</select>
+    <L t="Duração"/><select value={dur} onChange={e=>setDur(e.target.value)} className="w-full rounded-xl px-3 py-2 text-sm mb-4 outline-none bg-white" style={{border:`1px solid ${LINE}`,color:ESP,background:"#fff",colorScheme:"light"}}>
       <option value="1">30 min</option><option value="2">1 hora</option><option value="3">1h30</option><option value="4">2 horas</option></select>
     <button onClick={()=>onAdd({pac:pac||"Paciente",prof,proc,dur:Number(dur)})} className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2" style={{background:GOLD,color:"#fff"}}>
       <Plus size={16}/> Adicionar à agenda</button>
