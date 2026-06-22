@@ -72,6 +72,9 @@ export default function AdminPage(){
   const [editingUser,setEditingUser]=useState<string|null>(null);
   const [isAuthorized,setIsAuthorized]=useState(false);
   const [checkingAuth,setCheckingAuth]=useState(true);
+  // admin-escopado-dono · CLIENT_OWNER pode abrir /admin (escopado a sua empresa)
+  const [ownerScoped,setOwnerScoped]=useState(false);
+  const [ownerCompanyIds,setOwnerCompanyIds]=useState<string[]>([]);
   const [grupos,setGrupos]=useState<any[]>([]);
   const [expandedGroups,setExpandedGroups]=useState<Record<string,boolean>>({});
   const [showNewGroup,setShowNewGroup]=useState(false);
@@ -108,6 +111,12 @@ export default function AdminPage(){
   const [swSoComScreenshot,setSwSoComScreenshot]=useState(false);
 
   useEffect(()=>{checkAuth();},[]);
+  // admin-escopado-dono · trava empresa selecionada para o dono
+  useEffect(()=>{
+    if(ownerScoped&&ownerCompanyIds.length>0&&!selectedCompany) setSelectedCompany(ownerCompanyIds[0]);
+    if(ownerScoped&&!["socio","financeiro","operacional","visualizador"].includes(inviteRole)) setInviteRole("socio");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[ownerScoped,ownerCompanyIds]);
 
   useEffect(()=>{
     if(!isAuthorized) return;
@@ -118,20 +127,44 @@ export default function AdminPage(){
   const checkAuth=async()=>{
     const{data:{user}}=await supabase.auth.getUser();
     if(!user){setCheckingAuth(false);return;}
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){setIsAuthorized(true);setCurrentEmail(user.email||"");loadData();}
+    const{data:up}=await supabase.from("users").select("role,system_role").eq("id",user.id).single();
+    const isSystemAdmin=up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"||!!up?.system_role;
+    // Dono de empresa? (CLIENT_OWNER ativo) — RLS tur_self_read permite ler o proprio papel
+    const{data:ownerRoles}=await supabase.from("tenant_user_roles").select("company_id").eq("user_id",user.id).eq("role","CLIENT_OWNER").eq("is_active",true);
+    const ownerIds=(ownerRoles??[]).map((r:any)=>r.company_id);
+    const isOwner=ownerIds.length>0;
+    if(isSystemAdmin||isOwner){
+      const scoped=isOwner&&!isSystemAdmin;
+      setIsAuthorized(true);
+      setOwnerScoped(scoped);
+      setOwnerCompanyIds(ownerIds);
+      setCurrentEmail(user.email||"");
+      if(scoped) setTab("usuarios");
+      loadData(scoped,ownerIds);
+    }
     setCheckingAuth(false);
   };
 
-  const loadData=async()=>{
-    const{data:emp}=await supabase.from("companies").select("*").order("nome_fantasia");
+  const loadData=async(scopedArg?:boolean,ownIdsArg?:string[])=>{
+    const scoped=scopedArg??ownerScoped;
+    const ownIds=ownIdsArg??ownerCompanyIds;
+    let empQ=supabase.from("companies").select("*").order("nome_fantasia");
+    if(scoped&&ownIds.length>0) empQ=empQ.in("id",ownIds);
+    const{data:emp}=await empQ;
     if(emp)setEmpresas(emp);
-    const{data:inv}=await supabase.from("invites").select("*,companies(nome_fantasia,razao_social)").order("created_at",{ascending:false}).limit(20);
+    let invQ=supabase.from("invites").select("*,companies(nome_fantasia,razao_social)").order("created_at",{ascending:false}).limit(20);
+    if(scoped&&ownIds.length>0) invQ=invQ.in("company_id",ownIds);
+    const{data:inv}=await invQ;
     if(inv)setConvites(inv);
-    const{data:usr}=await supabase.from("users").select("*").order("created_at",{ascending:false});
-    if(usr)setUsuarios(usr);
     const{data:uc}=await supabase.from("user_companies").select("*");
     if(uc)setUserComps(uc);
+    const{data:usr}=await supabase.from("users").select("*").order("created_at",{ascending:false});
+    if(usr){
+      if(scoped&&ownIds.length>0){
+        const allowed=new Set((uc??[]).filter((x:any)=>ownIds.includes(x.company_id)).map((x:any)=>x.user_id));
+        setUsuarios(usr.filter((u:any)=>allowed.has(u.id)));
+      } else setUsuarios(usr);
+    }
     const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
     if(grps)setGrupos(grps);
     const{data:ac}=await supabase.from("access_config").select("*").order("role");
@@ -465,7 +498,7 @@ export default function AdminPage(){
     {msg&&<div style={{background:G+"20",border:`1px solid ${G}`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:G,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
     <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
-      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"areas",n:"📂 Áreas"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].map(t=>(
+      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"areas",n:"📂 Áreas"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].filter(t=>!ownerScoped||t.id==="usuarios"||t.id==="convites").map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:20,fontSize:11,border:`1px solid ${tab===t.id?GO:BD}`,background:tab===t.id?`${G}08`:"transparent",color:tab===t.id?GO:TXM,fontWeight:tab===t.id?600:400,cursor:"pointer"}}>{t.n}</button>
       ))}
     </div>
@@ -642,19 +675,19 @@ export default function AdminPage(){
         <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:10,border:`1px solid ${BD}`}}>
           <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:10}}>Gerar Link de Convite</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>📁 Grupo</div>
+            {!ownerScoped&&(<div><div style={{fontSize:10,color:TXM,marginBottom:3}}>📁 Grupo</div>
             <select value={selectedGroup} onChange={e=>{setSelectedGroup(e.target.value);if(e.target.value)setSelectedCompany("");}} style={{...inp,borderColor:selectedGroup?G:""}}>
               <option value="">— Empresa individual —</option>
               {grupos.map(g=>{const cnt=empresas.filter(e=>e.group_id===g.id).length;return <option key={g.id} value={g.id}>📁 {g.nome} ({cnt})</option>;})}
-            </select></div>
+            </select></div>)}
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>🏢 Empresa</div>
-            <select value={selectedCompany} onChange={e=>{setSelectedCompany(e.target.value);if(e.target.value)setSelectedGroup("");}} disabled={!!selectedGroup} style={{...inp,opacity:selectedGroup?0.4:1}}>
+            <select value={selectedCompany} onChange={e=>{setSelectedCompany(e.target.value);if(e.target.value)setSelectedGroup("");}} disabled={!!selectedGroup||ownerScoped} style={{...inp,opacity:(selectedGroup||ownerScoped)?0.7:1}}>
               <option value="">Selecione</option>
               {empresas.map(emp=><option key={emp.id} value={emp.id}>{emp.nome_fantasia||emp.razao_social}</option>)}
             </select></div>
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>Nível de Acesso *</div>
             <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)} style={{...inp,color:getRC(inviteRole),fontWeight:600}}>
-              {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
+              {ROLES.filter(r=>!ownerScoped||["socio","financeiro","operacional","visualizador"].includes(r.role)).map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
             </select></div>
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>E-mail (opcional)</div>
             <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@empresa.com" style={inp}/></div>
@@ -870,7 +903,7 @@ export default function AdminPage(){
         <div style={{fontSize:14,fontWeight:600,color:TX}}>Log de Auditoria</div>
         <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
           {["","login","logout","page_visit","access_blocked"].map(f=>(<button key={f} onClick={()=>setAuditFilter(f)} style={{fontSize:9,padding:"4px 10px",borderRadius:6,cursor:"pointer",background:auditFilter===f?GO+"15":"transparent",border:`1px solid ${auditFilter===f?GO:BD}`,color:auditFilter===f?GO:TXM}}>{f||"Todos"}</button>))}
-          <button onClick={loadData} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:BL+"15",border:`1px solid ${BL}30`,color:BL,cursor:"pointer"}}>Atualizar</button>
+          <button onClick={()=>loadData()} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:BL+"15",border:`1px solid ${BL}30`,color:BL,cursor:"pointer"}}>Atualizar</button>
         </div>
       </div>
       <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden",maxHeight:500,overflowY:"auto"}}>
