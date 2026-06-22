@@ -65,6 +65,7 @@
 
 /* Inputs modernos */
 input, select, textarea {
+  color-scheme: light;             /* fix caixas pretas no dropdown nativo em OS dark-mode */
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-primary);
@@ -110,8 +111,8 @@ a { transition: all var(--transition); }
 @keyframes glow { 0%, 100% { box-shadow: 0 0 8px rgba(198,151,63,0.15); } 50% { box-shadow: 0 0 24px rgba(198,151,63,0.35); } }
 
 /* Optgroup */
-optgroup { font-weight: 700; color: var(--gold); background: var(--bg-card); font-size: 11px; }
-option { font-weight: 400; color: var(--text-primary); background: var(--bg-elevated); padding: 6px 8px; font-size: 12px; }
+optgroup { color-scheme: light; font-weight: 700; color: var(--gold); background: var(--bg-card); font-size: 11px; }
+option { color-scheme: light; font-weight: 400; color: var(--text-primary); background: var(--bg-elevated); padding: 6px 8px; font-size: 12px; }
 
 /* Selection */
 ::selection { background: var(--gold); color: var(--bg-primary); }
