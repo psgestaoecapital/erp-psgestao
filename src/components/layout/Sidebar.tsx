@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { SIDEBAR_GESTAO_EMPRESARIAL } from '@/lib/menu/sidebar-config'
 import { useSidebarState } from '@/lib/menu/sidebar-state'
+import { useSidebarModulos } from '@/lib/menu/useSidebarModulos'
 import SidebarHeader from './SidebarHeader'
 import SidebarModule from './SidebarModule'
 import SidebarFooter from './SidebarFooter'
@@ -31,6 +31,7 @@ function SidebarInner() {
   const searchParams = useSearchParams()
   const currentTab = searchParams?.get('tab') ?? null
   const { expandedModule, toggleModule, setActiveModule, isHydrated } = useSidebarState()
+  const { modulos, loading, mode } = useSidebarModulos()
 
   // Auto-expandir modulo pai do item ativo (respeita matchPaths)
   useEffect(() => {
@@ -39,7 +40,7 @@ function SidebarInner() {
       if (extra?.some((m) => p === m || p.startsWith(m + '/'))) return true
       return !!href && (p === href || p.startsWith(href + '/'))
     }
-    const moduleAtivo = SIDEBAR_GESTAO_EMPRESARIAL.find(
+    const moduleAtivo = modulos.find(
       (m) =>
         m.items?.some((s) => matches(pathname, s.href, s.matchPaths)) ||
         matches(pathname, m.href, m.matchPaths)
@@ -48,10 +49,10 @@ function SidebarInner() {
       setActiveModule(moduleAtivo.id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, isHydrated])
+  }, [pathname, isHydrated, modulos])
 
-  const modulosPrincipais = SIDEBAR_GESTAO_EMPRESARIAL.filter((m) => !m.separator)
-  const modulosRodape = SIDEBAR_GESTAO_EMPRESARIAL.filter((m) => m.separator)
+  const modulosPrincipais = modulos.filter((m) => !m.separator)
+  const modulosRodape = modulos.filter((m) => m.separator)
 
   return (
     <aside
@@ -59,6 +60,14 @@ function SidebarInner() {
     >
       <SidebarHeader />
       <nav className="flex-1 overflow-y-auto py-2">
+        {loading && (
+          <div className="px-4 py-3 text-[12px] text-[#FAF7F2]/60">Carregando menu…</div>
+        )}
+        {!loading && mode === 'rpc-empty' && (
+          <div className="px-4 py-3 text-[12px] text-[#FAF7F2]/60">
+            Nenhum módulo disponível para esta área.
+          </div>
+        )}
         {modulosPrincipais.map((modulo) => (
           <SidebarModule
             key={modulo.id}

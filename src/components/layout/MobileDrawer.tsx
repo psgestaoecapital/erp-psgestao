@@ -3,8 +3,8 @@
 import { Suspense, useEffect, useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
-import { SIDEBAR_GESTAO_EMPRESARIAL } from '@/lib/menu/sidebar-config'
 import { useSidebarState } from '@/lib/menu/sidebar-state'
+import { useSidebarModulos } from '@/lib/menu/useSidebarModulos'
 import SidebarHeader from './SidebarHeader'
 import SidebarModule from './SidebarModule'
 
@@ -22,14 +22,15 @@ function MobileDrawerInner() {
   const searchParams = useSearchParams()
   const currentTab = searchParams?.get('tab') ?? null
   const { expandedModule, toggleModule } = useSidebarState()
+  const { modulos, loading, mode } = useSidebarModulos()
 
   // Fecha drawer ao mudar de rota
   useEffect(() => {
     setOpen(false)
   }, [pathname])
 
-  const modulosPrincipais = SIDEBAR_GESTAO_EMPRESARIAL.filter((m) => !m.separator)
-  const modulosRodape = SIDEBAR_GESTAO_EMPRESARIAL.filter((m) => m.separator)
+  const modulosPrincipais = modulos.filter((m) => !m.separator)
+  const modulosRodape = modulos.filter((m) => m.separator)
   const closeDrawer = () => setOpen(false)
 
   return (
@@ -72,6 +73,14 @@ function MobileDrawerInner() {
         <SidebarHeader />
 
         <nav className="flex-1 overflow-y-auto py-2">
+          {loading && (
+            <div className="px-4 py-3 text-[12px] text-[#FAF7F2]/60">Carregando menu…</div>
+          )}
+          {!loading && mode === 'rpc-empty' && (
+            <div className="px-4 py-3 text-[12px] text-[#FAF7F2]/60">
+              Nenhum módulo disponível para esta área.
+            </div>
+          )}
           {modulosPrincipais.map((modulo) => (
             <SidebarModule
               key={modulo.id}
