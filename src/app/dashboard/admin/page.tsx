@@ -421,7 +421,8 @@ export default function AdminPage(){
   // ADMIN-AREAS-DINAMICAS-v1: loaders das RPCs ja existentes
   const loadAreasEmpresa=async(cid:string|null)=>{
     setAreasLoading(true);setAreasError(null);
-    const{data,error}=await supabase.rpc('fn_listar_areas_visiveis',{p_company_id:cid});
+    const{data:{user}}=await supabase.auth.getUser();
+    const{data,error}=await supabase.rpc('fn_listar_areas_visiveis',{p_company_id:cid,p_user_id:user?.id??null});
     if(error){setAreasError(error.message);setAreasEmpresa([]);}
     else{setAreasEmpresa(data??[]);}
     setAreasLoading(false);

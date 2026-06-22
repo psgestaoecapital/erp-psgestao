@@ -47,8 +47,11 @@ export function useAreasVisiveis(companyId: string | null): State {
     async function carregar() {
       setState((s) => ({ ...s, loading: true, error: null }))
 
+      const { data: { user } } = await supabase.auth.getUser()
+      const userId = user?.id ?? null
+
       const [visiveisRes, statusRes] = await Promise.all([
-        supabase.rpc('fn_listar_areas_visiveis', { p_company_id: companyId }),
+        supabase.rpc('fn_listar_areas_visiveis', { p_company_id: companyId, p_user_id: userId }),
         companyId
           ? supabase.rpc('fn_empresa_areas_status', { p_company_id: companyId })
           : Promise.resolve({ data: [], error: null }),
