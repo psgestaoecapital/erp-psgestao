@@ -163,9 +163,20 @@ function AreaSwitcherInner() {
     return (
       detectarAreaPorSlug(areas, queryArea) ??
       detectarAreaAtivaPorPath(areas, pathname) ??
-      detectarAreaPorSlug(areas, areaPersistida)
+      detectarAreaPorSlug(areas, areaPersistida) ??
+      areas[0] ??
+      null
     )
   }, [areas, queryArea, pathname, areaPersistida])
+
+  // limpa slug orfao no localStorage quando o usuario nao tem mais a area
+  useEffect(() => {
+    if (!areas.length || !areaPersistida) return
+    if (!areas.some((a) => a.area_slug === areaPersistida)) {
+      try { localStorage.removeItem(AREA_STORAGE_KEY) } catch { /* noop */ }
+      setAreaPersistida(null)
+    }
+  }, [areas, areaPersistida])
 
   useEffect(() => {
     if (areaAtiva && areaAtiva.area_slug && areaAtiva.area_slug !== areaPersistida) {
