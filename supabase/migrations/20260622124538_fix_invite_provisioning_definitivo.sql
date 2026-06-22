@@ -42,12 +42,23 @@ BEGIN
 
   -- (A) RAIZ: garante o usuario em public.users (vindo do auth.users)
   SELECT au.email,
-         COALESCE(au.raw_user_meta_data->>'full_name', au.raw_user_meta_data->>'name', split_part(au.email,'@',1))
+         COALESCE(au.raw_user_meta_data->>'full_name', au.raw_user_meta_data->>'name')
     INTO v_email, v_full_name
     FROM auth.users au WHERE au.id = inv.used_by;
 
-  INSERT INTO public.users (id, email, full_name, is_active, created_at)
-  VALUES (inv.used_by, v_email, v_full_name, true, now())
+  v_email     := COALESCE(v_email, inv.email);
+  v_full_name := COALESCE(v_full_name, split_part(COALESCE(v_email,'usuario@local'),'@',1));
+
+  -- role (legado) PRECISA passar no users_role_check; o default 'geral' e invalido.
+  INSERT INTO public.users (id, email, full_name, role, is_active, created_at)
+  VALUES (
+    inv.used_by, v_email, v_full_name,
+    CASE WHEN inv.role IN ('adm','adm_investimentos','acesso_total','admin','socio','diretor_industrial',
+      'gerente_planta','financeiro','comercial','supervisor','coordenador','operacional','consultor',
+      'conselheiro','visualizador','operador_bpo','supervisor_bpo','gestor_mfo','analista','cliente_pf',
+      'compliance','contador','dev','wealth_advisor','viewer')
+      THEN inv.role ELSE 'viewer' END,
+    true, now())
   ON CONFLICT (id) DO UPDATE
     SET email = COALESCE(EXCLUDED.email, public.users.email),
         full_name = COALESCE(public.users.full_name, EXCLUDED.full_name),
