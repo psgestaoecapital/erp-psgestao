@@ -160,10 +160,15 @@ function AreaSwitcherInner() {
   const { areas, loading } = useAreasVisiveis(companyId)
 
   const areaAtiva: AreaVisivel | null = useMemo(() => {
+    // Cascata alinhada ao useSidebarModulos: query > persistida (escolha
+    // explicita) > path > primeira disponivel. Persistida ganha de path pra
+    // a escolha do usuario no switcher nao ser revertida pelo auto-sync
+    // abaixo quando a navegacao Link nao atualiza o pathname (ex.: rota
+    // /dashboard/<area> sem page.tsx; ou empresa multi-area presa no path GE).
     return (
       detectarAreaPorSlug(areas, queryArea) ??
-      detectarAreaAtivaPorPath(areas, pathname) ??
       detectarAreaPorSlug(areas, areaPersistida) ??
+      detectarAreaAtivaPorPath(areas, pathname) ??
       areas[0] ??
       null
     )
