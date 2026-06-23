@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ContasBancariasForm, { type Conta } from './ContasBancariasForm'
+import BancoIntegracaoPanel from './BancoIntegracaoPanel'
 
 const TIPOS_LABELS: Record<string, { label: string; icone: string }> = {
   corrente: { label: 'Conta Corrente', icone: '🏦' },
@@ -24,6 +25,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Conta | null>(null)
+  const [integracao, setIntegracao] = useState<Conta | null>(null)
 
   async function load() {
     setLoading(true)
@@ -126,6 +128,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
                 setShowForm(true)
               }}
               onInativar={() => handleInativar(c.id)}
+              onIntegracao={() => setIntegracao(c)}
             />
           ))}
         </div>
@@ -156,11 +159,19 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
           }}
         />
       )}
+
+      {integracao && (
+        <BancoIntegracaoPanel
+          companyId={companyId}
+          conta={integracao}
+          onClose={() => setIntegracao(null)}
+        />
+      )}
     </div>
   )
 }
 
-function CardConta({ conta, onEditar, onInativar }: { conta: Conta; onEditar: () => void; onInativar: () => void }) {
+function CardConta({ conta, onEditar, onInativar, onIntegracao }: { conta: Conta; onEditar: () => void; onInativar: () => void; onIntegracao: () => void }) {
   const tipoInfo = TIPOS_LABELS[conta.tipo_conta ?? 'corrente'] ?? TIPOS_LABELS.corrente
   const corBarra = conta.cor || '#3D2314'
 
@@ -217,6 +228,9 @@ function CardConta({ conta, onEditar, onInativar }: { conta: Conta; onEditar: ()
         </div>
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" onClick={onIntegracao} style={{ background: '#C8941A', color: '#3D2314', border: '0.5px solid #C8941A', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+          🔌 Integração bancária
+        </button>
         <button type="button" onClick={onEditar} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
           Editar
         </button>
