@@ -7,6 +7,7 @@ import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
 import EmitirNFeButton from './EmitirNFeButton'
+import GerarBoletoButton from './GerarBoletoButton'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -103,11 +104,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [erro, setErro] = useState<string | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
+  const [boletoMap, setBoletoMap] = useState<Record<string, { status: string | null; linha: string | null }>>({})
 
   useEffect(() => {
     if (!companyId || tipo !== 'receber') {
       setNfseMap({})
       setNfeMap({})
+      setBoletoMap({})
       return
     }
     let alive = true
@@ -122,7 +125,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .select('erp_receber_id, status')
         .eq('company_id', companyId)
         .not('erp_receber_id', 'is', null),
-    ]).then(([nfseRes, nfeRes]) => {
+      supabase
+        .from('erp_receber')
+        .select('id, boleto_status, boleto_linha_digitavel')
+        .eq('company_id', companyId)
+        .not('boleto_status', 'is', null),
+    ]).then(([nfseRes, nfeRes, boletoRes]) => {
       if (!alive) return
       const nfseMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
       for (const row of nfseRes.data ?? []) {
@@ -139,6 +147,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         nfeMapNew[row.erp_receber_id] = row.status
       }
       setNfeMap(nfeMapNew)
+
+      const boletoMapNew: Record<string, { status: string | null; linha: string | null }> = {}
+      for (const row of (boletoRes.data ?? []) as Array<{ id: string; boleto_status: string | null; boleto_linha_digitavel: string | null }>) {
+        boletoMapNew[row.id] = { status: row.boleto_status, linha: row.boleto_linha_digitavel }
+      }
+      setBoletoMap(boletoMapNew)
     })
     return () => { alive = false }
   }, [companyId, tipo, reloadKey])
@@ -506,6 +520,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 erpReceberId={r.id}
                                 valor={r.valor_documento}
                                 jaEmitida={nfeMap[r.id] === 'autorizada'}
+                                onSucesso={() => setReloadKey((k) => k + 1)}
+                              />
+                              <GerarBoletoButton
+                                receberId={r.id}
+                                jaTemBoleto={boletoMap[r.id]?.status === 'registrado'}
+                                linhaDigitavel={boletoMap[r.id]?.linha ?? null}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
                             </div>
