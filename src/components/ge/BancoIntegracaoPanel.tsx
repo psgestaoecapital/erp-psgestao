@@ -69,6 +69,7 @@ export default function BancoIntegracaoPanel({
   // form Integração
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('') // só envia se digitado
+  const [a1Senha, setA1Senha] = useState('') // senha do A1 fiscal para uso bancário (Vault)
   const [agencia, setAgencia] = useState('')
   const [contaInput, setContaInput] = useState('')
   const [capBoleto, setCapBoleto] = useState(true)
@@ -126,7 +127,7 @@ export default function BancoIntegracaoPanel({
       p_company_id: companyId, p_banco_codigo: bancoCodigo, p_provider: provider, p_ambiente: ambiente,
       p_client_id: clientId || null,
       p_client_secret: clientSecret || null,
-      p_cert_base64: null, p_cert_senha: null,
+      p_cert_base64: null, p_cert_senha: a1Senha || null,
       p_agencia: agencia || null, p_conta: contaInput || null,
       p_cooperativa: null,
       p_codigo_beneficiario: codBenef || null, p_convenio: convenio || null, p_carteira: carteira || null,
@@ -137,6 +138,7 @@ export default function BancoIntegracaoPanel({
     if (error) { setMsg({ tipo: 'erro', texto: error.message }); return }
     setMsg({ tipo: 'ok', texto: 'Integração ALTEROU com sucesso.' })
     setClientSecret('')
+    setA1Senha('')
     carregarEstado()
   }
 
@@ -257,6 +259,13 @@ export default function BancoIntegracaoPanel({
                   <div><label style={lbl}>Client Secret</label>
                     <input style={inp} type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)}
                       placeholder={estado.tem_client_secret ? '•••••••• (já configurado — só preencha para trocar)' : 'cole aqui o client_secret'} />
+                  </div>
+                  <div><label style={lbl}>Senha do certificado A1 (uso bancário)</label>
+                    <input style={inp} type="password" value={a1Senha} onChange={(e) => setA1Senha(e.target.value)}
+                      placeholder="Necessária para mTLS no Bradesco. Só preencha uma vez ou para trocar." />
+                    <div style={{ fontSize: 10, color: ESP60, marginTop: 4 }}>
+                      Cripotgrafada no Vault, usada apenas pelo backend bancário (mTLS). O certificado em si vem do A1 fiscal.
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <div><label style={lbl}>Agência</label>
