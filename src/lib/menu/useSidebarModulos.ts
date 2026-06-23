@@ -152,7 +152,12 @@ export function useSidebarModulos(): State {
     return melhor?.slug ?? null
   }, [areas, pathname])
 
-  const areaSlug = queryArea ?? areaSlugDoPath ?? areaPersistida ?? AREA_GE
+  // Cascata: ?area= > escolha persistida no switcher > detecao por path > GE.
+  // Persistida ganha de path pra escolha explicita do usuario re-rotear o menu
+  // mesmo quando o pathname ainda corresponde a area antiga (caso classico:
+  // empresa multi-area na rota /dashboard/gestao-empresarial e usuario clica
+  // em Compliance no switcher — sem isso, path travava o menu em GE).
+  const areaSlug = queryArea ?? areaPersistida ?? areaSlugDoPath ?? AREA_GE
 
   // Decisao: GE OU sem company/user -> hardcoded; senao -> RPC
   const usaHardcoded = areaSlug === AREA_GE || !companyId || !userId
