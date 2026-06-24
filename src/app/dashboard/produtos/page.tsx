@@ -32,6 +32,8 @@ export default function ProdutosPage(){
   const [busca,setBusca]=useState("");
   const [filtroTipo,setFiltroTipo]=useState<string>("todos");
   const [filtroAtivo,setFiltroAtivo]=useState<string>("ativos");
+  const [filtroUnidade,setFiltroUnidade]=useState<string>("todos");
+  const [filtroEstoque,setFiltroEstoque]=useState<string>("todos");
   const [showForm,setShowForm]=useState(false);
   const [editing,setEditing]=useState<Produto|null>(null);
   const [form,setForm]=useState<Partial<Produto>>(EMPTY);
@@ -115,17 +117,33 @@ export default function ProdutosPage(){
     if(filtroTipo!=="todos")r=r.filter(p=>p.tipo===filtroTipo);
     if(filtroAtivo==="ativos")r=r.filter(p=>p.ativo);
     else if(filtroAtivo==="inativos")r=r.filter(p=>!p.ativo);
+    if(filtroUnidade!=="todos")r=r.filter(p=>p.unidade===filtroUnidade);
+    if(filtroEstoque==="zerado")r=r.filter(p=>Number(p.estoque_atual||0)===0);
+    else if(filtroEstoque==="abaixo")r=r.filter(p=>Number(p.estoque_atual||0)<Number(p.estoque_minimo||0));
+    else if(filtroEstoque==="com")r=r.filter(p=>Number(p.estoque_atual||0)>0);
     if(busca.trim()){
       const b=busca.toLowerCase();
       r=r.filter(p=>(p.nome||"").toLowerCase().includes(b)||(p.codigo||"").toLowerCase().includes(b)||(p.categoria||"").toLowerCase().includes(b)||(p.marca||"").toLowerCase().includes(b)||(p.codigo_barras||"").includes(b));
     }
-    r.sort((a,b)=>{
+    r=[...r].sort((a,b)=>{
       let va:any=(a as any)[sortBy]||"";let vb:any=(b as any)[sortBy]||"";
       if(typeof va==="number"&&typeof vb==="number")return sortDir==="asc"?va-vb:vb-va;
       return sortDir==="asc"?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
     });
     return r;
-  },[produtos,filtroTipo,filtroAtivo,busca,sortBy,sortDir]);
+  },[produtos,filtroTipo,filtroAtivo,filtroUnidade,filtroEstoque,busca,sortBy,sortDir]);
+
+  const unidadesDisponiveis=useMemo(()=>{
+    const set=new Set<string>();
+    produtos.forEach(p=>{if(p.unidade)set.add(p.unidade);});
+    return Array.from(set).sort();
+  },[produtos]);
+
+  const limparFiltros=()=>{
+    setFiltroTipo("todos");setFiltroAtivo("ativos");setFiltroUnidade("todos");
+    setFiltroEstoque("todos");setBusca("");
+  };
+  const algumFiltro=filtroTipo!=="todos"||filtroAtivo!=="ativos"||filtroUnidade!=="todos"||filtroEstoque!=="todos"||busca.trim()!=="";
 
   // KPIs
   const totalProdutos=produtos.filter(p=>p.tipo==="produto"&&p.ativo).length;
@@ -194,7 +212,20 @@ export default function ProdutosPage(){
             <button key={f.v} onClick={()=>setFiltroAtivo(f.v)} style={{padding:"6px 12px",borderRadius:6,fontSize:10,border:`1px solid ${filtroAtivo===f.v?GO:BD}`,background:filtroAtivo===f.v?GO+"12":"transparent",color:filtroAtivo===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroAtivo===f.v?600:400}}>{f.l}</button>
           ))}
         </div>
-        <span style={{fontSize:10,color:TXD}}>{filtrados.length} resultado{filtrados.length!==1?"s":""}</span>
+        <select value={filtroUnidade} onChange={e=>setFiltroUnidade(e.target.value)} style={{...inp,width:120,padding:"6px 10px",fontSize:10,cursor:"pointer",colorScheme:"light"}}>
+          <option value="todos">Unidade · Todas</option>
+          {unidadesDisponiveis.map(u=><option key={u} value={u}>{u}</option>)}
+        </select>
+        <select value={filtroEstoque} onChange={e=>setFiltroEstoque(e.target.value)} style={{...inp,width:180,padding:"6px 10px",fontSize:10,cursor:"pointer",colorScheme:"light"}}>
+          <option value="todos">Estoque · Todos</option>
+          <option value="zerado">Zerado</option>
+          <option value="abaixo">Abaixo do mínimo</option>
+          <option value="com">Com estoque (&gt;0)</option>
+        </select>
+        {algumFiltro && (
+          <button onClick={limparFiltros} style={{padding:"6px 12px",borderRadius:6,fontSize:10,border:`1px solid ${BD}`,background:"transparent",color:TXM,cursor:"pointer"}}>✕ Limpar filtros</button>
+        )}
+        <span style={{fontSize:10,color:TXD}}>{filtrados.length} de {produtos.length}</span>
       </div>
 
       {/* Formulário */}
