@@ -447,28 +447,43 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
         const erros = resultado.erros ?? 0
         const total = resultado.total ?? (inseridos + duplicados + erros)
         const valorInseridos = totalValor * (total > 0 ? inseridos / total : 0)
-        const headerBg = erros > 0 ? '#FAEEDA' : '#EAF3DE'
-        const headerBorder = erros > 0 ? '#BA7517' : '#3B6D11'
+        const statusSem = inseridos === 0 ? 'falhou' : erros > 0 ? 'parcial' : 'ok'
+        const headerBg = statusSem === 'ok' ? '#EAF3DE' : statusSem === 'parcial' ? '#FAEEDA' : '#FCEBEB'
+        const headerBorder = statusSem === 'ok' ? '#3B6D11' : statusSem === 'parcial' ? '#BA7517' : '#A32D2D'
+        const headerIcon = statusSem === 'ok' ? '🟢' : statusSem === 'parcial' ? '🟡' : '🔴'
+        const headerTitle = statusSem === 'ok'
+          ? `${inseridos} importada${inseridos === 1 ? '' : 's'}`
+          : statusSem === 'parcial'
+            ? `${inseridos} importada${inseridos === 1 ? '' : 's'}, ${erros} com problema`
+            : `Nenhuma importada — ${erros} problema${erros === 1 ? '' : 's'}`
+        const lista = resultado.lista_erros ?? []
+        const copiar = async () => {
+          const txt = lista.map((e) => `Linha ${e.linha ?? '?'} · ERRO · ${e.erro}${e.descricao ? ` · ${e.descricao}` : ''}`).join('\n')
+          try { await navigator.clipboard.writeText(txt) } catch { /* noop */ }
+        }
+        const baixarCsv = () => {
+          const head = 'linha,erro,descricao\n'
+          const body = lista.map((e) => {
+            const esc = (s: string) => `"${s.replace(/"/g, '""')}"`
+            return [String(e.linha ?? ''), esc(e.erro ?? ''), esc(e.descricao ?? '')].join(',')
+          }).join('\n')
+          const blob = new Blob([head + body], { type: 'text/csv;charset=utf-8' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url; a.download = `erros-importacao-${(resultado.importacao_id ?? 'lote').slice(0, 8)}.csv`
+          a.click(); URL.revokeObjectURL(url)
+        }
         return (
           <div>
             <div style={{ background: headerBg, border: `1px solid ${headerBorder}`, borderRadius: 8, padding: 16, marginBottom: 12 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>
-                {erros === 0 ? '✅ Tudo importado!' : '⚠ Importado com erros'}
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#3D2314', marginBottom: 6 }}>
+                {headerIcon} {headerTitle}
               </div>
-              <div style={{ fontSize: 13, color: '#3D2314', marginBottom: 4 }}>
-                ✅ <strong>{inseridos}</strong> criado{inseridos === 1 ? '' : 's'}
-                {inseridos > 0 && ` · R$ ${fmtBRL(valorInseridos)}`}
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: '#3D2314' }}>
+                <span>✅ <strong>{inseridos}</strong> criada{inseridos === 1 ? '' : 's'}{inseridos > 0 && ` · R$ ${fmtBRL(valorInseridos)}`}</span>
+                {duplicados > 0 && <span>🔁 <strong>{duplicados}</strong> já existia{duplicados === 1 ? '' : 'm'}</span>}
+                {erros > 0 && <span style={{ color: '#A32D2D' }}>❌ <strong>{erros}</strong> com problema</span>}
               </div>
-              {duplicados > 0 && (
-                <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.7)', marginBottom: 4 }}>
-                  🔁 <strong>{duplicados}</strong> já existia{duplicados === 1 ? '' : 'm'} (pulado{duplicados === 1 ? '' : 's'} pela idempotência)
-                </div>
-              )}
-              {erros > 0 && (
-                <div style={{ fontSize: 13, color: '#A32D2D' }}>
-                  ❌ <strong>{erros}</strong> falhar{erros === 1 ? 'am' : 'am'}
-                </div>
-              )}
               {resultado.importacao_id && (
                 <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 6, fontFamily: 'monospace' }}>
                   trilha: {resultado.importacao_id.slice(0, 8)}…
@@ -476,15 +491,24 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
               )}
             </div>
 
-            {resultado.lista_erros && resultado.lista_erros.length > 0 && (
+            {lista.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
-                  Erros detalhados
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>
+                    Problemas ({lista.length})
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" onClick={copiar} style={ghostBtn}>📋 Copiar erros</button>
+                    <button type="button" onClick={baixarCsv} style={ghostBtn}>⬇ Baixar CSV</button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {resultado.lista_erros.map((e, i) => (
-                    <div key={i} style={{ background: '#FCEBEB', padding: '6px 10px', borderRadius: 4, fontSize: 12, color: '#A32D2D' }}>
-                      {e.linha != null ? `Linha ${e.linha}: ` : ''}{e.descricao ? `"${e.descricao}" — ` : ''}{e.erro}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
+                  {lista.map((e, i) => (
+                    <div key={i} style={{ background: '#FCEBEB', padding: '8px 10px', borderRadius: 4, fontSize: 12, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#7A1F1F' }}>Linha {e.linha ?? '?'}</span>
+                      <span style={{ fontSize: 9, background: '#A32D2D', color: '#fff', padding: '2px 6px', borderRadius: 3, fontWeight: 700, letterSpacing: 0.4 }}>ERRO</span>
+                      <span style={{ color: '#A32D2D' }}>{e.erro}</span>
+                      {e.descricao && <span style={{ color: 'rgba(61,35,20,0.65)' }}>· {e.descricao}</span>}
                     </div>
                   ))}
                 </div>
