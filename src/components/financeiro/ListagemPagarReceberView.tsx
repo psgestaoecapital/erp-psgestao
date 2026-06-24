@@ -502,8 +502,24 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td>{r.nome_pessoa || '—'}</Td>
                         <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
-                        <Td align="right"><strong>{fmtBRL(r.status === 'pago' && r.valor_pago ? r.valor_pago : r.valor_documento)}</strong></Td>
-                        <Td><Pill situacao={r.situacao} /></Td>
+                        <Td align="right">
+                          <strong>{fmtBRL(r.status === 'pago' && r.valor_pago ? r.valor_pago : r.valor_documento)}</strong>
+                          {r.status === 'parcial' && (r.valor_pago ?? 0) > 0 && (
+                            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
+                              recebido {fmtBRL(r.valor_pago ?? 0)} · saldo {fmtBRL(Math.max(0, r.valor_documento - (r.valor_pago ?? 0)))}
+                            </div>
+                          )}
+                        </Td>
+                        <Td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            <Pill situacao={r.situacao} />
+                            {r.status === 'parcial' && (
+                              <span style={{ fontSize: 9, background: '#FEF3C7', color: '#7A5A0F', padding: '2px 6px', borderRadius: 3, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+                                parcial
+                              </span>
+                            )}
+                          </div>
+                        </Td>
                         {tipo === 'receber' && (
                           <Td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
