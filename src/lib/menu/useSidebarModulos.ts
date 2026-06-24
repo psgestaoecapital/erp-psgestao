@@ -162,22 +162,35 @@ export function useSidebarModulos(): State {
     let alive = true
     setRpcLoading(true)
     setRpcErro(null)
+    // eslint-disable-next-line no-console
+    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, companyId, userId })
     void (async () => {
-      const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
-        p_area_id: areaSlug,
-        p_company_id: companyId,
-        p_user_id: userId,
-      })
-      if (!alive) return
-      setRpcLoading(false)
-      if (error) {
-        // eslint-disable-next-line no-console
-        console.warn('[sidebar] fn_modulos_sidebar_por_area falhou · fallback hardcoded', error.message)
-        setRpcErro(error.message)
-        setRpcRows(null)
-        return
+      try {
+        const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
+          p_area_id: areaSlug,
+          p_company_id: companyId,
+          p_user_id: userId,
+        })
+        if (!alive) return
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('[sidebar] fn_modulos_sidebar_por_area falhou · fallback hardcoded', error.message)
+          setRpcErro(error.message)
+          setRpcRows(null)
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug('[sidebar] fn_modulos_sidebar_por_area ok', { areaSlug, linhas: (data ?? []).length })
+          setRpcRows((data ?? []) as RpcRow[])
+        }
+      } catch (e) {
+        if (alive) {
+          setRpcErro(e instanceof Error ? e.message : String(e))
+          setRpcRows(null)
+        }
+      } finally {
+        // SEMPRE desliga loading se ainda vivo — evita sidebar travada em "Carregando…"
+        if (alive) setRpcLoading(false)
       }
-      setRpcRows((data ?? []) as RpcRow[])
     })()
     return () => { alive = false }
   }, [aguardandoContexto, areaSlug, companyId, userId])
