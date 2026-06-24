@@ -1,13 +1,13 @@
 'use client'
 
-// Sidebar hibrido (PR #417):
-//   - area == 'gestao_empresarial' (ou sem company/user) -> usa
-//     SIDEBAR_GESTAO_EMPRESARIAL hardcoded (module_catalog defasado p/ GE).
-//   - qualquer outra area  -> chama fn_modulos_sidebar_por_area(area, company, user)
-//     e converte pro mesmo shape SidebarModuleNode (preservando o render).
+// Sidebar dinamico (PR #441):
+// SEMPRE chama fn_modulos_sidebar_por_area(area, company, user) e renderiza
+// o retorno. SIDEBAR_GESTAO_EMPRESARIAL hardcoded vira fallback de
+// emergencia (so usado em rpc-error). Antes a area GE curto-circuitava
+// pro hardcoded — causava bug de "Frioeste/Compliance" mostrar menu GE
+// porque ate a deteccao de area falhasse uma vez, voltava pra GE.
 //
-// Fallback defensivo: erro na RPC -> volta pra hardcoded + log (nao quebra
-// navegacao). Loading/empty estados expostos pro consumer decidir.
+// Loading/empty estados expostos pro consumer decidir.
 
 import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
@@ -135,8 +135,7 @@ export function useSidebarModulos(): State {
     return () => { alive = false }
   }, [])
 
-  // Resolve area atual (cascata: ?area= > path > localStorage)
-  // Path-based: usa useAreasVisiveis pra mapear rotas_raiz -> slug.
+  // Resolve area atual (cascata: ?area= > persistida > path > GE)
   const { areas } = useAreasVisiveis(companyId)
   const areaSlugDoPath = useMemo(() => {
     if (!pathname || areas.length === 0) return null
@@ -152,19 +151,14 @@ export function useSidebarModulos(): State {
     return melhor?.slug ?? null
   }, [areas, pathname])
 
-  // Cascata: ?area= > escolha persistida no switcher > detecao por path > GE.
-  // Persistida ganha de path pra escolha explicita do usuario re-rotear o menu
-  // mesmo quando o pathname ainda corresponde a area antiga (caso classico:
-  // empresa multi-area na rota /dashboard/gestao-empresarial e usuario clica
-  // em Compliance no switcher — sem isso, path travava o menu em GE).
   const areaSlug = queryArea ?? areaPersistida ?? areaSlugDoPath ?? AREA_GE
 
-  // Decisao: GE OU sem company/user -> hardcoded; senao -> RPC
-  const usaHardcoded = areaSlug === AREA_GE || !companyId || !userId
+  // Sem company/user ainda — espera para evitar GE hardcoded por engano
+  const aguardandoContexto = !companyId || !userId
 
-  // Carrega RPC quando necessario
+  // Carrega RPC sempre que tiver contexto (SEMPRE inclusive para GE)
   useEffect(() => {
-    if (usaHardcoded || !companyId || !userId) return
+    if (aguardandoContexto) return
     let alive = true
     setRpcLoading(true)
     setRpcErro(null)
@@ -186,15 +180,19 @@ export function useSidebarModulos(): State {
       setRpcRows((data ?? []) as RpcRow[])
     })()
     return () => { alive = false }
-  }, [usaHardcoded, areaSlug, companyId, userId])
+  }, [aguardandoContexto, areaSlug, companyId, userId])
 
-  // Resultado
-  if (usaHardcoded) {
-    return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'hardcoded' }
+  // Sem contexto ainda: para GE/sem empresa, devolve hardcoded como
+  // experiencia razoavel; demais areas seguram em loading.
+  if (aguardandoContexto) {
+    if (areaSlug === AREA_GE) {
+      return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'hardcoded' }
+    }
+    return { modulos: [], loading: true, mode: 'rpc' }
   }
 
   if (rpcErro) {
-    // Fallback defensivo: nunca deixar o usuario sem menu
+    // Fallback defensivo de emergencia: nao deixar o usuario sem menu.
     return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'rpc-error' }
   }
 
