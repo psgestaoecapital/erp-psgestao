@@ -16,11 +16,18 @@ type Aba = 'painel' | 'pesagem' | 'reproducao'
 type Animal = { id: string; identificacao: string | null; categoria: string; sexo: 'M' | 'F' | null; lote_id: string | null; area_atual_id: string | null }
 type Lote = { id: string; codigo: string }
 type Area = { id: string; nome: string; tipo: string }
+// RPC fn_pec_manejo_painel retorna um JSONB. Aceita ambos schemas:
+// (a) deployado em prod: pesados_30d, sem_pesagem, total_pesagens, peso_medio_categoria, reproducao
+// (b) migration #449 (talvez nao deployada): pct_pesados_30d, total, gmd_medio_rebanho, peso_medio_por_categoria, repro_distribuicao
+type CategoriaPeso = { categoria: string; peso_medio: number; n: number }
 type Painel = {
-  ok: boolean; total: number; pesados_30d: number; pct_pesados_30d: number; sem_pesagem: number
-  peso_medio_por_categoria: Array<{ categoria: string; peso_medio: number; n: number }>
-  gmd_medio_rebanho: number | null
-  repro_distribuicao: Record<string, number>
+  pesados_30d?: number; sem_pesagem?: number; total_pesagens?: number
+  pct_pesados_30d?: number; total?: number; gmd_medio_rebanho?: number | null
+  peso_medio_categoria?: CategoriaPeso[]
+  peso_medio_por_categoria?: CategoriaPeso[]
+  reproducao?: Record<string, number> | null
+  repro_distribuicao?: Record<string, number> | null
+  ok?: boolean
 }
 type UltimoPeso = { peso_kg: number; data: string; gmd_anterior: number | null }
 type EstadoRepro = { estado: string; data: string }
@@ -94,9 +101,19 @@ function Painel({ companyId, propriedadeId, refresh }: { companyId: string; prop
   }, [companyId, propriedadeId, refresh])
 
   if (loading) return <div className="text-sm" style={{ color: ESP60 }}>Carregando…</div>
-  if (!data?.ok) return <div className="text-sm" style={{ color: ESP60 }}>Sem dados de painel.</div>
+  if (!data) return <div className="text-sm" style={{ color: ESP60 }}>Sem dados de painel.</div>
 
-  const repro = data.repro_distribuicao ?? {}
+  // Defensivos: tolera ambos schemas de RPC.
+  const pesados30d = Number(data.pesados_30d ?? 0)
+  const semPesagem = Number(data.sem_pesagem ?? 0)
+  const totalPesagensVal = Number(data.total_pesagens ?? totalPesagens ?? 0)
+  const totalAnimais = Number(data.total ?? 0) // pode nao existir
+  const pctPesados = data.pct_pesados_30d != null
+    ? Number(data.pct_pesados_30d)
+    : (totalAnimais > 0 ? Math.round((pesados30d / totalAnimais) * 1000) / 10 : null)
+  const gmdMedio = data.gmd_medio_rebanho ?? null
+  const pesoCategorias: CategoriaPeso[] = data.peso_medio_categoria ?? data.peso_medio_por_categoria ?? []
+  const repro = data.reproducao ?? data.repro_distribuicao ?? {}
   const totalRepro = Object.values(repro).reduce((s, v) => s + Number(v ?? 0), 0)
   const Card = ({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) => (
     <div className="rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
@@ -105,33 +122,34 @@ function Painel({ companyId, propriedadeId, refresh }: { companyId: string; prop
       {sub && <div className="text-[10px] mt-1" style={{ color: ESP60 }}>{sub}</div>}
     </div>
   )
-  const gmdColor = data.gmd_medio_rebanho == null ? ESP : data.gmd_medio_rebanho < 0.5 ? RED : data.gmd_medio_rebanho < 0.8 ? YELLOW : GREEN
-  const pctColor = data.pct_pesados_30d < 30 ? RED : data.pct_pesados_30d < 70 ? YELLOW : GREEN
+  const gmdColor = gmdMedio == null ? ESP : gmdMedio < 0.5 ? RED : gmdMedio < 0.8 ? YELLOW : GREEN
+  const pctColor = pctPesados == null ? ESP : pctPesados < 30 ? RED : pctPesados < 70 ? YELLOW : GREEN
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card label="GMD médio (kg/dia)" value={data.gmd_medio_rebanho ?? '—'} color={gmdColor} sub="entre as 2 últimas pesagens" />
-        <Card label="% rebanho pesado 30d" value={`${data.pct_pesados_30d}%`} color={pctColor} sub={`${data.pesados_30d} de ${data.total}`} />
-        <Card label="Total pesagens" value={totalPesagens ?? 0} sub="histórico desta propriedade" />
-        <Card label="Sem pesagem" value={data.sem_pesagem} sub={`${data.total} animais ativos`} />
+        <Card label="Pesados (30d)" value={pesados30d} color={pctColor} sub={pctPesados != null ? `${pctPesados}% do rebanho` : undefined} />
+        <Card label="Total pesagens" value={totalPesagensVal} sub="histórico desta propriedade" />
+        <Card label="Sem pesagem" value={semPesagem} sub={totalAnimais > 0 ? `${totalAnimais} animais ativos` : undefined} />
+        <Card label="GMD médio (kg/dia)" value={gmdMedio ?? '—'} color={gmdColor} sub="entre as 2 últimas pesagens" />
       </div>
 
       <section className="rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="text-sm font-semibold mb-3" style={{ color: ESP }}>Peso médio por categoria</div>
-        {(data.peso_medio_por_categoria ?? []).length === 0 ? (
+        {pesoCategorias.length === 0 ? (
           <div className="text-xs" style={{ color: ESP60 }}>Sem pesagens registradas ainda.</div>
         ) : (
           <div className="space-y-2">
-            {data.peso_medio_por_categoria.map((c) => {
-              const max = Math.max(...data.peso_medio_por_categoria.map((x) => x.peso_medio))
+            {pesoCategorias.map((c) => {
+              const max = Math.max(...pesoCategorias.map((x) => Number(x.peso_medio) || 0), 1)
+              const pesoNum = Number(c.peso_medio) || 0
               return (
                 <div key={c.categoria} className="flex items-center gap-3">
                   <span className="text-xs capitalize w-28 shrink-0" style={{ color: ESP }}>{c.categoria.replace('_', ' ')}</span>
                   <div className="flex-1 rounded-full h-2 overflow-hidden" style={{ background: BG }}>
-                    <div style={{ width: `${(c.peso_medio / max) * 100}%`, background: GOLD, height: '100%' }} />
+                    <div style={{ width: `${(pesoNum / max) * 100}%`, background: GOLD, height: '100%' }} />
                   </div>
-                  <span className="text-sm font-semibold w-20 text-right" style={{ color: ESP }}>{c.peso_medio} kg</span>
+                  <span className="text-sm font-semibold w-20 text-right" style={{ color: ESP }}>{pesoNum} kg</span>
                   <span className="text-xs w-10 text-right" style={{ color: ESP60 }}>n={c.n}</span>
                 </div>
               )
@@ -143,7 +161,7 @@ function Painel({ companyId, propriedadeId, refresh }: { companyId: string; prop
       <section className="rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="text-sm font-semibold mb-3" style={{ color: ESP }}>Distribuição reprodutiva</div>
         {totalRepro === 0 ? (
-          <div className="text-xs" style={{ color: ESP60 }}>Nenhum diagnóstico reprodutivo registrado.</div>
+          <div className="text-xs" style={{ color: ESP60 }}>—</div>
         ) : (
           <div className="flex flex-wrap gap-2">
             {Object.entries(repro).map(([estado, n]) => {
