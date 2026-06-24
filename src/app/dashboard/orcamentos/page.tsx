@@ -66,6 +66,7 @@ export default function OrcamentosPage(){
   const [filtroStatus,setFiltroStatus]=useState("todos");
   const [showForm,setShowForm]=useState(false);
   const [editing,setEditing]=useState<Orcamento|null>(null);
+  const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
   const [msg,setMsg]=useState("");
 
   // Form state
@@ -145,10 +146,46 @@ export default function OrcamentosPage(){
     setShowForm(true);
   };
 
+  const carregarPerm=async(o:Orcamento)=>{
+    const{data}=await supabase.rpc('fn_orcamento_pode_editar',{p_orcamento_id:o.id});
+    const p=data as {ok:boolean;pode_editar?:boolean;precisa_liberacao?:boolean;edicao_liberada?:boolean;pode_liberar?:boolean;motivo?:string;status?:string;erro?:string}|null;
+    if(!p||p.ok===false){setMsg('Erro: '+(p?.erro||'sem permissao'));return null;}
+    return {
+      pode_editar:!!p.pode_editar, precisa_liberacao:!!p.precisa_liberacao,
+      edicao_liberada:!!p.edicao_liberada, pode_liberar:!!p.pode_liberar,
+      motivo:p.motivo||'', status:p.status||'',
+    };
+  };
+
   const abrirEdicao=async(o:Orcamento)=>{
+    const perm=await carregarPerm(o);
+    if(!perm)return;
+    setPermEdit(perm);
+    if(!perm.pode_editar){
+      if(perm.precisa_liberacao && !perm.pode_liberar){
+        setMsg('🔒 '+perm.motivo+'. Peça a um gestor para liberar a edição.');
+        setTimeout(()=>setMsg(""),5000);
+        return;
+      }
+      if(!perm.precisa_liberacao){
+        setMsg('🔒 '+perm.motivo);
+        setTimeout(()=>setMsg(""),5000);
+        return;
+      }
+      // precisa_liberacao && pode_liberar: prompt motivo e libera
+      const motivo=prompt('Motivo da liberação da edição (opcional):','Revisão solicitada pelo cliente');
+      if(motivo===null)return;
+      const{data:lib,error}=await supabase.rpc('fn_orcamento_liberar_edicao',{p_orcamento_id:o.id,p_motivo:motivo||null});
+      if(error){setMsg('Erro ao liberar: '+error.message);return;}
+      const r=lib as {ok:boolean;erro?:string}|null;
+      if(!r||r.ok===false){setMsg('Erro ao liberar: '+(r?.erro||'falha'));return;}
+      const perm2=await carregarPerm(o);
+      if(!perm2||!perm2.pode_editar){setMsg('Falha ao reabrir após liberação.');return;}
+      setPermEdit(perm2);
+    }
     setEditing(o);setForm({...o});
-    const{data}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
-    setItens((data||[]).map(i=>({
+    const{data:itensData}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
+    setItens((itensData||[]).map(i=>({
       ...i,
       tipo_item:(i.tipo_item==='servico'?'servico':'produto') as 'produto'|'servico',
       quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
@@ -258,12 +295,33 @@ export default function OrcamentosPage(){
       orcId=data.id;
     }
 
-    // Salvar itens: delete all e re-insert (inclui tipo_item + servico_*)
+    // Salvar itens.
+    // Para orcamento EXISTENTE nao-rascunho: usa fn_orcamento_salvar_itens (valida trava + consome liberacao + log).
+    // Para criacao nova ou rascunho: delete+insert direto (caminho antigo).
     if(orcId){
-      await supabase.from("erp_orcamentos_itens").delete().eq("orcamento_id",orcId);
+      const usaRpc = !!editing && (editing.status && editing.status !== 'rascunho');
       const itensValidos=itens
-        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome)
-        .map((i,idx)=>({
+        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
+      if(usaRpc){
+        const payload=itensValidos.map(i=>({
+          tipo_item:i.tipo_item,
+          produto_id:i.tipo_item==='produto'?i.produto_id:null,
+          produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
+          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
+          servico_id:i.tipo_item==='servico'?i.servico_id:null,
+          servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
+          servico_descricao:i.tipo_item==='servico'?(i.servico_descricao || i.produto_nome):null,
+          unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
+          desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,observacoes:i.observacoes,
+        }));
+        const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
+        if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
+        const r=rpc as {ok:boolean;erro?:string}|null;
+        if(!r||r.ok===false){setMsg('Erro ao salvar itens: '+(r?.erro||'falha'));return;}
+      } else {
+        await supabase.from("erp_orcamentos_itens").delete().eq("orcamento_id",orcId);
+        const insertItens=itensValidos.map((i,idx)=>({
           orcamento_id:orcId,company_id:companyIdOrc,ordem:idx+1,
           tipo_item:i.tipo_item,
           produto_id:i.tipo_item==='produto'?i.produto_id:null,
@@ -277,7 +335,8 @@ export default function OrcamentosPage(){
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
           margem_percentual:i.margem_percentual,observacoes:i.observacoes,
         }));
-      if(itensValidos.length>0)await supabase.from("erp_orcamentos_itens").insert(itensValidos);
+        if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
+      }
     }
 
     // Log no histórico
@@ -288,7 +347,7 @@ export default function OrcamentosPage(){
     });
 
     setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!`);
-    setShowForm(false);setEditing(null);loadOrcamentos();
+    setShowForm(false);setEditing(null);setPermEdit(null);loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
 
@@ -405,10 +464,15 @@ export default function OrcamentosPage(){
         <div style={{background:BG2,borderRadius:12,padding:20,marginBottom:16,border:`1px solid ${GO}40`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div>
-              <div style={{fontSize:16,fontWeight:700,color:TX}}>{editing?"Editar":"Novo"} Orçamento</div>
+              <div style={{fontSize:16,fontWeight:700,color:TX,display:"flex",alignItems:"center",gap:6}}>
+                {editing?"Editar":"Novo"} Orçamento
+                {editing && permEdit?.edicao_liberada && (
+                  <span title="Liberação consumida ao salvar" style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:"#FEF3C7",color:"#7A5A0F",fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>🟡 Edição liberada</span>
+                )}
+              </div>
               <div style={{fontSize:11,color:TXD}}>Número: <span style={{fontFamily:"monospace",fontWeight:600,color:GO}}>{form.numero}</span>{(form.versao||1)>1&&<span> · v{form.versao}</span>}</div>
             </div>
-            <button onClick={()=>{setShowForm(false);setEditing(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
+            <button onClick={()=>{setShowForm(false);setEditing(null);setPermEdit(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
           </div>
 
           {/* Cliente */}
