@@ -74,13 +74,21 @@ export default function ManejoPage() {
 function Painel({ companyId, propriedadeId, refresh }: { companyId: string; propriedadeId: string; refresh: number }) {
   const [data, setData] = useState<Painel | null>(null)
   const [loading, setLoading] = useState(true)
+  const [totalPesagens, setTotalPesagens] = useState<number | null>(null)
   useEffect(() => {
     if (!companyId || !propriedadeId) return
     let alive = true
     setLoading(true)
     ;(async () => {
-      const { data: r } = await supabase.rpc('fn_pec_manejo_painel', { p_company_id: companyId, p_propriedade_id: propriedadeId })
-      if (alive) { setData(r as Painel); setLoading(false) }
+      const [r1, r2] = await Promise.all([
+        supabase.rpc('fn_pec_manejo_painel', { p_company_id: companyId, p_propriedade_id: propriedadeId }),
+        supabase.from('erp_pec_pesagem').select('id', { count: 'exact', head: true })
+          .eq('company_id', companyId).eq('propriedade_id', propriedadeId),
+      ])
+      if (!alive) return
+      setData(r1.data as Painel)
+      setTotalPesagens(r2.count ?? 0)
+      setLoading(false)
     })()
     return () => { alive = false }
   }, [companyId, propriedadeId, refresh])
@@ -105,8 +113,8 @@ function Painel({ companyId, propriedadeId, refresh }: { companyId: string; prop
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card label="GMD médio (kg/dia)" value={data.gmd_medio_rebanho ?? '—'} color={gmdColor} sub="entre as 2 últimas pesagens" />
         <Card label="% rebanho pesado 30d" value={`${data.pct_pesados_30d}%`} color={pctColor} sub={`${data.pesados_30d} de ${data.total}`} />
-        <Card label="Sem pesagem" value={data.sem_pesagem} />
-        <Card label="Total ativo" value={data.total} />
+        <Card label="Total pesagens" value={totalPesagens ?? 0} sub="histórico desta propriedade" />
+        <Card label="Sem pesagem" value={data.sem_pesagem} sub={`${data.total} animais ativos`} />
       </div>
 
       <section className="rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
@@ -167,7 +175,26 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
   const [pesos, setPesos] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
+  const [pesagensRecentes, setPesagensRecentes] = useState<Array<{ id: string; animal_id: string; identificacao: string | null; peso_kg: number; data: string }>>([])
   const inpRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  const carregarRecentes = useCallback(async () => {
+    if (!companyId || !propriedadeId) return
+    const { data } = await supabase.from('erp_pec_pesagem')
+      .select('id, animal_id, peso_kg, data, erp_pec_animal(identificacao)')
+      .eq('company_id', companyId).eq('propriedade_id', propriedadeId)
+      .order('created_at', { ascending: false }).limit(15)
+    type Row = { id: string; animal_id: string; peso_kg: number; data: string; erp_pec_animal: { identificacao: string | null } | Array<{ identificacao: string | null }> | null }
+    const rows = ((data as unknown as Row[]) ?? [])
+    setPesagensRecentes(rows.map((r) => {
+      const an = Array.isArray(r.erp_pec_animal) ? r.erp_pec_animal[0] : r.erp_pec_animal
+      return {
+        id: r.id, animal_id: r.animal_id, peso_kg: Number(r.peso_kg), data: r.data,
+        identificacao: an?.identificacao ?? null,
+      }
+    }))
+  }, [companyId, propriedadeId])
+  useEffect(() => { carregarRecentes() }, [carregarRecentes])
 
   useEffect(() => {
     if (!companyId || !propriedadeId) return
@@ -237,7 +264,7 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
     if (criados > 0) {
       setMsg({ tipo: 'ok', texto: `CRIOU ${criados} pesage${criados === 1 ? 'm' : 'ns'}${erros.length ? ` · ${erros.length} com erro` : ''}` })
       setPesos({})
-      carregarAnimais()
+      await Promise.all([carregarAnimais(), carregarRecentes()])
       onDone()
     } else {
       setMsg({ tipo: 'erro', texto: erros[0] ?? 'Nenhuma pesagem criada.' })
@@ -335,6 +362,23 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
         style={{ background: ESP, color: '#fff', opacity: busy ? 0.6 : 1 }}>
         {busy ? 'Salvando…' : `CRIAR ${Object.values(pesos).filter((v) => Number(v) > 0).length} pesagens`}
       </button>
+
+      <section className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+        <div className="p-3 text-sm font-semibold border-b" style={{ color: ESP, borderColor: LINE }}>
+          Pesagens recentes ({pesagensRecentes.length})
+        </div>
+        {pesagensRecentes.length === 0 ? (
+          <div className="p-4 text-xs text-center" style={{ color: ESP60 }}>Nenhuma pesagem registrada ainda nesta propriedade.</div>
+        ) : pesagensRecentes.map((p) => (
+          <div key={p.id} className="flex items-center justify-between p-3 text-sm" style={{ borderTop: `1px solid ${LINE}` }}>
+            <div>
+              <span className="font-semibold" style={{ color: ESP }}>{p.identificacao || '(sem brinco)'}</span>
+              <span className="text-xs ml-2" style={{ color: ESP60 }}>{p.data}</span>
+            </div>
+            <span className="font-semibold" style={{ color: GOLD }}>{p.peso_kg} kg</span>
+          </div>
+        ))}
+      </section>
     </div>
   )
 }
