@@ -135,7 +135,7 @@ export function useSidebarModulos(): State {
     return () => { alive = false }
   }, [])
 
-  // Resolve area atual (cascata: ?area= > persistida > path > GE)
+  // Resolve area atual (cascata: ?area= > persistida > path > path-fallback > GE)
   const { areas } = useAreasVisiveis(companyId)
   const areaSlugDoPath = useMemo(() => {
     if (!pathname || areas.length === 0) return null
@@ -151,7 +151,16 @@ export function useSidebarModulos(): State {
     return melhor?.slug ?? null
   }, [areas, pathname])
 
-  const areaSlug = queryArea ?? areaPersistida ?? areaSlugDoPath ?? AREA_GE
+  // Fallback estatico por path: usado quando useAreasVisiveis ainda nao
+  // resolveu ou nao retornou a area (caso cliente CLIENT_OWNER com restricted
+  // que filtra demais). NUNCA toca gestao_empresarial (mantem o caminho atual).
+  const areaSlugDoPathEstatico = useMemo(() => {
+    if (!pathname) return null
+    if (pathname === '/dashboard/agro' || pathname.startsWith('/dashboard/agro/')) return 'agro'
+    return null
+  }, [pathname])
+
+  const areaSlug = queryArea ?? areaPersistida ?? areaSlugDoPath ?? areaSlugDoPathEstatico ?? AREA_GE
 
   // Sem company/user ainda — espera para evitar GE hardcoded por engano
   const aguardandoContexto = !companyId || !userId
