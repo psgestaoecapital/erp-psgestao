@@ -91,9 +91,14 @@ export default function RebanhoPage() {
 
   return (
     <div style={{ background: BG, minHeight: '100%', color: ESP }} className="p-4 sm:p-6">
-      <header className="max-w-6xl mx-auto mb-4">
-        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>🐂 Pecuária · {propriedade.nome}</div>
-        <h1 className="text-2xl sm:text-3xl mt-1" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Rebanho &amp; Cadastro</h1>
+      <header className="max-w-6xl mx-auto mb-4 flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>🐂 Pecuária · {propriedade.nome}</div>
+          <h1 className="text-2xl sm:text-3xl mt-1" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Rebanho &amp; Cadastro</h1>
+        </div>
+        <a href="/dashboard/agro/rebanho/cadastrar" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: GOLD, color: '#fff' }}>
+          + Cadastrar
+        </a>
       </header>
 
       <nav className="max-w-6xl mx-auto flex gap-1 mb-4 overflow-x-auto" style={{ borderBottom: `1px solid ${LINE}` }}>
