@@ -3,13 +3,22 @@
 // Baixa a imagem do bucket projetos-plantas (service role) e manda pra IA.
 // Grava ambientes via fn_takeoff_ambientes_salvar; status='analisada' no fim.
 //
-// MUDOU (jun/2026): aceita arquivo_path em vez de image_base64 — payload
-// pequeno (so a string do path) evita 'Failed to send a request' quando a
-// imagem da 1a pagina do PDF era grande (PNG 2x ~= MBs em base64 no body).
+// CORS (jun/2026): trata preflight OPTIONS + inclui corsHeaders em todas as
+// respostas (sucesso e erro). Sem isso o browser bloqueia o POST com
+// 'Failed to send a request to the Edge Function'.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
+// CORS inline (MCP deploy nao suporta imports relativos a _shared).
+// Mantemos supabase/functions/_shared/cors.ts no repo p/ uso futuro com CLI.
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+const JSON_HEADERS = { ...corsHeaders, 'Content-Type': 'application/json' }
+
 function bytesToBase64(bytes: Uint8Array): string {
-  // chunked pra nao estourar argumentos do String.fromCharCode com array grande
+  // chunked pra nao estourar argumentos do String.fromCharCode
   let bin = ''
   const CHUNK = 0x8000
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -29,6 +38,11 @@ function inferirMediaType(path: string, hint?: string): string {
 }
 
 Deno.serve(async (req) => {
+  // Preflight: NECESSARIO para qualquer chamada cross-origin do browser.
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
   try {
     const body = await req.json()
     const { planta_id, company_id, arquivo_path, media_type, escala_hint } = body as {
@@ -42,7 +56,7 @@ Deno.serve(async (req) => {
     if (!planta_id || !company_id || !arquivo_path) {
       return new Response(JSON.stringify({
         ok: false, erro: 'planta_id, company_id, arquivo_path obrigatorios',
-      }), { status: 400, headers: { 'content-type': 'application/json' } })
+      }), { status: 400, headers: JSON_HEADERS })
     }
 
     const supabase = createClient(
@@ -59,9 +73,7 @@ Deno.serve(async (req) => {
     if (dl.error || !dl.data) {
       const erro = `Falha ao baixar planta: ${dl.error?.message ?? 'sem dados'} (path=${arquivo_path})`
       await supabase.from('erp_obra_planta').update({ status: 'erro', ia_erro: erro }).eq('id', planta_id)
-      return new Response(JSON.stringify({ ok: false, erro }), {
-        status: 404, headers: { 'content-type': 'application/json' },
-      })
+      return new Response(JSON.stringify({ ok: false, erro }), { status: 404, headers: JSON_HEADERS })
     }
     const bytes = new Uint8Array(await dl.data.arrayBuffer())
     const image_base64 = bytesToBase64(bytes)
@@ -97,9 +109,7 @@ Responda APENAS JSON valido, sem texto fora do JSON:
     if (!resp.ok) {
       const erro = `Anthropic ${resp.status}: ${JSON.stringify(data).slice(0, 800)}`
       await supabase.from('erp_obra_planta').update({ status: 'erro', ia_erro: erro }).eq('id', planta_id)
-      return new Response(JSON.stringify({ ok: false, erro }), {
-        status: 502, headers: { 'content-type': 'application/json' },
-      })
+      return new Response(JSON.stringify({ ok: false, erro }), { status: 502, headers: JSON_HEADERS })
     }
     const txt = (data.content ?? [])
       .filter((c: { type: string }) => c.type === 'text')
@@ -111,9 +121,7 @@ Responda APENAS JSON valido, sem texto fora do JSON:
     } catch (e) {
       const erro = `JSON invalido da IA: ${(e as Error).message} · txt=${txt.slice(0, 300)}`
       await supabase.from('erp_obra_planta').update({ status: 'erro', ia_erro: erro }).eq('id', planta_id)
-      return new Response(JSON.stringify({ ok: false, erro }), {
-        status: 500, headers: { 'content-type': 'application/json' },
-      })
+      return new Response(JSON.stringify({ ok: false, erro }), { status: 500, headers: JSON_HEADERS })
     }
 
     // 3) grava ambientes (RPC ja recalcula area_total_m2 e similares)
@@ -125,11 +133,11 @@ Responda APENAS JSON valido, sem texto fora do JSON:
     }).eq('id', planta_id)
 
     return new Response(JSON.stringify({ ok: true, ambientes: json.ambientes ?? [] }), {
-      headers: { 'content-type': 'application/json' },
+      headers: JSON_HEADERS,
     })
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, erro: String(e) }), {
-      status: 500, headers: { 'content-type': 'application/json' },
+      status: 500, headers: JSON_HEADERS,
     })
   }
 })
