@@ -253,10 +253,16 @@ export default function FinanciamentoPage() {
                       )}
                     </div>
                   </div>
-                  <div className="text-2xl font-bold mb-1" style={{ color: DOURADO }}>{brl(r.saldo_devedor)}</div>
-                  {r.saldo_total_parcelas != null && r.saldo_total_parcelas !== r.saldo_devedor && (
-                    <div className="text-xs opacity-70 mb-2">saldo em parcelas: {brl(r.saldo_total_parcelas)}</div>
-                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+                    <div>
+                      <div className="text-[11px] uppercase opacity-60 leading-tight">Saldo de quitação (principal)</div>
+                      <div className="text-xl font-bold leading-tight" style={{ color: DOURADO }}>{brl(r.saldo_devedor)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] uppercase opacity-60 leading-tight">Saldo em parcelas (c/ juros)</div>
+                      <div className="text-xl font-bold leading-tight" style={{ color: ESPRESSO }}>{brl(r.saldo_total_parcelas)}</div>
+                    </div>
+                  </div>
                   <div className="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1">
                     <span>Parcela {brl(r.valor_parcela)}</span>
                     <span>{restantes}/{total} restantes</span>
@@ -281,7 +287,7 @@ export default function FinanciamentoPage() {
       )}
 
       {aba === 'visao' && (
-        <VisaoGeral parcelas={parcelas} loading={parcelasLoading} />
+        <VisaoGeral parcelas={parcelas} loading={parcelasLoading} kpis={kpis} />
       )}
 
       {aba === 'cronograma' && (
@@ -387,7 +393,7 @@ const toastStyle: CSSProperties = {
 }
 
 // ─── VISÃO GERAL ─────────────────────────────────────────────
-function VisaoGeral({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
+function VisaoGeral({ parcelas, loading, kpis }: { parcelas: Parcela[]; loading: boolean; kpis: Kpis | null }) {
   if (loading) return <p className="opacity-60">Carregando…</p>
   if (parcelas.length === 0) {
     return (
@@ -397,17 +403,18 @@ function VisaoGeral({ parcelas, loading }: { parcelas: Parcela[]; loading: boole
       </div>
     )
   }
-  const abertas = parcelas.filter((p) => p.status !== 'paga')
-  const jurosAPagar = abertas.reduce((s, p) => s + Number(p.juros ?? 0), 0)
-  const jurosTotal = parcelas.reduce((s, p) => s + Number(p.juros ?? 0), 0)
   const amortizadoTotal = parcelas.filter((p) => p.status === 'paga').reduce((s, p) => s + Number(p.amortizacao ?? 0), 0)
   const pct = parcelas.length > 0 ? (parcelas.filter((p) => p.status === 'paga').length / parcelas.length) * 100 : 0
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <KpiCard titulo="Juros a pagar" valor={brl(jurosAPagar)} destaque />
-        <KpiCard titulo="Juros total do contrato" valor={brl(jurosTotal)} />
+        <KpiCard titulo="Saldo de quitação" valor={brl(kpis?.saldo_quitacao)} destaque />
+        <KpiCard titulo="Saldo em parcelas" valor={brl(kpis?.saldo_total_parcelas)} />
+        <KpiCard titulo="Juros embutidos" valor={brl(kpis?.juros_embutidos)} />
+        <KpiCard titulo="Compromisso mensal" valor={brl(kpis?.compromisso_mensal)} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
         <KpiCard titulo="Amortizado" valor={brl(amortizadoTotal)} />
         <KpiCard titulo="% quitado" valor={`${pct.toFixed(1)}%`} />
       </div>
