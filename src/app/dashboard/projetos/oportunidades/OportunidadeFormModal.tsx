@@ -358,7 +358,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         <div style={actions}>
           <button onClick={onClose} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={saving} style={btnPrimary}>
-            {saving ? 'Salvando…' : isEdit ? 'ALTERAR' : 'CRIAR'}
+            {saving ? 'Salvando…' : isEdit ? 'SALVAR' : 'CRIAR'}
           </button>
         </div>
       </div>
@@ -393,10 +393,13 @@ const lbl: CSSProperties = {
 const lblTxt: CSSProperties = { fontSize: 12, color: '#6b6b6b', marginBottom: 4 }
 const inp: CSSProperties = {
   border: '1px solid #E7DED3', borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40,
+  background: '#fff', color: '#3D2314',
+  colorScheme: 'light' as CSSProperties['colorScheme'],
 }
 const selectedRow: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   border: '1px solid #E7DED3', borderRadius: 8, padding: '8px 10px',
+  background: '#fff', color: '#3D2314',
 }
 const linkBtn: CSSProperties = {
   background: 'none', border: 'none', color: '#C8941A', fontSize: 12,
