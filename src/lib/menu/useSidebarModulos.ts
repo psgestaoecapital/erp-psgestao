@@ -111,17 +111,40 @@ export function useSidebarModulos(): State {
 
   // company_id · resolve do localStorage e revalida via interval (mesmo
   // padrao do AreaSwitcher · permite reagir a troca de empresa)
+  // FALLBACK (#455): se localStorage nao da company valida, consulta
+  // user_companies do usuario logado. Single-company auto-seleciona ela.
+  // Sem isso: companyId=null -> aguardandoContexto=true -> loading eterno.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    setCompanyId(resolveCompanyId())
+    let alive = true
+    const aplicar = (v: string | null) => {
+      if (!alive) return
+      setCompanyId((p) => (p === v ? p : v))
+    }
+    aplicar(resolveCompanyId())
     setAreaPersistida(lerAreaPersistida())
+
+    // Auto-select user_companies se localStorage nao deu
+    ;(async () => {
+      if (resolveCompanyId()) return
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from('user_companies')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .limit(2)
+      if (!alive) return
+      if (data && data.length === 1) aplicar((data[0] as { company_id: string }).company_id)
+    })()
+
     const interval = setInterval(() => {
       const atual = resolveCompanyId()
-      setCompanyId((prev) => (prev === atual ? prev : atual))
+      if (atual) aplicar(atual) // so promove com valor valido — preserva auto-select
       const areaAtual = lerAreaPersistida()
       setAreaPersistida((prev) => (prev === areaAtual ? prev : areaAtual))
     }, 800)
-    return () => clearInterval(interval)
+    return () => { alive = false; clearInterval(interval) }
   }, [])
 
   // user_id
@@ -179,13 +202,14 @@ export function useSidebarModulos(): State {
     setRpcLoading(true)
     setRpcErro(null)
     // eslint-disable-next-line no-console
-    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, companyId, userId })
+    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, companyId })
     void (async () => {
       try {
+        // p_user_id removido (backend resolve auth.uid() internamente) — evita
+        // mismatch de assinatura se o overload mudou.
         const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
           p_area_id: areaSlug,
           p_company_id: companyId,
-          p_user_id: userId,
         })
         if (!alive) return
         if (error) {
