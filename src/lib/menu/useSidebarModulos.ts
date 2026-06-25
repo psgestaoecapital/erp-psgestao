@@ -135,7 +135,7 @@ export function useSidebarModulos(): State {
     return () => { alive = false }
   }, [])
 
-  // Resolve area atual (cascata: ?area= > persistida > path > GE)
+  // Resolve area atual (cascata: ?area= > persistida > path > primeira permitida > GE)
   const { areas } = useAreasVisiveis(companyId)
   const areaSlugDoPath = useMemo(() => {
     if (!pathname || areas.length === 0) return null
@@ -151,7 +151,23 @@ export function useSidebarModulos(): State {
     return melhor?.slug ?? null
   }, [areas, pathname])
 
-  const areaSlug = queryArea ?? areaPersistida ?? areaSlugDoPath ?? AREA_GE
+  const slugsPermitidos = useMemo(
+    () => (areas.length > 0 ? new Set(areas.map((a) => a.area_slug)) : null),
+    [areas],
+  )
+  const primeiraPermitida = areas[0]?.area_slug ?? null
+
+  // Cascata bruta
+  const cascadeBrute = queryArea ?? areaPersistida ?? areaSlugDoPath ?? AREA_GE
+
+  // Se a area do cascade NAO esta nas permitidas do usuario (caso CLIENT
+  // com user_areas_allowed.restricted=true), forca para a 1a permitida.
+  // Isso elimina o caso "engenheira de Compliance cai em GE e nao monta o menu".
+  // slugsPermitidos==null = nao temos dado ainda (useAreasVisiveis carregando)
+  // → mantem cascade bruto pra nao trocar prematuramente.
+  const areaSlug = slugsPermitidos && !slugsPermitidos.has(cascadeBrute) && primeiraPermitida
+    ? primeiraPermitida
+    : cascadeBrute
 
   // Sem company/user ainda — espera para evitar GE hardcoded por engano
   const aguardandoContexto = !companyId || !userId
