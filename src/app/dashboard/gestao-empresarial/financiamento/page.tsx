@@ -234,6 +234,11 @@ export default function FinanciamentoPage() {
                   <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                     <div className="font-semibold">
                       {r.banco ?? '—'}
+                      {r.contrato && (
+                        <span className="ml-2 font-normal" style={{ color: '#6b5444' }}>
+                          · Contrato {r.contrato}
+                        </span>
+                      )}
                       {r.tipo_operacao && r.tipo_operacao !== 'financiamento' && (
                         <span className="text-[11px] ml-2 opacity-60">{r.tipo_operacao}</span>
                       )}
@@ -469,7 +474,11 @@ function Cronograma({
   })
   const nomeContrato = (id: string) => {
     const c = contratos.find((x) => x.id === id)
-    return c ? `${c.banco ?? ''} ${c.contrato ?? ''}`.trim() || id.slice(0, 8) : id.slice(0, 8)
+    if (!c) return id.slice(0, 8)
+    const banco = c.banco ?? ''
+    const contrato = c.contrato ?? ''
+    if (banco && contrato) return `${banco} · Contrato ${contrato}`
+    return (banco || contrato).trim() || id.slice(0, 8)
   }
   const multi = contratoFiltro === 'todos' && new Set(parcelas.map((p) => p.financiamento_id)).size > 1
 
