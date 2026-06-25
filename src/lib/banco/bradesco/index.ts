@@ -126,6 +126,15 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   const filialCPFCNPJ = cnpj.slice(8, 12)
   const ctrlCPFCNPJ = cnpj.slice(12)
 
+  // CEP do pagador: a API Bradesco exige cepPagador com 5 digitos + complementoCepPagador com 3.
+  // Falha amigavel ANTES de chamar o banco se o cliente nao tem CEP completo.
+  const cepRaw = onlyDigits(input.pagador.cep ?? '')
+  if (cepRaw.length !== 8) {
+    throw new Error('Cliente sem CEP valido para emissao de boleto (esperado 8 digitos)')
+  }
+  const cepPagador = cepRaw.slice(0, 5)
+  const complementoCepPagador = cepRaw.slice(5, 8)
+
   const ag = onlyDigits(input.agencia).padStart(4, '0').slice(-4)
   const ct = onlyDigits(input.conta).padStart(7, '0').slice(-7)
   const nuNegociacao = `${ag}0000000${ct}`
@@ -147,7 +156,8 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     bairroPagador: cleanText(input.pagador.bairro ?? '', 40),
     municipioPagador: cleanText(input.pagador.cidade ?? '', 30),
     ufPagador: cleanText(input.pagador.uf ?? '', 2).toUpperCase(),
-    cepPagador: onlyDigits(input.pagador.cep ?? '').padStart(8, '0').slice(-8),
+    cepPagador,                  // 5 digitos (Bradesco rejeita >5)
+    complementoCepPagador,       // 3 digitos (sufixo do CEP)
     tpVencimento: 0,
     cdIndCpfcnpjPagador: input.pagador.tipo === 'PF' ? 1 : 2,
     nuCpfcnpjPagador: onlyDigits(input.pagador.documento),
