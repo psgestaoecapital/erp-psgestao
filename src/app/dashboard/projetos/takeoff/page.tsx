@@ -47,14 +47,15 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 20 MB
 const PDF_RENDER_SCALE = 2 // ~200 DPI — suficiente pra IA ler cotas
 
 // Converte a 1a pagina de um PDF em PNG via pdfjs (dynamic import — fora do bundle inicial).
-// Roda em browser; usa fake worker (single-thread) pra evitar setup de workerSrc.
+// Worker servido de /public/pdf.worker.min.mjs (copiado pelo postinstall, sempre na MESMA
+// versao do pdfjs-dist instalado — evita 'fake worker' nao funcionar e mismatch CDN).
 async function pdfPagina1ParaPng(pdfBytes: Uint8Array): Promise<{ blob: Blob; pages: number }> {
   const pdfjs = await import('pdfjs-dist')
-  // Modo single-thread: sem precisar servir pdf.worker separado.
-  ;(pdfjs as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = ''
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+  }
   const loadingTask = pdfjs.getDocument({
     data: pdfBytes,
-    disableWorker: true,
     isEvalSupported: false,
   } as unknown as Parameters<typeof pdfjs.getDocument>[0])
   const pdf = await loadingTask.promise
