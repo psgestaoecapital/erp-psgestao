@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
@@ -12,6 +12,11 @@ type Row = {
   titulo: string
   etapa: string
   valor_estimado: number | null
+  origem: string | null
+  obra_endereco: string | null
+  obra_cidade: string | null
+  obra_bairro: string | null
+  probabilidade: number | null
   responsavel_id: string | null
   data_prevista_fechamento: string | null
   observacoes: string | null
@@ -49,6 +54,7 @@ const brl = (n: number | null | undefined) =>
   (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export default function OportunidadesPage() {
+  const router = useRouter()
   const { companyIds, selInfo } = useCompanyIds()
   const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
@@ -60,6 +66,8 @@ export default function OportunidadesPage() {
   const [filtroResp, setFiltroResp] = useState<string>('todos')
   const [busca, setBusca] = useState('')
   const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null }>>([])
+  const [toast, setToast] = useState<string | null>(null)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setResumo(null); setLoading(false); return }
@@ -67,7 +75,7 @@ export default function OportunidadesPage() {
     const [lista, pipe] = await Promise.all([
       supabase
         .from('erp_crm_oportunidade')
-        .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, responsavel_id, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
+        .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, origem, obra_endereco, obra_cidade, obra_bairro, probabilidade, responsavel_id, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
         .eq('company_id', empresaUnica)
         .order('created_at', { ascending: false }),
       supabase.rpc('fn_crm_pipeline', { p_company_id: empresaUnica }),
@@ -77,6 +85,47 @@ export default function OportunidadesPage() {
     setResumo(r?.resumo ?? null)
     setLoading(false)
   }, [empresaUnica])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  function rowParaForm(r: Row): OportunidadeRow {
+    return {
+      id: r.id,
+      company_id: r.company_id,
+      cliente_id: r.cliente_id,
+      titulo: r.titulo,
+      etapa: r.etapa,
+      valor_estimado: r.valor_estimado,
+      origem: r.origem,
+      obra_endereco: r.obra_endereco,
+      obra_cidade: r.obra_cidade,
+      obra_bairro: r.obra_bairro,
+      responsavel_id: r.responsavel_id,
+      data_prevista_fechamento: r.data_prevista_fechamento,
+      probabilidade: r.probabilidade,
+      observacoes: r.observacoes,
+    }
+  }
+
+  async function excluir(r: Row) {
+    if (!confirm(`Tem certeza que deseja EXCLUIR a oportunidade "${r.titulo}"?\n\nIsso remove tambem todas as interacoes e visitas vinculadas. Nao pode ser desfeito.`)) return
+    setExcluindoId(r.id)
+    const { error } = await supabase.from('erp_crm_oportunidade').delete().eq('id', r.id)
+    setExcluindoId(null)
+    if (error) {
+      const msg = /permission|rls|policy/i.test(error.message)
+        ? 'Sem permissao para excluir esta oportunidade.'
+        : `Erro ao excluir: ${error.message}`
+      setToast(msg)
+      return
+    }
+    setToast(`Oportunidade EXCLUIDA: "${r.titulo}".`)
+    reload()
+  }
 
   useEffect(() => { reload() }, [reload])
 
@@ -173,11 +222,20 @@ export default function OportunidadesPage() {
           const cfg = etapaCfg(r.etapa)
           const cliNome = r.erp_clientes?.nome_fantasia ?? r.erp_clientes?.razao_social ?? '—'
           const resp = responsaveis.find((u) => u.id === r.responsavel_id)
+          const podeExcluir = excluindoId !== r.id
           return (
-            <Link
+            <div
               key={r.id}
-              href={`/dashboard/projetos/oportunidades/${r.id}`}
-              className="block rounded-xl border p-4 hover:bg-[#FAF7F2] transition-colors"
+              role="button"
+              tabIndex={0}
+              onClick={() => router.push(`/dashboard/projetos/oportunidades/${r.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  router.push(`/dashboard/projetos/oportunidades/${r.id}`)
+                }
+              }}
+              className="rounded-xl border p-4 hover:bg-[#FAF7F2] transition-colors cursor-pointer"
               style={{ borderColor: BORDA, background: '#fff' }}
             >
               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -197,7 +255,17 @@ export default function OportunidadesPage() {
                 {resp && <span>resp: {resp.email}</span>}
                 {r.data_prevista_fechamento && <span>fecha em {r.data_prevista_fechamento}</span>}
               </div>
-            </Link>
+              <div className="mt-3 flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => setEditing(rowParaForm(r))} style={btnSec}>Editar</button>
+                <button
+                  onClick={() => excluir(r)}
+                  disabled={!podeExcluir}
+                  style={btnDanger}
+                >
+                  {podeExcluir ? 'Excluir' : 'Excluindo…'}
+                </button>
+              </div>
+            </div>
           )
         })}
       </div>
@@ -207,9 +275,16 @@ export default function OportunidadesPage() {
           companyId={empresaUnica}
           initial={editing ?? undefined}
           onClose={() => setEditing(undefined)}
-          onSaved={() => { setEditing(undefined); reload() }}
+          onSaved={() => {
+            const eraEdicao = !!editing?.id
+            setEditing(undefined)
+            setToast(eraEdicao ? 'Oportunidade ALTERADA.' : 'Oportunidade CRIADA.')
+            reload()
+          }}
         />
       )}
+
+      {toast && <div style={toastStyle}>{toast}</div>}
     </div>
   )
 }
@@ -231,4 +306,17 @@ const selSt: CSSProperties = {
   border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 8,
   padding: '8px 10px', fontSize: 13, color: ESPRESSO, minHeight: 40,
   colorScheme: 'light' as CSSProperties['colorScheme'],
+}
+const btnSec: CSSProperties = {
+  border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO,
+  borderRadius: 8, padding: '8px 12px', fontSize: 12, cursor: 'pointer', minHeight: 36,
+}
+const btnDanger: CSSProperties = {
+  border: '1px solid #E5C2C2', background: '#fff', color: '#9A1F1F',
+  borderRadius: 8, padding: '8px 12px', fontSize: 12, cursor: 'pointer', minHeight: 36,
+}
+const toastStyle: CSSProperties = {
+  position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+  background: ESPRESSO, color: '#fff', padding: '10px 16px', borderRadius: 10,
+  fontSize: 13, zIndex: 60, maxWidth: '90vw',
 }
