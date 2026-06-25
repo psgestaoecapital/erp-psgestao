@@ -34,14 +34,34 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
     setSaving(true)
     setErr(null)
     const payload: FormState = { ...form, company_id: companyId }
-    const res = isEdit
-      ? await supabase.from('financiamentos').update(payload).eq('id', initial!.id!)
-      : await supabase.from('financiamentos').insert(payload)
-    setSaving(false)
-    if (res.error) {
-      setErr(res.error.message)
-      return
+    let savedId = initial?.id ?? null
+    if (isEdit) {
+      const res = await supabase.from('financiamentos').update(payload).eq('id', initial!.id!)
+      if (res.error) { setSaving(false); setErr(res.error.message); return }
+    } else {
+      const res = await supabase.from('financiamentos').insert(payload).select('id').single()
+      if (res.error) { setSaving(false); setErr(res.error.message); return }
+      savedId = (res.data as { id: string } | null)?.id ?? null
     }
+
+    // Recalcula parcelas_pagas/saldo/valor_parcela via RPC (apos save).
+    // RPC ja valida company_id via get_user_company_ids() — RLS-safe.
+    if (savedId) {
+      const rec = await supabase.rpc('fn_financiamento_recalcular', { p_id: savedId })
+      if (rec.error) {
+        setSaving(false)
+        setErr(`Salvou mas nao recalculou: ${rec.error.message}`)
+        return
+      }
+      const r = rec.data as { ok?: boolean; erro?: string } | null
+      if (r && r.ok === false) {
+        setSaving(false)
+        setErr(r.erro ?? 'Salvou mas nao recalculou.')
+        return
+      }
+    }
+
+    setSaving(false)
     onSaved()
   }
 
