@@ -143,6 +143,8 @@ export async function POST(req: NextRequest) {
       agencia: (credRow.agencia ?? '') as string,
       conta: (credRow.conta ?? '') as string,
       carteira: ((credRow.carteira ?? '09') as string),
+      convenio: (credRow.convenio as string | null) ?? null,
+      codigoBeneficiario: (credRow.codigo_beneficiario as string | null) ?? null,
       nuCliente: (rec.numero_documento ?? rec.id.slice(0, 12)).toString(),
       emissaoISO: rec.data_emissao ?? new Date().toISOString().slice(0, 10),
       vencimentoISO: rec.data_vencimento,
@@ -159,7 +161,10 @@ export async function POST(req: NextRequest) {
     })
 
     if (result.status < 200 || result.status >= 300 || !result.nuTituloGerado || !result.linhaDigitavel) {
-      await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, { receber_id, raw: result.raw })
+      // Log diagnostico: payload enviado (mascarado) + raw da resposta
+      await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, {
+        receber_id, raw: result.raw, payload_enviado: result.payload_resumo,
+      })
       return NextResponse.json({ ok: false, erro: 'Bradesco recusou o registro do boleto.', detalhes: result.raw }, { status: 502 })
     }
 
