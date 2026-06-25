@@ -639,6 +639,8 @@ const grid: CSSProperties = {
 const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#6b6b6b' }
 const inp: CSSProperties = {
   border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40,
+  background: '#fff', color: ESPRESSO,
+  colorScheme: 'light' as CSSProperties['colorScheme'],
 }
 const selSt: CSSProperties = {
   border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 8, padding: '6px 10px',
