@@ -43,6 +43,39 @@ type Ambiente = {
 
 const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 20 MB
+const PDF_RENDER_SCALE = 2 // ~200 DPI — suficiente pra IA ler cotas
+
+// Converte a 1a pagina de um PDF em PNG via pdfjs (dynamic import — fora do bundle inicial).
+// Roda em browser; usa fake worker (single-thread) pra evitar setup de workerSrc.
+async function pdfPagina1ParaPng(pdfBytes: Uint8Array): Promise<{ blob: Blob; pages: number }> {
+  const pdfjs = await import('pdfjs-dist')
+  // Modo single-thread: sem precisar servir pdf.worker separado.
+  ;(pdfjs as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = ''
+  const loadingTask = pdfjs.getDocument({
+    data: pdfBytes,
+    disableWorker: true,
+    isEvalSupported: false,
+  } as unknown as Parameters<typeof pdfjs.getDocument>[0])
+  const pdf = await loadingTask.promise
+  const page = await pdf.getPage(1)
+  const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.floor(viewport.width)
+  canvas.height = Math.floor(viewport.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D nao disponivel.')
+  await page.render({
+    canvasContext: ctx,
+    viewport,
+    canvas,
+  } as unknown as Parameters<typeof page.render>[0]).promise
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Falha ao gerar PNG.'))), 'image/png')
+  })
+  return { blob, pages: pdf.numPages }
+}
+
 export default function TakeoffPage() {
   const { companyId } = useEmpresaSelecionada()
   const [orcamentos, setOrcamentos] = useState<Orc[]>([])
@@ -88,6 +121,17 @@ export default function TakeoffPage() {
     setBusy(true); setErro(null); setMsg(null); setAmbientes([])
     try {
       const lower = file.name.toLowerCase()
+      // DWG: orienta exportar pra PDF/imagem (RD-42: conversor pago fica pra depois)
+      if (/\.dwg$/i.test(lower)) {
+        throw new Error('Arquivos DWG (AutoCAD) ainda nao sao suportados. Exporte a planta como PDF ou PNG/JPG no seu CAD e suba aqui.')
+      }
+      if (!/\.(pdf|png|jpe?g)$/i.test(lower)) {
+        throw new Error('Formato nao suportado. Envie PDF, PNG ou JPG.')
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        const mb = (file.size / (1024 * 1024)).toFixed(1)
+        throw new Error(`Arquivo grande demais (${mb} MB). Limite: 20 MB.`)
+      }
       const tipo = /\.pdf$/i.test(lower) ? 'pdf'
         : /\.jpe?g$/i.test(lower) ? 'jpg'
           : 'png'
@@ -102,10 +146,10 @@ export default function TakeoffPage() {
         upsert: false, contentType: file.type || undefined,
       })
       if (up.error) {
-        const msg = /invalid key|key/i.test(up.error.message)
+        const m = /invalid key|key/i.test(up.error.message)
           ? 'Nao foi possivel enviar o arquivo (nome com caracteres invalidos). Tente renomear sem acentos/espacos.'
           : `Falha no envio: ${up.error.message}`
-        throw new Error(msg)
+        throw new Error(m)
       }
       const { data: pid, error } = await supabase.rpc('fn_takeoff_planta_salvar', {
         p_company_id: companyId, p_nome: file.name, p_arquivo_path: path, p_arquivo_tipo: tipo,
@@ -114,9 +158,7 @@ export default function TakeoffPage() {
       if (error) throw error
       const idFinal = (pid as string)
       await recarregarPlanta(idFinal)
-      setMsg(tipo === 'pdf'
-        ? 'Planta enviada (PDF). Exporte como PNG/JPG para a IA analisar.'
-        : 'Planta enviada. Clique em Analisar para extrair os ambientes.')
+      setMsg('Planta enviada. Clique em Analisar para extrair os ambientes.')
     } catch (e) {
       setErro((e as Error).message || String(e))
     } finally {
@@ -126,26 +168,48 @@ export default function TakeoffPage() {
 
   const analisar = async () => {
     if (!planta || !companyId) return
-    const ehPdf = planta.arquivo_tipo === 'pdf' || planta.nome.toLowerCase().endsWith('.pdf')
-    if (ehPdf) {
-      setErro('PDF ainda nao suportado nesta versao. Exporte a planta como PNG/JPG (1 imagem).')
-      return
-    }
     const arquivoPath = planta.arquivo_path
     if (!arquivoPath) {
       setErro('Caminho do arquivo nao encontrado. Reenvie a planta.')
       return
     }
-    setBusy(true); setErro(null); setMsg('Analisando com IA…')
+    const ehPdf = planta.arquivo_tipo === 'pdf' || arquivoPath.toLowerCase().endsWith('.pdf')
+
+    setBusy(true); setErro(null); setMsg(ehPdf ? 'Convertendo PDF para imagem…' : 'Analisando com IA…')
     try {
+      // 1) baixa o arquivo original do bucket
       const { data: dl, error: dle } = await supabase.storage.from('projetos-plantas').download(arquivoPath)
       if (dle || !dl) throw dle ?? new Error('Falha ao baixar planta')
       const buf = await dl.arrayBuffer()
-      let bin = ''
       const bytes = new Uint8Array(buf)
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+
+      // 2) se PDF: renderiza 1a pagina como PNG (pdfjs no browser) + opcionalmente sobe pro bucket pra cache/auditoria
+      let pngBlob: Blob
+      let pages = 1
+      if (ehPdf) {
+        const r = await pdfPagina1ParaPng(bytes)
+        pngBlob = r.blob
+        pages = r.pages
+        // cacheia a imagem ao lado do PDF
+        const dirAndFile = arquivoPath.replace(/\.[^./]+$/, '_p1.png')
+        const pngBytes = new Uint8Array(await pngBlob.arrayBuffer())
+        await supabase.storage.from('projetos-plantas').upload(dirAndFile, pngBytes, {
+          upsert: true, contentType: 'image/png',
+        })
+        setMsg(pages > 1 ? `PDF de ${pages} paginas — analisando a pagina 1…` : 'Analisando com IA…')
+      } else {
+        pngBlob = new Blob([bytes], { type: /\.jpe?g$/i.test(arquivoPath) || planta.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png' })
+        setMsg('Analisando com IA…')
+      }
+
+      // 3) base64 da imagem final
+      const imgBytes = new Uint8Array(await pngBlob.arrayBuffer())
+      let bin = ''
+      for (let i = 0; i < imgBytes.length; i++) bin += String.fromCharCode(imgBytes[i])
       const base64 = btoa(bin)
-      const media = /\.jpe?g$/i.test(arquivoPath) || planta.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png'
+      const media = ehPdf ? 'image/png' : pngBlob.type || (/\.jpe?g$/i.test(arquivoPath) ? 'image/jpeg' : 'image/png')
+
+      // 4) chama a IA
       const { data, error } = await supabase.functions.invoke('takeoff-planta-ia', {
         body: { planta_id: planta.id, company_id: companyId, image_base64: base64, media_type: media, escala_hint: escala || null },
       })
@@ -154,7 +218,9 @@ export default function TakeoffPage() {
       if (!r.ok) throw new Error(r.erro || 'Erro IA')
       await recarregarPlanta(planta.id)
       await recarregarAmbientes(planta.id)
-      setMsg('Ambientes extraidos. Revise, vincule um servico e confirme.')
+      setMsg(ehPdf && pages > 1
+        ? `Ambientes extraidos da pagina 1 (PDF tem ${pages} paginas). Revise, vincule um servico e confirme.`
+        : 'Ambientes extraidos. Revise, vincule um servico e confirme.')
     } catch (e) {
       setErro((e as Error).message || String(e))
     } finally {
