@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeFormModal'
+import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
 
 type Oport = {
   id: string
@@ -98,8 +99,9 @@ export default function OportunidadeFichaPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [novaIntOpen, setNovaIntOpen] = useState(false)
-  const [novaVisOpen, setNovaVisOpen] = useState(false)
+  const [visitaEditando, setVisitaEditando] = useState<VisitaInicial | null | undefined>(undefined)
   const [gerandoOrc, setGerandoOrc] = useState(false)
+  const [gerandoOrcDeVisita, setGerandoOrcDeVisita] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!id) return
@@ -170,14 +172,13 @@ export default function OportunidadeFichaPage() {
     router.push('/dashboard/projetos/oportunidades')
   }
 
-  async function gerarOrcamento() {
-    if (!op) return
-    if (!op.cliente_id) { setToast('Defina o cliente da oportunidade antes.'); return }
-    setGerandoOrc(true)
+  async function criarOrcamentoBase(): Promise<{ id: string; numero: string } | null> {
+    if (!op) return null
+    if (!op.cliente_id) { setToast('Defina o cliente da oportunidade antes.'); return null }
     const cli = op.erp_clientes
     const nomeCli = cli?.nome_fantasia ?? cli?.razao_social ?? ''
     const { data: numero, error: numErr } = await supabase.rpc('next_orcamento_numero', { p_company_id: op.company_id })
-    if (numErr) { setGerandoOrc(false); setToast(`Erro: ${numErr.message}`); return }
+    if (numErr) { setToast(`Erro: ${numErr.message}`); return null }
     const hoje = new Date().toISOString().slice(0, 10)
     const valid = new Date(); valid.setDate(valid.getDate() + 15)
     const { data: orc, error: oErr } = await supabase
@@ -199,11 +200,36 @@ export default function OportunidadeFichaPage() {
       })
       .select('id, numero')
       .single()
-    if (oErr) { setGerandoOrc(false); setToast(`Erro: ${oErr.message}`); return }
-    const o = orc as { id: string; numero: string }
+    if (oErr) { setToast(`Erro: ${oErr.message}`); return null }
+    return orc as { id: string; numero: string }
+  }
+
+  async function gerarOrcamento() {
+    if (!op) return
+    setGerandoOrc(true)
+    const o = await criarOrcamentoBase()
+    if (!o) { setGerandoOrc(false); return }
     await supabase.from('erp_crm_oportunidade').update({ orcamento_id: o.id }).eq('id', op.id)
     setGerandoOrc(false)
     setToast(`Orçamento ${o.numero} CRIADO.`)
+    reload()
+  }
+
+  async function gerarOrcamentoDaVisita(visitaId: string) {
+    if (!op) return
+    setGerandoOrcDeVisita(visitaId)
+    let orcId = op.orcamento_id
+    let numero = ''
+    if (!orcId) {
+      const o = await criarOrcamentoBase()
+      if (!o) { setGerandoOrcDeVisita(null); return }
+      orcId = o.id
+      numero = o.numero
+      await supabase.from('erp_crm_oportunidade').update({ orcamento_id: orcId }).eq('id', op.id)
+    }
+    await supabase.from('erp_crm_visita').update({ gerou_orcamento_id: orcId }).eq('id', visitaId)
+    setGerandoOrcDeVisita(null)
+    setToast(numero ? `Orçamento ${numero} CRIADO a partir da visita.` : 'Visita vinculada ao orçamento.')
     reload()
   }
 
@@ -295,7 +321,7 @@ export default function OportunidadeFichaPage() {
       {/* Visitas */}
       <Sec
         titulo="Visitas técnicas"
-        acao={<button onClick={() => setNovaVisOpen(true)} style={btnSec}>+ Agendar / registrar visita</button>}
+        acao={<button onClick={() => setVisitaEditando(null)} style={btnSec}>+ Agendar / registrar visita</button>}
       >
         {visitas.length === 0 ? (
           <p style={{ color: TEXTM, fontSize: 13 }}>Nenhuma visita registrada.</p>
@@ -303,11 +329,17 @@ export default function OportunidadeFichaPage() {
           <div className="space-y-2">
             {visitas.map((v) => {
               const r = users.find((u) => u.id === v.responsavel_id)
+              const statusCfg =
+                v.status === 'realizada' ? { bg: '#DCEFD7', fg: '#1F5A1F' }
+                  : v.status === 'cancelada' ? { bg: '#F4D6D6', fg: '#7A1F1F' }
+                    : { bg: '#FFF3D6', fg: '#7A5A0F' }
+              const podeGerarOrc = v.status === 'realizada' && !v.gerou_orcamento_id
+              const gerandoEsta = gerandoOrcDeVisita === v.id
               return (
                 <div key={v.id} className="rounded-lg border p-3" style={{ borderColor: BORDA, background: '#fff' }}>
                   <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
                     <div className="font-medium text-sm">{fmtDate(v.data_visita)}</div>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: OFFWHITE, color: TEXTM }}>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: statusCfg.bg, color: statusCfg.fg }}>
                       {v.status}
                     </span>
                   </div>
@@ -315,6 +347,42 @@ export default function OportunidadeFichaPage() {
                   {r && <div className="text-xs" style={{ color: TEXTM }}>resp: {r.email}</div>}
                   {v.anotacoes && <p className="text-sm mt-1">{v.anotacoes}</p>}
                   {v.fotos && v.fotos.length > 0 && <FotosVisita fotos={v.fotos} />}
+                  <div className="mt-2 flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => setVisitaEditando({
+                        id: v.id,
+                        oportunidade_id: op.id,
+                        data_visita: v.data_visita,
+                        responsavel_id: v.responsavel_id,
+                        status: v.status as VisitaInicial['status'],
+                        endereco: v.endereco,
+                        anotacoes: v.anotacoes,
+                        gps_lat: v.gps_lat,
+                        gps_lng: v.gps_lng,
+                        fotos: v.fotos,
+                      })}
+                      style={btnSec}
+                    >
+                      Editar
+                    </button>
+                    {podeGerarOrc && (
+                      <button
+                        onClick={() => gerarOrcamentoDaVisita(v.id)}
+                        disabled={gerandoEsta}
+                        style={btnSec}
+                      >
+                        {gerandoEsta ? 'Gerando…' : '+ Gerar orçamento desta visita'}
+                      </button>
+                    )}
+                    {v.gerou_orcamento_id && (
+                      <Link
+                        href={`/dashboard/orcamentos?id=${v.gerou_orcamento_id}`}
+                        style={btnSec as React.CSSProperties}
+                      >
+                        Abrir orçamento desta visita →
+                      </Link>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -373,14 +441,23 @@ export default function OportunidadeFichaPage() {
         />
       )}
 
-      {novaVisOpen && (
-        <NovaVisitaModal
+      {visitaEditando !== undefined && (
+        <VisitaFormModal
           companyId={op.company_id}
-          oportunidadeId={op.id}
-          users={users}
-          enderecoSugerido={op.obra_endereco}
-          onClose={() => setNovaVisOpen(false)}
-          onSaved={() => { setNovaVisOpen(false); reload(); setToast('Visita CRIADA.') }}
+          oportunidadeFixa={{
+            id: op.id,
+            titulo: op.titulo,
+            obra_endereco: op.obra_endereco,
+            cliente_nome: op.erp_clientes?.nome_fantasia ?? op.erp_clientes?.razao_social ?? null,
+          } as OportunidadeOpt}
+          initial={visitaEditando ?? undefined}
+          onClose={() => setVisitaEditando(undefined)}
+          onSaved={() => {
+            const eraEdit = !!visitaEditando?.id
+            setVisitaEditando(undefined)
+            setToast(eraEdit ? 'Visita ALTERADA.' : 'Visita REGISTRADA.')
+            reload()
+          }}
         />
       )}
     </div>
@@ -488,133 +565,6 @@ function NovaInteracaoModal({
           <button onClick={onClose} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={saving || !descricao.trim()} style={btnPrimary}>
             {saving ? 'Salvando…' : 'REGISTRAR'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-function NovaVisitaModal({
-  companyId, oportunidadeId, users, enderecoSugerido, onClose, onSaved,
-}: {
-  companyId: string
-  oportunidadeId: string
-  users: UserOpt[]
-  enderecoSugerido: string | null
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [data, setData] = useState<string>('')
-  const [responsavelId, setResponsavelId] = useState<string>('')
-  const [status, setStatus] = useState<'agendada' | 'realizada' | 'cancelada'>('agendada')
-  const [endereco, setEndereco] = useState<string>(enderecoSugerido ?? '')
-  const [anotacoes, setAnotacoes] = useState<string>('')
-  const [files, setFiles] = useState<File[]>([])
-  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  function capturarGPS() {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setErr('Geolocalização não disponível neste navegador.')
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (e) => setErr(`GPS falhou: ${e.message}`),
-      { enableHighAccuracy: true, timeout: 8000 },
-    )
-  }
-
-  async function salvar() {
-    if (!data) { setErr('Informe a data/hora.'); return }
-    setSaving(true)
-    setErr(null)
-    const fotos: Array<{ path: string; name?: string }> = []
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i]
-      const path = `${companyId}/oportunidade/${oportunidadeId}/${Date.now()}_${i}_${f.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-      const up = await supabase.storage.from('projetos-plantas').upload(path, f, { upsert: false })
-      if (up.error) { setSaving(false); setErr(`Upload falhou: ${up.error.message}`); return }
-      fotos.push({ path, name: f.name })
-    }
-    const { error } = await supabase.from('erp_crm_visita').insert({
-      company_id: companyId,
-      oportunidade_id: oportunidadeId,
-      data_visita: new Date(data).toISOString(),
-      responsavel_id: responsavelId || null,
-      status,
-      endereco: endereco || null,
-      anotacoes: anotacoes || null,
-      fotos,
-      gps_lat: gps?.lat ?? null,
-      gps_lng: gps?.lng ?? null,
-    })
-    setSaving(false)
-    if (error) { setErr(error.message); return }
-    onSaved()
-  }
-
-  return (
-    <div style={overlay}>
-      <div style={card}>
-        <div style={head}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: ESPRESSO, margin: 0 }}>Nova visita</h2>
-          <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
-        </div>
-        <div style={grid}>
-          <label style={lbl}>
-            Data / hora *
-            <input type="datetime-local" value={data} onChange={(e) => setData(e.target.value)} style={inp} />
-          </label>
-          <label style={lbl}>
-            Status
-            <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} style={inp}>
-              <option value="agendada">agendada</option>
-              <option value="realizada">realizada</option>
-              <option value="cancelada">cancelada</option>
-            </select>
-          </label>
-          <label style={lbl}>
-            Responsável
-            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={inp}>
-              <option value="">—</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.email ?? u.id.slice(0, 8)}</option>)}
-            </select>
-          </label>
-        </div>
-        <label style={{ ...lbl, marginTop: 10 }}>
-          Endereço
-          <input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={inp} />
-        </label>
-        <label style={{ ...lbl, marginTop: 10 }}>
-          Anotações
-          <textarea rows={3} value={anotacoes} onChange={(e) => setAnotacoes(e.target.value)} style={{ ...inp, resize: 'vertical' }} />
-        </label>
-
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 12, color: '#6b6b6b', marginBottom: 4 }}>Fotos</div>
-          <input
-            type="file" multiple accept="image/*"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            style={{ fontSize: 13 }}
-          />
-          {files.length > 0 && <p style={{ fontSize: 12, color: TEXTM, marginTop: 4 }}>{files.length} arquivo(s) selecionado(s)</p>}
-        </div>
-
-        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={capturarGPS} style={btnSec}>📍 Capturar GPS</button>
-          {gps && <span style={{ fontSize: 12, color: TEXTM }}>lat {gps.lat.toFixed(5)} · lng {gps.lng.toFixed(5)}</span>}
-        </div>
-
-        {err && <p style={{ color: '#b00', fontSize: 13, marginTop: 8 }}>Erro: {err}</p>}
-
-        <div style={actions}>
-          <button onClick={onClose} style={btnGhost}>Cancelar</button>
-          <button onClick={salvar} disabled={saving} style={btnPrimary}>
-            {saving ? 'Salvando…' : 'CRIAR visita'}
           </button>
         </div>
       </div>
