@@ -89,6 +89,8 @@ export type RegistrarBoletoInput = {
   agencia: string           // 4 digitos
   conta: string             // sem digito (7 digitos)
   carteira: string          // ex.: '09'
+  convenio?: string | null  // numero do convenio Bradesco (opcional)
+  codigoBeneficiario?: string | null  // codigo do beneficiario na cobranca (opcional)
   nuCliente: string         // numero do documento / id curto
   emissaoISO: string        // YYYY-MM-DD
   vencimentoISO: string     // YYYY-MM-DD
@@ -115,6 +117,7 @@ export type RegistroResult = {
   linhaDigitavel?: string
   cdBarras?: string
   raw: unknown
+  payload_resumo?: Record<string, unknown>  // payload enviado (segredos mascarados) — para diagnostico
 }
 
 export async function registrarBoleto(input: RegistrarBoletoInput): Promise<RegistroResult> {
@@ -139,7 +142,7 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   const ct = onlyDigits(input.conta).padStart(7, '0').slice(-7)
   const nuNegociacao = `${ag}0000000${ct}`
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     nuCPFCNPJ, filialCPFCNPJ, ctrlCPFCNPJ,
     idProduto: input.carteira,
     nuNegociacao,
@@ -166,6 +169,13 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
       .slice(0, 4)
       .map((m) => ({ mensagem: cleanText(m, 80) })),
   }
+  // codigoBeneficiario e convenio sao OPCIONAIS — incluidos quando o
+  // provider_config tem o valor. Algumas APIs do Bradesco resolvem o
+  // contrato de cobranca via convenio+cnpj; outras exigem codigoBeneficiario
+  // explicito. Enviar quando disponivel reduz risco de CBTT0004
+  // "NENHUM REGISTRO FOI ENCONTRADO".
+  if (input.codigoBeneficiario) payload.codigoBeneficiario = onlyDigits(input.codigoBeneficiario)
+  if (input.convenio) payload.numConvenio = onlyDigits(input.convenio)
 
   const body = JSON.stringify(payload)
   const res = await request<{ nuTituloGerado?: string; linhaDigitavel?: string; cdBarras?: string }>({
@@ -181,11 +191,19 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     body, pfx: input.cred.pfx, passphrase: input.cred.passphrase,
   })
 
+  // Payload resumido para log/diagnostico: mascara CPF/CNPJ do pagador
+  const mask = (s: string) => s.length <= 4 ? '****' : s.slice(0, 3) + '*'.repeat(Math.max(0, s.length - 6)) + s.slice(-3)
+  const payload_resumo: Record<string, unknown> = { ...payload }
+  if (typeof payload_resumo.nuCpfcnpjPagador === 'string') payload_resumo.nuCpfcnpjPagador = mask(payload_resumo.nuCpfcnpjPagador as string)
+  if (typeof payload_resumo.nuCPFCNPJ === 'string') payload_resumo.nuCPFCNPJ = mask(payload_resumo.nuCPFCNPJ as string)
+  payload_resumo._endpoint = `${HOSTS[input.cred.ambiente]}/boleto/cobranca-registro/v1/cobranca`
+
   return {
     status: res.status,
     nuTituloGerado: res.body?.nuTituloGerado,
     linhaDigitavel: res.body?.linhaDigitavel,
     cdBarras: res.body?.cdBarras,
     raw: res.body,
+    payload_resumo,
   }
 }
