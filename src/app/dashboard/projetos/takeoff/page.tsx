@@ -178,41 +178,44 @@ export default function TakeoffPage() {
 
     setBusy(true); setErro(null); setMsg(ehPdf ? 'Convertendo PDF para imagem…' : 'Analisando com IA…')
     try {
-      // 1) baixa o arquivo original do bucket
-      const { data: dl, error: dle } = await supabase.storage.from('projetos-plantas').download(arquivoPath)
-      if (dle || !dl) throw dle ?? new Error('Falha ao baixar planta')
-      const buf = await dl.arrayBuffer()
-      const bytes = new Uint8Array(buf)
-
-      // 2) se PDF: renderiza 1a pagina como PNG (pdfjs no browser) + opcionalmente sobe pro bucket pra cache/auditoria
-      let pngBlob: Blob
+      // 1) Resolve o path da imagem que a IA vai analisar.
+      //    - PNG/JPG: o proprio arquivo.
+      //    - PDF: converte a 1a pagina pra PNG no browser, sobe no bucket
+      //      como <path>_p1.png, e usa esse path.
+      let imagemPath = arquivoPath
+      let media: 'image/png' | 'image/jpeg' = 'image/png'
       let pages = 1
+
       if (ehPdf) {
-        const r = await pdfPagina1ParaPng(bytes)
-        pngBlob = r.blob
+        const { data: dl, error: dle } = await supabase.storage.from('projetos-plantas').download(arquivoPath)
+        if (dle || !dl) throw dle ?? new Error('Falha ao baixar planta')
+        const pdfBytes = new Uint8Array(await dl.arrayBuffer())
+        const r = await pdfPagina1ParaPng(pdfBytes)
         pages = r.pages
-        // cacheia a imagem ao lado do PDF
-        const dirAndFile = arquivoPath.replace(/\.[^./]+$/, '_p1.png')
-        const pngBytes = new Uint8Array(await pngBlob.arrayBuffer())
-        await supabase.storage.from('projetos-plantas').upload(dirAndFile, pngBytes, {
+        const pngPath = arquivoPath.replace(/\.[^./]+$/, '_p1.png')
+        const pngBytes = new Uint8Array(await r.blob.arrayBuffer())
+        const up = await supabase.storage.from('projetos-plantas').upload(pngPath, pngBytes, {
           upsert: true, contentType: 'image/png',
         })
+        if (up.error) throw new Error(`Falha ao salvar imagem convertida: ${up.error.message}`)
+        imagemPath = pngPath
+        media = 'image/png'
         setMsg(pages > 1 ? `PDF de ${pages} paginas — analisando a pagina 1…` : 'Analisando com IA…')
       } else {
-        pngBlob = new Blob([bytes], { type: /\.jpe?g$/i.test(arquivoPath) || planta.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png' })
-        setMsg('Analisando com IA…')
+        media = /\.jpe?g$/i.test(arquivoPath) || planta.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png'
       }
 
-      // 3) base64 da imagem final
-      const imgBytes = new Uint8Array(await pngBlob.arrayBuffer())
-      let bin = ''
-      for (let i = 0; i < imgBytes.length; i++) bin += String.fromCharCode(imgBytes[i])
-      const base64 = btoa(bin)
-      const media = ehPdf ? 'image/png' : pngBlob.type || (/\.jpe?g$/i.test(arquivoPath) ? 'image/jpeg' : 'image/png')
-
-      // 4) chama a IA
+      // 2) Chama a edge mandando apenas o path (payload pequeno, sem base64
+      //    no body — evita "Failed to send a request to the Edge Function").
+      //    A edge baixa do bucket via service role e manda pra IA.
       const { data, error } = await supabase.functions.invoke('takeoff-planta-ia', {
-        body: { planta_id: planta.id, company_id: companyId, image_base64: base64, media_type: media, escala_hint: escala || null },
+        body: {
+          planta_id: planta.id,
+          company_id: companyId,
+          arquivo_path: imagemPath,
+          media_type: media,
+          escala_hint: escala || null,
+        },
       })
       if (error) throw error
       const r = data as { ok: boolean; erro?: string }
