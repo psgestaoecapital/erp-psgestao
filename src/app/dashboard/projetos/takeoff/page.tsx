@@ -34,7 +34,7 @@ const RED = '#C44536'
 
 type Orc = { id: string; numero: string | null; cliente_nome: string | null; status: string }
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; custo_unitario_total: number | null }
-type Planta = { id: string; nome: string; status: string; area_total_m2: number | null; ia_erro: string | null }
+type Planta = { id: string; nome: string; status: string; area_total_m2: number | null; ia_erro: string | null; arquivo_path: string | null; arquivo_tipo: string | null }
 type Ambiente = {
   id: string; nome: string; area_m2: number | null; perimetro_ml: number | null; pe_direito_m: number | null;
   confianca: 'alta' | 'media' | 'baixa'; confirmado: boolean;
@@ -79,7 +79,7 @@ export default function TakeoffPage() {
 
   const recarregarPlanta = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta')
-      .select('id,nome,status,area_total_m2,ia_erro').eq('id', plantaId).single()
+      .select('id,nome,status,area_total_m2,ia_erro,arquivo_path,arquivo_tipo').eq('id', plantaId).single()
     setPlanta(data as Planta)
   }, [])
 
@@ -87,11 +87,26 @@ export default function TakeoffPage() {
     if (!companyId) return
     setBusy(true); setErro(null); setMsg(null); setAmbientes([])
     try {
-      const tipo = /\.pdf$/i.test(file.name) ? 'pdf' : 'png'
+      const lower = file.name.toLowerCase()
+      const tipo = /\.pdf$/i.test(lower) ? 'pdf'
+        : /\.jpe?g$/i.test(lower) ? 'jpg'
+          : 'png'
+      const extMatch = lower.match(/\.(pdf|png|jpe?g)$/i)
+      const ext = extMatch ? extMatch[1] : tipo
       const plantaId = crypto.randomUUID()
-      const path = `${companyId}/${plantaId}/${file.name}`
-      const up = await supabase.storage.from('projetos-plantas').upload(path, file, { upsert: false })
-      if (up.error) throw up.error
+      // Key segura no Storage: SEM nome original (espacos/acentos/especiais
+      // disparam "Invalid key"). Usa uuid + extensao. Nome original vai
+      // como metadado em erp_obra_planta.nome (display).
+      const path = `${companyId}/${plantaId}/${crypto.randomUUID()}.${ext}`
+      const up = await supabase.storage.from('projetos-plantas').upload(path, file, {
+        upsert: false, contentType: file.type || undefined,
+      })
+      if (up.error) {
+        const msg = /invalid key|key/i.test(up.error.message)
+          ? 'Nao foi possivel enviar o arquivo (nome com caracteres invalidos). Tente renomear sem acentos/espacos.'
+          : `Falha no envio: ${up.error.message}`
+        throw new Error(msg)
+      }
       const { data: pid, error } = await supabase.rpc('fn_takeoff_planta_salvar', {
         p_company_id: companyId, p_nome: file.name, p_arquivo_path: path, p_arquivo_tipo: tipo,
         p_orcamento_id: orcId || null, p_escala: escala || null,
@@ -99,7 +114,9 @@ export default function TakeoffPage() {
       if (error) throw error
       const idFinal = (pid as string)
       await recarregarPlanta(idFinal)
-      setMsg('Planta enviada. Clique em Analisar para extrair os ambientes.')
+      setMsg(tipo === 'pdf'
+        ? 'Planta enviada (PDF). Exporte como PNG/JPG para a IA analisar.'
+        : 'Planta enviada. Clique em Analisar para extrair os ambientes.')
     } catch (e) {
       setErro((e as Error).message || String(e))
     } finally {
@@ -109,22 +126,26 @@ export default function TakeoffPage() {
 
   const analisar = async () => {
     if (!planta || !companyId) return
-    if (planta.nome.toLowerCase().endsWith('.pdf')) {
+    const ehPdf = planta.arquivo_tipo === 'pdf' || planta.nome.toLowerCase().endsWith('.pdf')
+    if (ehPdf) {
       setErro('PDF ainda nao suportado nesta versao. Exporte a planta como PNG/JPG (1 imagem).')
+      return
+    }
+    const arquivoPath = planta.arquivo_path
+    if (!arquivoPath) {
+      setErro('Caminho do arquivo nao encontrado. Reenvie a planta.')
       return
     }
     setBusy(true); setErro(null); setMsg('Analisando com IA…')
     try {
-      const { data: dl, error: dle } = await supabase.storage.from('projetos-plantas').download(
-        `${companyId}/${planta.id}/${planta.nome}`,
-      )
+      const { data: dl, error: dle } = await supabase.storage.from('projetos-plantas').download(arquivoPath)
       if (dle || !dl) throw dle ?? new Error('Falha ao baixar planta')
       const buf = await dl.arrayBuffer()
       let bin = ''
       const bytes = new Uint8Array(buf)
       for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
       const base64 = btoa(bin)
-      const media = /\.jpe?g$/i.test(planta.nome) ? 'image/jpeg' : 'image/png'
+      const media = /\.jpe?g$/i.test(arquivoPath) || planta.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png'
       const { data, error } = await supabase.functions.invoke('takeoff-planta-ia', {
         body: { planta_id: planta.id, company_id: companyId, image_base64: base64, media_type: media, escala_hint: escala || null },
       })
@@ -208,7 +229,7 @@ export default function TakeoffPage() {
           <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
           <label className="rounded-xl border border-dashed border-[#E7DECF] bg-[#FAF7F2] p-2 text-sm text-center cursor-pointer text-[#3D2314] flex items-center justify-center gap-2">
             <UploadCloud size={15} />
-            <span>{planta?.nome ?? 'Enviar planta (PNG/JPG)'}</span>
+            <span>{planta?.nome ?? 'Enviar planta (PNG/JPG/PDF)'}</span>
             <input type="file" accept=".png,.jpg,.jpeg,.pdf" className="hidden" onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
           </label>
         </div>
