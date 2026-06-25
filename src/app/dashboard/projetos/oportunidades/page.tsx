@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
+import OportunidadesKanban from './OportunidadesKanban'
 
 type Row = {
   id: string
@@ -68,6 +69,8 @@ export default function OportunidadesPage() {
   const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null }>>([])
   const [toast, setToast] = useState<string | null>(null)
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
+  const [visao, setVisao] = useState<'lista' | 'kanban'>('lista')
+  const [kanbanKey, setKanbanKey] = useState(0)
 
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setResumo(null); setLoading(false); return }
@@ -191,33 +194,64 @@ export default function OportunidadesPage() {
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4 items-center">
-        <select value={filtroEtapa} onChange={(e) => setFiltroEtapa(e.target.value)} style={selSt}>
-          <option value="todas">Todas as etapas</option>
-          {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
-        </select>
-        <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
-          <option value="todos">Todos os responsáveis</option>
-          {responsaveis.map((u) => <option key={u.id} value={u.id}>{u.email ?? u.id.slice(0, 8)}</option>)}
-        </select>
-        <input
-          placeholder="Buscar por título ou cliente…"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          style={{ ...selSt, minWidth: 220, flex: 1 }}
-        />
-        <span className="text-xs opacity-60 ml-auto">{filtradas.length} oportunidade(s)</span>
+        <div role="tablist" aria-label="Visao" style={toggleWrap}>
+          <button
+            role="tab"
+            aria-selected={visao === 'lista'}
+            onClick={() => setVisao('lista')}
+            style={{ ...toggleBtn, ...(visao === 'lista' ? toggleBtnActive : {}) }}
+          >
+            Lista
+          </button>
+          <button
+            role="tab"
+            aria-selected={visao === 'kanban'}
+            onClick={() => setVisao('kanban')}
+            style={{ ...toggleBtn, ...(visao === 'kanban' ? toggleBtnActive : {}) }}
+          >
+            Kanban
+          </button>
+        </div>
+        {visao === 'lista' && (
+          <>
+            <select value={filtroEtapa} onChange={(e) => setFiltroEtapa(e.target.value)} style={selSt}>
+              <option value="todas">Todas as etapas</option>
+              {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
+            </select>
+            <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
+              <option value="todos">Todos os responsáveis</option>
+              {responsaveis.map((u) => <option key={u.id} value={u.id}>{u.email ?? u.id.slice(0, 8)}</option>)}
+            </select>
+            <input
+              placeholder="Buscar por título ou cliente…"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              style={{ ...selSt, minWidth: 220, flex: 1 }}
+            />
+            <span className="text-xs opacity-60 ml-auto">{filtradas.length} oportunidade(s)</span>
+          </>
+        )}
       </div>
 
-      {loading && <p className="opacity-60">Carregando…</p>}
+      {visao === 'kanban' && (
+        <OportunidadesKanban
+          companyId={empresaUnica}
+          refreshKey={kanbanKey}
+          onMoved={(m) => { setToast(m); reload(); setKanbanKey((k) => k + 1) }}
+          onError={(m) => setToast(m)}
+        />
+      )}
 
-      {!loading && filtradas.length === 0 && (
+      {visao === 'lista' && loading && <p className="opacity-60">Carregando…</p>}
+
+      {visao === 'lista' && !loading && filtradas.length === 0 && (
         <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
           <p className="font-medium">Nenhuma oportunidade ainda</p>
           <p className="text-sm opacity-70">Comece clicando em &ldquo;+ Nova oportunidade&rdquo;.</p>
         </div>
       )}
 
-      <div className="space-y-2">
+      {visao === 'lista' && <div className="space-y-2">
         {filtradas.map((r) => {
           const cfg = etapaCfg(r.etapa)
           const cliNome = r.erp_clientes?.nome_fantasia ?? r.erp_clientes?.razao_social ?? '—'
@@ -268,7 +302,7 @@ export default function OportunidadesPage() {
             </div>
           )
         })}
-      </div>
+      </div>}
 
       {editing !== undefined && (
         <OportunidadeFormModal
@@ -319,4 +353,16 @@ const toastStyle: CSSProperties = {
   position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)',
   background: ESPRESSO, color: '#fff', padding: '10px 16px', borderRadius: 10,
   fontSize: 13, zIndex: 60, maxWidth: '90vw',
+}
+const toggleWrap: CSSProperties = {
+  display: 'inline-flex', border: `1px solid ${BORDA}`, borderRadius: 999,
+  background: '#fff', padding: 2, gap: 0,
+}
+const toggleBtn: CSSProperties = {
+  border: 'none', background: 'transparent', color: TEXTM,
+  borderRadius: 999, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+  minHeight: 32, fontWeight: 600,
+}
+const toggleBtnActive: CSSProperties = {
+  background: DOURADO, color: '#fff',
 }
