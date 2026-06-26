@@ -1,15 +1,8 @@
-import ModuloEmConstrucao from '@/components/shared/ModuloEmConstrucao'
+'use client'
+import ModuloPreview from '@/components/pm/ModuloPreview'
+import { PM_MODULOS } from '@/components/pm/modulos-conteudo'
 
-export default function PmApontamentoHorasPage() {
-  return (
-    <ModuloEmConstrucao
-      area="P&M"
-      titulo="Apontamento de Horas"
-      descricao="Registro de horas trabalhadas por job + relatorios de produtividade por colaborador, com calculo automatico de custo-hora."
-      previsao="Q3 2026"
-      atalhos={[
-        { label: 'Workspace da Agencia', href: '/dashboard/producao' },
-      ]}
-    />
-  )
+export default function Page() {
+  const c = PM_MODULOS['apontamento-horas']
+  return <ModuloPreview {...c} icone={<span>{c.icone}</span>} />
 }

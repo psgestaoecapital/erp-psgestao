@@ -1,15 +1,8 @@
-import ModuloEmConstrucao from '@/components/shared/ModuloEmConstrucao'
+'use client'
+import ModuloPreview from '@/components/pm/ModuloPreview'
+import { PM_MODULOS } from '@/components/pm/modulos-conteudo'
 
-export default function PmPortfolioPage() {
-  return (
-    <ModuloEmConstrucao
-      area="P&M"
-      titulo="Portfolio de Entregas"
-      descricao="Galeria publica de cases entregues, com filtros por segmento, tipo de servico e cliente. Auto-alimentada pelos jobs entregues."
-      previsao="Q4 2026"
-      atalhos={[
-        { label: 'Workspace da Agencia', href: '/dashboard/producao' },
-      ]}
-    />
-  )
+export default function Page() {
+  const c = PM_MODULOS['portfolio']
+  return <ModuloPreview {...c} icone={<span>{c.icone}</span>} />
 }

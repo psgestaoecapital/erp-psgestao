@@ -3,6 +3,6 @@ import ModuloPreview from '@/components/pm/ModuloPreview'
 import { PM_MODULOS } from '@/components/pm/modulos-conteudo'
 
 export default function Page() {
-  const c = PM_MODULOS['aprovacao']
+  const c = PM_MODULOS['integracoes']
   return <ModuloPreview {...c} icone={<span>{c.icone}</span>} />
 }
