@@ -145,6 +145,7 @@ export async function POST(req: NextRequest) {
       carteira: ((credRow.carteira ?? '09') as string),
       convenio: (credRow.convenio as string | null) ?? null,
       codigoBeneficiario: (credRow.codigo_beneficiario as string | null) ?? null,
+      nuNegociacao: (credRow.nu_negociacao as string | null) ?? null,
       nuCliente: (rec.numero_documento ?? rec.id.slice(0, 12)).toString(),
       emissaoISO: rec.data_emissao ?? new Date().toISOString().slice(0, 10),
       vencimentoISO: rec.data_vencimento,
