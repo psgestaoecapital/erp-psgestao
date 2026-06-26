@@ -91,6 +91,7 @@ export type RegistrarBoletoInput = {
   carteira: string          // ex.: '09'
   convenio?: string | null  // numero do convenio Bradesco (opcional)
   codigoBeneficiario?: string | null  // codigo do beneficiario na cobranca (opcional)
+  nuNegociacao?: string | null  // sobrescreve o derivado (ag+0000000+conta); preservar zeros a esquerda
   nuCliente: string         // numero do documento / id curto
   emissaoISO: string        // YYYY-MM-DD
   vencimentoISO: string     // YYYY-MM-DD
@@ -140,7 +141,12 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
 
   const ag = onlyDigits(input.agencia).padStart(4, '0').slice(-4)
   const ct = onlyDigits(input.conta).padStart(7, '0').slice(-7)
-  const nuNegociacao = `${ag}0000000${ct}`
+  // nuNegociacao: prioridade absoluta para o valor da config (gerente Bradesco
+  // confirma o codigo correto da operacao); fallback para ag+0000000+conta
+  // pra manter compatibilidade com empresas que ainda nao configuraram.
+  // STRING preservando zeros a esquerda; so digitos.
+  const nuNegociacaoConfig = input.nuNegociacao ? onlyDigits(input.nuNegociacao) : ''
+  const nuNegociacao = nuNegociacaoConfig.length > 0 ? nuNegociacaoConfig : `${ag}0000000${ct}`
 
   const payload: Record<string, unknown> = {
     nuCPFCNPJ, filialCPFCNPJ, ctrlCPFCNPJ,
