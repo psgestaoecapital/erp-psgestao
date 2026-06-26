@@ -18,16 +18,12 @@ const API_HOST: Record<SicoobAmbiente, string> = {
   homologacao: 'sandbox.sicoob.com.br',
 }
 
-// Escopos cobertos: cobranca + conta-corrente. Nomes exatos seguem o
-// portal Sicoob — ajustar se necessario via doc oficial.
-export const SCOPES = [
-  'cobranca_boletos_consultar',
-  'cobranca_boletos_incluir',
-  'cobranca_boletos_pagador',
-  'cobranca_boletos_baixar',
-  'cco_extrato',
-  'cco_consultar',
-].join(' ')
+// Escopos: NAO enviamos 'scope' no token request — Keycloak devolve o
+// token com todos os scopes atribuidos ao app, evitando 'invalid_scope'
+// por nome de scope errado (PLANO A). Caso a chamada de boleto reclame
+// de permissao, voltar a enviar os nomes oficiais do Sicoob (PLANO B):
+//   boletos_inclusao boletos_consulta boletos_alteracao boletos_pagador
+//   boletos_baixa cco_extrato cco_consulta
 
 export type Credencial = {
   client_id: string
@@ -79,7 +75,6 @@ export async function obterToken(c: Credencial): Promise<string> {
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: c.client_id,
-    scope: SCOPES,
   }).toString()
 
   const res = await request<{ access_token?: string; expires_in?: number; error?: string; error_description?: string }>({
