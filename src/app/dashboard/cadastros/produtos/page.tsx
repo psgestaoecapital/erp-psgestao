@@ -14,10 +14,12 @@ export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 50
 
-const SELECT_COLS = 'id,codigo,nome,ncm,unidade,preco_venda,codigo_barras'
+const SELECT_COLS = 'id,codigo,nome,ncm,unidade,preco_venda,codigo_barras,estoque_atual,estoque_minimo,grupo,ativo,status_estoque'
 
-type OrdenarPor = 'codigo' | 'nome' | 'preco_venda'
+type OrdenarPor = 'codigo' | 'nome' | 'preco_venda' | 'unidade' | 'estoque_atual'
 type ComEan = 'todos' | 'sim' | 'nao'
+type StatusEstoque = 'todos' | 'zerado' | 'abaixo_minimo' | 'ok'
+type Situacao = 'ativos' | 'inativos' | 'todos'
 
 interface UnidadeOption {
   unidade: string
@@ -43,10 +45,14 @@ export default function ProdutosPage() {
 
   // Filtros
   const [unidade, setUnidade] = useState<string>('')
+  const [grupo, setGrupo] = useState<string>('')
+  const [statusEstoque, setStatusEstoque] = useState<StatusEstoque>('todos')
+  const [situacao, setSituacao] = useState<Situacao>('ativos')
   const [precoMin, setPrecoMin] = useState<string>('')
   const [precoMax, setPrecoMax] = useState<string>('')
   const [semPreco, setSemPreco] = useState(false)
   const [comEan, setComEan] = useState<ComEan>('todos')
+  const [gruposOpts, setGruposOpts] = useState<string[]>([])
 
   // Ordenacao
   const [ordenarPor, setOrdenarPor] = useState<OrdenarPor>('codigo')
@@ -92,6 +98,27 @@ export default function ProdutosPage() {
     return () => { alive = false }
   }, [companyId])
 
+  // Carrega grupos distintos (uma vez por empresa)
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    supabase
+      .from('erp_produtos')
+      .select('grupo')
+      .eq('company_id', companyId)
+      .not('grupo', 'is', null)
+      .limit(2000)
+      .then(({ data, error }) => {
+        if (!alive || error) return
+        const set = new Set<string>()
+        for (const r of (data ?? []) as Array<{ grupo: string | null }>) {
+          if (r.grupo) set.add(r.grupo)
+        }
+        setGruposOpts(Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR')))
+      })
+    return () => { alive = false }
+  }, [companyId])
+
   const carregar = useCallback(
     async (reset: boolean) => {
       if (!companyId) return
@@ -103,8 +130,11 @@ export default function ProdutosPage() {
       }
       setErro(null)
       try {
+        // View v_erp_produtos_estoque expoe todos os campos + status_estoque
+        // derivado (zerado/abaixo_minimo/ok) — viabiliza filtro server-side
+        // pra "abaixo do minimo" (comparacao entre duas colunas).
         let q = supabase
-          .from('erp_produtos')
+          .from('v_erp_produtos_estoque')
           .select(SELECT_COLS, { count: 'exact' })
           .eq('company_id', companyId)
           .eq('ref_externa_sistema', 'OMIE')
@@ -114,6 +144,10 @@ export default function ProdutosPage() {
           q = q.or(`nome.ilike.%${b}%,codigo.ilike.%${b}%,ncm.ilike.%${b}%`)
         }
         if (unidade) q = q.eq('unidade', unidade)
+        if (grupo) q = q.eq('grupo', grupo)
+        if (statusEstoque !== 'todos') q = q.eq('status_estoque', statusEstoque)
+        if (situacao === 'ativos') q = q.eq('ativo', true)
+        else if (situacao === 'inativos') q = q.eq('ativo', false)
         const min = precoMin === '' ? null : parseFloat(precoMin.replace(',', '.'))
         const max = precoMax === '' ? null : parseFloat(precoMax.replace(',', '.'))
         if (min != null && !isNaN(min)) q = q.gte('preco_venda', min)
@@ -139,14 +173,14 @@ export default function ProdutosPage() {
         setLoadingMore(false)
       }
     },
-    [companyId, buscaDebounced, unidade, precoMin, precoMax, semPreco, comEan, ordenarPor, ordemAsc]
+    [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, ordenarPor, ordemAsc]
   )
 
   // Reset on qualquer mudanca de filtro/ordem/busca
   useEffect(() => {
     if (companyId) carregar(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, buscaDebounced, unidade, precoMin, precoMax, semPreco, comEan, ordenarPor, ordemAsc])
+  }, [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, ordenarPor, ordemAsc])
 
   function toggleOrdem(coluna: OrdenarPor) {
     if (ordenarPor === coluna) {
@@ -159,6 +193,9 @@ export default function ProdutosPage() {
 
   function limparFiltros() {
     setUnidade('')
+    setGrupo('')
+    setStatusEstoque('todos')
+    setSituacao('ativos')
     setPrecoMin('')
     setPrecoMax('')
     setSemPreco(false)
@@ -168,12 +205,15 @@ export default function ProdutosPage() {
   const filtrosAtivos = useMemo(() => {
     let n = 0
     if (unidade) n++
+    if (grupo) n++
+    if (statusEstoque !== 'todos') n++
+    if (situacao !== 'ativos') n++
     if (precoMin) n++
     if (precoMax) n++
     if (semPreco) n++
     if (comEan !== 'todos') n++
     return n
-  }, [unidade, precoMin, precoMax, semPreco, comEan])
+  }, [unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan])
 
   const podeCarregarMais = produtos.length < total
   const buscaOuFiltroAtivo = !!buscaDebounced || filtrosAtivos > 0
@@ -292,6 +332,56 @@ export default function ProdutosPage() {
                         {u.unidade} ({u.qtd})
                       </option>
                     ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Grupo
+                  </label>
+                  <select
+                    value={grupo}
+                    onChange={(e) => setGrupo(e.target.value)}
+                    data-testid="filtro-grupo"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="">Todos</option>
+                    {gruposOpts.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Estoque
+                  </label>
+                  <select
+                    value={statusEstoque}
+                    onChange={(e) => setStatusEstoque(e.target.value as StatusEstoque)}
+                    data-testid="filtro-estoque"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="zerado">Zerado</option>
+                    <option value="abaixo_minimo">Abaixo do mínimo</option>
+                    <option value="ok">Com estoque</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Situação
+                  </label>
+                  <select
+                    value={situacao}
+                    onChange={(e) => setSituacao(e.target.value as Situacao)}
+                    data-testid="filtro-situacao"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="ativos">Ativos</option>
+                    <option value="inativos">Inativos</option>
+                    <option value="todos">Todos</option>
                   </select>
                 </div>
 
