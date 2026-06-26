@@ -58,6 +58,15 @@ function statusFromRpc(s: string | null): SidebarStatus {
   return 'pronto' // default defensivo
 }
 
+// Labels amigaveis pra secoes que vem cruas da RPC (ex.: PM em 4 blocos).
+// Mantemos no front pra nao precisar de migration por cada apresentacao.
+const SECAO_LABEL_OVERRIDE: Record<string, string> = {
+  PM_COMERCIAL: '1 · Comercial & Entrada',
+  PM_PRODUCAO: '2 · Produção & Controle',
+  PM_FINANCEIRO: '3 · Financeiro da Produção',
+  PM_INTELIGENCIA: '4 · Inteligência & IA',
+}
+
 function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
   // RPC ja vem ordenada (secao_ordem, ordem). Agrupar preservando a ordem
   // de aparicao da secao na lista (1a ocorrencia define a posicao).
@@ -65,7 +74,8 @@ function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
 
   for (const r of rows) {
     const secaoKey = r.secao ?? 'outros'
-    const label = r.secao_label ?? r.secao ?? 'Outros'
+    const labelRaw = r.secao_label ?? r.secao ?? 'Outros'
+    const label = SECAO_LABEL_OVERRIDE[secaoKey] ?? SECAO_LABEL_OVERRIDE[labelRaw] ?? labelRaw
     if (!grupos.has(secaoKey)) {
       grupos.set(secaoKey, { label, items: [] })
     }

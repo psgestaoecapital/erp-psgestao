@@ -1,15 +1,8 @@
-import ModuloEmConstrucao from '@/components/shared/ModuloEmConstrucao'
+'use client'
+import ModuloPreview from '@/components/pm/ModuloPreview'
+import { PM_MODULOS } from '@/components/pm/modulos-conteudo'
 
-export default function PmEventosPage() {
-  return (
-    <ModuloEmConstrucao
-      area="P&M"
-      titulo="Eventos & Producoes"
-      descricao="Gestao completa de eventos e producoes audiovisuais: timeline, equipe, fornecedores, checklist de pre/durante/pos-producao e fechamento."
-      previsao="Q4 2026"
-      atalhos={[
-        { label: 'Workspace da Agencia', href: '/dashboard/producao' },
-      ]}
-    />
-  )
+export default function Page() {
+  const c = PM_MODULOS['eventos']
+  return <ModuloPreview {...c} icone={<span>{c.icone}</span>} />
 }

@@ -1,15 +1,8 @@
-import ModuloEmConstrucao from '@/components/shared/ModuloEmConstrucao'
+'use client'
+import ModuloPreview from '@/components/pm/ModuloPreview'
+import { PM_MODULOS } from '@/components/pm/modulos-conteudo'
 
-export default function PmBriefingsPage() {
-  return (
-    <ModuloEmConstrucao
-      area="P&M"
-      titulo="Briefings"
-      descricao="Captura estruturada de briefings de clientes com versionamento, aprovacao e link automatico com Jobs do Workspace da Agencia."
-      previsao="Q3 2026"
-      atalhos={[
-        { label: 'Workspace da Agencia', href: '/dashboard/producao' },
-      ]}
-    />
-  )
+export default function Page() {
+  const c = PM_MODULOS['briefings']
+  return <ModuloPreview {...c} icone={<span>{c.icone}</span>} />
 }
