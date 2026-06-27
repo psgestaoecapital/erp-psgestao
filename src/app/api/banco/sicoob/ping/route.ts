@@ -83,11 +83,32 @@ async function handle(req: NextRequest) {
         passphrase: certSenha,
         cooperativa, conta, codigo_beneficiario: codigoBeneficiario, convenio,
       })
+      // Decodifica claims do JWT (payload — parte do meio) p/ revelar os
+      // scopes que o app realmente tem. Sem expor o token inteiro.
+      let claims: { scope?: unknown; aud?: unknown; azp?: unknown; iss?: unknown; exp?: unknown } = {}
+      try {
+        const partes = token.split('.')
+        if (partes.length >= 2) {
+          // base64url -> base64 padding
+          const seg = partes[1].replace(/-/g, '+').replace(/_/g, '/')
+          const pad = seg + '='.repeat((4 - (seg.length % 4)) % 4)
+          const payloadJson = JSON.parse(Buffer.from(pad, 'base64').toString('utf-8'))
+          claims = {
+            scope: payloadJson.scope,
+            aud: payloadJson.aud,
+            azp: payloadJson.azp,
+            iss: payloadJson.iss,
+            exp: payloadJson.exp,
+          }
+        }
+      } catch { /* nao quebrar o ping se falhar decode */ }
+
       return NextResponse.json({
         ok: true,
         ambiente, company, client_id: clientId,
         token_len: token.length,
         latencia_ms: Date.now() - t0,
+        claims,
       })
     } catch (e) {
       const erro_sicoob = e instanceof Error ? e.message : String(e)
