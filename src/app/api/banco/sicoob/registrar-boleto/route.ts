@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
+import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { registrarBoleto, type SicoobAmbiente } from '@/lib/banco/sicoob'
 
@@ -22,6 +23,16 @@ function userSupabase(req: NextRequest) {
   })
 }
 
+function temSegredoValido(req: NextRequest): boolean {
+  const expected = process.env.PING_SICOOB_SECRET
+  const provided = req.headers.get('x-ping-secret') || ''
+  if (!expected || !provided) return false
+  const A = Buffer.from(provided)
+  const B = Buffer.from(expected)
+  if (A.length !== B.length) return false
+  return timingSafeEqual(A, B)
+}
+
 async function logSync(company_id: string, status: 'ok' | 'erro', mensagem: string, payload: unknown) {
   await supabaseAdmin.from('erp_banco_sync_log').insert({
     company_id, banco_codigo: BANCO, provider: 'sicoob', tipo: 'boleto_registrar',
@@ -34,11 +45,20 @@ export async function POST(req: NextRequest) {
     const { receber_id, hibrido } = await req.json()
     if (!receber_id) return NextResponse.json({ ok: false, erro: 'receber_id obrigatorio' }, { status: 400 })
 
-    const sb = userSupabase(req)
-    const { data: { user } } = await sb.auth.getUser()
-    if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+    // Auth: aceita SESSAO de usuario OU header x-ping-secret (modo
+    // teste/integracao — mesmo segredo do /ping).
+    const segredoOk = temSegredoValido(req)
+    let sb: ReturnType<typeof userSupabase>
+    if (segredoOk) {
+      // bypass auth — usa supabaseAdmin (service role) p/ leitura
+      sb = supabaseAdmin as unknown as ReturnType<typeof userSupabase>
+    } else {
+      sb = userSupabase(req)
+      const { data: { user } } = await sb.auth.getUser()
+      if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+    }
 
-    // 1) titulo (RLS via token do usuario)
+    // 1) titulo (RLS via token do usuario, OU service role se segredo)
     const { data: rec, error: recErr } = await sb.from('erp_receber')
       .select('id, company_id, cliente_id, cliente_nome, valor, data_emissao, data_vencimento, numero_documento, boleto_status, boleto_nosso_numero')
       .eq('id', receber_id).single()
