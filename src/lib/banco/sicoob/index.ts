@@ -18,11 +18,16 @@ const API_HOST: Record<SicoobAmbiente, string> = {
   homologacao: 'sandbox.sicoob.com.br',
 }
 
-// Escopos: NAO enviamos 'scope' no token request (volta ao Plano A).
-// Os nomes hardcoded (boletos_inclusao, etc.) sao rejeitados pelo
-// Keycloak com 'invalid_scope'. Sem o parametro, o token vem com TODOS
-// os scopes ja atribuidos ao app no portal Sicoob — funciona pra ping
-// e pra POST /boletos (este precisa do header client_id em separado).
+// Escopos: tentativa com nomes do Sicoob V3 (cobrancas_*). Se algum
+// nome causar invalid_scope, o erro lista — basta remover. Manter
+// 'cobrancas_boletos_incluir' (essencial pra registrar).
+const SCOPES = [
+  'cobrancas_boletos_incluir',
+  'cobrancas_boletos_consultar',
+  'cobrancas_boletos_pagador',
+  'cobrancas_boletos_baixar',
+  'cobrancas_boletos_alterar',
+].join(' ')
 
 export type Credencial = {
   client_id: string
@@ -74,6 +79,7 @@ export async function obterToken(c: Credencial): Promise<string> {
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: c.client_id,
+    scope: SCOPES,
   }).toString()
 
   const res = await request<{ access_token?: string; expires_in?: number; error?: string; error_description?: string }>({
