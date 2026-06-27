@@ -18,21 +18,11 @@ const API_HOST: Record<SicoobAmbiente, string> = {
   homologacao: 'sandbox.sicoob.com.br',
 }
 
-// Escopos (PLANO B — depois do POST /boletos ter falhado 401 "Cannot pass
-// security checks" sem scope explicito). Nomes oficiais do portal Sicoob:
-//   boletos_inclusao boletos_consulta boletos_alteracao boletos_pagador
-//   boletos_baixa cco_extrato cco_consulta
-// Se algum nome causar invalid_scope, remover so o errado — manter
-// boletos_inclusao (essencial pro POST de registro).
-const SCOPES = [
-  'boletos_inclusao',
-  'boletos_consulta',
-  'boletos_alteracao',
-  'boletos_pagador',
-  'boletos_baixa',
-  'cco_extrato',
-  'cco_consulta',
-].join(' ')
+// Escopos: NAO enviamos 'scope' no token request (volta ao Plano A).
+// Os nomes hardcoded (boletos_inclusao, etc.) sao rejeitados pelo
+// Keycloak com 'invalid_scope'. Sem o parametro, o token vem com TODOS
+// os scopes ja atribuidos ao app no portal Sicoob — funciona pra ping
+// e pra POST /boletos (este precisa do header client_id em separado).
 
 export type Credencial = {
   client_id: string
@@ -84,7 +74,6 @@ export async function obterToken(c: Credencial): Promise<string> {
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: c.client_id,
-    scope: SCOPES,
   }).toString()
 
   const res = await request<{ access_token?: string; expires_in?: number; error?: string; error_description?: string }>({
