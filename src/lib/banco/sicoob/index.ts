@@ -157,13 +157,12 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     // Idem multa: campo obrigatorio mesmo sem multa.
     // 0=isento, 1=valor fixo, 2=percentual.
     tipoMulta: 0,
-    // Desconto: a escala V3 nao tem 0 (1..6). Apenas omitir gera 5002
-    // "Tipo de Desconto invalido", entao enviamos tipoDesconto=1
-    // (valor fixo). 'valorDesconto' nao existe no schema V3 (erro
-    // 0004 "Propriedade inesperada") — se Sicoob exigir o valor,
-    // os nomes corretos sao 'valorPrimeiroDesconto'/'dataPrimeiroDesconto'.
-    // Por ora, so o tipo. Iteramos se reclamar de obrigatoriedade.
-    tipoDesconto: 1,
+    // Desconto: Sicoob V3 aceita tipoDesconto:0 (sem desconto) — desde
+    // que NAO enviemos nem dataPrimeiroDesconto nem valorPrimeiroDesconto.
+    // Com tipoDesconto:1 (valor fixo) os dois campos viram obrigatorios
+    // (erro 5002 "Data e Valor do Primeiro Desconto obrigatorio"),
+    // entao usamos 0 puro. Omitir tipoDesconto ainda da "invalido".
+    tipoDesconto: 0,
     // Sicoob V3 — schema pagador: { numeroCpfCnpj, nome, endereco,
     // bairro, cidade, cep, uf, email }. 'logradouro'/'tipoPessoa' nao
     // existem — Sicoob deriva PF/PJ pelo tamanho do CPF/CNPJ.
