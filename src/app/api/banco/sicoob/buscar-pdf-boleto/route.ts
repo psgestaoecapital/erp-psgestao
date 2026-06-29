@@ -105,11 +105,20 @@ export async function POST(req: NextRequest) {
     }, rec.boleto_nosso_numero)
 
     if (!sv.pdfBase64) {
+      // Diagnostico: logar as chaves do 'resultado' pra identificar qual campo
+      // o ambiente esta usando pro PDF (varia entre prod e sandbox).
+      const rawObj = (sv.raw as { resultado?: Record<string, unknown> } | null)?.resultado
+        ?? (sv.raw as Record<string, unknown> | null)
+        ?? null
+      const chaves = rawObj ? Object.keys(rawObj) : []
       await logSync(companyId, 'erro',
-        `2a via sem PDF (status ${sv.status})`,
-        { receber_id, raw: sv.raw, nosso_numero: rec.boleto_nosso_numero })
+        `2a via sem PDF (status ${sv.status}). chaves=${chaves.join(',')}`,
+        { receber_id, raw: sv.raw, nosso_numero: rec.boleto_nosso_numero, chaves })
       return NextResponse.json({
-        ok: false, erro: 'Sicoob nao retornou o PDF da 2a via.', detalhes: sv.raw,
+        ok: false,
+        erro: 'Sicoob nao retornou o PDF da 2a via.',
+        chaves_disponiveis: chaves,
+        detalhes: sv.raw,
       }, { status: 502 })
     }
 
