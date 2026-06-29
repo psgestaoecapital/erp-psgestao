@@ -151,6 +151,9 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     dataVencimento: input.vencimentoISO,
     numeroParcela: 1,
     aceite: true,
+    // Sicoob V3 exige tipoJurosMora na raiz, mesmo sem juros.
+    // 1=valor/dia, 2=taxa mensal, 3=isento. Usamos 3 (sem juros).
+    tipoJurosMora: 3,
     // Sicoob V3 — schema pagador: { numeroCpfCnpj, nome, endereco,
     // bairro, cidade, cep, uf, email }. 'logradouro'/'tipoPessoa' nao
     // existem — Sicoob deriva PF/PJ pelo tamanho do CPF/CNPJ.
