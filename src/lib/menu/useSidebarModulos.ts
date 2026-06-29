@@ -268,5 +268,18 @@ export function useSidebarModulos(): State {
     return { modulos: [], loading: false, mode: 'rpc-empty' }
   }
 
-  return { modulos: rpcRowsToModulos(rows), loading: false, mode: 'rpc' }
+  const modulos = rpcRowsToModulos(rows)
+  // Rodape de apoio da Gestao Empresarial: Guia de Implantacao (onboarding
+  // sob demanda). Hardcoded aqui pra evitar migration por cada apresentacao
+  // — segue o mesmo padrao de SECAO_LABEL_OVERRIDE acima.
+  if (areaSlug === AREA_GE) {
+    modulos.push({
+      id: 'guia_implantacao',
+      label: 'Guia de Implantação',
+      href: '/dashboard/gestao-empresarial/implantacao',
+      status: 'pronto',
+      separator: true,
+    })
+  }
+  return { modulos, loading: false, mode: 'rpc' }
 }

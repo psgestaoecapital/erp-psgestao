@@ -1,12 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import GestaoEmpresarialHubClient from './GestaoEmpresarialHubClient'
 import { GestaoEmpresarialHubSkeleton } from './GestaoEmpresarialHubSkeleton'
-import { OnboardingFiveSteps, type OnboardingData } from '@/components/ge/OnboardingFiveSteps'
+import { type OnboardingData } from '@/components/ge/OnboardingFiveSteps'
 import DashboardRico from '@/components/ge/DashboardRico'
 
 type FnReturn =
@@ -14,13 +13,12 @@ type FnReturn =
   | { sem_plano: true; mensagem: string; empresa_nome: string }
   | OnboardingData
 
-// Decide entre Onboarding (PR 1), Dashboard Rico (PR 3) e os empty states do
-// hub atual (sem empresa / sem plano). NÃO toca o hub atual — apenas gate
-// condicional.
+// Router da Gestao Empresarial. SEMPRE abre o conteudo real (DashboardRico
+// ou o hub com empty-state). O onboarding/Guia de Implantacao foi movido pra
+// /dashboard/gestao-empresarial/implantacao — incompletude de passos NUNCA
+// substitui as telas (regressao corrigida).
 export default function GestaoEmpresarialRouter() {
   const { companyIds, selInfo } = useCompanyIds()
-  const searchParams = useSearchParams()
-  const skipOnboarding = searchParams?.get('skip_onboarding') === 'true'
 
   const empresaUnica =
     selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
@@ -75,17 +73,13 @@ export default function GestaoEmpresarialRouter() {
   if ('erro' in data) return <GestaoEmpresarialHubClient />
   if (data.sem_plano) return <GestaoEmpresarialHubClient />
 
-  // Empresa com plano: onboarding completo OU pular → Dashboard Rico (PR 3).
-  if (data.onboarding_completo || skipOnboarding) {
-    return (
-      <DashboardRico
-        companyId={data.company_id}
-        companyName={data.empresa_nome}
-        userName={userName}
-      />
-    )
-  }
-
-  // Onboarding incompleto → tela de boas-vindas com os 5 passos.
-  return <OnboardingFiveSteps data={data} />
+  // Empresa com plano: SEMPRE o dashboard. Onboarding incompleto NAO bloqueia
+  // (Guia de Implantacao agora vive em /implantacao na sidebar de apoio).
+  return (
+    <DashboardRico
+      companyId={data.company_id}
+      companyName={data.empresa_nome}
+      userName={userName}
+    />
+  )
 }
