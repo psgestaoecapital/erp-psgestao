@@ -164,7 +164,13 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
       uf: cleanText(input.pagador.uf ?? '', 2).toUpperCase(),
     },
   }
-  if (input.hibrido) payload.hibrido = true
+  // TODO(pix-hibrido): Sicoob V3 NAO aceita 'hibrido' no payload — gera
+  // erro 0004 "Propriedade inesperada". O flag input.hibrido permanece
+  // como parametro interno (futura ligacao Pix). O campo correto do
+  // schema V3 (provavel: 'gerarPixVinculado') precisa ser confirmado
+  // na doc autenticada do portal antes de ligar. Por enquanto, registro
+  // emite so o boleto.
+  void input.hibrido
   if (input.mensagens && input.mensagens.length > 0) {
     payload.mensagensInstrucao = input.mensagens
       .filter((m): m is string => !!m && m.trim().length > 0)
