@@ -8,6 +8,7 @@ import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
 import EmitirNFeButton from './EmitirNFeButton'
 import GerarBoletoButton from './GerarBoletoButton'
+import SicoobBoletoActions, { type ClienteContato, type BoletoEstado } from './SicoobBoletoActions'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -104,13 +105,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [erro, setErro] = useState<string | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
-  const [boletoMap, setBoletoMap] = useState<Record<string, { status: string | null; linha: string | null }>>({})
+  const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
+  const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
+  const [provider, setProvider] = useState<'sicoob' | 'bradesco' | null>(null)
+  const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
 
   useEffect(() => {
     if (!companyId || tipo !== 'receber') {
       setNfseMap({})
       setNfeMap({})
       setBoletoMap({})
+      setClientesMap({})
+      setProvider(null)
+      setEmpresaCnpj(null)
       return
     }
     let alive = true
@@ -127,10 +134,21 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .not('erp_receber_id', 'is', null),
       supabase
         .from('erp_receber')
-        .select('id, boleto_status, boleto_linha_digitavel')
+        .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_qr_code, boleto_url')
+        .eq('company_id', companyId),
+      supabase
+        .from('erp_banco_provider_config')
+        .select('provider')
         .eq('company_id', companyId)
-        .not('boleto_status', 'is', null),
-    ]).then(([nfseRes, nfeRes, boletoRes]) => {
+        .eq('ativo', true)
+        .eq('cap_boleto', true)
+        .limit(1),
+      supabase
+        .from('companies')
+        .select('cnpj')
+        .eq('id', companyId)
+        .maybeSingle(),
+    ]).then(async ([nfseRes, nfeRes, boletoRes, provRes, compRes]) => {
       if (!alive) return
       const nfseMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
       for (const row of nfseRes.data ?? []) {
@@ -148,11 +166,64 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       }
       setNfeMap(nfeMapNew)
 
-      const boletoMapNew: Record<string, { status: string | null; linha: string | null }> = {}
-      for (const row of (boletoRes.data ?? []) as Array<{ id: string; boleto_status: string | null; boleto_linha_digitavel: string | null }>) {
-        boletoMapNew[row.id] = { status: row.boleto_status, linha: row.boleto_linha_digitavel }
+      const boletoMapNew: Record<string, BoletoEstado> = {}
+      const clienteIds = new Set<string>()
+      type BoletoRow = {
+        id: string; cliente_id: string | null
+        boleto_status: string | null; boleto_nosso_numero: string | null
+        boleto_linha_digitavel: string | null; boleto_qr_code: string | null
+        boleto_url: string | null
+      }
+      const recebMap: Record<string, BoletoRow> = {}
+      for (const row of (boletoRes.data ?? []) as BoletoRow[]) {
+        recebMap[row.id] = row
+        if (row.cliente_id) clienteIds.add(row.cliente_id)
+        boletoMapNew[row.id] = {
+          status: row.boleto_status,
+          nossoNumero: row.boleto_nosso_numero,
+          linhaDigitavel: row.boleto_linha_digitavel,
+          qrCode: row.boleto_qr_code,
+          url: row.boleto_url,
+        }
       }
       setBoletoMap(boletoMapNew)
+
+      const provNorm = ((provRes.data?.[0]?.provider ?? '').toLowerCase()) as string
+      if (alive) setProvider(provNorm === 'sicoob' || provNorm === 'bradesco' ? (provNorm as 'sicoob' | 'bradesco') : null)
+      if (alive) setEmpresaCnpj((compRes.data as { cnpj?: string | null } | null)?.cnpj ?? null)
+
+      if (clienteIds.size > 0) {
+        const { data: clis } = await supabase
+          .from('erp_clientes')
+          .select('id, cpf_cnpj, cnpj_cpf, razao_social, nome_fantasia, cep, logradouro, bairro, cidade, uf, whatsapp, celular, telefone')
+          .in('id', Array.from(clienteIds))
+        if (alive) {
+          const ciMap: Record<string, ClienteContato> = {}
+          for (const c of (clis ?? []) as Array<{
+            id: string; cpf_cnpj: string | null; cnpj_cpf: string | null
+            razao_social: string | null; nome_fantasia: string | null
+            cep: string | null; logradouro: string | null; bairro: string | null
+            cidade: string | null; uf: string | null
+            whatsapp: string | null; celular: string | null; telefone: string | null
+          }>) {
+            ciMap[c.id] = {
+              cpfCnpj: c.cpf_cnpj ?? c.cnpj_cpf ?? null,
+              cep: c.cep, logradouro: c.logradouro, bairro: c.bairro,
+              cidade: c.cidade, uf: c.uf,
+              whatsapp: c.whatsapp, celular: c.celular, telefone: c.telefone,
+              nome: c.razao_social ?? c.nome_fantasia,
+            }
+          }
+          // monta por receber_id
+          const porReceber: Record<string, ClienteContato> = {}
+          for (const [recId, row] of Object.entries(recebMap)) {
+            if (row.cliente_id && ciMap[row.cliente_id]) porReceber[recId] = ciMap[row.cliente_id]
+          }
+          setClientesMap(porReceber)
+        }
+      } else if (alive) {
+        setClientesMap({})
+      }
     })
     return () => { alive = false }
   }, [companyId, tipo, reloadKey])
@@ -538,12 +609,24 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 jaEmitida={nfeMap[r.id] === 'autorizada'}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
-                              <GerarBoletoButton
-                                receberId={r.id}
-                                jaTemBoleto={boletoMap[r.id]?.status === 'registrado'}
-                                linhaDigitavel={boletoMap[r.id]?.linha ?? null}
-                                onSucesso={() => setReloadKey((k) => k + 1)}
-                              />
+                              {provider === 'sicoob' ? (
+                                <SicoobBoletoActions
+                                  receberId={r.id}
+                                  valor={r.valor_documento}
+                                  vencimentoISO={r.data_vencimento}
+                                  cliente={clientesMap[r.id] ?? null}
+                                  empresaCnpj={empresaCnpj}
+                                  boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, qrCode: null, url: null }}
+                                  onSucesso={() => setReloadKey((k) => k + 1)}
+                                />
+                              ) : (
+                                <GerarBoletoButton
+                                  receberId={r.id}
+                                  jaTemBoleto={boletoMap[r.id]?.status === 'registrado'}
+                                  linhaDigitavel={boletoMap[r.id]?.linhaDigitavel ?? null}
+                                  onSucesso={() => setReloadKey((k) => k + 1)}
+                                />
+                              )}
                             </div>
                           </Td>
                         )}

@@ -21,9 +21,9 @@ const API_HOST: Record<SicoobAmbiente, string> = {
 // Escopo: o Keycloak do Sicoob dispara invalid_scope quando recebe
 // varios scopes na mesma requisicao (bug keycloak#42877). Os escopos
 // estao todos vinculados ao app no portal — pedimos UM por requisicao
-// conforme a operacao. Aqui o adapter so emite boleto (operacao
-// 'incluir'), entao trabalhamos com um token de scope 'boletos_inclusao'.
-const SCOPE_INCLUIR_BOLETO = 'boletos_inclusao'
+// conforme a operacao. Cada token (e cada entrada de cache) e por scope.
+export const SICOOB_SCOPE_INCLUIR_BOLETO = 'boletos_inclusao'
+export const SICOOB_SCOPE_CONSULTAR_BOLETO = 'boletos_consulta'
 
 export type Credencial = {
   client_id: string
@@ -67,15 +67,15 @@ function request<T = unknown>(opts: {
   })
 }
 
-export async function obterToken(c: Credencial): Promise<string> {
-  const key = `${c.client_id}:${c.ambiente}`
+export async function obterToken(c: Credencial, scope: string = SICOOB_SCOPE_INCLUIR_BOLETO): Promise<string> {
+  const key = `${c.client_id}:${c.ambiente}:${scope}`
   const hit = tokenCache.get(key)
   if (hit && hit.expires_at > Date.now()) return hit.access_token
 
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: c.client_id,
-    scope: SCOPE_INCLUIR_BOLETO,
+    scope,
   }).toString()
 
   const res = await request<{ access_token?: string; expires_in?: number; error?: string; error_description?: string }>({
@@ -226,4 +226,48 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     raw: res.body,
     payload_resumo: resumo,
   }
+}
+
+export type SegundaViaResult = {
+  status: number
+  pdfBase64?: string
+  raw: unknown
+}
+
+// GET 2a via do boleto (PDF base64) — token com scope 'boletos_consulta'.
+// Query: numeroCliente, codigoModalidade, nossoNumero.
+export async function segundaViaBoleto(
+  c: Credencial,
+  nossoNumero: string | number,
+  codigoModalidade = 1,
+): Promise<SegundaViaResult> {
+  const token = await obterToken(c, SICOOB_SCOPE_CONSULTAR_BOLETO)
+  const qs = new URLSearchParams({
+    numeroCliente: String(c.codigo_beneficiario),
+    codigoModalidade: String(codigoModalidade),
+    nossoNumero: String(nossoNumero),
+  }).toString()
+  const res = await request<unknown>({
+    host: API_HOST[c.ambiente],
+    path: `/cobranca-bancaria/v3/boletos/segunda-via?${qs}`,
+    method: 'GET',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'client_id': c.client_id,
+    },
+    pfx: c.pfx, passphrase: c.passphrase,
+  })
+  if (res.status < 200 || res.status >= 300) {
+    return { status: res.status, raw: res.body }
+  }
+  // Sicoob V3 retorna { resultado: { boletoPdf: "<base64>" } } na maioria dos
+  // ambientes; tolerar variacoes de nome.
+  const data = (res.body as { resultado?: Record<string, unknown> } | null)?.resultado
+    ?? (res.body as Record<string, unknown> | null)
+    ?? {}
+  const pdfBase64 = (data?.boletoPdf
+    ?? data?.pdfBase64
+    ?? data?.pdf
+    ?? data?.arquivoPdf) as string | undefined
+  return { status: res.status, pdfBase64, raw: res.body }
 }
