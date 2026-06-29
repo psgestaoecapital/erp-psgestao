@@ -235,7 +235,11 @@ export type SegundaViaResult = {
 }
 
 // GET 2a via do boleto (PDF base64) — token com scope 'boletos_consulta'.
-// Query: numeroCliente, codigoModalidade, nossoNumero.
+// Query: numeroCliente, codigoModalidade, nossoNumero, gerarPdfBoleto=true.
+// Sem gerarPdfBoleto=true o Sicoob retorna so os DADOS do boleto (valor,
+// linhaDigitavel, qrCode, pagador...) sem o campo de PDF. Com a flag, vem
+// 'pdfBoleto' base64. Mantemos fallbacks de nome porque a doc varia entre
+// ambientes (boletoPdf, pdfBase64, etc.).
 export async function segundaViaBoleto(
   c: Credencial,
   nossoNumero: string | number,
@@ -246,6 +250,7 @@ export async function segundaViaBoleto(
     numeroCliente: String(c.codigo_beneficiario),
     codigoModalidade: String(codigoModalidade),
     nossoNumero: String(nossoNumero),
+    gerarPdfBoleto: 'true',
   }).toString()
   const res = await request<unknown>({
     host: API_HOST[c.ambiente],
@@ -260,12 +265,11 @@ export async function segundaViaBoleto(
   if (res.status < 200 || res.status >= 300) {
     return { status: res.status, raw: res.body }
   }
-  // Sicoob V3 retorna { resultado: { boletoPdf: "<base64>" } } na maioria dos
-  // ambientes; tolerar variacoes de nome.
   const data = (res.body as { resultado?: Record<string, unknown> } | null)?.resultado
     ?? (res.body as Record<string, unknown> | null)
     ?? {}
-  const pdfBase64 = (data?.boletoPdf
+  const pdfBase64 = (data?.pdfBoleto
+    ?? data?.boletoPdf
     ?? data?.pdfBase64
     ?? data?.pdf
     ?? data?.arquivoPdf) as string | undefined
