@@ -125,8 +125,20 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
+  const abrirCadastroCliente = () => {
+    const q = cliente?.nome ? `?q=${encodeURIComponent(cliente.nome)}` : ''
+    window.open(`/dashboard/cadastros/clientes${q}`, '_blank', 'noopener,noreferrer')
+  }
+
   const gerar = async () => {
-    if (motivoDesabilitado || busy) return
+    if (busy) return
+    if (motivoDesabilitado) {
+      const irPraCadastro = window.confirm(
+        `${motivoDesabilitado}\n\nQuer abrir o cadastro do cliente agora para completar?`,
+      )
+      if (irPraCadastro) abrirCadastroCliente()
+      return
+    }
     setBusy(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -174,22 +186,37 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
   }
 
   if (!registrado) {
-    const desabilitado = !!motivoDesabilitado || busy
+    const bloqueado = !!motivoDesabilitado
     return (
-      <button
-        type="button"
-        onClick={gerar}
-        disabled={desabilitado}
-        title={motivoDesabilitado ?? 'Gerar boleto Sicoob'}
-        style={{
-          background: desabilitado ? 'rgba(200,148,26,0.35)' : '#C8941A',
-          color: '#3D2314', border: 'none', padding: '4px 10px',
-          borderRadius: 4, fontSize: 11, fontWeight: 600,
-          cursor: desabilitado ? 'not-allowed' : 'pointer',
-          whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
-        }}>
-        {busy ? 'Gerando boleto...' : 'Gerar boleto'}
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={gerar}
+          disabled={busy}
+          title={motivoDesabilitado ?? 'Gerar boleto Sicoob'}
+          style={{
+            background: bloqueado ? 'rgba(200,148,26,0.35)' : '#C8941A',
+            color: '#3D2314', border: 'none', padding: '4px 10px',
+            borderRadius: 4, fontSize: 11, fontWeight: 600,
+            cursor: busy ? 'wait' : 'pointer',
+            whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
+          }}>
+          {busy ? 'Gerando boleto...' : bloqueado ? '⚠ Gerar boleto' : 'Gerar boleto'}
+        </button>
+        {bloqueado && (
+          <button type="button" onClick={abrirCadastroCliente}
+            title={motivoDesabilitado ?? ''}
+            style={{
+              background: 'transparent', color: '#3D2314',
+              border: '0.5px dashed rgba(61,35,20,0.35)',
+              padding: '3px 7px', borderRadius: 3,
+              fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+            Completar cadastro
+          </button>
+        )}
+      </div>
     )
   }
 
