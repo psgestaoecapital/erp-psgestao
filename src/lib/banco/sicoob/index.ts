@@ -18,16 +18,12 @@ const API_HOST: Record<SicoobAmbiente, string> = {
   homologacao: 'sandbox.sicoob.com.br',
 }
 
-// Escopos: tentativa com nomes do Sicoob V3 (cobrancas_*). Se algum
-// nome causar invalid_scope, o erro lista — basta remover. Manter
-// 'cobrancas_boletos_incluir' (essencial pra registrar).
-const SCOPES = [
-  'cobrancas_boletos_incluir',
-  'cobrancas_boletos_consultar',
-  'cobrancas_boletos_pagador',
-  'cobrancas_boletos_baixar',
-  'cobrancas_boletos_alterar',
-].join(' ')
+// Escopo: o Keycloak do Sicoob dispara invalid_scope quando recebe
+// varios scopes na mesma requisicao (bug keycloak#42877). Os escopos
+// estao todos vinculados ao app no portal — pedimos UM por requisicao
+// conforme a operacao. Aqui o adapter so emite boleto (operacao
+// 'incluir'), entao trabalhamos com um token de scope 'boletos_inclusao'.
+const SCOPE_INCLUIR_BOLETO = 'boletos_inclusao'
 
 export type Credencial = {
   client_id: string
@@ -79,7 +75,7 @@ export async function obterToken(c: Credencial): Promise<string> {
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: c.client_id,
-    scope: SCOPES,
+    scope: SCOPE_INCLUIR_BOLETO,
   }).toString()
 
   const res = await request<{ access_token?: string; expires_in?: number; error?: string; error_description?: string }>({
