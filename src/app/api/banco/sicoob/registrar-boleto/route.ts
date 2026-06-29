@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { registrarBoleto, type SicoobAmbiente } from '@/lib/banco/sicoob'
+import { registrarBoleto, segundaViaBoleto, type SicoobAmbiente } from '@/lib/banco/sicoob'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -164,12 +164,43 @@ export async function POST(req: NextRequest) {
       }, { status: 502 })
     }
 
-    // 5) persistir no titulo
+    // 5) baixar PDF da 2a via e guardar no Storage (falhar aqui nao deve
+    //    quebrar o registro do boleto — gera so um warning no log).
+    let boletoUrl: string | null = null
+    try {
+      const sv = await segundaViaBoleto({
+        client_id: clientId, ambiente,
+        pfx, passphrase: certSenha,
+        cooperativa, conta, codigo_beneficiario: codigoBeneficiario, convenio,
+      }, result.nuTituloGerado)
+      if (sv.pdfBase64) {
+        const pdfBytes = Buffer.from(sv.pdfBase64, 'base64')
+        const objectPath = `${companyId}/${receber_id}.pdf`
+        const up = await supabaseAdmin.storage.from('boletos')
+          .upload(objectPath, pdfBytes, { contentType: 'application/pdf', upsert: true })
+        if (!up.error) {
+          // signed URL longa (1 ano) — bucket privado, exposto so via URL.
+          const signed = await supabaseAdmin.storage.from('boletos')
+            .createSignedUrl(objectPath, 60 * 60 * 24 * 365)
+          if (signed.data?.signedUrl) boletoUrl = signed.data.signedUrl
+        }
+      } else {
+        await logSync(companyId, 'erro',
+          `2a via sem PDF (status ${sv.status})`,
+          { receber_id, raw: sv.raw })
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      await logSync(companyId, 'erro', `2a via Sicoob falhou: ${msg}`, { receber_id })
+    }
+
+    // 6) persistir no titulo (com ou sem PDF)
     await supabaseAdmin.from('erp_receber').update({
       boleto_nosso_numero: result.nuTituloGerado,
       boleto_linha_digitavel: result.linhaDigitavel,
       boleto_codigo_barras: result.codigoBarras ?? null,
       boleto_qr_code: result.qrCode ?? null,
+      boleto_url: boletoUrl,
       boleto_banco_codigo: BANCO,
       boleto_status: 'registrado',
       boleto_emitido_em: new Date().toISOString(),
@@ -177,7 +208,7 @@ export async function POST(req: NextRequest) {
     }).eq('id', receber_id)
 
     await logSync(companyId, 'ok',
-      `boleto registrado nu=${result.nuTituloGerado}${result.qrCode ? ' (hibrido com Pix)' : ''}`,
+      `boleto registrado nu=${result.nuTituloGerado}${result.qrCode ? ' (hibrido com Pix)' : ''}${boletoUrl ? ' (PDF salvo)' : ' (sem PDF)'}`,
       { receber_id, ambiente })
 
     return NextResponse.json({
@@ -186,6 +217,7 @@ export async function POST(req: NextRequest) {
       linha_digitavel: result.linhaDigitavel,
       codigo_barras: result.codigoBarras ?? null,
       qr_code: result.qrCode ?? null,
+      boleto_url: boletoUrl,
       ambiente,
     })
   } catch (e) {
