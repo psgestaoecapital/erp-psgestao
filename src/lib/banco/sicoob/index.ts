@@ -151,15 +151,17 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     dataVencimento: input.vencimentoISO,
     numeroParcela: 1,
     aceite: true,
+    // Sicoob V3 — schema pagador: { numeroCpfCnpj, nome, endereco,
+    // bairro, cidade, cep, uf, email }. 'logradouro'/'tipoPessoa' nao
+    // existem — Sicoob deriva PF/PJ pelo tamanho do CPF/CNPJ.
     pagador: {
       numeroCpfCnpj: documentoPagador,
       nome: cleanText(input.pagador.nome, 70),
-      logradouro: cleanText(input.pagador.logradouro ?? '', 40),
+      endereco: cleanText(input.pagador.logradouro ?? '', 40),
       bairro: cleanText(input.pagador.bairro ?? '', 40),
       cidade: cleanText(input.pagador.cidade ?? '', 30),
-      uf: cleanText(input.pagador.uf ?? '', 2).toUpperCase(),
       cep: onlyDigits(input.pagador.cep ?? ''),
-      tipoPessoa: input.pagador.tipo === 'PF' ? 'FISICA' : 'JURIDICA',
+      uf: cleanText(input.pagador.uf ?? '', 2).toUpperCase(),
     },
   }
   if (input.hibrido) payload.hibrido = true
