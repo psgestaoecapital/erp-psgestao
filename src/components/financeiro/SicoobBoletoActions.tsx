@@ -87,6 +87,7 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
 
 export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
+  const [buscandoPdf, setBuscandoPdf] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | null>(null)
 
   const motivoDesabilitado = useMemo(
@@ -148,6 +149,30 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
     }
   }
 
+  const buscarPdf = async () => {
+    if (buscandoPdf) return
+    setBuscandoPdf(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/sicoob/buscar-pdf-boleto', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          'authorization': session ? `Bearer ${session.access_token}` : '',
+        },
+        body: JSON.stringify({ receber_id: receberId }),
+      })
+      const j = await r.json()
+      if (!j.ok) { alert(j.erro || 'Nao foi possivel buscar o PDF.'); return }
+      onSucesso?.()
+    } catch (e) {
+      alert(`Nao foi possivel buscar o PDF: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setBuscandoPdf(false)
+    }
+  }
+
   if (!registrado) {
     const desabilitado = !!motivoDesabilitado || busy
     return (
@@ -188,12 +213,19 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
         }}>
         ✓ Boleto gerado{boleto.nossoNumero ? ` · ${boleto.nossoNumero}` : ''}
       </span>
-      <button type="button" onClick={() => boleto.url && window.open(boleto.url, '_blank', 'noopener,noreferrer')}
-        disabled={!boleto.url}
-        title={boleto.url ? 'Imprimir / ver boleto' : 'PDF indisponivel'}
-        style={boleto.url ? btnSec : btnDisabled}>
-        Imprimir
-      </button>
+      {boleto.url ? (
+        <button type="button" onClick={() => window.open(boleto.url!, '_blank', 'noopener,noreferrer')}
+          title="Imprimir / ver boleto"
+          style={btnSec}>
+          Imprimir
+        </button>
+      ) : (
+        <button type="button" onClick={buscarPdf} disabled={buscandoPdf}
+          title="Buscar o PDF do boleto no Sicoob"
+          style={{ ...btnSec, opacity: buscandoPdf ? 0.6 : 1, cursor: buscandoPdf ? 'wait' : 'pointer' }}>
+          {buscandoPdf ? 'Buscando PDF...' : 'Buscar PDF'}
+        </button>
+      )}
       <button type="button" onClick={enviarWhats}
         title={telefoneE164(cliente) ? 'Enviar pelo WhatsApp' : 'Cliente sem telefone — escolher contato no WhatsApp'}
         style={btnSec}>
