@@ -87,7 +87,6 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
 
 export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
-  const [buscandoPdf, setBuscandoPdf] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | null>(null)
 
   const motivoDesabilitado = useMemo(
@@ -110,8 +109,7 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
     setTimeout(() => setCopiou(null), 1500)
   }
 
-  const enviarWhats = () => {
-    const numero = telefoneE164(cliente)
+  const montarMsgWhats = (urlPdf: string | null) => {
     const partes = [
       `Ola${cliente?.nome ? ` ${cliente.nome.split(' ')[0]}` : ''}! Segue seu boleto PS Gestao.`,
       `Valor: ${fmtBRL(valor)}`,
@@ -119,10 +117,31 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
     ]
     if (boleto.linhaDigitavel) partes.push(`Linha digitavel: ${boleto.linhaDigitavel}`)
     if (boleto.qrCode) partes.push(`Pix copia-e-cola: ${boleto.qrCode}`)
-    if (boleto.url) partes.push(`Boleto em PDF: ${boleto.url}`)
-    const msg = encodeURIComponent(partes.join('\n'))
+    if (urlPdf) partes.push(`Boleto em PDF: ${urlPdf}`)
+    return partes.join('\n')
+  }
+
+  const enviarWhats = async () => {
+    const numero = telefoneE164(cliente)
+    // Garante boleto_url materializado antes de abrir o wa.me (modo
+    // as=json forca geracao/cache sem servir o binario).
+    let urlPdf: string | null = boleto.url
+    if (!urlPdf) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const r = await fetch(`/api/boleto/pdf?receber_id=${encodeURIComponent(receberId)}&as=json`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { authorization: session ? `Bearer ${session.access_token}` : '' },
+        })
+        const j = await r.json()
+        if (j?.ok && j.boleto_url) urlPdf = j.boleto_url
+      } catch { /* sem PDF — segue sem o link */ }
+    }
+    const msg = encodeURIComponent(montarMsgWhats(urlPdf))
     const url = numero ? `https://wa.me/${numero}?text=${msg}` : `https://wa.me/?text=${msg}`
     window.open(url, '_blank', 'noopener,noreferrer')
+    if (urlPdf && urlPdf !== boleto.url) onSucesso?.()
   }
 
   const abrirCadastroCliente = () => {
@@ -158,30 +177,6 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
       alert(`Nao foi possivel gerar o boleto: ${(e as Error).message || 'erro de rede'}`)
     } finally {
       setBusy(false)
-    }
-  }
-
-  const buscarPdf = async () => {
-    if (buscandoPdf) return
-    setBuscandoPdf(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const r = await fetch('/api/banco/sicoob/buscar-pdf-boleto', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'content-type': 'application/json',
-          'authorization': session ? `Bearer ${session.access_token}` : '',
-        },
-        body: JSON.stringify({ receber_id: receberId }),
-      })
-      const j = await r.json()
-      if (!j.ok) { alert(j.erro || 'Nao foi possivel buscar o PDF.'); return }
-      onSucesso?.()
-    } catch (e) {
-      alert(`Nao foi possivel buscar o PDF: ${(e as Error).message || 'erro de rede'}`)
-    } finally {
-      setBuscandoPdf(false)
     }
   }
 
@@ -240,19 +235,12 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
         }}>
         ✓ Boleto gerado{boleto.nossoNumero ? ` · ${boleto.nossoNumero}` : ''}
       </span>
-      {boleto.url ? (
-        <button type="button" onClick={() => window.open(boleto.url!, '_blank', 'noopener,noreferrer')}
-          title="Imprimir / ver boleto"
-          style={btnSec}>
-          Imprimir
-        </button>
-      ) : (
-        <button type="button" onClick={buscarPdf} disabled={buscandoPdf}
-          title="Buscar o PDF do boleto no Sicoob"
-          style={{ ...btnSec, opacity: buscandoPdf ? 0.6 : 1, cursor: buscandoPdf ? 'wait' : 'pointer' }}>
-          {buscandoPdf ? 'Buscando PDF...' : 'Buscar PDF'}
-        </button>
-      )}
+      <button type="button"
+        onClick={() => window.open(`/api/boleto/pdf?receber_id=${encodeURIComponent(receberId)}`, '_blank', 'noopener,noreferrer')}
+        title="Imprimir / ver boleto (PDF gerado pelo PS Gestao)"
+        style={btnSec}>
+        Imprimir
+      </button>
       <button type="button" onClick={enviarWhats}
         title={telefoneE164(cliente) ? 'Enviar pelo WhatsApp' : 'Cliente sem telefone — escolher contato no WhatsApp'}
         style={btnSec}>
