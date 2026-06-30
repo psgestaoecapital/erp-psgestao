@@ -19,6 +19,18 @@ import { gerarPdfBoleto, type BoletoDados } from '@/lib/boleto/gerarPdfBoleto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// Vercel: subir o teto de execucao (default 10s) — pdf-lib + bwip-js +
+// qrcode + upload no bucket pode passar dos 10s na 1a geracao.
+export const maxDuration = 60
+
+async function logGen(company_id: string, status: 'ok' | 'erro', mensagem: string, payload: unknown) {
+  try {
+    await supabaseAdmin.from('erp_banco_sync_log').insert({
+      company_id, banco_codigo: '000', provider: 'pdf-boleto', tipo: 'boleto_pdf_gen',
+      status, qtd: 1, mensagem: mensagem.slice(0, 1000), payload_resumo: payload,
+    })
+  } catch { /* nao deixar log derrubar a rota */ }
+}
 
 function userSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -75,12 +87,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'titulo sem boleto registrado ou sem codigo de barras' }, { status: 412 })
     }
 
-    // Cache: se ja temos PDF salvo, redireciona pra signed URL existente
-    // (suficiente — proximo refresh do cliente vai pegar o cache do bucket).
-    // Forca regeracao com ?force=1.
+    // Cache: se ja temos PDF salvo, redireciona pra signed URL existente.
+    // Forca regeracao com ?force=1 ou ?regenerar=true (alias mais legivel
+    // — util quando o template muda e queremos invalidar caches).
     // Modo as=json devolve { ok, boleto_url } sem servir o binario — pro
     // botao WhatsApp materializar o link sem abrir aba intermediaria.
     const force = url.searchParams.get('force') === '1'
+      || url.searchParams.get('regenerar') === 'true'
     const asJson = url.searchParams.get('as') === 'json'
     if (rec.boleto_url && !force) {
       if (asJson) return NextResponse.json({ ok: true, boleto_url: rec.boleto_url })
@@ -153,21 +166,36 @@ export async function GET(req: NextRequest) {
       instrucoes: [],
     }
 
-    const pdfBytes = await gerarPdfBoleto(dados)
+    // Gera + upload em try/catch dedicado pra capturar erro real do
+    // template (em vez de "Failed to fetch" no front).
+    let pdfBytes: Uint8Array
+    try {
+      pdfBytes = await gerarPdfBoleto(dados)
+    } catch (genErr) {
+      const stack = genErr instanceof Error ? `${genErr.message}\n${genErr.stack ?? ''}` : String(genErr)
+      await logGen(companyId, 'erro', `gerarPdfBoleto falhou: ${stack}`, { receber_id: receberId })
+      return NextResponse.json({ ok: false, erro: 'Falha ao gerar o PDF do boleto.', detalhe: stack.slice(0, 500) }, { status: 500 })
+    }
 
     // Upload no bucket e atualiza boleto_url. upsert pra sobrescrever em
-    // regeracoes (?force=1).
+    // regeracoes (?force=1 / ?regenerar=true).
     const objectPath = `${companyId}/${receberId}.pdf`
-    const up = await supabaseAdmin.storage.from('boletos')
-      .upload(objectPath, Buffer.from(pdfBytes), { contentType: 'application/pdf', upsert: true })
     let boletoUrl: string | null = null
-    if (!up.error) {
+    try {
+      const up = await supabaseAdmin.storage.from('boletos')
+        .upload(objectPath, Buffer.from(pdfBytes), { contentType: 'application/pdf', upsert: true })
+      if (up.error) throw up.error
       const signed = await supabaseAdmin.storage.from('boletos')
         .createSignedUrl(objectPath, 60 * 60 * 24 * 365)
       boletoUrl = signed.data?.signedUrl ?? null
       if (boletoUrl) {
         await supabaseAdmin.from('erp_receber').update({ boleto_url: boletoUrl }).eq('id', receberId)
+        await logGen(companyId, 'ok', `pdf gerado e salvo (${pdfBytes.byteLength} bytes)`, { receber_id: receberId })
       }
+    } catch (upErr) {
+      const msg = upErr instanceof Error ? upErr.message : String(upErr)
+      await logGen(companyId, 'erro', `upload/sign falhou: ${msg}`, { receber_id: receberId })
+      // segue servindo o PDF inline mesmo sem cache no bucket
     }
 
     if (asJson) {
