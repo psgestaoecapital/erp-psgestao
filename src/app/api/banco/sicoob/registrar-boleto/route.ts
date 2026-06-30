@@ -140,7 +140,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'Cliente sem CPF/CNPJ — necessario para registrar boleto.' }, { status: 412 })
     }
 
-    // 4) registrar
+    // 4) registrar — datas no fuso de Sao Paulo. Sicoob recusa dataEmissao
+    //    futura ("5002 Data de Emissao deve ser menor ou igual a data
+    //    atual"). Em horario UTC tarde da noite, o servidor ja virou o dia
+    //    mas Brasilia nao — daí o boleto cai como "futuro" pro banco.
+    //    Solucao: clampar emissao <= hoje (SP) e vencimento >= emissao.
+    const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' })
+      .format(new Date()) // 'YYYY-MM-DD'
+    const emissaoPretendida = rec.data_emissao ?? hojeSP
+    const emissaoISO = emissaoPretendida > hojeSP ? hojeSP : emissaoPretendida
+    const vencimentoISO = rec.data_vencimento < emissaoISO ? emissaoISO : rec.data_vencimento
+
     const result = await registrarBoleto({
       cred: {
         client_id: clientId, ambiente,
@@ -149,8 +159,8 @@ export async function POST(req: NextRequest) {
       },
       seuNumero: (rec.numero_documento ?? rec.id.slice(0, 12)).toString(),
       valor: Number(rec.valor),
-      emissaoISO: rec.data_emissao ?? new Date().toISOString().slice(0, 10),
-      vencimentoISO: rec.data_vencimento,
+      emissaoISO,
+      vencimentoISO,
       pagador,
       hibrido: hibrido ?? true, // default: boleto + Pix QR
     })
