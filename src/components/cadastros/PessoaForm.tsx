@@ -1,9 +1,22 @@
 'use client'
 
+// Form de cadastro/edicao de Cliente/Fornecedor.
+// Endereco completo (necessario p/ emitir boleto): cep, logradouro, numero,
+// bairro, complemento, cidade, uf. WhatsApp separado de telefone.
+// - Busca CNPJ (BrasilAPI/Receita) preenche razao social, e-mail, telefone
+//   e endereco estruturado (cep, logradouro, numero, bairro, cidade, uf).
+// - Busca CEP (BrasilAPI) auto-preenche logradouro, bairro, cidade, uf.
+// - Validacao "soft": so nome eh obrigatorio pra salvar. Endereco incompleto
+//   gera AVISO ("Endereco incompleto — necessario para emitir boleto") sem
+//   bloquear o save — o gate do boleto ja fica na tela de cobranca.
+// - Duplicidade: ao salvar, verifica se ja existe cliente/fornecedor com o
+//   mesmo CNPJ/CPF na empresa; oferece abrir o existente.
+
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import FornecedorContatosCard from './FornecedorContatosCard'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
+import { buscarCEP } from '@/lib/cadastros/buscarCEP'
 
 export interface Pessoa {
   id: string
@@ -14,6 +27,12 @@ export interface Pessoa {
   tipo_pessoa: 'PF' | 'PJ' | null
   email: string | null
   telefone: string | null
+  whatsapp?: string | null
+  cep?: string | null
+  logradouro?: string | null
+  numero?: string | null
+  bairro?: string | null
+  complemento?: string | null
   cidade: string | null
   uf: string | null
   ativo: boolean
@@ -41,6 +60,21 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
+const onlyDigits = (s: string) => (s ?? '').replace(/\D/g, '')
+
+function enderecoIncompleto(v: {
+  cep: string; logradouro: string; numero: string; bairro: string; cidade: string; uf: string
+}): string | null {
+  const faltando: string[] = []
+  if (onlyDigits(v.cep).length !== 8) faltando.push('CEP')
+  if (!v.logradouro.trim()) faltando.push('logradouro')
+  if (!v.numero.trim()) faltando.push('número')
+  if (!v.bairro.trim()) faltando.push('bairro')
+  if (!v.cidade.trim()) faltando.push('cidade')
+  if (!v.uf.trim()) faltando.push('UF')
+  return faltando.length > 0 ? faltando.join(', ') : null
+}
+
 export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }: Props) {
   const tabela = tipo === 'cliente' ? 'erp_clientes' : 'erp_fornecedores'
   const label = tipo === 'cliente' ? 'cliente' : 'fornecedor'
@@ -51,13 +85,21 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
   const [razaoSocial, setRazaoSocial] = useState(pessoa?.razao_social ?? '')
   const [email, setEmail] = useState(pessoa?.email ?? '')
   const [telefone, setTelefone] = useState(pessoa?.telefone ?? '')
+  const [whatsapp, setWhatsapp] = useState(pessoa?.whatsapp ?? '')
+  const [cep, setCep] = useState(pessoa?.cep ?? '')
+  const [logradouro, setLogradouro] = useState(pessoa?.logradouro ?? '')
+  const [numero, setNumero] = useState(pessoa?.numero ?? '')
+  const [bairro, setBairro] = useState(pessoa?.bairro ?? '')
+  const [complemento, setComplemento] = useState(pessoa?.complemento ?? '')
   const [cidade, setCidade] = useState(pessoa?.cidade ?? '')
   const [uf, setUf] = useState(pessoa?.uf ?? '')
   const [tags, setTags] = useState<string[]>(pessoa?.tags ?? (tipo === 'cliente' ? ['Cliente'] : ['Fornecedor']))
   const [novaTag, setNovaTag] = useState('')
   const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
+  const [buscandoCEP, setBuscandoCEP] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   function adicionarTag(t: string) {
     const limpa = t.trim()
@@ -66,14 +108,13 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
     setTags([...tags, limpa])
     setNovaTag('')
   }
-
   function removerTag(t: string) {
     setTags(tags.filter((x) => x !== t))
   }
 
   async function handleBuscarCNPJ() {
     if (tipoPessoa !== 'PJ') return
-    const digits = cnpjCpf.replace(/\D/g, '')
+    const digits = onlyDigits(cnpjCpf)
     if (digits.length !== 14) {
       setErro('CNPJ deve ter 14 dígitos')
       return
@@ -90,26 +131,100 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
     if (!nomeFantasia) setNomeFantasia(dados.nome_fantasia || dados.razao_social)
     if (dados.email && !email) setEmail(dados.email)
     if (dados.telefone && !telefone) setTelefone(dados.telefone)
+    if (dados.cep && !cep) setCep(dados.cep)
+    if (dados.logradouro && !logradouro) setLogradouro(dados.logradouro)
+    if (dados.numero && !numero) setNumero(dados.numero)
+    if (dados.bairro && !bairro) setBairro(dados.bairro)
+    if (dados.complemento && !complemento) setComplemento(dados.complemento)
     if (dados.cidade && !cidade) setCidade(dados.cidade)
     if (dados.uf && !uf) setUf(dados.uf)
   }
 
+  async function handleBuscarCEP() {
+    const digits = onlyDigits(cep)
+    if (digits.length !== 8) {
+      setErro('CEP deve ter 8 dígitos')
+      return
+    }
+    setBuscandoCEP(true)
+    setErro(null)
+    const dados = await buscarCEP(cep)
+    setBuscandoCEP(false)
+    if (!dados) {
+      setErro('CEP não encontrado — preencha manualmente')
+      return
+    }
+    setLogradouro(dados.logradouro ?? logradouro)
+    setBairro(dados.bairro ?? bairro)
+    setCidade(dados.cidade ?? cidade)
+    setUf(dados.uf ?? uf)
+  }
+
   async function handleSalvar() {
+    setErro(null)
+    setAviso(null)
     if (!nomeFantasia.trim()) {
       setErro('Nome / Apelido é obrigatório')
       return
     }
-    setSalvando(true)
-    setErro(null)
 
-    const payload = {
+    const cnpjLimpo = onlyDigits(cnpjCpf)
+
+    // Duplicidade de CNPJ/CPF na empresa (so PJ ou PF com documento)
+    if (cnpjLimpo.length > 0) {
+      const { data: dup } = await supabase
+        .from(tabela)
+        .select('id, nome_fantasia, razao_social')
+        .eq('company_id', companyId)
+        .eq('cnpj_cpf', cnpjLimpo)
+        .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
+        .limit(1)
+      if (dup && dup.length > 0) {
+        const existente = dup[0] as { id: string; nome_fantasia: string | null; razao_social: string | null }
+        const nomeEx = existente.nome_fantasia || existente.razao_social || 'cliente cadastrado'
+        const queroAbrir = window.confirm(
+          `Já existe um ${label} com este CNPJ: ${nomeEx}.\n\nQuer abrir o cadastro existente em vez de criar um duplicado?`,
+        )
+        if (queroAbrir) {
+          // Usuario decide editar o existente — fecha o form e pula a inclusao.
+          // PessoasList faz refresh em onSaved, basta dispará-lo.
+          onSaved()
+          return
+        }
+        // Se o usuario quis MESMO duplicar, segue o save abaixo.
+      }
+    }
+
+    const faltando = enderecoIncompleto({ cep, logradouro, numero, bairro, cidade, uf })
+    if (faltando) {
+      // Aviso, nao bloqueia.
+      setAviso(`Endereço incompleto (${faltando}) — necessário para emitir boleto.`)
+    }
+
+    setSalvando(true)
+
+    const numeroFmt = numero.trim()
+    const logradouroComNumero = numeroFmt
+      ? `${logradouro.trim()}, ${numeroFmt}`
+      : logradouro.trim()
+
+    // Campos endereco vao tanto crus (cep/logradouro/bairro/numero/complemento)
+    // quanto montados — adapter Sicoob usa 'logradouro' direto pra montar
+    // o campo 'endereco' do payload Sicoob. Mantemos os 2 separados.
+    const payload: Record<string, unknown> = {
       company_id: companyId,
       nome_fantasia: nomeFantasia.trim(),
       razao_social: razaoSocial.trim() || null,
-      cnpj_cpf: cnpjCpf.replace(/\D/g, '') || null,
+      cnpj_cpf: cnpjLimpo || null,
       tipo_pessoa: tipoPessoa,
       email: email.trim() || null,
       telefone: telefone.trim() || null,
+      whatsapp: whatsapp.trim() || null,
+      cep: onlyDigits(cep) || null,
+      logradouro: logradouroComNumero || null,
+      numero: numeroFmt || null,
+      bairro: bairro.trim() || null,
+      complemento: complemento.trim() || null,
       cidade: cidade.trim() || null,
       uf: uf.trim().toUpperCase().slice(0, 2) || null,
       ativo: pessoa?.ativo ?? true,
@@ -121,8 +236,11 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       : await supabase.from(tabela).insert(payload)
 
     setSalvando(false)
-    if (result.error) setErro('Erro: ' + result.error.message)
-    else onSaved()
+    if (result.error) {
+      setErro('Erro: ' + result.error.message)
+      return
+    }
+    onSaved()
   }
 
   return (
@@ -132,7 +250,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: '#FAF7F2', borderRadius: 12, maxWidth: 580, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
+        style={{ background: '#FAF7F2', borderRadius: 12, maxWidth: 640, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
       >
         <div style={{ background: '#3D2314', color: '#FAF7F2', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 12, borderTopRightRadius: 12, position: 'sticky', top: 0, zIndex: 1 }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
@@ -143,7 +261,10 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
 
         <div style={{ padding: 24 }}>
           {erro && (
-            <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{erro}</div>
+            <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{erro}</div>
+          )}
+          {aviso && (
+            <div style={{ background: '#FEF3C7', color: '#7A5A0F', padding: '10px 14px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{aviso}</div>
           )}
 
           <Campo label="Tipo de pessoa *">
@@ -175,8 +296,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
           </Campo>
 
           <Campo
-            label={tipoPessoa === 'PJ' ? 'CNPJ' : 'CPF'}
-            hint={tipoPessoa === 'PJ' ? 'Auto-preenche dados via BrasilAPI (Receita Federal)' : 'Opcional'}
+            label={tipoPessoa === 'PJ' ? 'CNPJ *' : 'CPF'}
+            hint={tipoPessoa === 'PJ' ? 'Auto-preenche dados e endereço via BrasilAPI (Receita Federal)' : 'Opcional'}
           >
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -203,7 +324,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
           </Campo>
 
           {tipoPessoa === 'PJ' && (
-            <Campo label="Razão Social">
+            <Campo label="Razão Social *">
               <input value={razaoSocial} onChange={(e) => setRazaoSocial(e.target.value)} style={inputStyle} />
             </Campo>
           )}
@@ -217,13 +338,61 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
             </Campo>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 12 }}>
-            <Campo label="Cidade">
-              <input value={cidade} onChange={(e) => setCidade(e.target.value)} style={inputStyle} />
+          <Campo label="WhatsApp" hint="Usado pelo botão Enviar boleto pelo WhatsApp">
+            <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(00) 90000-0000" style={inputStyle} />
+          </Campo>
+
+          <div style={{ marginTop: 8, padding: '12px 14px', background: '#FFFFFF', borderRadius: 8, border: '0.5px solid rgba(61,35,20,0.15)' }}>
+            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, fontWeight: 700 }}>
+              Endereço (obrigatório para boleto)
+            </div>
+
+            <Campo label="CEP *" hint="Digite e clique buscar — preenche logradouro, bairro, cidade e UF">
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={cep}
+                  onChange={(e) => setCep(e.target.value)}
+                  onBlur={() => { if (onlyDigits(cep).length === 8 && !logradouro) handleBuscarCEP() }}
+                  placeholder="00000-000"
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={handleBuscarCEP}
+                  disabled={buscandoCEP}
+                  style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: buscandoCEP ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  {buscandoCEP ? 'Buscando…' : '🔍 Buscar'}
+                </button>
+              </div>
             </Campo>
-            <Campo label="UF">
-              <input value={uf} onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))} style={inputStyle} maxLength={2} />
-            </Campo>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 12 }}>
+              <Campo label="Logradouro *">
+                <input value={logradouro} onChange={(e) => setLogradouro(e.target.value)} style={inputStyle} />
+              </Campo>
+              <Campo label="Número *">
+                <input value={numero} onChange={(e) => setNumero(e.target.value)} style={inputStyle} />
+              </Campo>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Campo label="Bairro *">
+                <input value={bairro} onChange={(e) => setBairro(e.target.value)} style={inputStyle} />
+              </Campo>
+              <Campo label="Complemento">
+                <input value={complemento} onChange={(e) => setComplemento(e.target.value)} placeholder="sala, andar…" style={inputStyle} />
+              </Campo>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 12 }}>
+              <Campo label="Cidade *">
+                <input value={cidade} onChange={(e) => setCidade(e.target.value)} style={inputStyle} />
+              </Campo>
+              <Campo label="UF *">
+                <input value={uf} onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))} style={inputStyle} maxLength={2} />
+              </Campo>
+            </div>
           </div>
 
           <Campo label="Tags" hint="Categorize a pessoa · clique nas sugestões ou digite uma tag nova">
