@@ -87,6 +87,7 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
 
 export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
+  const [imprimindo, setImprimindo] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | null>(null)
 
   const motivoDesabilitado = useMemo(
@@ -107,6 +108,46 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
     navigator.clipboard.writeText(boleto.qrCode)
     setCopiou('pix')
     setTimeout(() => setCopiou(null), 1500)
+  }
+
+  const abrirPdfBoleto = async () => {
+    if (imprimindo) return
+    setImprimindo(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch(`/api/boleto/pdf?receber_id=${encodeURIComponent(receberId)}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { authorization: session ? `Bearer ${session.access_token}` : '' },
+      })
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`
+        try { const j = await r.json(); if (j?.erro) msg = j.erro } catch { /* binario sem json */ }
+        alert(`Nao foi possivel abrir o boleto: ${msg}`)
+        return
+      }
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      // Abre numa aba nova; revoga depois pra liberar memoria.
+      const w = window.open(url, '_blank', 'noopener,noreferrer')
+      if (!w) {
+        // Fallback popup-blocker: dispara download via link temporario.
+        const a = document.createElement('a')
+        a.href = url
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      // Se boleto_url acabou de ser materializado na rota, refresca listagem.
+      if (!boleto.url) onSucesso?.()
+    } catch (e) {
+      alert(`Nao foi possivel abrir o boleto: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setImprimindo(false)
+    }
   }
 
   const montarMsgWhats = (urlPdf: string | null) => {
@@ -236,10 +277,11 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
         ✓ Boleto gerado{boleto.nossoNumero ? ` · ${boleto.nossoNumero}` : ''}
       </span>
       <button type="button"
-        onClick={() => window.open(`/api/boleto/pdf?receber_id=${encodeURIComponent(receberId)}`, '_blank', 'noopener,noreferrer')}
+        onClick={abrirPdfBoleto}
+        disabled={imprimindo}
         title="Imprimir / ver boleto (PDF gerado pelo PS Gestao)"
-        style={btnSec}>
-        Imprimir
+        style={{ ...btnSec, opacity: imprimindo ? 0.6 : 1, cursor: imprimindo ? 'wait' : 'pointer' }}>
+        {imprimindo ? 'Abrindo PDF...' : 'Imprimir'}
       </button>
       <button type="button" onClick={enviarWhats}
         title={telefoneE164(cliente) ? 'Enviar pelo WhatsApp' : 'Cliente sem telefone — escolher contato no WhatsApp'}
