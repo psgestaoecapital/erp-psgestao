@@ -114,7 +114,8 @@ function drawText(page: PDFPage, txt: string, x: number, y: number, font: PDFFon
   page.drawText(sanitizeWinAnsi(String(txt)), { x, y, size, font, color })
 }
 
-// Caixa rotulada — label pequena em cima, valor abaixo.
+// Caixa rotulada — label pequena no topo, valor LOGO abaixo (pra liberar
+// o resto da caixa pra linhas extras desenhadas por drawText).
 function drawCampo(page: PDFPage, x: number, y: number, w: number, h: number, label: string, valor: string | null, font: PDFFont, bold: PDFFont) {
   // moldura
   drawLine(page, x, y, x + w, y) // topo
@@ -122,7 +123,7 @@ function drawCampo(page: PDFPage, x: number, y: number, w: number, h: number, la
   drawLine(page, x, y, x, y - h) // esq
   drawLine(page, x + w, y, x + w, y - h) // dir
   drawText(page, label.toUpperCase(), x + 3, y - 8, font, 6)
-  if (valor) drawText(page, valor, x + 3, y - h + 5, bold, 9)
+  if (valor) drawText(page, valor, x + 3, y - 20, bold, 9)
 }
 
 export async function gerarPdfBoleto(d: BoletoDados): Promise<Uint8Array> {
@@ -133,7 +134,10 @@ export async function gerarPdfBoleto(d: BoletoDados): Promise<Uint8Array> {
 
   const margem = 28
   const w = 595 - margem * 2 // 539
-  const meio = 420 // y da linha de corte aproximada — Recibo em cima, Ficha embaixo
+  // Linha de corte mais alta — o Recibo cabe em ~270pt no topo; assim a
+  // Ficha ganha 570pt embaixo (cabe Local Pagamento + Beneficiario +
+  // bloco de instrucoes + Pagador + QR + barras + autenticacao).
+  const meio = 540
 
   // Banner do banco (reutilizavel para Recibo e Ficha)
   function drawBancoHeader(yTop: number) {
@@ -186,15 +190,15 @@ export async function gerarPdfBoleto(d: BoletoDados): Promise<Uint8Array> {
     d.pagador.endereco.cep ? fmtCep(d.pagador.endereco.cep) : null,
   ].filter(Boolean).join(' - ')
   // Bloco Pagador (2 linhas: nome+doc na 1a, endereco na 2a). drawCampo
-  // escreve so a 1a linha do valor; a 2a linha vai por drawText separado
-  // pra evitar texto sobreposto.
-  drawCampo(page, margem, y, w, 38, 'Pagador',
+  // escreve so a 1a linha (em y - 20); a 2a linha (endereco) vai em y -
+  // 32 por drawText separado, dentro da mesma caixa de h=40.
+  drawCampo(page, margem, y, w, 40, 'Pagador',
     `${d.pagador.nome} - ${fmtCpfCnpj(d.pagador.cpfCnpj)}`,
     font, bold)
-  drawText(page, enderecoLinha, margem + 3, y - 22, font, 8)
-  y -= 38
+  drawText(page, enderecoLinha, margem + 3, y - 32, font, 8)
+  y -= 40
 
-  drawText(page, 'Autenticação mecânica - Recibo do Pagador', margem, y - 12, font, 7, rgb(0.4, 0.4, 0.4))
+  drawText(page, 'Autenticação mecânica - Recibo do Pagador', margem, y - 10, font, 7, rgb(0.4, 0.4, 0.4))
 
   // ============ Linha de corte (sem emoji — pdf-lib WinAnsi nao codifica ✂) ============
   drawLine(page, margem, meio + 16, margem + w, meio + 16, { dashed: true, color: { r: 0.5, g: 0.5, b: 0.5 } })
@@ -209,13 +213,13 @@ export async function gerarPdfBoleto(d: BoletoDados): Promise<Uint8Array> {
   drawCampo(page, margem + w * 0.7, y, w * 0.3, 22, 'Vencimento', fmtDataBR(d.dataVencimento), font, bold)
   y -= 22
 
-  // Beneficiario: 1a linha nome+cnpj via drawCampo, 2a linha agencia/conta
-  // por drawText abaixo (evita sobreposicao).
-  drawCampo(page, margem, y, w * 0.7, 30, 'Beneficiário',
+  // Beneficiario Ficha (2 linhas): nome+cnpj via drawCampo em y - 20,
+  // agencia/conta por drawText em y - 32, dentro da mesma caixa h=40.
+  drawCampo(page, margem, y, w * 0.7, 40, 'Beneficiário',
     `${d.beneficiario.nome} - ${fmtCpfCnpj(d.beneficiario.cnpj)}`, font, bold)
-  drawText(page, agConta, margem + 3, y - 22, font, 8)
-  drawCampo(page, margem + w * 0.7, y, w * 0.3, 30, 'Agência / Código', agConta || '-', font, bold)
-  y -= 30
+  drawText(page, agConta, margem + 3, y - 32, font, 8)
+  drawCampo(page, margem + w * 0.7, y, w * 0.3, 40, 'Agência / Código', agConta || '-', font, bold)
+  y -= 40
 
   drawCampo(page, margem, y, w * 0.25, 22, 'Data Documento', fmtDataBR(d.dataDocumento), font, bold)
   drawCampo(page, margem + w * 0.25, y, w * 0.25, 22, 'Nº Documento', d.numeroDocumento, font, bold)
@@ -238,12 +242,13 @@ export async function gerarPdfBoleto(d: BoletoDados): Promise<Uint8Array> {
   drawCampo(page, margem + w * 0.7, y, w * 0.3, blocoInstrH, 'Valor do Documento', fmtBRL(d.valor), font, bold)
   y -= blocoInstrH
 
-  // Pagador (Ficha) — 1a linha nome+doc, 2a linha endereco.
-  const enderecoPagFichaH = 38
+  // Pagador (Ficha) — 1a linha nome+doc (y - 20), 2a linha endereco
+  // (y - 32), caixa h=40.
+  const enderecoPagFichaH = 40
   drawCampo(page, margem, y, w, enderecoPagFichaH, 'Pagador',
     `${d.pagador.nome} - ${fmtCpfCnpj(d.pagador.cpfCnpj)}`,
     font, bold)
-  drawText(page, enderecoLinha, margem + 3, y - 22, font, 8)
+  drawText(page, enderecoLinha, margem + 3, y - 32, font, 8)
   y -= enderecoPagFichaH
 
   // QR Pix (se houver) ao lado/direita do bloco de barras
