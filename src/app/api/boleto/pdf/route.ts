@@ -87,20 +87,39 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'titulo sem boleto registrado ou sem codigo de barras' }, { status: 412 })
     }
 
-    // Cache: se ja temos PDF salvo, redireciona pra signed URL existente.
-    // Forca regeracao com ?force=1 ou ?regenerar=true (alias mais legivel
-    // — util quando o template muda e queremos invalidar caches).
+    // Cache: se ja temos PDF salvo, baixa do bucket e serve INLINE (mesma
+    // origem). NAO redirecionamos pra signed URL porque o fetch do front
+    // usa credentials:'include' e segue redirects — o cross-origin pro
+    // supabase storage estoura CORS e o front pega "Failed to fetch".
+    // Direct navigation funciona, mas o botao Imprimir usa fetch+blob.
+    // Forca regeracao com ?force=1 ou ?regenerar=true.
     // Modo as=json devolve { ok, boleto_url } sem servir o binario — pro
-    // botao WhatsApp materializar o link sem abrir aba intermediaria.
+    // botao WhatsApp materializar o link sem abrir aba intermediaria
+    // (o WhatsApp usa o link DIRETO no browser do receptor, sem fetch).
     const force = url.searchParams.get('force') === '1'
       || url.searchParams.get('regenerar') === 'true'
     const asJson = url.searchParams.get('as') === 'json'
+    const companyId: string = rec.company_id
+    const objectPath = `${companyId}/${receberId}.pdf`
+
     if (rec.boleto_url && !force) {
       if (asJson) return NextResponse.json({ ok: true, boleto_url: rec.boleto_url })
-      return NextResponse.redirect(rec.boleto_url, 302)
+      try {
+        const dl = await supabaseAdmin.storage.from('boletos').download(objectPath)
+        if (!dl.error && dl.data) {
+          const arr = new Uint8Array(await dl.data.arrayBuffer())
+          return new NextResponse(Buffer.from(arr), {
+            status: 200,
+            headers: {
+              'content-type': 'application/pdf',
+              'content-disposition': `inline; filename="boleto-${rec.boleto_nosso_numero ?? receberId}.pdf"`,
+              'cache-control': 'private, max-age=60',
+            },
+          })
+        }
+      } catch { /* cai pra regerar abaixo */ }
+      // fallback: cache no DB mas arquivo sumiu — regera abaixo
     }
-
-    const companyId: string = rec.company_id
 
     // companies (beneficiario)
     const { data: comp } = await supabaseAdmin.from('companies')
@@ -178,8 +197,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Upload no bucket e atualiza boleto_url. upsert pra sobrescrever em
-    // regeracoes (?force=1 / ?regenerar=true).
-    const objectPath = `${companyId}/${receberId}.pdf`
+    // regeracoes (?force=1 / ?regenerar=true). objectPath ja declarado
+    // no topo (pra reuso no cache hit).
     let boletoUrl: string | null = null
     try {
       const up = await supabaseAdmin.storage.from('boletos')
