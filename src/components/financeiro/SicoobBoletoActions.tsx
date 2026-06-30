@@ -151,15 +151,27 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
   }
 
   const montarMsgWhats = (urlPdf: string | null) => {
-    const partes = [
-      `Ola${cliente?.nome ? ` ${cliente.nome.split(' ')[0]}` : ''}! Segue seu boleto PS Gestao.`,
+    const primeiroNome = cliente?.nome ? cliente.nome.split(' ')[0] : null
+    const linhas: string[] = [
+      `Olá${primeiroNome ? ` ${primeiroNome}` : ''}! Segue seu boleto PS Gestão.`,
       `Valor: ${fmtBRL(valor)}`,
       `Vencimento: ${fmtDataBR(vencimentoISO)}`,
     ]
-    if (boleto.linhaDigitavel) partes.push(`Linha digitavel: ${boleto.linhaDigitavel}`)
-    if (boleto.qrCode) partes.push(`Pix copia-e-cola: ${boleto.qrCode}`)
-    if (urlPdf) partes.push(`Boleto em PDF: ${urlPdf}`)
-    return partes.join('\n')
+    if (boleto.qrCode) {
+      linhas.push('') // quebra em branco — vira %0A%0A no wa.me
+      linhas.push('*Pague pelo Pix* (copie o código abaixo):')
+      linhas.push(boleto.qrCode)
+    }
+    if (boleto.linhaDigitavel) {
+      linhas.push('')
+      linhas.push('Ou pague pela linha digitável no seu banco:')
+      linhas.push(boleto.linhaDigitavel)
+    }
+    if (urlPdf) {
+      linhas.push('')
+      linhas.push(`Baixe o boleto em PDF: ${urlPdf}`)
+    }
+    return linhas.join('\n')
   }
 
   const enviarWhats = async () => {
