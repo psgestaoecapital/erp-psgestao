@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -27,7 +29,7 @@ function temSegredoValido(req: NextRequest): boolean {
   return timingSafeEqual(A, B)
 }
 
-function userSupabase(req: NextRequest) {
+function userSupabaseBearer(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const auth = req.headers.get('authorization') || ''
@@ -35,6 +37,50 @@ function userSupabase(req: NextRequest) {
     global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
   })
+}
+
+// Aceita sessao via cookies do browser (createServerClient lendo os
+// cookies do request — funciona com fetch credentials:'include' sem
+// precisar do front passar Bearer Authorization manualmente).
+async function userSupabaseCookies() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const store = await cookies()
+  return createServerClient(url, anon, {
+    cookies: {
+      getAll: () => store.getAll().map((c) => ({ name: c.name, value: c.value })),
+      setAll: () => { /* read-only: rota nao precisa renovar sessao */ },
+    },
+  })
+}
+
+async function resolverUsuario(req: NextRequest): Promise<{ id: string } | null> {
+  // 1) Bearer Authorization (padrao do front em SicoobBoletoActions etc.)
+  const auth = req.headers.get('authorization') || ''
+  if (auth.toLowerCase().startsWith('bearer ')) {
+    const sb = userSupabaseBearer(req)
+    const { data: { user } } = await sb.auth.getUser()
+    if (user) return { id: user.id }
+  }
+  // 2) Cookie da sessao (navegacao direta / fetch credentials:include sem header)
+  try {
+    const sb = await userSupabaseCookies()
+    const { data: { user } } = await sb.auth.getUser()
+    if (user) return { id: user.id }
+  } catch { /* sem cookie valido */ }
+  return null
+}
+
+async function usuarioTemAcessoEmpresa(userId: string, companyId: string): Promise<boolean> {
+  // get_user_company_ids() exige auth.uid() — aqui usamos service role
+  // e consultamos user_companies direto pra checar a vinculacao.
+  const { data } = await supabaseAdmin
+    .from('user_companies')
+    .select('company_id')
+    .eq('user_id', userId)
+    .eq('company_id', companyId)
+    .limit(1)
+  return !!(data && data.length > 0)
 }
 
 async function lerSecret(name: string): Promise<string | null> {
@@ -72,10 +118,13 @@ async function handle(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // Auth: x-ping-secret OU sessao (Bearer ou cookie).
+    // Pra sessao, valida que o usuario tem acesso a esta company.
     if (!temSegredoValido(req)) {
-      const sb = userSupabase(req)
-      const { data: { user } } = await sb.auth.getUser()
+      const user = await resolverUsuario(req)
       if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      const temAcesso = await usuarioTemAcessoEmpresa(user.id, companyId)
+      if (!temAcesso) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
     }
 
     // 1) config do provider pra esta planta
