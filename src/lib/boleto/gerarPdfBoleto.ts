@@ -96,9 +96,22 @@ function drawLine(page: PDFPage, x1: number, y1: number, x2: number, y2: number,
   }
 }
 
+// pdf-lib StandardFonts (WinAnsi) nao codifica caracteres fora do
+// WinAnsi-1252 — emojis, smbolos unicode, etc. Sanitizamos antes de
+// desenhar pra nunca quebrar por nome de cliente / instrucao com algum
+// caractere exotico. Acentos PT-BR (a, c, ã) estao no WinAnsi e passam.
+function sanitizeWinAnsi(s: string): string {
+  // Remove qualquer codepoint > 0xFF (fora do WinAnsi). Substitui por '?'.
+  let out = ''
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0
+    out += cp > 0xff ? '?' : ch
+  }
+  return out
+}
 function drawText(page: PDFPage, txt: string, x: number, y: number, font: PDFFont, size: number, color = rgb(0, 0, 0)) {
   if (txt == null) return
-  page.drawText(String(txt), { x, y, size, font, color })
+  page.drawText(sanitizeWinAnsi(String(txt)), { x, y, size, font, color })
 }
 
 // Caixa rotulada — label pequena em cima, valor abaixo.
@@ -182,9 +195,9 @@ export async function gerarPdfBoleto(d: BoletoDados): Promise<Uint8Array> {
 
   drawText(page, 'Autenticação mecânica — Recibo do Pagador', margem, y - 12, font, 7, rgb(0.4, 0.4, 0.4))
 
-  // ============ Linha de corte ============
+  // ============ Linha de corte (sem emoji — pdf-lib WinAnsi nao codifica ✂) ============
   drawLine(page, margem, meio + 16, margem + w, meio + 16, { dashed: true, color: { r: 0.5, g: 0.5, b: 0.5 } })
-  drawText(page, '✂', margem - 6, meio + 14, font, 10, rgb(0.5, 0.5, 0.5))
+  drawText(page, 'RECORTE AQUI', margem, meio + 18, font, 7, rgb(0.5, 0.5, 0.5))
 
   // ============ FICHA DE COMPENSACAO (bottom) ============
   y = meio
