@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -27,7 +29,7 @@ function temSegredoValido(req: NextRequest): boolean {
   return timingSafeEqual(A, B)
 }
 
-function userSupabase(req: NextRequest) {
+function userSupabaseBearer(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   const auth = req.headers.get('authorization') || ''
@@ -35,6 +37,50 @@ function userSupabase(req: NextRequest) {
     global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
   })
+}
+
+// Aceita sessao via cookies do browser (createServerClient lendo os
+// cookies do request — funciona com fetch credentials:'include' sem
+// precisar do front passar Bearer Authorization manualmente).
+async function userSupabaseCookies() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const store = await cookies()
+  return createServerClient(url, anon, {
+    cookies: {
+      getAll: () => store.getAll().map((c) => ({ name: c.name, value: c.value })),
+      setAll: () => { /* read-only: rota nao precisa renovar sessao */ },
+    },
+  })
+}
+
+type AuthedClient = ReturnType<typeof userSupabaseBearer>
+
+async function resolverSessao(req: NextRequest): Promise<{ userId: string; sb: AuthedClient } | null> {
+  // 1) Bearer Authorization (padrao do front em SicoobBoletoActions etc.)
+  const auth = req.headers.get('authorization') || ''
+  if (auth.toLowerCase().startsWith('bearer ')) {
+    const sb = userSupabaseBearer(req)
+    const { data: { user } } = await sb.auth.getUser()
+    if (user) return { userId: user.id, sb }
+  }
+  // 2) Cookie da sessao (navegacao direta / fetch credentials:include sem header)
+  try {
+    const sb = (await userSupabaseCookies()) as unknown as AuthedClient
+    const { data: { user } } = await sb.auth.getUser()
+    if (user) return { userId: user.id, sb }
+  } catch { /* sem cookie valido */ }
+  return null
+}
+
+// Checagem multi-tenant via get_user_company_ids() — mesmo gating que a RLS
+// das tabelas ind_ponto_* aplica. Chama na sessao do USUARIO (nao no service
+// role) pra auth.uid() resolver direito; assim respeita hierarquia/admin
+// caso o RPC trate isso. Sem cair em duplicacao de regra.
+async function usuarioTemAcessoEmpresa(sb: AuthedClient, companyId: string): Promise<boolean> {
+  const { data, error } = await sb.rpc('get_user_company_ids')
+  if (error || !Array.isArray(data)) return false
+  return (data as string[]).includes(companyId)
 }
 
 async function lerSecret(name: string): Promise<string | null> {
@@ -72,10 +118,13 @@ async function handle(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // Auth: x-ping-secret OU sessao (Bearer ou cookie).
+    // Pra sessao, valida via get_user_company_ids() — mesmo gating das RLS.
     if (!temSegredoValido(req)) {
-      const sb = userSupabase(req)
-      const { data: { user } } = await sb.auth.getUser()
-      if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      const sess = await resolverSessao(req)
+      if (!sess) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      const temAcesso = await usuarioTemAcessoEmpresa(sess.sb, companyId)
+      if (!temAcesso) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
     }
 
     // 1) config do provider pra esta planta
