@@ -54,33 +54,33 @@ async function userSupabaseCookies() {
   })
 }
 
-async function resolverUsuario(req: NextRequest): Promise<{ id: string } | null> {
+type AuthedClient = ReturnType<typeof userSupabaseBearer>
+
+async function resolverSessao(req: NextRequest): Promise<{ userId: string; sb: AuthedClient } | null> {
   // 1) Bearer Authorization (padrao do front em SicoobBoletoActions etc.)
   const auth = req.headers.get('authorization') || ''
   if (auth.toLowerCase().startsWith('bearer ')) {
     const sb = userSupabaseBearer(req)
     const { data: { user } } = await sb.auth.getUser()
-    if (user) return { id: user.id }
+    if (user) return { userId: user.id, sb }
   }
   // 2) Cookie da sessao (navegacao direta / fetch credentials:include sem header)
   try {
-    const sb = await userSupabaseCookies()
+    const sb = (await userSupabaseCookies()) as unknown as AuthedClient
     const { data: { user } } = await sb.auth.getUser()
-    if (user) return { id: user.id }
+    if (user) return { userId: user.id, sb }
   } catch { /* sem cookie valido */ }
   return null
 }
 
-async function usuarioTemAcessoEmpresa(userId: string, companyId: string): Promise<boolean> {
-  // get_user_company_ids() exige auth.uid() — aqui usamos service role
-  // e consultamos user_companies direto pra checar a vinculacao.
-  const { data } = await supabaseAdmin
-    .from('user_companies')
-    .select('company_id')
-    .eq('user_id', userId)
-    .eq('company_id', companyId)
-    .limit(1)
-  return !!(data && data.length > 0)
+// Checagem multi-tenant via get_user_company_ids() — mesmo gating que a RLS
+// das tabelas ind_ponto_* aplica. Chama na sessao do USUARIO (nao no service
+// role) pra auth.uid() resolver direito; assim respeita hierarquia/admin
+// caso o RPC trate isso. Sem cair em duplicacao de regra.
+async function usuarioTemAcessoEmpresa(sb: AuthedClient, companyId: string): Promise<boolean> {
+  const { data, error } = await sb.rpc('get_user_company_ids')
+  if (error || !Array.isArray(data)) return false
+  return (data as string[]).includes(companyId)
 }
 
 async function lerSecret(name: string): Promise<string | null> {
@@ -119,11 +119,11 @@ async function handle(req: NextRequest) {
     }
 
     // Auth: x-ping-secret OU sessao (Bearer ou cookie).
-    // Pra sessao, valida que o usuario tem acesso a esta company.
+    // Pra sessao, valida via get_user_company_ids() — mesmo gating das RLS.
     if (!temSegredoValido(req)) {
-      const user = await resolverUsuario(req)
-      if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
-      const temAcesso = await usuarioTemAcessoEmpresa(user.id, companyId)
+      const sess = await resolverSessao(req)
+      if (!sess) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      const temAcesso = await usuarioTemAcessoEmpresa(sess.sb, companyId)
       if (!temAcesso) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
     }
 
