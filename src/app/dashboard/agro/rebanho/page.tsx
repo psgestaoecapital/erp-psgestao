@@ -25,6 +25,7 @@ type Animal = {
   area_atual_id: string | null
   status: string
   origem: string
+  observacao: string | null
 }
 type Lote = { id: string; codigo: string; fase: string | null; modo: string; status: string }
 type Piquete = { id: string; nome: string; area_ha: number | null; capacidade_ua: number | null }
@@ -40,7 +41,6 @@ export default function RebanhoPage() {
 
   const { data: painel, loading: loadingPainel } = usePainelRebanho(companyId, propriedadeId, refresh)
 
-  const [animais, setAnimais] = useState<Animal[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
   const [piquetes, setPiquetes] = useState<Piquete[]>([])
   const [contagemLote, setContagemLote] = useState<Record<string, number>>({})
@@ -48,11 +48,15 @@ export default function RebanhoPage() {
 
   const reloadDados = useCallback(async () => {
     if (!companyId || !propriedadeId) return
+    // Payload leve pra contagens (id + lote_id + area_atual_id).
+    // NAO paginamos aqui porque as contagens precisam do total. 5000 e
+    // suficiente pra rebanhos medios; se um dia passar disso, virar RPC
+    // agregada.
     const [a, l, p] = await Promise.all([
       supabase.from('erp_pec_animal')
-        .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem')
+        .select('id,lote_id,area_atual_id')
         .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
-        .order('identificacao', { nullsFirst: false }).limit(2000),
+        .limit(5000),
       supabase.from('erp_pec_lote')
         .select('id,codigo,fase,modo,status')
         .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
@@ -60,10 +64,9 @@ export default function RebanhoPage() {
         .select('id,nome,area_ha,capacidade_ua')
         .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('ativo', true).eq('tipo', 'piquete').order('nome'),
     ])
-    const animList = (a.data ?? []) as Animal[]
+    const animList = (a.data ?? []) as Array<{ id: string; lote_id: string | null; area_atual_id: string | null }>
     const loteList = (l.data ?? []) as Lote[]
     const piqList = (p.data ?? []) as Piquete[]
-    setAnimais(animList)
     setLotes(loteList)
     setPiquetes(piqList)
     const cl: Record<string, number> = {}
@@ -115,7 +118,7 @@ export default function RebanhoPage() {
         {aba === 'painel' && <Painel painel={painel} loading={loadingPainel} />}
         {aba === 'animais' && <Animais
           companyId={companyId} propriedadeId={propriedadeId!}
-          animais={animais} lotes={lotes} piquetes={piquetes}
+          lotes={lotes} piquetes={piquetes}
           onReload={() => setRefresh((r) => r + 1)} />}
         {aba === 'lotes' && <Lotes
           companyId={companyId} propriedadeId={propriedadeId!}
@@ -172,33 +175,101 @@ function Painel({ painel, loading }: { painel: ReturnType<typeof usePainelRebanh
 }
 
 // ───────── Animais ─────────
+const PAGE_SIZE = 200
+
 function Animais({
-  companyId, propriedadeId, animais, lotes, piquetes, onReload,
+  companyId, propriedadeId, lotes, piquetes, onReload,
 }: {
   companyId: string; propriedadeId: string
-  animais: Animal[]; lotes: Lote[]; piquetes: Piquete[]
+  lotes: Lote[]; piquetes: Piquete[]
   onReload: () => void
 }) {
   const [busca, setBusca] = useState('')
   const [fCat, setFCat] = useState('todos')
   const [fLote, setFLote] = useState('todos')
   const [fPiq, setFPiq] = useState('todos')
+  const [pagina, setPagina] = useState(0)
+  const [animais, setAnimais] = useState<Animal[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [acao, setAcao] = useState<null | { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }>(null)
+  const [contagensCat, setContagensCat] = useState<Record<string, number>>({})
+  const [totalRebanho, setTotalRebanho] = useState<number>(0)
 
   const nomeLote = (id: string | null) => lotes.find((l) => l.id === id)?.codigo ?? '—'
   const nomePiq = (id: string | null) => piquetes.find((p) => p.id === id)?.nome ?? '—'
 
-  const filtrados = useMemo(() => {
-    const q = busca.trim().toLowerCase()
-    return animais.filter((a) => {
-      if (fCat !== 'todos' && a.categoria !== fCat) return false
-      if (fLote !== 'todos' && a.lote_id !== fLote) return false
-      if (fPiq !== 'todos' && a.area_atual_id !== fPiq) return false
-      if (q && !(a.identificacao ?? '').toLowerCase().includes(q)) return false
-      return true
-    })
-  }, [animais, busca, fCat, fLote, fPiq])
+  // Cards de contagem do rebanho — total real, sem filtros de tabela.
+  useEffect(() => {
+    if (!companyId || !propriedadeId) return
+    let alive = true
+    void (async () => {
+      const { data } = await supabase.from('erp_pec_animal')
+        .select('categoria')
+        .eq('company_id', companyId)
+        .eq('propriedade_id', propriedadeId)
+        .eq('status', 'ativo')
+        .limit(5000)
+      if (!alive || !data) return
+      const cnt: Record<string, number> = {}
+      let t = 0
+      for (const row of data as { categoria: string }[]) {
+        cnt[row.categoria] = (cnt[row.categoria] ?? 0) + 1
+        t++
+      }
+      setContagensCat(cnt)
+      setTotalRebanho(t)
+    })()
+    return () => { alive = false }
+  }, [companyId, propriedadeId])
+
+  // Debounce da busca (300ms) pra nao disparar fetch a cada tecla.
+  const [buscaDebounced, setBuscaDebounced] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaDebounced(busca.trim()), 300)
+    return () => clearTimeout(t)
+  }, [busca])
+
+  // Reseta a pagina quando filtros/busca mudam.
+  useEffect(() => { setPagina(0) }, [buscaDebounced, fCat, fLote, fPiq])
+
+  // Fetch paginado server-side. count:'exact' → total real, com filtros.
+  useEffect(() => {
+    if (!companyId || !propriedadeId) return
+    let alive = true
+    setLoading(true)
+    setErro(null)
+    void (async () => {
+      let q = supabase.from('erp_pec_animal')
+        .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem,observacao', { count: 'exact' })
+        .eq('company_id', companyId)
+        .eq('propriedade_id', propriedadeId)
+        .eq('status', 'ativo')
+      if (fCat !== 'todos') q = q.eq('categoria', fCat)
+      if (fLote !== 'todos') q = q.eq('lote_id', fLote)
+      if (fPiq !== 'todos') q = q.eq('area_atual_id', fPiq)
+      if (buscaDebounced) {
+        const like = `%${buscaDebounced}%`
+        q = q.or(`identificacao.ilike.${like},sisbov.ilike.${like}`)
+      }
+      q = q.order('identificacao', { ascending: true, nullsFirst: false })
+      const inicio = pagina * PAGE_SIZE
+      const fim = inicio + PAGE_SIZE - 1
+      const { data, error, count } = await q.range(inicio, fim)
+      if (!alive) return
+      if (error) { setErro(error.message); setAnimais([]); setTotal(0) }
+      else {
+        setAnimais((data ?? []) as Animal[])
+        setTotal(count ?? 0)
+      }
+      setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [companyId, propriedadeId, buscaDebounced, fCat, fLote, fPiq, pagina])
+
+  const filtrados = animais // paginacao ja aconteceu no server
 
   const toggle = (id: string) => {
     const n = new Set(sel)
@@ -208,8 +279,23 @@ function Animais({
   const limparSel = () => setSel(new Set())
 
   const inp = 'rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]'
+  const Card = ({ label, value }: { label: string; value: number }) => (
+    <div className="rounded-2xl p-3 sm:p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+      <div className="text-2xl sm:text-3xl font-bold" style={{ color: ESP }}>{value}</div>
+      <div className="text-[10px] sm:text-xs mt-1 uppercase tracking-wide" style={{ color: ESP60 }}>{label}</div>
+    </div>
+  )
   return (
     <div className="space-y-3">
+      {/* Cards de contagem do rebanho — totais reais, independem do filtro. */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <Card label="Total" value={totalRebanho} />
+        <Card label="Matrizes" value={contagensCat['matriz'] ?? 0} />
+        <Card label="Novilhas" value={contagensCat['novilha'] ?? 0} />
+        <Card label="Garrotes" value={contagensCat['garrote'] ?? 0} />
+        <Card label="Touros" value={contagensCat['touro'] ?? 0} />
+      </div>
+
       <div className="flex flex-wrap gap-2 items-center">
         <input className={inp} placeholder="Buscar por brinco/identificação" value={busca} onChange={(e) => setBusca(e.target.value)} />
         <select className={inp} value={fCat} onChange={(e) => setFCat(e.target.value)}>
@@ -224,7 +310,10 @@ function Animais({
           <option value="todos">Piquete · todos</option>
           {piquetes.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
         </select>
-        <span className="text-xs" style={{ color: ESP60 }}>{filtrados.length} de {animais.length}</span>
+        <span className="text-xs" style={{ color: ESP60 }}>
+          {loading ? 'Carregando…' : total === 0 ? '0 de 0'
+            : `${pagina * PAGE_SIZE + 1}–${Math.min((pagina + 1) * PAGE_SIZE, total)} de ${total}`}
+        </span>
         <div className="flex-1" />
         <button onClick={() => setAcao({ tipo: 'novo' })} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff' }}>+ Novo animal</button>
       </div>
@@ -246,8 +335,11 @@ function Animais({
               <th className="p-2 text-center w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === filtrados.length} onChange={(e) => setSel(e.target.checked ? new Set(filtrados.map((a) => a.id)) : new Set())} /></th>
               <th className="text-left p-2">Identificação</th>
               <th className="text-left p-2">Categoria</th>
+              <th className="text-left p-2">Sexo</th>
+              <th className="text-left p-2">Raça</th>
               <th className="text-left p-2">Lote</th>
               <th className="text-left p-2">Piquete</th>
+              <th className="text-left p-2">Observação</th>
               <th className="text-right p-2">Peso entrada</th>
               <th className="p-2">Ações</th>
             </tr>
@@ -258,8 +350,11 @@ function Animais({
                 <td className="p-2 text-center"><input type="checkbox" checked={sel.has(a.id)} onChange={() => toggle(a.id)} /></td>
                 <td className="p-2">{a.identificacao ?? <span style={{ color: ESP60 }}>— <button onClick={() => setAcao({ tipo: 'identificar', alvos: [a.id] })} title="Identificar" style={{ color: GOLD }}>📷</button></span>}</td>
                 <td className="p-2"><span className="text-[11px] px-2 py-0.5 rounded-full capitalize" style={{ background: BG, color: ESP }}>{a.categoria.replace('_', ' ')}</span></td>
+                <td className="p-2 text-xs">{a.sexo === 'M' ? 'Macho' : a.sexo === 'F' ? 'Fêmea' : '—'}</td>
+                <td className="p-2 text-xs">{a.raca ?? '—'}</td>
                 <td className="p-2 text-xs">{nomeLote(a.lote_id)}</td>
                 <td className="p-2 text-xs">{nomePiq(a.area_atual_id)}</td>
+                <td className="p-2 text-xs" title={a.observacao ?? ''} style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.observacao ?? '—'}</td>
                 <td className="p-2 text-right text-xs">{a.peso_entrada_kg ?? '—'}{a.peso_entrada_kg ? ' kg' : ''}</td>
                 <td className="p-2">
                   <div className="flex gap-1 justify-center">
@@ -299,6 +394,29 @@ function Animais({
           </div>
         ))}
       </div>
+
+      {/* Paginacao (rodape) */}
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-2 text-xs pt-1" style={{ color: ESP60 }}>
+          <span>Página {pagina + 1} de {Math.ceil(total / PAGE_SIZE)}</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPagina((p) => Math.max(0, p - 1))}
+              disabled={pagina === 0 || loading}
+              className="px-3 py-1.5 rounded-lg font-semibold"
+              style={{ background: pagina === 0 ? '#fff' : ESP, color: pagina === 0 ? ESP60 : '#fff', border: `1px solid ${LINE}`, opacity: pagina === 0 ? 0.6 : 1 }}
+            >← Anterior</button>
+            <button
+              onClick={() => setPagina((p) => ((p + 1) * PAGE_SIZE < total ? p + 1 : p))}
+              disabled={(pagina + 1) * PAGE_SIZE >= total || loading}
+              className="px-3 py-1.5 rounded-lg font-semibold"
+              style={{ background: (pagina + 1) * PAGE_SIZE >= total ? '#fff' : ESP, color: (pagina + 1) * PAGE_SIZE >= total ? ESP60 : '#fff', border: `1px solid ${LINE}`, opacity: (pagina + 1) * PAGE_SIZE >= total ? 0.6 : 1 }}
+            >Próxima →</button>
+          </div>
+        </div>
+      )}
+
+      {erro && <div className="rounded-xl p-3 text-xs" style={{ background: '#FEE', border: '1px solid #FBB', color: '#A65A3A' }}>{erro}</div>}
 
       {acao && <AcaoModal companyId={companyId} propriedadeId={propriedadeId} acao={acao}
         lotes={lotes} piquetes={piquetes} onClose={() => setAcao(null)}
