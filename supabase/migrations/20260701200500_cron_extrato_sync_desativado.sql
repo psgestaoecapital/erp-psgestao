@@ -1,0 +1,28 @@
+-- Cron diario do puxador de extrato — DESATIVADO ate o CEO validar
+-- o 1o sync manual pelo botao "Sincronizar extrato agora".
+-- Padrao dos jobs 20/40: pg_cron + net.http_post com header x-ping-secret.
+--
+-- Pra ATIVAR (depois do aceite):
+--   1) Descomentar o bloco abaixo.
+--   2) Ajustar o endereco do endpoint pra domínio de producao.
+--   3) Setar o secret via ALTER DATABASE ... SET vault.decrypted_secrets ... ou
+--      via um vault.secrets name 'PING_SICOOB_SECRET_HEADER'.
+--
+-- =====================================================================
+-- SELECT cron.schedule(
+--   'extrato_sync_diario',
+--   '0 8 * * 1-5',
+--   $$SELECT net.http_post(
+--     url := 'https://erp-psgestao.vercel.app/api/banco/extrato/sync',
+--     headers := jsonb_build_object(
+--       'content-type', 'application/json',
+--       'x-ping-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='PING_SICOOB_SECRET')
+--     ),
+--     body := jsonb_build_object('company_id', 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725')
+--   )$$
+-- );
+-- =====================================================================
+--
+-- Migration deliberadamente vazia (so registra o plano). Aplicada via
+-- MCP em 2026-07-01 pra deixar registro no historico do repo.
+SELECT 1 AS cron_extrato_sync_desativado;

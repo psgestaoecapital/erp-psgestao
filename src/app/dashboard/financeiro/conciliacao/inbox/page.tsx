@@ -205,6 +205,8 @@ export default function InboxPage() {
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
   // ONDA-A-IMPORTADOR-OFX-v1
   const [showImport, setShowImport] = useState(false)
+  // Sincronizar extrato direto do banco (Sicoob-agnostic) — puxa via API
+  const [sincExtratoBusy, setSincExtratoBusy] = useState(false)
   const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
   const [contaImportId, setContaImportId] = useState<string>('')
   const [arquivoOFX, setArquivoOFX] = useState<File | null>(null)
@@ -294,6 +296,35 @@ export default function InboxPage() {
       .eq('ativo', true)
       .order('nome')
     setContas(data ?? [])
+  }
+
+  async function sincronizarExtratoAgora() {
+    if (!empresaUnica || sincExtratoBusy) return
+    setSincExtratoBusy(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/extrato/sync', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          authorization: session ? `Bearer ${session.access_token}` : '',
+        },
+        body: JSON.stringify({ company_id: empresaUnica }),
+      })
+      const j = await r.json()
+      if (!j.ok) { alert(j.erro || 'Nao foi possivel sincronizar o extrato.'); return }
+      const ins = Number(j.inseridos ?? 0)
+      const ign = Number(j.ignorados ?? 0)
+      const sug = Number(j.sugestoes ?? 0)
+      alert(`Extrato SINCRONIZOU. ${ins} novo(s) movimento(s), ${ign} ignorado(s) (ja existiam). ${sug} sugestao(oes) geradas.`)
+      // Recarregar lista de lotes/movimentos
+      window.location.reload()
+    } catch (e) {
+      alert(`Falha ao sincronizar: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setSincExtratoBusy(false)
+    }
   }
 
   async function importarOFX() {
@@ -738,8 +769,22 @@ export default function InboxPage() {
             style={aba === 'conciliados' ? tabActive : tabInactive}
           >Conciliados ({totConc})</button>
           <button
+            onClick={sincronizarExtratoAgora}
+            disabled={sincExtratoBusy || !empresaUnica}
+            style={{
+              marginLeft: 'auto', padding: '6px 12px',
+              background: sincExtratoBusy || !empresaUnica ? 'rgba(200,148,26,0.4)' : '#C8941A',
+              color: '#3D2314', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 700,
+              cursor: sincExtratoBusy ? 'wait' : !empresaUnica ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title={empresaUnica ? 'Puxa o extrato direto do banco (Sicoob)' : 'Selecione uma empresa'}
+            data-testid="inbox-sincronizar-extrato"
+          >{sincExtratoBusy ? 'Sincronizando…' : '↻ Sincronizar extrato agora'}</button>
+          <button
             onClick={() => setShowImport((v) => !v)}
-            style={{ ...tabInactive, marginLeft: 'auto', borderStyle: 'dashed' }}
+            style={{ ...tabInactive, borderStyle: 'dashed' }}
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
         </div>
