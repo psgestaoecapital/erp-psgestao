@@ -93,6 +93,11 @@ export default function OSMecanicoPage() {
     return companyIds[0] || ''
   }, [sel, companyIds])
 
+  // Chave estavel do array (por conteudo) — se algum dia
+  // useCompanyIds voltar a devolver referencia nova a cada render,
+  // esta dep continua NAO disparando o effect em loop.
+  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
+
   const carregar = useCallback(async () => {
     if (companyIds.length === 0) { setLoading(false); return }
     setLoading(true)
@@ -105,7 +110,8 @@ export default function OSMecanicoPage() {
     if (error) setErro(error.message)
     setOss((data ?? []) as OSRow[])
     setLoading(false)
-  }, [companyIds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyIdsKey])
 
   useEffect(() => { void carregar() }, [carregar])
 

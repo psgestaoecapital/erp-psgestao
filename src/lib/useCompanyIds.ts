@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase";
 
 /**
@@ -68,16 +68,20 @@ export function useCompanyIds() {
     return () => clearInterval(interval);
   }, [sel]);
 
-  // Resolve a seleção atual em array de company_ids
-  let companyIds: string[] = [];
-  if (sel === "consolidado") {
-    companyIds = companies.map(c => c.id);
-  } else if (sel.startsWith("group_")) {
-    const gid = sel.replace("group_", "");
-    companyIds = companies.filter(c => c.group_id === gid).map(c => c.id);
-  } else if (sel) {
-    companyIds = [sel];
-  }
+  // Resolve a seleção atual em array de company_ids.
+  // useMemo pra manter a MESMA referencia quando o conteudo nao muda —
+  // consumidores que fazem useEffect([companyIds]) nao entrariam em loop
+  // de fetch (bug historico: array novo a cada render disparava effect
+  // repetido, ate ERR_INSUFFICIENT_RESOURCES).
+  const companyIds = useMemo<string[]>(() => {
+    if (sel === "consolidado") return companies.map(c => c.id);
+    if (sel.startsWith("group_")) {
+      const gid = sel.replace("group_", "");
+      return companies.filter(c => c.group_id === gid).map(c => c.id);
+    }
+    if (sel) return [sel];
+    return [];
+  }, [companies, sel]);
 
   // Info descritiva
   let selInfo: { tipo: "consolidado" | "grupo" | "empresa"; nome: string; count: number; isGroup: boolean };
