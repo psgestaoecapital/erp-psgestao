@@ -25,6 +25,7 @@ type Animal = {
   area_atual_id: string | null
   status: string
   origem: string
+  observacao: string | null
 }
 type Lote = { id: string; codigo: string; fase: string | null; modo: string; status: string }
 type Piquete = { id: string; nome: string; area_ha: number | null; capacidade_ua: number | null }
@@ -194,9 +195,35 @@ function Animais({
   const [erro, setErro] = useState<string | null>(null)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [acao, setAcao] = useState<null | { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }>(null)
+  const [contagensCat, setContagensCat] = useState<Record<string, number>>({})
+  const [totalRebanho, setTotalRebanho] = useState<number>(0)
 
   const nomeLote = (id: string | null) => lotes.find((l) => l.id === id)?.codigo ?? '—'
   const nomePiq = (id: string | null) => piquetes.find((p) => p.id === id)?.nome ?? '—'
+
+  // Cards de contagem do rebanho — total real, sem filtros de tabela.
+  useEffect(() => {
+    if (!companyId || !propriedadeId) return
+    let alive = true
+    void (async () => {
+      const { data } = await supabase.from('erp_pec_animal')
+        .select('categoria')
+        .eq('company_id', companyId)
+        .eq('propriedade_id', propriedadeId)
+        .eq('status', 'ativo')
+        .limit(5000)
+      if (!alive || !data) return
+      const cnt: Record<string, number> = {}
+      let t = 0
+      for (const row of data as { categoria: string }[]) {
+        cnt[row.categoria] = (cnt[row.categoria] ?? 0) + 1
+        t++
+      }
+      setContagensCat(cnt)
+      setTotalRebanho(t)
+    })()
+    return () => { alive = false }
+  }, [companyId, propriedadeId])
 
   // Debounce da busca (300ms) pra nao disparar fetch a cada tecla.
   const [buscaDebounced, setBuscaDebounced] = useState('')
@@ -216,7 +243,7 @@ function Animais({
     setErro(null)
     void (async () => {
       let q = supabase.from('erp_pec_animal')
-        .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem', { count: 'exact' })
+        .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem,observacao', { count: 'exact' })
         .eq('company_id', companyId)
         .eq('propriedade_id', propriedadeId)
         .eq('status', 'ativo')
@@ -252,8 +279,23 @@ function Animais({
   const limparSel = () => setSel(new Set())
 
   const inp = 'rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]'
+  const Card = ({ label, value }: { label: string; value: number }) => (
+    <div className="rounded-2xl p-3 sm:p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+      <div className="text-2xl sm:text-3xl font-bold" style={{ color: ESP }}>{value}</div>
+      <div className="text-[10px] sm:text-xs mt-1 uppercase tracking-wide" style={{ color: ESP60 }}>{label}</div>
+    </div>
+  )
   return (
     <div className="space-y-3">
+      {/* Cards de contagem do rebanho — totais reais, independem do filtro. */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <Card label="Total" value={totalRebanho} />
+        <Card label="Matrizes" value={contagensCat['matriz'] ?? 0} />
+        <Card label="Novilhas" value={contagensCat['novilha'] ?? 0} />
+        <Card label="Garrotes" value={contagensCat['garrote'] ?? 0} />
+        <Card label="Touros" value={contagensCat['touro'] ?? 0} />
+      </div>
+
       <div className="flex flex-wrap gap-2 items-center">
         <input className={inp} placeholder="Buscar por brinco/identificação" value={busca} onChange={(e) => setBusca(e.target.value)} />
         <select className={inp} value={fCat} onChange={(e) => setFCat(e.target.value)}>
@@ -293,8 +335,11 @@ function Animais({
               <th className="p-2 text-center w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === filtrados.length} onChange={(e) => setSel(e.target.checked ? new Set(filtrados.map((a) => a.id)) : new Set())} /></th>
               <th className="text-left p-2">Identificação</th>
               <th className="text-left p-2">Categoria</th>
+              <th className="text-left p-2">Sexo</th>
+              <th className="text-left p-2">Raça</th>
               <th className="text-left p-2">Lote</th>
               <th className="text-left p-2">Piquete</th>
+              <th className="text-left p-2">Observação</th>
               <th className="text-right p-2">Peso entrada</th>
               <th className="p-2">Ações</th>
             </tr>
@@ -305,8 +350,11 @@ function Animais({
                 <td className="p-2 text-center"><input type="checkbox" checked={sel.has(a.id)} onChange={() => toggle(a.id)} /></td>
                 <td className="p-2">{a.identificacao ?? <span style={{ color: ESP60 }}>— <button onClick={() => setAcao({ tipo: 'identificar', alvos: [a.id] })} title="Identificar" style={{ color: GOLD }}>📷</button></span>}</td>
                 <td className="p-2"><span className="text-[11px] px-2 py-0.5 rounded-full capitalize" style={{ background: BG, color: ESP }}>{a.categoria.replace('_', ' ')}</span></td>
+                <td className="p-2 text-xs">{a.sexo === 'M' ? 'Macho' : a.sexo === 'F' ? 'Fêmea' : '—'}</td>
+                <td className="p-2 text-xs">{a.raca ?? '—'}</td>
                 <td className="p-2 text-xs">{nomeLote(a.lote_id)}</td>
                 <td className="p-2 text-xs">{nomePiq(a.area_atual_id)}</td>
+                <td className="p-2 text-xs" title={a.observacao ?? ''} style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.observacao ?? '—'}</td>
                 <td className="p-2 text-right text-xs">{a.peso_entrada_kg ?? '—'}{a.peso_entrada_kg ? ' kg' : ''}</td>
                 <td className="p-2">
                   <div className="flex gap-1 justify-center">
