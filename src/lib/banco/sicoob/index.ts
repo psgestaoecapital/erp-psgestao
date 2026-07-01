@@ -275,3 +275,56 @@ export async function segundaViaBoleto(
     ?? data?.arquivoPdf) as string | undefined
   return { status: res.status, pdfBase64, raw: res.body }
 }
+
+export type ConsultaBoletoResult = {
+  status: number
+  situacao: string | null
+  dataLiquidacao: string | null
+  valorPago: number | null
+  raw: unknown
+}
+
+// GET consulta do boleto (situacao/pagamento). Reusa obterToken com
+// scope 'boletos_consulta' — mesma logica da segundaVia. Retorna
+// campos normalizados p/ nossa camada:
+//   situacao: string upper (LIQUIDADO/EM_ABERTO/BAIXADO/...)
+//   dataLiquidacao: ISO date se pago
+//   valorPago: numeric se pago
+// + raw pra registrar no log de webhook.
+export async function consultarBoleto(
+  c: Credencial,
+  nossoNumero: string | number,
+  codigoModalidade = 1,
+): Promise<ConsultaBoletoResult> {
+  const token = await obterToken(c, SICOOB_SCOPE_CONSULTAR_BOLETO)
+  const qs = new URLSearchParams({
+    numeroCliente: String(c.codigo_beneficiario),
+    codigoModalidade: String(codigoModalidade),
+    nossoNumero: String(nossoNumero),
+  }).toString()
+  const res = await request<unknown>({
+    host: API_HOST[c.ambiente],
+    path: `/cobranca-bancaria/v3/boletos?${qs}`,
+    method: 'GET',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'client_id': c.client_id,
+    },
+    pfx: c.pfx, passphrase: c.passphrase,
+  })
+  if (res.status < 200 || res.status >= 300) {
+    return { status: res.status, situacao: null, dataLiquidacao: null, valorPago: null, raw: res.body }
+  }
+  // Sicoob V3 retorna { resultado: { ... } } ou o objeto direto.
+  const envelope = res.body as { resultado?: Record<string, unknown> } | null
+  const dataObj = (envelope?.resultado ?? (res.body as Record<string, unknown> | null) ?? {}) as Record<string, unknown>
+  // Sicoob usa 'situacaoBoleto' na maioria dos ambientes; fallbacks
+  // pra 'situacao'/'statusBoleto' (varia entre versoes).
+  const situacaoRaw = (dataObj.situacaoBoleto ?? dataObj.situacao ?? dataObj.statusBoleto) as string | undefined
+  const situacao = situacaoRaw ? String(situacaoRaw).toUpperCase() : null
+  const dataLiquidacao = (dataObj.dataLiquidacao ?? dataObj.dataPagamento) as string | undefined ?? null
+  const valorPagoRaw = (dataObj.valorPago ?? dataObj.valorRecebido) as number | string | undefined
+  const valorPago = typeof valorPagoRaw === 'number' ? valorPagoRaw
+    : typeof valorPagoRaw === 'string' ? Number(valorPagoRaw) : null
+  return { status: res.status, situacao, dataLiquidacao, valorPago, raw: res.body }
+}

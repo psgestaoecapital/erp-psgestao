@@ -102,6 +102,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   const [data, setData] = useState<Resposta | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sincLiqBusy, setSincLiqBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
@@ -324,9 +325,58 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }
 
 
+  const sincronizarLiquidacao = async () => {
+    if (sincLiqBusy) return
+    setSincLiqBusy(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/boleto/sync-liquidacao', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          authorization: session ? `Bearer ${session.access_token}` : '',
+        },
+        body: JSON.stringify({ company_id: companyId }),
+      })
+      const j = await r.json()
+      if (!j.ok) { alert(j.erro || 'Nao foi possivel sincronizar.'); return }
+      const q = Number(j.liquidados ?? 0)
+      const c = Number(j.consultados ?? 0)
+      const partes: string[] = []
+      partes.push(q === 0 ? 'Nenhum boleto ALTEROU (nada pago desde a ultima sincronizacao).' : `${q} boleto(s) ALTEROU para liquidado.`)
+      if (c > 0) partes.push(`${c} consultado(s).`)
+      if (Array.isArray(j.erros) && j.erros.length > 0) partes.push(`${j.erros.length} com erro.`)
+      alert(partes.join(' '))
+      setReloadKey((k) => k + 1)
+    } catch (e) {
+      alert(`Falha ao sincronizar: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setSincLiqBusy(false)
+    }
+  }
+
   return (
     <Wrapper>
       <Header labels={labels} />
+
+      {tipo === 'receber' && provider === 'sicoob' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
+          <button
+            type="button"
+            onClick={sincronizarLiquidacao}
+            disabled={sincLiqBusy}
+            title="Consulta o Sicoob e marca como liquidados os boletos ja pagos"
+            style={{
+              background: sincLiqBusy ? 'rgba(200,148,26,0.4)' : '#C8941A',
+              color: '#3D2314', border: 'none', padding: '6px 12px',
+              borderRadius: 6, fontSize: 12, fontWeight: 700,
+              cursor: sincLiqBusy ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+            }}>
+            {sincLiqBusy ? 'Sincronizando…' : '↻ Sincronizar liquidação'}
+          </button>
+        </div>
+      )}
 
       {/* KPIs · sticky topo · padrao ContaAzul (Vencidos, Hoje, A vencer, Pagos/Recebidos, Total) */}
       <div
