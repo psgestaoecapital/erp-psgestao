@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: false,
         erro: naoHabilitado
-          ? 'API de Conta Corrente do Sicoob ainda nao habilitada no portal (scope cco_extrato). Nada foi salvo.'
+          ? 'API Conta Corrente do Sicoob ainda nao autorizada (verifique escopo cco_consulta no app do portal). Nada foi salvo.'
           : 'Falha ao puxar o extrato.',
         detalhe: msg,
       }, { status: 502 })

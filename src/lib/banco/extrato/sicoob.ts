@@ -1,10 +1,13 @@
 // Adapter Sicoob — Extrato Conta Corrente.
 // - Reusa o obterToken() do modulo Sicoob existente (Keycloak + cert A1
-//   mTLS). Escopo unico por request: 'cco_extrato' (bug Keycloak
-//   multi-scope ja conhecido).
-// - Endpoint validado na doc Sicoob:
-//     GET /conta-corrente/v4/extrato/{mes}/{ano}
+//   mTLS). Escopo unico por request: 'cco_consulta' (bug Keycloak
+//   multi-scope ja conhecido). ATENCAO: NAO existe 'cco_extrato' no
+//   portal Sicoob — extrato + saldo saem pelo escopo 'cco_consulta',
+//   confirmado pelo CEO em 01/07/2026.
+// - Endpoint validado na doc Sicoob "3 - Conta Corrente":
+//     GET https://api.sicoob.com.br/conta-corrente/v4/extrato/{mes}/{ano}
 //       ?diaInicial=..&diaFinal=..&numeroContaCorrente=..
+//       &agruparCreditosDebitos=false
 // - Janelas > 1 mes: quebramos mes-a-mes; combinamos os movimentos.
 // - id_externo: se o Sicoob retornar sequencial/id da transacao, usamos.
 //   Senao, hash deterministico (data|valor|natureza|descricao|documento|
@@ -15,7 +18,7 @@ import { createHash } from 'node:crypto'
 import { obterToken } from '@/lib/banco/sicoob'
 import type { ExtratoAdapter, ExtratoCredencial, ExtratoJanela, MovimentoExtrato } from './types'
 
-const SICOOB_SCOPE_EXTRATO = 'cco_extrato'
+const SICOOB_SCOPE_CONSULTA = 'cco_consulta'
 
 type Http = { status: number; body: unknown; raw: string }
 
@@ -144,7 +147,7 @@ export const sicoobExtratoAdapter: ExtratoAdapter = {
       pfx: cred.pfx, passphrase: cred.passphrase,
       cooperativa: cred.cooperativa, conta: cred.conta,
       codigo_beneficiario: cred.codigo_beneficiario, convenio: cred.convenio,
-    }, SICOOB_SCOPE_EXTRATO)
+    }, SICOOB_SCOPE_CONSULTA)
 
     const host = SICOOB_HOSTS[cred.ambiente]
     const numeroContaCorrente = cred.conta.replace(/\D/g, '')
@@ -156,6 +159,7 @@ export const sicoobExtratoAdapter: ExtratoAdapter = {
         diaInicial: String(b.d1),
         diaFinal: String(b.d2),
         numeroContaCorrente,
+        agruparCreditosDebitos: 'false',
       }).toString()
       const res = await request({
         host,
