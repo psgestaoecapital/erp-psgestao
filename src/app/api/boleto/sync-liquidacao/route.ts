@@ -59,11 +59,6 @@ async function resolverSessao(req: NextRequest): Promise<AuthedClient | null> {
   } catch { /* sem cookie */ }
   return null
 }
-async function temAcessoEmpresa(sb: AuthedClient, companyId: string): Promise<boolean> {
-  const { data, error } = await sb.rpc('get_user_company_ids')
-  if (error || !Array.isArray(data)) return false
-  return (data as string[]).includes(companyId)
-}
 function temSegredoValido(req: NextRequest): boolean {
   const expected = process.env.PING_SICOOB_SECRET
   const provided = req.headers.get('x-ping-secret') || ''
@@ -79,15 +74,31 @@ type Boleto = { id: string; boleto_nosso_numero: string | null; valor: number }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const companyId: string | undefined = body?.company_id
-    if (!companyId) return NextResponse.json({ ok: false, erro: 'company_id ausente' }, { status: 400 })
+    const companyIdBody: string | undefined = body?.company_id
 
-    if (!temSegredoValido(req)) {
+    // Resolve companyId:
+    // - x-ping-secret: precisa vir no body (nao ha sessao).
+    // - Sessao: valida via get_user_company_ids(). Se o body veio vazio,
+    //   usa a 1a empresa da sessao (comodidade do botao "Sincronizar
+    //   liquidacao" com empresa unica). Se veio no body, precisa estar
+    //   na lista senao 403.
+    let companyId: string | undefined = companyIdBody
+    if (temSegredoValido(req)) {
+      if (!companyId) return NextResponse.json({ ok: false, erro: 'company_id ausente' }, { status: 400 })
+    } else {
       const sb = await resolverSessao(req)
       if (!sb) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
-      const ok = await temAcessoEmpresa(sb, companyId)
-      if (!ok) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
+      const { data, error } = await sb.rpc('get_user_company_ids')
+      if (error) return NextResponse.json({ ok: false, erro: error.message }, { status: 500 })
+      const permitidas = (Array.isArray(data) ? (data as string[]) : []).filter(Boolean)
+      if (permitidas.length === 0) return NextResponse.json({ ok: false, erro: 'sem empresas acessiveis' }, { status: 403 })
+      if (companyId) {
+        if (!permitidas.includes(companyId)) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
+      } else {
+        companyId = permitidas[0]
+      }
     }
+    if (!companyId) return NextResponse.json({ ok: false, erro: 'company_id nao resolvido' }, { status: 400 })
 
     // 1) boletos em aberto com nosso_numero
     const { data: boletos, error: berr } = await supabaseAdmin
