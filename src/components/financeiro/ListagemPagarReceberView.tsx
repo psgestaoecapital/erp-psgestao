@@ -9,6 +9,7 @@ import EmitirNFSeButton from './EmitirNFSeButton'
 import EmitirNFeButton from './EmitirNFeButton'
 import GerarBoletoButton from './GerarBoletoButton'
 import SicoobBoletoActions, { type ClienteContato, type BoletoEstado } from './SicoobBoletoActions'
+import ConciliarTituloModal from './ConciliarTituloModal'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -110,6 +111,27 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
   const [provider, setProvider] = useState<'sicoob' | 'bradesco' | null>(null)
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
+  const [capExtrato, setCapExtrato] = useState(false)
+  const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
+
+  // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
+  // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
+  useEffect(() => {
+    if (!companyId) { setCapExtrato(false); return }
+    let alive = true
+    supabase
+      .from('erp_banco_provider_config')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('ativo', true)
+      .eq('cap_extrato', true)
+      .limit(1)
+      .then(({ data }) => {
+        if (!alive) return
+        setCapExtrato((data ?? []).length > 0)
+      })
+    return () => { alive = false }
+  }, [companyId, reloadKey])
 
   useEffect(() => {
     if (!companyId || tipo !== 'receber') {
@@ -682,13 +704,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         )}
                         <Td align="right">
                           {!pago ? (
-                            <button
-                              type="button"
-                              onClick={() => setPagandoItem(r)}
-                              style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                            >
-                              {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
-                            </button>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                              {capExtrato && (
+                                <button
+                                  type="button"
+                                  onClick={() => setConciliandoItem(r)}
+                                  title="Buscar movimento no extrato bancário e dar baixa automaticamente"
+                                  style={{ background: '#FFFFFF', color: '#3D2314', border: '0.5px solid #C8941A', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                  Conciliar
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setPagandoItem(r)}
+                                style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
+                              </button>
+                            </div>
                           ) : (
                             <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)' }}>✓ baixado</span>
                           )}
@@ -750,6 +784,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         itemId={pagandoItem?.id ?? ''}
         descricao={pagandoItem?.descricao ?? ''}
         valorTotal={pagandoItem ? (pagandoItem.valor_documento - (pagandoItem.valor_pago ?? 0)) : 0}
+      />
+
+      <ConciliarTituloModal
+        open={!!conciliandoItem}
+        onClose={() => setConciliandoItem(null)}
+        onSucesso={() => setReloadKey((k) => k + 1)}
+        tituloTabela={tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'}
+        tituloId={conciliandoItem?.id ?? ''}
+        tituloDescricao={conciliandoItem?.descricao ?? ''}
+        tituloValor={conciliandoItem ? (conciliandoItem.valor_documento - (conciliandoItem.valor_pago ?? 0)) : 0}
+        tituloVencimento={conciliandoItem?.data_vencimento ?? ''}
       />
 
       <MarcarPagoLoteModal
