@@ -1,6 +1,8 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { UploadCloud, Sparkles, Check, AlertTriangle } from 'lucide-react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { UploadCloud, Sparkles, Check, AlertTriangle, Archive } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 // padrao ps_empresa_sel com polling (mesmo das outras telas verticais)
@@ -50,6 +52,70 @@ type Ambiente = {
   servico_id: string | null; base_calculo: 'area' | 'perimetro' | 'pe_direito_parede';
 }
 
+type DiagCad = {
+  total_views?: number
+  n_objetos?: number
+  tem_area_prop?: boolean
+  layers?: Array<{ nome: string; count: number }>
+  views?: Array<{ name: string; role?: string; type?: string }>
+  view_escolhida?: { name?: string; role?: string }
+}
+
+function FichaCad({ diag, analisadoEm }: { diag: DiagCad; analisadoEm: string | null }) {
+  const layers = (diag.layers ?? []).slice(0, 12)
+  const rest = Math.max(0, (diag.layers?.length ?? 0) - layers.length)
+  return (
+    <div className="mt-3 rounded-xl border p-3 space-y-3" style={{ borderColor: LINE, background: '#FFFFFF' }}>
+      <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>Ficha da análise CAD</div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <MiniCard label="Analisado em" value={analisadoEm ? new Date(analisadoEm).toLocaleString('pt-BR') : '—'} />
+        <MiniCard label="Views" value={String(diag.total_views ?? '—')} />
+        <MiniCard label="Objetos" value={String(diag.n_objetos ?? '—')} />
+        <MiniCard label="Área nativa" value={diag.tem_area_prop ? 'sim' : 'não'} />
+      </div>
+
+      {layers.length > 0 && (
+        <div>
+          <div className="text-xs font-medium mb-1" style={{ color: ESP60 }}>Layers detectadas</div>
+          <ul className="text-xs divide-y" style={{ color: ESP, borderColor: LINE }}>
+            {layers.map((l) => (
+              <li key={l.nome} className="flex items-center justify-between py-1">
+                <span className="truncate mr-2">{l.nome}</span>
+                <span className="tabular-nums" style={{ color: ESP60 }}>{l.count}</span>
+              </li>
+            ))}
+          </ul>
+          {rest > 0 && <div className="text-[11px] mt-1" style={{ color: ESP60 }}>+ {rest} outras layers</div>}
+        </div>
+      )}
+
+      {diag.view_escolhida?.name && (
+        <div className="text-[11px]" style={{ color: ESP60 }}>
+          View escolhida: <b style={{ color: ESP }}>{diag.view_escolhida.name}</b>
+          {diag.view_escolhida.role && <> · {diag.view_escolhida.role}</>}
+        </div>
+      )}
+
+      <details className="text-xs">
+        <summary className="cursor-pointer" style={{ color: ESP60 }}>▶ Avançado (JSON completo)</summary>
+        <pre className="text-[10px] mt-2 p-2 rounded overflow-auto max-h-64" style={{ background: BG }}>
+{JSON.stringify(diag, null, 2)}
+        </pre>
+      </details>
+    </div>
+  )
+}
+
+function MiniCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg p-2 text-center" style={{ background: BG, border: `0.5px solid ${LINE}` }}>
+      <div className="text-[9px] uppercase tracking-widest" style={{ color: ESP60 }}>{label}</div>
+      <div className="text-sm mt-1 font-medium" style={{ color: ESP }}>{value}</div>
+    </div>
+  )
+}
+
 const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 20 MB (PDF/PNG/JPG)
@@ -89,6 +155,8 @@ async function pdfPagina1ParaPng(pdfBytes: Uint8Array): Promise<{ blob: Blob; pa
 
 export default function TakeoffPage() {
   const { companyId } = useEmpresaSelecionada()
+  const searchParams = useSearchParams()
+  const plantaIdParam = searchParams?.get('planta_id') ?? null
   const [orcamentos, setOrcamentos] = useState<Orc[]>([])
   const [orcId, setOrcId] = useState<string>('')
   const [servicos, setServicos] = useState<Servico[]>([])
@@ -114,6 +182,48 @@ export default function TakeoffPage() {
     return () => { alive = false }
   }, [companyId])
 
+  // Se veio ?planta_id=... (vindo do acervo), carrega essa planta direto.
+  useEffect(() => {
+    if (!companyId || !plantaIdParam) return
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('erp_obra_planta')
+        .select('id')
+        .eq('id', plantaIdParam).eq('company_id', companyId).maybeSingle()
+      if (!alive || !data) return
+      await recarregarPlanta(plantaIdParam)
+      await recarregarAmbientes(plantaIdParam)
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, plantaIdParam])
+
+  // Guard de abertura (PR-FIX #2): quando o usuario seleciona um orcamento, se ja
+  // existe planta RADIOGRAFADA vinculada a esse orcamento, carrega ela ao inves
+  // de deixar a tela vazia esperando upload. Sem isso, ele reuploada e "some" o
+  // radiografado (caso Tryo/MAGNUS).
+  useEffect(() => {
+    if (!companyId || !orcId) return
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('erp_obra_planta')
+        .select('id,aps_status,updated_at')
+        .eq('company_id', companyId).eq('orcamento_id', orcId)
+        .not('aps_status', 'is', null)
+        .order('aps_status', { ascending: true }) // radiografado vem antes de traduzindo (ordem alfabetica)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+      if (!alive) return
+      const primeiro = (data ?? [])[0] as { id: string; aps_status: string | null } | undefined
+      if (primeiro?.aps_status === 'radiografado' && (!planta || planta.id !== primeiro.id)) {
+        await recarregarPlanta(primeiro.id)
+        await recarregarAmbientes(primeiro.id)
+      }
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, orcId])
+
   const recarregarAmbientes = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta_ambiente')
       .select('id,nome,area_m2,perimetro_ml,pe_direito_m,confianca,confirmado,servico_id,base_calculo')
@@ -128,7 +238,7 @@ export default function TakeoffPage() {
     setPlanta(data as Planta)
   }, [])
 
-  const enviarPlanta = async (file: File) => {
+  const enviarPlanta = async (file: File, forcarNovaVersao = false) => {
     if (!companyId) return
     setBusy(true); setErro(null); setMsg(null); setAmbientes([])
     try {
@@ -148,12 +258,66 @@ export default function TakeoffPage() {
         : 'png'
       const extMatch = lower.match(/\.(dwg|pdf|png|jpe?g)$/i)
       const ext = extMatch ? extMatch[1] : tipo
+
+      // 1) hash SHA-256 dos bytes — dedup por conteudo, nao por nome/UUID
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
+      const hash = Array.from(new Uint8Array(hashBuf))
+        .map((b) => b.toString(16).padStart(2, '0')).join('')
+
+      // 2) Existe planta com esse hash nessa company? Preferencia: radiografada.
+      if (!forcarNovaVersao) {
+        setMsg('Verificando se essa planta ja foi analisada...')
+        const { data: existentes, error: procErr } = await supabase.rpc('fn_takeoff_planta_procurar_por_hash', {
+          p_company_id: companyId, p_arquivo_hash: hash,
+        })
+        if (!procErr && Array.isArray(existentes) && existentes.length > 0) {
+          const ja = existentes[0] as {
+            id: string; nome: string; aps_status: string | null; analisado_em: string | null
+          }
+          if (ja.aps_status === 'radiografado') {
+            const dt = ja.analisado_em ? new Date(ja.analisado_em).toLocaleString('pt-BR') : 'antes'
+            const ok = window.confirm(
+              `Esta planta ja foi analisada em ${dt}.\n\n` +
+              `OK = REUSAR a analise existente (gratis).\n` +
+              `Cancelar = subir NOVA VERSAO (paga 1 credito de novo).`
+            )
+            if (ok) {
+              await recarregarPlanta(ja.id)
+              await recarregarAmbientes(ja.id)
+              setMsg('Analise existente carregada. Nao houve nova cobranca.')
+              return
+            }
+            // Caiu aqui = usuario clicou Cancelar -> forca nova versao. Continua no fluxo.
+          } else if (ja.aps_status === 'traduzindo') {
+            const ok = window.confirm(
+              `Esta planta ja esta sendo processada agora (em traducao).\n\n` +
+              `OK = abrir o processamento em andamento.\n` +
+              `Cancelar = subir NOVA VERSAO (paga 1 credito de novo).`
+            )
+            if (ok) {
+              await recarregarPlanta(ja.id)
+              await recarregarAmbientes(ja.id)
+              setMsg('Processamento em andamento carregado.')
+              return
+            }
+          } else {
+            // enviada mas nao processada — reusa direto (nao houve cobranca ainda)
+            await recarregarPlanta(ja.id)
+            await recarregarAmbientes(ja.id)
+            setMsg('Planta ja enviada — carregada. Clique em processar.')
+            return
+          }
+        }
+      }
+
+      // 3) upload novo
       const plantaId = crypto.randomUUID()
       // Key segura no Storage: SEM nome original (espacos/acentos/especiais
       // disparam "Invalid key"). Usa uuid + extensao. Nome original vai
       // como metadado em erp_obra_planta.nome (display).
       const path = `${companyId}/${plantaId}/${crypto.randomUUID()}.${ext}`
-      const up = await supabase.storage.from('projetos-plantas').upload(path, file, {
+      const up = await supabase.storage.from('projetos-plantas').upload(path, bytes, {
         upsert: false, contentType: file.type || undefined,
       })
       if (up.error) {
@@ -164,7 +328,7 @@ export default function TakeoffPage() {
       }
       const { data: pid, error } = await supabase.rpc('fn_takeoff_planta_salvar', {
         p_company_id: companyId, p_nome: file.name, p_arquivo_path: path, p_arquivo_tipo: tipo,
-        p_orcamento_id: orcId || null, p_escala: escala || null,
+        p_orcamento_id: orcId || null, p_escala: escala || null, p_arquivo_hash: hash,
       })
       if (error) throw error
       const idFinal = (pid as string)
@@ -332,10 +496,19 @@ export default function TakeoffPage() {
   const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]'
   return (
     <div className="min-h-screen bg-[#FAF7F2] p-4 space-y-4 max-w-4xl mx-auto">
-      <header>
-        <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: GOLD }}>Construção · diferencial IA</div>
-        <h1 className="text-2xl sm:text-3xl mt-1 text-[#3D2314]" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Takeoff por IA da planta</h1>
-        <p className="text-sm mt-1" style={{ color: ESP60 }}>Suba a planta → a IA extrai ambientes e medidas → você revisa, vincula serviços e gera o orçamento.</p>
+      <header className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: GOLD }}>Construção · diferencial IA</div>
+          <h1 className="text-2xl sm:text-3xl mt-1 text-[#3D2314]" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Takeoff por IA da planta</h1>
+          <p className="text-sm mt-1" style={{ color: ESP60 }}>Suba a planta → a IA extrai ambientes e medidas → você revisa, vincula serviços e gera o orçamento.</p>
+        </div>
+        <Link
+          href="/dashboard/projetos/takeoff/acervo"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold shrink-0"
+          style={{ background: '#FFFFFF', color: ESP, border: `0.5px solid ${GOLD}` }}
+        >
+          <Archive size={13} /> Análises salvas
+        </Link>
       </header>
 
       <section className="rounded-2xl bg-white p-4 border border-[#E7DECF] space-y-2">
@@ -397,21 +570,7 @@ export default function TakeoffPage() {
           </div>
         )}
         {planta?.arquivo_tipo === 'dwg' && planta.aps_status === 'radiografado' && planta.aps_diagnostico && (
-          <div className="mt-3 rounded-xl border p-3 text-sm" style={{ borderColor: LINE, background: '#FFFFFF' }}>
-            <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: GOLD }}>Ficha da análise CAD</div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-              <div><span style={{ color: ESP60 }}>Analisado em:</span> <b>{planta.analisado_em ? new Date(planta.analisado_em).toLocaleString('pt-BR') : '—'}</b></div>
-              <div><span style={{ color: ESP60 }}>Views totais:</span> <b>{String((planta.aps_diagnostico as { total_views?: number }).total_views ?? '—')}</b></div>
-              <div><span style={{ color: ESP60 }}>Objetos:</span> <b>{String((planta.aps_diagnostico as { n_objetos?: number }).n_objetos ?? '—')}</b></div>
-              <div><span style={{ color: ESP60 }}>Tem Area (prop):</span> <b>{(planta.aps_diagnostico as { tem_area_prop?: boolean }).tem_area_prop ? 'sim' : 'não'}</b></div>
-            </div>
-            <details className="mt-2">
-              <summary className="text-xs cursor-pointer" style={{ color: ESP60 }}>Ver diagnóstico completo (JSON)</summary>
-              <pre className="text-[10px] mt-2 p-2 rounded overflow-auto max-h-64" style={{ background: BG }}>
-{JSON.stringify(planta.aps_diagnostico, null, 2)}
-              </pre>
-            </details>
-          </div>
+          <FichaCad diag={planta.aps_diagnostico as DiagCad} analisadoEm={planta.analisado_em} />
         )}
       </section>
 
