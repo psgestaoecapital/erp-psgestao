@@ -34,7 +34,16 @@ const RED = '#C44536'
 
 type Orc = { id: string; numero: string | null; cliente_nome: string | null; status: string }
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; custo_unitario_total: number | null }
-type Planta = { id: string; nome: string; status: string; area_total_m2: number | null; ia_erro: string | null; arquivo_path: string | null; arquivo_tipo: string | null }
+type Planta = {
+  id: string; nome: string; status: string; area_total_m2: number | null;
+  ia_erro: string | null; arquivo_path: string | null; arquivo_tipo: string | null;
+  arquivo_dwg_path: string | null;
+  aps_status: 'traduzindo' | 'radiografado' | 'erro' | null;
+  aps_diagnostico: Record<string, unknown> | null;
+  aps_traduzido_em: string | null;
+  analisado_em: string | null;
+  analisado_por: string | null;
+}
 type Ambiente = {
   id: string; nome: string; area_m2: number | null; perimetro_ml: number | null; pe_direito_m: number | null;
   confianca: 'alta' | 'media' | 'baixa'; confirmado: boolean;
@@ -43,7 +52,8 @@ type Ambiente = {
 
 const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 20 MB
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 // 20 MB (PDF/PNG/JPG)
+const MAX_UPLOAD_DWG_BYTES = 60 * 1024 * 1024 // 60 MB (DWG geralmente maior)
 const PDF_RENDER_SCALE = 2 // ~200 DPI — suficiente pra IA ler cotas
 
 // Converte a 1a pagina de um PDF em PNG via pdfjs (dynamic import — fora do bundle inicial).
@@ -113,7 +123,8 @@ export default function TakeoffPage() {
 
   const recarregarPlanta = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta')
-      .select('id,nome,status,area_total_m2,ia_erro,arquivo_path,arquivo_tipo').eq('id', plantaId).single()
+      .select('id,nome,status,area_total_m2,ia_erro,arquivo_path,arquivo_tipo,arquivo_dwg_path,aps_status,aps_diagnostico,aps_traduzido_em,analisado_em,analisado_por')
+      .eq('id', plantaId).single()
     setPlanta(data as Planta)
   }, [])
 
@@ -122,21 +133,20 @@ export default function TakeoffPage() {
     setBusy(true); setErro(null); setMsg(null); setAmbientes([])
     try {
       const lower = file.name.toLowerCase()
-      // DWG: orienta exportar pra PDF/imagem (RD-42: conversor pago fica pra depois)
-      if (/\.dwg$/i.test(lower)) {
-        throw new Error('Arquivos DWG (AutoCAD) ainda nao sao suportados. Exporte a planta como PDF ou PNG/JPG no seu CAD e suba aqui.')
+      const ehDwg = /\.dwg$/i.test(lower)
+      if (!ehDwg && !/\.(pdf|png|jpe?g)$/i.test(lower)) {
+        throw new Error('Formato nao suportado. Envie DWG (CAD), PDF, PNG ou JPG.')
       }
-      if (!/\.(pdf|png|jpe?g)$/i.test(lower)) {
-        throw new Error('Formato nao suportado. Envie PDF, PNG ou JPG.')
-      }
-      if (file.size > MAX_UPLOAD_BYTES) {
+      const limite = ehDwg ? MAX_UPLOAD_DWG_BYTES : MAX_UPLOAD_BYTES
+      if (file.size > limite) {
         const mb = (file.size / (1024 * 1024)).toFixed(1)
-        throw new Error(`Arquivo grande demais (${mb} MB). Limite: 20 MB.`)
+        throw new Error(`Arquivo grande demais (${mb} MB). Limite: ${(limite / (1024 * 1024)).toFixed(0)} MB.`)
       }
-      const tipo = /\.pdf$/i.test(lower) ? 'pdf'
+      const tipo = ehDwg ? 'dwg'
+        : /\.pdf$/i.test(lower) ? 'pdf'
         : /\.jpe?g$/i.test(lower) ? 'jpg'
-          : 'png'
-      const extMatch = lower.match(/\.(pdf|png|jpe?g)$/i)
+        : 'png'
+      const extMatch = lower.match(/\.(dwg|pdf|png|jpe?g)$/i)
       const ext = extMatch ? extMatch[1] : tipo
       const plantaId = crypto.randomUUID()
       // Key segura no Storage: SEM nome original (espacos/acentos/especiais
@@ -158,8 +168,15 @@ export default function TakeoffPage() {
       })
       if (error) throw error
       const idFinal = (pid as string)
+      if (ehDwg) {
+        // Espelha em arquivo_dwg_path (acervo persistente do CAD original) —
+        // fn_takeoff_planta_salvar so mexe em arquivo_path.
+        await supabase.from('erp_obra_planta').update({ arquivo_dwg_path: path }).eq('id', idFinal)
+      }
       await recarregarPlanta(idFinal)
-      setMsg('Planta enviada. Clique em Analisar para extrair os ambientes.')
+      setMsg(ehDwg
+        ? 'DWG enviado e arquivado. Clique em "Processar DWG (precisao CAD)" para radiografar.'
+        : 'Planta enviada. Clique em Analisar para extrair os ambientes.')
     } catch (e) {
       setErro((e as Error).message || String(e))
     } finally {
@@ -225,6 +242,41 @@ export default function TakeoffPage() {
       setMsg(ehPdf && pages > 1
         ? `Ambientes extraidos da pagina 1 (PDF tem ${pages} paginas). Revise, vincule um servico e confirme.`
         : 'Ambientes extraidos. Revise, vincule um servico e confirme.')
+    } catch (e) {
+      setErro((e as Error).message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const processarDwg = async (forcar = false) => {
+    if (!planta) return
+    if (forcar) {
+      const ok = confirm('Reanalisar consome 1 credito APS e conta como analise paga. Continuar?')
+      if (!ok) return
+    }
+    setBusy(true); setErro(null); setMsg('Enviando DWG para o motor de precisao CAD...')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/aps/ingest', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          authorization: session ? `Bearer ${session.access_token}` : '',
+        },
+        body: JSON.stringify({ planta_id: planta.id, forcar }),
+      })
+      const j = await r.json()
+      if (!j.ok) throw new Error(j.erro || j.detalhe || 'Falha ao processar DWG')
+      await recarregarPlanta(planta.id)
+      if (j.status === 'traduzindo') {
+        setMsg('DWG em traducao no APS — clique em "Processar DWG" de novo em ~1 minuto para concluir.')
+      } else if (j.status === 'radiografado') {
+        setMsg(j.ja_analisado
+          ? 'Analise ja existente carregada do acervo (sem cobrar de novo).'
+          : 'DWG radiografado. Ficha do projeto e diagnostico abaixo.')
+      }
     } catch (e) {
       setErro((e as Error).message || String(e))
     } finally {
@@ -299,8 +351,8 @@ export default function TakeoffPage() {
           <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
           <label className="rounded-xl border border-dashed border-[#E7DECF] bg-[#FAF7F2] p-2 text-sm text-center cursor-pointer text-[#3D2314] flex items-center justify-center gap-2">
             <UploadCloud size={15} />
-            <span>{planta?.nome ?? 'Enviar planta (PNG/JPG/PDF)'}</span>
-            <input type="file" accept=".png,.jpg,.jpeg,.pdf" className="hidden" onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
+            <span>{planta?.nome ?? 'Enviar planta (DWG/PNG/JPG/PDF)'}</span>
+            <input type="file" accept=".dwg,.png,.jpg,.jpeg,.pdf" className="hidden" onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
           </label>
         </div>
 
@@ -314,9 +366,51 @@ export default function TakeoffPage() {
                 área total: <b>{planta.area_total_m2} m²</b>
               </span>
             )}
-            <button onClick={analisar} disabled={busy || planta.status === 'processando'} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
-              <Sparkles size={15} /> Analisar com IA
-            </button>
+            {planta.arquivo_tipo === 'dwg' && (
+              <span className="text-xs px-2 py-1 rounded-full font-semibold" style={{
+                background: planta.aps_status === 'radiografado' ? '#DCFCE7'
+                  : planta.aps_status === 'traduzindo' ? '#FEF3C7'
+                  : planta.aps_status === 'erro' ? '#FEE2E2' : BG,
+                color: planta.aps_status === 'radiografado' ? '#16A34A'
+                  : planta.aps_status === 'traduzindo' ? '#7A5A0F'
+                  : planta.aps_status === 'erro' ? '#A32D2D' : ESP60,
+                border: `0.5px solid ${LINE}`,
+              }}>
+                CAD: <b>{planta.aps_status ?? 'pendente'}</b>
+              </span>
+            )}
+            {planta.arquivo_tipo !== 'dwg' && (
+              <button onClick={analisar} disabled={busy || planta.status === 'processando'} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
+                <Sparkles size={15} /> Analisar com IA
+              </button>
+            )}
+            {planta.arquivo_tipo === 'dwg' && planta.aps_status !== 'radiografado' && (
+              <button onClick={() => processarDwg(false)} disabled={busy} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
+                <Sparkles size={15} /> {planta.aps_status === 'traduzindo' ? 'Concluir processamento' : 'Processar DWG (precisão CAD)'}
+              </button>
+            )}
+            {planta.arquivo_tipo === 'dwg' && planta.aps_status === 'radiografado' && (
+              <button onClick={() => processarDwg(true)} disabled={busy} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: '#FFFFFF', color: ESP, border: `0.5px solid ${GOLD}`, opacity: busy ? 0.6 : 1 }}>
+                Reanalisar (custa 1 crédito)
+              </button>
+            )}
+          </div>
+        )}
+        {planta?.arquivo_tipo === 'dwg' && planta.aps_status === 'radiografado' && planta.aps_diagnostico && (
+          <div className="mt-3 rounded-xl border p-3 text-sm" style={{ borderColor: LINE, background: '#FFFFFF' }}>
+            <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: GOLD }}>Ficha da análise CAD</div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+              <div><span style={{ color: ESP60 }}>Analisado em:</span> <b>{planta.analisado_em ? new Date(planta.analisado_em).toLocaleString('pt-BR') : '—'}</b></div>
+              <div><span style={{ color: ESP60 }}>Views totais:</span> <b>{String((planta.aps_diagnostico as { total_views?: number }).total_views ?? '—')}</b></div>
+              <div><span style={{ color: ESP60 }}>Objetos:</span> <b>{String((planta.aps_diagnostico as { n_objetos?: number }).n_objetos ?? '—')}</b></div>
+              <div><span style={{ color: ESP60 }}>Tem Area (prop):</span> <b>{(planta.aps_diagnostico as { tem_area_prop?: boolean }).tem_area_prop ? 'sim' : 'não'}</b></div>
+            </div>
+            <details className="mt-2">
+              <summary className="text-xs cursor-pointer" style={{ color: ESP60 }}>Ver diagnóstico completo (JSON)</summary>
+              <pre className="text-[10px] mt-2 p-2 rounded overflow-auto max-h-64" style={{ background: BG }}>
+{JSON.stringify(planta.aps_diagnostico, null, 2)}
+              </pre>
+            </details>
           </div>
         )}
       </section>
