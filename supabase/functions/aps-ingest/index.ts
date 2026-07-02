@@ -272,13 +272,23 @@ Deno.serve(async (req) => {
         { status: 412, headers: JSON_HEADERS })
     }
 
-    // 3) Secrets APS (env do edge — 'supabase secrets set APS_CLIENT_ID=... APS_CLIENT_SECRET=...')
-    const clientId = Deno.env.get('APS_CLIENT_ID') ?? ''
-    const clientSecret = Deno.env.get('APS_CLIENT_SECRET') ?? ''
+    // 3) Secrets APS via Cofre (fn_credencial_ler, service role) com fallback pra env do edge.
+    let clientId = ''
+    let clientSecret = ''
+    const rId = await supabase.rpc('fn_credencial_ler', {
+      p_provider: 'aps', p_chave: 'client_id', p_escopo: 'global', p_company_id: null,
+    })
+    const rSecret = await supabase.rpc('fn_credencial_ler', {
+      p_provider: 'aps', p_chave: 'client_secret', p_escopo: 'global', p_company_id: null,
+    })
+    if (!rId.error && typeof rId.data === 'string') clientId = rId.data
+    if (!rSecret.error && typeof rSecret.data === 'string') clientSecret = rSecret.data
+    if (!clientId) clientId = Deno.env.get('APS_CLIENT_ID') ?? ''
+    if (!clientSecret) clientSecret = Deno.env.get('APS_CLIENT_SECRET') ?? ''
     if (!clientId || !clientSecret) {
       return new Response(JSON.stringify({
         ok: false, erro: 'secrets_aps_nao_configuradas',
-        detalhe: 'Grave APS_CLIENT_ID e APS_CLIENT_SECRET via `supabase secrets set` (ou no MCP).',
+        detalhe: 'Cadastre APS Client ID e Client Secret em /dashboard/cofre (admin).',
       }), { status: 412, headers: JSON_HEADERS })
     }
 
