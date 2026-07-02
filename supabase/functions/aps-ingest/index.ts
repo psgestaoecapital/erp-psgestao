@@ -151,24 +151,47 @@ type Properties = {
 }
 
 async function radiografar(token: string, urn: string): Promise<Record<string, unknown>> {
-  const meta = await (await fetch(
+  // GET /metadata pode devolver HTTP 202 sem .data enquanto o SVF2 e' pos-processado.
+  // Todos acessos a .data DEVEM usar optional chaining — se vier vazio, entregamos
+  // uma radiografia parcial sinalizando "aguardando_arvore".
+  const metaRes = await fetch(
     `${APS_BASE}/modelderivative/v2/designdata/${urn}/metadata`,
     { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } },
-  )).json() as Metadata
+  )
+  const metaStatus = metaRes.status
+  const meta = (await metaRes.json()) as Metadata | { result?: string }
 
-  const guids2d = (meta.data.metadata ?? []).filter((g) => g.role === '2d' || g.type === 'geometry')
-  const escolhido = guids2d[0] ?? meta.data.metadata[0]
+  const metaList = (meta as Metadata)?.data?.metadata ?? []
+  const guids2d = metaList.filter((g) => g.role === '2d' || g.type === 'geometry')
+  const escolhido = guids2d[0] ?? metaList[0]
   const diagnostico: Record<string, unknown> = {
-    total_views: meta.data.metadata?.length ?? 0,
-    views: meta.data.metadata?.map((v) => ({ name: v.name, role: v.role, type: v.type })) ?? [],
+    total_views: metaList.length,
+    views: metaList.map((v) => ({ name: v.name, role: v.role, type: v.type })),
+  }
+  if (metaStatus === 202 || metaList.length === 0) {
+    diagnostico.aviso = 'metadata_ainda_processando'
+    diagnostico.metadata_http_status = metaStatus
+    return diagnostico
   }
   if (!escolhido) return diagnostico
 
-  // ObjectTree (contagem objetos)
-  const tree = await (await fetch(
+  // ObjectTree — pode retornar 202 + {"result":"success"} SEM .data enquanto extrai.
+  const treeRes = await fetch(
     `${APS_BASE}/modelderivative/v2/designdata/${urn}/metadata/${escolhido.guid}`,
     { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } },
-  )).json() as ObjectTree
+  )
+  const treeStatus = treeRes.status
+  const tree = (await treeRes.json()) as ObjectTree | { result?: string }
+  const treeObjects = (tree as ObjectTree)?.data?.objects ?? null
+
+  diagnostico.view_escolhida = { guid: escolhido.guid, name: escolhido.name, role: escolhido.role }
+
+  if (!treeObjects) {
+    diagnostico.aviso = 'objecttree_ainda_processando'
+    diagnostico.objecttree_http_status = treeStatus
+    diagnostico.n_objetos = 0
+    return diagnostico
+  }
 
   const flat: Array<{ objectid: number; name: string }> = []
   function walk(nodes: Array<{ objectid: number; name: string; objects?: unknown[] }>) {
@@ -177,21 +200,22 @@ async function radiografar(token: string, urn: string): Promise<Record<string, u
       if (Array.isArray(n.objects)) walk(n.objects as typeof nodes)
     }
   }
-  walk(tree.data.objects ?? [])
+  walk(treeObjects)
   diagnostico.n_objetos = flat.length
-  diagnostico.view_escolhida = { guid: escolhido.guid, name: escolhido.name, role: escolhido.role }
 
-  // Properties (layers + tipos + Area)
-  const props = await (await fetch(
+  // Properties (layers + tipos + Area) — mesma proteção
+  const propsRes = await fetch(
     `${APS_BASE}/modelderivative/v2/designdata/${urn}/metadata/${escolhido.guid}/properties`,
     { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } },
-  )).json() as Properties
+  )
+  const props = (await propsRes.json()) as Properties | { result?: string }
+  const propsCollection = (props as Properties)?.data?.collection ?? []
 
   const layerCount = new Map<string, number>()
   const tipoCount = new Map<string, number>()
   let temArea = 0
   const candidatosAmbiente: Array<{ objectid: number; name: string }> = []
-  for (const it of props.data?.collection ?? []) {
+  for (const it of propsCollection) {
     const p = it.properties ?? {}
     const layer = String(
       (p.Layer as Record<string, unknown> | undefined)?.Layer
@@ -335,18 +359,29 @@ Deno.serve(async (req) => {
     // 8) Radiografia
     const diagnostico = await radiografar(token, urn)
     const analisadoEm = new Date().toISOString()
+    // Se radiografia veio parcial (metadata/objecttree ainda processando no APS),
+    // mantem status='traduzindo' — nao cobra ainda, e a proxima chamada retenta.
+    const parcial = !!(diagnostico.aviso)
 
     // 9) UPDATE
     await supabase.from('erp_obra_planta').update({
-      aps_status: 'radiografado',
-      aps_traduzido_em: analisadoEm,
+      aps_status: parcial ? 'traduzindo' : 'radiografado',
+      aps_traduzido_em: parcial ? null : analisadoEm,
       aps_diagnostico: diagnostico,
-      analisado_em: analisadoEm,
-      analisado_por: user_id ?? null,
+      analisado_em: parcial ? null : analisadoEm,
+      analisado_por: parcial ? null : (user_id ?? null),
     }).eq('id', planta_id)
 
+    if (parcial) {
+      return new Response(JSON.stringify({
+        ok: true, status: 'traduzindo', urn,
+        aviso: String(diagnostico.aviso),
+        aps_diagnostico: diagnostico,
+      }), { headers: JSON_HEADERS })
+    }
+
     // 10) INSERT medidor (1x — trava anti-dup por (company_id, recurso, referencia_id))
-    // Preemptivo: consulta se ja existe, senao insere.
+    // So cobra em radiografia completa.
     const jaMedido = await supabase.from('erp_uso_medicao')
       .select('id').eq('company_id', planta.company_id)
       .eq('recurso', RECURSO).eq('referencia_id', planta_id).limit(1)
