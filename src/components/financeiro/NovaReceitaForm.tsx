@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type Cliente = {
@@ -35,6 +35,11 @@ const exibirNomeCliente = (c: Cliente) =>
 
 export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: NovaReceitaFormProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Conciliacao: quando vem ?origem_conciliacao=<mov_id>, esta receita nasce
+  // vinculada a um movimento do extrato. Fluxo atomico via
+  // fn_conciliacao_aplicar_match -> trigger trg_baixa_por_conciliacao faz a baixa.
+  const origemConciliacao = searchParams?.get('origem_conciliacao') ?? null
 
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -61,6 +66,18 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [loading, setLoading] = useState(false)
   const [semPlano, setSemPlano] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  // Prefill via query (?valor=&data=&descricao=) — fluxo Conciliacao "Incluir nova conta".
+  useEffect(() => {
+    if (!searchParams) return
+    const v = searchParams.get('valor')
+    const d = searchParams.get('data')
+    const desc = searchParams.get('descricao')
+    if (v && !valor) setValor(v)
+    if (d && d.match(/^\d{4}-\d{2}-\d{2}$/)) setDataRecebimento(d)
+    if (desc && !descricao) setDescricao(desc)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   useEffect(() => {
     if (!companyId) return
@@ -160,7 +177,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       await supabase.from('erp_receber').update({ data_competencia: dataCompFinal }).in('id', ids)
     }
 
-    if (jaRecebido && ids.length > 0 && contaBancaria) {
+    // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
+    // trigger trg_baixa_por_conciliacao — NUNCA chamar fn_receber_baixar_pagamento
+    // aqui, mesmo com "ja recebido" marcado. Fonte unica da baixa.
+    if (!origemConciliacao && jaRecebido && ids.length > 0 && contaBancaria) {
       // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
       // ids[0] eh a parcela 1/N (fn_receber_criar_com_parcelas retorna na ordem).
       const primeiroId = ids[0]
@@ -173,9 +193,31 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       })
     }
 
+    // Vincula ao movimento do extrato -> trigger dispara a baixa canonica.
+    if (origemConciliacao && ids.length > 0) {
+      const primeiroId = ids[0]
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error: matchErr } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+        p_movimento_id: origemConciliacao,
+        p_lancamento_tabela: 'erp_receber',
+        p_lancamento_id: primeiroId,
+        p_operador_id: user?.id ?? null,
+        p_origem: 'novo_lancamento',
+      })
+      if (matchErr) {
+        setLoading(false)
+        setErro('Receita CRIOU mas nao CONCILIOU: ' + matchErr.message)
+        return
+      }
+    }
+
     setLoading(false)
 
     const primeiroId = ids[0]
+    if (origemConciliacao) {
+      router.push('/dashboard/financeiro/conciliacao/inbox')
+      return
+    }
     if (primeiroId && onSucesso) {
       onSucesso(primeiroId)
     } else {
@@ -387,15 +429,23 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           </Campo>
 
           <div style={{ gridColumn: '1 / -1', borderTop: '0.5px solid rgba(61,35,20,0.12)', paddingTop: 12, marginTop: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', fontWeight: 600 }}>
-              <input
-                type="checkbox"
-                checked={jaRecebido}
-                onChange={(e) => setJaRecebido(e.target.checked)}
-              />
-              {parcelas > 1 ? 'Já recebi a 1ª parcela' : 'Já recebi essa receita'}
-            </label>
-            {jaRecebido && (
+            {origemConciliacao ? (
+              <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
+                🔗 Esta receita CRIOU a partir de um movimento do extrato bancário.
+                Ao salvar, ela CONCILIA automaticamente com o movimento — a baixa é feita
+                pelo sistema (não precisa marcar &quot;já recebi&quot;).
+              </div>
+            ) : (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={jaRecebido}
+                  onChange={(e) => setJaRecebido(e.target.checked)}
+                />
+                {parcelas > 1 ? 'Já recebi a 1ª parcela' : 'Já recebi essa receita'}
+              </label>
+            )}
+            {jaRecebido && !origemConciliacao && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
                 <Campo label="Data do recebimento" obrigatorio>
                   <input
