@@ -317,8 +317,16 @@ export default function TakeoffPage() {
       // disparam "Invalid key"). Usa uuid + extensao. Nome original vai
       // como metadado em erp_obra_planta.nome (display).
       const path = `${companyId}/${plantaId}/${crypto.randomUUID()}.${ext}`
-      const up = await supabase.storage.from('projetos-plantas').upload(path, bytes, {
-        upsert: false, contentType: file.type || undefined,
+      // Passa o File (nao os bytes) — o SDK do Supabase Storage tira Content-Type
+      // do File.type automaticamente. Bytes crus sem contentType explicito
+      // quebrava o upload de DWG (browsers nao conhecem MIME de .dwg -> file.type='').
+      const contentType = file.type
+        || (ehDwg ? 'application/acad'
+          : tipo === 'pdf' ? 'application/pdf'
+          : tipo === 'jpg' ? 'image/jpeg'
+          : 'image/png')
+      const up = await supabase.storage.from('projetos-plantas').upload(path, file, {
+        upsert: false, contentType,
       })
       if (up.error) {
         const m = /invalid key|key/i.test(up.error.message)
