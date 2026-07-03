@@ -12,6 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
+import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
 
 interface Item {
   movimento_id: string
@@ -190,6 +191,7 @@ export default function InboxPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [arquivando, setArquivando] = useState<Item | null>(null)
   const [vinculandoVarios, setVinculandoVarios] = useState<Item | null>(null)
+  const [pesquisandoConta, setPesquisandoConta] = useState<Item | null>(null)
   // conciliacao-ajuste-diferenca-no-conciliar-v1
   const [ajuste, setAjuste] = useState<null | {
     lancamentoId: string
@@ -587,10 +589,10 @@ export default function InboxPage() {
   }
 
   function pesquisarConta(it: Item) {
-    // redireciona pra listagem com busca pre-preenchida
-    const tipo = it.natureza === 'credito' ? 'receber' : 'pagar'
-    const params = new URLSearchParams({ busca: String(Math.abs(Number(it.valor) || 0).toFixed(2)) })
-    router.push(`/dashboard/financeiro/${tipo}?${params.toString()}`)
+    // fix-picker-reverso-v1: abre modal inline com titulos compativeis
+    // (fluxo REVERSO — movimento -> titulo). Ao selecionar, chama
+    // fn_conciliacao_aplicar_match; trigger dispara a baixa.
+    setPesquisandoConta(it)
   }
 
   // ONDA-A-INBOX-SELO-v1: agora usa fn_conciliacao_rodar_lote (blindado anti-colisao)
@@ -1152,6 +1154,20 @@ export default function InboxPage() {
           valorOriginal={ajuste.valorOriginal}
           valorBanco={ajuste.valorBanco}
           descricao={ajuste.descricao}
+        />
+      )}
+
+      {pesquisandoConta && empresaUnica && (
+        <PickerTituloExistenteModal
+          open
+          onClose={() => setPesquisandoConta(null)}
+          onSucesso={() => { setPesquisandoConta(null); void carregar(); void carregarConciliados() }}
+          companyId={empresaUnica}
+          movimentoId={pesquisandoConta.movimento_id}
+          movimentoDescricao={pesquisandoConta.descricao ?? '(sem descrição)'}
+          movimentoValor={Math.abs(Number(pesquisandoConta.valor) || 0)}
+          movimentoData={pesquisandoConta.data_transacao}
+          movimentoNatureza={pesquisandoConta.natureza ?? 'debito'}
         />
       )}
     </div>
