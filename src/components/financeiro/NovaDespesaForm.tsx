@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type Fornecedor = {
@@ -35,6 +35,11 @@ const exibirNomeFornecedor = (f: Fornecedor) =>
 
 export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: NovaDespesaFormProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Conciliacao: se vier ?origem_conciliacao=<mov_id>, esta despesa nasce
+  // vinculada a um movimento do extrato. Fluxo atomico: cria com status=aberto
+  // + fn_conciliacao_aplicar_match -> trigger trg_baixa_por_conciliacao faz a baixa.
+  const origemConciliacao = searchParams?.get('origem_conciliacao') ?? null
 
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -61,6 +66,19 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [copiarAberto, setCopiarAberto] = useState(false)
+
+  // Prefill via query (?valor=&data=&descricao=) — usado pelo fluxo Conciliacao
+  // "Incluir nova conta" que envia os dados do movimento.
+  useEffect(() => {
+    if (!searchParams) return
+    const v = searchParams.get('valor')
+    const d = searchParams.get('data')
+    const desc = searchParams.get('descricao')
+    if (v && !valor) setValor(v)
+    if (d && d.match(/^\d{4}-\d{2}-\d{2}$/)) setDataVencimento(d)
+    if (desc && !descricao) setDescricao(desc)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   useEffect(() => {
     if (!companyId) return
@@ -158,7 +176,10 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
     }
 
-    if (jaPago && ids.length > 0 && contaBancaria) {
+    // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
+    // trigger trg_baixa_por_conciliacao — NUNCA chamar fn_pagar_baixar_pagamento
+    // aqui, mesmo se o usuario tiver marcado "ja pago". Fonte unica da baixa.
+    if (!origemConciliacao && jaPago && ids.length > 0 && contaBancaria) {
       // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
       // ids[0] eh a parcela 1/N (fn_pagar_criar_com_parcelas retorna na ordem).
       const primeiroId = ids[0]
@@ -171,9 +192,32 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       })
     }
 
+    // Vincula ao movimento do extrato -> trigger dispara a baixa canonica.
+    if (origemConciliacao && ids.length > 0) {
+      const primeiroId = ids[0]
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error: matchErr } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+        p_movimento_id: origemConciliacao,
+        p_lancamento_tabela: 'erp_pagar',
+        p_lancamento_id: primeiroId,
+        p_operador_id: user?.id ?? null,
+        p_origem: 'novo_lancamento',
+      })
+      if (matchErr) {
+        setLoading(false)
+        setErro('Despesa CRIOU mas nao CONCILIOU: ' + matchErr.message)
+        return
+      }
+    }
+
     setLoading(false)
 
     const primeiroId = ids[0]
+    if (origemConciliacao) {
+      // Volta pra Conciliacao (o movimento agora esta CONCILIADO)
+      router.push('/dashboard/financeiro/conciliacao/inbox')
+      return
+    }
     if (primeiroId && onSucesso) {
       onSucesso(primeiroId)
     } else {
@@ -418,15 +462,25 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           </Campo>
 
           <div style={{ gridColumn: '1 / -1', borderTop: '0.5px solid rgba(61,35,20,0.12)', paddingTop: 12, marginTop: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', fontWeight: 600 }}>
-              <input
-                type="checkbox"
-                checked={jaPago}
-                onChange={(e) => setJaPago(e.target.checked)}
-              />
-              {parcelas > 1 ? 'Já paguei a 1ª parcela' : 'Já paguei essa despesa'}
-            </label>
-            {jaPago && (
+            {origemConciliacao ? (
+              <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
+                🔗 Esta despesa CRIOU a partir de um movimento do extrato bancário.
+                Ao salvar, ela CONCILIA automaticamente com o movimento — a baixa é feita
+                pelo sistema (não precisa marcar "já paguei").
+              </div>
+            ) : (
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={jaPago}
+                    onChange={(e) => setJaPago(e.target.checked)}
+                  />
+                  {parcelas > 1 ? 'Já paguei a 1ª parcela' : 'Já paguei essa despesa'}
+                </label>
+              </>
+            )}
+            {jaPago && !origemConciliacao && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
                 <Campo label="Data do pagamento" obrigatorio>
                   <input
