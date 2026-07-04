@@ -221,15 +221,18 @@ export function useSidebarModulos(): State {
     setRpcLoading(true)
     setRpcErro(null)
     // eslint-disable-next-line no-console
-    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, areaSlugRpc, companyId })
+    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, areaSlugRpc, companyId, userId })
     void (async () => {
       try {
-        // p_user_id removido (backend resolve auth.uid() internamente) — evita
-        // mismatch de assinatura se o overload mudou.
-        const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
+        // 3 args explicitos (a RPC aceita p_user_id opcional; passar sempre
+        // evita ambiguidade de overload). areaSlugRpc ja com hifen normalizado.
+        const rpcName = 'fn_modulos_sidebar_por_area'
+        const rpcArgs = {
           p_area_id: areaSlugRpc,
           p_company_id: companyId,
-        })
+          p_user_id: userId,
+        }
+        const { data, error } = await supabase.rpc(rpcName, rpcArgs)
         if (!alive) return
         if (error) {
           // eslint-disable-next-line no-console
