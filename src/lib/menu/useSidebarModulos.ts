@@ -205,6 +205,15 @@ export function useSidebarModulos(): State {
   // Sem company/user ainda — espera para evitar GE hardcoded por engano
   const aguardandoContexto = !companyId || !userId
 
+  // Normalizar hifen->underscore: URLs usam 'gestao-empresarial' (cascade
+  // vem da rota) mas module_catalog.grupo e area_menu_config.area_slug usam
+  // 'gestao_empresarial'. Sem normalizar, a RPC filtra `mc.grupo = p_area_id`
+  // e retorna 0 linhas — CEO empiricamente confirmado (SPEC):
+  //   fn_modulos_sidebar_por_area('gestao_empresarial', KGF, NULL) -> 70 modulos
+  //   fn_modulos_sidebar_por_area('gestao-empresarial',  KGF, NULL) -> 0
+  // Serve pra TODAS areas com hifen na URL, nao so GE.
+  const areaSlugRpc = areaSlug.replace(/-/g, '_')
+
   // Carrega RPC sempre que tiver contexto (SEMPRE inclusive para GE)
   useEffect(() => {
     if (aguardandoContexto) return
@@ -212,13 +221,13 @@ export function useSidebarModulos(): State {
     setRpcLoading(true)
     setRpcErro(null)
     // eslint-disable-next-line no-console
-    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, companyId })
+    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, areaSlugRpc, companyId })
     void (async () => {
       try {
         // p_user_id removido (backend resolve auth.uid() internamente) — evita
         // mismatch de assinatura se o overload mudou.
         const { data, error } = await supabase.rpc('fn_modulos_sidebar_por_area', {
-          p_area_id: areaSlug,
+          p_area_id: areaSlugRpc,
           p_company_id: companyId,
         })
         if (!alive) return
@@ -243,12 +252,12 @@ export function useSidebarModulos(): State {
       }
     })()
     return () => { alive = false }
-  }, [aguardandoContexto, areaSlug, companyId, userId])
+  }, [aguardandoContexto, areaSlugRpc, companyId, userId])
 
   // Sem contexto ainda: para GE/sem empresa, devolve hardcoded como
   // experiencia razoavel; demais areas seguram em loading.
   if (aguardandoContexto) {
-    if (areaSlug === AREA_GE) {
+    if (areaSlugRpc === AREA_GE) {
       return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'hardcoded' }
     }
     return { modulos: [], loading: true, mode: 'rpc' }
@@ -272,7 +281,7 @@ export function useSidebarModulos(): State {
   // Rodape de apoio da Gestao Empresarial: Guia de Implantacao (onboarding
   // sob demanda). Hardcoded aqui pra evitar migration por cada apresentacao
   // — segue o mesmo padrao de SECAO_LABEL_OVERRIDE acima.
-  if (areaSlug === AREA_GE) {
+  if (areaSlugRpc === AREA_GE) {
     modulos.push({
       id: 'guia_implantacao',
       label: 'Guia de Implantação',
