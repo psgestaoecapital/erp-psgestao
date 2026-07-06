@@ -257,17 +257,20 @@ export function useSidebarModulos(): State {
     return () => { alive = false }
   }, [aguardandoContexto, areaSlugRpc, companyId, userId])
 
-  // Sem contexto ainda: para GE/sem empresa, devolve hardcoded como
-  // experiencia razoavel; demais areas seguram em loading.
+  // FIX-MENU-GE-FANTASMA (07/07 · CEO decisao): NUNCA renderizar hardcoded
+  // como menu real da empresa. Antes: sem contexto na area GE devolvia
+  // SIDEBAR_GESTAO_EMPRESARIAL (menu antigo com "Vendas & Fiscal" agrupado),
+  // enquanto Gean (com contexto ok) via o menu real da RPC (VENDAS + NF + PDV
+  // separados) — inconsistencia entre empresas do mesmo plano.
+  // Agora: aguardandoContexto -> loading. Menu real ou nada.
   if (aguardandoContexto) {
-    if (areaSlugRpc === AREA_GE) {
-      return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'hardcoded' }
-    }
     return { modulos: [], loading: true, mode: 'rpc' }
   }
 
   if (rpcErro) {
-    // Fallback defensivo de emergencia: nao deixar o usuario sem menu.
+    // Fallback defensivo APENAS quando a RPC nao roda por erro real (rede,
+    // policy, etc). Nao usado no fluxo normal. Estrutura hardcoded foi
+    // realinhada em sidebar-config.ts pra bater com a RPC (Fix 1 CEO).
     return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'rpc-error' }
   }
 

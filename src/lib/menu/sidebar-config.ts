@@ -81,13 +81,25 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'conciliar', label: 'Conciliar', href: '/dashboard/conciliacao', status: 'pronto' },
     ],
   },
+  // FIX-MENU-GE-FANTASMA (07/07 · CEO decisao Fix 1): estrutura antiga
+  // "Vendas & Fiscal" agrupado foi SUBSTITUIDA por 4 secoes separadas que
+  // batem com o retorno da RPC fn_modulos_sidebar_por_area — VENDAS, NOTAS
+  // FISCAIS, PDV, CONTRATOS & VENDAS. Assim mesmo em cenario rpc-error o
+  // hardcoded reflete a taxonomia atual.
   {
-    id: 'vendas-fiscal',
-    label: 'Vendas & Fiscal',
+    id: 'vendas',
+    label: 'Vendas',
     status: 'pronto',
     items: [
       { id: 'vendas-faturamento', label: 'Vendas / Faturamento', href: '/dashboard/commerce/otc', status: 'pronto' },
       { id: 'os', label: 'Ordens de Serviço', href: '/dashboard/os', status: 'pronto', badge: 'mobile' },
+    ],
+  },
+  {
+    id: 'notas-fiscais',
+    label: 'Notas Fiscais',
+    status: 'pronto',
+    items: [
       { id: 'hub-fiscal', label: 'Hub Fiscal', href: '/dashboard/fiscal', status: 'pronto' },
       { id: 'nfse-emitidas', label: 'NFSe Emitidas', href: '/dashboard/fiscal/nfse', status: 'pronto' },
       { id: 'nfe-emitidas', label: 'NFe Emitidas', href: '/dashboard/fiscal/nfe', status: 'pronto', badge: 'NFe' },
@@ -95,6 +107,14 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'nfe-devol-venda', label: 'NFe Devolução de venda', href: '/dashboard/fiscal/nfe/devolucao-venda', status: 'pronto' },
       { id: 'nfe-remessa', label: 'NFe Remessa / diversa', href: '/dashboard/fiscal/nfe/remessa', status: 'pronto' },
       { id: 'gov-nfse', label: 'NFSe Nacional gov.br', href: '/dashboard/fiscal/gov-nfse', status: 'parcial', badge: 'gov.br' },
+    ],
+  },
+  {
+    id: 'pdv',
+    label: 'PDV',
+    status: 'parcial',
+    items: [
+      { id: 'pdv-vendas', label: 'PDV / Frente de caixa', href: '/dashboard/commerce/otc?tab=pedidos', status: 'parcial' },
     ],
   },
   {
@@ -118,8 +138,9 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     ],
   },
   {
-    id: 'contratos',
-    label: 'Contratos',
+    // Renomeado (Fix 1 CEO) pra bater com secao_label 'CONTRATOS & VENDAS' da RPC.
+    id: 'contratos-vendas',
+    label: 'Contratos & Vendas',
     status: 'pronto',
     items: [
       { id: 'ativos', label: 'Contratos Ativos', href: '/dashboard/contratos', status: 'pronto' },
