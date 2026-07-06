@@ -82,7 +82,11 @@ export default function CofrePage() {
     try {
       const { data, error } = await supabase.rpc('fn_credencial_listar')
       if (error) throw error
-      setCreds((data as Credencial[]) ?? [])
+      // Diretriz CEO 05/07: Cofre = ferramentas GLOBAIS que a PS contratou
+      // (Anthropic, APS, Brapi, Pluggy, Supabase, Auditor Gold). Credenciais
+      // por empresa (bancos/Focus/IO Point) vao em Conectores/Conexoes Bancarias.
+      const todas = (data as Credencial[]) ?? []
+      setCreds(todas.filter((c) => c.escopo === 'global'))
     } catch (e) { setErro((e as Error).message) }
     finally { setBusy(false) }
   }, [permitido])
@@ -113,14 +117,15 @@ export default function CofrePage() {
 
   const salvar = async () => {
     if (!editando) return
-    const { provider, chave, escopo = 'global', company_id, valor, label } = editando
+    const { provider, chave, valor, label } = editando
+    // Cofre so gerencia escopo='global'. Credenciais por empresa vao em
+    // Conectores (/dashboard/conectores) ou Conexoes Bancarias.
     if (!provider || !chave || !valor) { setErro('provider, chave e valor sao obrigatorios'); return }
-    if (escopo === 'empresa' && !company_id) { setErro('escopo=empresa exige selecionar uma empresa'); return }
     setBusy(true); setErro(null); setMsg(null)
     try {
       const { data, error } = await supabase.rpc('fn_credencial_salvar', {
         p_provider: provider, p_chave: chave, p_valor: valor,
-        p_escopo: escopo, p_company_id: company_id ?? null,
+        p_escopo: 'global', p_company_id: null,
         p_label: label ?? null, p_nome_vault_override: null,
       })
       if (error) throw error
@@ -194,13 +199,19 @@ export default function CofrePage() {
               Cofre de Credenciais
             </h1>
             <div style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>
-              Cadastre segredos de API dos providers. Valor é cifrado no Vault; aqui só metadados.
+              Ferramentas <b>GLOBAIS</b> que a PS contratou pra operar o ERP.
+              Valor cifrado no Vault; aqui só metadados.
             </div>
           </div>
           <button type="button" onClick={() => setEditando({ escopo: 'global' })} style={btn}>
             <Plus size={14} style={{ verticalAlign: '-2px' }} /> Nova credencial
           </button>
         </header>
+
+        <div style={{ background: '#FEF3C7', color: '#7A5A0F', padding: '10px 12px', borderRadius: 8, fontSize: 11, marginBottom: 12, border: `0.5px solid rgba(200,148,26,0.35)` }}>
+          🔑 Cofre = credenciais <b>escopo global</b> (Anthropic, APS, Brapi, Pluggy, Supabase, Auditor Gold).
+          Credenciais por empresa? IO Point/Focus/ERPs vão em <b>Conectores</b>; Sicoob/Bradesco vão em <b>Conexões Bancárias</b>.
+        </div>
 
         {msg && <div style={{ background: '#DCFCE7', color: '#166534', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{msg}</div>}
         {erro && <div style={{ background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{erro}</div>}
@@ -332,33 +343,18 @@ export default function CofrePage() {
                     style={inp}
                   />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
                   <div>
                     <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Escopo</label>
-                    <select
-                      value={editando.escopo ?? 'global'}
-                      disabled={!!editando.id}
-                      onChange={(e) => setEditando({ ...editando, escopo: e.target.value as Escopo })}
-                      style={inp}
-                    >
-                      <option value="global">global</option>
-                      <option value="empresa">empresa</option>
-                    </select>
+                    <input
+                      value="global (ferramenta contratada pela PS)"
+                      disabled
+                      style={{ ...inp, background: BG, color: ESP60 }}
+                    />
+                    <small style={{ fontSize: 10, color: ESP60, display: 'block', marginTop: 4 }}>
+                      Cofre = credenciais GLOBAIS. Por empresa: use Conectores ou Conexões Bancárias.
+                    </small>
                   </div>
-                  {editando.escopo === 'empresa' && (
-                    <div>
-                      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Empresa</label>
-                      <select
-                        value={editando.company_id ?? ''}
-                        disabled={!!editando.id}
-                        onChange={(e) => setEditando({ ...editando, company_id: e.target.value || null })}
-                        style={inp}
-                      >
-                        <option value="">— selecione —</option>
-                        {empresas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                      </select>
-                    </div>
-                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Rótulo (opcional)</label>
