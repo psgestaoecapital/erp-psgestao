@@ -62,6 +62,21 @@ const CONNECTORS = [
 const statusLabel = (s: string) => s === 'ativo' ? 'Ativo' : s === 'em_breve' ? 'Em breve' : 'Planejado'
 const statusCor = (s: string) => s === 'ativo' ? C.g : s === 'em_breve' ? C.b : C.txd
 
+// Mapa conector.id -> provider em erp_credencial (Cofre B.9).
+// Reorganizacao 3 telas (diretriz CEO 06/07): Conectores mostra credencial
+// no Vault por (company_id, provider) — a fonte canonica sao os secrets em
+// erp_credencial escopo='empresa'. Legado em companies.<field> ainda existe
+// pra retro-compat; badge Vault indica migracao pro Cofre canonico.
+const CONECTOR_PROVIDER: Record<string, string> = {
+  iopoint: 'iopoint',
+  atak: 'atak',
+  focusnfe: 'focus',
+  pluggy: 'pluggy',
+  omie: 'omie',
+  contaazul: 'contaazul',
+  nibo: 'nibo',
+}
+
 export default function ConectoresPage() {
   const [companies, setCompanies] = useState<any[]>([])
   const [grupos, setGrupos] = useState<any[]>([])
@@ -75,6 +90,8 @@ export default function ConectoresPage() {
   const [msg, setMsg] = useState('')
   const [lastSync, setLastSync] = useState('')
   const [syncCount, setSyncCount] = useState(0)
+  // Providers com credencial cadastrada no Vault para a empresa selecionada.
+  const [vaultProviders, setVaultProviders] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     (async () => {
@@ -107,6 +124,18 @@ export default function ConectoresPage() {
         supabase.from('omie_imports').select('id').eq('company_id', emp.id).then(({ data: all }) => setSyncCount(all?.length || 0))
       } else { setLastSync('Nunca'); setSyncCount(0) }
     })
+    // Cruza com erp_credencial (Cofre canonico) — quais providers tem credencial
+    // por essa empresa. Usada pra desenhar o badge "Vault OK" nos cards.
+    supabase.from('erp_credencial')
+      .select('provider')
+      .eq('escopo', 'empresa')
+      .eq('company_id', emp.id)
+      .eq('ativo', true)
+      .then(({ data }) => {
+        const set = new Set<string>()
+        for (const row of ((data ?? []) as { provider: string }[])) set.add(row.provider)
+        setVaultProviders(set)
+      })
   }
 
   const selectEmpresa = (id: string) => {
@@ -250,6 +279,15 @@ export default function ConectoresPage() {
         </div>
       </div>
 
+      <div style={{ background: C.card2, borderLeft: '3px solid ' + C.go, borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 11, color: C.txm }}>
+        🔌 <b>Conectores</b> = sistemas externos do cliente (ERPs, ponto, manutenção, logística).
+        Credencial por empresa vai pro Cofre canônico (<code style={{ color: C.gol }}>erp_credencial · escopo=empresa</code>).
+        Badge <b style={{ color: C.g }}>Vault OK</b> = provider já cadastrado no Vault pra empresa selecionada.
+        <br />
+        Ferramentas da PS (Anthropic, APS, Brapi, Pluggy…) → <a href="/dashboard/cofre" style={{ color: C.gol }}>Cofre</a> ·
+        Bancos (Sicoob, Bradesco) → <a href="/dashboard/financeiro/conexoes-bancarias" style={{ color: C.gol }}>Conexões Bancárias</a>.
+      </div>
+
       {msg && <div style={{ background: msg.includes('Erro') || msg.includes('Preencha') ? C.r + '15' : C.g + '15', border: '1px solid ' + (msg.includes('Erro') || msg.includes('Preencha') ? C.r : C.g) + '30', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: msg.includes('Erro') || msg.includes('Preencha') ? C.r : C.g }}>{msg}</div>}
 
       {/* FILTROS */}
@@ -273,7 +311,14 @@ export default function ConectoresPage() {
                   <div style={{ fontSize: 9, color: C.txd }}>{CATS.find(c => c.id === con.cat)?.nome}</div>
                 </div>
               </div>
-              <span style={{ fontSize: 8, padding: '2px 8px', borderRadius: 4, background: statusCor(con.status) + '15', color: statusCor(con.status), fontWeight: 600, border: '1px solid ' + statusCor(con.status) + '30' }}>{statusLabel(con.status)}</span>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                {vaultProviders.has(CONECTOR_PROVIDER[con.id] ?? '__none__') && (
+                  <span title="Credencial cadastrada no Vault para esta empresa" style={{ fontSize: 8, padding: '2px 6px', borderRadius: 4, background: C.g + '20', color: C.g, fontWeight: 700, border: '1px solid ' + C.g + '40', letterSpacing: 0.5 }}>
+                    🔒 VAULT OK
+                  </span>
+                )}
+                <span style={{ fontSize: 8, padding: '2px 8px', borderRadius: 4, background: statusCor(con.status) + '15', color: statusCor(con.status), fontWeight: 600, border: '1px solid ' + statusCor(con.status) + '30' }}>{statusLabel(con.status)}</span>
+              </div>
             </div>
 
             {open === con.id && (
