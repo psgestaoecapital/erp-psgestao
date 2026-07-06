@@ -216,11 +216,14 @@ function OTCPageInner() {
   const [pedSel, setPedSel] = useState<Pedido | null>(null)
   const [showNova, setShowNova] = useState(false)
 
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
-
-  // Carrega orcamentos + pedidos quando empresas mudam
+  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional (orcamento/pedido) NUNCA
+  // pode mostrar dados de MAIS de uma empresa junto — vazamento multi-tenant
+  // relatado empiricamente (Breier vs Gean). Antes: .in('company_id', companyIds)
+  // com consolidado/grupo -> misturava tenants. Agora: gate estrito em
+  // companyIdUnico (=UUID da empresa selecionada) e .eq. Sem empresa unica
+  // -> tela vazia + prompt.
   const carregar = useCallback(async () => {
-    if (companyIds.length === 0) {
+    if (!companyIdUnico) {
       setOrcamentos([])
       setPedidos([])
       return
@@ -228,21 +231,21 @@ function OTCPageInner() {
     setLoading(true)
     setErro('')
     const [orc, ped] = await Promise.all([
-      supabase.from('erp_orcamentos').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(200),
-      supabase.from('erp_pedidos').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(200),
+      supabase.from('erp_orcamentos').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
+      supabase.from('erp_pedidos').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
     ])
     if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
     else setOrcamentos((orc.data ?? []) as Orcamento[])
     if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
     else setPedidos((ped.data ?? []) as Pedido[])
     setLoading(false)
-  }, [companyIds])
+  }, [companyIdUnico])
 
   useEffect(() => {
     if (companiesLoading) return
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, companiesLoading])
+  }, [companyIdUnico, companiesLoading])
 
   // Carrega itens quando orcamento eh selecionado
   useEffect(() => {
@@ -392,11 +395,12 @@ function OTCPageInner() {
         <TabButton ativo={tab === 'visao'} onClick={() => setTab('visao')} icon={<BarChart3 size={14} />} label="Visão geral" />
       </div>
 
-      {/* Hint multi-empresa */}
+      {/* FIX-VAZAMENTO-JORDANA (07/07): telas operacionais NAO consolidam
+          multi-empresa. Se consolidado/grupo, mostra apenas prompt. */}
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.goldD, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Exibindo dados de <strong>{selInfo.nome}</strong> ({selInfo.count} {selInfo.count === 1 ? 'empresa' : 'empresas'}). Para criar novos registros, selecione uma empresa específica no menu superior.</span>
+          <span>Selecione uma empresa específica no menu superior. OTC é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -432,6 +436,8 @@ function OTCPageInner() {
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular ou selecione uma no menu superior." />
+      ) : !companyIdUnico ? (
+        <EmptyState titulo="Selecione uma empresa" texto="OTC é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
       ) : tab === 'orcamentos' ? (
         <TabelaOrcamentos rows={orcFiltrados} total={orcamentos.length} onSelect={setOrcSel} canCreate={canCreate} onCreate={() => setShowNova(true)} />
       ) : tab === 'pedidos' ? (
