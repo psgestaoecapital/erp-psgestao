@@ -76,13 +76,19 @@ export default function EditarLancamentoModal({
     if (!dataVencimento) { setErro('Data de vencimento é obrigatória.'); return }
     setSalvando(true); setErro(null)
     try {
-      const { error } = await supabase.from(tabela).update({
-        descricao: descricao.trim(),
-        valor: v,
-        data_vencimento: dataVencimento,
-        numero_documento: numeroDocumento.trim() || null,
-      }).eq('id', itemId).eq('company_id', companyId)
+      // Usa RPC canonica (fn_pagar_editar / fn_receber_editar): grava
+      // snapshot antes/depois em erp_lancamento_log e respeita RLS.
+      const rpc = tipo === 'pagar' ? 'fn_pagar_editar' : 'fn_receber_editar'
+      const { data, error } = await supabase.rpc(rpc, {
+        p_id: itemId,
+        p_descricao: descricao.trim(),
+        p_valor: v,
+        p_data_vencimento: dataVencimento,
+        p_numero_documento: numeroDocumento.trim() || null,
+      })
       if (error) throw error
+      const j = data as { sucesso?: boolean; erro?: string } | null
+      if (!j?.sucesso) throw new Error(j?.erro ?? 'falha ao salvar')
       onSucesso()
     } catch (e) {
       setErro((e as Error).message)
