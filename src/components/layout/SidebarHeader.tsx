@@ -17,9 +17,19 @@ interface CompanyRow {
   razao_social: string | null
 }
 
+const EMPRESA_STORAGE_KEY = 'ps_empresa_sel'
+
+function lerEmpresaId(): string | null {
+  if (typeof window === 'undefined') return null
+  const v = localStorage.getItem(EMPRESA_STORAGE_KEY)
+  if (!v || v === 'consolidado' || v.startsWith('group_')) return null
+  return v
+}
+
 export default function SidebarHeader() {
   const [empresaAtual, setEmpresaAtual] = useState<EmpresaResumo | null>(null)
   const [empresas, setEmpresas] = useState<EmpresaResumo[]>([])
+  const [empresaSelId, setEmpresaSelId] = useState<string | null>(() => lerEmpresaId())
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -47,12 +57,39 @@ export default function SidebarHeader() {
         nome: c.nome_fantasia || c.razao_social || c.id,
       }))
       setEmpresas(lista)
-      const atualId = typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : null
-      const atual = lista.find((e) => e.id === atualId) ?? lista[0]
-      if (atual) setEmpresaAtual(atual)
     })()
     return () => { ignore = true }
   }, [])
+
+  // FIX-VAZAMENTO-JORDANA (07/07): header ficava preso no company_id do 1o render
+  // enquanto queries/menu (useCompanyIds, useSidebarModulos) usam polling e refletem
+  // ps_empresa_sel atual. 17 paginas com seletor interno sobrescrevem essa chave
+  // sem reload — dados/menu iam pra Gean, label continuava "Breier".
+  // Fix: mesmo padrao de polling (500ms) + storage event (cross-tab imediato).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const aplicar = () => {
+      const atual = lerEmpresaId()
+      setEmpresaSelId((prev) => (prev === atual ? prev : atual))
+    }
+    const interval = setInterval(aplicar, 500)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === EMPRESA_STORAGE_KEY) aplicar()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  // Deriva empresaAtual: sempre reflete (empresaSelId, empresas) — se o id nao
+  // esta na lista (consolidado/grupo/id orfao) cai no 1o item como fallback.
+  useEffect(() => {
+    if (empresas.length === 0) return
+    const atual = empresas.find((e) => e.id === empresaSelId) ?? empresas[0]
+    setEmpresaAtual((prev) => (prev?.id === atual.id ? prev : atual))
+  }, [empresaSelId, empresas])
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -64,9 +101,10 @@ export default function SidebarHeader() {
 
   function trocarEmpresa(e: EmpresaResumo) {
     setEmpresaAtual(e)
+    setEmpresaSelId(e.id)
     setOpen(false)
     if (typeof window !== 'undefined') {
-      localStorage.setItem('ps_empresa_sel', e.id)
+      localStorage.setItem(EMPRESA_STORAGE_KEY, e.id)
       window.location.reload()
     }
   }
