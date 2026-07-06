@@ -35,6 +35,7 @@ const STATUS_ORDER = ['aberta','em_execucao','aguardando_peca','aguardando_aprov
 
 interface OSRow {
   id: string
+  company_id: string
   numero: string | null
   cliente_nome: string | null
   equipamento: string | null
@@ -87,31 +88,30 @@ export default function OSMecanicoPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
 
-  // empresa individual ativa (igual ao padrao de orcamentos)
-  const companyIdAtiva = useMemo(() => {
-    if (sel && !sel.startsWith('group_') && sel !== 'consolidado') return sel
-    return companyIds[0] || ''
-  }, [sel, companyIds])
-
-  // Chave estavel do array (por conteudo) — se algum dia
-  // useCompanyIds voltar a devolver referencia nova a cada render,
-  // esta dep continua NAO disparando o effect em loop.
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
+  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional — nunca .in(companyIds).
+  // Antes: fallback pra companyIds[0] quando consolidado — mostrava dados
+  // aleatorios da 1a empresa da lista.
+  // Agora: sem empresa unica valida -> tela vazia + prompt.
+  const companyIdAtiva = useMemo<string | null>(() => {
+    if (!sel || sel === 'consolidado' || sel.startsWith('group_')) return null
+    return sel
+  }, [sel])
 
   const carregar = useCallback(async () => {
-    if (companyIds.length === 0) { setLoading(false); return }
+    if (!companyIdAtiva) { setOss([]); setLoading(false); return }
     setLoading(true)
     const { data, error } = await supabase
       .from('erp_os')
-      .select('id, numero, cliente_nome, equipamento, status, data_abertura, total')
-      .in('company_id', companyIds)
+      .select('id, company_id, numero, cliente_nome, equipamento, status, data_abertura, total')
+      .eq('company_id', companyIdAtiva)
       .order('created_at', { ascending: false })
       .limit(200)
     if (error) setErro(error.message)
-    setOss((data ?? []) as OSRow[])
+    // Runtime guard defense-in-depth: dropa qualquer linha divergente
+    const safe = ((data ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
+    setOss(safe)
     setLoading(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey])
+  }, [companyIdAtiva])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -203,7 +203,11 @@ export default function OSMecanicoPage() {
       </div>
 
       {/* Lista */}
-      {loading ? (
+      {!companyIdAtiva ? (
+        <div style={{ textAlign: 'center', padding: 40, color: C.espressoL, fontSize: 13, background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          Selecione uma empresa específica no menu superior. Ordens de Serviço são operacionais por empresa — não exibe consolidados.
+        </div>
+      ) : loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: C.espressoL, fontSize: 13 }}>Carregando…</div>
       ) : filtradas.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 40, color: C.espressoL, fontSize: 13, background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
@@ -237,8 +241,8 @@ export default function OSMecanicoPage() {
         </div>
       )}
 
-      {/* Modal: Nova OS */}
-      {novoAberto && (
+      {/* Modal: Nova OS · so abre com empresa unica valida */}
+      {novoAberto && companyIdAtiva && (
         <ModalNovaOS
           companyIdAtiva={companyIdAtiva}
           companies={companies}
