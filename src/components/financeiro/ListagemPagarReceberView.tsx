@@ -10,6 +10,7 @@ import EmitirNFeButton from './EmitirNFeButton'
 import GerarBoletoButton from './GerarBoletoButton'
 import SicoobBoletoActions, { type ClienteContato, type BoletoEstado } from './SicoobBoletoActions'
 import ConciliarTituloModal from './ConciliarTituloModal'
+import EditarLancamentoModal from './EditarLancamentoModal'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -113,6 +114,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
   const [capExtrato, setCapExtrato] = useState(false)
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
+  const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
 
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
@@ -346,6 +348,65 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     }
   }
 
+
+  // Excluir despesa/receita — bloqueia se conciliado (evita movimento orfao).
+  const excluir = async (r: Resultado) => {
+    const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
+    // Le o estado atual antes de bloquear (o resultado da listagem nao expoe conciliado)
+    const { data: cur, error: readErr } = await supabase
+      .from(tabela).select('conciliado, status')
+      .eq('id', r.id).eq('company_id', companyId).maybeSingle()
+    if (readErr) { alert('Erro ao consultar: ' + readErr.message); return }
+    const status = (cur as { conciliado?: boolean; status?: string } | null)?.status ?? ''
+    const conciliado = !!(cur as { conciliado?: boolean } | null)?.conciliado
+    if (conciliado || status === 'pago') {
+      alert(
+        `Este lançamento está ${status === 'pago' ? 'PAGO' : 'CONCILIADO'}.\n\n` +
+        `Excluir agora geraria um movimento bancário órfão.\n` +
+        `Primeiro DESVINCULE (inbox de conciliação → botão Desvincular), depois volte aqui.`,
+      )
+      return
+    }
+    if (!confirm(`EXCLUIR "${r.descricao}"?\nR$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nEsta ação NÃO pode ser desfeita.`)) return
+    const { error } = await supabase.from(tabela).delete()
+      .eq('id', r.id).eq('company_id', companyId)
+    if (error) { alert('Erro ao excluir: ' + error.message); return }
+    setReloadKey((k) => k + 1)
+  }
+
+  // Duplicar — cria uma copia como 'aberto', com data_vencimento hoje.
+  const duplicar = async (r: Resultado) => {
+    const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
+    const { data: cur, error: readErr } = await supabase
+      .from(tabela).select('*')
+      .eq('id', r.id).eq('company_id', companyId).maybeSingle()
+    if (readErr) { alert('Erro ao consultar: ' + readErr.message); return }
+    if (!cur) { alert('Lançamento não encontrado.'); return }
+    // Copia campos, zera baixa e conciliacao. Data de venc = hoje.
+    const src = cur as Record<string, unknown>
+    const hoje = new Date().toISOString().slice(0, 10)
+    const novo: Record<string, unknown> = { ...src }
+    delete novo.id
+    delete novo.created_at
+    delete novo.updated_at
+    delete novo.data_pagamento
+    novo.valor_pago = 0
+    novo.status = 'aberto'
+    novo.conciliado = false
+    novo.movimento_banco_id = null
+    novo.data_vencimento = hoje
+    novo.data_emissao = hoje
+    novo.descricao = `${(src.descricao as string | null) ?? 'Sem descricao'} (cópia)`
+    novo.forma_pagamento = null
+    novo.boleto_status = null
+    novo.boleto_nosso_numero = null
+    novo.boleto_linha_digitavel = null
+    novo.boleto_qr_code = null
+    novo.boleto_url = null
+    const { error } = await supabase.from(tabela).insert(novo)
+    if (error) { alert('Erro ao duplicar: ' + error.message); return }
+    setReloadKey((k) => k + 1)
+  }
 
   const sincronizarLiquidacao = async () => {
     if (sincLiqBusy) return
@@ -703,18 +764,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           </Td>
                         )}
                         <Td align="right">
-                          {!pago ? (
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                              {capExtrato && (
-                                <button
-                                  type="button"
-                                  onClick={() => setConciliandoItem(r)}
-                                  title="Buscar movimento no extrato bancário e dar baixa automaticamente"
-                                  style={{ background: '#FFFFFF', color: '#3D2314', border: '0.5px solid #C8941A', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                                >
-                                  Conciliar
-                                </button>
-                              )}
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {!pago && capExtrato && (
+                              <button
+                                type="button"
+                                onClick={() => setConciliandoItem(r)}
+                                title="Buscar movimento no extrato bancário e dar baixa automaticamente"
+                                style={{ background: '#FFFFFF', color: '#3D2314', border: '0.5px solid #C8941A', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                Conciliar
+                              </button>
+                            )}
+                            {!pago && (
                               <button
                                 type="button"
                                 onClick={() => setPagandoItem(r)}
@@ -722,10 +783,36 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
                               </button>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)' }}>✓ baixado</span>
-                          )}
+                            )}
+                            {pago && <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 6 }}>✓ baixado</span>}
+                            <button
+                              type="button"
+                              onClick={() => setEditandoItem(r)}
+                              title="Editar lançamento"
+                              aria-label="Editar"
+                              style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.15)', width: 26, height: 26, borderRadius: 4, cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void duplicar(r)}
+                              title="Duplicar como novo lançamento (aberto)"
+                              aria-label="Duplicar"
+                              style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.15)', width: 26, height: 26, borderRadius: 4, cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              📋
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void excluir(r)}
+                              title="Excluir lançamento (bloqueado se conciliado)"
+                              aria-label="Excluir"
+                              style={{ background: 'transparent', color: '#B91C1C', border: '0.5px solid rgba(185,28,28,0.25)', width: 26, height: 26, borderRadius: 4, cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         </Td>
                       </tr>
                     )
@@ -795,6 +882,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         tituloDescricao={conciliandoItem?.descricao ?? ''}
         tituloValor={conciliandoItem ? (conciliandoItem.valor_documento - (conciliandoItem.valor_pago ?? 0)) : 0}
         tituloVencimento={conciliandoItem?.data_vencimento ?? ''}
+      />
+
+      <EditarLancamentoModal
+        open={!!editandoItem}
+        onClose={() => setEditandoItem(null)}
+        onSucesso={() => { setEditandoItem(null); setReloadKey((k) => k + 1) }}
+        tipo={tipo}
+        itemId={editandoItem?.id ?? ''}
+        companyId={companyId}
       />
 
       <MarcarPagoLoteModal
