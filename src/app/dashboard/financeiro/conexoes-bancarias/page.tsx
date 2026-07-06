@@ -1,350 +1,538 @@
 'use client'
 
-// FEAT-PLUGGY-CONCILIACAO-FASE1-v1 · Conexoes bancarias via Pluggy.
-// Lista itens financeiros, conecta novo banco (consentimento +
-// connect-token + widget), atualiza on-demand.
+// PR 3/3 do reorganiza 3 telas de integracao (diretriz CEO 06/07).
+// Conexoes Bancarias = API DIRETA com bancos, por empresa. NAO Pluggy
+// (Pluggy fica no Wealth/Open Finance em outra tela).
+//
+// Backend canonico:
+//  - erp_banco_provider_config: 1 linha por (company_id, provider, ambiente)
+//    com capabilities (cap_boleto/cap_extrato/cap_pagamento) e cursor de sync.
+//  - erp_banco_contas: conta bancaria vinculada a company + config.
+//  - erp_credencial (Cofre B.9): armazena as credenciais (client_id/client_secret/
+//    cert A1/senha do cert) via fn_credencial_salvar, cifradas no Vault.
+//
+// Adapters prontos: Sicoob (756), Bradesco (237). Sicredi (748) = proximo.
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { PluggyWidgetWrapper } from '@/components/wealth/pluggy-widget-wrapper'
-import { ArrowLeft, Plus, RefreshCw, Loader2, AlertCircle, CheckCircle2, Banknote } from 'lucide-react'
+import {
+  ArrowLeft, Plus, RefreshCw, Loader2, AlertCircle, CheckCircle2,
+  Banknote, X, Lock,
+} from 'lucide-react'
 
-interface PluggyItem {
+type Ambiente = 'producao' | 'homologacao'
+interface ProviderConfig {
   id: string
-  pluggy_item_id: string
-  connector_name: string | null
-  connector_type: string | null
-  connector_image_url: string | null
-  status: string
+  company_id: string
+  provider: string
+  ambiente: Ambiente
+  client_id: string | null
+  cooperativa: string | null
+  conta: string | null
+  codigo_beneficiario: string | null
+  convenio: string | null
+  cap_boleto: boolean | null
+  cap_extrato: boolean | null
+  cap_pagamento: boolean | null
+  ativo: boolean
   ultimo_sync_em: string | null
-  ultimo_erro_msg: string | null
-  metadata: Record<string, unknown> | null
+  ultimo_sync_status: string | null
+  banco_conta_id: string | null
 }
 
-interface ConnectTokenResp {
-  connect_token?: string
-  company_nome?: string
-  consent_id?: string | null
-  error?: string
+interface BancoConta {
+  id: string
+  nome: string
+  banco: string | null
 }
 
-const TEXTO_CONSENTIMENTO_V1 = `Autorizo a conexão da minha conta bancária via Pluggy (Open Finance) pra leitura
-de transações e saldos, com finalidade de conciliação bancária no PS Gestão ERP.
-Posso revogar a qualquer momento na tela de conexões.`
+type CampoConexao = 'client_id' | 'client_secret' | 'cooperativa' | 'conta' | 'codigo_beneficiario' | 'cert_a1' | 'cert_senha'
+type BancoDef = {
+  codigo: number; sigla: string; nome: string; cor: string; pronto: boolean;
+  campos: readonly CampoConexao[];
+}
+const BANCOS: readonly BancoDef[] = [
+  {
+    codigo: 756, sigla: 'sicoob', nome: 'Sicoob',
+    cor: '#003641', pronto: true,
+    campos: ['client_id', 'cooperativa', 'conta', 'codigo_beneficiario', 'cert_a1', 'cert_senha'],
+  },
+  {
+    codigo: 237, sigla: 'bradesco', nome: 'Bradesco',
+    cor: '#CC092F', pronto: true,
+    campos: ['client_id', 'client_secret', 'cert_a1', 'cert_senha', 'conta'],
+  },
+  {
+    codigo: 748, sigla: 'sicredi', nome: 'Sicredi',
+    cor: '#3F8B29', pronto: false,
+    campos: ['client_id', 'client_secret', 'cert_a1', 'cert_senha', 'cooperativa', 'conta'],
+  },
+]
+
+const ESP = '#3D2314'
+const BG = '#FAF7F2'
+const GOLD = '#C8941A'
+const LINE = '#E7DECF'
+const ESP60 = 'rgba(61,35,20,0.55)'
 
 function fmtData(iso: string | null): string {
   if (!iso) return '—'
   try { return new Date(iso).toLocaleString('pt-BR') } catch { return '—' }
 }
 
-const STATUS_COR: Record<string, string> = {
-  UPDATED: 'bg-[#EAF3DE] text-[#3B6D11]',
-  UPDATING: 'bg-[#FAEEDA] text-[#BA7517]',
-  LOGIN_IN_PROGRESS: 'bg-[#FAEEDA] text-[#BA7517]',
-  WAITING_USER_INPUT: 'bg-[#FAEEDA] text-[#BA7517]',
-  OUTDATED: 'bg-[#3D2314]/10 text-[#3D2314]/70',
-  LOGIN_ERROR: 'bg-[#FCEBEB] text-[#791F1F]',
-  REVOKED: 'bg-[#3D2314]/10 text-[#3D2314]/50',
-  DELETED: 'bg-[#3D2314]/10 text-[#3D2314]/50',
+function providerCanonico(sigla: string, amb: Ambiente): string {
+  // Provider no erp_credencial (Cofre B.9): banco_<sigla>_<prod|homolog>
+  return `banco_${sigla}_${amb === 'producao' ? 'prod' : 'homolog'}`
 }
 
 export default function ConexoesBancariasPage() {
   const { companyIds } = useCompanyIds()
   const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
 
-  const [itens, setItens] = useState<PluggyItem[]>([])
+  const [configs, setConfigs] = useState<ProviderConfig[]>([])
+  const [contas, setContas] = useState<BancoConta[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
-  const [conectando, setConectando] = useState(false)
-  const [connectToken, setConnectToken] = useState<string | null>(null)
-  const [consentId, setConsentId] = useState<string | null>(null)
-  const [aceitando, setAceitando] = useState(false)
-  const [showConsent, setShowConsent] = useState(false)
-  const [aceito, setAceito] = useState(false)
-  const [acaoItem, setAcaoItem] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState<string | null>(null)
+  const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
-    setLoading(true)
-    setErro(null)
-    const { data, error } = await supabase
-      .from('wealth_pluggy_items')
-      .select('id, pluggy_item_id, connector_name, connector_type, connector_image_url, status, ultimo_sync_em, ultimo_erro_msg, metadata')
-      .eq('company_id', empresaUnica)
-      .filter('metadata->>contexto', 'eq', 'financeiro')
-      .order('created_at', { ascending: false })
-    if (error) setErro(error.message)
-    else setItens((data ?? []) as PluggyItem[])
+    setLoading(true); setErro(null)
+    const [cfgRes, contasRes] = await Promise.all([
+      supabase.from('erp_banco_provider_config')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, convenio, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id')
+        .eq('company_id', empresaUnica)
+        .order('provider'),
+      supabase.from('erp_banco_contas')
+        .select('id, nome, banco')
+        .eq('company_id', empresaUnica),
+    ])
+    if (cfgRes.error) setErro(cfgRes.error.message)
+    else setConfigs((cfgRes.data ?? []) as ProviderConfig[])
+    if (!contasRes.error) setContas((contasRes.data ?? []) as BancoConta[])
     setLoading(false)
   }, [empresaUnica])
 
   useEffect(() => { carregar() }, [carregar])
 
-  async function aceitarConsentimentoEConectar() {
-    if (!empresaUnica) return
-    setAceitando(true)
-    setErro(null)
+  const sincronizarExtrato = async (cfg: ProviderConfig) => {
+    setSyncing(cfg.id); setErro(null); setMsg(null)
     try {
-      // 1. Registra consentimento (RPC SECURITY DEFINER)
-      const { data: cId, error: cErr } = await supabase.rpc('sp_pluggy_consent_financeiro_aceitar', {
-        p_company_id: empresaUnica,
-        p_texto_versao: 'pluggy-financeiro-v1',
-        p_texto_md5: null,
-        p_ip: null,
-        p_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/extrato/sync', {
+        method: 'POST', credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          authorization: session ? `Bearer ${session.access_token}` : '',
+        },
+        body: JSON.stringify({ company_id: cfg.company_id, provider_config_id: cfg.id }),
       })
-      if (cErr) throw new Error(cErr.message)
-      setConsentId(cId as string)
-
-      // 2. Pede connect_token
-      const { data: tokenResp, error: tErr } = await supabase.functions.invoke<ConnectTokenResp>(
-        'pluggy-connect-token-financeiro',
-        { body: { company_id: empresaUnica, consent_id: cId } },
-      )
-      if (tErr) throw new Error(tErr.message)
-      if (!tokenResp?.connect_token) throw new Error(tokenResp?.error ?? 'Sem connect_token')
-
-      setConnectToken(tokenResp.connect_token)
-      setShowConsent(false)
-      setConectando(true)
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Falha ao iniciar conexão')
-    } finally {
-      setAceitando(false)
-    }
-  }
-
-  async function onWidgetSuccess(data: { item: { id: string; connector: { id: number; name: string; type?: string } } }) {
-    if (!empresaUnica) return
-    try {
-      // 3. Registra item no DB (client_id NULL, metadata.contexto=financeiro)
-      const { data: itemUuid, error: rErr } = await supabase.rpc('sp_pluggy_register_item_financeiro', {
-        p_company_id: empresaUnica,
-        p_pluggy_item_id: data.item.id,
-        p_connector_id: data.item.connector.id,
-        p_connector_name: data.item.connector.name,
-        p_connector_type: data.item.connector.type ?? 'PERSONAL_BANK',
-        p_connector_image_url: null,
-        p_consent_id: consentId,
-      })
-      if (rErr) throw new Error(rErr.message)
-
-      // 4. Dispara sync (reusa o pipeline wealth)
-      await supabase.rpc('sp_pluggy_dispatch_sync', {
-        p_item_id: itemUuid,
-        p_origem: 'item_created',
-      })
-
-      setConnectToken(null)
-      setConectando(false)
-      setConsentId(null)
+      const j = await r.json()
+      if (!j.ok) throw new Error(j.erro || j.detalhe || 'falha ao sincronizar')
+      setMsg(`SINCRONIZOU ${j.inseridos ?? 0} novos movimentos (${j.ignorados ?? 0} duplicados).`)
       await carregar()
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Falha ao registrar item')
-    }
-  }
-
-  function onWidgetClose() {
-    setConnectToken(null)
-    setConectando(false)
-  }
-
-  async function atualizarAgora(itemId: string) {
-    setAcaoItem(itemId)
-    try {
-      const { error } = await supabase.rpc('sp_pluggy_dispatch_sync', {
-        p_item_id: itemId,
-        p_origem: 'cliente_refresh',
-      })
-      if (error) throw new Error(error.message)
-      await carregar()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Falha ao atualizar')
-    } finally {
-      setAcaoItem(null)
-    }
-  }
-
-  async function promoverAgora(itemId: string) {
-    setAcaoItem(itemId + '-promover')
-    try {
-      const { data, error } = await supabase.rpc('sp_pluggy_promover_para_conciliacao', {
-        p_item_id: itemId,
-      })
-      if (error) throw new Error(error.message)
-      const r = data as { ok?: boolean; erro?: string; qtd_movimentos_inseridos?: number; qtd_movimentos_ja_existiam?: number; qtd_contas_bank?: number } | null
-      if (r && r.ok === false) throw new Error(r.erro ?? 'Falha')
-      alert(`Promovidos · ${r?.qtd_contas_bank ?? 0} contas BANK · ${r?.qtd_movimentos_inseridos ?? 0} novos · ${r?.qtd_movimentos_ja_existiam ?? 0} ja existiam.`)
-      await carregar()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Falha ao promover')
-    } finally {
-      setAcaoItem(null)
-    }
+    } catch (e) { setErro((e as Error).message) }
+    finally { setSyncing(null) }
   }
 
   if (!empresaUnica) {
     return (
-      <div className="min-h-screen bg-[#FAF7F2] px-4 py-6">
-        <div className="max-w-3xl mx-auto text-[13px] text-[#3D2314]/70">
-          Selecione uma empresa específica no trocador da TopNav.
-        </div>
+      <div style={{ minHeight: '100vh', background: BG, padding: 24, color: ESP60, fontSize: 13 }}>
+        Selecione uma empresa específica no topo do menu para gerenciar as conexões bancárias.
       </div>
     )
   }
 
-  return (
-    <div className="min-h-screen bg-[#FAF7F2]">
-      <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
-        <Link
-          href="/dashboard/financeiro/conciliacao/inbox"
-          className="inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:text-[#8B5612] mb-3"
-        >
-          <ArrowLeft size={13} /> Voltar para conciliação
-        </Link>
+  const bancosNaoConectados = BANCOS.filter((b) =>
+    !configs.some((c) => c.provider === b.sigla || c.provider.startsWith(`banco_${b.sigla}_`)),
+  )
 
-        <header className="mb-5 flex items-end justify-between gap-4 flex-wrap">
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '24px 20px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
           <div>
-            <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">
-              Conexões bancárias
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: GOLD }}>
+              Financeiro · Integração bancária
+            </div>
+            <h1 style={{ fontSize: 24, color: ESP, margin: '4px 0 0', fontFamily: 'ui-serif,Georgia,serif' }}>
+              <Banknote size={22} style={{ verticalAlign: '-3px', marginRight: 8 }} />
+              Conexões Bancárias
             </h1>
-            <p className="text-[13px] text-[#3D2314]/70 mt-1">
-              Open Finance via Pluggy · transações entram na conciliação automaticamente
+            <p style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>
+              API <b>direta</b> com bancos por empresa: boleto, extrato, pagamento.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => { setAceito(false); setShowConsent(true) }}
-            data-testid="pluggy-conectar-banco"
-            className="inline-flex items-center gap-2 bg-[#C8941A] hover:bg-[#B07F12] text-[#3D2314] font-medium text-[13px] px-4 py-2.5 rounded-md shadow-sm"
-          >
-            <Plus size={14} /> Conectar banco
-          </button>
+          <Link href="/dashboard/financeiro" style={{
+            background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`,
+            padding: '8px 14px', borderRadius: 6, fontSize: 12, textDecoration: 'none',
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <ArrowLeft size={14} /> Financeiro
+          </Link>
         </header>
 
-        {erro && (
-          <div className="mb-3 bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-lg p-3 flex items-start gap-2 text-[12px] text-[#791F1F]">
-            <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-            <span>{erro}</span>
-          </div>
-        )}
-
-        <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
-          {loading ? (
-            <div className="py-12 flex justify-center">
-              <Loader2 className="animate-spin text-[#C8941A]" size={24} />
-            </div>
-          ) : itens.length === 0 ? (
-            <div className="py-12 text-center text-[13px] text-[#3D2314]/60 px-6">
-              <Banknote size={28} className="mx-auto mb-2 text-[#3D2314]/30" />
-              <div>Nenhum banco conectado ainda.</div>
-              <div className="text-[12px] mt-1">Clique em "Conectar banco" pra começar.</div>
-            </div>
-          ) : (
-            <ul className="divide-y divide-[#3D2314]/8">
-              {itens.map((it) => (
-                <li key={it.id} className="px-4 py-4 flex items-center gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-[14px] text-[#3D2314]">
-                      {it.connector_name ?? 'Banco'}
-                    </div>
-                    <div className="text-[11.5px] text-[#3D2314]/60 mt-0.5">
-                      Último sync: {fmtData(it.ultimo_sync_em)}
-                    </div>
-                    {it.ultimo_erro_msg && (
-                      <div className="text-[11.5px] text-[#791F1F] mt-1">⚠ {it.ultimo_erro_msg}</div>
-                    )}
-                  </div>
-                  <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded ${STATUS_COR[it.status] ?? 'bg-[#3D2314]/10 text-[#3D2314]/70'}`}>
-                    {it.status}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => atualizarAgora(it.id)}
-                    disabled={acaoItem === it.id}
-                    className="inline-flex items-center gap-1.5 text-[12px] border border-[#3D2314]/15 hover:bg-[#3D2314]/5 px-3 py-1.5 rounded-md disabled:opacity-50"
-                  >
-                    {acaoItem === it.id ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                    Atualizar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => promoverAgora(it.id)}
-                    disabled={acaoItem === it.id + '-promover'}
-                    title="Lê o último sync e grava movimentos na conciliação"
-                    className="inline-flex items-center gap-1.5 text-[12px] bg-[#3D2314] hover:bg-[#2A1810] text-[#FAF7F2] px-3 py-1.5 rounded-md disabled:opacity-50"
-                  >
-                    {acaoItem === it.id + '-promover' ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                    Promover
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div style={{ background: '#FEF3C7', color: '#7A5A0F', padding: '10px 12px', borderRadius: 8, fontSize: 11, marginBottom: 12, border: `0.5px solid rgba(200,148,26,0.35)` }}>
+          🏦 <b>Conexões Bancárias</b> = API oficial do banco (Sicoob, Bradesco, Sicredi) por empresa.
+          Credenciais salvas no <b>Vault</b> (cifradas). Open Finance via Pluggy fica em{' '}
+          <Link href="/dashboard/wealth" style={{ color: GOLD, fontWeight: 600 }}>Wealth</Link>.
+          Ferramentas PS globais em <Link href="/dashboard/cofre" style={{ color: GOLD, fontWeight: 600 }}>Cofre</Link>;
+          ERPs externos em <Link href="/dashboard/conectores" style={{ color: GOLD, fontWeight: 600 }}>Conectores</Link>.
         </div>
 
-        {showConsent && (
-          <div
-            role="dialog"
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4 py-0 sm:py-6"
-            onClick={(e) => { if (e.target === e.currentTarget && !aceitando) setShowConsent(false) }}
-          >
-            <div className="w-full sm:max-w-md bg-[#FAF7F2] sm:rounded-xl shadow-xl">
-              <div className="px-5 py-4 border-b border-[#3D2314]/10">
-                <h2 className="text-[16px] font-medium text-[#3D2314]">Conectar via Pluggy</h2>
-                <p className="text-[12px] text-[#3D2314]/65 mt-1">
-                  Open Finance · você precisa aceitar pra continuar.
-                </p>
+        {msg && <div style={{ background: '#DCFCE7', color: '#166534', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{msg}</div>}
+        {erro && <div style={{ background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <AlertCircle size={14} style={{ marginTop: 2, flexShrink: 0 }} /> {erro}
+        </div>}
+
+        {loading ? (
+          <div style={{ padding: 32, textAlign: 'center', color: ESP60, fontSize: 13, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12 }}>
+            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Carregando...
+          </div>
+        ) : (
+          <>
+            <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ padding: '10px 14px', borderBottom: `0.5px solid ${LINE}`, background: BG, fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
+                Bancos conectados ({configs.length})
               </div>
-              <div className="px-5 py-4 space-y-3">
-                <div className="bg-white border border-[#3D2314]/10 rounded-md p-3 text-[12.5px] text-[#3D2314] leading-relaxed whitespace-pre-wrap">
-                  {TEXTO_CONSENTIMENTO_V1}
+              {configs.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', color: ESP60, fontSize: 12 }}>
+                  Nenhum banco conectado ainda. Clique em <b>Conectar novo banco</b> abaixo.
                 </div>
-                <label className="flex items-start gap-2 text-[13px] text-[#3D2314] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={aceito}
-                    onChange={(e) => setAceito(e.target.checked)}
-                    className="mt-1"
-                  />
-                  <span>Li e aceito os termos de consentimento</span>
-                </label>
+              ) : configs.map((cfg) => {
+                const bancoInfo = BANCOS.find((b) => cfg.provider.includes(b.sigla))
+                const contaVinculada = contas.find((c) => c.id === cfg.banco_conta_id)
+                return (
+                  <div key={cfg.id} style={{ padding: 14, borderBottom: `0.5px solid ${LINE}`, display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 8,
+                      background: (bancoInfo?.cor ?? ESP) + '15',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: bancoInfo?.cor ?? ESP, fontSize: 14, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {bancoInfo?.sigla.slice(0, 2).toUpperCase() ?? '??'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <strong style={{ color: ESP, fontSize: 14 }}>
+                          {bancoInfo?.nome ?? cfg.provider}
+                        </strong>
+                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: BG, color: ESP60, textTransform: 'uppercase' }}>
+                          {cfg.ambiente}
+                        </span>
+                        {!cfg.ativo && (
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: '#FEE2E2', color: '#B91C1C' }}>
+                            inativo
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: ESP60, marginTop: 4 }}>
+                        {contaVinculada && <><b>{contaVinculada.nome}</b> · </>}
+                        {cfg.cooperativa && `coop ${cfg.cooperativa} · `}
+                        {cfg.conta && `conta ${cfg.conta}`}
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                        {cfg.cap_boleto && <Badge cor="#16A34A">Boleto</Badge>}
+                        {cfg.cap_extrato && <Badge cor="#3B82F6">Extrato</Badge>}
+                        {cfg.cap_pagamento && <Badge cor="#7C3AED">Pagamento</Badge>}
+                      </div>
+                      <div style={{ fontSize: 10, color: ESP60, marginTop: 6 }}>
+                        Último sync: <b>{fmtData(cfg.ultimo_sync_em)}</b>
+                        {cfg.ultimo_sync_status && <> · {cfg.ultimo_sync_status.startsWith('erro') ? (
+                          <span style={{ color: '#B91C1C' }}>{cfg.ultimo_sync_status.slice(0, 60)}</span>
+                        ) : (
+                          <span style={{ color: '#16A34A' }}><CheckCircle2 size={10} style={{ verticalAlign: '-1px' }} /> ok</span>
+                        )}</>}
+                      </div>
+                    </div>
+                    {cfg.cap_extrato && cfg.ativo && (
+                      <button
+                        type="button"
+                        onClick={() => sincronizarExtrato(cfg)}
+                        disabled={syncing === cfg.id}
+                        style={{
+                          background: syncing === cfg.id ? 'rgba(200,148,26,0.4)' : GOLD,
+                          color: '#3D2314', border: 'none', padding: '6px 12px',
+                          borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          cursor: syncing === cfg.id ? 'wait' : 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                        }}>
+                        <RefreshCw size={12} style={{ animation: syncing === cfg.id ? 'spin 1s linear infinite' : 'none' }} />
+                        {syncing === cfg.id ? 'Sincronizando…' : 'Sincronizar extrato'}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                Conectar novo banco
               </div>
-              <div className="px-5 py-4 border-t border-[#3D2314]/10 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowConsent(false)}
-                  disabled={aceitando}
-                  className="flex-1 px-4 py-2 rounded-md border border-[#3D2314]/15 text-[#3D2314] text-[13px] hover:bg-[#3D2314]/5 disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={aceitarConsentimentoEConectar}
-                  disabled={!aceito || aceitando}
-                  data-testid="pluggy-aceitar-conectar"
-                  className="flex-1 px-4 py-2 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                >
-                  {aceitando ? <Loader2 size={13} className="animate-spin" /> : null}
-                  Aceitar e conectar
-                </button>
+              {bancosNaoConectados.length === 0 ? (
+                <div style={{ fontSize: 12, color: ESP60 }}>
+                  Todos os bancos disponíveis já estão conectados nesta empresa.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  {bancosNaoConectados.map((b) => (
+                    <button
+                      key={b.sigla}
+                      type="button"
+                      onClick={() => b.pronto ? setConectandoBanco(b) : setMsg(`${b.nome} — adapter em desenvolvimento (próximo).`)}
+                      style={{
+                        background: '#FFFFFF', color: ESP,
+                        border: `0.5px solid ${LINE}`, borderRadius: 8,
+                        padding: '12px 14px', cursor: 'pointer',
+                        display: 'flex', gap: 10, alignItems: 'center',
+                        opacity: b.pronto ? 1 : 0.6,
+                      }}>
+                      <div style={{
+                        width: 30, height: 30, borderRadius: 6,
+                        background: b.cor + '15', color: b.cor,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 700, flexShrink: 0,
+                      }}>
+                        {b.sigla.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.nome}</div>
+                        <div style={{ fontSize: 10, color: ESP60 }}>
+                          {b.codigo}{b.pronto ? '' : ' · em breve'}
+                        </div>
+                      </div>
+                      {b.pronto && <Plus size={14} style={{ marginLeft: 'auto', color: GOLD }} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: ESP60, marginTop: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
+                <Lock size={10} /> Credenciais são cifradas no Vault (cofre canônico). Nada em texto puro.
               </div>
             </div>
-          </div>
+          </>
         )}
+      </div>
 
-        {conectando && connectToken && (
-          <PluggyWidgetWrapper
-            connectToken={connectToken}
-            onSuccess={onWidgetSuccess}
-            onError={(e) => setErro(e instanceof Error ? e.message : 'Falha widget')}
-            onClose={onWidgetClose}
-          />
-        )}
+      {conectandoBanco && empresaUnica && (
+        <ConectarBancoModal
+          banco={conectandoBanco}
+          companyId={empresaUnica}
+          onClose={() => setConectandoBanco(null)}
+          onSucesso={() => { setConectandoBanco(null); setMsg('Banco conectado.'); void carregar() }}
+        />
+      )}
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+    </div>
+  )
+}
+
+function Badge({ children, cor }: { children: React.ReactNode; cor: string }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: '2px 6px', borderRadius: 3,
+      background: cor + '15', color: cor,
+      fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase',
+    }}>
+      {children}
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Modal Conectar banco
+// Salva credenciais no Vault via fn_credencial_salvar + cria erp_banco_provider_config
+interface ConectarProps {
+  banco: BancoDef
+  companyId: string
+  onClose: () => void
+  onSucesso: () => void
+}
+function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarProps) {
+  const [ambiente, setAmbiente] = useState<Ambiente>('producao')
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [cooperativa, setCooperativa] = useState('')
+  const [conta, setConta] = useState('')
+  const [codBenef, setCodBenef] = useState('')
+  const [certA1Base64, setCertA1Base64] = useState('')
+  const [certA1Nome, setCertA1Nome] = useState('')
+  const [certSenha, setCertSenha] = useState('')
+  const [capBoleto, setCapBoleto] = useState(true)
+  const [capExtrato, setCapExtrato] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function onCertFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setCertA1Nome(f.name)
+    const buf = new Uint8Array(await f.arrayBuffer())
+    let bin = ''
+    const CHUNK = 0x8000
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      bin += String.fromCharCode(...buf.subarray(i, Math.min(i + CHUNK, buf.length)))
+    }
+    setCertA1Base64(btoa(bin))
+  }
+
+  async function salvar() {
+    setSalvando(true); setErro(null)
+    try {
+      const provider = providerCanonico(banco.sigla, ambiente)
+      // Salvar credenciais no Vault (fn_credencial_salvar — Cofre B.9).
+      const salvar1 = async (chave: string, valor: string, label: string) => {
+        if (!valor) return
+        const { data, error } = await supabase.rpc('fn_credencial_salvar', {
+          p_provider: provider, p_chave: chave, p_valor: valor,
+          p_escopo: 'empresa', p_company_id: companyId,
+          p_label: label, p_nome_vault_override: null,
+        })
+        if (error) throw error
+        const j = data as { sucesso?: boolean; erro?: string } | null
+        if (!j?.sucesso) throw new Error(j?.erro ?? `falha ao salvar ${chave}`)
+      }
+      if (clientSecret) await salvar1('client_secret', clientSecret, `${banco.nome} · client secret`)
+      if (certA1Base64) await salvar1('cert', certA1Base64, `${banco.nome} · cert A1 (base64)`)
+      if (certSenha) await salvar1('certpw', certSenha, `${banco.nome} · senha do cert A1`)
+
+      // Cria/atualiza a linha em erp_banco_provider_config.
+      const { error: upErr } = await supabase.from('erp_banco_provider_config').upsert({
+        company_id: companyId,
+        provider: banco.sigla,
+        ambiente,
+        client_id: clientId || null,
+        cooperativa: banco.campos.includes('cooperativa') ? (cooperativa || null) : null,
+        conta: banco.campos.includes('conta') ? (conta || null) : null,
+        codigo_beneficiario: banco.campos.includes('codigo_beneficiario') ? (codBenef || null) : null,
+        cap_boleto: capBoleto,
+        cap_extrato: capExtrato,
+        ativo: true,
+      }, { onConflict: 'company_id,provider,ambiente' })
+      if (upErr) throw upErr
+      onSucesso()
+    } catch (e) {
+      setErro((e as Error).message)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.55)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 16, zIndex: 1000,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: BG, borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '92vh',
+        display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{ padding: '16px 20px', borderBottom: `0.5px solid ${LINE}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
+              Conectar banco
+            </div>
+            <div style={{ fontSize: 16, color: ESP, fontWeight: 600 }}>
+              {banco.nome} <span style={{ color: ESP60, fontWeight: 400 }}>({banco.codigo})</span>
+            </div>
+          </div>
+          <button onClick={onClose} type="button" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: ESP60 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ padding: 20, overflowY: 'auto', display: 'grid', gap: 10 }}>
+          <Field label="Ambiente">
+            <select value={ambiente} onChange={(e) => setAmbiente(e.target.value as Ambiente)} style={inp}>
+              <option value="producao">Produção</option>
+              <option value="homologacao">Homologação</option>
+            </select>
+          </Field>
+          {banco.campos.includes('client_id') && (
+            <Field label="Client ID">
+              <input value={clientId} onChange={(e) => setClientId(e.target.value)} style={inp} />
+            </Field>
+          )}
+          {banco.campos.includes('client_secret') && (
+            <Field label="Client Secret">
+              <input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} style={inp} />
+            </Field>
+          )}
+          {banco.campos.includes('cooperativa') && (
+            <Field label="Cooperativa">
+              <input value={cooperativa} onChange={(e) => setCooperativa(e.target.value)} style={inp} placeholder="ex.: 4133" />
+            </Field>
+          )}
+          {banco.campos.includes('conta') && (
+            <Field label="Conta corrente">
+              <input value={conta} onChange={(e) => setConta(e.target.value)} style={inp} placeholder="ex.: 12345-6" />
+            </Field>
+          )}
+          {banco.campos.includes('codigo_beneficiario') && (
+            <Field label="Código do beneficiário">
+              <input value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} />
+            </Field>
+          )}
+          {banco.campos.includes('cert_a1') && (
+            <>
+              <Field label="Certificado A1 (.pfx)">
+                <input type="file" accept=".pfx,.p12" onChange={onCertFile} style={{ ...inp, padding: 5 }} />
+                {certA1Nome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {certA1Nome}</small>}
+              </Field>
+              <Field label="Senha do certificado">
+                <input type="password" autoComplete="off" value={certSenha} onChange={(e) => setCertSenha(e.target.value)} style={inp} />
+              </Field>
+            </>
+          )}
+          <div style={{ marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>Recursos habilitados</div>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP, marginBottom: 4 }}>
+              <input type="checkbox" checked={capBoleto} onChange={(e) => setCapBoleto(e.target.checked)} />
+              Emitir boletos
+            </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP }}>
+              <input type="checkbox" checked={capExtrato} onChange={(e) => setCapExtrato(e.target.checked)} />
+              Sincronizar extrato
+            </label>
+          </div>
+          {erro && <div style={{ background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
+        </div>
+
+        <div style={{ padding: '12px 20px', borderTop: `0.5px solid ${LINE}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} disabled={salvando} style={{
+            background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`,
+            padding: '8px 14px', borderRadius: 6, fontSize: 13, cursor: salvando ? 'not-allowed' : 'pointer',
+          }}>Cancelar</button>
+          <button type="button" onClick={salvar} disabled={salvando} style={{
+            background: salvando ? 'rgba(200,148,26,0.4)' : GOLD,
+            color: '#3D2314', border: 'none', padding: '8px 18px',
+            borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer',
+          }}>{salvando ? 'Conectando…' : 'CONECTAR (cifrar no Vault)'}</button>
+        </div>
       </div>
     </div>
   )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+const inp: React.CSSProperties = {
+  width: '100%', padding: '8px 10px', border: `0.5px solid ${LINE}`,
+  borderRadius: 6, fontSize: 13, background: '#fff', color: ESP,
+  fontFamily: 'inherit', boxSizing: 'border-box',
 }
