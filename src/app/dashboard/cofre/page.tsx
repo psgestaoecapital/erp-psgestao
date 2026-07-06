@@ -38,6 +38,13 @@ const PROVIDERS_SUGERIDOS = [
   'auditor_gold',
 ]
 
+// Whitelist do Cofre (diretriz CEO 05/07 v2): providers que aparecem aqui.
+// Focus e escopo=empresa mas e ferramenta PS de NF -> entra. Bancos e IO Point
+// NAO entram (aparecem em Conectores/Conexoes Bancarias).
+const PROVIDERS_COFRE = [
+  'anthropic', 'aps', 'auditor_gold', 'brapi', 'pluggy', 'supabase', 'focus',
+]
+
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('pt-BR')
@@ -82,11 +89,12 @@ export default function CofrePage() {
     try {
       const { data, error } = await supabase.rpc('fn_credencial_listar')
       if (error) throw error
-      // Diretriz CEO 05/07: Cofre = ferramentas GLOBAIS que a PS contratou
-      // (Anthropic, APS, Brapi, Pluggy, Supabase, Auditor Gold). Credenciais
-      // por empresa (bancos/Focus/IO Point) vao em Conectores/Conexoes Bancarias.
+      // Diretriz CEO 05/07 (v2): Cofre = ferramentas que a PS contratou pra
+      // OPERAR o ERP. Whitelist por provider (nao por escopo — Focus e por
+      // empresa mas continua ferramenta PS de emissao fiscal, precisa aparecer).
+      // Bancos (banco_*) + IO Point ficam em Conectores/Conexoes Bancarias.
       const todas = (data as Credencial[]) ?? []
-      setCreds(todas.filter((c) => c.escopo === 'global'))
+      setCreds(todas.filter((c) => PROVIDERS_COFRE.includes(c.provider)))
     } catch (e) { setErro((e as Error).message) }
     finally { setBusy(false) }
   }, [permitido])
@@ -117,15 +125,18 @@ export default function CofrePage() {
 
   const salvar = async () => {
     if (!editando) return
-    const { provider, chave, valor, label } = editando
-    // Cofre so gerencia escopo='global'. Credenciais por empresa vao em
-    // Conectores (/dashboard/conectores) ou Conexoes Bancarias.
+    const { provider, chave, valor, label, escopo = 'global', company_id } = editando
     if (!provider || !chave || !valor) { setErro('provider, chave e valor sao obrigatorios'); return }
+    // Focus (NF-e/NFS-e) e por empresa; outros da whitelist do Cofre sao globais.
+    const escopoFinal: Escopo = provider === 'focus' ? 'empresa' : escopo
+    if (escopoFinal === 'empresa' && !company_id) {
+      setErro('Selecione a empresa (Focus é por empresa).'); return
+    }
     setBusy(true); setErro(null); setMsg(null)
     try {
       const { data, error } = await supabase.rpc('fn_credencial_salvar', {
         p_provider: provider, p_chave: chave, p_valor: valor,
-        p_escopo: 'global', p_company_id: null,
+        p_escopo: escopoFinal, p_company_id: escopoFinal === 'empresa' ? company_id : null,
         p_label: label ?? null, p_nome_vault_override: null,
       })
       if (error) throw error
@@ -199,7 +210,7 @@ export default function CofrePage() {
               Cofre de Credenciais
             </h1>
             <div style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>
-              Ferramentas <b>GLOBAIS</b> que a PS contratou pra operar o ERP.
+              Ferramentas que a <b>PS contratou</b> pra operar o ERP.
               Valor cifrado no Vault; aqui só metadados.
             </div>
           </div>
@@ -209,8 +220,8 @@ export default function CofrePage() {
         </header>
 
         <div style={{ background: '#FEF3C7', color: '#7A5A0F', padding: '10px 12px', borderRadius: 8, fontSize: 11, marginBottom: 12, border: `0.5px solid rgba(200,148,26,0.35)` }}>
-          🔑 Cofre = credenciais <b>escopo global</b> (Anthropic, APS, Brapi, Pluggy, Supabase, Auditor Gold).
-          Credenciais por empresa? IO Point/Focus/ERPs vão em <b>Conectores</b>; Sicoob/Bradesco vão em <b>Conexões Bancárias</b>.
+          🔑 Cofre = <b>Anthropic, APS, Auditor Gold, Brapi, Pluggy, Supabase, Focus</b>.
+          Sicoob/Bradesco vão em <b>Conexões Bancárias</b>; IO Point/ERPs vão em <b>Conectores</b>.
         </div>
 
         {msg && <div style={{ background: '#DCFCE7', color: '#166534', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{msg}</div>}
@@ -343,18 +354,31 @@ export default function CofrePage() {
                     style={inp}
                   />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: editando.provider === 'focus' ? '1fr 1fr' : '1fr', gap: 8 }}>
                   <div>
                     <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Escopo</label>
                     <input
-                      value="global (ferramenta contratada pela PS)"
+                      value={editando.provider === 'focus'
+                        ? 'empresa (Focus é por empresa)'
+                        : 'global (ferramenta contratada pela PS)'}
                       disabled
                       style={{ ...inp, background: BG, color: ESP60 }}
                     />
-                    <small style={{ fontSize: 10, color: ESP60, display: 'block', marginTop: 4 }}>
-                      Cofre = credenciais GLOBAIS. Por empresa: use Conectores ou Conexões Bancárias.
-                    </small>
                   </div>
+                  {editando.provider === 'focus' && (
+                    <div>
+                      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Empresa</label>
+                      <select
+                        value={editando.company_id ?? ''}
+                        disabled={!!editando.id}
+                        onChange={(e) => setEditando({ ...editando, company_id: e.target.value || null, escopo: 'empresa' })}
+                        style={inp}
+                      >
+                        <option value="">— selecione —</option>
+                        {empresas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Rótulo (opcional)</label>
