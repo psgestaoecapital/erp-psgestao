@@ -12,6 +12,7 @@ import SicoobBoletoActions, { type ClienteContato, type BoletoEstado } from './S
 import ConciliarTituloModal from './ConciliarTituloModal'
 import EditarLancamentoModal from './EditarLancamentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
+import HistoricoGlobalModal from './HistoricoGlobalModal'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -117,6 +118,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
   const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
   const [historicoItem, setHistoricoItem] = useState<Resultado | null>(null)
+  const [historicoGlobalAberto, setHistoricoGlobalAberto] = useState(false)
 
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
@@ -418,7 +420,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   return (
     <Wrapper>
-      <Header labels={labels} />
+      <Header labels={labels} onHistorico={() => setHistoricoGlobalAberto(true)} />
 
       {tipo === 'receber' && provider === 'sicoob' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
@@ -886,6 +888,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         itemDescricao={historicoItem?.descricao ?? ''}
       />
 
+      <HistoricoGlobalModal
+        open={historicoGlobalAberto}
+        onClose={() => setHistoricoGlobalAberto(false)}
+        companyId={companyId}
+      />
+
       <MarcarPagoLoteModal
         open={loteAberto}
         onClose={() => setLoteAberto(false)}
@@ -937,7 +945,10 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Header({ labels }: { labels: ReturnType<typeof labelsPorTipo> }) {
+function Header({ labels, onHistorico }: {
+  labels: ReturnType<typeof labelsPorTipo>
+  onHistorico?: () => void
+}) {
   return (
     <div
       style={{
@@ -964,20 +975,37 @@ function Header({ labels }: { labels: ReturnType<typeof labelsPorTipo> }) {
         <h1 style={{ fontSize: 24, color: '#3D2314', margin: 0, fontWeight: 500 }}>{labels.titulo}</h1>
         <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.65)', marginTop: 4 }}>{labels.subtitulo}</div>
       </div>
-      <Link
-        href={labels.rotaNovo + '?area=gestao_empresarial'}
-        style={{
-          background: '#C8941A',
-          color: '#3D2314',
-          padding: '10px 22px',
-          borderRadius: 6,
-          fontSize: 13,
-          fontWeight: 500,
-          textDecoration: 'none',
-        }}
-      >
-        + {labels.ctaNovo}
-      </Link>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {onHistorico && (
+          <button
+            type="button"
+            onClick={onHistorico}
+            title="Histórico global de alterações, exclusões e duplicações"
+            style={{
+              background: '#FFFFFF', color: '#3D2314',
+              border: '0.5px solid rgba(61,35,20,0.25)',
+              padding: '9px 16px', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}>
+            🕐 Histórico
+          </button>
+        )}
+        <Link
+          href={labels.rotaNovo + '?area=gestao_empresarial'}
+          style={{
+            background: '#C8941A',
+            color: '#3D2314',
+            padding: '10px 22px',
+            borderRadius: 6,
+            fontSize: 13,
+            fontWeight: 500,
+            textDecoration: 'none',
+          }}
+        >
+          + {labels.ctaNovo}
+        </Link>
+      </div>
     </div>
   )
 }
