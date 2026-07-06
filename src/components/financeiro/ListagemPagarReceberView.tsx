@@ -11,6 +11,7 @@ import GerarBoletoButton from './GerarBoletoButton'
 import SicoobBoletoActions, { type ClienteContato, type BoletoEstado } from './SicoobBoletoActions'
 import ConciliarTituloModal from './ConciliarTituloModal'
 import EditarLancamentoModal from './EditarLancamentoModal'
+import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -115,6 +116,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [capExtrato, setCapExtrato] = useState(false)
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
   const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
+  const [historicoItem, setHistoricoItem] = useState<Resultado | null>(null)
 
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
@@ -349,62 +351,37 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }
 
 
-  // Excluir despesa/receita — bloqueia se conciliado (evita movimento orfao).
+  // Excluir despesa/receita — via RPC fn_pagar_excluir/fn_receber_excluir
+  // (guard-rail conciliado/pago no backend + auditoria em erp_lancamento_log).
   const excluir = async (r: Resultado) => {
-    const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
-    // Le o estado atual antes de bloquear (o resultado da listagem nao expoe conciliado)
-    const { data: cur, error: readErr } = await supabase
-      .from(tabela).select('conciliado, status')
-      .eq('id', r.id).eq('company_id', companyId).maybeSingle()
-    if (readErr) { alert('Erro ao consultar: ' + readErr.message); return }
-    const status = (cur as { conciliado?: boolean; status?: string } | null)?.status ?? ''
-    const conciliado = !!(cur as { conciliado?: boolean } | null)?.conciliado
-    if (conciliado || status === 'pago') {
-      alert(
-        `Este lançamento está ${status === 'pago' ? 'PAGO' : 'CONCILIADO'}.\n\n` +
-        `Excluir agora geraria um movimento bancário órfão.\n` +
-        `Primeiro DESVINCULE (inbox de conciliação → botão Desvincular), depois volte aqui.`,
-      )
+    if (!confirm(`EXCLUIR "${r.descricao}"?\nR$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nEsta ação fica registrada no histórico (imutável) e NÃO pode ser desfeita.`)) return
+    const rpc = tipo === 'pagar' ? 'fn_pagar_excluir' : 'fn_receber_excluir'
+    const { data, error } = await supabase.rpc(rpc, { p_id: r.id })
+    if (error) { alert('Erro ao excluir: ' + error.message); return }
+    const j = data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
+    if (!j?.sucesso) {
+      if (j?.erro === 'bloqueado_conciliado_ou_pago') {
+        alert(
+          `Este lançamento está CONCILIADO ou PAGO.\n\n` +
+          `Excluir agora geraria um movimento bancário órfão.\n` +
+          `${j.orientacao ?? 'Desvincule no inbox de conciliação, depois volte aqui.'}`,
+        )
+      } else {
+        alert('Erro ao excluir: ' + (j?.erro ?? 'desconhecido'))
+      }
       return
     }
-    if (!confirm(`EXCLUIR "${r.descricao}"?\nR$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nEsta ação NÃO pode ser desfeita.`)) return
-    const { error } = await supabase.from(tabela).delete()
-      .eq('id', r.id).eq('company_id', companyId)
-    if (error) { alert('Erro ao excluir: ' + error.message); return }
     setReloadKey((k) => k + 1)
   }
 
-  // Duplicar — cria uma copia como 'aberto', com data_vencimento hoje.
+  // Duplicar via RPC fn_lancamento_duplicar — grava origem + novo em log.
   const duplicar = async (r: Resultado) => {
-    const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
-    const { data: cur, error: readErr } = await supabase
-      .from(tabela).select('*')
-      .eq('id', r.id).eq('company_id', companyId).maybeSingle()
-    if (readErr) { alert('Erro ao consultar: ' + readErr.message); return }
-    if (!cur) { alert('Lançamento não encontrado.'); return }
-    // Copia campos, zera baixa e conciliacao. Data de venc = hoje.
-    const src = cur as Record<string, unknown>
-    const hoje = new Date().toISOString().slice(0, 10)
-    const novo: Record<string, unknown> = { ...src }
-    delete novo.id
-    delete novo.created_at
-    delete novo.updated_at
-    delete novo.data_pagamento
-    novo.valor_pago = 0
-    novo.status = 'aberto'
-    novo.conciliado = false
-    novo.movimento_banco_id = null
-    novo.data_vencimento = hoje
-    novo.data_emissao = hoje
-    novo.descricao = `${(src.descricao as string | null) ?? 'Sem descricao'} (cópia)`
-    novo.forma_pagamento = null
-    novo.boleto_status = null
-    novo.boleto_nosso_numero = null
-    novo.boleto_linha_digitavel = null
-    novo.boleto_qr_code = null
-    novo.boleto_url = null
-    const { error } = await supabase.from(tabela).insert(novo)
+    const { data, error } = await supabase.rpc('fn_lancamento_duplicar', {
+      p_tipo: tipo, p_id: r.id,
+    })
     if (error) { alert('Erro ao duplicar: ' + error.message); return }
+    const j = data as { sucesso?: boolean; erro?: string } | null
+    if (!j?.sucesso) { alert('Erro ao duplicar: ' + (j?.erro ?? 'desconhecido')); return }
     setReloadKey((k) => k + 1)
   }
 
@@ -796,6 +773,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             </button>
                             <button
                               type="button"
+                              onClick={() => setHistoricoItem(r)}
+                              title="Ver histórico (quem alterou/excluiu/duplicou)"
+                              aria-label="Histórico"
+                              style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.15)', width: 26, height: 26, borderRadius: 4, cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              🕐
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => void duplicar(r)}
                               title="Duplicar como novo lançamento (aberto)"
                               aria-label="Duplicar"
@@ -891,6 +877,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         tipo={tipo}
         itemId={editandoItem?.id ?? ''}
         companyId={companyId}
+      />
+
+      <HistoricoLancamentoModal
+        open={!!historicoItem}
+        onClose={() => setHistoricoItem(null)}
+        itemId={historicoItem?.id ?? ''}
+        itemDescricao={historicoItem?.descricao ?? ''}
       />
 
       <MarcarPagoLoteModal
