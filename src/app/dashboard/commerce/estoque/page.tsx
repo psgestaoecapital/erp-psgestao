@@ -253,22 +253,22 @@ function EstoqueInner() {
   const [inventarios, setInventarios] = useState<Inventario[]>([])
   const [inventarioSel, setInventarioSel] = useState<Inventario | null>(null)
 
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
-
+  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional — nunca consolida
+  // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   const carregar = useCallback(async () => {
-    if (companyIds.length === 0) {
-      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([])
+    if (!companyIdUnico) {
+      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([])
       return
     }
     setLoading(true)
     setErro('')
     const [loc, prod, mov, abc, inv] = await Promise.all([
-      supabase.from('erp_estoque_locais').select('*').in('company_id', companyIds).order('principal', { ascending: false }).order('nome'),
+      supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
       supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
-        .in('company_id', companyIds).eq('ativo', true).order('nome').limit(5000),
-      supabase.from('erp_estoque_movimentacoes').select('*').in('company_id', companyIds).order('data_movimento', { ascending: false }).limit(300),
-      supabase.rpc('fn_curva_abc_estoque', { p_company_ids: companyIds }),
-      supabase.from('erp_inventarios').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(50),
+        .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
+      supabase.from('erp_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
+      supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
+      supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
     ])
     if (loc.error) setErro('Locais: ' + loc.error.message)
     else setLocais((loc.data ?? []) as Local[])
@@ -281,13 +281,13 @@ function EstoqueInner() {
     if (inv.error) setErro('Inventários: ' + inv.error.message)
     else setInventarios((inv.data ?? []) as Inventario[])
     setLoading(false)
-  }, [companyIds])
+  }, [companyIdUnico])
 
   useEffect(() => {
     if (companiesLoading) return
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, companiesLoading])
+  }, [companyIdUnico, companiesLoading])
 
   const flash = (m: string) => {
     setMsg(m); window.setTimeout(() => setMsg(''), 3500)
@@ -426,11 +426,11 @@ function EstoqueInner() {
   const [produtosSrvPage, setProdutosSrvPage] = useState(1)
 
   // Reset pagina quando filtros mudam
-  useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdsKey])
+  useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdUnico])
 
   // Debounce 300ms · busca server-side
   useEffect(() => {
-    if (companyIds.length === 0) {
+    if (!companyIdUnico) {
       setProdutosSrv([]); setProdutosSrvTotal(0)
       return
     }
@@ -439,8 +439,10 @@ function EstoqueInner() {
       const t = filtroBusca.trim().replace(/[%,()]/g, '')
       const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
       function baseQuery() {
+        // FIX-VAZAMENTO-JORDANA (07/07): busca de produtos idem — só empresa unica.
+        // Caller garante companyIdUnico != null antes de disparar essa busca.
         let q = supabase.from('erp_produtos').select(cols, { count: 'exact' })
-          .in('company_id', companyIds).eq('ativo', true)
+          .eq('company_id', companyIdUnico!).eq('ativo', true)
         if (filtroCategoria) q = q.eq('categoria', filtroCategoria)
         return q
       }
@@ -476,7 +478,7 @@ function EstoqueInner() {
       }
     }, 300)
     return () => window.clearTimeout(handle)
-  }, [companyIdsKey, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtro estoque aplicado client-side na pagina exibida
   const produtosSrvFiltradosEstoque = useMemo(() => {
@@ -622,11 +624,11 @@ function EstoqueInner() {
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
       </div>
 
-      {/* Hint multi-empresa */}
+      {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.goldD, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Exibindo dados de <strong>{selInfo.nome}</strong> ({selInfo.count} {selInfo.count === 1 ? 'empresa' : 'empresas'}). Para criar/movimentar, selecione uma empresa específica.</span>
+          <span>Selecione uma empresa específica no menu superior. Estoque é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -639,6 +641,8 @@ function EstoqueInner() {
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Selecione uma empresa no menu superior ou peça ao administrador para te vincular." />
+      ) : !companyIdUnico ? (
+        <EmptyState titulo="Selecione uma empresa" texto="Estoque é operacional por empresa. Escolha uma empresa específica no menu superior." />
       ) : tab === 'saldo' ? (
         <TabSaldo
           rows={saldoFiltrado} total={saldoRows.length} kpis={saldoKpis}

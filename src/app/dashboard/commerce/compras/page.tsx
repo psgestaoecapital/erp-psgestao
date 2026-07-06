@@ -185,31 +185,31 @@ function ComprasInner() {
   const [showNovaCompra, setShowNovaCompra] = useState(false)
   const [showCompare, setShowCompare] = useState<Cotacao | null>(null)
 
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
-
+  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional — nunca consolida
+  // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   const carregar = useCallback(async () => {
-    if (companyIds.length === 0) {
+    if (!companyIdUnico) {
       setCotacoes([]); setCompras([])
       return
     }
     setLoading(true)
     setErro('')
     const [cot, comp] = await Promise.all([
-      supabase.from('erp_cotacoes').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(200),
-      supabase.from('erp_compras').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(200),
+      supabase.from('erp_cotacoes').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
+      supabase.from('erp_compras').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
     ])
     if (cot.error) setErro('Cotações: ' + cot.error.message)
     else setCotacoes((cot.data ?? []) as Cotacao[])
     if (comp.error) setErro('Compras: ' + comp.error.message)
     else setCompras((comp.data ?? []) as Compra[])
     setLoading(false)
-  }, [companyIds])
+  }, [companyIdUnico])
 
   useEffect(() => {
     if (companiesLoading) return
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, companiesLoading])
+  }, [companyIdUnico, companiesLoading])
 
   const flash = (m: string) => { setMsg(m); window.setTimeout(() => setMsg(''), 3500) }
   const flashErr = (m: string) => { setErro(m); window.setTimeout(() => setErro(''), 5000) }
@@ -338,10 +338,11 @@ function ComprasInner() {
         <TabBtn ativo={tab === 'compras'} onClick={() => setTab('compras')} icon={<ShoppingCart size={14} />} label="Pedidos de Compra" count={compras.length} />
       </div>
 
+      {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.goldD, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Exibindo dados de <strong>{selInfo.nome}</strong>. Para criar nova cotação, selecione uma empresa específica.</span>
+          <span>Selecione uma empresa específica no menu superior. Compras é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -371,6 +372,8 @@ function ComprasInner() {
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Selecione uma empresa no menu superior ou peça ao administrador para te vincular." />
+      ) : !companyIdUnico ? (
+        <EmptyState titulo="Selecione uma empresa" texto="Compras é operacional por empresa. Escolha uma empresa específica no menu superior." />
       ) : tab === 'cotacoes' ? (
         <TabelaCotacoes rows={cotFiltradas} total={cotacoes.length} onSelect={setCotSel} onCompare={setShowCompare} canCreate={canCreate} onCreate={() => setShowNova(true)} />
       ) : (
