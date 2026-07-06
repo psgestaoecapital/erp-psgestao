@@ -64,8 +64,9 @@ function SidebarInner() {
           <div className="px-4 py-3 text-[12px] text-[#FAF7F2]/60">Carregando menu…</div>
         )}
         {!loading && mode === 'rpc-empty' && (
-          <div className="px-4 py-3 text-[12px] text-[#FAF7F2]/60">
-            Nenhum módulo disponível para esta área.
+          <div className="px-4 py-4 text-[12px] text-[#FAF7F2]/70 leading-relaxed">
+            <div className="font-semibold text-[#FAF7F2]/90 mb-1">Sem plano ativo nesta área</div>
+            Esta empresa não tem plano contratado para os módulos desta área. Selecione outra empresa no menu superior ou fale com a PS Capital.
           </div>
         )}
         {modulosPrincipais.map((modulo) => (
