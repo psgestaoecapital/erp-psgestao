@@ -12,7 +12,7 @@
 //
 // Multi-tenant: RD-34 → useCompanyIds (admin / consolidado / grupo / unica)
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -216,36 +216,48 @@ function OTCPageInner() {
   const [pedSel, setPedSel] = useState<Pedido | null>(null)
   const [showNova, setShowNova] = useState(false)
 
-  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional (orcamento/pedido) NUNCA
-  // pode mostrar dados de MAIS de uma empresa junto — vazamento multi-tenant
-  // relatado empiricamente (Breier vs Gean). Antes: .in('company_id', companyIds)
-  // com consolidado/grupo -> misturava tenants. Agora: gate estrito em
-  // companyIdUnico (=UUID da empresa selecionada) e .eq. Sem empresa unica
-  // -> tela vazia + prompt.
-  const carregar = useCallback(async () => {
-    if (!companyIdUnico) {
-      setOrcamentos([])
-      setPedidos([])
-      return
-    }
-    setLoading(true)
-    setErro('')
-    const [orc, ped] = await Promise.all([
-      supabase.from('erp_orcamentos').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
-      supabase.from('erp_pedidos').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
-    ])
-    if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
-    else setOrcamentos((orc.data ?? []) as Orcamento[])
-    if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
-    else setPedidos((ped.data ?? []) as Pedido[])
-    setLoading(false)
-  }, [companyIdUnico])
-
+  // FIX-VAZAMENTO-JORDANA (07/07 · defesa em profundidade sobre #541):
+  //   1) Gate estrito em companyIdUnico (nunca .in(companyIds))
+  //   2) Race guard (alive flag) — troca de empresa cancela write anterior,
+  //      impede "flash" de dados stale quando resposta antiga chega depois
+  //   3) Assertion runtime — se qualquer linha vier com company_id != esperado
+  //      (bug de schema / RPC futuro / RLS mal configurado), dropa antes do
+  //      setState. Nunca renderiza tenant errado, mesmo diante de falha DB.
+  //   4) recarregar() exposto pra callbacks (post-create, post-fatura)
+  //      atraves de ref pra nao criar dependencia estatica.
+  const recarregarRef = useRef<() => void>(() => {})
   useEffect(() => {
     if (companiesLoading) return
-    void carregar()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let alive = true
+    const expected = companyIdUnico
+    const run = async () => {
+      if (!expected) {
+        setOrcamentos([])
+        setPedidos([])
+        return
+      }
+      setLoading(true)
+      setErro('')
+      const [orc, ped] = await Promise.all([
+        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+        supabase.from('erp_pedidos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+      ])
+      if (!alive) return
+      // Runtime guard: descarta qualquer linha com company_id divergente
+      // (defense-in-depth contra falha em .eq / RPC / RLS).
+      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
+      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
+      if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
+      else setOrcamentos(orcSafe)
+      if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
+      else setPedidos(pedSafe)
+      setLoading(false)
+    }
+    recarregarRef.current = () => { void run() }
+    void run()
+    return () => { alive = false }
   }, [companyIdUnico, companiesLoading])
+  const carregar = useCallback(() => recarregarRef.current(), [])
 
   // Carrega itens quando orcamento eh selecionado
   useEffect(() => {
