@@ -17,6 +17,23 @@ import type {
 
 const onlyDigits = (s: unknown) => String(s ?? '').replace(/\D/g, '')
 
+// FIX-PONTO-ADMISSION-VAZIO (07/07): a API IO Point manda admission_date=""
+// (string vazia) pra alguns colaboradores (7/158 na Frioeste). O `?? null`
+// NAO pega string vazia — so null/undefined — entao "" ia direto pra coluna
+// `admissao date` e o Postgres rejeitava (SQLSTATE 22007 "invalid input
+// syntax for type date") DERRUBANDO O LOTE INTEIRO dos 158. Resultado:
+// ind_ponto_colaborador=0 e erro mascarado como "[object Object]".
+// dateOrNull: string vazia/invalida -> null; ISO valido -> mantem.
+const dateOrNull = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null
+}
+// textOrNull: normaliza string vazia -> null (evita "" em colunas opcionais).
+const textOrNull = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s === '' ? null : s
+}
+
 // FIX-PONTO-SYNC-TIMEOUT (07/07): a API IO Point (sobretudo /totalHours) e'
 // lenta e as vezes estoura o timeout default do fetch — confirmado empirico
 // (pg_net: /collaborator 200 rapido, /totalHours timeout >5s). Sem timeout
@@ -75,15 +92,15 @@ function pegarLista(payload: unknown): Record<string, unknown>[] {
 function mapColaborador(row: Record<string, unknown>): PontoColaborador {
   return {
     cpf: onlyDigits(row.national_registry),
-    matricula: (row.registration_number as string | null) ?? null,
-    nome: (row.name as string | null) ?? '',
-    email: (row.email as string | null) ?? null,
-    funcao: (row.occupation as string | null) ?? null,
-    departamento: (row.department as string | null) ?? null,
-    equipe: (row.team as string | null) ?? null,
-    unidade_negocio: (row.business_unit as string | null) ?? null,
-    admissao: (row.admission_date as string | null) ?? null,
-    pis: (row.pis as string | null) ?? null,
+    matricula: textOrNull(row.registration_number),
+    nome: (typeof row.name === 'string' ? row.name.trim() : '') || '',
+    email: textOrNull(row.email),
+    funcao: textOrNull(row.occupation),
+    departamento: textOrNull(row.department),
+    equipe: textOrNull(row.team),
+    unidade_negocio: textOrNull(row.business_unit),
+    admissao: dateOrNull(row.admission_date), // "" -> null (evita 22007)
+    pis: textOrNull(row.pis),
     raw: row,
   }
 }
