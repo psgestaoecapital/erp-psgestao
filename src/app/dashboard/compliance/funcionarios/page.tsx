@@ -47,6 +47,8 @@ export default function FuncionariosPage() {
   const [fEmp, setFEmp] = useState('')
   const [fStatus, setFStatus] = useState<'' | 'ok' | 'pendente' | 'critico'>('')
   const [modalAberto, setModalAberto] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [msgImport, setMsgImport] = useState<string | null>(null)
 
   // useCompanyIds devolve um array novo a cada render — estabiliza pelo CSV ordenado.
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
@@ -125,6 +127,30 @@ export default function FuncionariosPage() {
             >
               ← Voltar
             </Link>
+            {/* FIX-IRRIGAR-IOPOINT-COMPLIANCE (07/07): botao pra importar
+                colaboradores do ponto eletronico (IO Point / provider ativo)
+                pra ficha de compliance. So aparece se empresa unica selecionada.
+                Preserva metadados manuais via COALESCE (Pilar 1 LGPD). */}
+            {companyAtiva && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Importar colaboradores do IO Point pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
+                  setImportando(true); setMsgImport(null); setErro(null)
+                  const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: companyAtiva })
+                  setImportando(false)
+                  if (error) { setErro('Erro na importação: ' + error.message); return }
+                  const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; total_processados?: number } | null
+                  setMsgImport(`IMPORTOU ${j?.total_processados ?? 0} colaboradores · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
+                  await carregar()
+                  setTimeout(() => setMsgImport(null), 8000)
+                }}
+                disabled={importando}
+                style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.gold}`, backgroundColor: 'transparent', color: C.gold, fontSize: 13, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer', opacity: importando ? 0.6 : 1 }}
+                title="Importa/atualiza a partir de ind_ponto_colaborador (IO Point). Preserva metadados manuais."
+              >
+                {importando ? 'Importando…' : '⬇ Importar do IO Point'}
+              </button>
+            )}
             <button
               onClick={() => setModalAberto(true)}
               style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
@@ -133,6 +159,12 @@ export default function FuncionariosPage() {
             </button>
           </div>
         </header>
+
+        {msgImport && (
+          <div style={{ backgroundColor: C.greenBg, color: C.green, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>
+            ✓ {msgImport}
+          </div>
+        )}
 
         {erro && (
           <div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>
