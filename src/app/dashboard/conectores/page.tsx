@@ -145,20 +145,69 @@ export default function ConectoresPage() {
     setMsg('')
   }
 
+  // FIX-CONECTORES-VAULT (07/07 · CEO):
+  // Antes: salvar() gravava em `companies.<field>` (colunas legadas) — nunca ia
+  // pro Vault, badge "VAULT OK" nunca aparecia, sync IO Point ficava sem token.
+  // Agora: chama fn_credencial_salvar (RPC Cofre B.9) por campo -> escreve no
+  // Vault via SECURITY DEFINER + upsert em erp_credencial escopo=empresa +
+  // company_id. Pilar 2 respeitado: token nunca trafega em GET, so via revelar.
   const salvar = async (conId: string) => {
     if (!empresa) return
     setSaving(true); setMsg('')
     const con = CONNECTORS.find(c => c.id === conId)
     if (!con) { setSaving(false); return }
+    const provider = CONECTOR_PROVIDER[con.id] ?? con.id
 
-    const updates: Record<string, string> = {}
+    let salvos = 0
     for (const campo of con.campos) {
-      updates[campo.k] = configs[campo.k] || ''
+      const valor = (configs[campo.k] ?? '').trim()
+      if (!valor) continue // pula campo vazio — permite salvar parcial
+
+      // Chave curta padronizada: 'iopoint_api_key' -> 'api_key'
+      const chave = campo.k.startsWith(conId + '_')
+        ? campo.k.slice(conId.length + 1)
+        : campo.k
+
+      const { data, error } = await supabase.rpc('fn_credencial_salvar', {
+        p_provider: provider,
+        p_chave: chave,
+        p_valor: valor,
+        p_escopo: 'empresa',
+        p_company_id: empresa.id,
+        p_label: `${con.nome} · ${campo.l}`,
+      })
+      if (error) {
+        setMsg(`Erro ao salvar ${campo.l}: ${error.message}`)
+        setSaving(false)
+        return
+      }
+      const j = data as { sucesso?: boolean; erro?: string; nome_vault?: string } | null
+      if (!j?.sucesso) {
+        setMsg(`Erro ao salvar ${campo.l}: ${j?.erro ?? 'falha desconhecida'}`)
+        setSaving(false)
+        return
+      }
+      salvos++
     }
 
-    const { error } = await supabase.from('companies').update(updates).eq('id', empresa.id)
-    if (error) { setMsg('Erro ao salvar: ' + error.message) }
-    else { setMsg('Credenciais salvas para ' + (empresa.nome_fantasia || empresa.razao_social)) }
+    if (salvos === 0) {
+      setMsg('Preencha ao menos um campo pra salvar.')
+    } else {
+      setMsg(`CRIOU ${salvos} credencial(is) no Vault para ${empresa.nome_fantasia || empresa.razao_social}`)
+      // Recarrega badges de "Vault OK" pra refletir o que foi salvo
+      const { data: creds } = await supabase.from('erp_credencial')
+        .select('provider')
+        .eq('escopo', 'empresa')
+        .eq('company_id', empresa.id)
+        .eq('ativo', true)
+      const set = new Set<string>()
+      for (const row of ((creds ?? []) as { provider: string }[])) set.add(row.provider)
+      setVaultProviders(set)
+      // Limpa inputs de credencial pra nao ficar valor em memoria depois de gravado
+      const limpo = { ...configs }
+      for (const campo of con.campos) delete limpo[campo.k]
+      setConfigs(limpo)
+    }
     setSaving(false)
     setTimeout(() => setMsg(''), 4000)
   }
@@ -332,7 +381,10 @@ export default function ConectoresPage() {
                       </div>
                     ))}
                     <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                      <button onClick={() => salvar(con.id)} disabled={saving || con.status !== 'ativo'} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: con.status === 'ativo' ? C.go : C.bd, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                      {/* FIX-CONECTORES-VAULT (07/07): habilitado tambem em em_breve
+                          (mensagem abaixo ja explica que o secret fica salvo pra quando
+                          ativarmos a sync). Testar/Sincronizar seguem so em ativo. */}
+                      <button onClick={() => salvar(con.id)} disabled={saving} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontSize: 11, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
                         {saving ? '...' : 'Salvar'}
                       </button>
                       {con.status === 'ativo' && (
