@@ -467,6 +467,42 @@ export default function TakeoffPage() {
     })
   }
 
+  // FEATURE-TAKEOFF-AMBIENTE-MANUAL (07/07 · Saneamento V1 Fase 3 · destrava
+  // tela quebrada): quando o APS nao extrai ambientes (DWG unitless / geometria
+  // em blocos, ex BLUE-2023-18 candidatos_ambiente=[]), a tabela vinha vazia e
+  // o eng ficava travado. Agora pode adicionar ambiente na mao. Backend:
+  // fn_takeoff_ambiente_criar_manual (origem='manual', imune ao DELETE de IA).
+  const [addAberto, setAddAberto] = useState(false)
+  const adicionarAmbienteManual = async (form: {
+    nome: string; area_m2: string; largura_m: string; comprimento_m: string
+    perimetro_ml: string; pe_direito_m: string
+  }) => {
+    if (!companyId || !planta) return
+    const num = (v: string) => (v.trim() ? Number(v) : null)
+    setBusy(true); setErro(null)
+    try {
+      const { error } = await supabase.rpc('fn_takeoff_ambiente_criar_manual', {
+        p_company_id: companyId,
+        p_planta_id: planta.id,
+        p_nome: form.nome.trim() || 'Ambiente',
+        p_area_m2: num(form.area_m2),
+        p_largura_m: num(form.largura_m),
+        p_comprimento_m: num(form.comprimento_m),
+        p_perimetro_ml: num(form.perimetro_ml),
+        p_pe_direito_m: num(form.pe_direito_m),
+      })
+      if (error) throw error
+      setAddAberto(false)
+      setMsg('Ambiente adicionado. Vincule um serviço e confirme para gerar o orçamento.')
+      await recarregarAmbientes(planta.id)
+      await recarregarPlanta(planta.id)
+    } catch (e) {
+      setErro((e as Error).message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const gerarOrcamento = async () => {
     if (!companyId || !planta || !orcId) { setErro('Selecione um orcamento antes de gerar.'); return }
     const prontos = ambientes.filter((a) => a.confirmado && a.servico_id)
@@ -589,9 +625,25 @@ export default function TakeoffPage() {
       {msg && <div className="rounded-xl p-3 text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>{msg}</div>}
       {erro && <div className="rounded-xl p-3 text-sm flex items-start gap-2" style={{ background: '#FEE', border: '1px solid #FBB', color: '#A65A3A' }}><AlertTriangle size={14} className="mt-0.5" /> {erro}</div>}
 
-      {ambientes.length > 0 && (
+      {planta && (
         <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
-          <div className="p-3 text-sm font-semibold text-[#3D2314] border-b border-[#E7DECF]">Ambientes extraídos</div>
+          <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF]">
+            <span className="text-sm font-semibold text-[#3D2314]">Ambientes ({ambientes.length})</span>
+            <button
+              onClick={() => setAddAberto(true)}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border"
+              style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}
+            >
+              + Adicionar ambiente
+            </button>
+          </div>
+          {ambientes.length === 0 ? (
+            <div className="p-6 text-center text-sm" style={{ color: ESP60 }}>
+              Nenhum ambiente extraído da planta. Se o CAD não tinha geometria de área
+              (ex.: DWG sem unidade ou tudo em blocos), <b>adicione os ambientes na mão</b> pelo botão acima.
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-xs" style={{ color: ESP60, background: BG }}>
@@ -636,6 +688,8 @@ export default function TakeoffPage() {
               </tbody>
             </table>
           </div>
+          )}
+          {ambientes.length > 0 && (
           <div className="p-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E7DECF]" style={{ background: BG }}>
             <div className="text-sm">
               <span style={{ color: ESP60 }}>Estimado:</span> <b className="text-[#3D2314]">{money(totalEstimado)}</b>
@@ -644,8 +698,97 @@ export default function TakeoffPage() {
               <Check size={15} /> Gerar itens no orçamento
             </button>
           </div>
+          )}
         </section>
       )}
+
+      {addAberto && (
+        <AmbienteManualModal
+          onFechar={() => setAddAberto(false)}
+          onSalvar={adicionarAmbienteManual}
+          busy={busy}
+        />
+      )}
+    </div>
+  )
+}
+
+// FEATURE-TAKEOFF-AMBIENTE-MANUAL: modal de cadastro manual de ambiente.
+function AmbienteManualModal({
+  onFechar, onSalvar, busy,
+}: {
+  onFechar: () => void
+  onSalvar: (f: { nome: string; area_m2: string; largura_m: string; comprimento_m: string; perimetro_ml: string; pe_direito_m: string }) => void
+  busy: boolean
+}) {
+  const [nome, setNome] = useState('')
+  const [areaM2, setAreaM2] = useState('')
+  const [largura, setLargura] = useState('')
+  const [comprimento, setComprimento] = useState('')
+  const [perimetro, setPerimetro] = useState('')
+  const [peDireito, setPeDireito] = useState('')
+
+  // Se digita L×C, sugere área e perímetro (o backend recalcula igual, isso é só preview)
+  const areaCalc = largura.trim() && comprimento.trim() ? (Number(largura) * Number(comprimento)) : null
+  const perimCalc = largura.trim() && comprimento.trim() ? (2 * (Number(largura) + Number(comprimento))) : null
+
+  const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]'
+  const lbl = 'block text-[11px] font-medium mb-1'
+
+  return (
+    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5" style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <h3 className="text-lg font-semibold text-[#3D2314] mb-1">Adicionar ambiente manual</h3>
+        <p className="text-[11px] mb-4" style={{ color: ESP60 }}>
+          Informe a área direto, ou largura × comprimento que a gente calcula.
+        </p>
+
+        <div className="mb-3">
+          <label className={lbl} style={{ color: ESP60 }}>Nome do ambiente *</label>
+          <input autoFocus className={inp} value={nome} onChange={(e) => setNome(e.target.value)} placeholder='ex: "Sala 01", "Banheiro"' />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label className={lbl} style={{ color: ESP60 }}>Área (m²)</label>
+            <input className={inp + ' text-right'} inputMode="decimal" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} placeholder={areaCalc != null ? areaCalc.toFixed(2) : '0,00'} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: ESP60 }}>Pé-direito (m)</label>
+            <input className={inp + ' text-right'} inputMode="decimal" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} placeholder="2,80" />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: ESP60 }}>Largura (m)</label>
+            <input className={inp + ' text-right'} inputMode="decimal" value={largura} onChange={(e) => setLargura(e.target.value)} />
+          </div>
+          <div>
+            <label className={lbl} style={{ color: ESP60 }}>Comprimento (m)</label>
+            <input className={inp + ' text-right'} inputMode="decimal" value={comprimento} onChange={(e) => setComprimento(e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={lbl} style={{ color: ESP60 }}>Perímetro (ml)</label>
+            <input className={inp + ' text-right'} inputMode="decimal" value={perimetro} onChange={(e) => setPerimetro(e.target.value)} placeholder={perimCalc != null ? perimCalc.toFixed(2) : '0,00'} />
+          </div>
+        </div>
+
+        {areaCalc != null && !areaM2.trim() && (
+          <div className="text-[11px] mb-3" style={{ color: '#7A5A0B' }}>
+            Área calculada: <b>{areaCalc.toFixed(2)} m²</b> · Perímetro: <b>{perimCalc?.toFixed(2)} ml</b> (L×C)
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 mt-2">
+          <button onClick={onFechar} disabled={busy} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Cancelar</button>
+          <button
+            onClick={() => onSalvar({ nome, area_m2: areaM2, largura_m: largura, comprimento_m: comprimento, perimetro_ml: perimetro, pe_direito_m: peDireito })}
+            disabled={busy || (!nome.trim())}
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+            style={{ background: GOLD, opacity: (busy || !nome.trim()) ? 0.6 : 1 }}
+          >
+            {busy ? 'Salvando…' : 'Adicionar'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
