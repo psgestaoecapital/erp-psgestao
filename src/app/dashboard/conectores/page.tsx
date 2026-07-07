@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = { bg: '#0C0C0A', card: '#1A1410', card2: '#201C16', bd: '#2A2822', go: '#C8941A', gol: '#E8C872', tx: '#FAF7F2', txm: '#B0AB9F', txd: '#706C64', g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7' }
 
@@ -77,72 +78,118 @@ const CONECTOR_PROVIDER: Record<string, string> = {
   nibo: 'nibo',
 }
 
+// Credencial cadastrada no Vault (Cofre B.9) por provider.
+// Mantida indexada por provider pra habilitar editar/excluir sem re-fetch.
+type VaultCred = { id: string; nome_secret_vault: string; label: string | null; chave: string }
+
 export default function ConectoresPage() {
-  const [companies, setCompanies] = useState<any[]>([])
-  const [grupos, setGrupos] = useState<any[]>([])
-  const [empresaSel, setEmpresaSel] = useState('')
+  // FIX-FONTE-UNICA-EMPRESA (07/07 · CEO):
+  // Antes: tela tinha seletor proprio de empresa (companies + grupos + select
+  // local). CEO salvou IO Point na Breier (seletor local) achando ser Frioeste
+  // (seletor da sidebar) — bug de dupla fonte. Agora fonte unica: useCompanyIds
+  // (ps_empresa_sel canonico da sidebar). Se consolidado/grupo -> empty state.
+  const { companyIds, selInfo, loading: companiesLoading, sel } = useCompanyIds()
+  const empresaUnica = selInfo.tipo === 'empresa' && sel && companyIds.length === 1 ? sel : null
+
   const [empresa, setEmpresa] = useState<any>(null)
   const [filtro, setFiltro] = useState('todos')
   const [open, setOpen] = useState<string | null>(null)
   const [configs, setConfigs] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [msg, setMsg] = useState('')
   const [lastSync, setLastSync] = useState('')
   const [syncCount, setSyncCount] = useState(0)
-  // Providers com credencial cadastrada no Vault para a empresa selecionada.
-  const [vaultProviders, setVaultProviders] = useState<Set<string>>(new Set())
+  // Credenciais Vault por provider (id + nome_secret_vault) — necessario pra editar/excluir.
+  const [vaultCreds, setVaultCreds] = useState<Record<string, VaultCred>>({})
 
+  // Recarrega empresa (dados brutos + credenciais Vault) sempre que empresaUnica muda
   useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data: up } = await supabase.from('users').select('role').eq('id', user.id).single()
-      if (up?.role === 'adm' || up?.role === 'acesso_total') {
-        const { data } = await supabase.from('companies').select('*').order('nome_fantasia')
-        setCompanies(data || [])
-        const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
-        setGrupos(grps || [])
-        if (data && data.length > 0) { setEmpresaSel(data[0].id); loadEmpresa(data[0]) }
-      }
-    })()
-  }, [])
+    if (companiesLoading) return
+    if (!empresaUnica) { setEmpresa(null); setVaultCreds({}); return }
+    let alive = true
+    ;(async () => {
+      const { data: emp } = await supabase.from('companies').select('*').eq('id', empresaUnica).maybeSingle()
+      if (!alive) return
+      setEmpresa(emp)
 
-  const loadEmpresa = (emp: any) => {
-    setEmpresa(emp)
-    const cfg: Record<string, string> = {}
-    for (const con of CONNECTORS) {
-      for (const campo of (con.campos || [])) {
-        cfg[campo.k] = emp?.[campo.k] || ''
+      // Configs iniciais dos campos legacy (Omie/Nibo/ContaAzul ainda leem de companies.<field>)
+      const cfg: Record<string, string> = {}
+      for (const con of CONNECTORS) {
+        for (const campo of (con.campos || [])) {
+          cfg[campo.k] = (emp as Record<string, unknown> | null)?.[campo.k] as string || ''
+        }
       }
-    }
-    setConfigs(cfg)
-    // Load last sync info
-    supabase.from('omie_imports').select('imported_at, record_count').eq('company_id', emp.id).order('imported_at', { ascending: false }).limit(1).then(({ data }) => {
-      if (data && data.length > 0) {
-        setLastSync(new Date(data[0].imported_at).toLocaleString('pt-BR'))
-        supabase.from('omie_imports').select('id').eq('company_id', emp.id).then(({ data: all }) => setSyncCount(all?.length || 0))
+      setConfigs(cfg)
+
+      // Last sync info
+      const { data: imports } = await supabase.from('omie_imports').select('imported_at').eq('company_id', empresaUnica).order('imported_at', { ascending: false }).limit(1)
+      if (!alive) return
+      if (imports && imports.length > 0) {
+        setLastSync(new Date(imports[0].imported_at).toLocaleString('pt-BR'))
+        const { data: all } = await supabase.from('omie_imports').select('id').eq('company_id', empresaUnica)
+        if (alive) setSyncCount(all?.length || 0)
       } else { setLastSync('Nunca'); setSyncCount(0) }
-    })
-    // Cruza com erp_credencial (Cofre canonico) — quais providers tem credencial
-    // por essa empresa. Usada pra desenhar o badge "Vault OK" nos cards.
-    supabase.from('erp_credencial')
-      .select('provider')
+
+      // Cofre canonico: quais providers tem credencial pra essa empresa (id + nome vault)
+      const { data: creds } = await supabase.from('erp_credencial')
+        .select('id, provider, chave, nome_secret_vault, label')
+        .eq('escopo', 'empresa')
+        .eq('company_id', empresaUnica)
+        .eq('ativo', true)
+      if (!alive) return
+      const map: Record<string, VaultCred> = {}
+      for (const row of ((creds ?? []) as { id: string; provider: string; chave: string; nome_secret_vault: string; label: string | null }[])) {
+        // Se ha varias chaves por provider (ex: Omie tem app_key + app_secret),
+        // fica a mais recente — botao Excluir vai remover apenas essa.
+        // Suficiente pra o CEO desconectar um conector inteiro clicando 1 vez.
+        map[row.provider] = { id: row.id, nome_secret_vault: row.nome_secret_vault, label: row.label, chave: row.chave }
+      }
+      setVaultCreds(map)
+    })()
+    return () => { alive = false }
+  }, [empresaUnica, companiesLoading])
+
+  const recarregarVault = async () => {
+    if (!empresaUnica) return
+    const { data: creds } = await supabase.from('erp_credencial')
+      .select('id, provider, chave, nome_secret_vault, label')
       .eq('escopo', 'empresa')
-      .eq('company_id', emp.id)
+      .eq('company_id', empresaUnica)
       .eq('ativo', true)
-      .then(({ data }) => {
-        const set = new Set<string>()
-        for (const row of ((data ?? []) as { provider: string }[])) set.add(row.provider)
-        setVaultProviders(set)
-      })
+    const map: Record<string, VaultCred> = {}
+    for (const row of ((creds ?? []) as { id: string; provider: string; chave: string; nome_secret_vault: string; label: string | null }[])) {
+      map[row.provider] = { id: row.id, nome_secret_vault: row.nome_secret_vault, label: row.label, chave: row.chave }
+    }
+    setVaultCreds(map)
   }
 
-  const selectEmpresa = (id: string) => {
-    setEmpresaSel(id)
-    const emp = companies.find(c => c.id === id)
-    if (emp) loadEmpresa(emp)
-    setMsg('')
+  // Recarrega last sync + count apos disparar sincronizar em Omie/Nibo/ContaAzul.
+  const recarregarSyncInfo = async () => {
+    if (!empresaUnica) return
+    const { data: imports } = await supabase.from('omie_imports').select('imported_at').eq('company_id', empresaUnica).order('imported_at', { ascending: false }).limit(1)
+    if (imports && imports.length > 0) {
+      setLastSync(new Date(imports[0].imported_at).toLocaleString('pt-BR'))
+      const { data: all } = await supabase.from('omie_imports').select('id').eq('company_id', empresaUnica)
+      setSyncCount(all?.length || 0)
+    }
+  }
+
+  const excluirCredencial = async (conId: string) => {
+    if (!empresa) return
+    const provider = CONECTOR_PROVIDER[conId] ?? conId
+    const cred = vaultCreds[provider]
+    if (!cred) { setMsg('Sem credencial pra excluir.'); return }
+    const nomeEmpresa = empresa.nome_fantasia || empresa.razao_social || 'esta empresa'
+    if (!window.confirm(`EXCLUIR credencial "${cred.label || provider}" de ${nomeEmpresa}?\n\nO conector fica desconectado até um novo Salvar. Ação irreversível.`)) return
+    setDeleting(conId); setMsg('')
+    const { error } = await supabase.rpc('fn_credencial_inativar', { p_id: cred.id })
+    setDeleting(null)
+    if (error) { setMsg('Erro ao excluir: ' + error.message); return }
+    setMsg(`EXCLUIU credencial de ${nomeEmpresa}`)
+    await recarregarVault()
+    setTimeout(() => setMsg(''), 4000)
   }
 
   // FIX-CONECTORES-VAULT (07/07 · CEO):
@@ -193,20 +240,16 @@ export default function ConectoresPage() {
     if (salvos === 0) {
       setMsg('Preencha ao menos um campo pra salvar.')
     } else {
-      setMsg(`CRIOU ${salvos} credencial(is) no Vault para ${empresa.nome_fantasia || empresa.razao_social}`)
-      // Recarrega badges de "Vault OK" pra refletir o que foi salvo
-      const { data: creds } = await supabase.from('erp_credencial')
-        .select('provider')
-        .eq('escopo', 'empresa')
-        .eq('company_id', empresa.id)
-        .eq('ativo', true)
-      const set = new Set<string>()
-      for (const row of ((creds ?? []) as { provider: string }[])) set.add(row.provider)
-      setVaultProviders(set)
+      const jaTinha = vaultCreds[provider]
+      setMsg(`${jaTinha ? 'ALTEROU' : 'SALVOU'} ${salvos} credencial(is) no Vault para ${empresa.nome_fantasia || empresa.razao_social}`)
+      // Recarrega badges + ids das credenciais (Vault OK + botao Excluir)
+      await recarregarVault()
       // Limpa inputs de credencial pra nao ficar valor em memoria depois de gravado
       const limpo = { ...configs }
       for (const campo of con.campos) delete limpo[campo.k]
       setConfigs(limpo)
+      // Fecha o card apos salvar (sinal visual de que gravou)
+      setOpen(null)
     }
     setSaving(false)
     setTimeout(() => setMsg(''), 4000)
@@ -266,21 +309,21 @@ export default function ConectoresPage() {
         const res = await fetch('/api/omie/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_key: appKey, app_secret: appSecret, sync_type: 'full', company_id: empresa.id }) })
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
-        else { const total = Object.values(data.counts || {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0); setMsg('Omie: ' + total + ' registros importados!'); loadEmpresa(empresa) }
+        else { const total = Object.values(data.counts || {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0); setMsg('Omie: ' + total + ' registros importados!'); recarregarSyncInfo() }
       } else if (conId === 'nibo') {
         const apiKey = configs['nibo_api_key']; const orgId = configs['nibo_org_id']; const apiSecret = configs['nibo_api_secret']
         if (!apiKey || !orgId) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
         const res = await fetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, nibo_api_key: apiKey, nibo_api_secret: apiSecret, nibo_org_id: orgId }) })
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
-        else { setMsg(data.message || 'Nibo sync OK!'); loadEmpresa(empresa) }
+        else { setMsg(data.message || 'Nibo sync OK!'); recarregarSyncInfo() }
       } else if (conId === 'contaazul') {
         const token = empresa.contaazul_token
         if (!token) { setMsg('Conecte o ContaAzul primeiro'); setSyncing(false); return }
         const res = await fetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, token }) })
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
-        else { setMsg(data.message || 'ContaAzul sync OK!'); loadEmpresa(empresa) }
+        else { setMsg(data.message || 'ContaAzul sync OK!'); recarregarSyncInfo() }
       } else { setMsg('Sync disponivel para Omie, Nibo e ContaAzul') }
     } catch (e: any) { setMsg('Erro: ' + e.message) }
     setSyncing(false); setTimeout(() => setMsg(''), 8000)
@@ -300,33 +343,25 @@ export default function ConectoresPage() {
         <a href="/dashboard" style={{ color: C.go, fontSize: 11, textDecoration: 'none', padding: '5px 10px', border: '1px solid ' + C.bd, borderRadius: 6 }}>Dashboard</a>
       </div>
 
-      {/* EMPRESA SELECTOR */}
-      <div style={{ background: C.card, borderRadius: 10, padding: 14, marginBottom: 14, borderLeft: '3px solid ' + C.tl, border: '1px solid ' + C.bd }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 9, color: C.txd, marginBottom: 3 }}>Empresa (salva credenciais por empresa)</div>
-            <select value={empresaSel} onChange={e => selectEmpresa(e.target.value)} style={{ background: C.bg, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12, minWidth: 250 }}>
-              {grupos.map(g => {
-                const emps = companies.filter(c => c.group_id === g.id)
-                if (emps.length === 0) return null
-                return (<optgroup key={g.id} label={'📁 ' + g.nome}>
-                  {emps.map(e => <option key={e.id} value={e.id}>{e.nome_fantasia || e.razao_social}</option>)}
-                </optgroup>)
-              })}
-              {companies.filter(c => !c.group_id || !grupos.find(g => g.id === c.group_id)).map(c => (
-                <option key={c.id} value={c.id}>{c.nome_fantasia || c.razao_social}</option>
-              ))}
-            </select>
-          </div>
-          {empresa && (
-            <div style={{ fontSize: 10, color: C.txm }}>
+      {/* FIX-FONTE-UNICA-EMPRESA (07/07 · CEO): seletor duplo REMOVIDO.
+          Empresa vem do seletor principal PS na sidebar (ps_empresa_sel).
+          Se nao ha empresa unica selecionada, cai em empty state abaixo. */}
+      {empresa && (
+        <div style={{ background: C.card, borderRadius: 10, padding: 12, marginBottom: 14, borderLeft: '3px solid ' + C.tl, border: '1px solid ' + C.bd }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 9, color: C.txd, textTransform: 'uppercase', letterSpacing: 1 }}>Empresa ativa</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.tx }}>{empresa.nome_fantasia || empresa.razao_social}</div>
+            <div style={{ fontSize: 10, color: C.txm, marginLeft: 'auto' }}>
               <span style={{ color: C.go, fontWeight: 600 }}>{empresa.cnpj || 'Sem CNPJ'}</span>
-              {' | Ultima sync: '}<span style={{ color: lastSync === 'Nunca' ? C.r : C.g }}>{lastSync}</span>
-              {syncCount > 0 && <span> | {syncCount} imports</span>}
+              {' · Última sync: '}<span style={{ color: lastSync === 'Nunca' ? C.r : C.g }}>{lastSync}</span>
+              {syncCount > 0 && <span> · {syncCount} imports</span>}
             </div>
-          )}
+          </div>
+          <div style={{ fontSize: 9, color: C.txd, marginTop: 4 }}>
+            💡 Trocar empresa? Use o seletor no menu superior da PS. Aqui não há seletor próprio (fonte única).
+          </div>
         </div>
-      </div>
+      )}
 
       <div style={{ background: C.card2, borderLeft: '3px solid ' + C.go, borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 11, color: C.txm }}>
         🔌 <b>Conectores</b> = sistemas externos do cliente (ERPs, ponto, manutenção, logística).
@@ -339,6 +374,17 @@ export default function ConectoresPage() {
 
       {msg && <div style={{ background: msg.includes('Erro') || msg.includes('Preencha') ? C.r + '15' : C.g + '15', border: '1px solid ' + (msg.includes('Erro') || msg.includes('Preencha') ? C.r : C.g) + '30', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: msg.includes('Erro') || msg.includes('Preencha') ? C.r : C.g }}>{msg}</div>}
 
+      {/* FIX-FONTE-UNICA-EMPRESA (07/07): empty state quando consolidado/grupo/sem empresa */}
+      {!companiesLoading && !empresaUnica && (
+        <div style={{ padding: 40, textAlign: 'center', background: C.card, border: '1px solid ' + C.bd, borderRadius: 10, marginBottom: 14 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.tx, marginBottom: 8 }}>Selecione uma empresa</div>
+          <div style={{ fontSize: 12, color: C.txm, maxWidth: 460, margin: '0 auto', lineHeight: 1.5 }}>
+            A Central de Conectores grava credencial por empresa (Vault + Cofre B.9).
+            Escolha uma empresa específica no seletor da sidebar principal — modo consolidado ou grupo não é aceito aqui pra evitar gravar no lugar errado.
+          </div>
+        </div>
+      )}
+
       {/* FILTROS */}
       <div style={{ display: 'flex', gap: 3, marginBottom: 12, flexWrap: 'wrap' }}>
         <button onClick={() => setFiltro('todos')} style={{ padding: '4px 10px', borderRadius: 5, fontSize: 10, cursor: 'pointer', fontWeight: 600, border: filtro === 'todos' ? '1px solid ' + C.go : '1px solid ' + C.bd, background: filtro === 'todos' ? C.go + '10' : 'transparent', color: filtro === 'todos' ? C.gol : C.txm }}>Todos ({stats.total})</button>
@@ -348,7 +394,8 @@ export default function ConectoresPage() {
         })}
       </div>
 
-      {/* GRID */}
+      {/* GRID — so renderiza com empresa selecionada (impede salvar em lugar errado) */}
+      {empresaUnica && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 8 }}>
         {filtered.map(con => (
           <div key={con.id} style={{ background: C.card, borderRadius: 8, border: '1px solid ' + C.bd, overflow: 'hidden' }}>
@@ -361,7 +408,7 @@ export default function ConectoresPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                {vaultProviders.has(CONECTOR_PROVIDER[con.id] ?? '__none__') && (
+                {vaultCreds[CONECTOR_PROVIDER[con.id] ?? '__none__'] && (
                   <span title="Credencial cadastrada no Vault para esta empresa" style={{ fontSize: 8, padding: '2px 6px', borderRadius: 4, background: C.g + '20', color: C.g, fontWeight: 700, border: '1px solid ' + C.g + '40', letterSpacing: 0.5 }}>
                     🔒 VAULT OK
                   </span>
@@ -380,13 +427,36 @@ export default function ConectoresPage() {
                         <input type={(campo as any).secret ? 'password' : 'text'} value={configs[campo.k] || ''} onChange={e => setConfigs({ ...configs, [campo.k]: e.target.value })} placeholder={campo.p} style={{ width: '100%', background: C.bg, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 10px', borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
                       </div>
                     ))}
-                    <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                    {/* FIX-CONECTORES-EDITAR-EXCLUIR (07/07 · CEO): informe se ja existe
+                        credencial salva no Vault desta empresa pra este conector.
+                        Salvar continua sendo update (upsert por chave). Excluir usa
+                        fn_credencial_inativar (soft-delete + esconde badge Vault OK). */}
+                    {vaultCreds[CONECTOR_PROVIDER[con.id] ?? '__none__'] && (
+                      <div style={{ marginTop: 10, padding: '6px 10px', background: C.g + '10', border: '1px solid ' + C.g + '30', borderRadius: 6, fontSize: 10, color: C.g }}>
+                        🔒 Credencial cadastrada no Vault para esta empresa. Digite acima pra ALTERAR ou use Excluir pra desconectar.
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                       {/* FIX-CONECTORES-VAULT (07/07): habilitado tambem em em_breve
                           (mensagem abaixo ja explica que o secret fica salvo pra quando
                           ativarmos a sync). Testar/Sincronizar seguem so em ativo. */}
-                      <button onClick={() => salvar(con.id)} disabled={saving} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontSize: 11, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
-                        {saving ? '...' : 'Salvar'}
+                      <button onClick={() => salvar(con.id)} disabled={saving || !!deleting} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontSize: 11, fontWeight: 700, cursor: saving || deleting ? 'not-allowed' : 'pointer', opacity: saving || deleting ? 0.6 : 1 }}>
+                        {saving ? '...' : (vaultCreds[CONECTOR_PROVIDER[con.id] ?? '__none__'] ? 'Alterar' : 'Salvar')}
                       </button>
+                      {vaultCreds[CONECTOR_PROVIDER[con.id] ?? '__none__'] && (
+                        <button
+                          onClick={() => excluirCredencial(con.id)}
+                          disabled={saving || deleting === con.id}
+                          style={{
+                            padding: '8px 14px', borderRadius: 6, border: '1px solid ' + C.r + '60',
+                            background: 'transparent', color: C.r, fontSize: 11, fontWeight: 700,
+                            cursor: (saving || deleting === con.id) ? 'not-allowed' : 'pointer',
+                            opacity: (saving || deleting === con.id) ? 0.6 : 1,
+                          }}
+                        >
+                          {deleting === con.id ? '...' : '🗑 Excluir'}
+                        </button>
+                      )}
                       {con.status === 'ativo' && (
                         <>
                           {(con as any).oauth && <button onClick={() => conectarOAuth(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#0EA5E9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🔗 Conectar</button>}
@@ -407,6 +477,7 @@ export default function ConectoresPage() {
           </div>
         ))}
       </div>
+      )}
 
       <div style={{ fontSize: 8, color: C.txd, textAlign: 'center', marginTop: 20 }}>PS Gestao e Capital — Central de Conectores v8.7.4 | {stats.total} conectores | 10 categorias</div>
     </div>
