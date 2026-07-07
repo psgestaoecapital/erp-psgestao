@@ -208,7 +208,11 @@ async function handle(req: NextRequest) {
         if (error) throw error
       }
     } catch (e) {
-      horasErro = e instanceof Error ? e.message : String(e)
+      // Supabase/Postgrest erra com um objeto (nao Error) — String(e) virava
+      // "[object Object]" no log. Serializa direito pra o log ser util.
+      horasErro = e instanceof Error
+        ? e.message
+        : (typeof e === 'object' && e !== null ? JSON.stringify(e) : String(e))
       // NAO retorna erro — colaboradores ja foram salvos. So loga o aviso.
     }
 
