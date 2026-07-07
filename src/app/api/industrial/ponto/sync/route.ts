@@ -181,8 +181,15 @@ async function handle(req: NextRequest) {
     }
 
     // 5) coletar horas no periodo
+    // FIX-PONTO-SYNC-TIMEOUT (07/07): horas (endpoint /totalHours) e' lento e
+    // as vezes da timeout — MAS nao pode derrubar a sync inteira. Colaboradores
+    // (bloco 4) ja foram salvos com sucesso. Se horas falha, registra o aviso
+    // e retorna ok=true com os colaboradores (as horas podem ser puxadas depois).
+    // Antes: erro em horas retornava 502 e o CEO via "falha" apesar dos
+    // colaboradores terem sido salvos.
     let qtdHoras = 0
     let totalHoras = 0
+    let horasErro: string | null = null
     try {
       const horas = await adapter.listarHoras(cred, beginISO, endISO)
       qtdHoras = horas.length
@@ -201,17 +208,16 @@ async function handle(req: NextRequest) {
         if (error) throw error
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      await logSync(companyId, provider, 'erro', `horas: ${msg}`, qtdHoras, { plantId, beginISO, endISO })
-      return NextResponse.json({
-        ok: false, erro: 'falha ao sincronizar horas', detalhe: msg,
-        colaboradores: qtdColab,
-      }, { status: 502 })
+      horasErro = e instanceof Error ? e.message : String(e)
+      // NAO retorna erro — colaboradores ja foram salvos. So loga o aviso.
     }
 
-    await logSync(companyId, provider, 'ok',
-      `sync ok colaboradores=${qtdColab} horas=${qtdHoras} total=${totalHoras.toFixed(2)}h`,
-      qtdHoras, { plantId, beginISO, endISO })
+    const statusFinal = horasErro ? 'erro' : 'ok'
+    await logSync(companyId, provider, statusFinal,
+      horasErro
+        ? `colaboradores=${qtdColab} OK · horas FALHOU: ${horasErro}`
+        : `sync ok colaboradores=${qtdColab} horas=${qtdHoras} total=${totalHoras.toFixed(2)}h`,
+      qtdColab, { plantId, beginISO, endISO, horasErro })
 
     return NextResponse.json({
       ok: true,
@@ -220,6 +226,8 @@ async function handle(req: NextRequest) {
       colaboradores: qtdColab,
       horas_registros: qtdHoras,
       total_horas: Number(totalHoras.toFixed(2)),
+      // aviso nao-fatal: colaboradores entraram, horas nao (endpoint lento)
+      ...(horasErro ? { horas_aviso: `Horas não sincronizadas (${horasErro}). Colaboradores importados normalmente.` } : {}),
     })
   } catch (e) {
     const erro = e instanceof Error ? e.message : String(e)

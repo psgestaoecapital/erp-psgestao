@@ -17,17 +17,47 @@ import type {
 
 const onlyDigits = (s: unknown) => String(s ?? '').replace(/\D/g, '')
 
+// FIX-PONTO-SYNC-TIMEOUT (07/07): a API IO Point (sobretudo /totalHours) e'
+// lenta e as vezes estoura o timeout default do fetch — confirmado empirico
+// (pg_net: /collaborator 200 rapido, /totalHours timeout >5s). Sem timeout
+// explicito + retry, a sync morria com erro de rede generico. Agora:
+// AbortController com timeout amplo (route tem maxDuration=60) + 1 retry
+// em falha de rede/timeout (nao em 4xx, que e' erro definitivo).
+const TIMEOUT_MS = 25_000
+
 async function getJson(url: string, token: string): Promise<unknown> {
-  const r = await fetch(url, {
-    method: 'GET',
-    headers: { apiIopointToken: token, accept: 'application/json' },
-    cache: 'no-store',
-  })
-  const text = await r.text()
-  if (!r.ok) {
-    throw new Error(`IO Point ${r.status}: ${text.slice(0, 300)}`)
+  let ultimoErro: unknown = null
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+    try {
+      const r = await fetch(url, {
+        method: 'GET',
+        headers: { apiIopointToken: token, accept: 'application/json' },
+        cache: 'no-store',
+        signal: ctrl.signal,
+      })
+      const text = await r.text()
+      if (!r.ok) {
+        // 4xx = erro definitivo (auth/rota) — nao adianta repetir.
+        throw new Error(`IO Point ${r.status}: ${text.slice(0, 300)}`)
+      }
+      try { return JSON.parse(text) } catch { return text }
+    } catch (e) {
+      ultimoErro = e
+      const abortou = e instanceof Error && e.name === 'AbortError'
+      const httpErro = e instanceof Error && /^IO Point \d/.test(e.message)
+      // Repete so em timeout/rede; erro HTTP 4xx nao se repete.
+      if (httpErro || tentativa === 2) break
+      if (!abortou) break // erro de rede diferente de timeout — nao insiste
+    } finally {
+      clearTimeout(timer)
+    }
   }
-  try { return JSON.parse(text) } catch { return text }
+  if (ultimoErro instanceof Error && ultimoErro.name === 'AbortError') {
+    throw new Error(`IO Point timeout (${TIMEOUT_MS / 1000}s) em ${url.split('?')[0]}`)
+  }
+  throw ultimoErro instanceof Error ? ultimoErro : new Error(String(ultimoErro))
 }
 
 function pegarLista(payload: unknown): Record<string, unknown>[] {

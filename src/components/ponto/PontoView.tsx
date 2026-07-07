@@ -163,7 +163,13 @@ export default function PontoView({ lente }: { lente: Lente }) {
       })
       const j = await r.json()
       if (!r.ok || !j.ok) { setErro(j.erro || j.detalhe || `HTTP ${r.status}`); return }
-      setOk(`SINCRONIZOU · ${j.colaboradores} colaboradores e ${j.horas_registros ?? 0} registros de horas (${j.provider}).`)
+      // FIX-PONTO-SYNC-TIMEOUT: horas pode falhar (endpoint lento) sem derrubar
+      // os colaboradores. Mostra sucesso + aviso ambar quando so as horas faltaram.
+      if (j.horas_aviso) {
+        setOk(`SINCRONIZOU · ${j.colaboradores} colaboradores (${j.provider}). ⚠️ ${j.horas_aviso}`)
+      } else {
+        setOk(`SINCRONIZOU · ${j.colaboradores} colaboradores e ${j.horas_registros ?? 0} registros de horas (${j.provider}).`)
+      }
       await carregar()
     } catch (e) {
       setErro((e as Error).message || 'erro de rede')
