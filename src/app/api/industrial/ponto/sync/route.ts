@@ -84,14 +84,15 @@ async function usuarioTemAcessoEmpresa(sb: AuthedClient, companyId: string): Pro
 }
 
 async function lerSecret(name: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .schema('vault' as never)
-    .from('decrypted_secrets')
-    .select('decrypted_secret')
-    .eq('name', name)
-    .maybeSingle()
+  // FIX-IOPOINT-SECRET (07/07): service_role NAO tem permissao de ler
+  // vault.decrypted_secrets diretamente (view eh restrita ao owner do secret).
+  // Antes: .schema('vault').from('decrypted_secrets').select() -> null silencioso
+  //        -> "secret ausente/vazio no Vault" mesmo com secret existente.
+  // Agora: RPC fn_vault_ler_secret(name) SECURITY DEFINER — contorna a restricao
+  // sem elevar permissao do service_role.
+  const { data, error } = await supabaseAdmin.rpc('fn_vault_ler_secret', { p_name: name })
   if (error || !data) return null
-  return (data as { decrypted_secret: string }).decrypted_secret ?? null
+  return (data as string) || null
 }
 
 async function logSync(company_id: string, provider: string, status: 'ok' | 'erro', mensagem: string, qtd: number, payload: unknown) {
