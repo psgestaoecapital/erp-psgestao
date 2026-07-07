@@ -630,6 +630,7 @@ export default function TakeoffPage() {
           <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF]">
             <span className="text-sm font-semibold text-[#3D2314]">Ambientes ({ambientes.length})</span>
             <button
+              data-testid="takeoff-add-ambiente"
               onClick={() => setAddAberto(true)}
               disabled={busy}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border"
