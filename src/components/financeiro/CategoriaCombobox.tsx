@@ -65,6 +65,7 @@ export default function CategoriaCombobox({
   const [aberto, setAberto] = useState(false)
   const [valorDescricao, setValorDescricao] = useState<string>('')
   const [criarAberto, setCriarAberto] = useState(false)
+  const [erroRpc, setErroRpc] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   // Ao setar value externamente (form editar / pos-criar), busca descricao pra display
@@ -95,21 +96,31 @@ export default function CategoriaCombobox({
     return () => document.removeEventListener('mousedown', handler)
   }, [aberto])
 
-  // Debounce 250ms
+  // FIX-COMBOBOX-#547 (07/07 · CEO relatou "nao abre pre-cadastrada"):
+  // - Ao abrir sem termo: fetch IMEDIATO (0ms), mostra top 50 analiticas
+  // - Ao digitar: debounce 200ms
+  // - Mostra erro visivel se RPC falha (nao silencia mais)
   useEffect(() => {
     if (!aberto) return
     if (!companyId) return
+    // 0ms quando termo vazio (abertura), 200ms quando digitando
+    const delay = termo.trim() === '' ? 0 : 200
     const t = setTimeout(async () => {
       setBuscando(true)
+      setErroRpc(null)
       const { data, error } = await supabase.rpc('fn_plano_contas_buscar', {
         p_company_id: companyId,
-        p_termo: termo || null,
+        p_termo: termo.trim() || null,
         p_aplicacao: aplicacao,
       })
       setBuscando(false)
-      if (error) { setResultados([]); return }
+      if (error) {
+        setErroRpc(error.message)
+        setResultados([])
+        return
+      }
       setResultados((data ?? []) as Categoria[])
-    }, 250)
+    }, delay)
     return () => clearTimeout(t)
   }, [termo, companyId, aplicacao, aberto])
 
@@ -120,7 +131,11 @@ export default function CategoriaCombobox({
     setAberto(false)
   }, [onChange])
 
-  const podeCriar = termo.trim().length >= 2 && !buscando &&
+  // podeCriar: aparece se ha termo digitado (2+ chars) e nao ha match exato
+  // por descricao. Nao esconde se ha matches parciais — usuario pode preferir
+  // criar mesmo com resultados parciais (ex: "aluguel" retorna 2.04.01 e
+  // usuario quer criar "Aluguel Estacionamento").
+  const podeCriar = termo.trim().length >= 2 && !buscando && !erroRpc &&
     !resultados.some((c) => c.descricao.toLowerCase() === termo.trim().toLowerCase())
 
   return (
@@ -183,13 +198,25 @@ export default function CategoriaCombobox({
             </div>
           )}
 
-          {!buscando && resultados.length === 0 && termo.trim().length >= 2 && (
+          {!buscando && erroRpc && (
+            <div style={{ padding: 12, fontSize: 11, color: C.red, textAlign: 'center', background: 'rgba(185,28,28,0.06)' }}>
+              Erro ao buscar: {erroRpc}
+            </div>
+          )}
+
+          {!buscando && !erroRpc && resultados.length === 0 && termo.trim() === '' && (
+            <div style={{ padding: 12, fontSize: 11, color: C.espressoL, textAlign: 'center' }}>
+              Sem categorias cadastradas nesta empresa.
+            </div>
+          )}
+
+          {!buscando && !erroRpc && resultados.length === 0 && termo.trim().length >= 1 && (
             <div style={{ padding: 12, fontSize: 12, color: C.espressoM, textAlign: 'center' }}>
               Nenhuma categoria encontrada pra “{termo}”.
             </div>
           )}
 
-          {!buscando && resultados.length > 0 && (
+          {!buscando && !erroRpc && resultados.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {resultados.map((c) => (
                 <li key={c.codigo}>
