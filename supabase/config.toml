@@ -23,3 +23,34 @@ verify_jwt = true
 [functions.pluggy-connect-token-financeiro]
 # Tela autenticada chama via supabase.functions.invoke (JWT user).
 verify_jwt = true
+
+# --- Ingest maquina-a-maquina (segredo interno, sem JWT) ---
+# BLINDAGEM: estas ja estavam verify_jwt=false no projeto mas sem entrada aqui.
+# Como mudanca em config.toml dispara deploy_all no workflow, SEM estas linhas o
+# CLI as redeployaria com o default (true) e quebraria a ingestao.
+
+[functions.aps-ingest]
+# DWG -> Autodesk APS. Chamada server-side pela route /api/aps/ingest.
+verify_jwt = false
+
+[functions.atak-ingest]
+# Ingest ATAK, invocado maquina-a-maquina.
+verify_jwt = false
+
+# --- Pipeline QA Gold (auth por x-watcher-secret validado no corpo do edge) ---
+# O DB chama estes edges via net.http_post so com x-watcher-secret (sem Bearer).
+# verify_jwt=true fazia o gateway derrubar com 401 antes do codigo rodar, travando
+# camada2 (jornada) e camada3 (insight) desde o redeploy de 05/06/2026 — QA Gold
+# media so 1/3 ha ~1 mes. false restaura; a auth continua pelo segredo interno.
+
+[functions.auditoria-gold-jornada]
+# Camada2 · disparada por fn_gold_disparar_jornada_completa.
+verify_jwt = false
+
+[functions.insight-auditor]
+# Camada3 · disparada por fn_disparar_insight_auditor_prioridade.
+verify_jwt = false
+
+[functions.screen-watcher]
+# Watcher visual · disparado por fn_disparar_screen_watcher.
+verify_jwt = false
