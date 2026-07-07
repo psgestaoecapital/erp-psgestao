@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import CategoriaCombobox from './CategoriaCombobox'
 
 type Cliente = {
   id: string
@@ -331,18 +332,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           </Campo>
 
           <Campo label="Em qual categoria do DRE?">
-            <select
+            {/* FASE-1 CATEGORIAS (07/07): combobox digitavel + criar inline. */}
+            <CategoriaCombobox
+              companyId={companyId}
+              aplicacao="receber"
               value={categoriaCodigo}
-              onChange={(e) => setCategoriaCodigo(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">— escolher depois —</option>
-              {categorias.map((c) => (
-                <option key={c.id} value={c.codigo}>
-                  {c.codigo} · {c.descricao}
-                </option>
-              ))}
-            </select>
+              onChange={setCategoriaCodigo}
+            />
           </Campo>
 
           <Campo label="Quantas parcelas?">
