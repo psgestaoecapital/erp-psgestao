@@ -111,7 +111,13 @@ export default function SidebarHeader() {
 
   return (
     <div className="border-b border-[#4D2E1D]">
-      <Link href="/dashboard/home" className="block px-4 pt-4 pb-3 hover:opacity-90 transition-opacity">
+      {/* FIX-DASHBOARD-GE-DUPLO (07/07 · CEO Opcao B):
+          Antes: logo -> /dashboard/home (Dashboard Universal generico).
+          Empresa GE clicava e caia na tela errada em vez do DashboardRico.
+          Agora: /dashboard (redirect inteligente — GestaoEmpresarialRouter
+          decide rica vs hub por plano). Multi-tenant safe: empresa
+          Commerce/Industrial/Agro tambem cai na landing certa dela. */}
+      <Link href="/dashboard" className="block px-4 pt-4 pb-3 hover:opacity-90 transition-opacity">
         <div className="text-[16px] font-medium text-[#FAF7F2] leading-tight">PS Gestão</div>
         <div className="text-[10px] text-[#FAF7F2]/60 uppercase tracking-[1px] mt-0.5">Capital · ERP</div>
       </Link>
