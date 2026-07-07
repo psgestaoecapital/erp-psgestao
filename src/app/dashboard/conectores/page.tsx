@@ -4,7 +4,19 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
-const C = { bg: '#0C0C0A', card: '#1A1410', card2: '#201C16', bd: '#2A2822', go: '#C8941A', gol: '#E8C872', tx: '#FAF7F2', txm: '#B0AB9F', txd: '#706C64', g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7' }
+// FIX-TEMA-PS (07/07 · CEO): tela estava dark (fundos #0C0C0A / #1A1410) —
+// destoava da identidade PS. Paleta reescrita pro padrao Espresso/off-white/
+// dourado usado pelo Cofre, Conexoes Bancarias, OTC e demais telas PS.
+// Semantica dos nomes preservada — nenhuma outra linha do arquivo mexeu:
+//   bg   = fundo geral (off-white PAF7F2)
+//   card = fundo dos cards (branco puro)
+//   card2= cream sutil pra caixas secundarias
+//   bd   = linha divisoria PS #E7DECF
+//   go   = dourado destaque #C8941A
+//   gol  = dourado escuro (legivel em BG claro)
+//   tx/txm/txd = espresso principal / medio / suave (padrao PS)
+//   g/r/y/b/tl/p = semaforo (verde/vermelho/ambar/azul/teal/roxo) legivel em BG claro
+const C = { bg: '#FAF7F2', card: '#FFFFFF', card2: '#F5EFE4', bd: '#E7DECF', go: '#C8941A', gol: '#A57A15', tx: '#3D2314', txm: '#6B5D4F', txd: '#9C8E80', g: '#16A34A', r: '#B91C1C', y: '#B45309', b: '#2563EB', tl: '#0F766E', p: '#7C3AED' }
 
 const CATS = [
   { id: 'erp_financeiro', nome: 'ERPs Financeiros', icon: '💰' },
