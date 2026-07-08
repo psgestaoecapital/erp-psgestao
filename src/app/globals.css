@@ -27,6 +27,12 @@
   --radius-lg: 14px;
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --shadow-gold: 0 0 20px rgba(198,151,63,0.15);
+  /* Campos de dados/formulario: fundo branco + texto Espresso (identidade PS).
+     Antes herdavam os tokens escuros do tema -> caixas pretas em todas as telas. */
+  --input-bg: #FFFFFF;
+  --input-fg: #3D2314;
+  --input-border: #E7DECF;
+  --input-placeholder: #9A8F80;
 }
 
 /* box-sizing fica fora de layer (afeta TODOS sem ser clobbed por nada) */
@@ -66,9 +72,9 @@
 /* Inputs modernos */
 input, select, textarea {
   color-scheme: light;             /* fix caixas pretas no dropdown nativo em OS dark-mode */
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--input-fg);
   border-radius: var(--radius-md);
   padding: 10px 14px;
   font-size: 13px;
@@ -78,11 +84,11 @@ input, select, textarea {
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
 input:focus, select:focus, textarea:focus {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 3px var(--gold-glow);
-  background: var(--bg-hover);
+  border-color: var(--gold);           /* mantem borda dourada do foco */
+  box-shadow: 0 0 0 3px var(--gold-glow); /* mantem o glow dourado */
+  background: var(--input-bg);          /* fundo branco (antes escurecia no foco) */
 }
-input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 0.7; }
+input::placeholder, textarea::placeholder { color: var(--input-placeholder); opacity: 1; }
 select {
   cursor: pointer;
   appearance: none;
@@ -111,8 +117,8 @@ a { transition: all var(--transition); }
 @keyframes glow { 0%, 100% { box-shadow: 0 0 8px rgba(198,151,63,0.15); } 50% { box-shadow: 0 0 24px rgba(198,151,63,0.35); } }
 
 /* Optgroup */
-optgroup { color-scheme: light; font-weight: 700; color: var(--gold); background: var(--bg-card); font-size: 11px; }
-option { color-scheme: light; font-weight: 400; color: var(--text-primary); background: var(--bg-elevated); padding: 6px 8px; font-size: 12px; }
+optgroup { color-scheme: light; font-weight: 700; color: var(--gold-dark); background: var(--input-bg); font-size: 11px; }
+option { color-scheme: light; font-weight: 400; color: var(--input-fg); background: var(--input-bg); padding: 6px 8px; font-size: 12px; }
 
 /* Selection */
 ::selection { background: var(--gold); color: var(--bg-primary); }
