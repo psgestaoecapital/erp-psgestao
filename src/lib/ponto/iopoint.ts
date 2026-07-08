@@ -14,6 +14,7 @@
 import type {
   PontoAdapter, PontoColaborador, PontoCredencial, PontoHoras,
 } from './types'
+import { hhmmParaDecimal } from './hhmm'
 
 const onlyDigits = (s: unknown) => String(s ?? '').replace(/\D/g, '')
 
@@ -106,27 +107,13 @@ function mapColaborador(row: Record<string, unknown>): PontoColaborador {
 }
 
 // FIX-PONTO-HORAS (07/07): a API IO Point retorna total_hours como OBJETO
-// (nao numero/string) com ~34 sub-campos HH:MM:
+// (nao numero/string) com ~37 sub-campos HH:MM:
 //   total_hours: { worked_time:"36:37", worked_actual_time:"36:50",
 //                  over_time_1:"02:37", fault_full_time:"08:48", ... }
 // O parser antigo tratava total_hours como escalar -> caia no else -> 0.
-// Agora: extrai worked_time (jornada trabalhada no periodo) e converte
-// HH:MM -> decimal (aceita horas > 24, ex "36:37" = 36.62h). Guarda o
-// objeto inteiro em raw pro BI fazer drill-down (extras, faltas, etc).
-function hhmmParaDecimal(v: unknown): number {
-  if (typeof v === 'number') return v
-  if (typeof v !== 'string' || v.trim() === '') return 0
-  if (v.includes(':')) {
-    const partes = v.split(':').map((x) => Number(x) || 0)
-    const h = partes[0] ?? 0
-    const m = partes[1] ?? 0
-    // sinal negativo em HH:MM (ex "-01:30") aplica ao conjunto
-    const sinal = v.trim().startsWith('-') ? -1 : 1
-    return sinal * (Math.abs(h) + m / 60)
-  }
-  return Number(v) || 0
-}
-
+// Agora: extrai worked_time (jornada trabalhada no periodo) e converte via
+// hhmmParaDecimal (./hhmm — fonte unica, reusada pelo BI de ponto). Guarda o
+// objeto inteiro em raw pro Painel de Jornada fazer drill-down (extras, faltas).
 function mapHoras(row: Record<string, unknown>, beginISO: string, endISO: string): PontoHoras {
   const th = row.total_hours
   let total = 0
