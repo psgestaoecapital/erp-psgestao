@@ -13,6 +13,7 @@ import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoMo
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
+import EditarLancamentoModal from '@/components/financeiro/EditarLancamentoModal'
 
 interface Item {
   movimento_id: string
@@ -177,6 +178,10 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true)
   const [soOuro, setSoOuro] = useState(false)
   const [aba, setAba] = useState<'pendentes' | 'conciliados'>('pendentes')
+  // Camada1/Fatia1 estabilizacao conciliacao (08/07): busca, contador por natureza, editar linha sistema
+  const [busca, setBusca] = useState('')
+  const [filtroNatExtrato, setFiltroNatExtrato] = useState<'todos' | 'credito' | 'debito'>('todos')
+  const [editando, setEditando] = useState<{ tipo: 'pagar' | 'receber'; itemId: string } | null>(null)
   // conciliacao-reorg-tela-v1: ancorar inbox no extrato (por lote) + aba "Sistema"
   const [modo, setModo] = useState<'extrato' | 'sistema'>('extrato')
   const [lotes, setLotes] = useState<Lote[]>([])
@@ -420,9 +425,14 @@ export default function InboxPage() {
   }, [modo, filtroNat, loteSelId])
 
   const filtrados = useMemo(() => {
-    if (soOuro) return items.filter((i) => (i.sugestao_score ?? 0) >= 0.8)
-    return items
-  }, [items, soOuro])
+    let base = soOuro ? items.filter((i) => (i.sugestao_score ?? 0) >= 0.8) : items
+    if (filtroNatExtrato !== 'todos') base = base.filter((i) => i.natureza === filtroNatExtrato)
+    const q = busca.trim().toLowerCase()
+    if (q) base = base.filter((i) =>
+      (i.descricao ?? '').toLowerCase().includes(q) ||
+      fmt(i.valor).includes(q) || String(i.valor ?? '').includes(q))
+    return base
+  }, [items, soOuro, filtroNatExtrato, busca])
 
   // conciliacao-ajuste-diferenca-no-conciliar-v1: tolerancia 1 centavo
   const TOL_DIF = 0.01
@@ -660,6 +670,20 @@ export default function InboxPage() {
   // fix-conciliacao-pendentes-filtro-lote-v1: contadores por lote, nao global
   const totPend = loteSel?.total_pendentes ?? items.length
   const totConc = loteSel?.total_conciliados ?? conciliadosLote.length
+  // Camada1/Fatia1 (08/07): indicadores aditivos da conciliacao
+  const valorPendente = items.reduce((s, i) => s + Math.abs(Number(i.valor) || 0), 0)      // item 1
+  const qtdReceb = items.filter((i) => i.natureza === 'credito').length                     // item 4
+  const qtdPag = items.filter((i) => i.natureza === 'debito').length
+  const ultimoLancamento = [...items.map((i) => i.data_transacao), ...conciliadosLote.map((c) => c.data_transacao)]
+    .filter(Boolean).sort().slice(-1)[0] ?? null                                            // item 3
+  const ultimaAtualizacao = conciliadosLote.map((c) => c.conciliado_em).filter(Boolean).sort().slice(-1)[0] ?? null
+  const qBusca = busca.trim().toLowerCase()                                                  // item 2 (conciliados)
+  const conciliadosView = qBusca
+    ? conciliadosLote.filter((c) =>
+        (c.descricao ?? '').toLowerCase().includes(qBusca) ||
+        (c.contraparte ?? '').toLowerCase().includes(qBusca) ||
+        fmt(c.valor).includes(qBusca))
+    : conciliadosLote
 
   return (
     <div style={{ background: '#FAF7F2', minHeight: '100vh', padding: '24px 16px' }}>
@@ -795,6 +819,52 @@ export default function InboxPage() {
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
         </div>
+
+        {/* Camada1/Fatia1: barra de indicadores (item 1 valor pendente + item 3 datas) */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Valor pendente de conciliação</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: valorPendente > 0 ? '#C8941A' : '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>
+              R$ {fmt(valorPendente)} <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(61,35,20,0.55)' }}>· {totPend} movimento(s)</span>
+            </div>
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>
+            <div>Última atualização: <b>{ultimaAtualizacao ? fmtBR(ultimaAtualizacao) : '—'}</b></div>
+            <div>Último lançamento: <b>{ultimoLancamento ? fmtDate(ultimoLancamento) : '—'}</b></div>
+          </div>
+        </div>
+
+        {/* Camada1/Fatia1: busca (item 2) */}
+        <input
+          type="text"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Pesquise descrição ou valor…"
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', marginBottom: 12, fontFamily: 'inherit' }}
+          data-testid="inbox-busca"
+        />
+
+        {/* Camada1/Fatia1: contadores por natureza (item 4) — filtram a aba Pendentes */}
+        {aba === 'pendentes' && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            {([
+              ['todos', `Todos (${items.length})`],
+              ['credito', `Recebimentos (${qtdReceb})`],
+              ['debito', `Pagamentos (${qtdPag})`],
+            ] as const).map(([n, label]) => (
+              <button
+                key={n}
+                onClick={() => setFiltroNatExtrato(n)}
+                style={{
+                  background: filtroNatExtrato === n ? '#3D2314' : '#FAF7F2',
+                  color: filtroNatExtrato === n ? '#FAF7F2' : '#3D2314',
+                  border: '0.5px solid rgba(61,35,20,0.2)', padding: '6px 14px', borderRadius: 20,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >{label}</button>
+            ))}
+          </div>
+        )}
 
         {/* Painel: Importar OFX */}
         {showImport && (
@@ -995,18 +1065,18 @@ export default function InboxPage() {
           )
         ) : (
           /* Aba CONCILIADOS */
-          conciliadosLote.length === 0 ? (
+          conciliadosView.length === 0 ? (
             <div style={emptyBox}>
               <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600, marginBottom: 6 }}>
-                Nenhum movimento conciliado ainda
+                {qBusca ? 'Nenhum conciliado bate com a busca' : 'Nenhum movimento conciliado ainda'}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
-                Concilie pendentes da aba anterior para popular aqui.
+                {qBusca ? 'Ajuste o termo pesquisado.' : 'Concilie pendentes da aba anterior para popular aqui.'}
               </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {conciliadosLote.map((c) => {
+              {conciliadosView.map((c) => {
                 const selo = seloPrecisao(c.precisao)
                 const v = formatarValorMovimento(c.valor, c.natureza)
                 return (
@@ -1120,6 +1190,14 @@ export default function InboxPage() {
                           {v.texto}
                         </div>
                       </div>
+                      {/* Camada1/Fatia1 item 5: editar o lançamento (linha do sistema) direto */}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => setEditando({ tipo: p.tabela === 'erp_receber' ? 'receber' : 'pagar', itemId: p.id })}
+                          style={secondaryBtn(false)}
+                          data-testid="conc-sistema-editar"
+                        >✏️ Editar</button>
+                      </div>
                     </div>
                   )
                 })}
@@ -1136,6 +1214,17 @@ export default function InboxPage() {
         movimentoId={arquivando?.movimento_id ?? ''}
         descricao={arquivando ? `${arquivando.descricao ?? '(sem descrição)'} · R$ ${Math.abs(arquivando.valor).toFixed(2)}` : undefined}
       />
+
+      {editando && empresaUnica && (
+        <EditarLancamentoModal
+          open
+          tipo={editando.tipo}
+          itemId={editando.itemId}
+          companyId={empresaUnica}
+          onClose={() => setEditando(null)}
+          onSucesso={() => { setEditando(null); void carregarPendenciasSistema() }}
+        />
+      )}
 
       {vinculandoVarios && empresaUnica && (
         <VincularVariosModal

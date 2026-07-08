@@ -26,6 +26,8 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Conta | null>(null)
   const [integracao, setIntegracao] = useState<Conta | null>(null)
+  // Camada1/Fatia1 item 6: conciliações pendentes por conta (badge)
+  const [pendentesPorConta, setPendentesPorConta] = useState<Record<string, number>>({})
 
   async function load() {
     setLoading(true)
@@ -36,6 +38,12 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
       .eq('ativo', true)
       .order('nome')
     if (data) setContas(data as Conta[])
+    const { data: pend } = await supabase.rpc('fn_conciliacao_pendentes_por_conta', { p_company_id: companyId })
+    const map: Record<string, number> = {}
+    ;((pend ?? []) as { conta_bancaria_id: string; pendentes: number }[]).forEach((r) => {
+      if (r.conta_bancaria_id) map[r.conta_bancaria_id] = Number(r.pendentes)
+    })
+    setPendentesPorConta(map)
     setLoading(false)
   }
 
@@ -123,6 +131,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
             <CardConta
               key={c.id}
               conta={c}
+              pendentes={pendentesPorConta[c.id] ?? 0}
               onEditar={() => {
                 setEditing(c)
                 setShowForm(true)
@@ -171,7 +180,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
   )
 }
 
-function CardConta({ conta, onEditar, onInativar, onIntegracao }: { conta: Conta; onEditar: () => void; onInativar: () => void; onIntegracao: () => void }) {
+function CardConta({ conta, pendentes, onEditar, onInativar, onIntegracao }: { conta: Conta; pendentes: number; onEditar: () => void; onInativar: () => void; onIntegracao: () => void }) {
   const tipoInfo = TIPOS_LABELS[conta.tipo_conta ?? 'corrente'] ?? TIPOS_LABELS.corrente
   const corBarra = conta.cor || '#3D2314'
 
@@ -193,6 +202,19 @@ function CardConta({ conta, onEditar, onInativar, onIntegracao }: { conta: Conta
       <div style={{ flex: 1, minWidth: 200 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           {conta.nome}
+          {pendentes > 0 ? (
+            <a
+              href="/dashboard/financeiro/conciliacao"
+              title="Ir para a conciliação"
+              style={{ fontSize: 10, background: '#FBF3E0', color: '#B7791F', padding: '2px 8px', borderRadius: 8, fontWeight: 700, textDecoration: 'none' }}
+            >
+              ⚠ {pendentes} conciliaç{pendentes === 1 ? 'ão' : 'ões'} pendente{pendentes === 1 ? '' : 's'}
+            </a>
+          ) : (
+            <span style={{ fontSize: 10, background: '#EAF3DE', color: '#3B6D11', padding: '2px 8px', borderRadius: 8, fontWeight: 700 }}>
+              ✓ Sem pendências
+            </span>
+          )}
           {!conta.soma_no_saldo && (
             <span style={{ fontSize: 10, background: 'rgba(186,117,23,0.15)', color: '#854F0B', padding: '2px 6px', borderRadius: 3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
               Não soma
