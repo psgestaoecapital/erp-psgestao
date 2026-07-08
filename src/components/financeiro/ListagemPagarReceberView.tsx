@@ -119,6 +119,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
   const [historicoItem, setHistoricoItem] = useState<Resultado | null>(null)
   const [historicoGlobalAberto, setHistoricoGlobalAberto] = useState(false)
+  // Camada1/Fatia2 estabilizacao contas a pagar (08/07):
+  const [pagSort, setPagSort] = useState<'off' | 'asc' | 'desc'>('off')   // item 1: coluna Pagamento ordenavel
+  const [contaMap, setContaMap] = useState<Record<string, string>>({})     // item 3: id -> conta bancaria (texto)
+  const [contasSel, setContasSel] = useState<Set<string>>(new Set())
 
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
@@ -288,15 +292,28 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
     const q = busca.trim().toLowerCase()
-    return base.filter((r) => {
+    const filtrado = base.filter((r) => {
       if (categoria && r.categoria !== categoria) return false
+      if (contasSel.size > 0 && !contasSel.has(contaMap[r.id] ?? '')) return false   // item 3
       if (q) {
         const hay = `${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [data, busca, categoria])
+    if (pagSort !== 'off') {   // item 1: ordena por data de pagamento (nulos por último)
+      const dir = pagSort === 'asc' ? 1 : -1
+      return [...filtrado].sort((a, b) => {
+        const da = a.data_pagamento ?? ''
+        const db = b.data_pagamento ?? ''
+        if (!da && !db) return 0
+        if (!da) return 1
+        if (!db) return -1
+        return da < db ? -dir : da > db ? dir : 0
+      })
+    }
+    return filtrado
+  }, [data, busca, categoria, contasSel, contaMap, pagSort])
 
   const idsSelecionaveis = useMemo(
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
@@ -336,6 +353,31 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     })
     return Array.from(set).sort()
   }, [data])
+
+  // Camada1/Fatia2 item 3: busca a conta bancaria (texto) de cada linha carregada,
+  // padrao aditivo (mesmo dos maps de nfse/boleto). Se a coluna nao existir (ex.
+  // erp_receber), o erro e ignorado e o filtro simplesmente nao aparece.
+  useEffect(() => {
+    const ids = (data?.resultados ?? []).map((r) => r.id)
+    if (ids.length === 0) { setContaMap({}); return }
+    let alive = true
+    ;(async () => {
+      const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
+      const { data: rows, error } = await supabase.from(tabela).select('id, conta_bancaria').in('id', ids)
+      if (!alive || error || !rows) { if (alive && error) setContaMap({}); return }
+      const map: Record<string, string> = {}
+      ;(rows as { id: string; conta_bancaria: string | null }[]).forEach((x) => {
+        if (x.conta_bancaria && x.conta_bancaria.trim()) map[x.id] = x.conta_bancaria.trim()
+      })
+      setContaMap(map)
+    })()
+    return () => { alive = false }
+  }, [data, tipo])
+
+  const contasDistinct = useMemo(
+    () => Array.from(new Set(Object.values(contaMap))).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [contaMap],
+  )
 
   function aplicarPeriodo(choice: PeriodoChoice) {
     setPeriodoChoice(choice)
@@ -565,6 +607,39 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         </Campo>
       </div>
 
+      {/* Camada1/Fatia2 item 3: filtro Conta = multi-select com chips (só aparece se houver contas) */}
+      {contasDistinct.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>Conta:</span>
+          {contasDistinct.map((c) => {
+            const on = contasSel.has(c)
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => {
+                  const ns = new Set(contasSel)
+                  if (ns.has(c)) ns.delete(c); else ns.add(c)
+                  setContasSel(ns); setPage(1)
+                }}
+                style={{
+                  background: on ? '#3D2314' : '#FAF7F2', color: on ? '#FAF7F2' : '#3D2314',
+                  border: '0.5px solid rgba(61,35,20,0.2)', padding: '4px 12px', borderRadius: 16,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >{on ? '✓ ' : ''}{c}</button>
+            )
+          })}
+          {contasSel.size > 0 && (
+            <button
+              type="button"
+              onClick={() => { setContasSel(new Set()); setPage(1) }}
+              style={{ background: 'transparent', color: '#A32D2D', border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            >limpar</button>
+          )}
+        </div>
+      )}
+
       {/* Erro */}
       {erro && (
         <div
@@ -645,6 +720,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                     <Th>Quem</Th>
                     <Th>Categoria</Th>
                     <Th>Vencimento</Th>
+                    <Th>
+                      <span
+                        onClick={() => setPagSort((s) => (s === 'off' ? 'asc' : s === 'asc' ? 'desc' : 'off'))}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                        title="Ordenar por data de pagamento"
+                        data-testid="pagar-sort-pagamento"
+                      >
+                        Pagamento {pagSort === 'asc' ? '▲' : pagSort === 'desc' ? '▼' : '⇅'}
+                      </span>
+                    </Th>
                     <Th align="right">Valor</Th>
                     <Th>Status</Th>
                     {tipo === 'receber' && <Th>Fiscal</Th>}
@@ -673,18 +758,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <strong style={{ color: '#3D2314' }}>{r.descricao}</strong>
                             {parcelaVisivel && (
-                              <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(61,35,20,0.65)', background: 'rgba(200,148,26,0.12)', border: '0.5px solid rgba(200,148,26,0.35)', padding: '2px 6px', borderRadius: 4 }} title="Parcela atual / total">
-                                Parcela {r.parcela}
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#854F0B', background: 'rgba(200,148,26,0.12)', border: '0.5px solid rgba(200,148,26,0.35)', padding: '2px 6px', borderRadius: 4, fontVariantNumeric: 'tabular-nums' }} title="Parcela atual / total">
+                                ⛓ {r.parcela}
                               </span>
                             )}
                           </div>
                           {r.numero_documento && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
                           )}
+                          {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor) na linha */}
+                          {(r.categoria || r.nome_pessoa) && (
+                            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
+                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
                         <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
+                        <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
                           <strong>{fmtBRL(r.status === 'pago' && r.valor_pago ? r.valor_pago : r.valor_documento)}</strong>
                           {r.status === 'parcial' && (r.valor_pago ?? 0) > 0 && (
