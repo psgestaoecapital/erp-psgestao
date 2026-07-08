@@ -2,7 +2,10 @@
  * NAO cacheia a API do Supabase (dado do rebanho vem do IndexedDB, snapshot completo).
  * Estrategia: assets estaticos (_next/JS/CSS/fontes) cache-first; navegacoes
  * network-first com fallback pro cache (ultima versao vista / rota do rebanho). */
-const CACHE = 'ps-shell-v1'
+// Bump a versão a cada mudança que precise invalidar o cache do shell. O activate
+// abaixo apaga TODO cache com nome diferente → força re-fetch limpo pra todos.
+// (08/07: v2 destrava usuários presos em bundle velho do PWA #570.)
+const CACHE = 'ps-shell-v2'
 
 self.addEventListener('install', () => self.skipWaiting())
 
