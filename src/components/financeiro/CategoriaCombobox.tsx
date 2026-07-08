@@ -68,6 +68,13 @@ export default function CategoriaCombobox({
   const [erroRpc, setErroRpc] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
+  // FIX-DROPDOWN-CONSOLIDADO (08/07 · CEO print): no modo Consolidado/grupo o
+  // companyId chega vazio e o dropdown ficava "vazio confuso" (parecia quebrado).
+  // Sem empresa unica nao ha plano de contas pra listar — mostra instrucao clara
+  // em vez de dar a impressao de bug. Com empresa selecionada, fn_plano_contas_buscar
+  // sempre traz o template global (contas padrao) + as custom da empresa.
+  const semEmpresa = !companyId
+
   // Ao setar value externamente (form editar / pos-criar), busca descricao pra display
   useEffect(() => {
     if (!value) { setValorDescricao(''); return }
@@ -141,23 +148,24 @@ export default function CategoriaCombobox({
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <div
-        onClick={() => !disabled && setAberto(true)}
+        onClick={() => !disabled && !semEmpresa && setAberto(true)}
+        title={semEmpresa ? 'Selecione uma empresa específica no topo para lançar' : undefined}
         style={{
           padding: '7px 10px',
           border: `1px solid ${C.border}`,
           borderRadius: 6,
           fontSize: 12,
-          color: value ? C.espresso : C.espressoL,
-          background: disabled ? C.cream : '#FFFFFF',
-          cursor: disabled ? 'not-allowed' : 'text',
+          color: semEmpresa ? C.espressoL : value ? C.espresso : C.espressoL,
+          background: disabled || semEmpresa ? C.cream : '#FFFFFF',
+          cursor: disabled || semEmpresa ? 'not-allowed' : 'text',
           minHeight: 32,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {value ? valorDescricao : '— escolher —'}
+          {semEmpresa ? 'Selecione uma empresa específica no topo para lançar' : value ? valorDescricao : '— escolher —'}
         </span>
-        {value && !disabled && (
+        {value && !disabled && !semEmpresa && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onChange(''); setValorDescricao(''); setTermo('') }}
@@ -167,7 +175,7 @@ export default function CategoriaCombobox({
         )}
       </div>
 
-      {aberto && !disabled && (
+      {aberto && !disabled && !semEmpresa && (
         <div
           style={{
             position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
