@@ -105,18 +105,37 @@ function mapColaborador(row: Record<string, unknown>): PontoColaborador {
   }
 }
 
+// FIX-PONTO-HORAS (07/07): a API IO Point retorna total_hours como OBJETO
+// (nao numero/string) com ~34 sub-campos HH:MM:
+//   total_hours: { worked_time:"36:37", worked_actual_time:"36:50",
+//                  over_time_1:"02:37", fault_full_time:"08:48", ... }
+// O parser antigo tratava total_hours como escalar -> caia no else -> 0.
+// Agora: extrai worked_time (jornada trabalhada no periodo) e converte
+// HH:MM -> decimal (aceita horas > 24, ex "36:37" = 36.62h). Guarda o
+// objeto inteiro em raw pro BI fazer drill-down (extras, faltas, etc).
+function hhmmParaDecimal(v: unknown): number {
+  if (typeof v === 'number') return v
+  if (typeof v !== 'string' || v.trim() === '') return 0
+  if (v.includes(':')) {
+    const partes = v.split(':').map((x) => Number(x) || 0)
+    const h = partes[0] ?? 0
+    const m = partes[1] ?? 0
+    // sinal negativo em HH:MM (ex "-01:30") aplica ao conjunto
+    const sinal = v.trim().startsWith('-') ? -1 : 1
+    return sinal * (Math.abs(h) + m / 60)
+  }
+  return Number(v) || 0
+}
+
 function mapHoras(row: Record<string, unknown>, beginISO: string, endISO: string): PontoHoras {
-  const raw = row.total_hours
+  const th = row.total_hours
   let total = 0
-  if (typeof raw === 'number') total = raw
-  else if (typeof raw === 'string') {
-    // pode vir como "HH:MM" ou numero string
-    if (raw.includes(':')) {
-      const [h, m] = raw.split(':').map((x) => Number(x) || 0)
-      total = h + m / 60
-    } else {
-      total = Number(raw) || 0
-    }
+  if (th && typeof th === 'object') {
+    const o = th as Record<string, unknown>
+    // worked_time = jornada trabalhada oficial no periodo; fallback worked_actual_time.
+    total = hhmmParaDecimal(o.worked_time ?? o.worked_actual_time)
+  } else {
+    total = hhmmParaDecimal(th)
   }
   return {
     cpf: onlyDigits(row.national_registry),
@@ -131,6 +150,27 @@ function mapHoras(row: Record<string, unknown>, beginISO: string, endISO: string
   }
 }
 
+// Dedup/agrega por CPF: a API /totalHours retorna mais linhas que colaboradores
+// (empirico Frioeste: 373 linhas, 359 CPFs — ha CPFs com 2-3 matriculas). O
+// upsert em ind_ponto_horas usa onConflict (company_id,provider,cpf,periodo_*)
+// — CPF duplicado no mesmo periodo quebra o batch ("cannot affect row a second
+// time"). Solucao: somar as horas por CPF (total do colaborador no periodo,
+// atravessando matriculas). Preserva todas as linhas de origem em raw.linhas.
+function agregarPorCpf(rows: PontoHoras[]): PontoHoras[] {
+  const porCpf = new Map<string, PontoHoras>()
+  for (const h of rows) {
+    if (!h.cpf) continue
+    const existente = porCpf.get(h.cpf)
+    if (!existente) {
+      porCpf.set(h.cpf, { ...h, raw: { linhas: [h.raw] } })
+    } else {
+      existente.total_horas = Number((existente.total_horas + h.total_horas).toFixed(2))
+      ;(existente.raw as { linhas: unknown[] }).linhas.push(h.raw)
+    }
+  }
+  return Array.from(porCpf.values())
+}
+
 export const iopointAdapter: PontoAdapter = {
   async listarColaboradores(cred: PontoCredencial) {
     const data = await getJson(`${cred.base_url}/collaborator`, cred.token)
@@ -139,6 +179,8 @@ export const iopointAdapter: PontoAdapter = {
   async listarHoras(cred: PontoCredencial, beginISO: string, endISO: string) {
     const url = `${cred.base_url}/collaborator/totalHours?begin_date=${encodeURIComponent(beginISO)}&end_date=${encodeURIComponent(endISO)}`
     const data = await getJson(url, cred.token)
-    return pegarLista(data).map((r) => mapHoras(r, beginISO, endISO)).filter((h) => h.cpf.length > 0)
+    const mapeadas = pegarLista(data).map((r) => mapHoras(r, beginISO, endISO)).filter((h) => h.cpf.length > 0)
+    // Agrega por CPF antes de retornar (evita colisao no upsert onConflict).
+    return agregarPorCpf(mapeadas)
   },
 }
