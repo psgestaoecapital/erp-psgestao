@@ -5,7 +5,9 @@
 // Bump a versão a cada mudança que precise invalidar o cache do shell. O activate
 // abaixo apaga TODO cache com nome diferente → força re-fetch limpo pra todos.
 // (08/07: v2 destrava usuários presos em bundle velho do PWA #570.)
-const CACHE = 'ps-shell-v2'
+// (08/07 noite: v3 — deploys rápidos #573→#577 deixaram clientes com bundle misto
+//  que "bugava" o desvincular; bump força re-fetch limpo + auto-reload do #575.)
+const CACHE = 'ps-shell-v3'
 
 self.addEventListener('install', () => self.skipWaiting())
 
