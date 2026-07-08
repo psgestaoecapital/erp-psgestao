@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 
@@ -94,8 +95,10 @@ export default function OrcamentosPage(){
   useEffect(()=>{
     if(buscaCliente.length<2){setClientesBusca([]);return;}
     if(companyIds.length===0)return;
+    const orFiltro=orFiltroClienteBusca(buscaCliente);
+    if(!orFiltro){setClientesBusca([]);return;}
     const t=setTimeout(async()=>{
-      const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id").in("company_id",companyIds).eq("ativo",true).or(`razao_social.ilike.%${buscaCliente}%,nome_fantasia.ilike.%${buscaCliente}%,cpf_cnpj.ilike.%${buscaCliente.replace(/\D/g,'')}%`).limit(8);
+      const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id").in("company_id",companyIds).eq("ativo",true).or(orFiltro).limit(8);
       setClientesBusca(data||[]);
     },250);
     return()=>clearTimeout(t);
