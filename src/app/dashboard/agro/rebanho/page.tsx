@@ -439,9 +439,17 @@ function AcaoModal({
   const [loteDestId, setLoteDestId] = useState('')
   const [areaDestId, setAreaDestId] = useState('')
   // vender
-  const [valor, setValor] = useState('')
-  const [contraparte, setContraparte] = useState('')
+  const [valor, setValor] = useState('') // valor recebido (manual override; vazio = usa o calculado)
   const [peso, setPeso] = useState('')
+  const [clientes, setClientes] = useState<{ id: string; nome_fantasia: string | null }[]>([])
+  const [compradorId, setCompradorId] = useState('')
+  const [novoComp, setNovoComp] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
+  const [novoDoc, setNovoDoc] = useState('')
+  const [unidade, setUnidade] = useState<'kg' | 'arroba'>('kg')
+  const [valorUnit, setValorUnit] = useState('')
+  const [vencimento, setVencimento] = useState('')
+  const [gerarFin, setGerarFin] = useState(true)
   // morte
   const [obs, setObs] = useState('')
   // identificar
@@ -450,6 +458,31 @@ function AcaoModal({
   const [novo, setNovo] = useState({ categoria: 'bezerro', sexo: 'M', lote_id: '', area_atual_id: '', peso: '', identificacao: '' })
 
   const hoje = new Date().toISOString().slice(0, 10)
+
+  // valor recebido sugerido = peso x valor/un (÷15 se @); campo "valor" sobrescreve
+  const valorSugerido = useMemo(() => {
+    const p = Number(peso), vu = Number(valorUnit)
+    if (p > 0 && vu > 0) { const t = unidade === 'arroba' ? (p / 15) * vu : p * vu; return String(Math.round(t * 100) / 100) }
+    return ''
+  }, [peso, valorUnit, unidade])
+
+  // compradores do cadastro (erp_clientes) — carrega ao abrir o modal de venda
+  useEffect(() => {
+    if (acao.tipo !== 'vender') return
+    let alive = true
+    supabase.from('erp_clientes').select('id,nome_fantasia').eq('company_id', companyId).eq('ativo', true).order('nome_fantasia')
+      .then(({ data }) => { if (alive) setClientes((data ?? []) as { id: string; nome_fantasia: string | null }[]) })
+    return () => { alive = false }
+  }, [acao.tipo, companyId])
+
+  async function criarComprador() {
+    if (!novoNome.trim()) return
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: novoNome.trim(), p_cpf_cnpj: novoDoc.trim() || null })
+    if (error) { setErro(error.message); return }
+    const id = data as string
+    setClientes((cs) => [...cs, { id, nome_fantasia: novoNome.trim() }])
+    setCompradorId(id); setNovoComp(false); setNovoNome(''); setNovoDoc('')
+  }
 
   const executar = async () => {
     setBusy(true); setErro(null)
@@ -477,6 +510,25 @@ function AcaoModal({
         }
         onDone(); return
       }
+      // VENDA: RPC dedicada — rateia valor/peso entre os animais, marca vendido e
+      // (se marcado) gera o recebivel em Contas a Receber.
+      if (acao.tipo === 'vender') {
+        const valorTotal = Number(valor || valorSugerido) || null
+        const { error } = await supabase.rpc('fn_pec_animal_vender', {
+          p_company_id: companyId, p_animal_ids: alvos, p_propriedade_id: propriedadeId,
+          p_comprador_id: compradorId || null,
+          p_comprador_nome: null,
+          p_peso_kg: peso ? Number(peso) : null,
+          p_valor_unitario: valorUnit ? Number(valorUnit) : null,
+          p_unidade: unidade,
+          p_valor_total: valorTotal,
+          p_vencimento: vencimento || null,
+          p_gerar_financeiro: gerarFin,
+        })
+        if (error) throw error
+        onDone(); return
+      }
+
       for (const id of alvos) {
         const params: Record<string, unknown> = {
           p_company_id: companyId, p_propriedade_id: propriedadeId,
@@ -486,11 +538,6 @@ function AcaoModal({
           params.p_tipo = 'transferencia'
           params.p_lote_destino_id = loteDestId || null
           params.p_area_destino_id = areaDestId || null
-        } else if (acao.tipo === 'vender') {
-          params.p_tipo = 'venda'
-          params.p_valor = valor ? Number(valor) : null
-          params.p_contraparte_nome = contraparte || null
-          params.p_peso_kg = peso ? Number(peso) : null
         } else if (acao.tipo === 'morte') {
           params.p_tipo = 'morte'
           params.p_observacao = obs || null
@@ -533,11 +580,43 @@ function AcaoModal({
             </select>
           </>)}
           {acao.tipo === 'vender' && (<>
-            <input className={inp} placeholder="Comprador" value={contraparte} onChange={(e) => setContraparte(e.target.value)} />
+            {/* Comprador: do cadastro (erp_clientes) ou cadastro inline */}
+            {!novoComp ? (
+              <div className="flex gap-2">
+                <select className={inp} value={compradorId} onChange={(e) => setCompradorId(e.target.value)}>
+                  <option value="">Comprador — selecione</option>
+                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia ?? '—'}</option>)}
+                </select>
+                <button type="button" onClick={() => setNovoComp(true)} className="text-xs px-3 rounded-xl whitespace-nowrap font-semibold" style={{ border: `1px solid ${GOLD}`, color: GOLD }}>+ Novo</button>
+              </div>
+            ) : (
+              <div className="rounded-xl p-2 space-y-2" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}` }}>
+                <input className={inp} placeholder="Nome do comprador" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
+                <input className={inp} placeholder="CPF / CNPJ (opcional)" value={novoDoc} onChange={(e) => setNovoDoc(e.target.value)} />
+                <div className="flex gap-2">
+                  <button type="button" onClick={criarComprador} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: GOLD, color: '#fff' }}>Cadastrar comprador</button>
+                  <button type="button" onClick={() => setNovoComp(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: ESP60 }}>Cancelar</button>
+                </div>
+              </div>
+            )}
+            <input className={inp} type="number" inputMode="decimal" placeholder="Peso total (kg) — opcional" value={peso} onChange={(e) => setPeso(e.target.value)} />
             <div className="grid grid-cols-2 gap-2">
-              <input className={inp} type="number" inputMode="decimal" placeholder="Valor (R$)" value={valor} onChange={(e) => setValor(e.target.value)} />
-              <input className={inp} type="number" inputMode="decimal" placeholder="Peso (kg)" value={peso} onChange={(e) => setPeso(e.target.value)} />
+              <select className={inp} value={unidade} onChange={(e) => setUnidade(e.target.value as 'kg' | 'arroba')}>
+                <option value="kg">Valor por kg</option>
+                <option value="arroba">Valor por @ (15kg)</option>
+              </select>
+              <input className={inp} type="number" inputMode="decimal" placeholder={unidade === 'arroba' ? 'R$/@' : 'R$/kg'} value={valorUnit} onChange={(e) => setValorUnit(e.target.value)} />
             </div>
+            <input className={inp} type="number" inputMode="decimal" placeholder={valorSugerido ? `Valor recebido (auto: ${valorSugerido})` : 'Valor recebido (R$)'} value={valor} onChange={(e) => setValor(e.target.value)} />
+            {valorSugerido && !valor && <div className="text-[11px]" style={{ color: ESP60 }}>Calculado: R$ {valorSugerido} — editável</div>}
+            <div className="grid grid-cols-2 gap-2 items-center">
+              <input className={inp} type="date" value={vencimento || hoje} onChange={(e) => setVencimento(e.target.value)} />
+              <label className="flex items-center gap-2 text-xs" style={{ color: ESP }}>
+                <input type="checkbox" checked={gerarFin} onChange={(e) => setGerarFin(e.target.checked)} />
+                Lançar em Contas a Receber
+              </label>
+            </div>
+            {gerarFin && !compradorId && !novoComp && <div className="text-[11px]" style={{ color: RED }}>Selecione um comprador para o recebível entrar no financeiro.</div>}
           </>)}
           {acao.tipo === 'morte' && (
             <textarea className={inp} placeholder="Observação (causa, etc)" rows={3} value={obs} onChange={(e) => setObs(e.target.value)} />
