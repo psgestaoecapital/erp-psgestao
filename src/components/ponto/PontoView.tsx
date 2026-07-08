@@ -75,11 +75,11 @@ type HoraRow = {
 
 // Retorno de fn_ponto_bi_agregado (Painel de Jornada · BI)
 type BiTotais = {
-  horas_trabalhadas: number; horas_extras: number; faltas: number
+  horas_trabalhadas: number; horas_extras: number; faltas: number; folga_dsr: number
   noturno: number; banco: number; headcount: number; absenteismo_pct: number
 }
-type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; absenteismo_pct: number; headcount: number }
-type BiColab = { cpf: string | null; nome: string | null; departamento: string; trabalhadas: number; extras: number; faltas: number; noturno: number }
+type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; absenteismo_pct: number; headcount: number }
+type BiColab = { cpf: string | null; nome: string | null; departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; noturno: number }
 type BiResult = { totais: BiTotais; por_departamento: BiDepto[]; por_colaborador: BiColab[] }
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10)
@@ -546,7 +546,7 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
   }
 
   const tomExtras: Tom = pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'
-  const tomAbsent: Tom = !totais ? 'verde' : totais.absenteismo_pct > 15 ? 'vermelho' : totais.absenteismo_pct > 10 ? 'amarelo' : 'verde'
+  const tomAbsent: Tom = !totais ? 'verde' : totais.absenteismo_pct > 10 ? 'vermelho' : totais.absenteismo_pct > 5 ? 'amarelo' : 'verde'
 
   return (
     <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
@@ -578,7 +578,7 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
             <KpiSemaforo tom="verde" titulo="Horas trabalhadas" valor={h1(totais.horas_trabalhadas)} contexto={`${totais.headcount} colaboradores no período`} />
             <KpiSemaforo tom={tomExtras} titulo="Horas extras" valor={h1(totais.horas_extras)} contexto={`${pctExtras.toFixed(1)}% sobre as trabalhadas`} />
-            <KpiSemaforo tom={tomAbsent} titulo="Absenteísmo" valor={`${totais.absenteismo_pct.toFixed(1)}%`} contexto={`${h1(totais.faltas)} de faltas no período`} />
+            <KpiSemaforo tom={tomAbsent} titulo="Ausências" valor={`${totais.absenteismo_pct.toFixed(1)}%`} contexto={`${h1(totais.faltas)} · parcial + justif. + atestado`} nota={`não inclui folga de escala · Folga/DSR: ${h1(totais.folga_dsr)}`} />
             <KpiSemaforo tom="verde" titulo="Noturno + Banco" valor={h1(totais.noturno + totais.banco)} contexto={`${h1(totais.noturno)} noturno · ${h1(totais.banco)} banco`} />
           </div>
 
@@ -637,7 +637,7 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
   )
 }
 
-function KpiSemaforo({ tom, titulo, valor, contexto }: { tom: Tom; titulo: string; valor: string; contexto: string }) {
+function KpiSemaforo({ tom, titulo, valor, contexto, nota }: { tom: Tom; titulo: string; valor: string; contexto: string; nota?: string }) {
   const s = SEMAFORO[tom]
   return (
     <div style={{ background: s.bg, borderRadius: 10, padding: '12px 14px', border: `0.5px solid ${LINE}` }}>
@@ -646,6 +646,7 @@ function KpiSemaforo({ tom, titulo, valor, contexto }: { tom: Tom; titulo: strin
       </div>
       <div style={{ fontSize: 22, fontWeight: 700, color: s.fg, fontVariantNumeric: 'tabular-nums', margin: '2px 0' }}>{valor}</div>
       <div style={{ fontSize: 11, color: MUT }}>{contexto}</div>
+      {nota && <div style={{ fontSize: 10, color: MUT, marginTop: 3, fontStyle: 'italic' }}>{nota}</div>}
     </div>
   )
 }
