@@ -75,12 +75,14 @@ type HoraRow = {
 
 // Retorno de fn_ponto_bi_agregado (Painel de Jornada · BI)
 type BiTotais = {
-  horas_trabalhadas: number; horas_extras: number; faltas: number; folga_dsr: number
-  noturno: number; banco: number; headcount: number; absenteismo_pct: number
+  horas_trabalhadas: number; horas_extras: number; faltas: number; faltas_pct: number
+  afastados_qtd: number; afastados_horas: number; folga_dsr: number
+  noturno: number; banco: number; headcount: number; headcount_ativo: number
 }
-type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; absenteismo_pct: number; headcount: number }
+type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number }
 type BiColab = { cpf: string | null; nome: string | null; departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; noturno: number }
-type BiResult = { totais: BiTotais; por_departamento: BiDepto[]; por_colaborador: BiColab[] }
+type BiAfastado = { nome: string | null; departamento: string; afast_horas: number }
+type BiResult = { totais: BiTotais; afastados_lista: BiAfastado[]; por_departamento: BiDepto[]; por_colaborador: BiColab[] }
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10)
 const inicioMes = () => { const d = new Date(); return toISO(new Date(d.getFullYear(), d.getMonth(), 1)) }
@@ -496,6 +498,7 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
   const [buscaColab, setBuscaColab] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('extras')
   const [drill, setDrill] = useState<DrillState | null>(null)
+  const [afastAberto, setAfastAberto] = useState(false)
 
   const departamentos = useMemo(() => {
     const s = new Set<string>()
@@ -546,7 +549,7 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
   }
 
   const tomExtras: Tom = pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'
-  const tomAbsent: Tom = !totais ? 'verde' : totais.absenteismo_pct > 10 ? 'vermelho' : totais.absenteismo_pct > 5 ? 'amarelo' : 'verde'
+  const tomFaltas: Tom = !totais ? 'verde' : totais.faltas_pct > 10 ? 'vermelho' : totais.faltas_pct > 5 ? 'amarelo' : 'verde'
 
   return (
     <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
@@ -576,9 +579,19 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
         <>
           {/* 4 cartoes com semaforo */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
-            <KpiSemaforo tom="verde" titulo="Horas trabalhadas" valor={h1(totais.horas_trabalhadas)} contexto={`${totais.headcount} colaboradores no período`} />
+            <KpiSemaforo tom="verde" titulo="Horas trabalhadas" valor={h1(totais.horas_trabalhadas)} contexto={`${totais.headcount_ativo} trabalhando no período`} />
             <KpiSemaforo tom={tomExtras} titulo="Horas extras" valor={h1(totais.horas_extras)} contexto={`${pctExtras.toFixed(1)}% sobre as trabalhadas`} />
-            <KpiSemaforo tom={tomAbsent} titulo="Ausências" valor={`${totais.absenteismo_pct.toFixed(1)}%`} contexto={`${h1(totais.faltas)} · parcial + justif. + atestado`} nota={`não inclui folga de escala · Folga/DSR: ${h1(totais.folga_dsr)}`} />
+            <KpiSemaforo tom={tomFaltas} titulo="Faltas / Atrasos" valor={`${totais.faltas_pct.toFixed(1)}%`} contexto={`${h1(totais.faltas)} · ausência pontual de quem trabalhou`} />
+            <div onClick={() => totais.afastados_qtd > 0 && setAfastAberto(true)} style={{ cursor: totais.afastados_qtd > 0 ? 'pointer' : 'default' }}>
+              <KpiSemaforo
+                tom="verde"
+                titulo="Afastados"
+                valor={String(totais.afastados_qtd)}
+                contexto={totais.afastados_qtd > 0 ? 'pessoas · INSS / licença / atestado longo' : 'ninguém afastado no período'}
+                nota={totais.afastados_qtd > 0 ? 'toque pra ver quem' : undefined}
+              />
+            </div>
+            <KpiSemaforo tom="verde" titulo="Folga / DSR" valor={h1(totais.folga_dsr)} contexto="descanso escalado · não é falta" />
             <KpiSemaforo tom="verde" titulo="Noturno + Banco" valor={h1(totais.noturno + totais.banco)} contexto={`${h1(totais.noturno)} noturno · ${h1(totais.banco)} banco`} />
           </div>
 
@@ -633,7 +646,37 @@ function PainelJornada({ companyId, dataIni, dataFim, colabs, horas }: {
       )}
 
       {drill && <DrillJornada drill={drill} onClose={() => setDrill(null)} />}
+      {afastAberto && <AfastadosPanel lista={bi?.afastados_lista ?? []} onClose={() => setAfastAberto(false)} />}
     </section>
+  )
+}
+
+function AfastadosPanel({ lista, onClose }: { lista: BiAfastado[]; onClose: () => void }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.35)', zIndex: 50, display: 'flex', justifyContent: 'flex-end' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(420px, 92vw)', height: '100%', background: '#FFF', boxShadow: '-8px 0 24px rgba(0,0,0,0.12)', overflowY: 'auto', padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: ESP }}>Afastados ({lista.length})</div>
+            <div style={{ fontSize: 12, color: MUT }}>INSS / licença / atestado longo · não conta como falta</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${LINE}`, borderRadius: 6, padding: '4px 10px', fontSize: 16, color: MUT, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ marginTop: 14 }}>
+          {lista.length === 0 ? (
+            <div style={{ fontSize: 13, color: MUT, padding: '12px 0' }}>Ninguém afastado no período.</div>
+          ) : lista.map((a, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '9px 0', borderTop: `0.5px solid ${LINE}` }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: ESP }}>{a.nome ?? '—'}</div>
+                <div style={{ fontSize: 11, color: MUT }}>{a.departamento}</div>
+              </div>
+              <span style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: ESP, whiteSpace: 'nowrap' }}>{h1(a.afast_horas)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
