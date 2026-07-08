@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 
@@ -313,13 +314,15 @@ function ModalNovaOS({
     if (cliente) return
     if (busca.trim().length < 2) { setResultados([]); return }
     if (!companyIdAtiva) return
+    const orFiltro = orFiltroClienteBusca(busca)
+    if (!orFiltro) { setResultados([]); return }
     const t = window.setTimeout(async () => {
       const { data } = await supabase
         .from('erp_clientes')
         .select('id, razao_social, nome_fantasia, cpf_cnpj, company_id')
         .eq('company_id', companyIdAtiva)
         .eq('ativo', true)
-        .or(`razao_social.ilike.%${busca}%,nome_fantasia.ilike.%${busca}%,cpf_cnpj.ilike.%${busca.replace(/\D/g, '')}%`)
+        .or(orFiltro)
         .limit(8)
       setResultados((data ?? []) as Cliente[])
     }, 250)
