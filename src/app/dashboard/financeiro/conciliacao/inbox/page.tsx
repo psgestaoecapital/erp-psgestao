@@ -637,7 +637,13 @@ export default function InboxPage() {
   }
 
   async function desvincularConciliado(c: Conciliado) {
-    if (!c.lancamento_id || !c.lancamento_tabela) return
+    // Antes retornava em silêncio quando não havia vínculo de título (ex.: movimento
+    // conciliado com lancamento_tabela NULL) — o botão "não fazia nada" e parecia bug.
+    // Agora avisa em vez de virar no-op silencioso.
+    if (!c.lancamento_id || !c.lancamento_tabela) {
+      setErro('Este movimento não tem vínculo de título para desfazer. Use "Arquivar" na aba Pendentes se precisar removê-lo.')
+      return
+    }
     if (!confirm(`Desvincular este lançamento conciliado? O movimento volta para pendente.`)) return
     // fn_conciliacao_desvincular(p_lancamento_id uuid, p_tipo text)
     // p_tipo espera 'pagar'/'receber' — c.lancamento_tabela vem como 'erp_pagar'/'erp_receber',
