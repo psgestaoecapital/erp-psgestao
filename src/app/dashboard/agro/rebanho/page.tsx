@@ -3,9 +3,23 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada, usePropriedade, usePainelRebanho } from '@/lib/agro/usePecuaria'
 import { exportToExcel } from '@/lib/export-utils'
+import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
 
 // slug pra compor nome de arquivo com o filtro ativo (piquete/lote/categoria)
 const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+// Estado de conexao (navigator.onLine + eventos) — pra PWA offline (Fase A).
+function useOnline(): boolean {
+  const [online, setOnline] = useState(true)
+  useEffect(() => {
+    const set = () => setOnline(typeof navigator === 'undefined' ? true : navigator.onLine)
+    set()
+    window.addEventListener('online', set)
+    window.addEventListener('offline', set)
+    return () => { window.removeEventListener('online', set); window.removeEventListener('offline', set) }
+  }, [])
+  return online
+}
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -39,9 +53,49 @@ const CATEGORIAS = ['matriz','touro','bezerro','bezerra','garrote','novilha','bo
 export default function RebanhoPage() {
   const { companyId } = useEmpresaSelecionada()
   const { propriedade, loading: loadingProp } = usePropriedade(companyId)
-  const propriedadeId = propriedade?.id ?? null
+  const online = useOnline()
+  const [snap, setSnap] = useState<RebanhoSnapshot | null>(null)
+  // Propriedade: online do servidor, offline do snapshot (o app abre sem rede).
+  const propriedadeInfo = online ? propriedade : (snap?.propriedade ?? null)
+  const propriedadeId = propriedadeInfo?.id ?? null
   const [refresh, setRefresh] = useState(0)
   const [aba, setAba] = useState<Aba>('painel')
+
+  // Carrega o ultimo snapshot do IndexedDB (companyId vem do localStorage — funciona offline).
+  useEffect(() => {
+    if (!companyId) { setSnap(null); return }
+    let alive = true
+    void lerSnapshot(companyId).then((s) => { if (alive) setSnap(s) })
+    return () => { alive = false }
+  }, [companyId, online])
+
+  // Snapshot offline: online, captura o rebanho COMPLETO (todos animais/lotes/piquetes)
+  // no IndexedDB pra consulta sem internet (P2/LGPD: so a empresa atual).
+  useEffect(() => {
+    if (!online || !companyId || !propriedadeId) return
+    let alive = true
+    void (async () => {
+      const [a, l, p] = await Promise.all([
+        supabase.from('erp_pec_animal')
+          .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem,observacao')
+          .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
+          .order('identificacao', { ascending: true, nullsFirst: false }).limit(5000),
+        supabase.from('erp_pec_lote').select('id,codigo,fase,modo,status')
+          .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
+        supabase.from('erp_pec_area').select('id,nome,area_ha,capacidade_ua')
+          .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('ativo', true).eq('tipo', 'piquete').order('nome'),
+      ])
+      if (!alive || a.error) return
+      const s: RebanhoSnapshot = {
+        companyId, ts: Date.now(),
+        propriedade: propriedade ? { id: propriedade.id, nome: propriedade.nome } : null,
+        animais: a.data ?? [], lotes: l.data ?? [], piquetes: p.data ?? [],
+      }
+      await salvarSnapshot(s)
+      if (alive) setSnap(s)
+    })()
+    return () => { alive = false }
+  }, [online, companyId, propriedadeId, propriedade])
 
   const { data: painel, loading: loadingPainel } = usePainelRebanho(companyId, propriedadeId, refresh)
 
@@ -89,23 +143,35 @@ export default function RebanhoPage() {
       Selecione uma empresa específica para abrir a pecuária.
     </div>
   )
-  if (loadingProp) return <div style={{ background: BG }} className="p-6 text-sm min-h-screen" />
-  if (!propriedade) return (
+  if (loadingProp && online) return <div style={{ background: BG }} className="p-6 text-sm min-h-screen" />
+  if (!propriedadeInfo) return (
     <div style={{ background: BG, color: ESP60 }} className="p-6 text-sm min-h-screen">
-      Esta empresa ainda não tem propriedade cadastrada.
+      {online
+        ? 'Esta empresa ainda não tem propriedade cadastrada.'
+        : 'Sem dados offline. Abra esta tela com internet ao menos uma vez para baixar o rebanho.'}
     </div>
   )
 
   return (
     <div style={{ background: BG, minHeight: '100%', color: ESP }} className="p-4 sm:p-6">
+      <div className="max-w-6xl mx-auto mb-3"><BadgeConexao online={online} ts={snap?.ts ?? null} /></div>
       <header className="max-w-6xl mx-auto mb-4 flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>🐂 Pecuária · {propriedade.nome}</div>
+          <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>🐂 Pecuária · {propriedadeInfo.nome}</div>
           <h1 className="text-2xl sm:text-3xl mt-1" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Rebanho &amp; Cadastro</h1>
         </div>
-        <a href="/dashboard/agro/rebanho/cadastrar" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: GOLD, color: '#fff' }}>
-          + Cadastrar
-        </a>
+        <div className="flex gap-2 flex-wrap">
+          <BotaoInstalar />
+          {online ? (
+            <a href="/dashboard/agro/rebanho/cadastrar" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: GOLD, color: '#fff' }}>
+              + Cadastrar
+            </a>
+          ) : (
+            <span title="Sem conexão — registre quando o sinal voltar" className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#F0E1B8', color: '#7A5A0B', cursor: 'not-allowed' }}>
+              + Cadastrar (offline)
+            </span>
+          )}
+        </div>
       </header>
 
       <nav className="max-w-6xl mx-auto flex gap-1 mb-4 overflow-x-auto" style={{ borderBottom: `1px solid ${LINE}` }}>
@@ -119,21 +185,68 @@ export default function RebanhoPage() {
       </nav>
 
       <div className="max-w-6xl mx-auto">
-        {aba === 'painel' && <Painel painel={painel} loading={loadingPainel} />}
+        {aba === 'painel' && (online
+          ? <Painel painel={painel} loading={loadingPainel} />
+          : <div className="text-sm rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }}>Painel indisponível offline. Veja o rebanho completo na aba <b>Animais</b>.</div>)}
         {aba === 'animais' && <Animais
           companyId={companyId} propriedadeId={propriedadeId!}
-          lotes={lotes} piquetes={piquetes}
+          lotes={online ? lotes : ((snap?.lotes as Lote[] | undefined) ?? [])}
+          piquetes={online ? piquetes : ((snap?.piquetes as Piquete[] | undefined) ?? [])}
+          online={online} snapAnimais={(snap?.animais as Animal[] | undefined) ?? []}
           onReload={() => setRefresh((r) => r + 1)} />}
         {aba === 'lotes' && <Lotes
           companyId={companyId} propriedadeId={propriedadeId!}
-          lotes={lotes} contagem={contagemLote}
+          lotes={online ? lotes : ((snap?.lotes as Lote[] | undefined) ?? [])} contagem={contagemLote}
           onReload={() => setRefresh((r) => r + 1)} />}
         {aba === 'piquetes' && <Piquetes
           companyId={companyId} propriedadeId={propriedadeId!}
-          piquetes={piquetes} contagem={contagemArea}
+          piquetes={online ? piquetes : ((snap?.piquetes as Piquete[] | undefined) ?? [])} contagem={contagemArea}
           onReload={() => setRefresh((r) => r + 1)} />}
       </div>
     </div>
+  )
+}
+
+// ───────── Badge de conexão (PWA · honestidade Pilar 3) ─────────
+function BadgeConexao({ online, ts }: { online: boolean; ts: number | null }) {
+  if (online) {
+    return <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold" style={{ background: '#EAF3DE', color: '#3B6D11' }}>📶 Online · dados ao vivo</span>
+  }
+  const quando = ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+  const velho = ts != null && (Date.now() - ts) > 7 * 86400000
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold" style={{ background: '#FAEEDA', color: '#854F0B' }}>📴 Offline · snapshot de {quando}</span>
+      {velho && <span className="text-[11px]" style={{ color: '#A32D2D' }}>Snapshot com mais de 7 dias — abra com internet para atualizar os dados.</span>}
+    </div>
+  )
+}
+
+// ───────── Botão instalar (PWA) ─────────
+type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
+function useInstallPrompt() {
+  const [evt, setEvt] = useState<BIPEvent | null>(null)
+  useEffect(() => {
+    const h = (e: Event) => { e.preventDefault(); setEvt(e as BIPEvent) }
+    window.addEventListener('beforeinstallprompt', h)
+    return () => window.removeEventListener('beforeinstallprompt', h)
+  }, [])
+  return {
+    canInstall: !!evt,
+    promptInstall: async () => { if (!evt) return; await evt.prompt(); setEvt(null) },
+  }
+}
+function BotaoInstalar() {
+  const { canInstall, promptInstall } = useInstallPrompt()
+  return (
+    <button
+      onClick={() => { if (canInstall) void promptInstall(); else window.location.href = '/dashboard/agro/instalar-app' }}
+      title="Instalar o app no celular"
+      className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2"
+      style={{ border: `1px solid ${GOLD}`, color: GOLD, background: 'transparent' }}
+    >
+      📲 Instalar no celular
+    </button>
   )
 }
 
@@ -182,10 +295,11 @@ function Painel({ painel, loading }: { painel: ReturnType<typeof usePainelRebanh
 const PAGE_SIZE = 200
 
 function Animais({
-  companyId, propriedadeId, lotes, piquetes, onReload,
+  companyId, propriedadeId, lotes, piquetes, online, snapAnimais, onReload,
 }: {
   companyId: string; propriedadeId: string
   lotes: Lote[]; piquetes: Piquete[]
+  online: boolean; snapAnimais: Animal[]
   onReload: () => void
 }) {
   const [busca, setBusca] = useState('')
@@ -249,6 +363,14 @@ function Animais({
 
   // Cards de contagem do rebanho — total real, sem filtros de tabela.
   useEffect(() => {
+    // Offline: conta a partir do snapshot (sem rede).
+    if (!online) {
+      const cnt: Record<string, number> = {}
+      for (const a of snapAnimais) cnt[a.categoria] = (cnt[a.categoria] ?? 0) + 1
+      setContagensCat(cnt)
+      setTotalRebanho(snapAnimais.length)
+      return
+    }
     if (!companyId || !propriedadeId) return
     let alive = true
     void (async () => {
@@ -269,7 +391,7 @@ function Animais({
       setTotalRebanho(t)
     })()
     return () => { alive = false }
-  }, [companyId, propriedadeId])
+  }, [companyId, propriedadeId, online, snapAnimais])
 
   // Debounce da busca (300ms) pra nao disparar fetch a cada tecla.
   const [buscaDebounced, setBuscaDebounced] = useState('')
@@ -283,6 +405,20 @@ function Animais({
 
   // Fetch paginado server-side. count:'exact' → total real, com filtros.
   useEffect(() => {
+    // OFFLINE: filtra/pagina o snapshot no cliente (mesmos filtros da tela).
+    if (!online) {
+      const q = buscaDebounced.toLowerCase()
+      const filt = snapAnimais.filter((a) =>
+        (fCat === 'todos' || a.categoria === fCat) &&
+        (fLote === 'todos' || a.lote_id === fLote) &&
+        (fPiq === 'todos' || a.area_atual_id === fPiq) &&
+        (!q || (a.identificacao ?? '').toLowerCase().includes(q)),
+      )
+      setTotal(filt.length)
+      setAnimais(filt.slice(pagina * PAGE_SIZE, pagina * PAGE_SIZE + PAGE_SIZE))
+      setLoading(false); setErro(null)
+      return
+    }
     if (!companyId || !propriedadeId) return
     let alive = true
     setLoading(true)
@@ -313,9 +449,15 @@ function Animais({
       setLoading(false)
     })()
     return () => { alive = false }
-  }, [companyId, propriedadeId, buscaDebounced, fCat, fLote, fPiq, pagina])
+  }, [companyId, propriedadeId, buscaDebounced, fCat, fLote, fPiq, pagina, online, snapAnimais])
 
-  const filtrados = animais // paginacao ja aconteceu no server
+  const filtrados = animais // paginacao (server online / cliente offline) ja aconteceu
+
+  // Ações de escrita ficam desabilitadas offline (Fase A = consulta). Bloqueia na origem.
+  const abrirAcao = (a: { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }) => {
+    if (!online) { setErro('Sem conexão — registre quando o sinal voltar (modo consulta offline).'); return }
+    setAcao(a)
+  }
 
   const toggle = (id: string) => {
     const n = new Set(sel)
@@ -363,22 +505,22 @@ function Animais({
         <div className="flex-1" />
         <button
           onClick={exportar}
-          disabled={total === 0 || exportando}
-          title={total === 0 ? 'Nada para exportar' : 'Baixa os animais filtrados em Excel'}
+          disabled={total === 0 || exportando || !online}
+          title={!online ? 'Exportar disponível online' : total === 0 ? 'Nada para exportar' : 'Baixa os animais filtrados em Excel'}
           className="px-3 py-2 rounded-xl text-sm font-semibold"
-          style={{ border: `1px solid ${GOLD}`, color: GOLD, background: 'transparent', opacity: total === 0 || exportando ? 0.5 : 1 }}
+          style={{ border: `1px solid ${GOLD}`, color: GOLD, background: 'transparent', opacity: total === 0 || exportando || !online ? 0.5 : 1 }}
         >
           {exportando ? 'Exportando…' : '⬇ Exportar Excel'}
         </button>
-        <button onClick={() => setAcao({ tipo: 'novo' })} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff' }}>+ Novo animal</button>
+        <button onClick={() => abrirAcao({ tipo: 'novo' })} disabled={!online} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: online ? 1 : 0.5 }}>+ Novo animal</button>
       </div>
 
       {sel.size > 0 && (
         <div className="flex flex-wrap gap-2 items-center rounded-xl p-2" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}` }}>
           <span className="text-xs font-semibold" style={{ color: ESP }}>{sel.size} selecionado(s)</span>
-          <button onClick={() => setAcao({ tipo: 'mover', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: ESP, color: '#fff' }}>Mover</button>
-          <button onClick={() => setAcao({ tipo: 'vender', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: GOLD, color: '#fff' }}>Vender</button>
-          <button onClick={() => setAcao({ tipo: 'morte', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Morte</button>
+          <button onClick={() => abrirAcao({ tipo: 'mover', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: ESP, color: '#fff' }}>Mover</button>
+          <button onClick={() => abrirAcao({ tipo: 'vender', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: GOLD, color: '#fff' }}>Vender</button>
+          <button onClick={() => abrirAcao({ tipo: 'morte', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Morte</button>
           <button onClick={limparSel} className="text-xs px-3 py-1 rounded-lg" style={{ color: ESP60 }}>Limpar</button>
         </div>
       )}
@@ -403,7 +545,7 @@ function Animais({
             {filtrados.map((a) => (
               <tr key={a.id} style={{ borderTop: `1px solid ${LINE}` }}>
                 <td className="p-2 text-center"><input type="checkbox" checked={sel.has(a.id)} onChange={() => toggle(a.id)} /></td>
-                <td className="p-2">{a.identificacao ?? <span style={{ color: ESP60 }}>— <button onClick={() => setAcao({ tipo: 'identificar', alvos: [a.id] })} title="Identificar" style={{ color: GOLD }}>📷</button></span>}</td>
+                <td className="p-2">{a.identificacao ?? <span style={{ color: ESP60 }}>— <button onClick={() => abrirAcao({ tipo: 'identificar', alvos: [a.id] })} title="Identificar" style={{ color: GOLD }}>📷</button></span>}</td>
                 <td className="p-2"><span className="text-[11px] px-2 py-0.5 rounded-full capitalize" style={{ background: BG, color: ESP }}>{a.categoria.replace('_', ' ')}</span></td>
                 <td className="p-2 text-xs">{a.sexo === 'M' ? 'Macho' : a.sexo === 'F' ? 'Fêmea' : '—'}</td>
                 <td className="p-2 text-xs">{a.raca ?? '—'}</td>
@@ -413,9 +555,9 @@ function Animais({
                 <td className="p-2 text-right text-xs">{a.peso_entrada_kg ?? '—'}{a.peso_entrada_kg ? ' kg' : ''}</td>
                 <td className="p-2">
                   <div className="flex gap-1 justify-center">
-                    <button onClick={() => setAcao({ tipo: 'mover', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Mover</button>
-                    <button onClick={() => setAcao({ tipo: 'vender', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: GOLD, color: '#fff' }}>Vender</button>
-                    <button onClick={() => setAcao({ tipo: 'morte', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Morte</button>
+                    <button onClick={() => abrirAcao({ tipo: 'mover', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Mover</button>
+                    <button onClick={() => abrirAcao({ tipo: 'vender', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: GOLD, color: '#fff' }}>Vender</button>
+                    <button onClick={() => abrirAcao({ tipo: 'morte', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Morte</button>
                   </div>
                 </td>
               </tr>
@@ -442,8 +584,8 @@ function Animais({
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <button onClick={() => setAcao({ tipo: 'mover', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Mover</button>
-                <button onClick={() => setAcao({ tipo: 'vender', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: GOLD, color: '#fff' }}>Vender</button>
+                <button onClick={() => abrirAcao({ tipo: 'mover', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Mover</button>
+                <button onClick={() => abrirAcao({ tipo: 'vender', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: GOLD, color: '#fff' }}>Vender</button>
               </div>
             </div>
           </div>
