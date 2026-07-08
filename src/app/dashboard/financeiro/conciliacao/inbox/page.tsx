@@ -630,11 +630,16 @@ export default function InboxPage() {
     if (!c.lancamento_id || !c.lancamento_tabela) return
     if (!confirm(`Desvincular este lançamento conciliado? O movimento volta para pendente.`)) return
     // fn_conciliacao_desvincular(p_lancamento_id uuid, p_tipo text)
-    const { error } = await supabase.rpc('fn_conciliacao_desvincular', {
+    // p_tipo espera 'pagar'/'receber' — c.lancamento_tabela vem como 'erp_pagar'/'erp_receber',
+    // então tira o prefixo (antes ia "erp_pagar" e a RPC devolvia tipo_invalido em silêncio).
+    const { data, error } = await supabase.rpc('fn_conciliacao_desvincular', {
       p_lancamento_id: c.lancamento_id,
-      p_tipo: c.lancamento_tabela,
+      p_tipo: c.lancamento_tabela.replace(/^erp_/, ''),
     })
     if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+    // a RPC retorna {sucesso:false, erro} sem erro SQL — antes era engolido
+    const r = (data ?? {}) as { sucesso?: boolean; erro?: string }
+    if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
     await carregarConciliados()
     await carregar()
   }
