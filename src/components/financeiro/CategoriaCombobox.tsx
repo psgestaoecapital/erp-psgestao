@@ -138,11 +138,12 @@ export default function CategoriaCombobox({
     setAberto(false)
   }, [onChange])
 
-  // podeCriar: aparece se ha termo digitado (2+ chars) e nao ha match exato
-  // por descricao. Nao esconde se ha matches parciais — usuario pode preferir
-  // criar mesmo com resultados parciais (ex: "aluguel" retorna 2.04.01 e
-  // usuario quer criar "Aluguel Estacionamento").
-  const podeCriar = termo.trim().length >= 2 && !buscando && !erroRpc &&
+  // podeCriar: "➕ Criar nova categoria" fica SEMPRE visível no rodapé do dropdown
+  // (08/07 · André relatou "sumiu" — antes só aparecia com 2+ chars digitados, o que
+  // dava a impressão de que a opção não existia). Sem termo → abre o modal com nome
+  // vazio; com termo → pré-preenche. Só esconde quando há match EXATO por descrição
+  // (aí o usuário seleciona a existente) ou enquanto busca / há erro de RPC.
+  const podeCriar = !buscando && !erroRpc &&
     !resultados.some((c) => c.descricao.toLowerCase() === termo.trim().toLowerCase())
 
   return (
@@ -279,7 +280,7 @@ export default function CategoriaCombobox({
                 borderTop: `1px solid ${C.border}`,
               }}
             >
-              ➕ Criar categoria “{termo}”
+              {termo.trim().length >= 2 ? `➕ Criar categoria “${termo}”` : '➕ Criar nova categoria'}
             </button>
           )}
         </div>
