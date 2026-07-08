@@ -160,15 +160,18 @@ export default function RebanhoPage() {
           <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>🐂 Pecuária · {propriedadeInfo.nome}</div>
           <h1 className="text-2xl sm:text-3xl mt-1" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Rebanho &amp; Cadastro</h1>
         </div>
-        {online ? (
-          <a href="/dashboard/agro/rebanho/cadastrar" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: GOLD, color: '#fff' }}>
-            + Cadastrar
-          </a>
-        ) : (
-          <span title="Sem conexão — registre quando o sinal voltar" className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#F0E1B8', color: '#7A5A0B', cursor: 'not-allowed' }}>
-            + Cadastrar (offline)
-          </span>
-        )}
+        <div className="flex gap-2 flex-wrap">
+          <BotaoInstalar />
+          {online ? (
+            <a href="/dashboard/agro/rebanho/cadastrar" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: GOLD, color: '#fff' }}>
+              + Cadastrar
+            </a>
+          ) : (
+            <span title="Sem conexão — registre quando o sinal voltar" className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#F0E1B8', color: '#7A5A0B', cursor: 'not-allowed' }}>
+              + Cadastrar (offline)
+            </span>
+          )}
+        </div>
       </header>
 
       <nav className="max-w-6xl mx-auto flex gap-1 mb-4 overflow-x-auto" style={{ borderBottom: `1px solid ${LINE}` }}>
@@ -216,6 +219,34 @@ function BadgeConexao({ online, ts }: { online: boolean; ts: number | null }) {
       <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold" style={{ background: '#FAEEDA', color: '#854F0B' }}>📴 Offline · snapshot de {quando}</span>
       {velho && <span className="text-[11px]" style={{ color: '#A32D2D' }}>Snapshot com mais de 7 dias — abra com internet para atualizar os dados.</span>}
     </div>
+  )
+}
+
+// ───────── Botão instalar (PWA) ─────────
+type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
+function useInstallPrompt() {
+  const [evt, setEvt] = useState<BIPEvent | null>(null)
+  useEffect(() => {
+    const h = (e: Event) => { e.preventDefault(); setEvt(e as BIPEvent) }
+    window.addEventListener('beforeinstallprompt', h)
+    return () => window.removeEventListener('beforeinstallprompt', h)
+  }, [])
+  return {
+    canInstall: !!evt,
+    promptInstall: async () => { if (!evt) return; await evt.prompt(); setEvt(null) },
+  }
+}
+function BotaoInstalar() {
+  const { canInstall, promptInstall } = useInstallPrompt()
+  return (
+    <button
+      onClick={() => { if (canInstall) void promptInstall(); else window.location.href = '/dashboard/agro/instalar-app' }}
+      title="Instalar o app no celular"
+      className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2"
+      style={{ border: `1px solid ${GOLD}`, color: GOLD, background: 'transparent' }}
+    >
+      📲 Instalar no celular
+    </button>
   )
 }
 
