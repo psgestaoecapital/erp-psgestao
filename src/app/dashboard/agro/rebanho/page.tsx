@@ -2,6 +2,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada, usePropriedade, usePainelRebanho } from '@/lib/agro/usePecuaria'
+import { exportToExcel } from '@/lib/export-utils'
+
+// slug pra compor nome de arquivo com o filtro ativo (piquete/lote/categoria)
+const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -193,6 +197,7 @@ function Animais({
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [exportando, setExportando] = useState(false)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [acao, setAcao] = useState<null | { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }>(null)
   const [contagensCat, setContagensCat] = useState<Record<string, number>>({})
@@ -200,6 +205,47 @@ function Animais({
 
   const nomeLote = (id: string | null) => lotes.find((l) => l.id === id)?.codigo ?? '—'
   const nomePiq = (id: string | null) => piquetes.find((p) => p.id === id)?.nome ?? '—'
+
+  // Exporta a lista JA FILTRADA (mesmos filtros server-side da tela) para .xlsx.
+  // Re-consulta SEM paginacao (a tela so tem a pagina atual) — respeita fCat/fLote/fPiq/busca.
+  async function exportar() {
+    setExportando(true); setErro(null)
+    try {
+      let q = supabase.from('erp_pec_animal')
+        .select('identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,observacao')
+        .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
+      if (fCat !== 'todos') q = q.eq('categoria', fCat)
+      if (fLote !== 'todos') q = q.eq('lote_id', fLote)
+      if (fPiq !== 'todos') q = q.eq('area_atual_id', fPiq)
+      if (buscaDebounced) { const like = `%${buscaDebounced}%`; q = q.or(`identificacao.ilike.${like},sisbov.ilike.${like}`) }
+      const { data, error } = await q.order('identificacao', { ascending: true, nullsFirst: false }).limit(5000)
+      if (error) { setErro(error.message); return }
+      const linhas = (data ?? []) as Animal[]
+      const rows = linhas.map((a) => ({
+        'Identificação': a.identificacao ?? '',
+        'Categoria': a.categoria,
+        'Sexo': a.sexo === 'M' ? 'Macho' : a.sexo === 'F' ? 'Fêmea' : '',
+        'Raça': a.raca ?? '',
+        'Lote': nomeLote(a.lote_id),
+        'Piquete': nomePiq(a.area_atual_id),
+        'Peso Entrada (kg)': a.peso_entrada_kg ?? '',
+        'Observação': a.observacao ?? '',
+      }))
+      const ctx = fPiq !== 'todos' ? `_piquete-${slug(nomePiq(fPiq))}`
+        : fLote !== 'todos' ? `_lote-${slug(nomeLote(fLote))}`
+        : fCat !== 'todos' ? `_${slug(fCat)}` : ''
+      const dt = new Date().toISOString().slice(0, 10)
+      await exportToExcel(rows, {
+        filename: `rebanho${ctx}_${dt}.xlsx`,
+        sheetName: 'Rebanho',
+        title: `Rebanho · ${dt} · ${rows.length} animais`,
+      })
+    } catch (e) {
+      setErro((e as Error).message || 'Falha ao exportar')
+    } finally {
+      setExportando(false)
+    }
+  }
 
   // Cards de contagem do rebanho — total real, sem filtros de tabela.
   useEffect(() => {
@@ -315,6 +361,15 @@ function Animais({
             : `${pagina * PAGE_SIZE + 1}–${Math.min((pagina + 1) * PAGE_SIZE, total)} de ${total}`}
         </span>
         <div className="flex-1" />
+        <button
+          onClick={exportar}
+          disabled={total === 0 || exportando}
+          title={total === 0 ? 'Nada para exportar' : 'Baixa os animais filtrados em Excel'}
+          className="px-3 py-2 rounded-xl text-sm font-semibold"
+          style={{ border: `1px solid ${GOLD}`, color: GOLD, background: 'transparent', opacity: total === 0 || exportando ? 0.5 : 1 }}
+        >
+          {exportando ? 'Exportando…' : '⬇ Exportar Excel'}
+        </button>
         <button onClick={() => setAcao({ tipo: 'novo' })} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff' }}>+ Novo animal</button>
       </div>
 
