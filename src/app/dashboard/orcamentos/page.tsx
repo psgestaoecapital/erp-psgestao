@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -125,6 +125,20 @@ export default function OrcamentosPage(){
     const{data}=await supabase.from("erp_produtos").select("id,codigo,nome,unidade,preco_venda,preco_custo,company_id").in("company_id",companyIds).eq("ativo",true).limit(1000);
     if(data)setProdutosCache(data);
   };
+
+  // Deep-link: abrir automaticamente o orçamento do ?id= na URL (ex: vindo do
+  // botão "Abrir orçamento vinculado" da ficha da oportunidade). Antes o link
+  // navegava pra cá mas a página ignorava o id → "não abria". Abre 1x quando a
+  // lista carrega. (window.location evita o Suspense-boundary do useSearchParams.)
+  const deepLinkAberto=useRef(false);
+  useEffect(()=>{
+    if(deepLinkAberto.current || orcamentos.length===0) return;
+    const id=typeof window!=='undefined' ? new URLSearchParams(window.location.search).get('id') : null;
+    if(!id) return;
+    const o=orcamentos.find(x=>x.id===id);
+    if(o){ deepLinkAberto.current=true; void abrirEdicao(o); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[orcamentos]);
 
   const abrirNovo=async()=>{
     if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}

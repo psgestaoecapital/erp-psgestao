@@ -53,18 +53,20 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Assets estaticos: cache-first (offline serve do cache; online popula o cache).
+  // Assets estaticos: NETWORK-FIRST (online sempre pega o bundle novo; offline
+  // cai no cache). FIX-DIVIDA-580: o cache-first servia /_next/ ANTIGO pos-deploy
+  // ("regressoes-fantasma": categoria DRE, desconciliar, modal Oportunidade). Com
+  // network-first o cliente online nunca fica preso num chunk velho; fontes/imagens
+  // (imutaveis) tambem revalidam barato via rede e mantem fallback offline.
   if (url.pathname.startsWith('/_next/') || /\\.(?:js|css|woff2?|png|jpg|jpeg|svg|ico|webmanifest)$/.test(url.pathname)) {
     event.respondWith((async () => {
-      const cached = await caches.match(req)
-      if (cached) return cached
       try {
         const res = await fetch(req)
         const c = await caches.open(CACHE)
         c.put(req, res.clone())
         return res
       } catch {
-        return cached || Response.error()
+        return (await caches.match(req)) || Response.error()
       }
     })())
   }
