@@ -1,13 +1,13 @@
 // Sicredi · Registrar Boleto · Node runtime (REST, sem mTLS).
-// Espelha a rota do Sicoob, mas: auth por x-api-key (Vault), banco 748, e o PDF é
-// GERADO LOCALMENTE via gerarPdfBoleto (FEBRABAN, agnóstico) — não puxa 2ª via do banco.
-// ⚠️ Teste real só após credenciais no Vault (client_id/secret + api_key + beneficiário).
+// Auth = grant_type=password (Código de Acesso username/password no Vault) + x-api-key.
+// Banco 748. PDF: nativo do Sicredi (/boletos/pdf); gerarPdfBoleto local como fallback.
+// ⚠️ Sandbox testável já com credenciais do manual + x-api-key da app de homologação.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { registrarBoleto, type SicrediAmbiente } from '@/lib/banco/sicredi'
+import { registrarBoleto, buscarPdf, type SicrediAmbiente } from '@/lib/banco/sicredi'
 import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
 
 export const runtime = 'nodejs'
@@ -34,8 +34,7 @@ function temSegredoValido(req: NextRequest): boolean {
 
 async function logSync(company_id: string, status: 'ok' | 'erro', mensagem: string, payload: unknown) {
   await supabaseAdmin.from('erp_banco_sync_log').insert({
-    company_id, banco_codigo: BANCO, provider: PROVIDER, tipo: 'boleto_registrar',
-    status, qtd: 1, mensagem, payload_resumo: payload,
+    company_id, banco_codigo: BANCO, provider: PROVIDER, tipo: 'boleto_registrar', status, qtd: 1, mensagem, payload_resumo: payload,
   })
 }
 
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest) {
       if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
     }
 
-    // 1) título
     const { data: rec, error: recErr } = await sb.from('erp_receber')
       .select('id, company_id, cliente_id, cliente_nome, valor, data_emissao, data_vencimento, numero_documento, boleto_status, boleto_nosso_numero')
       .eq('id', receber_id).single()
@@ -64,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
     const companyId: string = rec.company_id
 
-    // 2) credenciais (Vault)
+    // credenciais (Vault): username=client_id, password=client_secret, x-api-key=api_key
     let ambiente: SicrediAmbiente = 'producao'
     let credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', { p_company_id: companyId, p_banco_codigo: BANCO, p_ambiente: 'producao' })
     let credRow = credResp.data as Record<string, unknown> | null
@@ -78,28 +76,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'Cadastre a Integracao bancaria Sicredi antes (Cadastros -> Contas bancarias).' }, { status: 412 })
     }
 
-    const clientId = credRow.client_id as string | null
-    const clientSecret = credRow.client_secret as string | null
+    const username = credRow.client_id as string | null
+    const password = credRow.client_secret as string | null
     const apiKey = credRow.api_key as string | null
     const cooperativa = (credRow.cooperativa as string | null) ?? ''
+    const posto = (credRow.posto as string | null) ?? ''
     const conta = (credRow.conta as string | null) ?? ''
     const agencia = (credRow.agencia as string | null) ?? null
     const codigoBeneficiario = (credRow.codigo_beneficiario as string | null) ?? ''
-    const convenio = (credRow.convenio as string | null) ?? null
-    const carteira = (credRow.carteira as string | null) ?? null
     const jurosPct = (credRow.juros_pct as number | null) ?? null
     const multaPct = (credRow.multa_pct as number | null) ?? null
 
-    if (!clientId || !clientSecret || !apiKey) {
-      await logSync(companyId, 'erro', 'client_id/secret ou api_key ausentes', { receber_id })
-      return NextResponse.json({ ok: false, erro: 'client_id / client_secret / x-api-key faltando na Integracao Sicredi.' }, { status: 412 })
+    if (!username || !password || !apiKey) {
+      await logSync(companyId, 'erro', 'username/password (codigo de acesso) ou api_key ausentes', { receber_id })
+      return NextResponse.json({ ok: false, erro: 'Codigo de Acesso (username/senha) ou x-api-key faltando na Integracao Sicredi.' }, { status: 412 })
     }
-    if (!codigoBeneficiario) {
-      await logSync(companyId, 'erro', 'codigo_beneficiario ausente', { receber_id })
-      return NextResponse.json({ ok: false, erro: 'Codigo do beneficiario faltando na config Sicredi.' }, { status: 412 })
+    if (!cooperativa || !posto || !codigoBeneficiario) {
+      await logSync(companyId, 'erro', 'cooperativa/posto/beneficiario ausentes', { receber_id })
+      return NextResponse.json({ ok: false, erro: 'Cooperativa, posto ou codigo do beneficiario faltando na config Sicredi.' }, { status: 412 })
     }
 
-    // 3) pagador (cliente)
+    // pagador (cliente)
     let pagador: { tipo: 'PF' | 'PJ'; documento: string; nome: string; logradouro: string | null; bairro: string | null; cidade: string | null; uf: string | null; cep: string | null }
     if (rec.cliente_id) {
       const { data: cli } = await supabaseAdmin.from('erp_clientes')
@@ -124,67 +121,57 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'Cliente sem CPF/CNPJ — necessario para registrar boleto.' }, { status: 412 })
     }
 
-    // 4) datas (fuso SP; emissao <= hoje, vencimento >= emissao)
     const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
     const emissaoPretendida = rec.data_emissao ?? hojeSP
     const emissaoISO = emissaoPretendida > hojeSP ? hojeSP : emissaoPretendida
     const vencimentoISO = rec.data_vencimento < emissaoISO ? emissaoISO : rec.data_vencimento
     const seuNumero = (rec.numero_documento ?? rec.id.slice(0, 12)).toString()
 
-    // 5) registrar no Sicredi
     const cred = {
-      client_id: clientId, client_secret: clientSecret, api_key: apiKey, ambiente,
-      codigo_beneficiario: codigoBeneficiario, cooperativa, conta, agencia, convenio, carteira,
+      username, password, api_key: apiKey, ambiente,
+      cooperativa, posto, codigo_beneficiario: codigoBeneficiario, conta, agencia,
       juros_pct: jurosPct, multa_pct: multaPct,
     }
-    const result = await registrarBoleto({
-      cred, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador,
-      hibrido: hibrido ?? true,
-    })
+    const result = await registrarBoleto({ cred, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador, hibrido: hibrido ?? false })
     if (result.status < 200 || result.status >= 300 || !result.nuTituloGerado || !result.linhaDigitavel || !result.codigoBarras) {
       await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, { receber_id, raw: result.raw, payload_enviado: result.payload_resumo })
       return NextResponse.json({ ok: false, erro: 'Sicredi recusou o registro do boleto.', detalhes: result.raw }, { status: 502 })
     }
 
-    // 6) gerar PDF localmente (FEBRABAN) + subir no storage
+    // PDF: nativo do Sicredi (/boletos/pdf); fallback = gerarPdfBoleto local (banco 748)
     let boletoUrl: string | null = null
+    let pdfBytes: Buffer | null = null
     try {
-      const { data: comp } = await supabaseAdmin.from('companies').select('razao_social, nome_fantasia, cnpj').eq('id', companyId).single()
-      const pdfBytes = await gerarPdfBoleto({
-        banco: { codigo: BANCO, nome: 'Sicredi' },
-        linhaDigitavel: result.linhaDigitavel,
-        codigoBarras: result.codigoBarras,
-        qrCodePix: result.qrCode ?? null,
-        beneficiario: {
-          nome: (comp?.razao_social ?? comp?.nome_fantasia ?? 'BENEFICIARIO') as string,
-          cnpj: (comp?.cnpj ?? '') as string,
-          agencia, conta, codigo: codigoBeneficiario,
-        },
-        pagador: {
-          nome: pagador.nome, cpfCnpj: pagador.documento,
-          endereco: { logradouro: pagador.logradouro, bairro: pagador.bairro, cidade: pagador.cidade, uf: pagador.uf, cep: pagador.cep },
-        },
-        nossoNumero: result.nuTituloGerado,
-        numeroDocumento: seuNumero,
-        especieDocumento: 'DM',
-        aceite: false,
-        dataDocumento: emissaoISO,
-        dataVencimento: vencimentoISO,
-        valor: Number(rec.valor),
-        instrucoes: [credRow.instrucao_linha1, credRow.instrucao_linha2, credRow.instrucao_linha3, credRow.instrucao_linha4].filter((x): x is string => !!x),
-      })
+      const pdf = await buscarPdf(cred, result.nuTituloGerado)
+      if (pdf.pdfBase64) pdfBytes = Buffer.from(pdf.pdfBase64, 'base64')
+    } catch { /* cai no fallback local */ }
+    if (!pdfBytes) {
+      try {
+        const { data: comp } = await supabaseAdmin.from('companies').select('razao_social, nome_fantasia, cnpj').eq('id', companyId).single()
+        const bytes = await gerarPdfBoleto({
+          banco: { codigo: BANCO, nome: 'Sicredi' },
+          linhaDigitavel: result.linhaDigitavel, codigoBarras: result.codigoBarras, qrCodePix: result.qrCode ?? null,
+          beneficiario: { nome: (comp?.razao_social ?? comp?.nome_fantasia ?? 'BENEFICIARIO') as string, cnpj: (comp?.cnpj ?? '') as string, agencia, conta, codigo: codigoBeneficiario },
+          pagador: { nome: pagador.nome, cpfCnpj: pagador.documento, endereco: { logradouro: pagador.logradouro, bairro: pagador.bairro, cidade: pagador.cidade, uf: pagador.uf, cep: pagador.cep } },
+          nossoNumero: result.nuTituloGerado, numeroDocumento: seuNumero, especieDocumento: 'DM', aceite: false,
+          dataDocumento: emissaoISO, dataVencimento: vencimentoISO, valor: Number(rec.valor),
+          instrucoes: [credRow.instrucao_linha1, credRow.instrucao_linha2, credRow.instrucao_linha3, credRow.instrucao_linha4].filter((x): x is string => !!x),
+        })
+        pdfBytes = Buffer.from(bytes)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        await logSync(companyId, 'erro', `PDF Sicredi (nativo+fallback) falhou: ${msg}`, { receber_id })
+      }
+    }
+    if (pdfBytes) {
       const objectPath = `${companyId}/${receber_id}.pdf`
-      const up = await supabaseAdmin.storage.from('boletos').upload(objectPath, Buffer.from(pdfBytes), { contentType: 'application/pdf', upsert: true })
+      const up = await supabaseAdmin.storage.from('boletos').upload(objectPath, pdfBytes, { contentType: 'application/pdf', upsert: true })
       if (!up.error) {
         const signed = await supabaseAdmin.storage.from('boletos').createSignedUrl(objectPath, 60 * 60 * 24 * 365)
         if (signed.data?.signedUrl) boletoUrl = signed.data.signedUrl
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      await logSync(companyId, 'erro', `geracao/upload PDF Sicredi falhou: ${msg}`, { receber_id })
     }
 
-    // 7) persistir no título
     await supabaseAdmin.from('erp_receber').update({
       boleto_nosso_numero: result.nuTituloGerado,
       boleto_linha_digitavel: result.linhaDigitavel,

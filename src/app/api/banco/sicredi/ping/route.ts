@@ -30,12 +30,13 @@ export async function POST(req: NextRequest) {
     const credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', { p_company_id: company_id, p_banco_codigo: BANCO, p_ambiente: amb })
     const c = credResp.data as Record<string, unknown> | null
     if (!c || c.ok === false) return NextResponse.json({ ok: false, erro: 'credencial sicredi nao cadastrada' }, { status: 412 })
-    if (!c.client_id || !c.client_secret || !c.api_key) return NextResponse.json({ ok: false, erro: 'client_id/secret/api_key faltando' }, { status: 412 })
+    if (!c.client_id || !c.client_secret || !c.api_key) return NextResponse.json({ ok: false, erro: 'codigo de acesso (username/senha) ou api_key faltando' }, { status: 412 })
 
+    // username=client_id, password=client_secret (Código de Acesso da Cobrança Sicredi)
     const token = await obterToken({
-      client_id: c.client_id as string, client_secret: c.client_secret as string, api_key: c.api_key as string,
+      username: c.client_id as string, password: c.client_secret as string, api_key: c.api_key as string,
       ambiente: amb, codigo_beneficiario: (c.codigo_beneficiario as string) ?? '', cooperativa: (c.cooperativa as string) ?? '',
-      conta: (c.conta as string) ?? '', agencia: (c.agencia as string) ?? null, convenio: (c.convenio as string) ?? null, carteira: (c.carteira as string) ?? null,
+      posto: (c.posto as string) ?? '', conta: (c.conta as string) ?? '', agencia: (c.agencia as string) ?? null,
     })
     return NextResponse.json({ ok: true, autenticou: !!token, ambiente: amb })
   } catch (e) {
