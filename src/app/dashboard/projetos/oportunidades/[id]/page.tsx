@@ -20,6 +20,7 @@ type Oport = {
   obra_cidade: string | null
   obra_bairro: string | null
   responsavel_id: string | null
+  responsavel_nome: string | null
   data_prevista_fechamento: string | null
   data_fechamento: string | null
   motivo_perda: string | null
@@ -243,7 +244,8 @@ export default function OportunidadeFichaPage() {
 
   const cfg = etapaCfg(op.etapa)
   const cliNome = op.erp_clientes?.nome_fantasia ?? op.erp_clientes?.razao_social ?? '—'
-  const resp = users.find((u) => u.id === op.responsavel_id)
+  // Responsável = texto livre (op.responsavel_nome); fallback ao e-mail do usuário legado.
+  const respNome = op.responsavel_nome || users.find((u) => u.id === op.responsavel_id)?.email || null
 
   return (
     <div className="p-4 max-w-4xl mx-auto" style={{ color: ESPRESSO }}>
@@ -285,7 +287,7 @@ export default function OportunidadeFichaPage() {
           >
             {ETAPAS.map((e) => <option key={e.v} value={e.v}>Mover para: {e.l}</option>)}
           </select>
-          {resp && <span className="text-sm ml-auto" style={{ color: TEXTM }}>resp: {resp.email}</span>}
+          {respNome && <span className="text-sm ml-auto" style={{ color: TEXTM }}>resp: {respNome}</span>}
         </div>
         {op.motivo_perda && (
           <p className="text-sm mt-2" style={{ color: '#7A1F1F' }}><strong>Motivo da perda:</strong> {op.motivo_perda}</p>

@@ -17,6 +17,7 @@ export type OportunidadeRow = {
   obra_cidade: string | null
   obra_bairro: string | null
   responsavel_id: string | null
+  responsavel_nome: string | null
   data_prevista_fechamento: string | null
   probabilidade: number | null
   observacoes: string | null
@@ -39,7 +40,7 @@ const empty = (): OportunidadeRow => ({
   cliente_id: null, titulo: '', etapa: 'prospeccao',
   valor_estimado: null, origem: null,
   obra_endereco: null, obra_cidade: null, obra_bairro: null,
-  responsavel_id: null, data_prevista_fechamento: null,
+  responsavel_id: null, responsavel_nome: null, data_prevista_fechamento: null,
   probabilidade: 50, observacoes: null,
 })
 
@@ -193,7 +194,25 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     if (!form.titulo.trim()) { setErr('Titulo obrigatorio.'); return }
     setSaving(true)
     setErr(null)
-    const payload = { ...form, company_id: companyId }
+    // Whitelist das colunas reais — ao editar via ficha [id], o `initial` chega com
+    // campos extras (erp_clientes aninhado, valor_proposta, orcamento_id…) que NÃO
+    // são colunas de update. Enviar só o que existe evita erro de coluna fantasma.
+    const payload = {
+      company_id: companyId,
+      cliente_id: form.cliente_id,
+      titulo: form.titulo,
+      etapa: form.etapa,
+      valor_estimado: form.valor_estimado,
+      origem: form.origem,
+      obra_endereco: form.obra_endereco,
+      obra_cidade: form.obra_cidade,
+      obra_bairro: form.obra_bairro,
+      responsavel_id: form.responsavel_id,
+      responsavel_nome: form.responsavel_nome,
+      data_prevista_fechamento: form.data_prevista_fechamento,
+      probabilidade: form.probabilidade,
+      observacoes: form.observacoes,
+    }
     if (isEdit && initial?.id) {
       const { error } = await supabase.from('erp_crm_oportunidade').update(payload).eq('id', initial.id)
       setSaving(false)
@@ -356,14 +375,18 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           </label>
           <label style={lbl}>
             Responsável
-            <select
-              value={form.responsavel_id ?? ''}
-              onChange={(e) => setF('responsavel_id', e.target.value || null)}
+            {/* Texto livre (decisão CEO): digita o nome, não precisa ser usuário do
+                sistema. Sugere usuários da empresa via datalist, mas aceita qualquer nome. */}
+            <input
+              list="responsaveis-list"
+              value={form.responsavel_nome ?? ''}
+              onChange={(e) => setF('responsavel_nome', e.target.value || null)}
+              placeholder="Nome do responsável (ex: Gilmar)"
               style={inp}
-            >
-              <option value="">—</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.email ?? u.id.slice(0, 8)}</option>)}
-            </select>
+            />
+            <datalist id="responsaveis-list">
+              {users.map((u) => <option key={u.id} value={u.email ?? u.id.slice(0, 8)} />)}
+            </datalist>
           </label>
         </div>
 
