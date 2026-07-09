@@ -35,6 +35,7 @@ const ESP60 = 'rgba(61,35,20,0.55)'
 const PROVIDERS_SUGERIDOS = [
   'aps','iopoint','focus','brapi','pluggy','anthropic','supabase',
   'banco_sicoob_prod','banco_sicoob_homolog','banco_bradesco_prod',
+  'banco_sicredi_prod','banco_sicredi_homolog',
   'auditor_gold',
 ]
 
