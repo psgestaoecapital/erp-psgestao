@@ -62,11 +62,17 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
   const [cliSel, setCliSel] = useState<ClienteOpt | null>(null)
   const [showOpts, setShowOpts] = useState(false)
 
-  // Quick add cliente
+  // Quick add cliente (grava no cadastro central erp_clientes, escopo empresa)
   const [novoCliOpen, setNovoCliOpen] = useState(false)
   const [novoCliNome, setNovoCliNome] = useState('')
   const [novoCliTel, setNovoCliTel] = useState('')
+  const [novoCliTipo, setNovoCliTipo] = useState<'PJ' | 'PF'>('PJ')
+  const [novoCliDoc, setNovoCliDoc] = useState('')
   const [novoCliSaving, setNovoCliSaving] = useState(false)
+
+  // CEP lookup (reusa /api/cep-lookup · ViaCEP)
+  const [cep, setCep] = useState('')
+  const [cepLoading, setCepLoading] = useState(false)
 
   // Responsavel
   const [users, setUsers] = useState<UserOpt[]>([])
@@ -141,9 +147,17 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     if (!novoCliNome.trim()) { setErr('Nome do cliente obrigatorio.'); return }
     setNovoCliSaving(true)
     setErr(null)
+    const doc = novoCliDoc.trim() || null
+    // Grava no cadastro central erp_clientes (escopo empresa, RLS). Espelha
+    // cpf_cnpj (canonica) + cnpj_cpf (legada) igual a tela Clientes (#589).
     const { data, error } = await supabase
       .from('erp_clientes')
-      .insert({ company_id: companyId, nome_fantasia: novoCliNome.trim(), telefone: novoCliTel.trim() || null })
+      .insert({
+        company_id: companyId, tipo_pessoa: novoCliTipo,
+        nome_fantasia: novoCliNome.trim(), razao_social: novoCliNome.trim(),
+        cpf_cnpj: doc, cnpj_cpf: doc,
+        telefone: novoCliTel.trim() || null, ativo: true,
+      })
       .select('id, nome_fantasia, cpf_cnpj')
       .single()
     setNovoCliSaving(false)
@@ -151,8 +165,28 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     const d = data as { id: string; nome_fantasia: string | null; cpf_cnpj: string | null }
     escolherCliente({ id: d.id, nome: d.nome_fantasia ?? novoCliNome.trim(), cpf_cnpj: d.cpf_cnpj })
     setNovoCliOpen(false)
-    setNovoCliNome('')
-    setNovoCliTel('')
+    setNovoCliNome(''); setNovoCliTel(''); setNovoCliDoc(''); setNovoCliTipo('PJ')
+  }
+
+  async function buscarCep() {
+    const digits = cep.replace(/\D/g, '')
+    if (digits.length !== 8) { setErr('CEP deve ter 8 dígitos.'); return }
+    setCepLoading(true); setErr(null)
+    try {
+      const r = await fetch(`/api/cep-lookup?cep=${digits}`)
+      const d = await r.json()
+      if (!r.ok || d.error) { setErr(d.error || 'CEP não encontrado.'); return }
+      setForm((f) => ({
+        ...f,
+        obra_endereco: [d.logradouro, d.complemento].filter(Boolean).join(', ') || f.obra_endereco,
+        obra_bairro: d.bairro || f.obra_bairro,
+        obra_cidade: [d.cidade, d.uf].filter(Boolean).join('/') || f.obra_cidade,
+      }))
+    } catch {
+      setErr('Erro ao buscar CEP.')
+    } finally {
+      setCepLoading(false)
+    }
   }
 
   async function salvar() {
@@ -232,11 +266,25 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               </button>
               {novoCliOpen && (
                 <div style={quickAddBox}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                    {(['PJ', 'PF'] as const).map((t) => (
+                      <button key={t} type="button" onClick={() => setNovoCliTipo(t)}
+                        style={{ flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${novoCliTipo === t ? '#C8941A' : '#E7DED3'}`, background: novoCliTipo === t ? 'rgba(200,148,26,0.10)' : '#fff', color: novoCliTipo === t ? '#A57A15' : '#6b5444' }}>
+                        {t === 'PJ' ? '🏢 PJ' : '👤 PF'}
+                      </button>
+                    ))}
+                  </div>
                   <input
                     value={novoCliNome}
                     onChange={(e) => setNovoCliNome(e.target.value)}
-                    placeholder="Nome do cliente *"
+                    placeholder={novoCliTipo === 'PF' ? 'Nome completo *' : 'Nome / razão social *'}
                     style={inp}
+                  />
+                  <input
+                    value={novoCliDoc}
+                    onChange={(e) => setNovoCliDoc(e.target.value)}
+                    placeholder={novoCliTipo === 'PF' ? 'CPF (opcional)' : 'CNPJ (opcional)'}
+                    style={{ ...inp, marginTop: 6 }}
                   />
                   <input
                     value={novoCliTel}
@@ -251,6 +299,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
                   >
                     {novoCliSaving ? 'Criando…' : 'CRIAR cliente'}
                   </button>
+                  <div style={{ fontSize: 10, color: '#6b5444', marginTop: 6 }}>Grava no cadastro central de clientes (disponível em GE/BPO/Financeiro).</div>
                 </div>
               )}
             </>
@@ -276,10 +325,16 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           </label>
           <label style={lbl}>
             Origem
-            <select value={form.origem ?? ''} onChange={(e) => setF('origem', e.target.value || null)} style={inp}>
-              <option value="">—</option>
-              {ORIGENS.map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
+            <input
+              list="origens-list"
+              value={form.origem ?? ''}
+              onChange={(e) => setF('origem', e.target.value || null)}
+              placeholder="Escolha ou digite uma nova"
+              style={inp}
+            />
+            <datalist id="origens-list">
+              {ORIGENS.map((o) => <option key={o} value={o} />)}
+            </datalist>
           </label>
           <label style={lbl}>
             Data prevista de fechamento
@@ -315,6 +370,24 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         {/* Obra */}
         <div style={{ marginTop: 14 }}>
           <div style={secHead}>Obra</div>
+          {/* Buscador de CEP (ViaCEP) — preenche endereço/bairro/cidade automático.
+              O usuário pode digitar tudo à mão também (os campos abaixo continuam livres). */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 4 }}>
+            <label style={{ ...lbl, flex: '0 0 160px' }}>
+              CEP
+              <input
+                value={cep}
+                onChange={(e) => setCep(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscarCep() } }}
+                placeholder="00000-000"
+                inputMode="numeric"
+                style={inp}
+              />
+            </label>
+            <button type="button" onClick={buscarCep} disabled={cepLoading} style={{ ...btnGhost, minHeight: 40 }}>
+              {cepLoading ? 'Buscando…' : '🔍 Buscar CEP'}
+            </button>
+          </div>
           <div style={grid}>
             <label style={lbl}>
               Endereço
