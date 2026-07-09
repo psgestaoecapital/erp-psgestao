@@ -31,13 +31,15 @@ const inp: React.CSSProperties = { padding: '9px 12px', border: '0.5px solid rgb
 export type ColaboradorBI = { cpf: string | null; departamento: string | null }
 export type HoraRowBI = { cpf: string | null; raw: unknown }
 
+type HeFaixas = { f1: number; f2: number; f3: number; f4: number; dsr: number; feriado: number }
 type BiTotais = {
   horas_trabalhadas: number; horas_extras: number; faltas: number; faltas_pct: number
   afastados_qtd: number; afastados_horas: number; folga_dsr: number
   noturno: number; banco: number; headcount: number; headcount_ativo: number
+  he_faixas?: HeFaixas; admissoes?: number
 }
-type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number }
-type BiColab = { cpf: string | null; nome: string | null; departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; noturno: number }
+type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number; noturno?: number; banco?: number; admissoes?: number }
+type BiColab = { cpf: string | null; nome: string | null; departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; noturno: number; banco?: number }
 type BiAfastado = { nome: string | null; departamento: string; afast_horas: number }
 type BiResult = { totais: BiTotais; afastados_lista: BiAfastado[]; por_departamento: BiDepto[]; por_colaborador: BiColab[] }
 
@@ -57,7 +59,8 @@ type SortKey = 'trabalhadas' | 'extras' | 'faltas' | 'noturno'
 type DrillState = { nome: string; departamento: string; campos: { label: string; valor: number }[] }
 
 function mesclarBi(parts: BiResult[]): BiResult {
-  const t: BiTotais = { horas_trabalhadas: 0, horas_extras: 0, faltas: 0, faltas_pct: 0, afastados_qtd: 0, afastados_horas: 0, folga_dsr: 0, noturno: 0, banco: 0, headcount: 0, headcount_ativo: 0 }
+  const hf: HeFaixas = { f1: 0, f2: 0, f3: 0, f4: 0, dsr: 0, feriado: 0 }
+  const t: BiTotais = { horas_trabalhadas: 0, horas_extras: 0, faltas: 0, faltas_pct: 0, afastados_qtd: 0, afastados_horas: 0, folga_dsr: 0, noturno: 0, banco: 0, headcount: 0, headcount_ativo: 0, he_faixas: hf, admissoes: 0 }
   const por_departamento: BiDepto[] = []
   const por_colaborador: BiColab[] = []
   const afastados_lista: BiAfastado[] = []
@@ -69,6 +72,8 @@ function mesclarBi(parts: BiResult[]): BiResult {
       t.faltas += pt.faltas ?? 0; t.afastados_qtd += pt.afastados_qtd ?? 0; t.afastados_horas += pt.afastados_horas ?? 0
       t.folga_dsr += pt.folga_dsr ?? 0; t.noturno += pt.noturno ?? 0; t.banco += pt.banco ?? 0
       t.headcount += pt.headcount ?? 0; t.headcount_ativo += pt.headcount_ativo ?? 0
+      t.admissoes = (t.admissoes ?? 0) + (pt.admissoes ?? 0)
+      if (pt.he_faixas) { hf.f1 += pt.he_faixas.f1 ?? 0; hf.f2 += pt.he_faixas.f2 ?? 0; hf.f3 += pt.he_faixas.f3 ?? 0; hf.f4 += pt.he_faixas.f4 ?? 0; hf.dsr += pt.he_faixas.dsr ?? 0; hf.feriado += pt.he_faixas.feriado ?? 0 }
     }
     por_departamento.push(...(p.por_departamento ?? []))
     por_colaborador.push(...(p.por_colaborador ?? []))
@@ -188,8 +193,29 @@ export default function PainelGente({ companyId, dataIni, dataFim, colabs, horas
               <KpiSemaforo tom="verde" titulo="Afastados" valor={String(totais.afastados_qtd)} contexto={totais.afastados_qtd > 0 ? 'INSS / licença / atestado longo' : 'ninguém afastado'} nota={totais.afastados_qtd > 0 ? 'toque pra ver quem' : undefined} />
             </div>
             <KpiSemaforo tom="verde" titulo="Folga / DSR" valor={h1(totais.folga_dsr)} contexto="descanso escalado · não é falta" />
-            <KpiSemaforo tom="verde" titulo="Noturno + Banco" valor={h1(totais.noturno + totais.banco)} contexto={`${h1(totais.noturno)} noturno · ${h1(totais.banco)} banco`} />
+            <KpiSemaforo tom="verde" titulo="Adicional noturno" valor={h1(totais.noturno)} contexto="horas em período noturno" />
+            <KpiSemaforo tom="verde" titulo="Banco de horas" valor={h1(totais.banco)} contexto="saldo acumulado no período" />
+            <KpiSemaforo tom="verde" titulo="Admissões no período" valor={String(totais.admissoes ?? 0)} contexto="entradas (data de admissão)" />
           </div>
+
+          {/* HE por faixa (barras) */}
+          {totais.he_faixas && (totais.he_faixas.f1 + totais.he_faixas.f2 + totais.he_faixas.f3 + totais.he_faixas.f4 + totais.he_faixas.dsr + totais.he_faixas.feriado) > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 6 }}>Horas extras por faixa</div>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={[
+                  { nome: 'Faixa 1', h: totais.he_faixas.f1 }, { nome: 'Faixa 2', h: totais.he_faixas.f2 },
+                  { nome: 'Faixa 3', h: totais.he_faixas.f3 }, { nome: 'Faixa 4', h: totais.he_faixas.f4 },
+                  { nome: 'DSR', h: totais.he_faixas.dsr }, { nome: 'Feriado', h: totais.he_faixas.feriado },
+                ]} margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                  <XAxis dataKey="nome" tick={{ fontSize: 10, fill: ESP }} />
+                  <YAxis tick={{ fontSize: 10, fill: MUT }} />
+                  <Tooltip formatter={(v) => [`${Number(v).toFixed(1)}h`, 'Horas extras'] as [string, string]} />
+                  <Bar dataKey="h" radius={[4, 4, 0, 0]}>{[0, 1, 2, 3, 4, 5].map((i) => <Cell key={i} fill={GOLD} />)}</Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {barras.length > 0 && (
             <div style={{ marginBottom: 16 }}>
@@ -214,6 +240,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, colabs, horas
                   <ThSort ativo={sortKey === 'extras'} onClick={() => setSortKey('extras')}>Extras</ThSort>
                   <ThSort ativo={sortKey === 'faltas'} onClick={() => setSortKey('faltas')}>Faltas</ThSort>
                   <ThSort ativo={sortKey === 'noturno'} onClick={() => setSortKey('noturno')}>Noturno</ThSort>
+                  <Th>Banco</Th>
                 </tr>
               </thead>
               <tbody>
@@ -226,6 +253,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, colabs, horas
                     <Td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: c.extras > 0 ? GOLD : MUT }}>{h1(c.extras)}</Td>
                     <Td style={{ fontVariantNumeric: 'tabular-nums' }}>{h1(c.faltas)}</Td>
                     <Td style={{ fontVariantNumeric: 'tabular-nums' }}>{h1(c.noturno)}</Td>
+                    <Td style={{ fontVariantNumeric: 'tabular-nums', color: MUT }}>{c.banco != null ? h1(c.banco) : '—'}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -234,6 +262,19 @@ export default function PainelGente({ companyId, dataIni, dataFim, colabs, horas
           <p style={{ fontSize: 10, color: MUT, margin: '6px 2px 0' }}>Toque num colaborador pra abrir os 37 campos da jornada dele.</p>
         </>
       )}
+
+      {/* TIER 2 — indicadores do catálogo que ainda não têm base de dado.
+          Regra de ouro: NUNCA esconder, NUNCA inventar. Aparecem com "SEM DADOS DISPONÍVEIS". */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 8 }}>Ainda sem base de dado</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          <SemDados titulo="📈 Histórico de HE / absenteísmo" falta="requer ≥2 períodos (hoje 1 semana; enche a cada sync)" />
+          <SemDados titulo="🔄 Turnover por setor" falta="requer data de desligamento (só há admissão)" />
+          <SemDados titulo="❄️ Pausas térmicas NR-36" falta="requer regra NR-36 + marcações de intervalo" />
+          <SemDados titulo="⏱️ Infrações inter/intrajornada" falta="requer regra NR-36/acordo + marcações par-a-par" />
+          <SemDados titulo="💵 Custo de mão de obra" falta="requer valor-hora" />
+        </div>
+      </div>
 
       {drill && <DrillJornada drill={drill} onClose={() => setDrill(null)} />}
       {afastAberto && <AfastadosPanel lista={bi?.afastados_lista ?? []} onClose={() => setAfastAberto(false)} />}
@@ -266,6 +307,16 @@ function AfastadosPanel({ lista, onClose }: { lista: BiAfastado[]; onClose: () =
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+function SemDados({ titulo, falta }: { titulo: string; falta: string }) {
+  return (
+    <div style={{ background: BG, border: `1px dashed ${LINE}`, borderRadius: 10, padding: '14px 14px' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>{titulo}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: '#854F0B', background: '#FAEEDA', display: 'inline-block', padding: '2px 8px', borderRadius: 6 }}>SEM DADOS DISPONÍVEIS</div>
+      <div style={{ fontSize: 11, color: MUT, marginTop: 8, fontStyle: 'italic' }}>{falta}</div>
     </div>
   )
 }
