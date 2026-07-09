@@ -214,6 +214,21 @@ export default function PontoView({ lente }: { lente: Lente }) {
     setOk(`IMPORTOU ${j?.total_processados ?? 0} colaboradores pro Compliance · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
   }
 
+  // GATE LGPD (diretriz CEO): o Ponto mostra NOMES (dado pessoal) → só quem opera o ponto.
+  // Reusa fn_bi_gente_setores_visiveis: bypass (PS_ADMIN/OWNER) ou quem tem escopo no
+  // domínio 'gente'. Sem acesso → tela restrita (não renderiza nomes).
+  const [acessoPonto, setAcessoPonto] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!empresaUnica) { setAcessoPonto(null); return }
+    let alive = true
+    void supabase.rpc('fn_bi_gente_setores_visiveis', { p_company_id: empresaUnica }).then(({ data }) => {
+      if (!alive) return
+      const s = data as { ve_tudo?: boolean; setores?: string[] } | null
+      setAcessoPonto(!!(s?.ve_tudo || (s?.setores && s.setores.length > 0)))
+    })
+    return () => { alive = false }
+  }, [empresaUnica])
+
   const colabsFiltrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return colabs
@@ -240,6 +255,18 @@ export default function PontoView({ lente }: { lente: Lente }) {
     return (
       <Casca rotulo={rotuloArea}>
         <EmptyBox titulo="Selecione uma empresa" texto="Ponto eletrônico é operacional por empresa. Escolha uma empresa específica no menu superior (sem modo consolidado/grupo)." />
+      </Casca>
+    )
+  }
+
+  // GATE LGPD: o Ponto expõe NOMES → só renderiza pra quem opera o ponto (acesso confirmado).
+  // Enquanto verifica, não mostra nada nominal.
+  if (acessoPonto !== true) {
+    return (
+      <Casca rotulo={rotuloArea}>
+        {acessoPonto === null
+          ? <EmptyBox titulo="Verificando acesso…" texto="Checando permissão para abrir o Ponto Eletrônico." />
+          : <EmptyBox titulo="Acesso restrito" texto="O Ponto Eletrônico mostra dados de jornada por pessoa (nomes) e é restrito a quem opera o ponto. Indicadores agregados (sem nomes) estão em Inteligência → Indicadores de Gente. Fale com o administrador se você precisa operar o ponto." />}
       </Casca>
     )
   }

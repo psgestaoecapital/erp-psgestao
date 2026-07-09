@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import PainelGente, { type ColaboradorBI, type HoraRowBI } from '@/components/inteligencia/PainelGente'
+import PainelGente from '@/components/inteligencia/PainelGente'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -31,22 +31,16 @@ export default function InteligenciaPage() {
   const [aba, setAba] = useState<Aba>('gente')
   const [dataIni, setDataIni] = useState(inicioMes())
   const [dataFim, setDataFim] = useState(toISO(new Date()))
-  const [colabs, setColabs] = useState<ColaboradorBI[]>([])
-  const [horas, setHoras] = useState<HoraRowBI[]>([])
   const [setoresPermitidos, setSetoresPermitidos] = useState<string[] | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // LGPD: o BI é agregado — NÃO buscamos colaborador/horas (dado pessoal) pro client.
+  // Só o escopo (setores visíveis). O agregado por setor é calculado no banco (fn_ponto_bi_agregado).
   const carregar = useCallback(async () => {
     if (!empresaUnica) { setLoading(false); return }
     setLoading(true)
-    const [colabRes, horasRes, scopeRes] = await Promise.all([
-      supabase.from('ind_ponto_colaborador').select('cpf, departamento').eq('company_id', empresaUnica).limit(1000),
-      supabase.from('ind_ponto_horas').select('cpf, raw').eq('company_id', empresaUnica).order('periodo_inicio', { ascending: false }).limit(500),
-      supabase.rpc('fn_bi_gente_setores_visiveis', { p_company_id: empresaUnica }),
-    ])
-    setColabs((colabRes.data ?? []) as ColaboradorBI[])
-    setHoras((horasRes.data ?? []) as HoraRowBI[])
-    const scope = scopeRes.data as { ve_tudo?: boolean; setores?: string[] } | null
+    const { data } = await supabase.rpc('fn_bi_gente_setores_visiveis', { p_company_id: empresaUnica })
+    const scope = data as { ve_tudo?: boolean; setores?: string[] } | null
     setSetoresPermitidos(scope?.ve_tudo ? null : (scope?.setores ?? []))
     setLoading(false)
   }, [empresaUnica])
@@ -60,10 +54,10 @@ export default function InteligenciaPage() {
 
   const conteudo = useMemo(() => {
     if (aba === 'gente') {
-      return <PainelGente companyId={empresaUnica} dataIni={dataIni} dataFim={dataFim} colabs={colabs} horas={horas} setoresPermitidos={setoresPermitidos} />
+      return <PainelGente companyId={empresaUnica} dataIni={dataIni} dataFim={dataFim} setoresPermitidos={setoresPermitidos} />
     }
     return null
-  }, [aba, empresaUnica, dataIni, dataFim, colabs, horas, setoresPermitidos])
+  }, [aba, empresaUnica, dataIni, dataFim, setoresPermitidos])
 
   if (!empresaUnica) {
     return <div style={{ background: BG, minHeight: '100vh', padding: 32, color: MUT, fontSize: 14 }}>Selecione uma empresa específica no topo para ver a Inteligência.</div>
