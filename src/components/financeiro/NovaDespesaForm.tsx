@@ -63,6 +63,10 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [observacao, setObservacao] = useState('')
   const [jaPago, setJaPago] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
+  // Fatia 3 estabilização nova-despesa (09/07): ⚡ conta com integração + salvar-dropdown
+  const [contasAuto, setContasAuto] = useState<Set<string>>(new Set())
+  const [ok, setOk] = useState<string | null>(null)
+  const [salvarMenu, setSalvarMenu] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -85,7 +89,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     if (!companyId) return
     let alive = true
     ;(async () => {
-      const [forn, cats, bcs] = await Promise.all([
+      const [forn, cats, bcs, prov] = await Promise.all([
         supabase
           .from('erp_fornecedores')
           .select('id, nome_fantasia, razao_social, cpf_cnpj')
@@ -105,11 +109,20 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           .eq('company_id', companyId)
           .eq('ativo', true)
           .order('nome'),
+        // Fatia 3: contas com integração bancária ativa → ícone ⚡ (concilia automático)
+        supabase
+          .from('erp_banco_provider_config')
+          .select('banco_conta_id')
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+          .not('banco_conta_id', 'is', null),
       ])
       if (!alive) return
       setFornecedores((forn.data as Fornecedor[] | null) ?? [])
       setCategorias((cats.data as Categoria[] | null) ?? [])
       setContas((bcs.data as ContaBancaria[] | null) ?? [])
+      setContasAuto(new Set(((prov.data as { banco_conta_id: string | null }[] | null) ?? [])
+        .map((p) => p.banco_conta_id).filter((x): x is string => !!x)))
     })()
     return () => {
       alive = false
@@ -124,7 +137,19 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     return null
   }
 
-  async function salvar() {
+  function limparForm() {
+    setFornecedorId(''); setFornecedorNome(''); setDescricao(''); setValor('')
+    setDataVencimento(new Date().toISOString().split('T')[0]); setDataCompetencia('')
+    setParcelas(1); setIntervaloDias(30); setCategoriaCodigo(''); setNumeroDocumento('')
+    setObservacao(''); setJaPago(false); setContaBancaria('')
+  }
+
+  // modo: 'fechar' = comportamento padrão (redireciona/onSucesso);
+  //       'nova' = salva e limpa o form pra lançar outra; 'duplicar' = salva e MANTÉM os
+  //       valores pra lançar uma parecida. (Fatia 3 · "Salvar" dropdown estilo ContaAzul.)
+  async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar') {
+    setSalvarMenu(false)
+    setOk(null)
     const erroValidacao = validar()
     if (erroValidacao) {
       setErro(erroValidacao)
@@ -215,8 +240,18 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
 
     const primeiroId = ids[0]
     if (origemConciliacao) {
-      // Volta pra Conciliacao (o movimento agora esta CONCILIADO)
+      // Volta pra Conciliacao (o movimento agora esta CONCILIADO) — fluxo sempre fecha.
       router.push('/dashboard/financeiro/conciliacao/inbox')
+      return
+    }
+    // Fatia 3: "Salvar e nova" / "Salvar e duplicar" NÃO navegam — ficam no form.
+    if (modo === 'nova') {
+      limparForm()
+      setOk('✓ CRIOU a despesa. Form limpo pra lançar outra.')
+      return
+    }
+    if (modo === 'duplicar') {
+      setOk('✓ CRIOU a despesa. Valores mantidos — ajuste e salve outra.')
       return
     }
     if (primeiroId && onSucesso) {
@@ -426,17 +461,22 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               style={inputStyle}
             >
               <option value="">— escolher depois —</option>
-              {contas.map((c) => (
-                <option key={c.id} value={c.nome}>
-                  {c.nome}{c.banco ? ` · ${c.banco}` : ''}
-                </option>
-              ))}
+              {contas.map((c) => {
+                const auto = contasAuto.has(c.id)
+                return (
+                  <option key={c.id} value={c.nome}>
+                    🏦 {c.nome}{c.banco ? ` · ${c.banco}` : ''}{auto ? ' ⚡' : ''}
+                  </option>
+                )
+              })}
             </select>
-            {contas.length === 0 && (
+            {contas.length === 0 ? (
               <small style={{ ...helperStyle, color: '#854F0B' }}>
                 Nenhuma conta bancária cadastrada · pule por agora
               </small>
-            )}
+            ) : contasAuto.size > 0 ? (
+              <small style={helperStyle}>⚡ = conta com integração bancária (concilia automático)</small>
+            ) : null}
           </Campo>
 
           <Campo label="Número do documento (opcional)">
@@ -512,6 +552,11 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             {erro}
           </div>
         )}
+        {ok && (
+          <div style={{ background: '#EAF3DE', color: '#3B6D11', padding: '10px 14px', borderRadius: 6, marginTop: 18, fontSize: 13, fontWeight: 600 }}>
+            {ok}
+          </div>
+        )}
 
         <div
           style={{
@@ -537,23 +582,39 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           >
             Cancelar
           </button>
-          <button
-            onClick={salvar}
-            disabled={loading}
-            style={{
-              background: '#C8941A',
-              color: '#3D2314',
-              border: 'none',
-              padding: '10px 28px',
-              borderRadius: 6,
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: loading ? 'wait' : 'pointer',
-              opacity: loading ? 0.6 : 1,
-            }}
-          >
-            {loading ? 'Salvando...' : 'Salvar despesa'}
-          </button>
+          {/* Fatia 3: dropdown Salvar (Salvar / Salvar e nova / Salvar e duplicar) */}
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              onClick={() => void salvar('fechar')}
+              disabled={loading}
+              style={{
+                background: '#C8941A', color: '#3D2314', border: 'none',
+                padding: '10px 20px', borderRadius: '6px 0 0 6px', fontSize: 13, fontWeight: 500,
+                cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
+              }}
+            >
+              {loading ? 'Salvando...' : 'Salvar despesa'}
+            </button>
+            <button
+              type="button"
+              aria-label="Mais opções de salvar"
+              onClick={() => setSalvarMenu((v) => !v)}
+              disabled={loading}
+              style={{
+                background: '#C8941A', color: '#3D2314', border: 'none',
+                borderLeft: '1px solid rgba(61,35,20,0.25)', padding: '10px 12px',
+                borderRadius: '0 6px 6px 0', fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
+              }}
+            >
+              ▾
+            </button>
+            {salvarMenu && !loading && (
+              <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, boxShadow: '0 8px 24px rgba(61,35,20,0.15)', zIndex: 20, minWidth: 200, overflow: 'hidden' }}>
+                <button type="button" onClick={() => void salvar('nova')} style={menuItemStyle}>Salvar e lançar nova</button>
+                <button type="button" onClick={() => void salvar('duplicar')} style={{ ...menuItemStyle, borderTop: '0.5px solid rgba(61,35,20,0.1)' }}>Salvar e duplicar</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -705,6 +766,18 @@ const helperStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'rgba(61,35,20,0.55)',
   marginTop: 4,
+}
+
+const menuItemStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  background: 'transparent',
+  border: 'none',
+  padding: '10px 14px',
+  fontSize: 13,
+  color: '#3D2314',
+  cursor: 'pointer',
 }
 
 function Campo({
