@@ -207,6 +207,9 @@ export default function OportunidadeFichaPage() {
 
   async function gerarOrcamento() {
     if (!op) return
+    // Confirma antes de criar (Pilar 3 · não surpreender): o clique gera um
+    // erp_orcamentos real vinculado — sem este confirm o CEO se surpreendeu.
+    if (!confirm('Isto vai CRIAR um orçamento vinculado a esta oportunidade. Continuar?')) return
     setGerandoOrc(true)
     const o = await criarOrcamentoBase()
     if (!o) { setGerandoOrc(false); return }
@@ -218,6 +221,8 @@ export default function OportunidadeFichaPage() {
 
   async function gerarOrcamentoDaVisita(visitaId: string) {
     if (!op) return
+    // Se ainda não há orçamento, este clique CRIA um. Confirma pra não surpreender.
+    if (!op.orcamento_id && !confirm('Isto vai CRIAR um orçamento vinculado a esta oportunidade (a partir da visita). Continuar?')) return
     setGerandoOrcDeVisita(visitaId)
     let orcId = op.orcamento_id
     let numero = ''
