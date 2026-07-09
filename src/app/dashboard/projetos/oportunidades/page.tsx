@@ -19,6 +19,7 @@ type Row = {
   obra_bairro: string | null
   probabilidade: number | null
   responsavel_id: string | null
+  responsavel_nome: string | null
   data_prevista_fechamento: string | null
   observacoes: string | null
   created_at: string
@@ -78,7 +79,7 @@ export default function OportunidadesPage() {
     const [lista, pipe] = await Promise.all([
       supabase
         .from('erp_crm_oportunidade')
-        .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, origem, obra_endereco, obra_cidade, obra_bairro, probabilidade, responsavel_id, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
+        .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, origem, obra_endereco, obra_cidade, obra_bairro, probabilidade, responsavel_id, responsavel_nome, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
         .eq('company_id', empresaUnica)
         .order('created_at', { ascending: false }),
       supabase.rpc('fn_crm_pipeline', { p_company_id: empresaUnica }),
@@ -108,6 +109,7 @@ export default function OportunidadesPage() {
       obra_cidade: r.obra_cidade,
       obra_bairro: r.obra_bairro,
       responsavel_id: r.responsavel_id,
+      responsavel_nome: r.responsavel_nome,
       data_prevista_fechamento: r.data_prevista_fechamento,
       probabilidade: r.probabilidade,
       observacoes: r.observacoes,
