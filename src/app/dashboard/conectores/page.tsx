@@ -53,7 +53,7 @@ const CONNECTORS = [
   { id: 'scada', nome: 'SCADA / OPC-UA', cat: 'erp_industrial', status: 'planejado', cor: '#64748B', campos: [] },
   { id: 'lims', nome: 'LIMS', cat: 'erp_industrial', status: 'planejado', cor: '#0F766E', campos: [] },
   { id: 'siagri', nome: 'Siagri / Aliare', cat: 'erp_agro', status: 'planejado', cor: '#16A34A', campos: [] },
-  { id: 'iopoint', nome: 'IO Point', cat: 'rh_ponto', status: 'em_breve', cor: '#2563EB', campos: [{ k: 'iopoint_api_key', l: 'API Key', p: 'Token IO Point' }] },
+  { id: 'iopoint', nome: 'IO Point', cat: 'rh_ponto', status: 'ativo', cor: '#2563EB', campos: [{ k: 'iopoint_api_key', l: 'API Key', p: 'Token IO Point' }], pontoProvider: true },
   { id: 'pontotel', nome: 'Pontotel', cat: 'rh_ponto', status: 'planejado', cor: '#7C3AED', campos: [] },
   { id: 'dominio', nome: 'Dominio Sistemas', cat: 'rh_ponto', status: 'planejado', cor: '#0369A1', campos: [] },
   { id: 'produttivo', nome: 'Produttivo', cat: 'manutencao', status: 'em_breve', cor: '#2DD4BF', campos: [{ k: 'produttivo_api_key', l: 'API Key', p: 'Token Produttivo' }] },
@@ -253,7 +253,22 @@ export default function ConectoresPage() {
       setMsg('Preencha ao menos um campo pra salvar.')
     } else {
       const jaTinha = vaultCreds[provider]
-      setMsg(`${jaTinha ? 'ALTEROU' : 'SALVOU'} ${salvos} credencial(is) no Vault para ${empresa.nome_fantasia || empresa.razao_social}`)
+      // AUTO-CONECTAR PONTO (Opcao B · CEO): salvar a chave LIGA tudo sozinho.
+      // Providers de ponto (IO Point) → fn_ponto_provider_conectar cria/atualiza a
+      // industrial_plants "Matriz" (se faltar) + ind_ponto_provider_config. O botao
+      // de Sincronizar (com periodo) passa a aparecer no Ponto Eletronico. Sem sync
+      // fake aqui (Pilar 3 / nao mentir).
+      let extra = ''
+      if ((con as { pontoProvider?: boolean }).pontoProvider) {
+        const { data: conn, error: connErr } = await supabase.rpc('fn_ponto_provider_conectar', { p_company_id: empresa.id })
+        if (connErr) {
+          extra = ` · ⚠ credencial salva, mas o ponto não ligou automaticamente: ${connErr.message}`
+        } else {
+          const c = conn as { criou_planta?: boolean } | null
+          extra = ` · Ponto Eletrônico LIGADO${c?.criou_planta ? ' (unidade Matriz criada)' : ''} — sincronize em Ponto Eletrônico.`
+        }
+      }
+      setMsg(`${jaTinha ? 'ALTEROU' : 'SALVOU'} ${salvos} credencial(is) no Vault para ${empresa.nome_fantasia || empresa.razao_social}${extra}`)
       // Recarrega badges + ids das credenciais (Vault OK + botao Excluir)
       await recarregarVault()
       // Limpa inputs de credencial pra nao ficar valor em memoria depois de gravado
@@ -469,7 +484,7 @@ export default function ConectoresPage() {
                           {deleting === con.id ? '...' : '🗑 Excluir'}
                         </button>
                       )}
-                      {con.status === 'ativo' && (
+                      {con.status === 'ativo' && !(con as { pontoProvider?: boolean }).pontoProvider && (
                         <>
                           {(con as any).oauth && <button onClick={() => conectarOAuth(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#0EA5E9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🔗 Conectar</button>}
                           <button onClick={() => testar(con.id)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid ' + C.b, background: 'transparent', color: C.b, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Testar</button>
@@ -477,6 +492,13 @@ export default function ConectoresPage() {
                             {syncing ? 'Sincronizando...' : 'Sincronizar Agora'}
                           </button>
                         </>
+                      )}
+                      {/* Providers de ponto: sync real (com periodo) vive no Ponto Eletronico.
+                          Nao fingimos sync aqui — mandamos pra tela certa (Pilar 3 / nao mentir). */}
+                      {(con as { pontoProvider?: boolean }).pontoProvider && (
+                        <a href="/dashboard/compliance/ponto" style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.g, color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
+                          ⟳ Sincronizar em Ponto Eletrônico →
+                        </a>
                       )}
                     </div>
                     {con.status !== 'ativo' && <div style={{ fontSize: 9, color: C.txd, marginTop: 6 }}>Integracao em desenvolvimento. Salve as credenciais para quando ativarmos.</div>}
