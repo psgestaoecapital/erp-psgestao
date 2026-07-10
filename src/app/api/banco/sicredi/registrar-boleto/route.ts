@@ -126,7 +126,10 @@ export async function POST(req: NextRequest) {
     const emissaoPretendida = rec.data_emissao ?? hojeSP
     const emissaoISO = emissaoPretendida > hojeSP ? hojeSP : emissaoPretendida
     const vencimentoISO = rec.data_vencimento < emissaoISO ? emissaoISO : rec.data_vencimento
-    const seuNumero = (rec.numero_documento ?? rec.id.slice(0, 12)).toString()
+    // Sicredi limita "seuNumero" a 10 caracteres e recusa caracteres especiais
+    // (400 BAD_REQUEST "O seu numero do boleto deve ter até 10 caracteres").
+    // Normaliza: só alfanumérico, no máx. 10. Sem numero_documento, deriva do id.
+    const seuNumero = (rec.numero_documento ?? rec.id).toString().replace(/[^0-9A-Za-z]/g, '').slice(0, 10)
 
     const cred = {
       username, password, api_key: apiKey, ambiente,
