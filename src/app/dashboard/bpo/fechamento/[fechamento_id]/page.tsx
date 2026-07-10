@@ -5,6 +5,7 @@
 
 import { useEffect, useState, use } from "react";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { APP_URL } from "@/lib/appUrl";
 
 interface Dados {
   empresa: { id: string; nome: string; cnpj: string; regime: string | null };
@@ -113,7 +114,7 @@ export default function FechamentoDetalhePage({
     if (!f || !f.dados_consolidados) return;
     const empresa = f.dados_consolidados.empresa.nome;
     const mes = f.dados_consolidados.mes_referencia_label;
-    const portal = `${window.location.origin}/cliente/${f.company_id}/${f.link_portal}`;
+    const portal = `${APP_URL}/cliente/${f.company_id}/${f.link_portal}`;
     const msg = encodeURIComponent(
       `Olá! Segue o fechamento mensal de ${mes} da ${empresa}.\n\nReceita: ${fmtMoney(f.dados_consolidados.resumo.receita_total)}\nEBITDA: ${fmtMoney(f.dados_consolidados.resumo.ebitda)} (${f.dados_consolidados.resumo.margem_ebitda_pct}%)\n\nVeja o relatório completo no portal:\n${portal}\n\n— PS Gestão & Capital`
     );
@@ -125,7 +126,7 @@ export default function FechamentoDetalhePage({
 
   function copiarLinkPortal() {
     if (!f) return;
-    const portal = `${window.location.origin}/cliente/${f.company_id}/${f.link_portal}`;
+    const portal = `${APP_URL}/cliente/${f.company_id}/${f.link_portal}`;
     navigator.clipboard.writeText(portal);
     setAviso("Link do portal copiado!");
     setTimeout(() => setAviso(null), 3000);

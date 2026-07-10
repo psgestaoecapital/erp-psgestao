@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { APP_URL } from "@/lib/appUrl";
 import AreasContratadasModal from "@/components/admin/AreasContratadasModal";
 import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
 
@@ -360,7 +361,7 @@ export default function AdminPage(){
     }
     const{error}=await supabase.from("invites").insert(inviteData);
     if(error){setMsg("Erro: "+error.message);return;}
-    setGeneratedLink("https://erp-psgestao.vercel.app/convite?code="+code);setCopied(false);loadData();
+    setGeneratedLink(`${APP_URL}/convite?code=`+code);setCopied(false);loadData();
   };
 
   const atualizarRole=async(uid:string,nr:string)=>{await supabase.from("users").update({role:nr}).eq("id",uid);setUsuarios(usuarios.map(u=>u.id===uid?{...u,role:nr}:u));setMsg("Nível atualizado!");};
