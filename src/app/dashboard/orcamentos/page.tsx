@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
@@ -382,7 +383,7 @@ export default function OrcamentosPage(){
   };
 
   const copiarLinkPublico=(o:Orcamento)=>{
-    const url=`${window.location.origin}/orcamento/${o.hash_publico}`;
+    const url=`${APP_URL}/orcamento/${o.hash_publico}`;
     navigator.clipboard.writeText(url);
     setMsg(`✅ Link copiado: ${url}`);
     setTimeout(()=>setMsg(""),3000);

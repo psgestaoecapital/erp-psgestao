@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
+import { APP_URL as APP_BASE } from '@/lib/appUrl'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -9,8 +10,8 @@ const GOLD = '#C8941A'
 const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'
 
-// URL de PRODUCAO (sem hash) — o QR e o link levam pra ca.
-const APP_URL = 'https://erp-psgestao.vercel.app/dashboard/agro/rebanho'
+// URL de PRODUCAO (sem hash) — o QR e o link levam pra ca. Base canônica única (RD-38).
+const APP_URL = `${APP_BASE}/dashboard/agro/rebanho`
 const WPP_MSG =
   `Instale o app PS Gestão no seu celular: ${APP_URL}\n\n` +
   `ANDROID: abra no Chrome → menu (3 pontos) → Instalar app.\n` +
