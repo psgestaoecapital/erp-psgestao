@@ -103,7 +103,9 @@ export default function PedidosPage(){
     setItensDetalhe(data||[]);
   };
 
-  const pedidoEditavel=(p:Pedido)=>!['faturado','cancelado'].includes(p.status);
+  // RD-25: o marco imutável do pedido é a NF EMITIDA (não o status). Faturado sem NF ainda
+  // edita; com NF, bloqueia (crie novo pedido). Cancelado também não edita.
+  const pedidoEditavel=(p:Pedido)=>!p.nf_emitida && p.status!=='cancelado';
 
   const abrirEditarItens=async(p:Pedido)=>{
     const{data}=await supabase.from("erp_pedidos_itens").select("*").eq("pedido_id",p.id).order("ordem");
@@ -144,33 +146,23 @@ export default function PedidosPage(){
   const salvarItensEdicao=async()=>{
     if(!editarItens)return;
     setSalvandoItens(true);
-    // Estrategia: delete all e re-insert · o trigger recalc_pedido_total atualiza o total do pedido
-    await supabase.from("erp_pedidos_itens").delete().eq("pedido_id",editarItens.id);
-    const validos=itensEdicao.filter(it=>(it.produto_nome||'').trim()!=='').map((it,idx)=>({
-      pedido_id:editarItens.id,
-      company_id:editarItens.company_id,
-      ordem:idx+1,
-      tipo_item:it.tipo_item||'produto',
-      produto_id:it.produto_id||null,
-      produto_codigo:it.produto_codigo||null,
-      produto_nome:it.produto_nome,
-      unidade:it.unidade||'UN',
-      quantidade:Number(it.quantidade)||0,
-      preco_unitario:Number(it.preco_unitario)||0,
-      desconto_percentual:Number(it.desconto_percentual)||0,
-      desconto_valor:Number(it.desconto_valor)||0,
-      subtotal:recalcSubtotalLinha(it),
-      observacoes:it.observacoes||null,
-    }));
-    if(validos.length>0){
-      const{error}=await supabase.from("erp_pedidos_itens").insert(validos);
-      if(error){setSalvandoItens(false);setMsg("❌ "+error.message);return;}
-    }
+    // RD-25: grava via fn_pedido_editar_itens (defesa REAL no backend — valida NF emitida,
+    // regrava itens, trigger recalc_pedido_total cuida do total, registra trilha). Substitui
+    // o delete/insert cru do front (que não checava NF nem deixava rastro).
+    const{data,error}=await supabase.rpc('fn_pedido_editar_itens',{
+      p_pedido_id:editarItens.id,
+      p_itens:itensEdicao,
+    });
     setSalvandoItens(false);
+    if(error){setMsg("❌ "+error.message);return;}
+    const r=data as {ok?:boolean;erro?:string;itens?:number;titulos_precisa_revisao?:boolean}|null;
+    if(!r||r.ok===false){setMsg("❌ "+(r?.erro||"Falha ao salvar itens do pedido"));return;}
     setEditarItens(null);
-    setMsg("✅ Itens do pedido ALTERADOS · total recalculado.");
+    setMsg(r.titulos_precisa_revisao
+      ? `✅ ${r.itens} item(ns) salvos · total recalculado. ⚠️ Títulos já gerados — revise as Contas a Receber.`
+      : `✅ ${r.itens} item(ns) salvos · total recalculado.`);
     loadPedidos();
-    setTimeout(()=>setMsg(""),3000);
+    setTimeout(()=>setMsg(""),r.titulos_precisa_revisao?6000:3000);
   };
 
   const gerarTitulosReceber=async(p:Pedido)=>{
@@ -361,9 +353,11 @@ export default function PedidosPage(){
             {/* Itens */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:11,fontWeight:600,color:GO}}>📦 Itens</div>
-              {pedidoEditavel(showDetalhes)&&(
+              {pedidoEditavel(showDetalhes)?(
                 <button className="no-print" onClick={()=>{abrirEditarItens(showDetalhes);setShowDetalhes(null);}} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:B+"15",color:B,border:`1px solid ${B}40`,cursor:"pointer",fontWeight:600}}>✏️ Editar Itens</button>
-              )}
+              ):showDetalhes.nf_emitida?(
+                <span title="NF emitida — pedido imutável" style={{fontSize:9,padding:"3px 8px",borderRadius:6,background:GO+"18",color:GO,fontWeight:600}}>🔒 Faturado (NF) — crie um novo pedido p/ demanda extra</span>
+              ):null}
             </div>
             <div style={{background:BG3,borderRadius:10,overflow:"hidden",marginBottom:16}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
