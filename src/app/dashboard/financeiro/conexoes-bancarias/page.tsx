@@ -445,20 +445,27 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
   async function salvar() {
     setSalvando(true); setErro(null)
     try {
-      // Sicredi Cobrança (v3.9.1): grava via fn_banco_salvar_credencial — escreve os
-      // segredos no Vault E seta os *_vault_id que fn_banco_obter_credencial lê (o
-      // fluxo genérico via fn_credencial_salvar NÃO alimenta o adapter). Segredos:
-      // api_key (x-api-key) + codigo_acesso (password OAuth, no slot client_secret · dívida 2ii).
-      if (banco.sigla === 'sicredi') {
-        const { data, error } = await supabase.rpc('fn_banco_salvar_credencial', {
+      // Bancos cujo adapter lê via fn_banco_obter_credencial (Vault *_vault_id):
+      // Sicredi e Sicoob. Salvar via fn_banco_salvar_credencial — que grava os
+      // segredos no Vault E seta banco_codigo + *_vault_id que o adapter lê. O fluxo
+      // genérico (fn_credencial_salvar) NÃO alimenta o adapter → daria "cert/segredo faltando".
+      if (banco.sigla === 'sicredi' || banco.sigla === 'sicoob') {
+        const params: Record<string, unknown> = {
           p_company_id: companyId, p_banco_codigo: String(banco.codigo), p_provider: banco.sigla, p_ambiente: ambiente,
-          p_api_key: apiKey || null, p_client_secret: codigoAcesso || null, p_client_id: null,
-          p_cooperativa: cooperativa || null, p_codigo_beneficiario: codBenef || null, p_posto: posto || null,
+          p_cooperativa: cooperativa || null, p_codigo_beneficiario: codBenef || null,
           p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: false, p_ativo: true,
-        })
+        }
+        if (banco.sigla === 'sicredi') {
+          // OAuth Cobrança: x-api-key + Código de Acesso (slot client_secret). Sem client_id/cert.
+          Object.assign(params, { p_api_key: apiKey || null, p_client_secret: codigoAcesso || null, p_client_id: null, p_posto: posto || null })
+        } else {
+          // Sicoob: client_id + certificado A1 (mTLS) no Vault + conta. Sem api_key.
+          Object.assign(params, { p_client_id: clientId || null, p_cert_base64: certA1Base64 || null, p_cert_senha: certSenha || null, p_conta: conta || null })
+        }
+        const { data, error } = await supabase.rpc('fn_banco_salvar_credencial', params)
         if (error) throw error
         const j = data as { ok?: boolean; erro?: string } | null
-        if (!j?.ok) throw new Error(j?.erro ?? 'falha ao salvar credencial Sicredi')
+        if (!j?.ok) throw new Error(j?.erro ?? `falha ao salvar credencial ${banco.nome}`)
         onSucesso(); return
       }
       const provider = providerCanonico(banco.sigla, ambiente)
