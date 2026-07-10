@@ -35,7 +35,36 @@ export type PontoCredencial = {
   base_url: string
 }
 
+// Marcação diária (granularidade por dia). LGPD: sem nome/email — cpf p/ dedup + setor p/ agregado.
+export type PontoMarcacaoPonto = {
+  point_id: number | null
+  datetime: string | null   // ISO
+  hora: string | null       // HH:MM:SS
+  method: string | null
+  origin: string | null
+  is_adjusted: boolean
+  adjustment_reason: string | null
+  adjusted_by: string | null
+  has_audit_photo: boolean
+}
+export type PontoDia = {
+  cpf: string
+  registration_number: string | null
+  data: string              // YYYY-MM-DD
+  shift: string | null
+  worked_seconds: number
+  departamento: string | null
+  equipe: string | null
+  unidade_negocio: string | null
+  total_pontos: number
+  tem_ajuste: boolean
+  pontos: PontoMarcacaoPonto[]
+  raw: unknown
+}
+
 export interface PontoAdapter {
   listarColaboradores(cred: PontoCredencial): Promise<PontoColaborador[]>
   listarHoras(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoHoras[]>
+  // Opcional: nem todo provider expõe marcação diária. IO Point implementa.
+  listarMarcacoesDiarias?(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoDia[]>
 }
