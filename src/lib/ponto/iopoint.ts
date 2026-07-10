@@ -12,9 +12,17 @@
 //   + total_hours em /totalHours.
 
 import type {
-  PontoAdapter, PontoColaborador, PontoCredencial, PontoHoras,
+  PontoAdapter, PontoColaborador, PontoCredencial, PontoHoras, PontoDia, PontoMarcacaoPonto,
 } from './types'
 import { hhmmParaDecimal } from './hhmm'
+
+// "HH:MM:SS" (ou "HH:MM") -> segundos. Vazio/invalido -> 0.
+function hhmmssParaSegundos(v: unknown): number {
+  const s = String(v ?? '').trim()
+  if (!/^\d{1,3}:\d{2}(:\d{2})?$/.test(s)) return 0
+  const [h, m, sec] = s.split(':').map((x) => Number(x) || 0)
+  return h * 3600 + m * 60 + (sec || 0)
+}
 
 const onlyDigits = (s: unknown) => String(s ?? '').replace(/\D/g, '')
 
@@ -169,5 +177,50 @@ export const iopointAdapter: PontoAdapter = {
     const mapeadas = pegarLista(data).map((r) => mapHoras(r, beginISO, endISO)).filter((h) => h.cpf.length > 0)
     // Agrega por CPF antes de retornar (evita colisao no upsert onConflict).
     return agregarPorCpf(mapeadas)
+  },
+
+  // Marcação DIÁRIA: GET /point/getFromPeriod?begin_date=&end_date=.
+  // Cada colaborador tem days[]; cada day tem points[] (batidas). Achata em
+  // 1 PontoDia por (colaborador, dia). LGPD: só cpf/setor + batidas; sem nome/email.
+  async listarMarcacoesDiarias(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoDia[]> {
+    const url = `${cred.base_url}/point/getFromPeriod?begin_date=${encodeURIComponent(beginISO)}&end_date=${encodeURIComponent(endISO)}`
+    const data = await getJson(url, cred.token)
+    const out: PontoDia[] = []
+    for (const col of pegarLista(data)) {
+      const cpf = onlyDigits(col.national_registry)
+      if (!cpf) continue
+      const dias = Array.isArray(col.days) ? (col.days as Record<string, unknown>[]) : []
+      for (const d of dias) {
+        const dataISO = dateOrNull(d.date)
+        if (!dataISO) continue
+        const pontosRaw = Array.isArray(d.points) ? (d.points as Record<string, unknown>[]) : []
+        const pontos: PontoMarcacaoPonto[] = pontosRaw.map((p) => ({
+          point_id: p.point_id != null ? Number(p.point_id) : null,
+          datetime: typeof p.datetime === 'string' ? p.datetime : null,
+          hora: typeof p.hour === 'string' ? p.hour : null,
+          method: textOrNull(p.method),
+          origin: textOrNull(p.origin),
+          is_adjusted: !!p.is_adjusted,
+          adjustment_reason: textOrNull(p.adjustment_reason),
+          adjusted_by: textOrNull(p.adjusted_by),
+          has_audit_photo: !!p.has_audit_photo,
+        }))
+        out.push({
+          cpf,
+          registration_number: textOrNull(col.registration_number),
+          data: dataISO,
+          shift: textOrNull(d.shift),
+          worked_seconds: hhmmssParaSegundos(d.worked_time),
+          departamento: textOrNull(col.department),
+          equipe: textOrNull(col.team),
+          unidade_negocio: textOrNull(col.business_unit),
+          total_pontos: pontos.length,
+          tem_ajuste: pontos.some((x) => x.is_adjusted),
+          pontos,
+          raw: d,
+        })
+      }
+    }
+    return out
   },
 }
