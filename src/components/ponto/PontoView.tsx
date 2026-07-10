@@ -107,6 +107,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
   const [beginDate, setBeginDate] = useState(inicioMes())
   const [endDate, setEndDate] = useState(toISO(new Date()))
   const [sincronizando, setSincronizando] = useState(false)
+  const [sincronizandoDiario, setSincronizandoDiario] = useState(false)
   const [importando, setImportando] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -199,6 +200,31 @@ export default function PontoView({ lente }: { lente: Lente }) {
       setErro((e as Error).message || 'erro de rede')
     } finally {
       setSincronizando(false)
+    }
+  }
+
+  // Sync DIÁRIO (marcação por dia · /point/getFromPeriod) → ind_ponto_dia.
+  // É o que dá granularidade por dia pro BI (o filtro de data passa a filtrar).
+  async function sincronizarDiario() {
+    if (!empresaUnica) return
+    setSincronizandoDiario(true)
+    setErro(null); setOk(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setErro('Sessão expirada. Faça login de novo.'); return }
+      const params = new URLSearchParams({ company_id: empresaUnica, begin_date: beginDate, end_date: endDate })
+      const r = await fetch(`/api/industrial/ponto/sync-diario?${params.toString()}`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.access_token}` },
+      })
+      const j = await r.json()
+      if (!r.ok || !j.ok) { setErro(j.erro || j.detalhe || `HTTP ${r.status}`); return }
+      setOk(`SINCRONIZOU DIÁRIO · ${j.dias ?? 0} dias-colaborador · ${j.cpfs ?? 0} pessoas · ${j.datas ?? 0} dias · ${j.batidas ?? 0} batidas.`)
+      await carregar()
+    } catch (e) {
+      setErro((e as Error).message || 'erro de rede')
+    } finally {
+      setSincronizandoDiario(false)
     }
   }
 
@@ -313,7 +339,16 @@ export default function PontoView({ lente }: { lente: Lente }) {
                 disabled={sincronizando}
                 style={{ ...btnGold, opacity: sincronizando ? 0.6 : 1, cursor: sincronizando ? 'not-allowed' : 'pointer' }}
               >
-                {sincronizando ? 'Sincronizando…' : '⟳ Sincronizar'}
+                {sincronizando ? 'Sincronizando…' : '⟳ Sincronizar (período)'}
+              </button>
+              <button
+                type="button"
+                onClick={sincronizarDiario}
+                disabled={sincronizandoDiario}
+                title="Puxa a marcação por DIA (habilita o filtro de data por dia no BI)"
+                style={{ ...btnOutlineGold, opacity: sincronizandoDiario ? 0.6 : 1, cursor: sincronizandoDiario ? 'not-allowed' : 'pointer' }}
+              >
+                {sincronizandoDiario ? 'Sincronizando diário…' : '📅 Sincronizar diário'}
               </button>
               {lente === 'compliance' && (
                 <button
