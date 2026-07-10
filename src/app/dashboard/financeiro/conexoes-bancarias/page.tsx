@@ -357,7 +357,8 @@ interface ConectarProps {
   onSucesso: () => void
 }
 function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarProps) {
-  const [ambiente, setAmbiente] = useState<Ambiente>('producao')
+  // Sicredi está em fase de teste → default Homologação (state controlado persiste a escolha).
+  const [ambiente, setAmbiente] = useState<Ambiente>(banco.sigla === 'sicredi' ? 'homologacao' : 'producao')
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [cooperativa, setCooperativa] = useState('')
@@ -471,7 +472,10 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
           </button>
         </div>
 
-        <div style={{ padding: 20, overflowY: 'auto', display: 'grid', gap: 10 }}>
+        <div onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }} style={{ padding: 20, overflowY: 'auto', display: 'grid', gap: 10 }}>
+          {/* Iscas invisíveis: o Chrome injeta e-mail/senha salvos AQUI, não nos campos reais. */}
+          <input type="text" name="ps_decoy_user" autoComplete="username" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
+          <input type="password" name="ps_decoy_pass" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
           <Field label="Ambiente">
             <select value={ambiente} onChange={(e) => setAmbiente(e.target.value as Ambiente)} style={inp}>
               <option value="producao">Produção</option>
@@ -490,7 +494,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
           )}
           {banco.campos.includes('cooperativa') && (
             <Field label="Cooperativa">
-              <input value={cooperativa} onChange={(e) => setCooperativa(e.target.value)} style={inp} placeholder="ex.: 4133" />
+              <input name="ps_coop_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={cooperativa} onChange={(e) => setCooperativa(e.target.value)} style={inp} placeholder="ex.: 4133" />
             </Field>
           )}
           {banco.campos.includes('conta') && (
@@ -500,22 +504,22 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
           )}
           {banco.campos.includes('codigo_beneficiario') && (
             <Field label="Código do beneficiário">
-              <input value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder="5 dígitos" />
+              <input name="ps_benef_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder="5 dígitos" />
             </Field>
           )}
           {banco.campos.includes('api_key') && (
             <Field label="x-api-key (Portal do Desenvolvedor)">
-              <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder="UUID da app" />
+              <input type="password" name="ps_apikey_nofill" autoComplete="new-password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder="UUID da app" />
             </Field>
           )}
           {banco.campos.includes('codigo_acesso') && (
             <Field label="Código de Acesso (Internet Banking)">
-              <input type="password" autoComplete="off" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} />
+              <input type="password" name="ps_codacesso_nofill" autoComplete="new-password" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} />
             </Field>
           )}
           {banco.campos.includes('posto') && (
             <Field label="Posto (código da agência)">
-              <input value={posto} onChange={(e) => setPosto(e.target.value)} style={inp} placeholder="2 dígitos · ex.: 03" />
+              <input name="ps_posto_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={posto} onChange={(e) => setPosto(e.target.value)} style={inp} placeholder="2 dígitos · ex.: 03" />
             </Field>
           )}
           {banco.campos.includes('cert_a1') && (
