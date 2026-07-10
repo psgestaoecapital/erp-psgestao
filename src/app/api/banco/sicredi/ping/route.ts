@@ -1,6 +1,7 @@
 // Sicredi · Ping · testa auth (obtém token) sem registrar nada. Node runtime.
 // Uso: valida credenciais no Vault (client_id/secret + api_key) antes de registrar boleto.
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -20,11 +21,29 @@ function temSegredoValido(req: NextRequest): boolean {
   return timingSafeEqual(A, B)
 }
 
+// Aceita a SESSÃO do usuário (botão "Testar conexão" no browser) além do x-ping-secret
+// (cron/externo). Valida multi-tenant: company_id ∈ get_user_company_ids() do logado.
+async function sessaoTemAcesso(req: NextRequest, companyId: string): Promise<boolean> {
+  const auth = req.headers.get('authorization') || ''
+  if (!auth.toLowerCase().startsWith('bearer ')) return false
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const sb = createClient(url, anon, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } })
+  const { data: { user } } = await sb.auth.getUser()
+  if (!user) return false
+  const { data, error } = await sb.rpc('get_user_company_ids')
+  if (error || !Array.isArray(data)) return false
+  return (data as string[]).includes(companyId)
+}
+
 export async function POST(req: NextRequest) {
   try {
-    if (!temSegredoValido(req)) return NextResponse.json({ ok: false, erro: 'segredo invalido' }, { status: 401 })
     const { company_id, ambiente } = await req.json()
     if (!company_id) return NextResponse.json({ ok: false, erro: 'company_id obrigatorio' }, { status: 400 })
+    if (!temSegredoValido(req)) {
+      const ok = await sessaoTemAcesso(req, company_id)
+      if (!ok) return NextResponse.json({ ok: false, erro: 'nao autenticado ou sem acesso a esta empresa' }, { status: 401 })
+    }
     const amb: SicrediAmbiente = ambiente === 'homologacao' ? 'homologacao' : 'producao'
 
     const credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', { p_company_id: company_id, p_banco_codigo: BANCO, p_ambiente: amb })
