@@ -1,9 +1,13 @@
 'use client'
 
-// Tela de Contas a Receber — acoes de boleto Sicoob.
-// Substitui o botao do Bradesco (GerarBoletoButton) quando a empresa
-// tem o provider Sicoob ativo. Dois modos:
+// Tela de Contas a Receber — acoes de boleto por provider (Sicoob | Sicredi).
+// Generalizado a partir do <SicoobBoletoActions> (RD-26: consolida, nao recria):
+// a UNICA parte especifica do banco e o endpoint de registro
+// (/api/banco/<provider>/registrar-boleto). PDF (/api/boleto/pdf), WhatsApp,
+// linha digitavel e Pix sao 100% bank-agnosticos (o /api/boleto/pdf mapeia o
+// boleto_banco_codigo -> 756 Sicoob / 748 Sicredi sozinho).
 //
+// Dois modos:
 // 1) Pre-emissao: botao "Gerar boleto" — valida endereco/cpf do cliente
 //    e diferenca pagador-vs-empresa antes de habilitar; tooltip explica
 //    o motivo quando desabilitado.
@@ -38,7 +42,10 @@ export type BoletoEstado = {
   url: string | null
 }
 
+export type BoletoProvider = 'sicoob' | 'sicredi'
+
 type Props = {
+  provider: BoletoProvider
   receberId: string
   valor: number
   vencimentoISO: string
@@ -47,6 +54,8 @@ type Props = {
   boleto: BoletoEstado
   onSucesso?: () => void
 }
+
+const LABEL: Record<BoletoProvider, string> = { sicoob: 'Sicoob', sicredi: 'Sicredi' }
 
 const onlyDigits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
 const cepValido = (cep: string | null) => onlyDigits(cep).length === 8
@@ -85,10 +94,12 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
   return null
 }
 
-export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
+export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
   const [imprimindo, setImprimindo] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | null>(null)
+
+  const label = LABEL[provider]
 
   const motivoDesabilitado = useMemo(
     () => validaPreEmissao(cliente, empresaCnpj),
@@ -214,7 +225,7 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
     setBusy(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const r = await fetch('/api/banco/sicoob/registrar-boleto', {
+      const r = await fetch(`/api/banco/${provider}/registrar-boleto`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -241,7 +252,7 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
           type="button"
           onClick={gerar}
           disabled={busy}
-          title={motivoDesabilitado ?? 'Gerar boleto Sicoob'}
+          title={motivoDesabilitado ?? `Gerar boleto ${label}`}
           style={{
             background: bloqueado ? 'rgba(200,148,26,0.35)' : '#C8941A',
             color: '#3D2314', border: 'none', padding: '4px 10px',
@@ -280,7 +291,7 @@ export default function SicoobBoletoActions({ receberId, valor, vencimentoISO, c
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-      <span title={boleto.nossoNumero ? `Nosso numero: ${boleto.nossoNumero}` : 'Boleto gerado'}
+      <span title={boleto.nossoNumero ? `Nosso numero: ${boleto.nossoNumero}` : `Boleto ${label} gerado`}
         style={{
           fontSize: 10, color: '#16A34A', fontWeight: 700,
           background: '#DCFCE7', padding: '3px 7px', borderRadius: 3,

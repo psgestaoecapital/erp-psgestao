@@ -8,7 +8,7 @@ import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
 import EmitirNFeButton from './EmitirNFeButton'
 import GerarBoletoButton from './GerarBoletoButton'
-import SicoobBoletoActions, { type ClienteContato, type BoletoEstado } from './SicoobBoletoActions'
+import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoActions'
 import ConciliarTituloModal from './ConciliarTituloModal'
 import EditarLancamentoModal from './EditarLancamentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
@@ -112,7 +112,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
-  const [provider, setProvider] = useState<'sicoob' | 'bradesco' | null>(null)
+  const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | null>(null)
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
   const [capExtrato, setCapExtrato] = useState(false)
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
@@ -222,7 +222,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       setBoletoMap(boletoMapNew)
 
       const provNorm = ((provRes.data?.[0]?.provider ?? '').toLowerCase()) as string
-      if (alive) setProvider(provNorm === 'sicoob' || provNorm === 'bradesco' ? (provNorm as 'sicoob' | 'bradesco') : null)
+      if (alive) setProvider(provNorm === 'sicoob' || provNorm === 'sicredi' || provNorm === 'bradesco' ? (provNorm as 'sicoob' | 'sicredi' | 'bradesco') : null)
       if (alive) setEmpresaCnpj((compRes.data as { cnpj?: string | null } | null)?.cnpj ?? null)
 
       if (clienteIds.size > 0) {
@@ -813,8 +813,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 jaEmitida={nfeMap[r.id] === 'autorizada'}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
-                              {provider === 'sicoob' ? (
-                                <SicoobBoletoActions
+                              {provider === 'sicoob' || provider === 'sicredi' ? (
+                                <BoletoActions
+                                  provider={provider}
                                   receberId={r.id}
                                   valor={r.valor_documento}
                                   vencimentoISO={r.data_vencimento}
