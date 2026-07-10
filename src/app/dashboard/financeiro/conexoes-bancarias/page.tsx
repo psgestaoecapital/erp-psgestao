@@ -99,6 +99,8 @@ export default function ConexoesBancariasPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [syncing, setSyncing] = useState<string | null>(null)
+  const [testando, setTestando] = useState<string | null>(null)
+  const [testeResultado, setTesteResultado] = useState<Record<string, { ok: boolean; texto: string }>>({})
   const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
 
   const carregar = useCallback(async () => {
@@ -139,6 +141,30 @@ export default function ConexoesBancariasPage() {
       await carregar()
     } catch (e) { setErro((e as Error).message) }
     finally { setSyncing(null) }
+  }
+
+  // Bancos com rota de "Testar conexão" (ping por sessão). Cresce conforme os adapters.
+  const PING_PROVIDERS = new Set(['sicredi'])
+
+  const testarConexao = async (cfg: ProviderConfig, sigla: string) => {
+    setTestando(cfg.id); setErro(null); setMsg(null)
+    setTesteResultado((m) => { const n = { ...m }; delete n[cfg.id]; return n })
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch(`/api/banco/${sigla}/ping`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ company_id: cfg.company_id, ambiente: cfg.ambiente }),
+      })
+      const j = await r.json()
+      if (j.ok && j.autenticou) {
+        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: true, texto: `Conectou — autenticou em ${cfg.ambiente}` } }))
+      } else {
+        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: j.erro || `Falhou (HTTP ${r.status})` } }))
+      }
+    } catch (e) {
+      setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: (e as Error).message } }))
+    } finally { setTestando(null) }
   }
 
   if (!empresaUnica) {
@@ -251,22 +277,49 @@ export default function ConexoesBancariasPage() {
                         )}</>}
                       </div>
                     </div>
-                    {cfg.cap_extrato && cfg.ativo && (
-                      <button
-                        type="button"
-                        onClick={() => sincronizarExtrato(cfg)}
-                        disabled={syncing === cfg.id}
-                        style={{
-                          background: syncing === cfg.id ? 'rgba(200,148,26,0.4)' : GOLD,
-                          color: '#3D2314', border: 'none', padding: '6px 12px',
-                          borderRadius: 6, fontSize: 11, fontWeight: 600,
-                          cursor: syncing === cfg.id ? 'wait' : 'pointer',
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {bancoInfo && PING_PROVIDERS.has(bancoInfo.sigla) && cfg.ativo && (
+                          <button
+                            type="button"
+                            onClick={() => testarConexao(cfg, bancoInfo.sigla)}
+                            disabled={testando === cfg.id}
+                            style={{
+                              background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: testando === cfg.id ? 'wait' : 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            🔌 {testando === cfg.id ? 'Testando…' : 'Testar conexão'}
+                          </button>
+                        )}
+                        {cfg.cap_extrato && cfg.ativo && (
+                          <button
+                            type="button"
+                            onClick={() => sincronizarExtrato(cfg)}
+                            disabled={syncing === cfg.id}
+                            style={{
+                              background: syncing === cfg.id ? 'rgba(200,148,26,0.4)' : GOLD,
+                              color: '#3D2314', border: 'none', padding: '6px 12px',
+                              borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: syncing === cfg.id ? 'wait' : 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            <RefreshCw size={12} style={{ animation: syncing === cfg.id ? 'spin 1s linear infinite' : 'none' }} />
+                            {syncing === cfg.id ? 'Sincronizando…' : 'Sincronizar extrato'}
+                          </button>
+                        )}
+                      </div>
+                      {testeResultado[cfg.id] && (
+                        <div style={{
+                          fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, maxWidth: 280, textAlign: 'right',
+                          background: testeResultado[cfg.id].ok ? '#DCFCE7' : '#FEE2E2',
+                          color: testeResultado[cfg.id].ok ? '#166534' : '#B91C1C',
                         }}>
-                        <RefreshCw size={12} style={{ animation: syncing === cfg.id ? 'spin 1s linear infinite' : 'none' }} />
-                        {syncing === cfg.id ? 'Sincronizando…' : 'Sincronizar extrato'}
-                      </button>
-                    )}
+                          {testeResultado[cfg.id].ok ? '✅ ' : '❌ '}{testeResultado[cfg.id].texto}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
