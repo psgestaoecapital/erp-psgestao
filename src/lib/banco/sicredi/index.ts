@@ -43,7 +43,8 @@ const tokenCache = new Map<string, TokenCacheEntry>()
 async function postToken(c: Credencial, form: Record<string, string>): Promise<TokenCacheEntry> {
   const res = await fetch(base(c.ambiente) + '/auth/openapi/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-api-key': c.api_key, accept: 'application/json' },
+    // Manual Cobrança v3.9.1: header context=COBRANCA + body scope=cobranca (senão 401).
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-api-key': c.api_key, context: 'COBRANCA', accept: 'application/json' },
     body: new URLSearchParams(form).toString(),
   })
   const raw = await res.text()
@@ -70,10 +71,10 @@ export async function obterToken(c: Credencial): Promise<string> {
     try {
       entry = await postToken(c, { grant_type: 'refresh_token', refresh_token: hit.refresh_token })
     } catch {
-      entry = await postToken(c, { grant_type: 'password', username: c.username, password: c.password })
+      entry = await postToken(c, { grant_type: 'password', username: c.username, password: c.password, scope: 'cobranca' })
     }
   } else {
-    entry = await postToken(c, { grant_type: 'password', username: c.username, password: c.password })
+    entry = await postToken(c, { grant_type: 'password', username: c.username, password: c.password, scope: 'cobranca' })
   }
   tokenCache.set(key, entry)
   return entry.access_token
