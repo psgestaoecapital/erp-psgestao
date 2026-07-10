@@ -48,7 +48,7 @@ interface BancoConta {
   banco: string | null
 }
 
-type CampoConexao = 'client_id' | 'client_secret' | 'cooperativa' | 'conta' | 'codigo_beneficiario' | 'cert_a1' | 'cert_senha'
+type CampoConexao = 'client_id' | 'client_secret' | 'cooperativa' | 'conta' | 'codigo_beneficiario' | 'cert_a1' | 'cert_senha' | 'api_key' | 'codigo_acesso' | 'posto'
 type BancoDef = {
   codigo: number; sigla: string; nome: string; cor: string; pronto: boolean;
   campos: readonly CampoConexao[];
@@ -65,9 +65,11 @@ const BANCOS: readonly BancoDef[] = [
     campos: ['client_id', 'client_secret', 'cert_a1', 'cert_senha', 'conta'],
   },
   {
+    // Sicredi Cobrança v3.9.1: OAuth2 (x-api-key + password=Código de Acesso).
+    // NÃO usa client_id/client_secret nem mTLS. username = codBenef+cooperativa (no adapter).
     codigo: 748, sigla: 'sicredi', nome: 'Sicredi',
-    cor: '#3F8B29', pronto: false,
-    campos: ['client_id', 'client_secret', 'cert_a1', 'cert_senha', 'cooperativa', 'conta'],
+    cor: '#3F8B29', pronto: true,
+    campos: ['api_key', 'codigo_acesso', 'cooperativa', 'codigo_beneficiario', 'posto'],
   },
 ]
 
@@ -364,6 +366,10 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
   const [certA1Base64, setCertA1Base64] = useState('')
   const [certA1Nome, setCertA1Nome] = useState('')
   const [certSenha, setCertSenha] = useState('')
+  // Sicredi Cobrança (auth OAuth2 real)
+  const [apiKey, setApiKey] = useState('')
+  const [codigoAcesso, setCodigoAcesso] = useState('')
+  const [posto, setPosto] = useState('')
   const [capBoleto, setCapBoleto] = useState(true)
   const [capExtrato, setCapExtrato] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -385,6 +391,22 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
   async function salvar() {
     setSalvando(true); setErro(null)
     try {
+      // Sicredi Cobrança (v3.9.1): grava via fn_banco_salvar_credencial — escreve os
+      // segredos no Vault E seta os *_vault_id que fn_banco_obter_credencial lê (o
+      // fluxo genérico via fn_credencial_salvar NÃO alimenta o adapter). Segredos:
+      // api_key (x-api-key) + codigo_acesso (password OAuth, no slot client_secret · dívida 2ii).
+      if (banco.sigla === 'sicredi') {
+        const { data, error } = await supabase.rpc('fn_banco_salvar_credencial', {
+          p_company_id: companyId, p_banco_codigo: String(banco.codigo), p_provider: banco.sigla, p_ambiente: ambiente,
+          p_api_key: apiKey || null, p_client_secret: codigoAcesso || null, p_client_id: null,
+          p_cooperativa: cooperativa || null, p_codigo_beneficiario: codBenef || null, p_posto: posto || null,
+          p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: false, p_ativo: true,
+        })
+        if (error) throw error
+        const j = data as { ok?: boolean; erro?: string } | null
+        if (!j?.ok) throw new Error(j?.erro ?? 'falha ao salvar credencial Sicredi')
+        onSucesso(); return
+      }
       const provider = providerCanonico(banco.sigla, ambiente)
       // Salvar credenciais no Vault (fn_credencial_salvar — Cofre B.9).
       const salvar1 = async (chave: string, valor: string, label: string) => {
@@ -478,7 +500,22 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
           )}
           {banco.campos.includes('codigo_beneficiario') && (
             <Field label="Código do beneficiário">
-              <input value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} />
+              <input value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder="5 dígitos" />
+            </Field>
+          )}
+          {banco.campos.includes('api_key') && (
+            <Field label="x-api-key (Portal do Desenvolvedor)">
+              <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder="UUID da app" />
+            </Field>
+          )}
+          {banco.campos.includes('codigo_acesso') && (
+            <Field label="Código de Acesso (Internet Banking)">
+              <input type="password" autoComplete="off" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} />
+            </Field>
+          )}
+          {banco.campos.includes('posto') && (
+            <Field label="Posto (código da agência)">
+              <input value={posto} onChange={(e) => setPosto(e.target.value)} style={inp} placeholder="2 dígitos · ex.: 03" />
             </Field>
           )}
           {banco.campos.includes('cert_a1') && (

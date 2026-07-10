@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
     const companyId: string = rec.company_id
 
-    // credenciais (Vault): username=client_id, password=client_secret, x-api-key=api_key
+    // credenciais (Vault): username=codigoBeneficiario+cooperativa (manual v3.9.1), password=Código de Acesso (client_secret), x-api-key=api_key
     let ambiente: SicrediAmbiente = 'producao'
     let credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', { p_company_id: companyId, p_banco_codigo: BANCO, p_ambiente: 'producao' })
     let credRow = credResp.data as Record<string, unknown> | null
@@ -76,7 +76,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'Cadastre a Integracao bancaria Sicredi antes (Cadastros -> Contas bancarias).' }, { status: 412 })
     }
 
-    const username = credRow.client_id as string | null
     const password = credRow.client_secret as string | null
     const apiKey = credRow.api_key as string | null
     const cooperativa = (credRow.cooperativa as string | null) ?? ''
@@ -84,6 +83,8 @@ export async function POST(req: NextRequest) {
     const conta = (credRow.conta as string | null) ?? ''
     const agencia = (credRow.agencia as string | null) ?? null
     const codigoBeneficiario = (credRow.codigo_beneficiario as string | null) ?? ''
+    // username = codigoBeneficiario+cooperativa (manual v3.9.1); NÃO client_id.
+    const username = (codigoBeneficiario && cooperativa) ? `${codigoBeneficiario}${cooperativa}` : null
     const jurosPct = (credRow.juros_pct as number | null) ?? null
     const multaPct = (credRow.multa_pct as number | null) ?? null
 
