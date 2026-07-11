@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
+import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,8 @@ interface OSRow {
   status: string
   data_abertura: string | null
   total: number | null
+  titulos_gerados: boolean | null
+  lancamento_id: string | null
 }
 
 interface Cliente {
@@ -105,8 +108,9 @@ export default function OSMecanicoPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('erp_os')
-      .select('id, company_id, numero, cliente_nome, equipamento, placa, modelo, status, data_abertura, total')
+      .select('id, company_id, numero, cliente_nome, equipamento, placa, modelo, status, data_abertura, total, titulos_gerados, lancamento_id')
       .eq('company_id', companyIdAtiva)
+      .eq('excluida', false)
       .order('created_at', { ascending: false })
       .limit(200)
     if (error) setErro(error.message)
@@ -142,8 +146,33 @@ export default function OSMecanicoPage() {
     return c
   }, [oss])
 
+  const [osExcluir, setOsExcluir] = useState<OSRow | null>(null)
+  const [excluindo, setExcluindo] = useState(false)
+  const [erroExcluir, setErroExcluir] = useState<string | null>(null)
+
   function abrirFichaOS(id: string) {
     setOsAberta(id)
+  }
+
+  const faturadaDe = (o: OSRow) => Boolean(o.titulos_gerados) || o.lancamento_id != null
+
+  async function excluirOS(motivo: string) {
+    if (!osExcluir) return
+    setExcluindo(true)
+    setErroExcluir(null)
+    const { data, error } = await supabase.rpc('fn_os_excluir', {
+      p_os_id: osExcluir.id,
+      p_motivo: motivo || null,
+    })
+    setExcluindo(false)
+    if (error) { setErroExcluir(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; acao?: string; numero?: string } | null
+    if (!r?.ok) { setErroExcluir(r?.erro ?? 'Falha ao excluir OS'); return }
+    const num = r.numero ?? osExcluir.numero ?? 'OS'
+    setOsExcluir(null)
+    setOkMsg(r.acao === 'cancelada' ? `OS ${num} CANCELADA` : `OS ${num} EXCLUÍDA`)
+    window.setTimeout(() => setOkMsg(null), 3500)
+    void carregar()
   }
 
   return (
@@ -222,32 +251,59 @@ export default function OSMecanicoPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {filtradas.map((o) => (
-            <button
+            <div
               key={o.id}
-              onClick={() => abrirFichaOS(o.id)}
               style={{
-                textAlign: 'left', background: C.white, border: `1px solid ${C.border}`,
-                borderRadius: 10, padding: 12, cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', gap: 4,
+                background: C.white, border: `1px solid ${C.border}`,
+                borderRadius: 10, display: 'flex', flexDirection: 'column',
               }}
               data-testid="os-row"
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.gold, fontSize: 13 }}>{o.numero ?? '—'}</span>
-                <StatusBadge status={o.status} />
-              </div>
-              <div style={{ fontSize: 13, color: C.espresso, fontWeight: 600 }}>{o.cliente_nome ?? 'Sem cliente'}</div>
-              {(o.placa || o.modelo || o.equipamento) && (
-                <div style={{ fontSize: 11, color: C.espressoM, display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
-                  {o.placa && <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 0.5, color: C.espresso, background: '#F0ECE3', borderRadius: 4, padding: '1px 6px' }}>{o.placa}</span>}
-                  <span>🚗 {o.modelo || o.equipamento}</span>
+              <button
+                onClick={() => abrirFichaOS(o.id)}
+                style={{
+                  textAlign: 'left', background: 'transparent', border: 'none',
+                  borderRadius: '10px 10px 0 0', padding: 12, cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                }}
+                data-testid="os-abrir-ficha"
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.gold, fontSize: 13 }}>{o.numero ?? '—'}</span>
+                  <StatusBadge status={o.status} />
                 </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: C.espressoL, marginTop: 2 }}>
-                <span>{fmtD(o.data_abertura)}</span>
-                {Number(o.total ?? 0) > 0 && <span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span>}
+                <div style={{ fontSize: 13, color: C.espresso, fontWeight: 600 }}>{o.cliente_nome ?? 'Sem cliente'}</div>
+                {(o.placa || o.modelo || o.equipamento) && (
+                  <div style={{ fontSize: 11, color: C.espressoM, display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
+                    {o.placa && <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 0.5, color: C.espresso, background: '#F0ECE3', borderRadius: 4, padding: '1px 6px' }}>{o.placa}</span>}
+                    <span>🚗 {o.modelo || o.equipamento}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: C.espressoL, marginTop: 2 }}>
+                  <span>{fmtD(o.data_abertura)}</span>
+                  {Number(o.total ?? 0) > 0 && <span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span>}
+                </div>
+              </button>
+
+              {/* CRUD-OS · ações visíveis no card (nada escondido em menu 3-pontos) */}
+              <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderTop: `1px solid ${C.border}` }}>
+                <button
+                  onClick={() => abrirFichaOS(o.id)}
+                  style={{ flex: 1, minHeight: 38, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                  data-testid="os-editar"
+                >
+                  ✏️ Editar
+                </button>
+                <button
+                  onClick={() => { setErroExcluir(null); setOsExcluir(o) }}
+                  style={{ minWidth: 44, minHeight: 38, borderRadius: 8, border: `1px solid ${C.redBg}`, background: C.redBg, color: C.red, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                  title={faturadaDe(o) ? 'Cancelar OS (faturada)' : 'Excluir OS'}
+                  data-testid="os-excluir"
+                >
+                  {faturadaDe(o) ? '🚫' : '🗑️'}
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}
@@ -280,9 +336,29 @@ export default function OSMecanicoPage() {
               <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Ficha de OS</div>
               <button onClick={() => { setOsAberta(null); void carregar() }} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM, minHeight: 36 }}>Fechar ✕</button>
             </div>
-            <OrdemServicoCard osId={osAberta} />
+            <OrdemServicoCard
+              osId={osAberta}
+              onExcluida={(acao, numero) => {
+                setOsAberta(null)
+                setOkMsg(`OS ${numero ?? ''} ${acao === 'cancelada' ? 'CANCELADA' : 'EXCLUÍDA'}`.trim())
+                window.setTimeout(() => setOkMsg(null), 3500)
+                void carregar()
+              }}
+            />
           </div>
         </div>
+      )}
+
+      {/* Modal: confirmar exclusão / cancelamento (paleta PS, não confirm()) */}
+      {osExcluir && (
+        <ConfirmarExclusaoOS
+          numero={osExcluir.numero}
+          faturada={faturadaDe(osExcluir)}
+          busy={excluindo}
+          erro={erroExcluir}
+          onConfirm={(motivo) => void excluirOS(motivo)}
+          onClose={() => { if (!excluindo) { setOsExcluir(null); setErroExcluir(null) } }}
+        />
       )}
     </div>
   )
