@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
@@ -61,6 +62,7 @@ const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produt
 const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 
 export default function OrcamentosPage(){
+  const router = useRouter();
   const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [orcamentos,setOrcamentos]=useState<Orcamento[]>([]);
   const [loading,setLoading]=useState(true);
@@ -692,6 +694,7 @@ export default function OrcamentosPage(){
                       <td style={{padding:"8px"}}>
                         <div style={{display:"flex",gap:3,justifyContent:"flex-end",flexWrap:"wrap"}}>
                           <button onClick={()=>abrirEdicao(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                          {o.status==='convertido'&&o.pedido_id&&<button onClick={()=>router.push(`/dashboard/pedidos?abrir=${o.pedido_id}`)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}} title="Abrir o pedido para editar (demandas extras)">🎯 Abrir Pedido →</button>}
                           {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}

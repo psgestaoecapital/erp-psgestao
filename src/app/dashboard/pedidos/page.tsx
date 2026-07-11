@@ -57,10 +57,21 @@ export default function PedidosPage(){
   const [editarItens,setEditarItens]=useState<Pedido|null>(null);
   const [itensEdicao,setItensEdicao]=useState<any[]>([]);
   const [salvandoItens,setSalvandoItens]=useState(false);
+  const [deepLinkAberto,setDeepLinkAberto]=useState(false);
 
   useEffect(()=>{
     if(companyIds.length>0){loadPedidos();loadOrcamentosAprovados();}
   },[companyIds.join(",")]);
+
+  // Deep-link "Abrir Pedido →" vindo da tela de Orçamentos (/dashboard/pedidos?abrir=<id>):
+  // assim que os pedidos carregam, abre o Detalhes daquele pedido (onde vive "Editar Itens").
+  useEffect(()=>{
+    if(deepLinkAberto||pedidos.length===0)return;
+    const abrir=new URLSearchParams(window.location.search).get('abrir');
+    if(!abrir)return;
+    const p=pedidos.find(x=>x.id===abrir);
+    if(p){setDeepLinkAberto(true);abrirDetalhes(p);}
+  },[pedidos,deepLinkAberto]);
 
   const loadPedidos=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
