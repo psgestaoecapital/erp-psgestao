@@ -58,6 +58,9 @@ const fmtQ=(v:number)=>(v||0).toLocaleString("pt-BR",{maximumFractionDigits:3});
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
 
+// Modelo padrão da observação (demanda #3 Jordana): pré-preenche o campo em orçamento
+// novo; a vendedora edita os valores antes de enviar. Sai na proposta pública (PDF).
+const OBS_PADRAO="O presente orçamento pode sofrer variações durante a execução do serviço.\nFormas de pagamento: À vista R$ ____ | Parcelado (cartão ou boleto) R$ ____.";
 const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 
@@ -160,6 +163,7 @@ export default function OrcamentosPage(){
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
+      observacoes:OBS_PADRAO,
     });
     setItens([{...EMPTY_ITEM,ordem:1}]);
     setBuscaCliente("");
@@ -203,7 +207,7 @@ export default function OrcamentosPage(){
       if(!perm2||!perm2.pode_editar){setMsg('Falha ao reabrir após liberação.');return;}
       setPermEdit(perm2);
     }
-    setEditing(o);setForm({...o});
+    setEditing(o);setForm({...o,observacoes:o.observacoes||OBS_PADRAO});
     const{data:itensData}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
     setItens((itensData||[]).map(i=>({
       ...i,
@@ -639,7 +643,7 @@ export default function OrcamentosPage(){
           </div>
           <div style={{marginBottom:16}}>
             <div style={{fontSize:10,color:TXD,marginBottom:3}}>Observações (visível para o cliente)</div>
-            <textarea value={form.observacoes} onChange={e=>setForm({...form,observacoes:e.target.value})} rows={2} style={{...inp,resize:"vertical"}} placeholder="Garantia, condições especiais, etc."/>
+            <textarea value={form.observacoes} onChange={e=>setForm({...form,observacoes:e.target.value})} rows={3} style={{...inp,resize:"vertical"}} placeholder="Garantia, condições especiais, etc."/>
           </div>
 
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
