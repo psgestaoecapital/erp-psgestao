@@ -14,23 +14,25 @@
 CREATE TABLE IF NOT EXISTS erp_truth_alerts_bkp_20260711 AS
 SELECT * FROM erp_truth_alerts;
 
--- 2) EXPURGO KEEP-1 do backlog: mantém a linha MÁQUINA mais recente por grupo
---    (rule_id, company_id, periodo_inicio, periodo_fim — COALESCE p/ tratar NULL
---    das linhas sync_omie/links_404 como mesma chave). NÃO toca status humano.
+-- 2) EXPURGO KEEP-1 do backlog: mantém a linha-máquina mais recente por grupo
+--    (rule_id, company_id, periodo_inicio, periodo_fim). ESCOPO ESTRITO às 3
+--    regras period-based que formam a bomba (dre receita/despesa + compras) —
+--    todas com rule_id+company+periodo NÃO-nulos, então a chave é exata (sem
+--    COALESCE). NÃO toca sync_omie (fonte diferente, período NULL, 32 sinais
+--    distintos), saldo_unificado (período NULL) nem links_404 (0 linhas) — o
+--    check pré-aprovação mostrou que COALESCE colapsaria esses sinais distintos.
+--    NÃO toca status humano (só status novo/ignorado).
 DELETE FROM erp_truth_alerts
 WHERE id IN (
   SELECT id FROM (
     SELECT id,
            row_number() OVER (
-             PARTITION BY
-               COALESCE(rule_id, tipo_divergencia, ''),
-               COALESCE(company_id, '00000000-0000-0000-0000-000000000000'::uuid),
-               COALESCE(periodo_inicio, DATE '0001-01-01'),
-               COALESCE(periodo_fim,    DATE '0001-01-01')
+             PARTITION BY rule_id, company_id, periodo_inicio, periodo_fim
              ORDER BY COALESCE(detected_at, created_at) DESC NULLS LAST, id DESC
            ) AS rn
     FROM erp_truth_alerts
     WHERE status IN ('novo','ignorado')      -- SALVAGUARDA: só linhas-máquina
+      AND rule_id IN ('dre_receita_bate_nfs','dre_despesas_bate_pagamentos','compras_nf_entrada_vinculada')
   ) t
   WHERE t.rn > 1
 );
