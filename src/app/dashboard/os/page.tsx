@@ -357,6 +357,8 @@ function ModalNovaOS({
       p_tecnico_id: user?.id ?? null,
       p_tecnico_nome: tecnicoNome.trim() || null,
       p_prioridade: prioridade,
+      p_placa: placa.trim() || null,
+      p_modelo: veiculo.trim() || null,
     })
     setSalvando(false)
     if (error) { setErroLocal('Erro: ' + error.message); return }
@@ -367,14 +369,7 @@ function ModalNovaOS({
       onErro(msg)
       return
     }
-    // Captura estruturada do veículo SEM mudar o RPC: grava placa/modelo na OS
-    // recém-criada (o card premium do Pátio usa placa em destaque).
-    if (r.os_id && (placa.trim() || veiculo.trim())) {
-      const placaLimpa = placa.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
-      await supabase.from('erp_os')
-        .update({ placa: placaLimpa || null, modelo: veiculo.trim() || null })
-        .eq('id', r.os_id)
-    }
+    // placa/modelo já foram gravados atomicamente pelo fn_os_criar (p_placa/p_modelo).
     onCriada(r.os_id as string, r.numero as string)
   }
 

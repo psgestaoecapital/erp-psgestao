@@ -394,27 +394,24 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
           />
         </label>
 
+        {/* Horas NÃO são digitadas (regra CEO): previstas vêm do Tempário e
+            executadas do Apontamento (início/fim). Aqui são só LEITURA — o tempo
+            é MEDIDO, não chutado (protege tempário/eficiência/custo real). */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <label style={{ display: 'block' }}>
+          <div>
             <span style={lbl}>Horas previstas</span>
-            <input
-              type="number" inputMode="decimal" step="0.5" min="0"
-              value={horasPrevistas}
-              onChange={(e) => setHorasPrevistas(e.target.value)}
-              data-testid="os-horas-previstas"
-              style={inp}
-            />
-          </label>
-          <label style={{ display: 'block' }}>
+            <div data-testid="os-horas-previstas" style={{ ...inp, background: C.neutralBg, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>{horasPrevistas ? `${horasPrevistas}h` : '—'}</span>
+              <span style={{ fontSize: 10, color: '#9C8E80' }}>via Tempário</span>
+            </div>
+          </div>
+          <div>
             <span style={lbl}>Horas executadas</span>
-            <input
-              type="number" inputMode="decimal" step="0.5" min="0"
-              value={horasExecutadas}
-              onChange={(e) => setHorasExecutadas(e.target.value)}
-              data-testid="os-horas-executadas"
-              style={inp}
-            />
-          </label>
+            <div data-testid="os-horas-executadas" style={{ ...inp, background: C.neutralBg, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>{horasExecutadas ? `${horasExecutadas}h` : '—'}</span>
+              <span style={{ fontSize: 10, color: '#9C8E80' }}>via Apontamento</span>
+            </div>
+          </div>
         </div>
 
         <label style={{ display: 'block' }}>
