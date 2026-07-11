@@ -258,12 +258,15 @@ export default function OSMecanicoPage() {
           companyIdAtiva={companyIdAtiva}
           companies={companies}
           onClose={() => setNovoAberto(false)}
-          onCriada={(osId, numero) => {
+          onCriada={(_osId, numero) => {
+            // Criar OS = 1 modal, 1 botão, ACABOU (regra de fluxo CEO): fecha o
+            // modal, volta pra lista + toast. NÃO abre a ficha completa em
+            // sequência (isso dava a sensação de "precisa salvar de novo"). A
+            // ficha (orçar/executar/entregar) só abre ao clicar na OS depois.
             setNovoAberto(false)
-            setOkMsg(`OS criada · Nº ${numero}`)
+            setOkMsg(`OS ${numero} criada ✓`)
             window.setTimeout(() => setOkMsg(null), 3500)
             void carregar()
-            abrirFichaOS(osId)
           }}
           onErro={(m) => setErro(m)}
         />
