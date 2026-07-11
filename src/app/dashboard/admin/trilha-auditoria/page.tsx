@@ -12,14 +12,13 @@ export default function Page() {
   const empresaUnica =
     selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
-  // FIX PR-152-sidebar: trilha de auditoria é Pilar 1 LGPD (Art. 37) —
-  // contexto sidebar = Compliance. Sem ?area=, o layout cai para a P3
-  // (sessionStorage) e mostra a última área visitada.
-  // `admin` não é área válida em fn_areas_menu_lateral; `compliance` é.
+  // A trilha agora é surfada em gestao_empresarial/bpo (#611). NÃO forçar mais
+  // 'compliance' (jogava o usuário da empresa pro contexto errado). Preserva a
+  // área de onde o usuário veio; só define um default quando NÃO há ?area=.
   useEffect(() => {
-    if (searchParams?.get('area') !== 'compliance') {
+    if (!searchParams?.get('area')) {
       const novos = new URLSearchParams(searchParams?.toString() ?? '')
-      novos.set('area', 'compliance')
+      novos.set('area', 'gestao_empresarial')
       router.replace(`/dashboard/admin/trilha-auditoria?${novos.toString()}`)
     }
   }, [searchParams, router])
