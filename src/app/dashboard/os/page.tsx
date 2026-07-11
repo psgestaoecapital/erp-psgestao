@@ -40,6 +40,8 @@ interface OSRow {
   numero: string | null
   cliente_nome: string | null
   equipamento: string | null
+  placa: string | null
+  modelo: string | null
   status: string
   data_abertura: string | null
   total: number | null
@@ -103,7 +105,7 @@ export default function OSMecanicoPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('erp_os')
-      .select('id, company_id, numero, cliente_nome, equipamento, status, data_abertura, total')
+      .select('id, company_id, numero, cliente_nome, equipamento, placa, modelo, status, data_abertura, total')
       .eq('company_id', companyIdAtiva)
       .order('created_at', { ascending: false })
       .limit(200)
@@ -121,10 +123,13 @@ export default function OSMecanicoPage() {
     if (filtroStatus !== 'todas') r = r.filter((o) => o.status === filtroStatus)
     if (busca.trim()) {
       const b = busca.toLowerCase()
+      const bPlaca = b.replace(/[^a-z0-9]/g, '')
       r = r.filter((o) =>
         (o.numero ?? '').toLowerCase().includes(b) ||
         (o.cliente_nome ?? '').toLowerCase().includes(b) ||
-        (o.equipamento ?? '').toLowerCase().includes(b)
+        (o.equipamento ?? '').toLowerCase().includes(b) ||
+        (o.modelo ?? '').toLowerCase().includes(b) ||
+        (bPlaca.length >= 3 && (o.placa ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(bPlaca))
       )
     }
     return r
@@ -173,7 +178,7 @@ export default function OSMecanicoPage() {
         <input
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar por número, cliente ou veículo…"
+          placeholder="Buscar por placa, número, cliente ou veículo…"
           style={inp}
         />
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
@@ -232,7 +237,12 @@ export default function OSMecanicoPage() {
                 <StatusBadge status={o.status} />
               </div>
               <div style={{ fontSize: 13, color: C.espresso, fontWeight: 600 }}>{o.cliente_nome ?? 'Sem cliente'}</div>
-              {o.equipamento && <div style={{ fontSize: 11, color: C.espressoM }}>🚗 {o.equipamento}</div>}
+              {(o.placa || o.modelo || o.equipamento) && (
+                <div style={{ fontSize: 11, color: C.espressoM, display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
+                  {o.placa && <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 0.5, color: C.espresso, background: '#F0ECE3', borderRadius: 4, padding: '1px 6px' }}>{o.placa}</span>}
+                  <span>🚗 {o.modelo || o.equipamento}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: C.espressoL, marginTop: 2 }}>
                 <span>{fmtD(o.data_abertura)}</span>
                 {Number(o.total ?? 0) > 0 && <span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span>}
@@ -290,6 +300,7 @@ function ModalNovaOS({
 }) {
   const [descricao, setDescricao] = useState('')
   const [veiculo, setVeiculo] = useState('')
+  const [placa, setPlaca] = useState('')
   const [defeito, setDefeito] = useState('')
   const [tecnicoNome, setTecnicoNome] = useState('')
   const [prioridade, setPrioridade] = useState('normal')
@@ -356,6 +367,14 @@ function ModalNovaOS({
       onErro(msg)
       return
     }
+    // Captura estruturada do veículo SEM mudar o RPC: grava placa/modelo na OS
+    // recém-criada (o card premium do Pátio usa placa em destaque).
+    if (r.os_id && (placa.trim() || veiculo.trim())) {
+      const placaLimpa = placa.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+      await supabase.from('erp_os')
+        .update({ placa: placaLimpa || null, modelo: veiculo.trim() || null })
+        .eq('id', r.os_id)
+    }
     onCriada(r.os_id as string, r.numero as string)
   }
 
@@ -421,15 +440,28 @@ function ModalNovaOS({
             )}
           </div>
 
-          <div>
-            <label style={lbl}>Veículo / equipamento (opcional)</label>
-            <input
-              value={veiculo}
-              onChange={(e) => setVeiculo(e.target.value)}
-              placeholder="Ex.: Gol 2015 - ABC1D23"
-              style={inp}
-              data-testid="os-nova-veiculo"
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: 8 }}>
+            <div>
+              <label style={lbl}>Placa</label>
+              <input
+                value={placa}
+                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
+                placeholder="ABC-1234"
+                maxLength={8}
+                style={{ ...inp, fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 1 }}
+                data-testid="os-nova-placa"
+              />
+            </div>
+            <div>
+              <label style={lbl}>Modelo / veículo (opcional)</label>
+              <input
+                value={veiculo}
+                onChange={(e) => setVeiculo(e.target.value)}
+                placeholder="Ex.: VW Gol 2015"
+                style={inp}
+                data-testid="os-nova-veiculo"
+              />
+            </div>
           </div>
 
           <div>

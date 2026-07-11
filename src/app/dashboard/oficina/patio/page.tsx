@@ -33,6 +33,11 @@ type OS = {
   numero: string | null
   cliente_nome: string | null
   equipamento: string | null
+  placa: string | null
+  modelo: string | null
+  marca: string | null
+  ano: number | null
+  km: number | null
   tecnico_nome: string | null
   status: string
   prioridade: string | null
@@ -41,8 +46,24 @@ type OS = {
   updated_at: string | null
 }
 
+const SELECT_OS = 'id, company_id, numero, cliente_nome, equipamento, placa, modelo, marca, ano, km, tecnico_nome, status, prioridade, total, data_abertura, updated_at'
+
 const fmtBRL = (v: number | null) =>
   (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
+
+// Placa formatada (ABC-1234 / ABC1D23). Usa a coluna estruturada; senão tenta
+// extrair do texto livre 'equipamento'. Retorna null se não achar.
+function placaDe(o: OS): string | null {
+  const raw = o.placa || (o.equipamento ? (o.equipamento.toUpperCase().match(/[A-Z]{3}[- ]?[0-9][0-9A-Z][0-9]{2}/)?.[0] ?? null) : null)
+  if (!raw) return null
+  const p = raw.replace(/[- ]/g, '').toUpperCase()
+  return p.length === 7 ? `${p.slice(0, 3)}-${p.slice(3)}` : p
+}
+// Modelo/descrição do veículo pro card (estruturado > texto livre).
+function veiculoDe(o: OS): string {
+  const partes = [o.marca, o.modelo].filter(Boolean).join(' ')
+  return partes || o.equipamento || 'Veículo'
+}
 
 // Semáforo pelo TEMPO na coluna atual (proxy: updated_at). Verde < 1 dia,
 // amarelo 1–3 dias, vermelho > 3 dias. Prioridade 'alta'/'urgente' força vermelho.
@@ -78,7 +99,7 @@ export default function PatioKanbanPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase
       .from('erp_os')
-      .select('id, company_id, numero, cliente_nome, equipamento, tecnico_nome, status, prioridade, total, data_abertura, updated_at')
+      .select(SELECT_OS)
       .eq('company_id', companyId)
       .not('status', 'in', '("entregue","cancelada")')  // pátio = carros ativos; entregues recentes entram via coluna própria abaixo
       .order('updated_at', { ascending: true })
@@ -87,7 +108,7 @@ export default function PatioKanbanPage() {
     // Traz também os entregues das últimas 48h (pra fechar o fluxo visual sem poluir).
     const { data: entregues } = await supabase
       .from('erp_os')
-      .select('id, company_id, numero, cliente_nome, equipamento, tecnico_nome, status, prioridade, total, data_abertura, updated_at')
+      .select(SELECT_OS)
       .eq('company_id', companyId).eq('status', 'entregue')
       .gte('updated_at', new Date(Date.now() - 48 * 3_600_000).toISOString())
       .order('updated_at', { ascending: false }).limit(50)
@@ -166,32 +187,57 @@ export default function PatioKanbanPage() {
                   <span style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{col.icone} {col.label}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.espressoD, background: C.bg, borderRadius: 20, padding: '2px 9px' }}>{cards.length}</span>
                 </div>
-                {cards.length === 0 && <div style={{ fontSize: 12, color: C.espressoD, fontStyle: 'italic', padding: '8px 6px' }}>—</div>}
+                {cards.length === 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '22px 6px', color: C.espressoD }}>
+                    <span style={{ fontSize: 22, opacity: 0.5 }}>{col.icone}</span>
+                    <span style={{ fontSize: 11.5 }}>Nenhum carro aqui</span>
+                  </div>
+                )}
                 {cards.map((o) => {
                   const sem = semaforo(o)
+                  const placa = placaDe(o)
+                  const alta = (o.prioridade ?? '').match(/alta|urgente/i)
                   return (
                     <div key={o.id}
                       draggable
                       onDragStart={() => setDragId(o.id)}
                       onClick={() => setCardAberto(o)}
                       style={{
-                        background: C.white, border: `1px solid ${C.border}`, borderLeft: `5px solid ${sem.cor}`,
-                        borderRadius: 10, padding: 10, cursor: 'pointer', opacity: salvandoId === o.id ? 0.5 : 1,
-                        boxShadow: '0 1px 2px rgba(61,35,20,0.05)',
-                      }}>
+                        background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${sem.cor}`,
+                        borderRadius: 12, padding: 12, cursor: 'pointer', opacity: salvandoId === o.id ? 0.5 : 1,
+                        boxShadow: '0 2px 6px rgba(61,35,20,0.06)', transition: 'transform .08s, box-shadow .08s',
+                      }}
+                      onMouseDown={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(0.985)' }}
+                      onMouseUp={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}>
+                      {/* Placa em destaque (identidade do carro) + alertas */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 15, fontWeight: 700, color: C.espresso }}>{o.equipamento || 'Veículo'}</span>
-                        {(o.prioridade ?? '').match(/alta|urgente/i) && <span title="Prioridade alta">🔴</span>}
-                        {o.status === 'aguardando_aprovacao' && <span title="Aguardando aprovação do cliente">⚠️</span>}
+                        {placa ? (
+                          <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1, color: C.espresso, fontFamily: 'ui-monospace, Menlo, monospace', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 9px' }}>
+                            {placa}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>🚗 {veiculoDe(o)}</span>
+                        )}
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {alta && <span title="Prioridade alta" style={{ fontSize: 12 }}>🔴</span>}
+                          {o.status === 'aguardando_aprovacao' && <span title="Aguardando aprovação do cliente" style={{ fontSize: 12 }}>⚠️</span>}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>{o.cliente_nome || '—'}</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: C.gold, fontWeight: 700 }}>{o.numero || '—'}</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.espresso }}>{fmtBRL(o.total)}</span>
+                      {/* Modelo + cliente (hierarquia) */}
+                      {placa && <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso, marginTop: 6 }}>{veiculoDe(o)}</div>}
+                      <div style={{ fontSize: 12, color: C.espressoM, marginTop: placa ? 1 : 6 }}>{o.cliente_nome || 'Cliente não informado'}</div>
+                      {/* Meta em cinza + valor */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10.5, fontFamily: 'ui-monospace, Menlo, monospace', color: C.espressoD, fontWeight: 600 }}>{o.numero || 'sem nº'}</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.espresso }}>{fmtBRL(o.total)}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 6 }}>
                         <span style={{ fontSize: 11, color: C.espressoD }}>🔧 {o.tecnico_nome || 'sem mecânico'}</span>
-                        <span style={{ fontSize: 10, color: sem.cor, fontWeight: 600 }}>{tempoLabel(sem.horas)}</span>
+                        {/* Pill de tempo (além da borda-semáforo) */}
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: sem.cor, background: sem.cor + '16', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                          {tempoLabel(sem.horas)}
+                        </span>
                       </div>
                     </div>
                   )
@@ -209,8 +255,8 @@ export default function PatioKanbanPage() {
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: C.white, borderRadius: '16px 16px 0 0', padding: 16, width: '100%', maxWidth: 520, boxShadow: '0 -4px 24px rgba(61,35,20,0.2)' }}>
             <div style={{ textAlign: 'center', marginBottom: 4 }}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: C.espresso }}>{cardAberto.equipamento || 'Veículo'} · {cardAberto.numero || ''}</div>
-              <div style={{ fontSize: 12, color: C.espressoM }}>{cardAberto.cliente_nome || '—'} · {fmtBRL(cardAberto.total)}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: C.espresso }}>{placaDe(cardAberto) ?? `🚗 ${veiculoDe(cardAberto)}`}</div>
+              <div style={{ fontSize: 12, color: C.espressoM }}>{veiculoDe(cardAberto)} · {cardAberto.cliente_nome || '—'} · {fmtBRL(cardAberto.total)}</div>
             </div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoD, textAlign: 'center', margin: '10px 0 8px' }}>Mover para</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
