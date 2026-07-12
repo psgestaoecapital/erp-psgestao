@@ -8,11 +8,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import AssinaturaCanvas, { type AssinaturaCanvasHandle } from '@/components/comum/AssinaturaCanvas'
+import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 
 interface OS {
   id: string
   numero: string | null
   status: string
+  titulos_gerados: boolean | null
+  lancamento_id: string | null
   equipamento: string | null
   defeito_relatado: string | null
   descricao_servico: string | null
@@ -36,6 +39,11 @@ interface Props {
   pedidoId?: string
   osId?: string
   onFlash?: (msg: string) => void
+  onExcluida?: (acao: 'excluida' | 'cancelada', numero: string | null) => void
+  // CRUD-OS · o botão excluir/cancelar só aparece onde a missão é GERIR a OS
+  // (tela /dashboard/os). No fluxo OTC o contexto é venda/faturamento — um 🗑️
+  // ali é perigoso (regra CEO: "uma tela, uma missão"). Default: escondido.
+  podeExcluir?: boolean
 }
 
 const C = {
@@ -103,7 +111,7 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
+export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, podeExcluir = false }: Props) {
   const [os, setOs] = useState<OS | null>(null)
   const [loading, setLoading] = useState(true)
   const [criando, setCriando] = useState(false)
@@ -113,10 +121,14 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
   // O4.3 · assinatura
   const [assinando, setAssinando] = useState(false)
   const canvasRef = useRef<AssinaturaCanvasHandle | null>(null)
+  // CRUD-OS · exclusão / cancelamento
+  const [excluirAberto, setExcluirAberto] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
+  const [erroExcluir, setErroExcluir] = useState<string | null>(null)
 
   function flash(msg: string) {
     setMsgOk(msg)
-    flash(msg)
+    onFlash?.(msg)
     window.setTimeout(() => setMsgOk((m) => (m === msg ? null : m)), 3500)
   }
 
@@ -135,7 +147,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -174,7 +186,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
     if (resp?.os_id) {
       const { data: row } = await supabase
         .from('erp_os')
-        .select('id,numero,status,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .select('id,numero,status,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
         .eq('id', resp.os_id)
         .maybeSingle()
       if (row) {
@@ -237,6 +249,25 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
     if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao salvar OS'); return }
     flash('Ordem de serviço ALTERADA.')
     await carregar()
+  }
+
+  // CRUD-OS · exclusão (soft-delete) / cancelamento (se faturada) — servidor decide
+  async function excluir(motivo: string) {
+    if (!os) return
+    setExcluindo(true)
+    setErroExcluir(null)
+    const { data, error } = await supabase.rpc('fn_os_excluir', {
+      p_os_id: os.id,
+      p_motivo: motivo || null,
+    })
+    setExcluindo(false)
+    if (error) { setErroExcluir(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string; acao?: 'excluida' | 'cancelada'; numero?: string } | null
+    if (!resp?.ok) { setErroExcluir(resp?.erro ?? 'Falha ao excluir OS'); return }
+    setExcluirAberto(false)
+    flash(resp.acao === 'cancelada' ? 'Ordem de serviço CANCELADA.' : 'Ordem de serviço EXCLUÍDA.')
+    if (onExcluida) onExcluida(resp.acao ?? 'excluida', resp.numero ?? os.numero)
+    else await carregar() // sem handler (ex.: OTC) — atualiza o status na própria ficha
   }
 
   // O4.3 · assinatura
@@ -510,6 +541,16 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
       {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+        {podeExcluir && (
+          <button
+            type="button"
+            onClick={() => { setErroExcluir(null); setExcluirAberto(true) }}
+            data-testid="os-excluir"
+            style={{ ...btnSec, minHeight: 44, padding: '10px 14px', fontSize: 12, fontWeight: 700, color: C.red, borderColor: C.redBg, background: C.redBg }}
+          >
+            {(os.titulos_gerados || os.lancamento_id) ? '🚫 Cancelar OS' : '🗑️ Excluir OS'}
+          </button>
+        )}
         <span style={{ fontSize: 10, color: C.espressoL, marginRight: 'auto' }}>
           {os.data_abertura && <>Aberta {os.data_abertura}</>}
           {os.data_execucao && <> · em execução desde {os.data_execucao}</>}
@@ -541,6 +582,17 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash }: Props) {
           {salvando ? 'Salvando…' : 'Salvar OS'}
         </button>
       </div>
+
+      {excluirAberto && (
+        <ConfirmarExclusaoOS
+          numero={os.numero}
+          faturada={Boolean(os.titulos_gerados) || os.lancamento_id != null}
+          busy={excluindo}
+          erro={erroExcluir}
+          onConfirm={(motivo) => void excluir(motivo)}
+          onClose={() => { if (!excluindo) { setExcluirAberto(false); setErroExcluir(null) } }}
+        />
+      )}
     </div>
   )
 }
