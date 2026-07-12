@@ -54,6 +54,20 @@ interface Parametros {
   custo_hora_manual: number | null
 }
 
+interface DetalheCusto { categoria: string; rotulo: string; valor: number; pct?: number }
+interface CustoHora {
+  ok?: boolean
+  custo_hora: number | null
+  custo_hora_calculado?: number | null
+  origem?: string
+  periodo?: string
+  total_custos_fixos?: number
+  horas_consideradas?: number
+  horas_produtivas_mes?: number
+  detalhe?: DetalheCusto[]
+  alerta?: string | null
+}
+
 const fmtBRL = (v: number | null | undefined) =>
   v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtH = (h: number | null | undefined) => {
@@ -84,6 +98,9 @@ export default function TemparioPage() {
   const [editando, setEditando] = useState<Servico | 'novo' | null>(null)
   const [excluir, setExcluir] = useState<Servico | null>(null)
   const [paramsAberto, setParamsAberto] = useState(false)
+  const [custo, setCusto] = useState<CustoHora | null>(null)
+  const [detalheAberto, setDetalheAberto] = useState(false)
+  const [recalculando, setRecalculando] = useState(false)
 
   const companyIdAtiva = useMemo<string | null>(() => {
     if (!sel || sel === 'consolidado' || sel.startsWith('group_')) return null
@@ -112,13 +129,25 @@ export default function TemparioPage() {
       company_id: companyIdAtiva, horas_produtivas_mes: 160,
       margem_alvo_mao_obra_pct: 30, margem_alvo_peca_pct: 40, custo_hora_manual: null,
     })
+    // PASSO 2 · custo homem-hora automático dos custos reais de GE
+    const { data: ch } = await supabase.rpc('fn_oficina_custo_hora', { p_company_id: companyIdAtiva })
+    setCusto((ch as CustoHora) ?? null)
     setLoading(false)
   }, [companyIdAtiva])
 
   useEffect(() => { void carregar() }, [carregar])
 
-  // custo/hora: no PASSO 1 vem só do override manual; o cálculo automático de GE é o PASSO 2.
-  const custoHora = params?.custo_hora_manual ?? null
+  async function recalcularCusto() {
+    if (!companyIdAtiva) return
+    setRecalculando(true)
+    const { data: ch } = await supabase.rpc('fn_oficina_custo_hora', { p_company_id: companyIdAtiva })
+    setCusto((ch as CustoHora) ?? null)
+    setRecalculando(false)
+    flash('Custo/hora recalculado')
+  }
+
+  // custo/hora: PASSO 2 — calculado de GE (com override manual respeitado na RPC).
+  const custoHora = custo?.custo_hora ?? null
   const precoDe = (s: Servico) => {
     if (custoHora == null || !params) return null
     return s.tempo_padrao_h * custoHora * (1 + params.margem_alvo_mao_obra_pct / 100)
@@ -175,33 +204,101 @@ export default function TemparioPage() {
         </div>
       ) : (
         <>
-          {/* CARD DE PARÂMETROS — Custo da sua oficina */}
+          {/* CARD · Custo da sua oficina (PASSO 2 — calculado dos custos reais de GE) */}
           <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 1 }}>💰 Custo da sua oficina</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 24, fontWeight: 800, color: custoHora != null ? C.espresso : C.espressoL }}>
-                    {custoHora != null ? `${fmtBRL(custoHora)} /h` : '—'}
-                  </span>
-                  <span style={{ fontSize: 11, color: C.espressoL }}>custo homem-hora</span>
-                </div>
-                <div style={{ fontSize: 11, color: C.espressoL, marginTop: 4, maxWidth: 460, lineHeight: 1.5 }}>
-                  {custoHora != null
-                    ? 'Valor definido manualmente. No próximo passo o sistema calcula automático dos seus custos reais de GE (aluguel, energia, salários…).'
-                    : 'Ainda não definido. No próximo passo o sistema calcula automático dos custos reais de GE — por enquanto dá pra informar um valor manual em Editar.'}
-                </div>
-                <div style={{ fontSize: 12, color: C.espresso, marginTop: 8 }}>
-                  Margem alvo: <strong>mão de obra {params?.margem_alvo_mao_obra_pct ?? 30}%</strong> · <strong>peça {params?.margem_alvo_peca_pct ?? 40}%</strong>
-                  {'  ·  '}Horas produtivas/mês: <strong>{params?.horas_produtivas_mes ?? 160}</strong>
-                </div>
+
+                {custoHora != null ? (
+                  <>
+                    {/* ESTRELA — o valor */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 34, fontWeight: 800, color: C.gold, lineHeight: 1 }}>
+                        {fmtBRL(custoHora)}
+                      </span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: C.gold }}>/h</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.espressoM, marginTop: 4 }}>
+                      custo homem-hora · {custo?.origem === 'manual' ? 'definido manualmente' : 'calculado dos seus custos reais'}
+                    </div>
+                    {custo?.origem === 'manual' && custo?.custo_hora_calculado != null && (
+                      <div style={{ fontSize: 11.5, color: C.amber, marginTop: 4 }}>
+                        Você definiu {fmtBRL(custoHora)}/h. O calculado dos seus custos é {fmtBRL(custo.custo_hora_calculado)}/h.
+                      </div>
+                    )}
+                    {custo?.alerta && (
+                      <div style={{ fontSize: 11.5, color: C.amber, marginTop: 4 }}>⚠️ {custo.alerta}</div>
+                    )}
+
+                    {/* TRANSPARÊNCIA — expansível */}
+                    {custo?.detalhe && custo.detalhe.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          onClick={() => setDetalheAberto((v) => !v)}
+                          style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: C.espressoM, fontSize: 12, fontWeight: 600 }}
+                        >
+                          {detalheAberto ? '▾' : '▸'} De onde vem esse número
+                        </button>
+                        {detalheAberto && (
+                          <div style={{ marginTop: 8, background: C.bg, borderRadius: 8, padding: 12, maxWidth: 440 }}>
+                            {custo.detalhe.map((d) => (
+                              <div key={d.categoria} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: C.espresso, padding: '3px 0' }}>
+                                <span>{d.rotulo}</span>
+                                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(d.valor)} <span style={{ color: C.espressoL }}>({d.pct ?? 0}%)</span></span>
+                              </div>
+                            ))}
+                            <div style={{ borderTop: `1px solid ${C.border}`, margin: '6px 0', paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: C.espresso }}>
+                              <span>Total · {custo.periodo}</span>
+                              <span>{fmtBRL(custo.total_custos_fixos ?? 0)}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: C.espressoM }}>
+                              ÷ {custo.horas_consideradas}h produtivas = <strong style={{ color: C.gold }}>{fmtBRL(custoHora)}/h</strong>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: 12, color: C.espresso, marginTop: 8 }}>
+                      Margem alvo: <strong>mão de obra {params?.margem_alvo_mao_obra_pct ?? 30}%</strong> · <strong>peça {params?.margem_alvo_peca_pct ?? 40}%</strong>
+                      {'  ·  '}<strong>{params?.horas_produtivas_mes ?? 160}h</strong>/mês
+                    </div>
+                  </>
+                ) : (
+                  /* ESTADO VAZIO — sem custos lançados em GE */
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 13, color: C.espressoM, lineHeight: 1.5, maxWidth: 460 }}>
+                      {custo?.alerta ?? 'Ainda não dá pra calcular seu custo/hora — não há despesas lançadas no período.'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                      <a href="/dashboard/financeiro" style={{ minHeight: 38, padding: '9px 14px', borderRadius: 8, background: C.gold, color: C.white, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+                        Ir para Financeiro (GE)
+                      </a>
+                      <button onClick={() => setParamsAberto(true)} style={{ minHeight: 38, padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        Informar manual
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => setParamsAberto(true)}
-                style={{ height: 34, padding: '0 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espressoM, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-              >
-                Editar
-              </button>
+
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button
+                  onClick={() => void recalcularCusto()}
+                  disabled={recalculando}
+                  title="Recalcular (após lançar despesas em GE)"
+                  style={{ height: 34, width: 38, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espressoM, fontSize: 14, cursor: 'pointer' }}
+                >
+                  {recalculando ? '…' : '🔄'}
+                </button>
+                <button
+                  onClick={() => setParamsAberto(true)}
+                  style={{ height: 34, padding: '0 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espressoM, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Editar
+                </button>
+              </div>
             </div>
           </div>
 
