@@ -249,54 +249,72 @@ export default function OSMecanicoPage() {
           {oss.length === 0 ? 'Nenhuma OS ainda. Clique em + Nova OS pra começar.' : 'Nenhuma OS com esses filtros.'}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {filtradas.map((o) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtradas.map((o) => {
+            const modeloTxt = o.modelo || o.equipamento
+            return (
             <div
               key={o.id}
               style={{
-                background: C.white, border: `1px solid ${C.border}`,
-                borderRadius: 10, display: 'flex', flexDirection: 'column',
+                position: 'relative', background: C.white, border: `1px solid ${C.border}`,
+                borderRadius: 14, boxShadow: '0 1px 2px rgba(61,35,20,0.04)',
               }}
               data-testid="os-row"
             >
+              {/* corpo clicável — abre a ficha (editar). paddingRight reserva o canto das ações */}
               <button
                 onClick={() => abrirFichaOS(o.id)}
                 style={{
-                  textAlign: 'left', background: 'transparent', border: 'none',
-                  borderRadius: '10px 10px 0 0', padding: 12, cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', gap: 4,
+                  width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
+                  borderRadius: 14, padding: '16px 88px 16px 16px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: 7,
                 }}
                 data-testid="os-abrir-ficha"
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.gold, fontSize: 13 }}>{o.numero ?? '—'}</span>
+                {/* ESTRELA: a placa manda. mono, grande, primeiro. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  {o.placa ? (
+                    <span style={{
+                      fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 20, fontWeight: 800,
+                      letterSpacing: 1.5, color: C.espresso, background: C.cream,
+                      borderRadius: 7, padding: '4px 11px', lineHeight: 1.1,
+                    }}>{o.placa}</span>
+                  ) : (
+                    <span style={{ fontSize: 16, fontWeight: 700, color: C.espresso }}>
+                      {modeloTxt ? `🚗 ${modeloTxt}` : (o.numero ?? '—')}
+                    </span>
+                  )}
+                  {o.placa && modeloTxt && (
+                    <span style={{ fontSize: 13, color: C.espressoM, fontWeight: 600 }}>🚗 {modeloTxt}</span>
+                  )}
                   <StatusBadge status={o.status} />
                 </div>
-                <div style={{ fontSize: 13, color: C.espresso, fontWeight: 600 }}>{o.cliente_nome ?? 'Sem cliente'}</div>
-                {(o.placa || o.modelo || o.equipamento) && (
-                  <div style={{ fontSize: 11, color: C.espressoM, display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
-                    {o.placa && <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 0.5, color: C.espresso, background: '#F0ECE3', borderRadius: 4, padding: '1px 6px' }}>{o.placa}</span>}
-                    <span>🚗 {o.modelo || o.equipamento}</span>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: C.espressoL, marginTop: 2 }}>
+
+                {/* cliente — coadjuvante, cinza */}
+                <div style={{ fontSize: 12.5, color: C.espressoM }}>{o.cliente_nome ?? 'Sem cliente'}</div>
+
+                {/* metadado discreto: nº OS · data · valor */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: C.espressoL, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{o.numero ?? '—'}</span>
+                  <span>·</span>
                   <span>{fmtD(o.data_abertura)}</span>
-                  {Number(o.total ?? 0) > 0 && <span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span>}
+                  {Number(o.total ?? 0) > 0 && <><span>·</span><span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span></>}
                 </div>
               </button>
 
-              {/* CRUD-OS · ações visíveis no card (nada escondido em menu 3-pontos) */}
-              <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderTop: `1px solid ${C.border}` }}>
+              {/* AÇÕES · canto direito, discretas (nada escondido em menu 3-pontos) */}
+              <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6 }}>
                 <button
                   onClick={() => abrirFichaOS(o.id)}
-                  style={{ flex: 1, minHeight: 38, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                  style={{ height: 30, padding: '0 9px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espressoM, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  title="Editar OS"
                   data-testid="os-editar"
                 >
-                  ✏️ Editar
+                  ✏️ <span>Editar</span>
                 </button>
                 <button
                   onClick={() => { setErroExcluir(null); setOsExcluir(o) }}
-                  style={{ minWidth: 44, minHeight: 38, borderRadius: 8, border: `1px solid ${C.redBg}`, background: C.redBg, color: C.red, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                  style={{ width: 32, height: 30, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.red, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                   title={faturadaDe(o) ? 'Cancelar OS (faturada)' : 'Excluir OS'}
                   data-testid="os-excluir"
                 >
@@ -304,7 +322,8 @@ export default function OSMecanicoPage() {
                 </button>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
