@@ -106,7 +106,7 @@ export default function KpisDashboard({ companyId }: { companyId: string }) {
         expandido={expandidos.has('pagar_vencido')}
         onToggle={() => toggle('pagar_vencido')}
         onClick={() => router.push('/dashboard/contas-pagar?filtro=vencido')} />
-      <KpiCard chave="saldo_total" cor="#3B6D11" label="Saldo total" valor={saldo?.valor ?? 0}
+      <KpiCard chave="saldo_total" cor={(saldo?.valor ?? 0) < 0 ? '#A32D2D' : '#3B6D11'} label="Saldo total" valor={saldo?.valor ?? 0}
         sublabel={`${saldo?.qtd_contas ?? 0} contas`}
         breakdown={saldo?.breakdown}
         expandido={expandidos.has('saldo_total')}
