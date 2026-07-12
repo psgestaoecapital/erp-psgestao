@@ -40,6 +40,10 @@ interface Props {
   osId?: string
   onFlash?: (msg: string) => void
   onExcluida?: (acao: 'excluida' | 'cancelada', numero: string | null) => void
+  // CRUD-OS · o botão excluir/cancelar só aparece onde a missão é GERIR a OS
+  // (tela /dashboard/os). No fluxo OTC o contexto é venda/faturamento — um 🗑️
+  // ali é perigoso (regra CEO: "uma tela, uma missão"). Default: escondido.
+  podeExcluir?: boolean
 }
 
 const C = {
@@ -107,7 +111,7 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida }: Props) {
+export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, podeExcluir = false }: Props) {
   const [os, setOs] = useState<OS | null>(null)
   const [loading, setLoading] = useState(true)
   const [criando, setCriando] = useState(false)
@@ -537,14 +541,16 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida }
       {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button
-          type="button"
-          onClick={() => { setErroExcluir(null); setExcluirAberto(true) }}
-          data-testid="os-excluir"
-          style={{ ...btnSec, minHeight: 44, padding: '10px 14px', fontSize: 12, fontWeight: 700, color: C.red, borderColor: C.redBg, background: C.redBg }}
-        >
-          {(os.titulos_gerados || os.lancamento_id) ? '🚫 Cancelar OS' : '🗑️ Excluir OS'}
-        </button>
+        {podeExcluir && (
+          <button
+            type="button"
+            onClick={() => { setErroExcluir(null); setExcluirAberto(true) }}
+            data-testid="os-excluir"
+            style={{ ...btnSec, minHeight: 44, padding: '10px 14px', fontSize: 12, fontWeight: 700, color: C.red, borderColor: C.redBg, background: C.redBg }}
+          >
+            {(os.titulos_gerados || os.lancamento_id) ? '🚫 Cancelar OS' : '🗑️ Excluir OS'}
+          </button>
+        )}
         <span style={{ fontSize: 10, color: C.espressoL, marginRight: 'auto' }}>
           {os.data_abertura && <>Aberta {os.data_abertura}</>}
           {os.data_execucao && <> · em execução desde {os.data_execucao}</>}

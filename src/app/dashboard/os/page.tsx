@@ -338,6 +338,7 @@ export default function OSMecanicoPage() {
             </div>
             <OrdemServicoCard
               osId={osAberta}
+              podeExcluir
               onExcluida={(acao, numero) => {
                 setOsAberta(null)
                 setOkMsg(`OS ${numero ?? ''} ${acao === 'cancelada' ? 'CANCELADA' : 'EXCLUÍDA'}`.trim())
