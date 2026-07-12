@@ -66,11 +66,7 @@ export default function DashboardRico({ companyId, companyName, userName }: Prop
           />
         )}
 
-        <HeroSaldoBancario
-          total={painel?.saldos_bancarios?.total ?? null}
-          qtdContas={painel?.saldos_bancarios?.qtd_contas ?? null}
-          loading={painelLoading}
-        />
+        <HeroSaldoBancario companyId={companyId} />
 
         {painel?.conciliacoes_pendentes && (
           <CardConciliacoesPendentes
