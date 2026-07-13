@@ -2,9 +2,16 @@
 
 // SALA DE COMANDO · GENTE — dashboard executivo (patamar DRH global).
 // INVIOLÁVEL: 100% AGREGADO (LGPD, zero nome/matrícula) · hierárquico (escopo/RBAC) ·
-// honesto (SEM DADOS quando não há base). Reusa fn_ponto_bi_agregado (agregado por setor)
-// + fn_ponto_bi_serie (série temporal por janela sincronizada — cresce a cada sync).
-// Nenhum dado pessoal chega ao client: só somatórios por setor/faixa/janela.
+// honesto (SEM DADOS quando não há base).
+//
+// FONTE CANÔNICA (cura da contradição entre telas · 13/07): o HEADLINE (horas
+// trabalhadas, extras, headcount) e a tabela por-setor vêm de fn_ponto_bi_dia_agregado
+// (lê ind_ponto_dia — MESMA fonte do /industrial/ponto, filtrável por data). Assim as
+// duas telas mostram o MESMO número. Extras aqui = worked − escala do turno (excedente
+// operacional, por dia). As métricas que SÓ o provedor fecha (noturno, banco, faltas,
+// afastados, HE-CLT por faixa) continuam de fn_ponto_bi_agregado — rotuladas como
+// "fechamento do provedor (período)", nunca como o headline. Série: fn_ponto_bi_serie.
+// Nenhum dado pessoal chega ao client: só somatórios por setor/faixa/dia.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -85,6 +92,34 @@ function mesclarSerie(parts: SeriePonto[][]): SeriePonto[] {
   return out.sort((a, b) => a.periodo_inicio.localeCompare(b.periodo_inicio) || a.periodo_fim.localeCompare(b.periodo_fim))
 }
 
+// ── Fonte canônica (ind_ponto_dia) — headline + por-setor ────────────
+type CanonTot = { horas_trabalhadas: number; horas_extras: number; infracoes: number; headcount: number; dias_com_registro: number }
+type CanonDepto = { departamento: string; horas_trabalhadas: number; horas_extras: number; infracoes: number; headcount: number }
+type CanonDia = { data: string; horas_trabalhadas: number; horas_extras: number; infracoes: number; presentes: number; batidas: number }
+type CanonRet = { ok?: boolean; totais?: CanonTot; por_departamento?: CanonDepto[]; por_dia?: CanonDia[] }
+
+// mescla N chamadas (um alvo por setor do escopo) num único canônico
+function mesclarCanon(parts: CanonRet[]): { tot: CanonTot; deptos: Map<string, CanonDepto>; dia: Map<string, CanonDia> } {
+  const tot: CanonTot = { horas_trabalhadas: 0, horas_extras: 0, infracoes: 0, headcount: 0, dias_com_registro: 0 }
+  const deptos = new Map<string, CanonDepto>()
+  const dia = new Map<string, CanonDia>()
+  for (const p of parts) {
+    if (!p?.totais) continue
+    tot.horas_trabalhadas += p.totais.horas_trabalhadas ?? 0
+    tot.horas_extras += p.totais.horas_extras ?? 0
+    tot.infracoes += p.totais.infracoes ?? 0
+    tot.headcount += p.totais.headcount ?? 0
+    tot.dias_com_registro += p.totais.dias_com_registro ?? 0
+    for (const d of p.por_departamento ?? []) deptos.set(d.departamento, d)
+    for (const d of p.por_dia ?? []) {
+      const e = dia.get(d.data)
+      if (!e) dia.set(d.data, { ...d })
+      else { e.horas_trabalhadas += d.horas_trabalhadas; e.horas_extras += d.horas_extras; e.infracoes += d.infracoes; e.presentes += d.presentes; e.batidas += d.batidas }
+    }
+  }
+  return { tot, deptos, dia }
+}
+
 // escala de cor verde→âmbar→vermelho (0=bom, 1=ruim)
 function corEscala(ratio: number): string {
   const r = Math.max(0, Math.min(1, ratio))
@@ -109,6 +144,9 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
   const [bi, setBi] = useState<BiResult | null>(null)
   const [biPrev, setBiPrev] = useState<BiResult | null>(null)
   const [serie, setSerie] = useState<SeriePonto[]>([])
+  const [porDia, setPorDia] = useState<CanonDia[]>([])   // série por DIA (drill-down · ind_ponto_dia)
+  const [canon, setCanon] = useState<{ tot: CanonTot; deptos: CanonDepto[] } | null>(null)  // canônico (janela do usuário)
+  const [periodoProvedor, setPeriodoProvedor] = useState<{ ini: string; fim: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [depto, setDepto] = useState('')            // filtro global de setor (select + clique)
@@ -125,21 +163,39 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
       const prevFim = addDaysISO(dataIni, -1)
       const prevIni = addDaysISO(prevFim, -len)
       const rpc = (ini: string, fim: string, alvo: string | null) => supabase.rpc('fn_ponto_bi_agregado', { p_company_id: companyId, p_data_ini: ini, p_data_fim: fim, p_departamento: alvo })
+      const rpcDia = (ini: string, fim: string, alvo: string | null) => supabase.rpc('fn_ponto_bi_dia_agregado', { p_company_id: companyId, p_data_ini: ini, p_data_fim: fim, p_departamento: alvo })
       const rpcSerie = (alvo: string | null) => supabase.rpc('fn_ponto_bi_serie', { p_company_id: companyId, p_data_ini: dataIni, p_data_fim: dataFim, p_departamento: alvo })
 
-      const [cur, prev, ser] = await Promise.all([
+      const [cur, prev, ser, curDia, prevDia] = await Promise.all([
         Promise.all(alvos.map((a) => rpc(dataIni, dataFim, a))),
         Promise.all(alvos.map((a) => rpc(prevIni, prevFim, a))),
         Promise.all(alvos.map((a) => rpcSerie(a))),
+        Promise.all(alvos.map((a) => rpcDia(dataIni, dataFim, a))),
+        Promise.all(alvos.map((a) => rpcDia(prevIni, prevFim, a))),
       ])
-      const err = [...cur, ...prev, ...ser].find((r) => r.error)
+      const err = [...cur, ...prev, ...ser, ...curDia, ...prevDia].find((r) => r.error)
       if (err?.error) { setErro(err.error.message); setBi(null); setLoading(false); return }
       const curP = cur.map((r) => r.data as BiResult).filter(Boolean)
       const prevP = prev.map((r) => r.data as BiResult).filter(Boolean)
       const serP = ser.map((r) => (r.data as SeriePonto[]) ?? [])
-      setBi(curP.length === 1 && !setoresPermitidos ? curP[0] : mesclarBi(curP))
+      // PROVEDOR (fechamento) — HE-CLT por faixa, noturno, banco, faltas, afastados.
+      // É período FECHADO do IO Point, NÃO recorta pela janela do usuário → fica rotulado à parte.
+      setBi(curP.length ? (curP.length === 1 && !setoresPermitidos ? curP[0] : mesclarBi(curP)) : null)
       setBiPrev(prevP.length ? (prevP.length === 1 && !setoresPermitidos ? prevP[0] : mesclarBi(prevP)) : null)
+      // CANÔNICO (ind_ponto_dia) — horas/headcount/infrações da JANELA do usuário (filtrável).
+      const canonCur = mesclarCanon(curDia.map((r) => (r.data as CanonRet) ?? {}))
+      setCanon({ tot: canonCur.tot, deptos: [...canonCur.deptos.values()] })
       setSerie(mesclarSerie(serP))
+      setPorDia([...canonCur.dia.values()].sort((a, b) => a.data.localeCompare(b.data)))
+      // período REAL do fechamento do provedor (span dos registros armazenados) — pro rótulo honesto
+      const { data: perProv } = await supabase.from('ind_ponto_horas')
+        .select('periodo_inicio, periodo_fim').eq('company_id', companyId)
+        .order('periodo_inicio', { ascending: true }).limit(1000)
+      if (perProv && perProv.length) {
+        const ini = perProv.reduce((m, r) => r.periodo_inicio && r.periodo_inicio < m ? r.periodo_inicio : m, perProv[0].periodo_inicio as string)
+        const fim = perProv.reduce((m, r) => r.periodo_fim && r.periodo_fim > m ? r.periodo_fim : m, perProv[0].periodo_fim as string)
+        setPeriodoProvedor({ ini, fim })
+      } else setPeriodoProvedor(null)
       setLoading(false)
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e)); setBi(null); setLoading(false)
@@ -150,6 +206,9 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
   const totais = bi?.totais
   const deptos = bi?.por_departamento ?? []
+  const cTot = canon?.tot                                   // canônico (janela do usuário · ind_ponto_dia)
+  const cDeptos = canon?.deptos ?? []
+  const provPer = periodoProvedor ? `${fmtD(periodoProvedor.ini)} – ${fmtD(periodoProvedor.fim)}` : 'período sincronizado'
   const pctExtras = totais && totais.horas_trabalhadas > 0 ? (totais.horas_extras / totais.horas_trabalhadas) * 100 : 0
   const pctExtrasPrev = biPrev?.totais && biPrev.totais.horas_trabalhadas > 0 ? (biPrev.totais.horas_extras / biPrev.totais.horas_trabalhadas) * 100 : null
 
@@ -203,7 +262,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
     a.download = `sala-comando-gente_${dataIni}_${dataFim}.csv`; a.click(); URL.revokeObjectURL(a.href)
   }, [deptos, dataIni, dataFim])
 
-  const semDados = !totais || totais.headcount === 0
+  const semDados = (!cTot || cTot.dias_com_registro === 0) && (!totais || totais.headcount === 0)
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -251,17 +310,46 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
         </div>
       ) : (
         <>
-          {/* ═══ CAMADA 1 · KPIs premium (número + sparkline + delta) ═══ */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            <Kpi titulo="Horas trabalhadas" valor={h1(totais!.horas_trabalhadas)} spark={sparkOf((p) => p.trabalhadas)} cur={totais!.horas_trabalhadas} prev={biPrev?.totais.horas_trabalhadas} betterLower={false} sufixo="h" ctx={`${totais!.headcount_ativo} trabalhando`} />
-            <Kpi titulo="Horas extras" valor={h1(totais!.horas_extras)} spark={sparkOf((p) => p.extras)} cur={pctExtras} prev={pctExtrasPrev ?? undefined} betterLower deltaFmt={pct} tomForce={pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'} ctx={`${pct(pctExtras)} sobre trabalhadas`} />
-            <Kpi titulo="Absenteísmo" valor={pct(totais!.faltas_pct)} spark={sparkOf((p) => p.faltas_pct)} cur={totais!.faltas_pct} prev={biPrev?.totais.faltas_pct} betterLower deltaFmt={pct} tomForce={totais!.faltas_pct > 10 ? 'vermelho' : totais!.faltas_pct > 5 ? 'amarelo' : 'verde'} ctx={`${h1(totais!.faltas)} · ausência pontual`} />
-            <Kpi titulo="Afastados" valor={n0(totais!.afastados_qtd)} cur={totais!.afastados_qtd} prev={biPrev?.totais.afastados_qtd} betterLower ctx="INSS / licença / atestado" />
-            <Kpi titulo="Adicional noturno" valor={h1(totais!.noturno)} spark={sparkOf((p) => p.noturno)} cur={totais!.noturno} prev={biPrev?.totais.noturno} betterLower={false} sufixo="h" ctx="horas em período noturno" />
-            <Kpi titulo="Headcount" valor={n0(totais!.headcount)} spark={sparkOf((p) => p.headcount)} cur={totais!.headcount} prev={biPrev?.totais.headcount} betterLower={false} ctx={`${totais!.headcount_ativo} ativos no período`} />
-            <Kpi titulo="Banco de horas" valor={h1(totais!.banco)} spark={sparkOf((p) => p.banco)} cur={totais!.banco} prev={biPrev?.totais.banco} betterLower={false} sufixo="h" ctx="saldo acumulado" />
-            <Kpi titulo="Admissões" valor={n0(totais!.admissoes ?? 0)} cur={totais!.admissoes ?? 0} prev={biPrev?.totais.admissoes} betterLower={false} ctx="entradas no período" />
+          {/* ═══ CAMADA 1a · CANÔNICO (janela do usuário · ind_ponto_dia) ═══ */}
+          {/* MESMA fonte do /industrial/ponto → os números batem. Filtrável por data. */}
+          <div>
+            <SecHdr titulo={`Jornada · ${fmtD(dataIni)} → ${fmtD(dataFim)}`} nota="Marcação diária (ind_ponto_dia) — mesma fonte do Ponto Eletrônico. Filtrável por data." />
+            {cTot && cTot.dias_com_registro > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <Kpi titulo="Horas trabalhadas" valor={h1(cTot.horas_trabalhadas)} cur={cTot.horas_trabalhadas} betterLower={false} sufixo="h" ctx="worked_time somado por dia" />
+                <Kpi titulo="Headcount (com batida)" valor={n0(cTot.headcount)} cur={cTot.headcount} betterLower={false} ctx="pessoas que registraram ponto no período" />
+                <Kpi titulo="Infrações de jornada" valor={n0(cTot.infracoes)} cur={cTot.infracoes} betterLower tomForce={cTot.infracoes > 0 ? 'vermelho' : 'verde'} ctx="dias com jornada acima do limite legal" />
+              </div>
+            ) : (
+              <MiniVazio texto="Sem marcação diária no período. Sincronize o ponto (dia a dia) no Ponto Eletrônico." />
+            )}
           </div>
+
+          {/* Drill-down por DIA (canônico · ind_ponto_dia) — LGPD: agregado, sem nomes */}
+          {porDia.length > 0 && (
+            <Card titulo="Jornada dia a dia" nota="Marcação diária (ind_ponto_dia) — mesma fonte do headline acima. Clique num dia para abrir por setor. 🔒 agregado, sem nomes.">
+              <DrillDia porDia={porDia} companyId={companyId!} depto={depto} />
+            </Card>
+          )}
+
+          {/* ═══ CAMADA 1b · FECHAMENTO DO PROVEDOR (período do IO Point) ═══ */}
+          {/* HE-CLT por faixa, noturno, banco, faltas, afastados: só o provedor fecha. NÃO recorta pela
+              janela do usuário → período do provedor explícito, nunca fingindo ser o filtro selecionado. */}
+          {totais && totais.headcount > 0 && (
+            <div>
+              <SecHdr titulo="Fechamento do provedor" tag={`período do IO Point: ${provPer}`}
+                nota="HE-CLT, adicional noturno, banco, faltas e afastados vêm do fechamento legal do provedor. Não recorta pela janela acima — o período real do provedor está no rótulo." />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <Kpi titulo="HE-CLT (por faixa)" valor={h1(totais.horas_extras)} cur={pctExtras} prev={pctExtrasPrev ?? undefined} betterLower deltaFmt={pct} tomForce={pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'} ctx={`${pct(pctExtras)} sobre trabalhadas (provedor)`} />
+                <Kpi titulo="Absenteísmo" valor={pct(totais.faltas_pct)} spark={sparkOf((p) => p.faltas_pct)} cur={totais.faltas_pct} prev={biPrev?.totais.faltas_pct} betterLower deltaFmt={pct} tomForce={totais.faltas_pct > 10 ? 'vermelho' : totais.faltas_pct > 5 ? 'amarelo' : 'verde'} ctx={`${h1(totais.faltas)} · ausência pontual`} />
+                <Kpi titulo="Afastados" valor={n0(totais.afastados_qtd)} cur={totais.afastados_qtd} prev={biPrev?.totais.afastados_qtd} betterLower ctx="INSS / licença / atestado" />
+                <Kpi titulo="Adicional noturno" valor={h1(totais.noturno)} spark={sparkOf((p) => p.noturno)} cur={totais.noturno} prev={biPrev?.totais.noturno} betterLower={false} sufixo="h" ctx="horas em período noturno" />
+                <Kpi titulo="Banco de horas" valor={h1(totais.banco)} spark={sparkOf((p) => p.banco)} cur={totais.banco} prev={biPrev?.totais.banco} betterLower={false} sufixo="h" ctx="saldo acumulado" />
+                <Kpi titulo="Headcount (fechamento)" valor={n0(totais.headcount)} cur={totais.headcount} betterLower={false} ctx={`${totais.headcount_ativo} ativos · base do provedor`} />
+                <Kpi titulo="Admissões" valor={n0(totais.admissoes ?? 0)} cur={totais.admissoes ?? 0} prev={biPrev?.totais.admissoes} betterLower={false} ctx="entradas no período" />
+              </div>
+            </div>
+          )}
 
           {/* ═══ CAMADA 2 · Tendência & Composição ═══ */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
@@ -281,8 +369,8 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
                 </ResponsiveContainer>
               )}
             </Card>
-            <Card titulo="Composição das horas extras" nota={heTotalFaixas > 0 ? `total ${h1(heTotalFaixas)} em HE no período` : undefined}>
-              {donutData.length === 0 ? <MiniVazio texto="Sem HE por faixa no período." /> : (
+            <Card titulo="HE-CLT por faixa" nota={`Fechamento legal do IO Point · ${provPer}${heTotalFaixas > 0 ? ` · total ${h1(heTotalFaixas)}` : ''}. HE por faixa/DSR/feriado — o cálculo que vai pra folha.`}>
+              {donutData.length === 0 ? <MiniVazio texto="Sem HE por faixa no fechamento do provedor." /> : (
                 <ResponsiveContainer width="100%" height={230}>
                   <PieChart>
                     <Pie data={donutData} dataKey="v" nameKey="nome" innerRadius={52} outerRadius={82} paddingAngle={2} isAnimationActive={false}>
@@ -298,9 +386,6 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
           {/* ═══ CAMADA 3 · Estratificação (assinaturas) ═══ */}
           <Card titulo="Mapa de calor · setor × métrica" nota="Clique numa célula para filtrar o painel por aquele setor.">
-            <div style={{ fontSize: 10, color: '#854F0B', background: '#FAEEDA', display: 'inline-block', padding: '2px 8px', borderRadius: 6, marginBottom: 8, fontWeight: 700 }}>
-              ⓘ Estratificação por dia-da-semana requer marcação diária (o IO Point envia só o total do período) — SEM DADOS por ora.
-            </div>
             <Heatmap deptos={deptos} onPick={(s) => setDepto(s)} selecionado={depto} mostrarBanco={heatMostrarBanco} />
           </Card>
 
@@ -397,9 +482,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
               <SemDados titulo="🔄 Turnover por setor" falta="requer data de desligamento (hoje só há admissão)" />
               <SemDados titulo="❄️ Pausas térmicas NR-36" falta="requer regra NR-36 + marcações de intervalo por dia" />
-              <SemDados titulo="⏱️ Infrações inter/intrajornada" falta="requer marcações par-a-par (o ponto envia só o total)" />
-              <SemDados titulo="💵 Custo de mão de obra" falta="requer valor-hora por setor/função" />
-              <SemDados titulo="📅 Heatmap por dia-da-semana" falta="requer marcação diária (IO Point envia total do período)" />
+              <SemDados titulo="💵 Custo de mão de obra" falta="requer valor-hora por setor/função (é GE, não ponto)" />
             </div>
           </div>
         </>
@@ -451,6 +534,79 @@ function Heatmap({ deptos, onPick, selecionado, mostrarBanco }: { deptos: BiDept
   )
 }
 
+// ── Drill-down por DIA (ind_ponto_dia) → por setor. LGPD: agregado, sem nomes ──
+function DrillDia({ porDia, companyId, depto }: { porDia: CanonDia[]; companyId: string; depto: string }) {
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [setores, setSetores] = useState<Record<string, CanonDepto[]>>({})
+  const [carregando, setCarregando] = useState<string | null>(null)
+  const fmtDia = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'short' })
+  const maxH = Math.max(1, ...porDia.map((d) => d.horas_trabalhadas))
+
+  async function abrir(data: string) {
+    if (aberto === data) { setAberto(null); return }
+    setAberto(data)
+    if (!setores[data]) {
+      setCarregando(data)
+      const { data: r } = await supabase.rpc('fn_ponto_bi_dia_agregado', { p_company_id: companyId, p_data_ini: data, p_data_fim: data, p_departamento: depto || null })
+      const ret = r as CanonRet | null
+      setSetores((s) => ({ ...s, [data]: (ret?.por_departamento ?? []).slice().sort((a, b) => b.horas_trabalhadas - a.horas_trabalhadas) }))
+      setCarregando(null)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {porDia.map((d) => {
+        const ab = aberto === d.data
+        return (
+          <div key={d.data} style={{ border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+            <button type="button" onClick={() => abrir(d.data)} aria-expanded={ab}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', background: ab ? BG : '#FFF', border: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: ESP, minWidth: 116, textTransform: 'capitalize' }}>{fmtDia(d.data)}</span>
+              <div style={{ flex: 1, minWidth: 90, height: 8, background: CREAM, borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, d.horas_trabalhadas / maxH * 100)}%`, height: '100%', background: GOLD }} />
+              </div>
+              <span style={{ fontSize: 12.5, color: ESP, fontWeight: 600, minWidth: 62, textAlign: 'right' }}>{h1(d.horas_trabalhadas)}</span>
+              {d.horas_extras > 0 && <span style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>+{h1(d.horas_extras)}</span>}
+              <span style={{ fontSize: 11, color: MUT }}>{d.presentes}p</span>
+              {d.infracoes > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: S_VERM, background: RED_BG, padding: '2px 6px', borderRadius: 4 }}>⚠ {d.infracoes}</span>}
+              <span style={{ fontSize: 13, color: MUT, transform: ab ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>›</span>
+            </button>
+            {ab && (
+              <div style={{ borderTop: `0.5px solid ${LINE}`, padding: '8px 12px 10px', background: BG }}>
+                {carregando === d.data ? (
+                  <div style={{ fontSize: 12, color: MUT }}>Carregando setores…</div>
+                ) : !setores[d.data] || setores[d.data].length === 0 ? (
+                  <div style={{ fontSize: 12, color: MUT }}>Sem setores neste dia.</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead><tr>
+                      <th style={{ textAlign: 'left', fontSize: 10, color: MUT, fontWeight: 700, padding: '2px 6px', textTransform: 'uppercase' }}>Setor</th>
+                      <th style={{ textAlign: 'right', fontSize: 10, color: MUT, fontWeight: 700, padding: '2px 6px', textTransform: 'uppercase' }}>Horas</th>
+                      <th style={{ textAlign: 'right', fontSize: 10, color: MUT, fontWeight: 700, padding: '2px 6px', textTransform: 'uppercase' }}>Extras</th>
+                      <th style={{ textAlign: 'right', fontSize: 10, color: MUT, fontWeight: 700, padding: '2px 6px', textTransform: 'uppercase' }}>Pessoas</th>
+                    </tr></thead>
+                    <tbody>
+                      {setores[d.data].map((s) => (
+                        <tr key={s.departamento} style={{ borderTop: `0.5px solid ${LINE}` }}>
+                          <td style={{ padding: '4px 6px', color: ESP }}>{s.departamento}</td>
+                          <td style={{ padding: '4px 6px', color: ESP, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{h1(s.horas_trabalhadas)}</td>
+                          <td style={{ padding: '4px 6px', textAlign: 'right', color: s.horas_extras > 0 ? GOLD : MUT, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{h1(s.horas_extras)}</td>
+                          <td style={{ padding: '4px 6px', color: MUT, textAlign: 'right' }}>{s.headcount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── KPI premium ──────────────────────────────────────────────────────
 function Kpi({ titulo, valor, ctx, spark, cur, prev, betterLower, deltaFmt, sufixo, tomForce }: {
   titulo: string; valor: string; ctx: string; spark?: { i: number; v: number }[]
@@ -486,6 +642,17 @@ function Kpi({ titulo, valor, ctx, spark, cur, prev, betterLower, deltaFmt, sufi
   )
 }
 
+function SecHdr({ titulo, nota, tag }: { titulo: string; nota?: string; tag?: string }) {
+  return (
+    <div style={{ margin: '2px 0 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: ESP }}>{titulo}</span>
+        {tag && <span style={{ fontSize: 10, fontWeight: 700, color: '#854F0B', background: '#FAEEDA', padding: '2px 8px', borderRadius: 6 }}>{tag}</span>}
+      </div>
+      {nota && <div style={{ fontSize: 11, color: MUT, marginTop: 3, fontStyle: 'italic' }}>{nota}</div>}
+    </div>
+  )
+}
 function Card({ titulo, nota, children }: { titulo: string; nota?: string; children: React.ReactNode }) {
   return (
     <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }}>

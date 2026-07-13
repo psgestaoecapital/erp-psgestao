@@ -9,7 +9,7 @@
 // abrir é um chevron leve. ZERO tela financeira — salário/custo é GE (P1 LGPD:
 // nome só pra quem opera o ponto; aqui nunca aparece CPF).
 //
-// Métricas: horas trabalhadas · horas extras · INFRAÇÕES DE JORNADA · faltas ·
+// Métricas: horas trabalhadas · ALÉM DA ESCALA (operacional, não HE-CLT) · INFRAÇÕES · faltas ·
 // banco de horas. Filtro por colaborador (busca) e por período (mês).
 //   L1 fn_ponto_bi_dia            → resumo do mês (por colaborador + série por dia)
 //   L2 fn_ponto_bi_colaborador_dias → os dias de um colaborador
@@ -151,10 +151,14 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
             <Resumo label="Colaboradores" valor={String(totais.pessoas)} />
             <Resumo label="Horas trabalhadas" valor={h1(totais.horas)} />
-            <Resumo label="Horas extras" valor={h1(totais.extras)} destaque={GOLD} />
+            <Resumo label="Além da escala" valor={h1(totais.extras)} destaque={GOLD} />
             <Resumo label="Infrações de jornada" valor={String(totais.infracoes)} destaque={totais.infracoes > 0 ? RED : undefined} />
             <Resumo label="Faltas estimadas" valor={String(totais.faltas)} />
           </div>
+          <p style={{ fontSize: 11, color: MUT, margin: '-6px 0 16px', fontStyle: 'italic' }}>
+            &quot;Além da escala&quot; = worked − escala do turno (operacional, por dia). A HE-CLT oficial (por faixa, adicional,
+            DSR) está no fechamento do provedor, em Inteligência → Sala de Comando.
+          </p>
 
           {/* Lista de colaboradores (card premium) */}
           {colabs.length === 0 ? (
@@ -224,7 +228,7 @@ function CardColaborador({ companyId, ano, mes, colab, aberto, onToggle }: {
         {/* Métricas em chips */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <Chip label="horas" valor={h1(colab.horas_trabalhadas)} />
-          <Chip label="extras" valor={h1(colab.horas_extras)} cor={colab.horas_extras > 0 ? GOLD : undefined} />
+          <Chip label="além escala" valor={h1(colab.horas_extras)} cor={colab.horas_extras > 0 ? GOLD : undefined} />
           <Chip label="banco" valor={h1(colab.banco_horas)} cor={colab.banco_horas < 0 ? RED : undefined} />
           <Chip label="infrações" valor={String(colab.dias_infracao)} cor={temInfracao ? RED : undefined} forte={temInfracao} />
           <Chip label="faltas" valor={String(colab.faltas_estimadas)} />
@@ -291,7 +295,7 @@ function DiaLinha({ companyId, cpf, dia, aberto, onToggle }: {
       >
         <span style={{ fontSize: 13, fontWeight: 600, color: ESP, minWidth: 118, textTransform: 'capitalize' }}>{fmtDia(dia.data)}</span>
         <span style={{ fontSize: 12, color: ESP }}>{h1(dia.horas)}</span>
-        {dia.extras > 0 && <span style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>+{h1(dia.extras)} extra</span>}
+        {dia.extras > 0 && <span style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>+{h1(dia.extras)} além</span>}
         <span style={{ fontSize: 11, color: MUT }}>{dia.batidas} batidas</span>
         {dia.infracao && <Badge cor={RED} bg={RED_BG}>⚠ infração</Badge>}
         {dia.tem_ajuste && <Badge cor={ESP} bg="#F1E9DA">ajustado</Badge>}
