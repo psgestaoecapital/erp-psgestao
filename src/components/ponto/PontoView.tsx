@@ -15,6 +15,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { hhmmParaDecimal } from '@/lib/ponto/hhmm'
+import PontoPainelDia from './PontoPainelDia'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -98,7 +99,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
   const [ultimaSync, setUltimaSync] = useState<string | null>(null)
   const [colabs, setColabs] = useState<Colaborador[]>([])
   const [horas, setHoras] = useState<HoraRow[]>([])
-  const [aba, setAba] = useState<'colaboradores' | 'horas'>('colaboradores')
+  const [aba, setAba] = useState<'painel' | 'colaboradores' | 'horas'>('painel')
   const [busca, setBusca] = useState('')
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -108,6 +109,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
   const [endDate, setEndDate] = useState(toISO(new Date()))
   const [sincronizando, setSincronizando] = useState(false)
   const [sincronizandoDiario, setSincronizandoDiario] = useState(false)
+  const [sincDiarioProg, setSincDiarioProg] = useState<string | null>(null)
   const [importando, setImportando] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -203,8 +205,11 @@ export default function PontoView({ lente }: { lente: Lente }) {
     }
   }
 
-  // Sync DIÁRIO (marcação por dia · /point/getFromPeriod) → ind_ponto_dia.
+  // Sync DIÁRIO (marcação por dia · /point/getFromPeriod) → ind_ponto_dia + ind_ponto_marcacao.
   // É o que dá granularidade por dia pro BI (o filtro de data passa a filtrar).
+  // A API do IO Point limita 31 dias por chamada → fatiamos [begin,end] em lotes
+  // de CHUNK_DIAS e chamamos em sequência, acumulando dias/batidas. Se um lote
+  // falhar (rate limit), reporta quantos vieram (parcial) em vez de zerar tudo.
   async function sincronizarDiario() {
     if (!empresaUnica) return
     setSincronizandoDiario(true)
@@ -212,19 +217,58 @@ export default function PontoView({ lente }: { lente: Lente }) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { setErro('Sessão expirada. Faça login de novo.'); return }
-      const params = new URLSearchParams({ company_id: empresaUnica, begin_date: beginDate, end_date: endDate })
-      const r = await fetch(`/api/industrial/ponto/sync-diario?${params.toString()}`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.access_token}` },
-      })
-      const j = await r.json()
-      if (!r.ok || !j.ok) { setErro(j.erro || j.detalhe || `HTTP ${r.status}`); return }
-      setOk(`SINCRONIZOU DIÁRIO · ${j.dias ?? 0} dias-colaborador · ${j.cpfs ?? 0} pessoas · ${j.datas ?? 0} dias · ${j.batidas ?? 0} batidas.`)
+
+      const CHUNK_DIAS = 15
+      const addDias = (iso: string, n: number) => {
+        const d = new Date(iso + 'T00:00:00')
+        d.setDate(d.getDate() + n)
+        return toISO(d)
+      }
+      // monta os lotes ≤ CHUNK_DIAS
+      const lotes: Array<{ b: string; e: string }> = []
+      let cursor = beginDate
+      while (cursor <= endDate) {
+        const fimLote = addDias(cursor, CHUNK_DIAS - 1)
+        const e = fimLote > endDate ? endDate : fimLote
+        lotes.push({ b: cursor, e })
+        cursor = addDias(e, 1)
+      }
+
+      let diasAc = 0, batidasAc = 0, cpfsMax = 0
+      const falhas: string[] = []
+      for (let i = 0; i < lotes.length; i++) {
+        setSincDiarioProg(`Sincronizando… ${colabs.length} colaboradores (lote ${i + 1}/${lotes.length})`)
+        const { b, e } = lotes[i]
+        const params = new URLSearchParams({ company_id: empresaUnica, begin_date: b, end_date: e })
+        try {
+          const r = await fetch(`/api/industrial/ponto/sync-diario?${params.toString()}`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${session.access_token}` },
+          })
+          const j = await r.json().catch(() => ({}))
+          if (!r.ok || !j.ok) { falhas.push(`${fmtD(b)}–${fmtD(e)}: ${j.erro || j.detalhe || `HTTP ${r.status}`}`); continue }
+          diasAc += Number(j.dias ?? 0)
+          batidasAc += Number(j.batidas ?? 0)
+          cpfsMax = Math.max(cpfsMax, Number(j.cpfs ?? 0))
+        } catch (e2) {
+          falhas.push(`${fmtD(b)}–${fmtD(e)}: ${(e2 as Error).message || 'rede'}`)
+        }
+      }
+
+      if (falhas.length && diasAc === 0) {
+        setErro(`Não sincronizou. ${falhas[0]}`)
+      } else if (falhas.length) {
+        setErro(`⚠️ Parcial (rate limit da API): ${lotes.length - falhas.length}/${lotes.length} lotes. Repita pra completar o resto.`)
+        setOk(`✓ Sincronizado: ${diasAc} dias-colaborador · ${cpfsMax} pessoas · ${batidasAc} batidas.`)
+      } else {
+        setOk(`✓ Sincronizado: ${diasAc} dias-colaborador · ${cpfsMax} pessoas · ${batidasAc} batidas.`)
+      }
       await carregar()
     } catch (e) {
       setErro((e as Error).message || 'erro de rede')
     } finally {
       setSincronizandoDiario(false)
+      setSincDiarioProg(null)
     }
   }
 
@@ -345,10 +389,10 @@ export default function PontoView({ lente }: { lente: Lente }) {
                 type="button"
                 onClick={sincronizarDiario}
                 disabled={sincronizandoDiario}
-                title="Puxa a marcação por DIA (habilita o filtro de data por dia no BI)"
+                title="Puxa a marcação por DIA em lotes de 15 dias (habilita o Painel por dia e o filtro por dia no BI)"
                 style={{ ...btnOutlineGold, opacity: sincronizandoDiario ? 0.6 : 1, cursor: sincronizandoDiario ? 'not-allowed' : 'pointer' }}
               >
-                {sincronizandoDiario ? 'Sincronizando diário…' : '📅 Sincronizar diário'}
+                {sincronizandoDiario ? (sincDiarioProg ?? 'Sincronizando dia a dia…') : '📅 Sincronizar dia a dia'}
               </button>
               {lente === 'compliance' && (
                 <button
@@ -362,7 +406,10 @@ export default function PontoView({ lente }: { lente: Lente }) {
                 </button>
               )}
             </div>
-            <p style={{ fontSize: 10, color: MUT, margin: '8px 0 0' }}>Período máximo: 31 dias (limite da API do provider).</p>
+            <p style={{ fontSize: 10, color: MUT, margin: '8px 0 0' }}>
+              &quot;Sincronizar (período)&quot; puxa o total de horas (máx. 31 dias). &quot;Sincronizar dia a dia&quot; puxa a marcação
+              diária — fatiada em lotes de 15 dias, então períodos longos (ex.: 60 dias) funcionam.
+            </p>
           </>
         )}
       </section>
@@ -374,7 +421,10 @@ export default function PontoView({ lente }: { lente: Lente }) {
           hierárquico por escopo · RBAC 2D). Ponto Eletrônico = só CAPTURA (buscar/sincronizar). */}
 
       {/* Abas */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        <button onClick={() => setAba('painel')} style={aba === 'painel' ? tabOn : tabOff}>
+          📊 Painel por dia
+        </button>
         <button onClick={() => setAba('colaboradores')} style={aba === 'colaboradores' ? tabOn : tabOff}>
           👥 Colaboradores ({colabs.length})
         </button>
@@ -383,7 +433,9 @@ export default function PontoView({ lente }: { lente: Lente }) {
         </button>
       </div>
 
-      {aba === 'colaboradores' ? (
+      {aba === 'painel' ? (
+        <PontoPainelDia companyId={empresaUnica} />
+      ) : aba === 'colaboradores' ? (
         <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: 12, borderBottom: `0.5px solid ${LINE}` }}>
             <input
