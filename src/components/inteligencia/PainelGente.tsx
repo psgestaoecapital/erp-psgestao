@@ -120,37 +120,6 @@ function mesclarCanon(parts: CanonRet[]): { tot: CanonTot; deptos: Map<string, C
   return { tot, deptos, dia }
 }
 
-// aplica o canônico (ind_ponto_dia) sobre o BI do provedor: SOBRESCREVE trabalhadas/
-// extras/headcount (headline) e mantém as métricas de fechamento (faltas/noturno/banco/afast).
-function aplicarCanon(provBi: BiResult, canon: { tot: CanonTot; deptos: Map<string, CanonDepto> }): BiResult {
-  const t = { ...provBi.totais }
-  t.horas_trabalhadas = canon.tot.horas_trabalhadas
-  t.horas_extras = canon.tot.horas_extras
-  t.headcount = canon.tot.headcount
-  t.headcount_ativo = canon.tot.headcount
-  t.faltas_pct = (t.horas_trabalhadas + t.faltas) > 0 ? (t.faltas / (t.horas_trabalhadas + t.faltas)) * 100 : 0
-  // por-setor: começa do canônico (trabalhadas/extras/headcount reais) e enriquece com
-  // faltas/noturno/banco/afastados do provedor (casados por nome de setor).
-  const provPorNome = new Map(provBi.por_departamento.map((d) => [d.departamento, d]))
-  const por_departamento: BiDepto[] = [...canon.deptos.values()].map((c) => {
-    const pv = provPorNome.get(c.departamento)
-    return {
-      departamento: c.departamento,
-      trabalhadas: c.horas_trabalhadas,
-      extras: c.horas_extras,
-      headcount: c.headcount,
-      faltas: pv?.faltas ?? 0,
-      faltas_pct: pv?.faltas_pct ?? 0,
-      afastados_qtd: pv?.afastados_qtd ?? 0,
-      folga_dsr: pv?.folga_dsr ?? 0,
-      noturno: pv?.noturno ?? 0,
-      banco: pv?.banco ?? 0,
-      admissoes: pv?.admissoes ?? 0,
-    }
-  })
-  return { totais: t, por_departamento }
-}
-
 // escala de cor verde→âmbar→vermelho (0=bom, 1=ruim)
 function corEscala(ratio: number): string {
   const r = Math.max(0, Math.min(1, ratio))
@@ -176,6 +145,8 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
   const [biPrev, setBiPrev] = useState<BiResult | null>(null)
   const [serie, setSerie] = useState<SeriePonto[]>([])
   const [porDia, setPorDia] = useState<CanonDia[]>([])   // série por DIA (drill-down · ind_ponto_dia)
+  const [canon, setCanon] = useState<{ tot: CanonTot; deptos: CanonDepto[] } | null>(null)  // canônico (janela do usuário)
+  const [periodoProvedor, setPeriodoProvedor] = useState<{ ini: string; fim: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [depto, setDepto] = useState('')            // filtro global de setor (select + clique)
@@ -207,16 +178,24 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
       const curP = cur.map((r) => r.data as BiResult).filter(Boolean)
       const prevP = prev.map((r) => r.data as BiResult).filter(Boolean)
       const serP = ser.map((r) => (r.data as SeriePonto[]) ?? [])
-      // provedor (fechamento) — base pra faltas/noturno/banco/afastados/HE-faixas
-      const provBi = curP.length ? (curP.length === 1 && !setoresPermitidos ? curP[0] : mesclarBi(curP)) : { totais: mesclarBi([]).totais, por_departamento: [] }
-      const provBiPrev = prevP.length ? (prevP.length === 1 && !setoresPermitidos ? prevP[0] : mesclarBi(prevP)) : null
-      // canônico (ind_ponto_dia) — SOBRESCREVE o headline pra bater com o /industrial
+      // PROVEDOR (fechamento) — HE-CLT por faixa, noturno, banco, faltas, afastados.
+      // É período FECHADO do IO Point, NÃO recorta pela janela do usuário → fica rotulado à parte.
+      setBi(curP.length ? (curP.length === 1 && !setoresPermitidos ? curP[0] : mesclarBi(curP)) : null)
+      setBiPrev(prevP.length ? (prevP.length === 1 && !setoresPermitidos ? prevP[0] : mesclarBi(prevP)) : null)
+      // CANÔNICO (ind_ponto_dia) — horas/headcount/infrações da JANELA do usuário (filtrável).
       const canonCur = mesclarCanon(curDia.map((r) => (r.data as CanonRet) ?? {}))
-      const canonPrev = mesclarCanon(prevDia.map((r) => (r.data as CanonRet) ?? {}))
-      setBi(aplicarCanon(provBi, canonCur))
-      setBiPrev(provBiPrev ? aplicarCanon(provBiPrev, canonPrev) : null)
+      setCanon({ tot: canonCur.tot, deptos: [...canonCur.deptos.values()] })
       setSerie(mesclarSerie(serP))
       setPorDia([...canonCur.dia.values()].sort((a, b) => a.data.localeCompare(b.data)))
+      // período REAL do fechamento do provedor (span dos registros armazenados) — pro rótulo honesto
+      const { data: perProv } = await supabase.from('ind_ponto_horas')
+        .select('periodo_inicio, periodo_fim').eq('company_id', companyId)
+        .order('periodo_inicio', { ascending: true }).limit(1000)
+      if (perProv && perProv.length) {
+        const ini = perProv.reduce((m, r) => r.periodo_inicio && r.periodo_inicio < m ? r.periodo_inicio : m, perProv[0].periodo_inicio as string)
+        const fim = perProv.reduce((m, r) => r.periodo_fim && r.periodo_fim > m ? r.periodo_fim : m, perProv[0].periodo_fim as string)
+        setPeriodoProvedor({ ini, fim })
+      } else setPeriodoProvedor(null)
       setLoading(false)
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e)); setBi(null); setLoading(false)
@@ -227,6 +206,9 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
   const totais = bi?.totais
   const deptos = bi?.por_departamento ?? []
+  const cTot = canon?.tot                                   // canônico (janela do usuário · ind_ponto_dia)
+  const cDeptos = canon?.deptos ?? []
+  const provPer = periodoProvedor ? `${fmtD(periodoProvedor.ini)} – ${fmtD(periodoProvedor.fim)}` : 'período sincronizado'
   const pctExtras = totais && totais.horas_trabalhadas > 0 ? (totais.horas_extras / totais.horas_trabalhadas) * 100 : 0
   const pctExtrasPrev = biPrev?.totais && biPrev.totais.horas_trabalhadas > 0 ? (biPrev.totais.horas_extras / biPrev.totais.horas_trabalhadas) * 100 : null
 
@@ -280,7 +262,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
     a.download = `sala-comando-gente_${dataIni}_${dataFim}.csv`; a.click(); URL.revokeObjectURL(a.href)
   }, [deptos, dataIni, dataFim])
 
-  const semDados = !totais || totais.headcount === 0
+  const semDados = (!cTot || cTot.dias_com_registro === 0) && (!totais || totais.headcount === 0)
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -328,17 +310,46 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
         </div>
       ) : (
         <>
-          {/* ═══ CAMADA 1 · KPIs premium (número + sparkline + delta) ═══ */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            <Kpi titulo="Horas trabalhadas" valor={h1(totais!.horas_trabalhadas)} spark={sparkOf((p) => p.trabalhadas)} cur={totais!.horas_trabalhadas} prev={biPrev?.totais.horas_trabalhadas} betterLower={false} sufixo="h" ctx={`${totais!.headcount_ativo} trabalhando`} />
-            <Kpi titulo="Horas extras (além da escala)" valor={h1(totais!.horas_extras)} cur={pctExtras} prev={pctExtrasPrev ?? undefined} betterLower deltaFmt={pct} tomForce={pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'} ctx={`${pct(pctExtras)} sobre trabalhadas · por dia`} />
-            <Kpi titulo="Absenteísmo" valor={pct(totais!.faltas_pct)} spark={sparkOf((p) => p.faltas_pct)} cur={totais!.faltas_pct} prev={biPrev?.totais.faltas_pct} betterLower deltaFmt={pct} tomForce={totais!.faltas_pct > 10 ? 'vermelho' : totais!.faltas_pct > 5 ? 'amarelo' : 'verde'} ctx={`${h1(totais!.faltas)} · ausência pontual`} />
-            <Kpi titulo="Afastados" valor={n0(totais!.afastados_qtd)} cur={totais!.afastados_qtd} prev={biPrev?.totais.afastados_qtd} betterLower ctx="INSS / licença / atestado" />
-            <Kpi titulo="Adicional noturno" valor={h1(totais!.noturno)} spark={sparkOf((p) => p.noturno)} cur={totais!.noturno} prev={biPrev?.totais.noturno} betterLower={false} sufixo="h" ctx="horas em período noturno" />
-            <Kpi titulo="Headcount" valor={n0(totais!.headcount)} spark={sparkOf((p) => p.headcount)} cur={totais!.headcount} prev={biPrev?.totais.headcount} betterLower={false} ctx={`${totais!.headcount_ativo} ativos no período`} />
-            <Kpi titulo="Banco de horas" valor={h1(totais!.banco)} spark={sparkOf((p) => p.banco)} cur={totais!.banco} prev={biPrev?.totais.banco} betterLower={false} sufixo="h" ctx="saldo acumulado" />
-            <Kpi titulo="Admissões" valor={n0(totais!.admissoes ?? 0)} cur={totais!.admissoes ?? 0} prev={biPrev?.totais.admissoes} betterLower={false} ctx="entradas no período" />
+          {/* ═══ CAMADA 1a · CANÔNICO (janela do usuário · ind_ponto_dia) ═══ */}
+          {/* MESMA fonte do /industrial/ponto → os números batem. Filtrável por data. */}
+          <div>
+            <SecHdr titulo={`Jornada · ${fmtD(dataIni)} → ${fmtD(dataFim)}`} nota="Marcação diária (ind_ponto_dia) — mesma fonte do Ponto Eletrônico. Filtrável por data." />
+            {cTot && cTot.dias_com_registro > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <Kpi titulo="Horas trabalhadas" valor={h1(cTot.horas_trabalhadas)} cur={cTot.horas_trabalhadas} betterLower={false} sufixo="h" ctx="worked_time somado por dia" />
+                <Kpi titulo="Headcount (com batida)" valor={n0(cTot.headcount)} cur={cTot.headcount} betterLower={false} ctx="pessoas que registraram ponto no período" />
+                <Kpi titulo="Infrações de jornada" valor={n0(cTot.infracoes)} cur={cTot.infracoes} betterLower tomForce={cTot.infracoes > 0 ? 'vermelho' : 'verde'} ctx="dias com jornada acima do limite legal" />
+              </div>
+            ) : (
+              <MiniVazio texto="Sem marcação diária no período. Sincronize o ponto (dia a dia) no Ponto Eletrônico." />
+            )}
           </div>
+
+          {/* Drill-down por DIA (canônico · ind_ponto_dia) — LGPD: agregado, sem nomes */}
+          {porDia.length > 0 && (
+            <Card titulo="Jornada dia a dia" nota="Marcação diária (ind_ponto_dia) — mesma fonte do headline acima. Clique num dia para abrir por setor. 🔒 agregado, sem nomes.">
+              <DrillDia porDia={porDia} companyId={companyId!} depto={depto} />
+            </Card>
+          )}
+
+          {/* ═══ CAMADA 1b · FECHAMENTO DO PROVEDOR (período do IO Point) ═══ */}
+          {/* HE-CLT por faixa, noturno, banco, faltas, afastados: só o provedor fecha. NÃO recorta pela
+              janela do usuário → período do provedor explícito, nunca fingindo ser o filtro selecionado. */}
+          {totais && totais.headcount > 0 && (
+            <div>
+              <SecHdr titulo="Fechamento do provedor" tag={`período do IO Point: ${provPer}`}
+                nota="HE-CLT, adicional noturno, banco, faltas e afastados vêm do fechamento legal do provedor. Não recorta pela janela acima — o período real do provedor está no rótulo." />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <Kpi titulo="HE-CLT (por faixa)" valor={h1(totais.horas_extras)} cur={pctExtras} prev={pctExtrasPrev ?? undefined} betterLower deltaFmt={pct} tomForce={pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'} ctx={`${pct(pctExtras)} sobre trabalhadas (provedor)`} />
+                <Kpi titulo="Absenteísmo" valor={pct(totais.faltas_pct)} spark={sparkOf((p) => p.faltas_pct)} cur={totais.faltas_pct} prev={biPrev?.totais.faltas_pct} betterLower deltaFmt={pct} tomForce={totais.faltas_pct > 10 ? 'vermelho' : totais.faltas_pct > 5 ? 'amarelo' : 'verde'} ctx={`${h1(totais.faltas)} · ausência pontual`} />
+                <Kpi titulo="Afastados" valor={n0(totais.afastados_qtd)} cur={totais.afastados_qtd} prev={biPrev?.totais.afastados_qtd} betterLower ctx="INSS / licença / atestado" />
+                <Kpi titulo="Adicional noturno" valor={h1(totais.noturno)} spark={sparkOf((p) => p.noturno)} cur={totais.noturno} prev={biPrev?.totais.noturno} betterLower={false} sufixo="h" ctx="horas em período noturno" />
+                <Kpi titulo="Banco de horas" valor={h1(totais.banco)} spark={sparkOf((p) => p.banco)} cur={totais.banco} prev={biPrev?.totais.banco} betterLower={false} sufixo="h" ctx="saldo acumulado" />
+                <Kpi titulo="Headcount (fechamento)" valor={n0(totais.headcount)} cur={totais.headcount} betterLower={false} ctx={`${totais.headcount_ativo} ativos · base do provedor`} />
+                <Kpi titulo="Admissões" valor={n0(totais.admissoes ?? 0)} cur={totais.admissoes ?? 0} prev={biPrev?.totais.admissoes} betterLower={false} ctx="entradas no período" />
+              </div>
+            </div>
+          )}
 
           {/* ═══ CAMADA 2 · Tendência & Composição ═══ */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
@@ -358,7 +369,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
                 </ResponsiveContainer>
               )}
             </Card>
-            <Card titulo="HE-CLT por faixa · fechamento do provedor" nota={`Fechamento legal do IO Point (período sincronizado)${heTotalFaixas > 0 ? ` · total ${h1(heTotalFaixas)}` : ''}. Difere do KPI "Horas extras" acima (excedente sobre a escala, por dia) — são visões distintas: operacional × folha.`}>
+            <Card titulo="HE-CLT por faixa" nota={`Fechamento legal do IO Point · ${provPer}${heTotalFaixas > 0 ? ` · total ${h1(heTotalFaixas)}` : ''}. HE por faixa/DSR/feriado — o cálculo que vai pra folha.`}>
               {donutData.length === 0 ? <MiniVazio texto="Sem HE por faixa no fechamento do provedor." /> : (
                 <ResponsiveContainer width="100%" height={230}>
                   <PieChart>
@@ -372,13 +383,6 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
               )}
             </Card>
           </div>
-
-          {/* ═══ CAMADA 2.5 · Drill-down por DIA (ind_ponto_dia · agregado) ═══ */}
-          <Card titulo="Jornada dia a dia" nota="Da marcação diária (ind_ponto_dia) — mesma fonte do headline. Clique num dia para abrir por setor. 🔒 agregado, sem nomes.">
-            {porDia.length === 0 ? <MiniVazio texto="Sem marcação diária no período. Sincronize o ponto (dia a dia) no Ponto Eletrônico." /> : (
-              <DrillDia porDia={porDia} companyId={companyId!} depto={depto} />
-            )}
-          </Card>
 
           {/* ═══ CAMADA 3 · Estratificação (assinaturas) ═══ */}
           <Card titulo="Mapa de calor · setor × métrica" nota="Clique numa célula para filtrar o painel por aquele setor.">
@@ -638,6 +642,17 @@ function Kpi({ titulo, valor, ctx, spark, cur, prev, betterLower, deltaFmt, sufi
   )
 }
 
+function SecHdr({ titulo, nota, tag }: { titulo: string; nota?: string; tag?: string }) {
+  return (
+    <div style={{ margin: '2px 0 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: ESP }}>{titulo}</span>
+        {tag && <span style={{ fontSize: 10, fontWeight: 700, color: '#854F0B', background: '#FAEEDA', padding: '2px 8px', borderRadius: 6 }}>{tag}</span>}
+      </div>
+      {nota && <div style={{ fontSize: 11, color: MUT, marginTop: 3, fontStyle: 'italic' }}>{nota}</div>}
+    </div>
+  )
+}
 function Card({ titulo, nota, children }: { titulo: string; nota?: string; children: React.ReactNode }) {
   return (
     <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }}>
