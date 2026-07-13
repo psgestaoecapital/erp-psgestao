@@ -55,6 +55,7 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
   const [ano, setAno] = useState(hoje.getFullYear())
   const [mes, setMes] = useState(hoje.getMonth() + 1) // 1-12
   const [busca, setBusca] = useState('')
+  const [depto, setDepto] = useState('') // '' = todos
   const [data, setData] = useState<BiDia | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -80,18 +81,28 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
     setMes(m); setAno(a)
   }
 
+  // Departamento é o ouro da produtividade por setor (Fase 3): ABATE · DESOSSA ·
+  // EXPEDIÇÃO · TRANSPORTE BOIADEIRO. Opções montadas do próprio dado do mês.
+  const deptos = useMemo(() => {
+    const s = new Set<string>()
+    for (const c of data?.por_colaborador ?? []) if (c.departamento) s.add(c.departamento)
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [data])
+
   const colabs = useMemo(() => {
-    const lista = data?.por_colaborador ?? []
+    let lista = data?.por_colaborador ?? []
+    if (depto) lista = lista.filter((c) => c.departamento === depto)
     const q = busca.trim().toLowerCase()
-    if (!q) return lista
-    return lista.filter((c) =>
+    if (q) lista = lista.filter((c) =>
       (c.nome ?? '').toLowerCase().includes(q) ||
       (c.matricula ?? '').toLowerCase().includes(q) ||
       (c.departamento ?? '').toLowerCase().includes(q))
-  }, [data, busca])
+    return lista
+  }, [data, busca, depto])
 
+  // Totais refletem o filtro (departamento/busca) → vira o rollup do setor.
   const totais = useMemo(() => {
-    const l = data?.por_colaborador ?? []
+    const l = colabs
     return {
       pessoas: l.length,
       horas: l.reduce((s, c) => s + Number(c.horas_trabalhadas || 0), 0),
@@ -99,7 +110,7 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
       infracoes: l.reduce((s, c) => s + Number(c.dias_infracao || 0), 0),
       faltas: l.reduce((s, c) => s + Number(c.faltas_estimadas || 0), 0),
     }
-  }, [data])
+  }, [colabs])
 
   return (
     <section>
@@ -110,11 +121,15 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
           <span style={{ fontSize: 13, fontWeight: 700, color: ESP, minWidth: 92, textAlign: 'center' }}>{MESES[mes - 1]} {ano}</span>
           <button type="button" onClick={() => mudaMes(1)} style={navBtn} aria-label="Próximo mês">›</button>
         </div>
+        <select value={depto} onChange={(e) => { setDepto(e.target.value); setAberto(null) }} style={{ ...inp, minWidth: 170 }}>
+          <option value="">Todos os setores</option>
+          {deptos.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
         <input
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Filtrar por colaborador, matrícula ou departamento…"
-          style={{ ...inp, flex: 1, minWidth: 220 }}
+          placeholder="Filtrar por colaborador ou matrícula…"
+          style={{ ...inp, flex: 1, minWidth: 200 }}
         />
       </div>
 
