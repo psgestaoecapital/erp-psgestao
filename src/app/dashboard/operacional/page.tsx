@@ -219,7 +219,13 @@ export default function OperacionalPage(){
 
   const deleteLanc=async(id:string)=>{
     if(!confirm('Excluir este lançamento?'))return
-    await supabase.from('erp_lancamentos').delete().eq('id',id)
+    // Exclusão auditada+guardada (RD-30/RD-51): a UI LÊ o retorno e recarrega do servidor.
+    // Nunca DELETE cru (bloqueado no banco) nem "assume sucesso" sem confirmação.
+    const{data,error}=await supabase.rpc('fn_lancamento_excluir',{p_id:id,p_motivo:'exclusão manual (operacional)'})
+    if(error||(data&&data.sucesso===false)){
+      setMsg('❌ '+(error?.message||data?.orientacao||data?.erro||'não foi possível excluir'))
+      setTimeout(()=>setMsg(''),4000);return
+    }
     setMsg('✅ Excluído');await loadAll();setTimeout(()=>setMsg(''),3000)
   }
 
