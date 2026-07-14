@@ -120,6 +120,30 @@ function mesclarCanon(parts: CanonRet[]): { tot: CanonTot; deptos: Map<string, C
   return { tot, deptos, dia }
 }
 
+// ── Atrasos (ind_ponto_dia shift + ind_ponto_marcacao · CLT · agregado) ──
+type AtrasoTot = { ocorrencias_manha: number; ocorrencias_pos_almoco: number; minutos_manha: number; minutos_pos_almoco: number; pessoas_com_atraso: number; dias_avaliados: number }
+type AtrasoDepto = { setor: string; oc_manha: number; oc_pos: number; min_total: number; pessoas: number }
+type AtrasoRet = { ok?: boolean; totais?: AtrasoTot; por_departamento?: AtrasoDepto[]; tolerancia?: { marcacao_min: number; dia_min: number } }
+
+function mesclarAtrasos(parts: AtrasoRet[]): { tot: AtrasoTot; deptos: AtrasoDepto[]; tol?: { marcacao_min: number; dia_min: number } } {
+  const tot: AtrasoTot = { ocorrencias_manha: 0, ocorrencias_pos_almoco: 0, minutos_manha: 0, minutos_pos_almoco: 0, pessoas_com_atraso: 0, dias_avaliados: 0 }
+  const deptos: AtrasoDepto[] = []
+  let tol
+  for (const p of parts) {
+    if (!p?.totais) continue
+    tol = p.tolerancia ?? tol
+    tot.ocorrencias_manha += p.totais.ocorrencias_manha ?? 0
+    tot.ocorrencias_pos_almoco += p.totais.ocorrencias_pos_almoco ?? 0
+    tot.minutos_manha += p.totais.minutos_manha ?? 0
+    tot.minutos_pos_almoco += p.totais.minutos_pos_almoco ?? 0
+    tot.pessoas_com_atraso += p.totais.pessoas_com_atraso ?? 0
+    tot.dias_avaliados += p.totais.dias_avaliados ?? 0
+    deptos.push(...(p.por_departamento ?? []))
+  }
+  deptos.sort((a, b) => b.min_total - a.min_total)
+  return { tot, deptos, tol }
+}
+
 // escala de cor verde→âmbar→vermelho (0=bom, 1=ruim)
 function corEscala(ratio: number): string {
   const r = Math.max(0, Math.min(1, ratio))
@@ -146,6 +170,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
   const [serie, setSerie] = useState<SeriePonto[]>([])
   const [porDia, setPorDia] = useState<CanonDia[]>([])   // série por DIA (drill-down · ind_ponto_dia)
   const [canon, setCanon] = useState<{ tot: CanonTot; deptos: CanonDepto[] } | null>(null)  // canônico (janela do usuário)
+  const [atrasos, setAtrasos] = useState<{ tot: AtrasoTot; deptos: AtrasoDepto[]; tol?: { marcacao_min: number; dia_min: number } } | null>(null)
   const [periodoProvedor, setPeriodoProvedor] = useState<{ ini: string; fim: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -165,15 +190,17 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
       const rpc = (ini: string, fim: string, alvo: string | null) => supabase.rpc('fn_ponto_bi_agregado', { p_company_id: companyId, p_data_ini: ini, p_data_fim: fim, p_departamento: alvo })
       const rpcDia = (ini: string, fim: string, alvo: string | null) => supabase.rpc('fn_ponto_bi_dia_agregado', { p_company_id: companyId, p_data_ini: ini, p_data_fim: fim, p_departamento: alvo })
       const rpcSerie = (alvo: string | null) => supabase.rpc('fn_ponto_bi_serie', { p_company_id: companyId, p_data_ini: dataIni, p_data_fim: dataFim, p_departamento: alvo })
+      const rpcAtraso = (alvo: string | null) => supabase.rpc('fn_ponto_atrasos', { p_company_id: companyId, p_data_ini: dataIni, p_data_fim: dataFim, p_departamento: alvo })
 
-      const [cur, prev, ser, curDia, prevDia] = await Promise.all([
+      const [cur, prev, ser, curDia, prevDia, atr] = await Promise.all([
         Promise.all(alvos.map((a) => rpc(dataIni, dataFim, a))),
         Promise.all(alvos.map((a) => rpc(prevIni, prevFim, a))),
         Promise.all(alvos.map((a) => rpcSerie(a))),
         Promise.all(alvos.map((a) => rpcDia(dataIni, dataFim, a))),
         Promise.all(alvos.map((a) => rpcDia(prevIni, prevFim, a))),
+        Promise.all(alvos.map((a) => rpcAtraso(a))),
       ])
-      const err = [...cur, ...prev, ...ser, ...curDia, ...prevDia].find((r) => r.error)
+      const err = [...cur, ...prev, ...ser, ...curDia, ...prevDia, ...atr].find((r) => r.error)
       if (err?.error) { setErro(err.error.message); setBi(null); setLoading(false); return }
       const curP = cur.map((r) => r.data as BiResult).filter(Boolean)
       const prevP = prev.map((r) => r.data as BiResult).filter(Boolean)
@@ -187,6 +214,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
       setCanon({ tot: canonCur.tot, deptos: [...canonCur.deptos.values()] })
       setSerie(mesclarSerie(serP))
       setPorDia([...canonCur.dia.values()].sort((a, b) => a.data.localeCompare(b.data)))
+      setAtrasos(mesclarAtrasos(atr.map((r) => (r.data as AtrasoRet) ?? {})))
       // período REAL do fechamento do provedor (span dos registros armazenados) — pro rótulo honesto
       const { data: perProv } = await supabase.from('ind_ponto_horas')
         .select('periodo_inicio, periodo_fim').eq('company_id', companyId)
@@ -329,6 +357,38 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           {porDia.length > 0 && (
             <Card titulo="Jornada dia a dia" nota="Marcação diária (ind_ponto_dia) — mesma fonte do headline acima. Clique num dia para abrir por setor. 🔒 agregado, sem nomes.">
               <DrillDia porDia={porDia} companyId={companyId!} depto={depto} />
+            </Card>
+          )}
+
+          {/* ATRASOS (shift do IO Point + batidas · CLT · agregado, sem nomes) */}
+          {atrasos && (atrasos.tot.ocorrencias_manha + atrasos.tot.ocorrencias_pos_almoco) > 0 && (
+            <Card titulo="Atrasos" nota={`Início do turno (shift do IO Point) vs 1ª batida. Tolerância CLT: ${atrasos.tol?.marcacao_min ?? 5}min/marcação, teto ${atrasos.tol?.dia_min ?? 10}min/dia (excedeu, conta tudo). Manhã (transporte) × pós-almoço (disciplina) separados. 🔒 sem nomes.`}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+                <MiniKpi label="Atrasos manhã" valor={n0(atrasos.tot.ocorrencias_manha)} sub={`${n0(atrasos.tot.minutos_manha)} min · transporte`} cor={atrasos.tot.ocorrencias_manha > 0 ? S_AMBAR : undefined} />
+                <MiniKpi label="Atrasos pós-almoço" valor={n0(atrasos.tot.ocorrencias_pos_almoco)} sub={`${n0(atrasos.tot.minutos_pos_almoco)} min · disciplina`} cor={atrasos.tot.ocorrencias_pos_almoco > 0 ? S_AMBAR : undefined} />
+                <MiniKpi label="Pessoas" valor={n0(atrasos.tot.pessoas_com_atraso)} sub="com atraso no período" />
+                <MiniKpi label="Dias avaliados" valor={n0(atrasos.tot.dias_avaliados)} sub="dias-colaborador" />
+              </div>
+              {atrasos.deptos.length > 0 && (
+                <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
+                    <thead style={{ background: BG }}>
+                      <tr><Th>Setor</Th><Th>Atrasos manhã</Th><Th>Atrasos pós-almoço</Th><Th>Min. total</Th><Th>Pessoas</Th></tr>
+                    </thead>
+                    <tbody>
+                      {atrasos.deptos.slice(0, 12).map((d) => (
+                        <tr key={d.setor} style={{ borderTop: `0.5px solid ${LINE}` }}>
+                          <Td><b>{d.setor}</b></Td>
+                          <Td>{d.oc_manha}</Td>
+                          <Td>{d.oc_pos}</Td>
+                          <Td style={{ fontWeight: 700, color: d.min_total > 0 ? S_AMBAR : MUT }}>{n0(d.min_total)} min</Td>
+                          <Td style={{ color: MUT }}>{d.pessoas}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Card>
           )}
 
@@ -642,6 +702,15 @@ function Kpi({ titulo, valor, ctx, spark, cur, prev, betterLower, deltaFmt, sufi
   )
 }
 
+function MiniKpi({ label, valor, sub, cor }: { label: string; valor: string; sub?: string; cor?: string }) {
+  return (
+    <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '11px 13px' }}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESP, fontVariantNumeric: 'tabular-nums', lineHeight: 1.2, marginTop: 2 }}>{valor}</div>
+      {sub && <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
 function SecHdr({ titulo, nota, tag }: { titulo: string; nota?: string; tag?: string }) {
   return (
     <div style={{ margin: '2px 0 10px' }}>
