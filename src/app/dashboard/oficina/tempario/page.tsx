@@ -339,11 +339,11 @@ export default function TemparioPage() {
                         {o.emoji} {o.label}{s.origem_tempo === 'ia_aprendido' && s.execucoes_conta ? ` (${s.execucoes_conta}×)` : ''}
                       </span>
                     </div>
-                    {/* preço / custo — meta discreto */}
+                    {/* preço + a conta (transparência) — meta discreto */}
                     <div style={{ marginTop: 7, fontSize: 11, color: C.espressoL }}>
-                      {preco != null
-                        ? <><strong style={{ color: C.green, fontSize: 13 }}>{fmtBRL(preco)}</strong> · custo/h {fmtBRL(custoHora)}</>
-                        : <span>preço calculado quando o custo/hora estiver definido</span>}
+                      {preco != null && custoHora != null
+                        ? <><strong style={{ color: C.green, fontSize: 14 }}>{fmtBRL(preco)}</strong> <span style={{ marginLeft: 4 }}>· {s.tempo_padrao_h}h × {fmtBRL(custoHora)}/h + {params?.margem_alvo_mao_obra_pct ?? 30}%</span></>
+                        : <span>Defina o custo/hora (card acima) pra ver o preço</span>}
                     </div>
                     {/* ações discretas */}
                     <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6 }}>
@@ -368,6 +368,8 @@ export default function TemparioPage() {
         <ModalServico
           companyId={companyIdAtiva}
           servico={editando === 'novo' ? null : editando}
+          custoHora={custoHora}
+          margemMo={params?.margem_alvo_mao_obra_pct ?? 30}
           onClose={() => setEditando(null)}
           onSalvo={(msg) => { setEditando(null); flash(msg); void carregar() }}
           onErro={setErro}
@@ -410,10 +412,12 @@ function FiltroChip({ label, ativo, onClick }: { label: string; ativo: boolean; 
 // Modal criar/editar serviço
 // ─────────────────────────────────────────────────────────────
 function ModalServico({
-  companyId, servico, onClose, onSalvo, onErro,
+  companyId, servico, custoHora, margemMo, onClose, onSalvo, onErro,
 }: {
   companyId: string
   servico: Servico | null
+  custoHora: number | null
+  margemMo: number
   onClose: () => void
   onSalvo: (msg: string) => void
   onErro: (m: string) => void
@@ -423,6 +427,11 @@ function ModalServico({
   const [tempoStr, setTempoStr] = useState(servico ? String(servico.tempo_padrao_h) : '')
   const [salvando, setSalvando] = useState(false)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+
+  // prévia do preço em tempo real (feedback imediato)
+  const tempoPrev = Number((tempoStr || '0').replace(',', '.'))
+  const custoTotalPrev = custoHora != null && tempoPrev > 0 ? tempoPrev * custoHora : null
+  const precoPrev = custoTotalPrev != null ? custoTotalPrev * (1 + margemMo / 100) : null
 
   async function salvar() {
     setErroLocal(null)
@@ -466,6 +475,19 @@ function ModalServico({
           </div>
         </div>
         <div style={{ fontSize: 11, color: C.espressoL }}>Tempo em hora centesimal: 1,5 = 1h30. A sugestão automática por IA chega num próximo passo.</div>
+
+        {/* PRÉVIA DO PREÇO em tempo real — o dono vê o preço nascer */}
+        {precoPrev != null ? (
+          <div style={{ background: C.goldBg, border: `1px solid ${C.gold}33`, borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13 }}>⏱️ {tempoPrev}h</span>
+            <span style={{ color: C.espressoL }}>→</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: C.gold }}>💰 {fmtBRL(precoPrev)}</span>
+            <span style={{ fontSize: 11, color: C.espressoM }}>(custo {fmtBRL(custoTotalPrev)} + {margemMo}% margem)</span>
+          </div>
+        ) : custoHora == null ? (
+          <div style={{ fontSize: 11, color: C.espressoM }}>Defina o custo/hora no card "Custo da sua oficina" pra ver o preço nascer aqui.</div>
+        ) : null}
+
         {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>❌ {erroLocal}</div>}
         <button onClick={salvar} disabled={salvando || !nome.trim()} style={{
           minHeight: 48, padding: '12px 18px', borderRadius: 10,
