@@ -108,6 +108,14 @@ export default function ContratosPage(){
   const [pctReajuste,setPctReajuste]=useState(0);
   const [processando,setProcessando]=useState(false);
 
+  // RD-41 · CRUD com guarda fiscal
+  const [menuAberto,setMenuAberto]=useState<string|null>(null);
+  const [guardCache,setGuardCache]=useState<Record<string,any>>({});
+  const [acaoModal,setAcaoModal]=useState<{tipo:'excluir'|'encerrar';c:Contrato;guard:any}|null>(null);
+  const [motivoAcao,setMotivoAcao]=useState("");
+  const [showEditar,setShowEditar]=useState<Contrato|null>(null);
+  const [editForm,setEditForm]=useState<any>({});
+
   // Define empresa-alvo padrao do modal sempre que escopo muda
   useEffect(()=>{
     if (empresaUnica) setNovoCompanyId(empresaUnica);
@@ -296,24 +304,66 @@ export default function ContratosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
-  const encerrarContrato=async(c:Contrato)=>{
-    const motivo=prompt("Motivo do encerramento:");
-    if(!motivo)return;
-    await supabase.from("erp_contratos").update({
-      status:'encerrado',
-      data_encerramento:hoje(),
-      motivo_encerramento:motivo,
-    }).eq("id",c.id);
-    await supabase.from("erp_contratos_eventos").insert({
-      contrato_id:c.id,
-      company_id:c.company_id,
-      evento:'encerrado',
-      detalhe:'Motivo: '+motivo,
+  // Encerrar agora passa pela RPC com guarda+auditoria (via modal). Nada de update cru.
+  const encerrarContrato=(c:Contrato)=>{
+    setShowDetalhe(null); setMotivoAcao(''); setAcaoModal({tipo:'encerrar',c,guard:null});
+  };
+
+  // ── CRUD com GUARDA FISCAL (RD-41) — a UI OBEDECE a fn_contrato_acoes_permitidas ──
+  const abrirMenu=async(c:Contrato)=>{
+    if(menuAberto===c.id){setMenuAberto(null);return;}
+    setMenuAberto(c.id);
+    if(!guardCache[c.id]){
+      const {data}=await supabase.rpc('fn_contrato_acoes_permitidas',{p_contrato_id:c.id});
+      setGuardCache(g=>({...g,[c.id]:data}));
+    }
+  };
+  const abrirEditar=(c:Contrato)=>{
+    setMenuAberto(null);
+    setEditForm({
+      nome:c.nome||'', cliente_nome:c.cliente_nome||'',
+      valor_mensal:c.valor_atual||c.valor_mensal||0, dia_vencimento:c.dia_vencimento||10,
+      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:c.reajuste_percentual||0,
+      descricao:c.descricao||'', data_fim:c.data_fim||'',
+      status:(c.status==='ativo'||c.status==='suspenso')?c.status:'ativo',
     });
-    setMsg("✅ Contrato encerrado");
-    setShowDetalhe(null);
-    refetchAll();
-    setTimeout(()=>setMsg(""),3000);
+    setShowEditar(c);
+  };
+  const salvarEditar=async()=>{
+    if(!showEditar)return;
+    setProcessando(true);
+    const patch:any={
+      nome:editForm.nome, cliente_nome:editForm.cliente_nome,
+      valor_mensal:Number(editForm.valor_mensal)||0, valor_atual:Number(editForm.valor_mensal)||0,
+      dia_vencimento:Number(editForm.dia_vencimento)||10, tipo_reajuste:editForm.tipo_reajuste,
+      reajuste_percentual:Number(editForm.reajuste_percentual)||0, descricao:editForm.descricao,
+      status:editForm.status,
+    };
+    if(editForm.data_fim) patch.data_fim=editForm.data_fim;
+    const {data,error}=await supabase.rpc('fn_contrato_editar',{p_id:showEditar.id,p_patch:patch});
+    setProcessando(false);
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    setMsg("✅ Contrato alterado"); setShowEditar(null);
+    setGuardCache(g=>{const n={...g};delete n[showEditar.id];return n;});
+    refetchAll(); setTimeout(()=>setMsg(""),3000);
+  };
+  const abrirAcao=(tipo:'excluir'|'encerrar',c:Contrato)=>{
+    setMenuAberto(null); setMotivoAcao('');
+    setAcaoModal({tipo,c,guard:guardCache[c.id]});
+  };
+  const confirmarAcao=async()=>{
+    if(!acaoModal||!motivoAcao.trim())return;
+    setProcessando(true);
+    const {c,tipo}=acaoModal;
+    const {data,error}= tipo==='excluir'
+      ? await supabase.rpc('fn_contrato_excluir',{p_id:c.id,p_motivo:motivoAcao.trim()})
+      : await supabase.rpc('fn_contrato_encerrar',{p_id:c.id,p_motivo:motivoAcao.trim()});
+    setProcessando(false);
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    setMsg(tipo==='excluir'?"✅ Contrato excluído":"✅ Contrato encerrado");
+    setAcaoModal(null);
+    setGuardCache(g=>{const n={...g};delete n[c.id];return n;});
+    refetchAll(); setTimeout(()=>setMsg(""),3000);
   };
 
   const abrirDetalhe=async(c:Contrato)=>{
@@ -608,8 +658,28 @@ export default function ContratosPage(){
                           <td style={{padding:"8px",textAlign:"center"}}>
                             <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
                           </td>
-                          <td style={{padding:"8px",textAlign:"right"}} onClick={e=>e.stopPropagation()}>
-                            <button onClick={()=>abrirDetalhe(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Ver →</button>
+                          <td style={{padding:"8px",textAlign:"right",position:"relative"}} onClick={e=>e.stopPropagation()}>
+                            <div style={{display:"inline-flex",gap:4,alignItems:"center"}}>
+                              <button onClick={()=>abrirDetalhe(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Ver →</button>
+                              <button onClick={()=>abrirMenu(c)} title="Ações" style={{fontSize:14,lineHeight:1,padding:"3px 9px",borderRadius:6,background:BG3,color:TXM,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:700}}>⋯</button>
+                            </div>
+                            {menuAberto===c.id&&(
+                              <div style={{position:"absolute",right:8,top:"100%",marginTop:2,background:BG2,border:`1px solid ${BD}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.18)",zIndex:50,minWidth:220,textAlign:"left",overflow:"hidden"}}>
+                                <button onClick={()=>abrirEditar(c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>✏️ Editar</button>
+                                {!guardCache[c.id]&&<div style={{padding:"9px 12px",fontSize:11,color:TXD}}>Verificando cobranças…</div>}
+                                {guardCache[c.id]?.pode_encerrar&&(
+                                  <button onClick={()=>abrirAcao('encerrar',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>⏸️ Encerrar</button>
+                                )}
+                                {guardCache[c.id]?.pode_excluir&&(
+                                  <button onClick={()=>abrirAcao('excluir',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",color:R,fontSize:12,cursor:"pointer",fontWeight:600}}>🗑️ Excluir</button>
+                                )}
+                                {guardCache[c.id]&&!guardCache[c.id].pode_excluir&&(
+                                  <div style={{padding:"8px 12px",fontSize:10,color:TXM,background:BG3,display:"flex",gap:6,alignItems:"flex-start"}}>
+                                    <span>ℹ️</span><span>{guardCache[c.id].motivo_bloqueio}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -928,6 +998,89 @@ export default function ContratosPage(){
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
               <button onClick={()=>setShowReajuste(null)} disabled={processando} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
               <button onClick={aplicarReajuste} disabled={processando||pctReajuste<=0} style={{padding:"10px 24px",borderRadius:8,background:Y,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer",opacity:pctReajuste<=0?0.5:1}}>{processando?"⏳":"Aplicar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* backdrop p/ fechar o menu ⋯ ao clicar fora */}
+      {menuAberto&&<div onClick={()=>setMenuAberto(null)} style={{position:"fixed",inset:0,zIndex:40}}/>}
+
+      {/* Modal Editar (RD-41) — editar SEMPRE pode; grava audit log via fn_contrato_editar */}
+      {showEditar&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:120,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowEditar(null)}>
+          <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:700,color:GO,marginBottom:4}}>✏️ Editar contrato</div>
+            <div style={{fontSize:11,color:TXD,marginBottom:16,fontFamily:"monospace"}}>{showEditar.numero}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div style={{gridColumn:"1 / -1"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Nome do contrato</div>
+                <input value={editForm.nome} onChange={e=>setEditForm({...editForm,nome:e.target.value})} style={inp}/></div>
+              <div style={{gridColumn:"1 / -1"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Cliente (nome exibido)</div>
+                <input value={editForm.cliente_nome} onChange={e=>setEditForm({...editForm,cliente_nome:e.target.value})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor mensal (R$)</div>
+                <input type="number" step="0.01" value={editForm.valor_mensal} onChange={e=>setEditForm({...editForm,valor_mensal:e.target.value})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Dia de vencimento</div>
+                <input type="number" min="1" max="31" value={editForm.dia_vencimento} onChange={e=>setEditForm({...editForm,dia_vencimento:e.target.value})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Índice de reajuste</div>
+                <select value={editForm.tipo_reajuste} onChange={e=>setEditForm({...editForm,tipo_reajuste:e.target.value})} style={inp}>
+                  {['ipca','igpm','inpc','fixo','nenhum'].map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}
+                </select></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Reajuste (%)</div>
+                <input type="number" step="0.01" value={editForm.reajuste_percentual} onChange={e=>setEditForm({...editForm,reajuste_percentual:e.target.value})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Fim de vigência (opcional)</div>
+                <input type="date" value={editForm.data_fim||''} onChange={e=>setEditForm({...editForm,data_fim:e.target.value})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Situação</div>
+                <select value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})} style={inp}>
+                  <option value="ativo">Ativo</option><option value="suspenso">Suspenso</option>
+                </select></div>
+              <div style={{gridColumn:"1 / -1"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição</div>
+                <textarea value={editForm.descricao} onChange={e=>setEditForm({...editForm,descricao:e.target.value})} style={{...inp,minHeight:60,resize:"vertical"}}/></div>
+            </div>
+            <div style={{fontSize:10,color:TXD,fontStyle:"italic",marginTop:10}}>Excluir ou encerrar têm ações próprias (com guarda fiscal). Toda alteração fica no histórico do contrato.</div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setShowEditar(null)} disabled={processando} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={salvarEditar} disabled={processando} style={{padding:"10px 24px",borderRadius:8,background:GO,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer"}}>{processando?"⏳":"Salvar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ação: Excluir (guarda fiscal) ou Encerrar (RD-41) */}
+      {acaoModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:120,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setAcaoModal(null)}>
+          <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:520,width:"100%"}} onClick={e=>e.stopPropagation()}>
+            {acaoModal.tipo==='excluir'?(
+              <>
+                <div style={{fontSize:18,fontWeight:700,color:R,marginBottom:4}}>🗑️ Excluir contrato {acaoModal.c.numero}?</div>
+                <div style={{fontSize:12,color:TXM,marginBottom:14}}>{acaoModal.c.cliente_nome} · {fmtR(acaoModal.c.valor_atual||acaoModal.c.valor_mensal)}/mês</div>
+                <div style={{background:G+"12",border:`1px solid ${G}40`,borderRadius:8,padding:12,marginBottom:14,fontSize:12,color:TX}}>
+                  ✅ Sem cobrança viva — pode ser excluído com segurança.
+                  {Number(acaoModal.guard?.historico_titulos)>0&&(
+                    <div style={{fontSize:11,color:TXM,marginTop:6}}>Histórico: {acaoModal.guard.historico_titulos} título(s) já gerado(s) (hoje inexistentes) — isso fica registrado no motivo da exclusão.</div>
+                  )}
+                </div>
+                <div style={{fontSize:10,color:TXD,marginBottom:4}}>Motivo (obrigatório)</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                  {['lançado errado','cliente duplicado','teste'].map(m=>(
+                    <button key={m} onClick={()=>setMotivoAcao(m)} style={{padding:"5px 10px",borderRadius:6,fontSize:11,cursor:"pointer",border:`1px solid ${motivoAcao===m?R:BD}`,background:motivoAcao===m?R+"15":BG3,color:motivoAcao===m?R:TXM}}>{m}</button>
+                  ))}
+                </div>
+                <input value={motivoAcao} onChange={e=>setMotivoAcao(e.target.value)} placeholder="descreva o motivo…" style={inp}/>
+              </>
+            ):(
+              <>
+                <div style={{fontSize:18,fontWeight:700,color:R,marginBottom:4}}>🏁 Encerrar contrato {acaoModal.c.numero}?</div>
+                <div style={{fontSize:12,color:TXM,marginBottom:14}}>{acaoModal.c.cliente_nome} · {fmtR(acaoModal.c.valor_atual||acaoModal.c.valor_mensal)}/mês</div>
+                <div style={{background:B+"10",border:`1px solid ${B}40`,borderRadius:8,padding:12,marginBottom:14,fontSize:12,color:TX}}>
+                  ⏸️ Para de gerar cobrança a partir de agora e mantém toda a história (títulos, faturas e recebimentos ficam).
+                </div>
+                <div style={{fontSize:10,color:TXD,marginBottom:4}}>Motivo do encerramento (obrigatório)</div>
+                <input value={motivoAcao} onChange={e=>setMotivoAcao(e.target.value)} placeholder="ex.: cliente cancelou o serviço" style={inp}/>
+              </>
+            )}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:18}}>
+              <button onClick={()=>setAcaoModal(null)} disabled={processando} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={confirmarAcao} disabled={processando||!motivoAcao.trim()} style={{padding:"10px 24px",borderRadius:8,background:R,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer",opacity:!motivoAcao.trim()?0.5:1}}>{processando?"⏳":acaoModal.tipo==='excluir'?"🗑️ Excluir":"🏁 Encerrar"}</button>
             </div>
           </div>
         </div>
