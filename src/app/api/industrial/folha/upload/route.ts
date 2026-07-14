@@ -37,19 +37,48 @@ export async function POST(req: NextRequest) {
     const sess = await sessaoComAcesso(req, companyId)
     if (!sess) return NextResponse.json({ ok: false, erro: 'nao autenticado ou sem acesso a esta empresa' }, { status: 401 })
 
+    // FIX FOLHA-DOMINIO (14/07): os .xls do Domínio são OLE/CFB fora do padrão
+    // (tamanho não múltiplo de 512, sem SummaryInformation, só o stream Workbook).
+    // SheetJS abre, mas às vezes num sheet inesperado / vindo vazio. Antes: lia só
+    // SheetNames[0] e, quando vinha vazio, o parser não achava competência e o
+    // sistema MENTIA ("não identifiquei a competência") — mandou caçar o problema
+    // errado por 1h. Correção: (1) varre TODAS as abas; (2) erros DISTINTOS —
+    // não abriu ≠ abriu vazio ≠ abriu com conteúdo mas sem competência (RD-49).
     const buf = new Uint8Array(await file.arrayBuffer())
-    let rows: unknown[][]
+    let wb: XLSX.WorkBook
     try {
-      const wb = XLSX.read(buf, { type: 'array' })
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: false }) as unknown[][]
+      wb = XLSX.read(buf, { type: 'array', cellDates: false })
     } catch (e) {
-      return NextResponse.json({ ok: false, erro: `nao foi possivel ler a planilha: ${(e as Error).message}` }, { status: 422 })
+      return NextResponse.json({
+        ok: false, codigo: 'abertura',
+        erro: `Não consegui ABRIR o arquivo. O .xls do Domínio pode estar malformado (formato OLE/CFB fora do padrão). Reexporte em .xlsx, ou abra e salve no LibreOffice antes de subir. Detalhe: ${(e as Error).message}`,
+      }, { status: 422 })
+    }
+    if (!wb.SheetNames?.length) {
+      return NextResponse.json({ ok: false, codigo: 'vazio', erro: 'O arquivo abriu mas não tem nenhuma planilha legível (provável .xls corrompido). NÃO é problema de competência.' }, { status: 422 })
     }
 
-    const parsed = parseFolhaDominio(rows)
-    if (!parsed.competencia) return NextResponse.json({ ok: false, erro: 'nao identifiquei a competencia (MM/YYYY) no topo da planilha' }, { status: 422 })
-    if (parsed.funcionarios.length === 0) return NextResponse.json({ ok: false, erro: 'nenhum funcionario reconhecido (col 0 deve ser matricula)' }, { status: 422 })
+    // varre todas as abas; usa a primeira que tem folha (competência OU matrículas)
+    let parsed: ReturnType<typeof parseFolhaDominio> | null = null
+    let algumaTinhaLinha = false
+    for (const nome of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, blankrows: false }) as unknown[][]
+      if (rows.length > 0) algumaTinhaLinha = true
+      const p = parseFolhaDominio(rows)
+      if (p.competencia || p.funcionarios.length > 0) { parsed = p; break }
+    }
+
+    if (!parsed) {
+      if (!algumaTinhaLinha) {
+        return NextResponse.json({
+          ok: false, codigo: 'vazio',
+          erro: 'O arquivo ABRIU mas veio VAZIO — nenhuma linha legível em nenhuma aba (provável .xls CFB malformado, só o stream Workbook). NÃO é problema de competência: reexporte em .xlsx.',
+        }, { status: 422 })
+      }
+      return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'O arquivo abriu e tem conteúdo, mas não achei a competência (MM/YYYY) no topo nem linhas de funcionário (col 0 = matrícula). Confira se é a planilha "Encargos da Empresa" do Domínio.' }, { status: 422 })
+    }
+    if (!parsed.competencia) return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'Li os funcionários, mas não achei a competência (MM/YYYY) no topo da planilha.' }, { status: 422 })
+    if (parsed.funcionarios.length === 0) return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'Achei a competência mas nenhum funcionário reconhecido (col 0 deve ser matrícula).' }, { status: 422 })
 
     // Preview: não grava, só devolve o que leu (RD-38: CEO confere antes).
     if (!confirmar) {
