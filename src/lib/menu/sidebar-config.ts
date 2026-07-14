@@ -178,6 +178,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     status: 'pronto',
     items: [
       { id: 'consultor-ia', label: 'Consultor IA', href: '/dashboard/consultor-ia', status: 'pronto', badge: 'IA' },
+      { id: 'divergencias', label: 'Divergências', href: '/dashboard/_compartilhado/divergencias', status: 'pronto' },
       { id: 'previsao', label: 'Previsão de Caixa', href: '/dashboard/previsao', status: 'parcial' },
       { id: 'score', label: 'Score Inadimplência', href: '/dashboard/score', status: 'parcial' },
       { id: 'anti-fraude', label: 'Anti-Fraude', href: '/dashboard/anti-fraude', status: 'parcial' },
