@@ -51,7 +51,7 @@ type BiTotais = {
   noturno: number; banco: number; headcount: number; headcount_ativo: number
   he_faixas?: HeFaixas; admissoes?: number
 }
-type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number; noturno?: number; banco?: number; admissoes?: number }
+type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number; noturno?: number; banco?: number; admissoes?: number; infracoes?: number }
 type BiResult = { totais: BiTotais; por_departamento: BiDepto[] }
 type SeriePonto = { periodo_inicio: string; periodo_fim: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; extras_pct: number; noturno: number; banco: number; headcount: number }
 
@@ -153,12 +153,14 @@ function corEscala(ratio: number): string {
 }
 
 type HeatMetric = { key: keyof BiDepto | 'extras_pct'; label: string; worseHigh: boolean; fmt: (d: BiDepto) => string; val: (d: BiDepto) => number }
+// D1 · métricas do heatmap vêm do CANÔNICO filtrável (ind_ponto_dia · janela do filtro).
+// Faltas%/Noturno/Banco são fechamento do PROVEDOR (janela fixa) → saíram daqui p/ não misturar
+// período. Infrações (dias acima do limite legal) é o sinal de risco que o canônico entrega.
 const HEAT_METRICS: HeatMetric[] = [
   { key: 'trabalhadas', label: 'Trabalhadas', worseHigh: false, fmt: (d) => h1(d.trabalhadas), val: (d) => d.trabalhadas },
   { key: 'extras_pct', label: 'HE %', worseHigh: true, fmt: (d) => pct(d.trabalhadas > 0 ? d.extras / d.trabalhadas * 100 : 0), val: (d) => d.trabalhadas > 0 ? d.extras / d.trabalhadas * 100 : 0 },
-  { key: 'faltas_pct', label: 'Faltas %', worseHigh: true, fmt: (d) => pct(d.faltas_pct), val: (d) => d.faltas_pct ?? 0 },
-  { key: 'noturno', label: 'Noturno', worseHigh: true, fmt: (d) => h1(d.noturno ?? 0), val: (d) => d.noturno ?? 0 },
-  { key: 'banco', label: 'Banco', worseHigh: true, fmt: (d) => h1(d.banco ?? 0), val: (d) => Math.abs(d.banco ?? 0) },
+  { key: 'infracoes', label: 'Infrações', worseHigh: true, fmt: (d) => n0(d.infracoes ?? 0), val: (d) => d.infracoes ?? 0 },
+  { key: 'headcount', label: 'Pessoas', worseHigh: false, fmt: (d) => n0(d.headcount), val: (d) => d.headcount },
 ]
 
 export default function PainelGente({ companyId, dataIni, dataFim, setoresPermitidos }: {
@@ -232,11 +234,21 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
   useEffect(() => { let ok = true; void (async () => { if (ok) await carregar() })(); return () => { ok = false } }, [carregar])
 
-  const totais = bi?.totais
-  const deptos = bi?.por_departamento ?? []
+  const totais = bi?.totais                                 // PROVEDOR (fechamento · janela fixa do IO Point)
   const cTot = canon?.tot                                   // canônico (janela do usuário · ind_ponto_dia)
   const cDeptos = canon?.deptos ?? []
+  // 🔴 D1 · O FILTRO PROPAGA. Os widgets de ANÁLISE (mapa de calor, semáforo, ranking, distribuição,
+  // detalhe, fadiga SST) leem do CANÔNICO por-setor (ind_ponto_dia · recorta pela data do filtro),
+  // NÃO do fechamento do provedor. Faltas%/noturno/banco não existem nessa fonte (são fechamento) →
+  // ficam 0 aqui e saem da UI de análise; infrações entra no lugar. Só a CAMADA 1b (Fechamento do
+  // provedor) permanece presa à janela do provedor, sempre rotulada com o período real dele.
+  const deptos: BiDepto[] = useMemo(() => cDeptos.map((d) => ({
+    departamento: d.departamento, trabalhadas: d.horas_trabalhadas, extras: d.horas_extras,
+    faltas: 0, faltas_pct: 0, afastados_qtd: 0, folga_dsr: 0, headcount: d.headcount, infracoes: d.infracoes,
+  })), [cDeptos])
   const provPer = periodoProvedor ? `${fmtD(periodoProvedor.ini)} – ${fmtD(periodoProvedor.fim)}` : 'período sincronizado'
+  // D1 · rótulo de período das zonas de ANÁLISE (seguem o filtro) e do FECHAMENTO (janela do provedor).
+  const badgeFiltro = `📅 ${fmtD(dataIni)} → ${fmtD(dataFim)} · filtro`
   const pctExtras = totais && totais.horas_trabalhadas > 0 ? (totais.horas_extras / totais.horas_trabalhadas) * 100 : 0
   const pctExtrasPrev = biPrev?.totais && biPrev.totais.horas_trabalhadas > 0 ? (biPrev.totais.horas_extras / biPrev.totais.horas_trabalhadas) * 100 : null
 
@@ -247,14 +259,17 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
     return [...s].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [deptos, setoresPermitidos])
 
-  // Semáforo geral — estado num relance
-  const setoresCriticos = useMemo(() => deptos.filter((d) => (d.faltas_pct ?? 0) > 10 || (d.trabalhadas > 0 && d.extras / d.trabalhadas * 100 > 12)), [deptos])
+  // Semáforo geral — estado num relance. D1: crítico por ANÁLISE (HE% + infrações da janela do filtro).
+  const setoresCriticos = useMemo(() => deptos.filter((d) => (d.trabalhadas > 0 && d.extras / d.trabalhadas * 100 > 12) || (d.infracoes ?? 0) >= 5), [deptos])
   const tomGeral: Tom = useMemo(() => {
-    if (!totais || totais.headcount === 0) return 'verde'
-    if (setoresCriticos.length >= 2 || totais.faltas_pct > 10 || pctExtras > 12) return 'vermelho'
-    if (setoresCriticos.length >= 1 || totais.faltas_pct > 5 || pctExtras > 8) return 'amarelo'
+    const hcCanon = cTot?.headcount ?? 0
+    if (!totais && hcCanon === 0) return 'verde'
+    const absent = totais?.faltas_pct ?? 0                  // absenteísmo é fechamento do provedor
+    const infTot = cTot?.infracoes ?? 0                     // infrações é canônico (janela do filtro)
+    if (setoresCriticos.length >= 2 || absent > 10 || pctExtras > 12 || infTot >= 10) return 'vermelho'
+    if (setoresCriticos.length >= 1 || absent > 5 || pctExtras > 8 || infTot > 0) return 'amarelo'
     return 'verde'
-  }, [totais, setoresCriticos, pctExtras])
+  }, [totais, cTot, setoresCriticos, pctExtras])
   // 🚨 RD-46: ausência de dado NUNCA é verde. Se falhou/carregando/vazio, a saúde é INDEFINIDA
   // (nunca "Saudável"). O bug: falhou o load e o semáforo mostrava 🟢 "0 setores críticos".
   const saudeIndefinida = loading || !!erro || (!totais && !canon)
@@ -266,9 +281,10 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
   const headcountArea = useMemo(() => deptos.slice().sort((a, b) => b.headcount - a.headcount).slice(0, 12).map((d) => ({ nome: d.departamento, headcount: d.headcount })), [deptos])
   const semaforoSetores = useMemo(() => deptos.map((d) => {
     const ep = d.trabalhadas > 0 ? d.extras / d.trabalhadas * 100 : 0
-    const tom: Tom = (d.faltas_pct ?? 0) > 10 || ep > 12 ? 'vermelho' : (d.faltas_pct ?? 0) > 5 || ep > 8 ? 'amarelo' : 'verde'
-    return { ...d, extras_pct: ep, tom }
-  }).sort((a, b) => (b.faltas_pct ?? 0) + (b.extras_pct) - ((a.faltas_pct ?? 0) + a.extras_pct)), [deptos])
+    const inf = d.infracoes ?? 0
+    const tom: Tom = ep > 12 || inf >= 5 ? 'vermelho' : ep > 8 || inf > 0 ? 'amarelo' : 'verde'
+    return { ...d, extras_pct: ep, infracoes: inf, tom }
+  }).sort((a, b) => (b.extras_pct + (b.infracoes ?? 0)) - (a.extras_pct + (a.infracoes ?? 0))), [deptos])
 
   // Camada 5 · fadiga/excesso HE (CALCULADO — temos dado)
   const setoresFadiga = useMemo(() => semaforoSetores.filter((d) => d.extras_pct > 15 && d.headcount > 0), [semaforoSetores])
@@ -285,8 +301,8 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
   ].filter((x) => x.v > 0) : []
 
   const exportarCSV = useCallback(() => {
-    const head = ['Setor', 'Pessoas', 'Trabalhadas(h)', 'Extras(h)', 'HE%', 'Faltas%', 'Noturno(h)', 'Banco(h)', 'Afastados']
-    const linhas = deptos.map((d) => [d.departamento, d.headcount, d.trabalhadas, d.extras, d.trabalhadas > 0 ? (d.extras / d.trabalhadas * 100).toFixed(1) : '0', (d.faltas_pct ?? 0).toFixed(1), d.noturno ?? 0, d.banco ?? 0, d.afastados_qtd ?? 0])
+    const head = ['Setor', 'Pessoas', 'Trabalhadas(h)', 'Extras(h)', 'HE%', 'Infracoes']
+    const linhas = deptos.map((d) => [d.departamento, d.headcount, d.trabalhadas, d.extras, d.trabalhadas > 0 ? (d.extras / d.trabalhadas * 100).toFixed(1) : '0', d.infracoes ?? 0])
     const csv = [head, ...linhas].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -459,23 +475,23 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           </div>
 
           {/* ═══ CAMADA 3 · Estratificação (assinaturas) ═══ */}
-          <Card titulo="Mapa de calor · setor × métrica" nota="Clique numa célula para filtrar o painel por aquele setor.">
+          <Card titulo="Mapa de calor · setor × métrica" tag={badgeFiltro} nota="Análise da janela do filtro (ind_ponto_dia). Clique numa célula para filtrar o painel por aquele setor.">
             <Heatmap deptos={deptos} onPick={(s) => setDepto(s)} selecionado={depto} mostrarBanco={heatMostrarBanco} />
           </Card>
 
-          <Card titulo="Semáforo por setor" nota="Clique num setor para filtrar todo o painel.">
+          <Card titulo="Semáforo por setor" tag={badgeFiltro} nota="Análise da janela do filtro. Tom por HE% + infrações de jornada. Clique num setor para filtrar todo o painel.">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
               {semaforoSetores.map((d) => {
                 const ativo = depto === d.departamento
                 const maxRef = Math.max(1, ...semaforoSetores.map((x) => x.extras_pct))
                 return (
-                  <button key={d.departamento} onClick={() => setDepto(ativo ? '' : d.departamento)} title={`HE ${pct(d.extras_pct)} · Faltas ${pct(d.faltas_pct ?? 0)} · ${d.headcount} pessoas`}
+                  <button key={d.departamento} onClick={() => setDepto(ativo ? '' : d.departamento)} title={`HE ${pct(d.extras_pct)} · ${d.infracoes ?? 0} infração(ões) · ${d.headcount} pessoas`}
                     style={{ textAlign: 'left', cursor: 'pointer', background: ativo ? TOM_BG[d.tom] : '#FFF', border: `1px solid ${ativo ? TOM_COR[d.tom] : LINE}`, borderRadius: 10, padding: '10px 12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12.5, fontWeight: 700, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{TOM_DOT[d.tom]} {d.departamento}</span>
                       <span style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap' }}>{d.headcount}p</span>
                     </div>
-                    <div style={{ fontSize: 11, color: MUT, margin: '3px 0 5px' }}>HE {pct(d.extras_pct)} · Faltas {pct(d.faltas_pct ?? 0)}</div>
+                    <div style={{ fontSize: 11, color: MUT, margin: '3px 0 5px' }}>HE {pct(d.extras_pct)} · {(d.infracoes ?? 0) > 0 ? `⚠ ${d.infracoes} infr.` : 'sem infração'}</div>
                     <div style={{ height: 6, background: CREAM, borderRadius: 4, overflow: 'hidden' }}>
                       <div style={{ width: `${Math.min(100, d.extras_pct / maxRef * 100)}%`, height: '100%', background: TOM_COR[d.tom] }} />
                     </div>
@@ -487,7 +503,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
           {/* ═══ CAMADA 4 · Ranking & distribuição ═══ */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-            <Card titulo="Ranking · horas extras por setor" nota={rankingBarras.length === 12 ? 'top 12' : undefined}>
+            <Card titulo="Ranking · horas extras por setor" tag={badgeFiltro} nota={rankingBarras.length === 12 ? 'top 12 · janela do filtro' : 'janela do filtro'}>
               <ResponsiveContainer width="100%" height={Math.max(160, rankingBarras.length * 28)}>
                 <BarChart data={rankingBarras} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                   <XAxis type="number" tick={{ fontSize: 10, fill: MUT }} />
@@ -497,7 +513,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
                 </BarChart>
               </ResponsiveContainer>
             </Card>
-            <Card titulo="Distribuição · headcount por setor" nota="pessoas com registro no período">
+            <Card titulo="Distribuição · headcount por setor" tag={badgeFiltro} nota="pessoas com registro na janela do filtro">
               <ResponsiveContainer width="100%" height={Math.max(160, headcountArea.length * 28)}>
                 <AreaChart data={headcountArea} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                   <defs><linearGradient id="hcGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor={GOLD} stopOpacity={0.25} /><stop offset="100%" stopColor={GOLD} stopOpacity={0.85} /></linearGradient></defs>
@@ -511,11 +527,11 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           </div>
 
           {/* Ranking POR SETOR (tabela agregada) */}
-          <Card titulo="Detalhe agregado por setor" nota="Detalhe por pessoa (nomes) só no Ponto Eletrônico — acesso restrito.">
+          <Card titulo="Detalhe agregado por setor" tag={badgeFiltro} nota="Análise da janela do filtro (ind_ponto_dia). Detalhe por pessoa (nomes) só no Ponto Eletrônico — acesso restrito.">
             <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
                 <thead style={{ background: BG }}>
-                  <tr><Th>Setor</Th><Th>Pessoas</Th><Th>Trabalhadas</Th><Th>Extras</Th><Th>HE %</Th><Th>Faltas %</Th><Th>Noturno</Th><Th>Banco</Th></tr>
+                  <tr><Th>Setor</Th><Th>Pessoas</Th><Th>Trabalhadas</Th><Th>Extras</Th><Th>HE %</Th><Th>Infrações</Th></tr>
                 </thead>
                 <tbody>
                   {semaforoSetores.map((d) => (
@@ -525,9 +541,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
                       <Td>{h1(d.trabalhadas)}</Td>
                       <Td style={{ fontWeight: 700, color: d.extras > 0 ? GOLD : MUT }}>{h1(d.extras)}</Td>
                       <Td>{pct(d.extras_pct)}</Td>
-                      <Td>{pct(d.faltas_pct ?? 0)}</Td>
-                      <Td>{h1(d.noturno ?? 0)}</Td>
-                      <Td style={{ color: MUT }}>{d.banco != null ? h1(d.banco) : '—'}</Td>
+                      <Td style={{ fontWeight: 700, color: (d.infracoes ?? 0) > 0 ? S_VERM : MUT }}>{n0(d.infracoes ?? 0)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -536,7 +550,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           </Card>
 
           {/* ═══ CAMADA 5 · Alerta calculado + SEM DADOS honesto ═══ */}
-          <Card titulo="⚠️ Excesso de HE / risco de fadiga (SST)" nota="Setores com HE acima de 15% da jornada — sinal de sobrecarga.">
+          <Card titulo="⚠️ Excesso de HE / risco de fadiga (SST)" tag={badgeFiltro} nota="Setores com HE acima de 15% da jornada (janela do filtro) — sinal de sobrecarga.">
             {setoresFadiga.length === 0 ? (
               <div style={{ fontSize: 13, color: S_VERDE, fontWeight: 600 }}>🟢 Nenhum setor acima do limiar de fadiga no período.</div>
             ) : (
@@ -736,11 +750,12 @@ function SecHdr({ titulo, nota, tag }: { titulo: string; nota?: string; tag?: st
     </div>
   )
 }
-function Card({ titulo, nota, children }: { titulo: string; nota?: string; children: React.ReactNode }) {
+function Card({ titulo, nota, tag, children }: { titulo: string; nota?: string; tag?: string; children: React.ReactNode }) {
   return (
     <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: nota ? 2 : 10 }}>
         <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>{titulo}</span>
+        {tag && <span style={{ fontSize: 10, fontWeight: 700, color: '#1F6B3A', background: '#E6F4EC', padding: '2px 8px', borderRadius: 6, alignSelf: 'center' }}>{tag}</span>}
       </div>
       {nota && <div style={{ fontSize: 11, color: MUT, marginBottom: 10, fontStyle: 'italic' }}>{nota}</div>}
       {children}
