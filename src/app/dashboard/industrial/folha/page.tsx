@@ -14,9 +14,9 @@ const RED = '#A32D2D', RED_BG = '#FCEBEB', GREEN = '#166534', GREEN_BG = '#DCFCE
 const brl = (n: number) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtComp = (d: string) => { const [y, m] = d.split('-'); return `${m}/${y}` }
 
-type CompRow = { matricula: number; nome: string | null; competencia: string; total_geral: number; remuneracao: number }
+type CompRow = { matricula: number; nome: string | null; competencia: string; total_geral: number; remuneracao: number; secoes: string | null }
 type VerbaRow = { codigo_verba: string; descricao: string | null; valor: number; tipo: string | null }
-type Preview = { competencia: string; cnpj: string | null; funcionarios: number; total_geral: number }
+type Preview = { competencia: string; cnpj: string | null; funcionarios: number; total_geral: number; secoes?: string[]; via?: string }
 
 export default function FolhaPage() {
   const { selInfo, sel } = useCompanyIds()
@@ -35,15 +35,15 @@ export default function FolhaPage() {
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     const { data } = await supabase.from('folha_competencia')
-      .select('matricula, nome, competencia, total_geral, remuneracao')
+      .select('matricula, nome, competencia, total_geral, remuneracao, secoes')
       .eq('company_id', empresaUnica).order('competencia', { ascending: false })
     setRows((data ?? []) as CompRow[])
   }, [empresaUnica])
   useEffect(() => { void carregar() }, [carregar])
 
   const competencias = useMemo(() => {
-    const m = new Map<string, { n: number; total: number }>()
-    for (const r of rows) { const e = m.get(r.competencia) ?? { n: 0, total: 0 }; e.n++; e.total += Number(r.total_geral) || 0; m.set(r.competencia, e) }
+    const m = new Map<string, { n: number; total: number; secoes: string | null }>()
+    for (const r of rows) { const e = m.get(r.competencia) ?? { n: 0, total: 0, secoes: r.secoes }; e.n++; e.total += Number(r.total_geral) || 0; if (r.secoes) e.secoes = r.secoes; m.set(r.competencia, e) }
     return [...m.entries()].map(([competencia, v]) => ({ competencia, ...v })).sort((a, b) => b.competencia.localeCompare(a.competencia))
   }, [rows])
 
@@ -76,7 +76,7 @@ export default function FolhaPage() {
       const r = await fetch('/api/industrial/folha/upload', { method: 'POST', credentials: 'include', headers: { authorization: `Bearer ${session.access_token}` }, body: fd })
       const j = await r.json()
       if (!r.ok || !j.ok) { setErro(j.erro || `HTTP ${r.status}`); return }
-      if (j.preview) { setPreview({ competencia: j.competencia, cnpj: j.cnpj, funcionarios: j.funcionarios, total_geral: j.total_geral }) }
+      if (j.preview) { setPreview({ competencia: j.competencia, cnpj: j.cnpj, funcionarios: j.funcionarios, total_geral: j.total_geral, secoes: j.secoes, via: j.via }) }
       else {
         setOk(`IMPORTOU folha ${fmtComp(j.competencia)} · ${j.funcionarios} funcionários · ${brl(j.total_geral)} · ${j.verbas} verbas.`)
         setPreview(null); setFileSel(null); if (fileRef.current) fileRef.current.value = ''
@@ -106,6 +106,8 @@ export default function FolhaPage() {
           <div style={{ marginTop: 12, background: CREAM, borderRadius: 10, padding: 12 }}>
             <div style={{ fontSize: 13, color: ESP }}>
               Competência <b>{fmtComp(preview.competencia)}</b> · <b>{preview.funcionarios}</b> funcionários · total <b>{brl(preview.total_geral)}</b>{preview.cnpj ? ` · CNPJ ${preview.cnpj}` : ''}
+              {preview.secoes && preview.secoes.length > 0 && <> · seções: <b>{preview.secoes.join(' + ')}</b></>}
+              {preview.via === 'reparado' && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#854F0B', background: '#FAEEDA', padding: '1px 6px', borderRadius: 5 }}>arquivo reparado</span>}
             </div>
             <button onClick={() => enviar(true)} disabled={busy} style={{ ...btnGold, marginTop: 10, opacity: busy ? 0.6 : 1 }}>{busy ? 'Importando…' : '✓ Confirmar importação'}</button>
           </div>
@@ -124,6 +126,7 @@ export default function FolhaPage() {
                 style={{ textAlign: 'left', cursor: 'pointer', borderRadius: 10, padding: '10px 12px', border: `1px solid ${compSel === c.competencia ? GOLD : LINE}`, background: compSel === c.competencia ? 'rgba(200,148,26,0.10)' : '#FFF' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{fmtComp(c.competencia)}</div>
                 <div style={{ fontSize: 11, color: MUT }}>{c.n} func · {brl(c.total)}</div>
+                {c.secoes && <div style={{ fontSize: 10, color: c.secoes.includes('13') ? '#854F0B' : MUT, fontWeight: c.secoes.includes('13') ? 700 : 400, marginTop: 2 }}>{c.secoes}</div>}
               </button>
             ))}
           </div>

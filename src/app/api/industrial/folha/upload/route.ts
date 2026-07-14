@@ -88,16 +88,17 @@ export async function POST(req: NextRequest) {
     if (!confirmar) {
       return NextResponse.json({
         ok: true, preview: true, via, competencia: parsed.competencia, cnpj: parsed.cnpj,
-        funcionarios: parsed.funcionarios.length, total_geral: parsed.total_geral,
+        funcionarios: parsed.funcionarios.length, total_geral: parsed.total_geral, secoes: parsed.secoes,
       })
     }
 
     // Idempotência: re-upload da mesma competência REGRAVA (cascade limpa verbas).
     await supabaseAdmin.from('folha_competencia').delete().eq('company_id', companyId).eq('competencia', parsed.competencia)
 
+    const secoesStr = parsed.secoes.join(', ')
     const compRows = parsed.funcionarios.map((f) => ({
       company_id: companyId, matricula: f.matricula, competencia: parsed.competencia,
-      nome: f.nome, remuneracao: f.remuneracao, total_geral: f.total_geral, raw: f.raw, criado_por: sess.userId,
+      nome: f.nome, remuneracao: f.remuneracao, total_geral: f.total_geral, secoes: secoesStr, raw: f.raw, criado_por: sess.userId,
     }))
     const { data: inserted, error: e1 } = await supabaseAdmin.from('folha_competencia').insert(compRows).select('id, matricula')
     if (e1) return NextResponse.json({ ok: false, erro: `falha ao gravar folha: ${e1.message}` }, { status: 502 })
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
     } catch { /* log nao derruba */ }
 
     return NextResponse.json({
-      ok: true, via, competencia: parsed.competencia, funcionarios: compRows.length, verbas: verbaRows.length, total_geral: parsed.total_geral,
+      ok: true, via, secoes: parsed.secoes, competencia: parsed.competencia, funcionarios: compRows.length, verbas: verbaRows.length, total_geral: parsed.total_geral,
     })
   } catch (e) {
     return NextResponse.json({ ok: false, erro: e instanceof Error ? e.message : String(e) }, { status: 500 })
