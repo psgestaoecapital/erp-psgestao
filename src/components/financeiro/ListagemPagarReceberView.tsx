@@ -410,8 +410,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           `Excluir agora geraria um movimento bancário órfão.\n` +
           `${j.orientacao ?? 'Desvincule no inbox de conciliação, depois volte aqui.'}`,
         )
+      } else if (j?.erro === 'bloqueado_boleto_ativo') {
+        alert(
+          `Este título tem BOLETO EMITIDO no banco.\n\n` +
+          `Se excluir, o banco continua cobrando um boleto de um título que não existe mais.\n` +
+          `${j.orientacao ?? 'Cancele o boleto primeiro, depois exclua.'}`,
+        )
       } else {
-        alert('Erro ao excluir: ' + (j?.erro ?? 'desconhecido'))
+        alert('Não foi possível excluir: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido'))
       }
       return
     }
