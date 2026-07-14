@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { parseFolhaDominio } from '@/lib/folha/dominio'
+import { repararWorkbookDominio } from '@/lib/folha/reparar-xls'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,53 +38,56 @@ export async function POST(req: NextRequest) {
     const sess = await sessaoComAcesso(req, companyId)
     if (!sess) return NextResponse.json({ ok: false, erro: 'nao autenticado ou sem acesso a esta empresa' }, { status: 401 })
 
-    // FIX FOLHA-DOMINIO (14/07): os .xls do Domínio são OLE/CFB fora do padrão
-    // (tamanho não múltiplo de 512, sem SummaryInformation, só o stream Workbook).
-    // SheetJS abre, mas às vezes num sheet inesperado / vindo vazio. Antes: lia só
-    // SheetNames[0] e, quando vinha vazio, o parser não achava competência e o
-    // sistema MENTIA ("não identifiquei a competência") — mandou caçar o problema
-    // errado por 1h. Correção: (1) varre TODAS as abas; (2) erros DISTINTOS —
-    // não abriu ≠ abriu vazio ≠ abriu com conteúdo mas sem competência (RD-49).
+    // FIX FOLHA-DOMINIO (14/07): os .xls do Domínio gravam o BOUNDSHEET com o
+    // ponteiro lbPlyPos ERRADO — XLSX.read confia, pula pro offset errado e
+    // devolve a planilha VAZIA SEM lançar exceção. O reparo BIFF (repararWorkbook
+    // Dominio) conserta o ponteiro (JS puro, roda no Vercel). Fluxo: lê normal →
+    // se vier vazio, REPARA e relê → só então erra. Mensagens DISTINTAS por código
+    // (abertura ≠ vazio ≠ conteudo) — nunca mascara falha de abertura como de conteúdo.
     const buf = new Uint8Array(await file.arrayBuffer())
-    let wb: XLSX.WorkBook
+
+    const lerLinhas = (wb: XLSX.WorkBook): unknown[][] => {
+      for (const nome of wb.SheetNames) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, blankrows: false }) as unknown[][]
+        if (rows.length > 0) return rows
+      }
+      return []
+    }
+
+    let rows: unknown[][] = []
+    let via: 'normal' | 'reparado' = 'normal'
     try {
-      wb = XLSX.read(buf, { type: 'array', cellDates: false })
+      rows = lerLinhas(XLSX.read(buf, { type: 'array', cellDates: false }))
     } catch (e) {
       return NextResponse.json({
         ok: false, codigo: 'abertura',
-        erro: `Não consegui ABRIR o arquivo. O .xls do Domínio pode estar malformado (formato OLE/CFB fora do padrão). Reexporte em .xlsx, ou abra e salve no LibreOffice antes de subir. Detalhe: ${(e as Error).message}`,
+        erro: `Não consegui ABRIR o arquivo (formato OLE/CFB fora do padrão). Reexporte em .xlsx ou abra/salve no LibreOffice. Detalhe: ${(e as Error).message}`,
       }, { status: 422 })
     }
-    if (!wb.SheetNames?.length) {
-      return NextResponse.json({ ok: false, codigo: 'vazio', erro: 'O arquivo abriu mas não tem nenhuma planilha legível (provável .xls corrompido). NÃO é problema de competência.' }, { status: 422 })
-    }
 
-    // varre todas as abas; usa a primeira que tem folha (competência OU matrículas)
-    let parsed: ReturnType<typeof parseFolhaDominio> | null = null
-    let algumaTinhaLinha = false
-    for (const nome of wb.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, blankrows: false }) as unknown[][]
-      if (rows.length > 0) algumaTinhaLinha = true
-      const p = parseFolhaDominio(rows)
-      if (p.competencia || p.funcionarios.length > 0) { parsed = p; break }
-    }
-
-    if (!parsed) {
-      if (!algumaTinhaLinha) {
-        return NextResponse.json({
-          ok: false, codigo: 'vazio',
-          erro: 'O arquivo ABRIU mas veio VAZIO — nenhuma linha legível em nenhuma aba (provável .xls CFB malformado, só o stream Workbook). NÃO é problema de competência: reexporte em .xlsx.',
-        }, { status: 422 })
+    // veio vazio → provável BOUNDSHEET com ponteiro errado; repara e relê.
+    if (rows.length === 0) {
+      const reparado = repararWorkbookDominio(buf)
+      if (reparado) {
+        try { rows = lerLinhas(XLSX.read(reparado, { type: 'array', cellDates: false })); via = 'reparado' } catch { /* segue vazio */ }
       }
-      return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'O arquivo abriu e tem conteúdo, mas não achei a competência (MM/YYYY) no topo nem linhas de funcionário (col 0 = matrícula). Confira se é a planilha "Encargos da Empresa" do Domínio.' }, { status: 422 })
     }
-    if (!parsed.competencia) return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'Li os funcionários, mas não achei a competência (MM/YYYY) no topo da planilha.' }, { status: 422 })
+
+    if (rows.length === 0) {
+      return NextResponse.json({
+        ok: false, codigo: 'vazio',
+        erro: 'O arquivo ABRIU mas veio VAZIO e o reparo do ponteiro (BOUNDSHEET) não recuperou dados. NÃO é problema de competência — confirme que é a planilha "Encargos da Empresa" do Domínio.',
+      }, { status: 422 })
+    }
+
+    const parsed = parseFolhaDominio(rows)
+    if (!parsed.competencia) return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'Li o conteúdo, mas não achei a competência (MM/YYYY) no topo da planilha.' }, { status: 422 })
     if (parsed.funcionarios.length === 0) return NextResponse.json({ ok: false, codigo: 'conteudo', erro: 'Achei a competência mas nenhum funcionário reconhecido (col 0 deve ser matrícula).' }, { status: 422 })
 
     // Preview: não grava, só devolve o que leu (RD-38: CEO confere antes).
     if (!confirmar) {
       return NextResponse.json({
-        ok: true, preview: true, competencia: parsed.competencia, cnpj: parsed.cnpj,
+        ok: true, preview: true, via, competencia: parsed.competencia, cnpj: parsed.cnpj,
         funcionarios: parsed.funcionarios.length, total_geral: parsed.total_geral,
       })
     }
@@ -118,7 +122,7 @@ export async function POST(req: NextRequest) {
     } catch { /* log nao derruba */ }
 
     return NextResponse.json({
-      ok: true, competencia: parsed.competencia, funcionarios: compRows.length, verbas: verbaRows.length, total_geral: parsed.total_geral,
+      ok: true, via, competencia: parsed.competencia, funcionarios: compRows.length, verbas: verbaRows.length, total_geral: parsed.total_geral,
     })
   } catch (e) {
     return NextResponse.json({ ok: false, erro: e instanceof Error ? e.message : String(e) }, { status: 500 })
