@@ -255,6 +255,9 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
     if (setoresCriticos.length >= 1 || totais.faltas_pct > 5 || pctExtras > 8) return 'amarelo'
     return 'verde'
   }, [totais, setoresCriticos, pctExtras])
+  // 🚨 RD-46: ausência de dado NUNCA é verde. Se falhou/carregando/vazio, a saúde é INDEFINIDA
+  // (nunca "Saudável"). O bug: falhou o load e o semáforo mostrava 🟢 "0 setores críticos".
+  const saudeIndefinida = loading || !!erro || (!totais && !canon)
 
   // Séries por métrica p/ sparkline
   const sparkOf = useCallback((sel: (p: SeriePonto) => number) => serie.map((p, i) => ({ i, v: +sel(p).toFixed(2) })), [serie])
@@ -304,17 +307,28 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
               {fmtD(dataIni)} → {fmtD(dataFim)} · {setoresPermitidos ? `escopo: ${setoresPermitidos.length} setor(es)` : 'todos os setores'} · 🔒 agregado (LGPD, sem nomes)
             </div>
           </div>
-          {/* Semáforo de saúde geral — assinatura 1 */}
-          <div style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${TOM_COR[tomGeral]}`, borderRadius: 12, padding: '10px 16px', minWidth: 210 }}>
-            <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(250,247,242,0.6)' }}>Saúde geral</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
-              <span style={{ fontSize: 18 }}>{TOM_DOT[tomGeral]}</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: TOM_COR[tomGeral] === S_AMBAR ? '#E8B94A' : TOM_COR[tomGeral] === S_VERM ? '#E08A8A' : '#7FD1A8' }}>
-                {tomGeral === 'verde' ? 'Saudável' : tomGeral === 'amarelo' ? 'Atenção' : 'Crítico'}
-              </span>
+          {/* Semáforo de saúde geral — assinatura 1. RD-46: nunca verde sobre dado ausente. */}
+          {saudeIndefinida ? (
+            <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(250,247,242,0.4)', borderRadius: 12, padding: '10px 16px', minWidth: 210 }}>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(250,247,242,0.6)' }}>Saúde geral</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
+                <span style={{ fontSize: 18 }}>{loading ? '⏳' : '⚠️'}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#E8DCC8' }}>{loading ? 'Calculando…' : 'Não foi possível calcular'}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(250,247,242,0.75)' }}>{loading ? 'aguarde' : 'ajuste o período ou tente de novo — ausência de dado não é boa notícia'}</div>
             </div>
-            <div style={{ fontSize: 12, color: 'rgba(250,247,242,0.75)' }}>{setoresCriticos.length} setor(es) crítico(s)</div>
-          </div>
+          ) : (
+            <div style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${TOM_COR[tomGeral]}`, borderRadius: 12, padding: '10px 16px', minWidth: 210 }}>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(250,247,242,0.6)' }}>Saúde geral</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
+                <span style={{ fontSize: 18 }}>{TOM_DOT[tomGeral]}</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: TOM_COR[tomGeral] === S_AMBAR ? '#E8B94A' : TOM_COR[tomGeral] === S_VERM ? '#E08A8A' : '#7FD1A8' }}>
+                  {tomGeral === 'verde' ? 'Saudável' : tomGeral === 'amarelo' ? 'Atenção' : 'Crítico'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(250,247,242,0.75)' }}>{setoresCriticos.length} setor(es) crítico(s)</div>
+            </div>
+          )}
         </div>
         {/* Filtros globais ao vivo */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14, alignItems: 'center' }}>
