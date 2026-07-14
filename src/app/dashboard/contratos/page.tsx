@@ -46,7 +46,10 @@ const STATUS_CFG:Record<string,{cor:string;icon:string;label:string}>={
   suspenso:   {cor:Y, icon:"⏸️", label:"Suspenso"},
   encerrado:  {cor:TXD,icon:"🏁",label:"Encerrado"},
   cancelado:  {cor:R, icon:"❌", label:"Cancelado"},
+  excluido:   {cor:R, icon:"🗑️",label:"Excluído"},
 };
+// RD-46: status desconhecido NUNCA vira "Ativo". Mostra o valor cru, cor neutra.
+const statusCfg=(s:string)=>STATUS_CFG[s]||{cor:TXD,icon:"❔",label:s||"—"};
 
 const fmtR=(v:any)=>`R$ ${(Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtRk=(v:any)=>{const n=Number(v)||0;if(Math.abs(n)>=1000)return`R$ ${(n/1000).toFixed(1)}k`;return`R$ ${n.toFixed(0)}`;};
@@ -626,10 +629,11 @@ export default function ContratosPage(){
                   </tr></thead>
                   <tbody>
                     {filtrados.map(c=>{
-                      const cfg=STATUS_CFG[c.status]||STATUS_CFG.ativo;
+                      const cfg=statusCfg(c.status);
                       const tipoCfg=TIPOS_CONTRATO.find(t=>t.v===c.tipo);
+                      const inativo=c.status==='excluido'||c.status==='cancelado';
                       return(
-                        <tr key={c.id} style={{borderBottom:`0.5px solid ${BD}`,cursor:"pointer"}} onClick={()=>abrirDetalhe(c)}>
+                        <tr key={c.id} style={{borderBottom:`0.5px solid ${BD}`,cursor:"pointer",opacity:inativo?0.55:1}} onClick={()=>abrirDetalhe(c)}>
                           <td style={{padding:"8px",fontFamily:"monospace",fontWeight:600,color:GO}}>{c.numero}</td>
                           <td style={{padding:"8px"}}>
                             <div style={{fontWeight:500,color:TX}}>{c.cliente_nome}</div>
