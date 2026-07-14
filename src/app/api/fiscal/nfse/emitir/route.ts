@@ -154,6 +154,45 @@ export const POST = withAuth(async (req: NextRequest) => {
 
     validateNFSeRequest(nfseReq)
 
+    // (a) IDEMPOTÊNCIA FISCAL — nunca emitir 2ª nota p/ o MESMO tomador+valor+competência
+    // enquanto já houver uma AUTORIZADA ou EM PROCESSAMENTO. Foi assim que 1 serviço da PS
+    // (Cleiton · R$1.923,99) virou 4 NFS-e autorizadas em 35min: a emissão é assíncrona e cada
+    // clique gerava um RPS novo. Guard no SERVIDOR (a UI pode ser burlada). Rejeição NÃO bloqueia
+    // reenvio — só autorizada/processando. (RD-51: o desconhecido não vira nem sucesso nem falha.)
+    {
+      const tomDoc = String(nfseReq.tomador.cnpj || nfseReq.tomador.cpf || '').replace(/\D/g, '')
+      if (tomDoc) {
+        const compIni = new Date()
+        compIni.setDate(1)
+        compIni.setHours(0, 0, 0, 0)
+        const { data: jaExiste } = await supabaseAdmin
+          .from('erp_nfse_emitidas')
+          .select('id, numero, status')
+          .eq('company_id', body.companyId)
+          .in('status', ['autorizada', 'processando'])
+          .gte('valor_servicos', nfseReq.valorServicos - 0.005)
+          .lte('valor_servicos', nfseReq.valorServicos + 0.005)
+          .gte('data_emissao', compIni.toISOString())
+          .or(`tomador_cnpj.eq.${tomDoc},tomador_cpf.eq.${tomDoc}`)
+          .limit(1)
+        if (jaExiste && jaExiste.length > 0) {
+          const ex = jaExiste[0]
+          return NextResponse.json(
+            {
+              ok: false,
+              duplicada: true,
+              nfseExistenteId: ex.id,
+              mensagem:
+                ex.status === 'autorizada'
+                  ? `Já existe NFS-e AUTORIZADA (nº ${ex.numero}) para este tomador, valor e competência. NÃO reemita — veja em Notas Fiscais. Se for um serviço realmente diferente, mude a descrição ou o valor.`
+                  : `Já existe uma NFS-e EM PROCESSAMENTO para este tomador, valor e competência. ⏳ Aguarde a prefeitura autorizar — NÃO reemita. Isso pode levar alguns minutos.`,
+            },
+            { status: 409 }
+          )
+        }
+      }
+    }
+
     // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
     const { data: providerCfg } = await supabaseAdmin
       .from('erp_fiscal_provider_config')

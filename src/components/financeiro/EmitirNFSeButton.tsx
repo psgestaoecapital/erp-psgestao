@@ -10,6 +10,7 @@ interface Props {
   descricao?: string
   valor?: number
   jaEmitida?: boolean
+  processando?: boolean
   onSucesso?: () => void
 }
 
@@ -23,6 +24,20 @@ export default function EmitirNFSeButton(props: Props) {
         title="NFSe ja emitida"
       >
         <FileText size={11} /> NFSe OK
+      </span>
+    )
+  }
+
+  // (b)+(c) RD-51: emissão é assíncrona. Enquanto a prefeitura processa, o botão NÃO
+  // pode convidar ao reenvio (foi assim que 1 serviço virou 4 notas). Estado honesto,
+  // travado: nem "erro" nem "ok" — "processando, não reemita".
+  if (props.processando) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10.5px] text-[#8A5A00] font-medium px-2 py-0.5 rounded-full bg-[#FBEED2]"
+        title="⏳ Processando na prefeitura. NÃO reemita — pode levar alguns minutos. Avisamos quando autorizar."
+      >
+        <FileText size={11} /> ⏳ Processando
       </span>
     )
   }

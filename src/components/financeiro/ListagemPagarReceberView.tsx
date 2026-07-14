@@ -804,6 +804,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 descricao={r.descricao}
                                 valor={r.valor_documento}
                                 jaEmitida={nfseMap[r.id] === 'autorizada'}
+                                processando={nfseMap[r.id] === 'processando'}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
                               <EmitirNFeButton
