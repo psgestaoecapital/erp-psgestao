@@ -40,6 +40,7 @@ interface ProviderConfig {
   ultimo_sync_em: string | null
   ultimo_sync_status: string | null
   banco_conta_id: string | null
+  estado_conexao: string | null
 }
 
 interface BancoConta {
@@ -108,7 +109,7 @@ export default function ConexoesBancariasPage() {
     setLoading(true); setErro(null)
     const [cfgRes, contasRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, convenio, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, convenio, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -179,6 +180,24 @@ export default function ConexoesBancariasPage() {
     !configs.some((c) => c.provider === b.sigla || c.provider.startsWith(`banco_${b.sigla}_`)),
   )
 
+  // RD-51 (badge não mente): "conectado" deriva do estado REAL, não da mera existência
+  // do registro. Só homologado/producao com ativo=true é conexão viva. Inativo ou
+  // estado em curso (nao_iniciado, solicitado, recebido, homologacao) NÃO é "conectado".
+  const ESTADOS_CONECTADO = new Set(['homologado', 'producao'])
+  const estaConectado = (c: ProviderConfig) => c.ativo && ESTADOS_CONECTADO.has(c.estado_conexao ?? '')
+  const conectados = configs.filter(estaConectado)
+  const emConfiguracao = configs.filter((c) => !estaConectado(c))
+
+  const rotuloEstado = (c: ProviderConfig): { texto: string; fundo: string; cor: string } => {
+    if (!c.ativo) return { texto: 'inativo', fundo: '#FEE2E2', cor: '#B91C1C' }
+    switch (c.estado_conexao) {
+      case 'solicitado':   return { texto: 'aguardando credenciais', fundo: '#FEF3C7', cor: '#7A5A0F' }
+      case 'recebido':     return { texto: 'credenciais recebidas',   fundo: '#FEF3C7', cor: '#7A5A0F' }
+      case 'homologacao':  return { texto: 'em homologação',          fundo: '#DBEAFE', cor: '#1E40AF' }
+      default:             return { texto: 'não conectado',           fundo: '#F3F4F6', cor: '#6B7280' }
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '24px 20px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -228,13 +247,13 @@ export default function ConexoesBancariasPage() {
           <>
             <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
               <div style={{ padding: '10px 14px', borderBottom: `0.5px solid ${LINE}`, background: BG, fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Bancos conectados ({configs.length})
+                Bancos conectados ({conectados.length})
               </div>
-              {configs.length === 0 ? (
+              {conectados.length === 0 ? (
                 <div style={{ padding: 24, textAlign: 'center', color: ESP60, fontSize: 12 }}>
                   Nenhum banco conectado ainda. Clique em <b>Conectar novo banco</b> abaixo.
                 </div>
-              ) : configs.map((cfg) => {
+              ) : conectados.map((cfg) => {
                 const bancoInfo = BANCOS.find((b) => cfg.provider.includes(b.sigla))
                 const contaVinculada = contas.find((c) => c.id === cfg.banco_conta_id)
                 return (
@@ -327,6 +346,54 @@ export default function ConexoesBancariasPage() {
                 )
               })}
             </div>
+
+            {emConfiguracao.length > 0 && (
+              <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ padding: '10px 14px', borderBottom: `0.5px solid ${LINE}`, background: BG, fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Em configuração ({emConfiguracao.length})
+                </div>
+                {emConfiguracao.map((cfg) => {
+                  const bancoInfo = BANCOS.find((b) => cfg.provider.includes(b.sigla))
+                  const contaVinculada = contas.find((c) => c.id === cfg.banco_conta_id)
+                  const est = rotuloEstado(cfg)
+                  return (
+                    <div key={cfg.id} style={{ padding: 14, borderBottom: `0.5px solid ${LINE}`, display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{
+                        width: 40, height: 40, borderRadius: 8,
+                        background: (bancoInfo?.cor ?? ESP) + '10',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: ESP60, fontSize: 14, fontWeight: 700, flexShrink: 0,
+                      }}>
+                        {bancoInfo?.sigla.slice(0, 2).toUpperCase() ?? '??'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <strong style={{ color: ESP, fontSize: 14 }}>{bancoInfo?.nome ?? cfg.provider}</strong>
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: BG, color: ESP60, textTransform: 'uppercase' }}>
+                            {cfg.ambiente}
+                          </span>
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: est.fundo, color: est.cor }}>
+                            {est.texto}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: ESP60, marginTop: 4 }}>
+                          {contaVinculada && <><b>{contaVinculada.nome}</b> · </>}
+                          {cfg.cooperativa && `coop ${cfg.cooperativa} · `}
+                          {cfg.conta && `conta ${cfg.conta}`}
+                        </div>
+                      </div>
+                      <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
+                        background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                        padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                        textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                      }}>
+                        🧭 Continuar configuração
+                      </Link>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
