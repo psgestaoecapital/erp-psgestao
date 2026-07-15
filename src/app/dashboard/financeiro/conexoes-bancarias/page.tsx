@@ -563,8 +563,14 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
             </Field>
           )}
           {banco.campos.includes('codigo_beneficiario') && (
-            <Field label="Código do beneficiário">
-              <input name="ps_benef_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder="5 dígitos" />
+            // Rótulo/ajuda POR PROVIDER (RD-26): Sicoob e Sicredi usam o mesmo campo com nomes diferentes.
+            <Field
+              label={banco.sigla === 'sicoob' ? 'Convênio de cobrança' : 'Código do beneficiário'}
+              hint={banco.sigla === 'sicoob'
+                ? 'Como aparece no seu boleto Sicoob (campo Convênio) ou no internet banking, em Cobrança. Na dúvida, peça ao gerente de cobrança.'
+                : undefined}
+            >
+              <input name="ps_benef_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder={banco.sigla === 'sicoob' ? 'ex.: 5795443' : 'código do beneficiário'} />
             </Field>
           )}
           {banco.campos.includes('api_key') && (
@@ -623,11 +629,12 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
       <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}</label>
       {children}
+      {hint && <small style={{ display: 'block', fontSize: 10, color: ESP60, marginTop: 3, lineHeight: 1.4 }}>{hint}</small>}
     </div>
   )
 }
