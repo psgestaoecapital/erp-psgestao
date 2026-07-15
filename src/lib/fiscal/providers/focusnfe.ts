@@ -306,6 +306,65 @@ export class FocusNFeProvider implements FiscalProvider {
     return this.mapFocusNFeResponse(referencia, data)
   }
 
+  // NFC-e (modelo 65 · consumidor final / balcão). POST /v2/nfce.
+  // O CSC/idToken vive na config da empresa NO FOCUS (habilita_nfce); aqui só emitimos.
+  // Consumidor final: sem CNPJ/IE/endereço obrigatório; CPF opcional; exige forma de pagamento.
+  async emitirNFCe(req: NFeRequest): Promise<NFeResponse> {
+    const referencia = `nfce-${Date.now()}`
+    // Focus: '01' dinheiro · '03' crédito · '04' débito · '17' PIX. Default dinheiro.
+    const formaPagRaw = (req.pagamento?.formaPagamento ?? '01').toLowerCase()
+    const formaPag =
+      /cr[eé]dito|credit/.test(formaPagRaw) ? '03'
+        : /d[eé]bito|debit/.test(formaPagRaw) ? '04'
+          : /pix/.test(formaPagRaw) ? '17'
+            : /^\d{2}$/.test(formaPagRaw) ? formaPagRaw : '01'
+    const totalNota = req.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+
+    const payload = {
+      natureza_operacao: req.naturezaOperacao ?? 'Venda ao consumidor',
+      data_emissao: new Date().toISOString(),
+      presenca_comprador: 1,            // 1 = presencial (balcão)
+      modalidade_frete: 9,
+      serie: Number(req.serie ?? '1'),  // NFC-e costuma ter série própria
+      cnpj_emitente: req.emitente.cnpj,
+      nome_emitente: req.emitente.razaoSocial,
+      inscricao_estadual_emitente: req.emitente.inscricaoEstadual,
+      // consumidor final: CPF opcional, sem endereço/IE
+      cpf_destinatario: req.destinatario.cpf,
+      nome_destinatario: req.destinatario.cpf ? req.destinatario.razaoSocial : undefined,
+      itens: req.itens.map((item, idx) => ({
+        numero_item: idx + 1,
+        codigo_produto: item.codigo,
+        descricao: item.descricao,
+        cfop: item.cfop,
+        unidade_comercial: item.unidade,
+        quantidade_comercial: item.quantidade,
+        valor_unitario_comercial: item.valorUnitario,
+        valor_bruto: item.valorTotal,
+        unidade_tributavel: item.unidade,
+        quantidade_tributavel: item.quantidade,
+        valor_unitario_tributavel: item.valorUnitario,
+        codigo_ncm: item.ncm.replace(/\D/g, ''),
+        cest: item.cest,
+        icms_origem: String(item.origem ?? '0'),
+        icms_situacao_tributaria: item.icms?.cst,
+        icms_aliquota: item.icms?.aliquota,
+        pis_situacao_tributaria: item.pis?.cst,
+        pis_aliquota_porcentual: item.pis?.aliquota,
+        cofins_situacao_tributaria: item.cofins?.cst,
+        cofins_aliquota_porcentual: item.cofins?.aliquota,
+      })),
+      formas_pagamento: [{ forma_pagamento: formaPag, valor_pagamento: req.pagamento?.valor ?? totalNota }],
+    }
+
+    const data = await this.request<FocusNFeNFeResponse>(
+      'POST',
+      `/v2/nfce?ref=${encodeURIComponent(referencia)}`,
+      payload
+    )
+    return this.mapFocusNFeResponse(referencia, data)
+  }
+
   async consultarNFe(referenceOrChave: string): Promise<NFeResponse> {
     const data = await this.request<FocusNFeNFeResponse>(
       'GET',
