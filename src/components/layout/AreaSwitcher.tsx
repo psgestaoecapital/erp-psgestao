@@ -128,13 +128,35 @@ function AreaSwitcherInner() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    setCompanyId(resolveSelectedCompanyId())
+    let alive = true
+    let empresasUsuario: string[] | null = null // cache do fallback (busca 1x)
+
+    // FALLBACK (RD-52): o switcher resolvia empresa SÓ do localStorage (ps_empresa_sel).
+    // Quando vem null/consolidado/group, a RPC de áreas recebia company=NULL e escondia
+    // TODA área contratada (Agro virava 🚫) — enquanto os DADOS resolviam a empresa por
+    // user_companies e apareciam. Bug de dois resolvedores divergentes. Aqui alinhamos:
+    // se o usuário tem EXATAMENTE UMA empresa, usamos ela. Multi-empresa NUNCA é chutada.
+    async function empresasDoUsuario(): Promise<string[]> {
+      if (empresasUsuario) return empresasUsuario
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return []
+      const { data } = await supabase.from('user_companies').select('company_id').eq('user_id', user.id)
+      empresasUsuario = ((data ?? []) as { company_id: string }[]).map((r) => r.company_id).filter(Boolean)
+      return empresasUsuario
+    }
+
+    async function resolver() {
+      const local = resolveSelectedCompanyId()
+      if (local) { if (alive) setCompanyId((prev) => (prev === local ? prev : local)); return }
+      const emp = await empresasDoUsuario()
+      const unica = emp.length === 1 ? emp[0] : null // só single-company usa o fallback
+      if (alive) setCompanyId((prev) => (prev === unica ? prev : unica))
+    }
+
     setAreaPersistida(lerAreaPersistida())
-    const interval = setInterval(() => {
-      const atual = resolveSelectedCompanyId()
-      setCompanyId((prev) => (prev === atual ? prev : atual))
-    }, 800)
-    return () => clearInterval(interval)
+    resolver()
+    const interval = setInterval(resolver, 800)
+    return () => { alive = false; clearInterval(interval) }
   }, [])
 
   // seletor-header-empresa · busca nome da empresa selecionada
