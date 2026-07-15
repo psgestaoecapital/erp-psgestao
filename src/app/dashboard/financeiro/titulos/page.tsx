@@ -61,10 +61,11 @@ function fmtDate(d: string | null): string {
   if (!d) return '—'
   return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR')
 }
-function statusBadge(status: string): { bg: string; tx: string; label: string } {
+function statusBadge(status: string, tipoLinha?: string): { bg: string; tx: string; label: string } {
   switch (status) {
     case 'pago':
-      return { bg: 'bg-emerald-50', tx: 'text-emerald-700', label: 'Pago' }
+      // Pilar 3: conta a RECEBER quitada = "Recebido" (entrou dinheiro), não "Pago".
+      return { bg: 'bg-emerald-50', tx: 'text-emerald-700', label: tipoLinha === 'receber' ? 'Recebido' : 'Pago' }
     case 'agendado':
       return { bg: 'bg-blue-50', tx: 'text-blue-700', label: 'Agendado' }
     case 'aberto':
@@ -303,7 +304,7 @@ function TitulosInner() {
                 </thead>
                 <tbody className="divide-y divide-[#3D2314]/5">
                   {titulos.map((t) => {
-                    const sb = statusBadge(t.status_calculado)
+                    const sb = statusBadge(t.status_calculado, t.tipo)
                     return (
                       <tr key={`${t.tipo}-${t.id}`} className="hover:bg-[#FAF7F2]/60">
                         <td className="whitespace-nowrap px-4 py-3 md:px-5">
