@@ -35,6 +35,7 @@ export interface FiscalService {
   consultarNFSe(ref: string): Promise<NFSeResponse>
   cancelarNFSe(ref: string, justificativa: string): Promise<NFSeResponse>
   emitirNFe(req: NFeRequest): Promise<NFeResponse>
+  emitirNFCe(req: NFeRequest): Promise<NFeResponse>
   consultarNFe(chave: string): Promise<NFeResponse>
   cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse>
   cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
@@ -141,6 +142,7 @@ export async function createFiscalService(
     consultarNFSe: (ref) => provider.consultarNFSe(ref),
     cancelarNFSe: (ref, j) => provider.cancelarNFSe(ref, j),
     emitirNFe: (req) => provider.emitirNFe(req),
+    emitirNFCe: (req) => provider.emitirNFCe(req),
     consultarNFe: (c) => provider.consultarNFe(c),
     cancelarNFe: (c, j) => provider.cancelarNFe(c, j),
     cartaCorrecaoNFe: (c, x) => provider.cartaCorrecaoNFe(c, x),
