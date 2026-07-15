@@ -346,10 +346,18 @@ export default function IndustrialPage() {
 
   return (
     <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.text }}>
+      {/* RD-51: mock não pode se passar por real. Estes KPIs são ILUSTRATIVOS (gerados
+          aleatoriamente), NÃO vêm de apontamento de produção da empresa. */}
+      <div style={{ background: '#FBEED2', border: '1px solid #C8941A88', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#7A5A0F', fontSize: 12 }}>
+        🧪 <b>DEMONSTRAÇÃO — dados ilustrativos, não da sua empresa.</b> Estes 200+ KPIs são gerados
+        para demonstração de produto e <b>não</b> vêm de apontamento real de produção. Para os
+        indicadores reais de gente/ponto/folha, use{' '}
+        <a href="/dashboard/inteligencia" style={{ color: '#C8941A', fontWeight: 700 }}>Inteligência → Gente</a>.
+      </div>
       {/* HEADER */}
       <div style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: C.gold, margin: 0 }}>Industrial</h1>
-        <div style={{ fontSize: 10, color: C.muted }}>200+ KPIs | Cruzamento entre Areas | Analise IA | Campo ao Comercial</div>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: C.gold, margin: 0 }}>Industrial <span style={{ fontSize: 11, fontWeight: 700, color: '#7A5A0F', background: '#FBEED2', padding: '2px 8px', borderRadius: 6, verticalAlign: 'middle' }}>🧪 demonstração</span></h1>
+        <div style={{ fontSize: 10, color: C.muted }}>200+ KPIs ilustrativos | Cruzamento entre Areas | Analise IA | Campo ao Comercial</div>
       </div>
 
       {/* SELECTORS */}
