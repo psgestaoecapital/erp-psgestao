@@ -64,12 +64,22 @@ export default function MarcarPagoModal({
   }, [open, companyId])
 
   useEffect(() => {
-    if (open) {
-      setDataPag(hoje())
-      setValorPago(valorTotal.toFixed(2))
-      setErro(null)
-    }
-  }, [open, valorTotal])
+    if (!open) return
+    setDataPag(hoje())
+    setErro(null)
+    // FIX baixa parcial: o campo default vira o SALDO restante (valor − valor_pago),
+    // não o valor total — senão confirmar re-baixaria o total inteiro (acumula → overpay).
+    let ignore = false
+    ;(async () => {
+      const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
+      const { data } = await supabase.from(tabela).select('valor_pago').eq('id', itemId).maybeSingle()
+      if (ignore) return
+      const jaPago = Number((data as { valor_pago?: number } | null)?.valor_pago ?? 0)
+      const saldo = Math.max(valorTotal - jaPago, 0)
+      setValorPago((saldo > 0 ? saldo : valorTotal).toFixed(2))
+    })()
+    return () => { ignore = true }
+  }, [open, valorTotal, itemId, tipo])
 
   async function confirmar() {
     if (!contaId) { setErro('Selecione a conta bancária'); return }

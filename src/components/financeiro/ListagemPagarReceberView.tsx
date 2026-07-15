@@ -793,7 +793,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         </Td>
                         <Td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                            <Pill situacao={r.situacao} />
+                            <Pill situacao={r.situacao} tipo={tipo} />
                             {r.status === 'parcial' && (
                               <span style={{ fontSize: 9, background: '#FEF3C7', color: '#7A5A0F', padding: '2px 6px', borderRadius: 3, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>
                                 parcial
@@ -1141,9 +1141,11 @@ function KpiCard({ titulo, valor, qtd, cor, destaque = false }: {
   )
 }
 
-function Pill({ situacao }: { situacao: Situacao }) {
+function Pill({ situacao, tipo }: { situacao: Situacao; tipo?: Tipo }) {
+  // Pilar 3 (linguagem do usuário): conta a RECEBER quitada = "Recebido" (entrou dinheiro),
+  // não "Pago" (que é da conta a PAGAR). O VALOR do status no banco continua 'pago'.
   const map: Record<Situacao, { bg: string; cor: string; label: string }> = {
-    pago: { bg: '#DCFCE7', cor: '#16A34A', label: 'Pago' },
+    pago: { bg: '#DCFCE7', cor: '#16A34A', label: tipo === 'receber' ? 'Recebido' : 'Pago' },
     a_vencer: { bg: '#FEF3C7', cor: '#C8941A', label: 'A vencer' },
     hoje: { bg: '#FEF3C7', cor: '#C8941A', label: 'Hoje' },
     vencido: { bg: '#FEE2E2', cor: '#DC2626', label: 'Vencido' },
