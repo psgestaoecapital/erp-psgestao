@@ -99,6 +99,32 @@ export default function AssistenteConexaoPage() {
     carregar()
   }
 
+  // BLOCO 6 · dispara a escada de teste real (clique humano, degrau a degrau).
+  const [rodando, setRodando] = useState(false)
+  const rodarEscada = async () => {
+    if (!empresa || !provider) return
+    setRodando(true); setMsg(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/testar-escada', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ company_id: empresa, provider }),
+      })
+      const j = await r.json()
+      if (!j.ok) {
+        setMsg(`${j.ambiente_producao ? '' : '❌ '}${j.erro || 'falha ao rodar a escada'}`)
+      } else if (j.parou_em) {
+        setMsg(`Escada parou no degrau "${PASSO_LABEL[j.parou_em] ?? j.parou_em}". Veja o card do erro abaixo.`)
+      } else {
+        setMsg('Escada rodou até o fim. Degrau 5 (baixa) fica aguardando o pagamento do R$1 — o banco confirma quando cair.')
+      }
+      await carregar()
+    } catch (e) {
+      setMsg('❌ ' + (e as Error).message)
+    } finally { setRodando(false) }
+  }
+
   if (!empresa) return <div style={{ minHeight: '100vh', background: BG, padding: 24, color: ESP60, fontSize: 13 }}>Selecione uma empresa específica no topo para usar o Assistente.</div>
 
   const Card = ({ n, titulo, feito, bloqueado, children }: { n: number; titulo: string; feito?: boolean; bloqueado?: boolean; children: React.ReactNode }) => (
@@ -173,28 +199,50 @@ export default function AssistenteConexaoPage() {
               <div style={{ fontSize: 11, color: ESP60, marginTop: 8 }}>Para salvar o certificado/segredo com segurança (Vault), use <Link href="/dashboard/financeiro/conexoes-bancarias" style={{ color: GOLD }}>Conectar → {man.nome}</Link>. Os campos ausentes deste banco nem aparecem aqui.</div>
             </Card>
 
-            {/* ③ TESTAR — a escada honesta */}
+            {/* ③ TESTAR — a escada honesta (BLOCO 6: teste real) */}
             <Card n={3} titulo="Testar" bloqueado={!['recebido', 'testando', 'homologado', 'producao'].includes(estado)}>
               <div style={{ display: 'grid', gap: 6 }}>
                 {(man.escada_teste ?? []).map((passo) => {
                   const st = testeDe(passo)
-                  const cor = st === 'ok' ? OK : st === 'falhou' ? ERR : ESP60
-                  const icon = st === 'ok' ? '✅' : st === 'falhou' ? '❌' : '⏸️'
+                  const cfgSt = {
+                    ok:                  { cor: OK,   icon: '✅', label: '' },
+                    falhou:              { cor: ERR,  icon: '❌', label: '' },
+                    aguardando_pagamento:{ cor: WARN, icon: '⏳', label: ' — aguardando o pagamento do R$1 (o banco confirma quando cair)' },
+                    nao_disponivel:      { cor: ESP60,icon: '➖', label: ' — fase 2 (ainda não disponível)' },
+                  }[st] ?? { cor: ESP60, icon: '⏸️', label: '' }
                   const erro = st === 'falhou' ? catalogo[0] : null
                   return (
                     <div key={passo}>
-                      <div style={{ fontSize: 13, color: cor, fontWeight: st === 'falhou' ? 700 : 500 }}>{icon} {PASSO_LABEL[passo] ?? passo}</div>
+                      <div style={{ fontSize: 13, color: cfgSt.cor, fontWeight: st === 'falhou' ? 700 : 500 }}>{cfgSt.icon} {PASSO_LABEL[passo] ?? passo}<span style={{ color: ESP60, fontWeight: 400 }}>{cfgSt.label}</span></div>
                       {erro && (
                         <div style={{ margin: '4px 0 6px 20px', background: '#FBECEC', border: `1px solid ${ERR}44`, borderRadius: 8, padding: 10, fontSize: 12, color: ESP }}>
                           <b>{erro.titulo}</b><div style={{ color: ESP60, margin: '3px 0' }}>{erro.o_que_e}</div>
                           <div>👉 {erro.o_que_fazer}</div>{erro.quem_contatar && <div style={{ color: ESP60 }}>📞 {erro.quem_contatar}</div>}
                         </div>
                       )}
+                      {st === 'falhou' && !erro && (
+                        <div style={{ margin: '4px 0 6px 20px', fontSize: 11, color: ESP60 }}>Erro não catalogado — copie o detalhe e reporte ao time (não inventamos causa).</div>
+                      )}
                     </div>
                   )
                 })}
               </div>
-              <div style={{ fontSize: 11, color: ESP60, marginTop: 8, fontStyle: 'italic' }}>Cada degrau é testado de verdade (o botão "Testar conexão" completo entra no próximo bloco). Ao falhar, o card acima diz o que fazer — não um erro técnico.</div>
+              {/* Botão da escada — clique humano, só em homologação, ambiente lido de verdade no servidor */}
+              {(() => {
+                const bancoAuto = ['sicoob', 'sicredi'].includes(provider)
+                const emHomolog = ['recebido', 'testando'].includes(estado)
+                const ehProducao = cfg?.ambiente === 'producao'
+                if (!bancoAuto) return <div style={{ fontSize: 11, color: ESP60, marginTop: 10, fontStyle: 'italic' }}>{man.nome} fica fora da escada automática por ora (hipótese honesta). Teste manual pela tela Conectar.</div>
+                if (!emHomolog) return <div style={{ fontSize: 11, color: ESP60, marginTop: 10, fontStyle: 'italic' }}>A escada de teste roda em homologação (estado recebido/testando). Estado atual: {ESTADO_LABEL[estado] ?? estado}.</div>
+                if (ehProducao) return <div style={{ marginTop: 10, background: '#FBEED2', border: `1px solid ${GOLD}55`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: WARN }}>⚠️ Esta config está em <b>PRODUÇÃO</b> — o teste registraria um boleto REAL com dinheiro real. A escada não dispara. Confirme o ambiente.</div>
+                return (
+                  <button onClick={rodarEscada} disabled={rodando}
+                    style={{ marginTop: 10, padding: '9px 14px', borderRadius: 8, background: rodando ? '#bbb' : GOLD, color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: rodando ? 'wait' : 'pointer' }}>
+                    {rodando ? '🧪 Rodando a escada…' : '🧪 Rodar escada de teste (boleto de R$1, pagador = sua empresa)'}
+                  </button>
+                )
+              })()}
+              <div style={{ fontSize: 11, color: ESP60, marginTop: 8, fontStyle: 'italic' }}>Cada degrau é testado de verdade contra o banco. O boleto de R$1 é isolado (não entra no seu financeiro). Ao falhar, o card acima diz o que fazer — não um erro técnico.</div>
             </Card>
 
             {/* ④ PRODUÇÃO */}
