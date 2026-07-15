@@ -199,9 +199,25 @@ export const POST = withAuth(async (req: NextRequest) => {
         .eq('id', registroId)
     }
 
+    // Estorno de estoque: devolução de VENDA = cliente devolve a peça → estoque ENTRA.
+    // Só se autorizada. Idempotente (guarda por ref_id na RPC). Não quebra o retorno da NF.
+    let estoqueEstornado = false
+    if (registroId && resposta.ok) {
+      try {
+        const { data: est } = await supabaseAdmin.rpc('fn_nfe_devolucao_estornar_estoque', {
+          p_company_id: nfeVenda.company_id,
+          p_nfe_emitida_id: registroId,
+          p_itens: body.itens.map((it) => ({ produto_id: it.produtoId, quantidade: it.quantidade, custo: 0 })),
+          p_direcao: 'venda',
+        })
+        estoqueEstornado = (est as { ok?: boolean })?.ok === true
+      } catch { estoqueEstornado = false }
+    }
+
     return NextResponse.json({
       ok: resposta.ok,
       nfeId: registroId,
+      estoqueEstornado,
       status: resposta.status,
       numero: resposta.numero,
       chave: resposta.chave,
