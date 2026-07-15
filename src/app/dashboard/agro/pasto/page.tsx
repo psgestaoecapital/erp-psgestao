@@ -19,9 +19,11 @@ type Aval = { metodo: string; valor_txt: string | null; valor_num: number | null
 type Piquete = { id: string; nome: string; area_ha: number; capacidade_ua: number; cab: number; ua_atual: number; pct: number | null; semaforo: string; dias_ocupado: number | null; ultima_avaliacao: Aval; vazio: boolean }
 type CatUA = { categoria: string; ua_valor: number; confirmado: boolean; origem: string }
 type Alerta = { piquete: string; cab: number; pct: number; dias: number; pasto: string | null; motivo: string; sugestao_mover_para: string[] }
+type ConfigAlerta = { lotacao_pct: number; dias_min: number; altura_cm_min: number; confirmado: boolean }
 type Painel = {
   ua_confirmado: boolean
   categoria_ua: CatUA[]
+  config_alerta: ConfigAlerta
   lotacao_geral: { cabecas: number; ua_total: number; capacidade_total: number; ua_por_ha: number | null; pct: number | null }
   piquetes: Piquete[]
   piquetes_vazios: string[]
@@ -40,6 +42,8 @@ export default function ManejoPastoPage() {
   const [avalMetodo, setAvalMetodo] = useState<'visual' | 'altura_cm' | 'oferta_ms'>('visual')
   const [avalVisual, setAvalVisual] = useState<'bom' | 'regular' | 'ruim'>('bom')
   const [avalNum, setAvalNum] = useState('')
+  const [editCfg, setEditCfg] = useState(false)
+  const [cfgDraft, setCfgDraft] = useState<{ lotacao_pct: string; dias_min: string; altura_cm_min: string }>({ lotacao_pct: '', dias_min: '', altura_cm_min: '' })
   const [busy, setBusy] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -63,6 +67,21 @@ export default function ManejoPastoPage() {
         }
       }
       setMsg('UA confirmada com o número da fazenda.'); setEditUA(false)
+      await carregar()
+    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
+  }
+
+  const salvarCfg = async () => {
+    if (!companyId) return
+    setBusy(true); setMsg(null)
+    try {
+      await supabase.rpc('fn_pec_config_alerta_salvar', {
+        p_company_id: companyId,
+        p_lotacao_pct: parseFloat(cfgDraft.lotacao_pct),
+        p_dias_min: parseInt(cfgDraft.dias_min, 10),
+        p_altura_cm_min: parseFloat(cfgDraft.altura_cm_min),
+      })
+      setMsg('Limiares de alerta ajustados para a fazenda.'); setEditCfg(false)
       await carregar()
     } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
   }
@@ -155,6 +174,33 @@ export default function ManejoPastoPage() {
                 ))}
               </section>
             )}
+
+            {/* ── CONFIG DOS LIMIARES DO ALERTA (varia por tipo de pasto) ── */}
+            <section style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '10px 14px' }}>
+              {!editCfg ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: ESP60 }}>
+                  ⚙️ Alerta dispara: lotação &gt; <b style={{ color: ESP }}>{p.config_alerta.lotacao_pct}%</b> · ≥ <b style={{ color: ESP }}>{p.config_alerta.dias_min}</b> dias · capim &lt; <b style={{ color: ESP }}>{p.config_alerta.altura_cm_min}cm</b>
+                  {!p.config_alerta.confirmado && <span style={{ color: '#7A5A0F' }}>· padrão, ajuste por tipo de pasto</span>}
+                  <button onClick={() => { setEditCfg(true); setCfgDraft({ lotacao_pct: String(p.config_alerta.lotacao_pct), dias_min: String(p.config_alerta.dias_min), altura_cm_min: String(p.config_alerta.altura_cm_min) }) }}
+                    style={{ marginLeft: 'auto', background: 'transparent', color: GOLD, border: `1px solid ${LINE}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Ajustar</button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: ESP60 }}>Limiares do alerta (braquiária/mombaça/tifton pedem valores diferentes):</div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {([['lotacao_pct', 'Lotação % >'], ['dias_min', 'Dias ≥'], ['altura_cm_min', 'Capim cm <']] as const).map(([k, lbl]) => (
+                      <label key={k} style={{ fontSize: 12, color: ESP60 }}>{lbl}<br />
+                        <input type="number" value={cfgDraft[k]} onChange={e => setCfgDraft(d => ({ ...d, [k]: e.target.value }))}
+                          style={{ width: 80, padding: '6px 8px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 13 }} /></label>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={salvarCfg} disabled={busy} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Salvar limiares da fazenda</button>
+                    <button onClick={() => setEditCfg(false)} style={{ background: 'transparent', color: ESP60, border: `1px solid ${LINE}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+            </section>
 
             {/* ── MAPA DOS PIQUETES ── */}
             <section style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14 }}>
