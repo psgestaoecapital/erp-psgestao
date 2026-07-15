@@ -171,6 +171,7 @@ export interface FiscalProvider {
   cancelarNFSe(referenceOrNumero: string, justificativa: string): Promise<NFSeResponse>
 
   emitirNFe(req: NFeRequest): Promise<NFeResponse>
+  emitirNFCe(req: NFeRequest): Promise<NFeResponse>
   consultarNFe(referenceOrChave: string): Promise<NFeResponse>
   cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse>
   cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
