@@ -194,6 +194,9 @@ export default function ConexoesBancariasPage() {
             <p style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>
               API <b>direta</b> com bancos por empresa: boleto, extrato, pagamento.
             </p>
+            <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
+              display: 'inline-block', marginTop: 6, fontSize: 12, color: GOLD, fontWeight: 600, textDecoration: 'none',
+            }}>🧭 Assistente passo a passo (conectar sem depender de ninguém) →</Link>
           </div>
           <Link href="/dashboard/financeiro" style={{
             background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`,
