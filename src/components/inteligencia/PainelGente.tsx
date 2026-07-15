@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
-  PieChart, Pie, XAxis, YAxis, Tooltip, Cell, CartesianGrid, Legend,
+  PieChart, Pie, XAxis, YAxis, Tooltip, Cell, Legend,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 
@@ -427,7 +427,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
               janela do usuário → período do provedor explícito, nunca fingindo ser o filtro selecionado. */}
           {totais && totais.headcount > 0 && (
             <div>
-              <SecHdr titulo="Fechamento do provedor" tag={`período do IO Point: ${provPer}`}
+              <SecHdr titulo="Fechamento do provedor" lock tag={`período do IO Point: ${provPer}`}
                 nota="HE-CLT, adicional noturno, banco, faltas e afastados vêm do fechamento legal do provedor. Não recorta pela janela acima — o período real do provedor está no rótulo." />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                 <Kpi titulo="HE-CLT (por faixa)" valor={h1(totais.horas_extras)} cur={pctExtras} prev={pctExtrasPrev ?? undefined} betterLower deltaFmt={pct} tomForce={pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'} ctx={`${pct(pctExtras)} sobre trabalhadas (provedor)`} />
@@ -443,21 +443,11 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
           {/* ═══ CAMADA 2 · Tendência & Composição ═══ */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-            <Card titulo="Tendência · HE e absenteísmo por janela" nota="1 ponto por sync — a curva cresce a cada sincronização do ponto.">
-              {serie.length === 0 ? <MiniVazio texto="Série nasce no primeiro sync." /> : (
-                <ResponsiveContainer width="100%" height={230}>
-                  <LineChart data={serie.map((p) => ({ nome: fmtD(p.periodo_fim), HE: p.extras, Absent: p.faltas_pct }))} margin={{ left: 4, right: 10, top: 8, bottom: 4 }}>
-                    <CartesianGrid stroke={LINE} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="nome" tick={{ fontSize: 10, fill: MUT }} />
-                    <YAxis yAxisId="l" tick={{ fontSize: 10, fill: MUT }} width={40} />
-                    <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10, fill: MUT }} width={40} unit="%" />
-                    <Tooltip formatter={(v, n) => [n === 'Absent' ? pct(Number(v)) : h1(Number(v)), n === 'Absent' ? 'Absenteísmo' : 'Horas extras'] as [string, string]} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line yAxisId="l" type="monotone" dataKey="HE" name="Horas extras" stroke={GOLD} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
-                    <Line yAxisId="r" type="monotone" dataKey="Absent" name="Absenteísmo" stroke={S_VERM} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
+            {/* B1: gráfico de tendência REMOVIDO — o eixo X era "1 ponto por sync" (sincronização,
+                não tempo): a curva subia quando o dado CHEGAVA, não quando a HE crescia. Enganoso.
+                Volta quando o eixo for tempo real (mês/semana), agregando a série por competência. */}
+            <Card titulo="Tendência · HE e absenteísmo" nota="Em refação: o gráfico anterior tinha 1 ponto por SYNC (eixo = sincronização, não tempo) — subia quando o dado chegava, não quando a HE crescia. Volta com eixo = tempo real (mês/semana).">
+              <MiniVazio texto="Tendência por tempo real (mês/semana) — em construção. Removido o eixo por sync que enganava." />
             </Card>
             <Card titulo="HE-CLT por faixa" nota={`Fechamento legal do IO Point · ${provPer}${heTotalFaixas > 0 ? ` · total ${h1(heTotalFaixas)}` : ''}. HE por faixa/DSR/feriado — o cálculo que vai pra folha.`}>
               {donutData.length === 0 ? <MiniVazio texto="Sem HE por faixa no fechamento do provedor." /> : (
@@ -739,11 +729,12 @@ function MiniKpi({ label, valor, sub, cor }: { label: string; valor: string; sub
     </div>
   )
 }
-function SecHdr({ titulo, nota, tag }: { titulo: string; nota?: string; tag?: string }) {
+function SecHdr({ titulo, nota, tag, lock }: { titulo: string; nota?: string; tag?: string; lock?: boolean }) {
   return (
     <div style={{ margin: '2px 0 10px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: ESP }}>{titulo}</span>
+        {lock && <span style={{ fontSize: 10, fontWeight: 800, color: '#1E5A3A', background: '#DCF3E6', padding: '2px 8px', borderRadius: 6 }}>🔒 fechamento legal · não recorta pelo filtro</span>}
         {tag && <span style={{ fontSize: 10, fontWeight: 700, color: '#854F0B', background: '#FAEEDA', padding: '2px 8px', borderRadius: 6 }}>{tag}</span>}
       </div>
       {nota && <div style={{ fontSize: 11, color: MUT, marginTop: 3, fontStyle: 'italic' }}>{nota}</div>}
