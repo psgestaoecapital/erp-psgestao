@@ -55,7 +55,16 @@ export default function AssistenteConexaoPage() {
     setManifestos((m.data ?? []) as Manifesto[])
     setConfigs((c.data ?? []) as Config[])
     setTestes((t.data ?? []) as Teste[])
-    if (!provider && (m.data ?? []).length) setProvider((m.data as Manifesto[])[0].provider)
+    if (!provider && (m.data ?? []).length) {
+      // Abre num banco de referência, não no primeiro alfabético (Bradesco, não homologado).
+      // Prioridade: config da empresa em produção → em homologação → banco com origem provada
+      // (homologado_ref, ex.: Sicoob/Sicredi) → 1º manifesto. Bradesco vira escolha consciente.
+      const mans = m.data as Manifesto[]
+      const cfgs = (c.data ?? []) as Config[]
+      const porEstado = (e: string) => cfgs.find((x) => x.estado_conexao === e)?.provider
+      const provado = mans.find((x) => x.homologado_ref)?.provider
+      setProvider(porEstado('producao') || porEstado('homologado') || provado || mans[0].provider)
+    }
   }, [empresa, provider])
   useEffect(() => { carregar() }, [carregar])
 
