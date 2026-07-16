@@ -293,6 +293,8 @@ export default function OportunidadesPage() {
               </div>
               <div className="mt-3 flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => setEditing(rowParaForm(r))} style={btnSec}>Editar</button>
+                {/* Porta 1 · expõe o acesso ao orçamento/proposta (antes só na ficha) → leva pra ficha que cria/abre */}
+                <button onClick={() => router.push(`/dashboard/projetos/oportunidades/${r.id}`)} style={btnSec}>📄 Orçamento →</button>
                 <button
                   onClick={() => excluir(r)}
                   disabled={!podeExcluir}

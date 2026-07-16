@@ -205,6 +205,15 @@ export default function OportunidadeFichaPage() {
     return orc as { id: string; numero: string }
   }
 
+  // Porta 1 · a etapa passa a ser dirigida por dado (como a visita → 'visita_feita'): gerar
+  // orçamento avança pra 'orcando', mas só se ainda estiver ANTES dessa fase (não regride negociação/ganho).
+  async function avancarParaOrcando() {
+    if (!op) return
+    if (['prospeccao', 'visita_agendada', 'visita_feita'].includes(op.etapa)) {
+      await supabase.rpc('fn_crm_mover_etapa', { p_id: op.id, p_etapa: 'orcando' })
+    }
+  }
+
   async function gerarOrcamento() {
     if (!op) return
     // Confirma antes de criar (Pilar 3 · não surpreender): o clique gera um
@@ -214,6 +223,7 @@ export default function OportunidadeFichaPage() {
     const o = await criarOrcamentoBase()
     if (!o) { setGerandoOrc(false); return }
     await supabase.from('erp_crm_oportunidade').update({ orcamento_id: o.id }).eq('id', op.id)
+    await avancarParaOrcando()
     setGerandoOrc(false)
     setToast(`Orçamento ${o.numero} CRIADO.`)
     reload()
@@ -232,6 +242,7 @@ export default function OportunidadeFichaPage() {
       orcId = o.id
       numero = o.numero
       await supabase.from('erp_crm_oportunidade').update({ orcamento_id: orcId }).eq('id', op.id)
+      await avancarParaOrcando()
     }
     await supabase.from('erp_crm_visita').update({ gerou_orcamento_id: orcId }).eq('id', visitaId)
     setGerandoOrcDeVisita(null)

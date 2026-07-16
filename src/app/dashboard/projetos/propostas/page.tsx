@@ -1,21 +1,17 @@
-"use client";
-import { FileSignature } from "lucide-react";
-import { PlaceholderTab } from "../_components/PlaceholderTab";
+'use client'
+
+// RD-52 · 1 fonte de verdade: a "lista de propostas" É /dashboard/orcamentos (erp_orcamentos, com
+// hash público, versão, aprovação, elo Pedido). A aba do Hub NÃO cria uma segunda lista — redireciona
+// pra real. Mata a casca "Fase 5 · em construção" que mentia enquanto o fluxo já roda (#674).
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 export default function PropostasPage() {
+  const router = useRouter()
+  useEffect(() => { router.replace('/dashboard/orcamentos') }, [router])
   return (
-    <PlaceholderTab
-      icon={FileSignature}
-      titulo="Propostas comerciais"
-      descricao="Geração automática de propostas profissionais a partir do orçamento. Envio multicanal (email/WhatsApp/Portal), assinatura digital."
-      fase="Fase 5"
-      funcoesFuturas={[
-        "PDF profissional com identidade visual",
-        "Envio via Inbox Unificado",
-        "Versionamento de propostas",
-        "Assinatura digital",
-        "Aprovação com 1 clique",
-      ]}
-    />
-  );
+    <div style={{ padding: 24, color: 'rgba(61,35,20,0.55)', fontSize: 13 }}>
+      Abrindo Propostas (orçamentos)…
+    </div>
+  )
 }
