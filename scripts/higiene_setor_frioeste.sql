@@ -7,13 +7,13 @@
 
 -- 4a. Os "SEM SETOR" reais (junho, já sem pró-labore) — pro RH classificar.
 --     Resultado provado em 16/07: 5 matrículas → 40, 340, 838, 929, 1130 (R$ 16.375,20).
---     (965,967,968,969,970,971 são pró-labore — a view já isola como 'PRÓ-LABORE (sócios)'.)
+--     Pró-labore é identificado por vinculo='prolabore' (genérico), não por range de matrícula.
 SELECT f.matricula, p.setor
 FROM public.folha_competencia f
 JOIN public.ind_pessoa p ON p.matricula = f.matricula AND p.company_id = f.company_id
 WHERE f.company_id = '975365cc-9e5a-4251-9022-68c6bfde10d8' AND f.competencia = '2026-06-01'
   AND (p.setor IS NULL OR TRIM(p.setor) = '' OR p.setor = '⚠️ SEM SETOR')
-  AND f.matricula NOT BETWEEN 965 AND 971          -- pró-labore fica de fora (já isolado na view)
+  AND lower(COALESCE(p.vinculo,'')) <> 'prolabore'   -- pró-labore fica de fora (já isolado na view)
 ORDER BY f.matricula;
 
 -- 4b. EXPEDIÇÃO vs EXPEDIÇÃO/ENTREGAS — pro Jian decidir se é 1 área ou 2.

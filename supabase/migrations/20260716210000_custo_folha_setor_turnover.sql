@@ -6,8 +6,12 @@
 --
 -- security_invoker = on OBRIGATÓRIO: view financeira multi-tenant. Sem isso roda como
 -- owner e vaza entre empresas (Pilar 2/LGPD). folha_competencia e ind_pessoa têm RLS.
--- RD-45: join escopado por company_id. RD-51: pró-labore (965–971) e SEM SETOR isolados,
--- nunca diluídos. RD-53: junho SUM(custo_total) = 800.795,47 (provado antes do merge).
+-- RD-45: join escopado por company_id. RD-51: pró-labore e SEM SETOR isolados, nunca
+-- diluídos. RD-53: junho SUM(custo_total) = 800.795,47 (provado antes do merge).
+-- RD-44/RD-38: pró-labore é identificado por DADO — ind_pessoa.vinculo='prolabore'
+-- (atributo de pessoa, genérico p/ qualquer empresa), NÃO por range de matrícula.
+-- Prova (Frioeste): vinculo='prolabore' = {965,967,968,969,970,971}; o range 965–971
+-- incluía 966, que NÃO é pró-labore — o hardcode era mais frágil que o sinal real.
 -- RD-52: NÃO unificar EXPEDIÇÃO/EXPEDIÇÃO/ENTREGAS aqui — é higiene na dimensão (ind_pessoa),
 -- decisão do Jian, arquivo separado.
 
@@ -17,7 +21,7 @@ SELECT
   f.company_id,
   f.competencia,
   CASE
-    WHEN f.matricula BETWEEN 965 AND 971 THEN 'PRÓ-LABORE (sócios)'
+    WHEN lower(COALESCE(p.vinculo,'')) = 'prolabore' THEN 'PRÓ-LABORE (sócios)'
     ELSE COALESCE(NULLIF(TRIM(p.setor), ''), '⚠️ SEM SETOR')
   END                                    AS setor,
   count(DISTINCT f.matricula)            AS colaboradores,
@@ -50,7 +54,7 @@ LANGUAGE sql STABLE SECURITY INVOKER AS $$
   ORDER BY b.custo_total DESC;
 $$;
 
--- RPC: turnover por competência — BASE = DESLIGAMENTO (não entrada). Exclui pró-labore 965–971.
+-- RPC: turnover por competência — BASE = DESLIGAMENTO (não entrada). Exclui pró-labore (vinculo).
 -- Mesma lógica da auditoria (RD-26/RD-52): headcount = ativos na competência; desligamentos =
 -- demissão dentro da competência; março marcado como artefato (admissão = rebuild da base).
 CREATE OR REPLACE FUNCTION public.fn_turnover_periodo(
@@ -67,14 +71,14 @@ LANGUAGE sql STABLE SECURITY INVOKER AS $$
   hc AS (
     SELECT count(*)::int n FROM public.ind_pessoa p, mes
     WHERE p.company_id = p_company_id
-      AND (p.matricula IS NULL OR p.matricula NOT BETWEEN 965 AND 971)
+      AND lower(COALESCE(p.vinculo,'')) <> 'prolabore'
       AND p.admissao <= mes.fim
       AND (p.demissao IS NULL OR p.demissao >= mes.ini)
   ),
   dl AS (
     SELECT count(*)::int n FROM public.ind_pessoa p, mes
     WHERE p.company_id = p_company_id
-      AND (p.matricula IS NULL OR p.matricula NOT BETWEEN 965 AND 971)
+      AND lower(COALESCE(p.vinculo,'')) <> 'prolabore'
       AND p.demissao BETWEEN mes.ini AND mes.fim
   )
   SELECT (SELECT ini FROM mes), (SELECT n FROM dl), (SELECT n FROM hc),
