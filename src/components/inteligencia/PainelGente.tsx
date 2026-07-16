@@ -18,6 +18,7 @@ import {
   PieChart, Pie, XAxis, YAxis, Tooltip, Cell, Legend,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
+import SeloFrescor from '@/components/comum/SeloFrescor'
 
 // ── Paleta PS premium ────────────────────────────────────────────────
 const ESP = '#3D2314'        // espresso
@@ -52,7 +53,9 @@ type BiTotais = {
   he_faixas?: HeFaixas; admissoes?: number
 }
 type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number; noturno?: number; banco?: number; admissoes?: number; infracoes?: number }
-type BiResult = { totais: BiTotais; por_departamento: BiDepto[] }
+// Selo de frescor: data REAL do dado + último sync que cada RPC devolve na chave `fonte`
+type Fonte = { tem_dados?: boolean; data_ate?: string | null; periodo_inicio?: string | null; periodo_fim?: string | null; sincronizado_em?: string | null }
+type BiResult = { totais: BiTotais; por_departamento: BiDepto[]; fonte?: Fonte }
 type SeriePonto = { periodo_inicio: string; periodo_fim: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; extras_pct: number; noturno: number; banco: number; headcount: number }
 
 // ── Merge de escopo (setores) ────────────────────────────────────────
@@ -96,7 +99,20 @@ function mesclarSerie(parts: SeriePonto[][]): SeriePonto[] {
 type CanonTot = { horas_trabalhadas: number; horas_extras: number; infracoes: number; headcount: number; dias_com_registro: number }
 type CanonDepto = { departamento: string; horas_trabalhadas: number; horas_extras: number; infracoes: number; headcount: number }
 type CanonDia = { data: string; horas_trabalhadas: number; horas_extras: number; infracoes: number; presentes: number; batidas: number }
-type CanonRet = { ok?: boolean; totais?: CanonTot; por_departamento?: CanonDepto[]; por_dia?: CanonDia[] }
+type CanonRet = { ok?: boolean; totais?: CanonTot; por_departamento?: CanonDepto[]; por_dia?: CanonDia[]; fonte?: Fonte }
+
+// merge de fonte quando o escopo dispara N chamadas (uma por setor): data/sync mais recentes vencem
+function mesclarFonte(parts: (Fonte | undefined)[]): Fonte {
+  let tem = false; let dataAte: string | null = null; let ini: string | null = null; let sync: string | null = null
+  for (const f of parts) {
+    if (!f) continue
+    if (f.tem_dados) tem = true
+    if (f.data_ate && (!dataAte || f.data_ate > dataAte)) dataAte = f.data_ate
+    if (f.periodo_inicio && (!ini || f.periodo_inicio < ini)) ini = f.periodo_inicio
+    if (f.sincronizado_em && (!sync || f.sincronizado_em > sync)) sync = f.sincronizado_em
+  }
+  return { tem_dados: tem, data_ate: dataAte, periodo_inicio: ini, sincronizado_em: sync }
+}
 
 // mescla N chamadas (um alvo por setor do escopo) num único canônico
 function mesclarCanon(parts: CanonRet[]): { tot: CanonTot; deptos: Map<string, CanonDepto>; dia: Map<string, CanonDia> } {
@@ -173,7 +189,8 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
   const [porDia, setPorDia] = useState<CanonDia[]>([])   // série por DIA (drill-down · ind_ponto_dia)
   const [canon, setCanon] = useState<{ tot: CanonTot; deptos: CanonDepto[] } | null>(null)  // canônico (janela do usuário)
   const [atrasos, setAtrasos] = useState<{ tot: AtrasoTot; deptos: AtrasoDepto[]; tol?: { marcacao_min: number; dia_min: number } } | null>(null)
-  const [periodoProvedor, setPeriodoProvedor] = useState<{ ini: string; fim: string } | null>(null)
+  const [biFonte, setBiFonte] = useState<Fonte | null>(null)        // frescor do fechamento (provedor)
+  const [canonFonte, setCanonFonte] = useState<Fonte | null>(null)  // frescor da marcação diária
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [depto, setDepto] = useState('')            // filtro global de setor (select + clique)
@@ -217,15 +234,10 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
       setSerie(mesclarSerie(serP))
       setPorDia([...canonCur.dia.values()].sort((a, b) => a.data.localeCompare(b.data)))
       setAtrasos(mesclarAtrasos(atr.map((r) => (r.data as AtrasoRet) ?? {})))
-      // período REAL do fechamento do provedor (span dos registros armazenados) — pro rótulo honesto
-      const { data: perProv } = await supabase.from('ind_ponto_horas')
-        .select('periodo_inicio, periodo_fim').eq('company_id', companyId)
-        .order('periodo_inicio', { ascending: true }).limit(1000)
-      if (perProv && perProv.length) {
-        const ini = perProv.reduce((m, r) => r.periodo_inicio && r.periodo_inicio < m ? r.periodo_inicio : m, perProv[0].periodo_inicio as string)
-        const fim = perProv.reduce((m, r) => r.periodo_fim && r.periodo_fim > m ? r.periodo_fim : m, perProv[0].periodo_fim as string)
-        setPeriodoProvedor({ ini, fim })
-      } else setPeriodoProvedor(null)
+      // SELO DE FRESCOR: data REAL + sync que cada RPC devolve (fechamento do provedor vs marcação diária).
+      // O período do fechamento vem do fechamento REALMENTE escolhido (não mais min..max de todos).
+      setBiFonte(mesclarFonte(cur.map((r) => (r.data as BiResult)?.fonte)))
+      setCanonFonte(mesclarFonte(curDia.map((r) => (r.data as CanonRet)?.fonte)))
       setLoading(false)
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e)); setBi(null); setLoading(false)
@@ -246,7 +258,10 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
     departamento: d.departamento, trabalhadas: d.horas_trabalhadas, extras: d.horas_extras,
     faltas: 0, faltas_pct: 0, afastados_qtd: 0, folga_dsr: 0, headcount: d.headcount, infracoes: d.infracoes,
   })), [cDeptos])
-  const provPer = periodoProvedor ? `${fmtD(periodoProvedor.ini)} – ${fmtD(periodoProvedor.fim)}` : 'período sincronizado'
+  // Part 3 · rótulo do fechamento = período do fechamento REALMENTE escolhido pela query (não min..max de todos)
+  const provPer = biFonte?.periodo_inicio && (biFonte?.periodo_fim ?? biFonte?.data_ate)
+    ? `${fmtD(biFonte.periodo_inicio)} – ${fmtD(biFonte.periodo_fim ?? biFonte.data_ate ?? null)}`
+    : 'período do fechamento'
   // D1 · rótulo de período das zonas de ANÁLISE (seguem o filtro) e do FECHAMENTO (janela do provedor).
   const badgeFiltro = `📅 ${fmtD(dataIni)} → ${fmtD(dataFim)} · filtro`
   const pctExtras = totais && totais.horas_trabalhadas > 0 ? (totais.horas_extras / totais.horas_trabalhadas) * 100 : 0
@@ -371,7 +386,8 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           {/* ═══ CAMADA 1a · CANÔNICO (janela do usuário · ind_ponto_dia) ═══ */}
           {/* MESMA fonte do /industrial/ponto → os números batem. Filtrável por data. */}
           <div>
-            <SecHdr titulo={`Jornada · ${fmtD(dataIni)} → ${fmtD(dataFim)}`} nota="Marcação diária (ind_ponto_dia) — mesma fonte do Ponto Eletrônico. Filtrável por data." />
+            <SecHdr titulo={`Jornada · ${fmtD(dataIni)} → ${fmtD(dataFim)}`} nota="Marcação diária (ind_ponto_dia) — mesma fonte do Ponto Eletrônico. Filtrável por data."
+              selo={<SeloFrescor icone="📅" fonte="ponto diário" dataAte={canonFonte?.data_ate} sync={canonFonte?.sincronizado_em} temDados={canonFonte?.tem_dados ?? (!!cTot && cTot.dias_com_registro > 0)} semDadosTexto="sem marcação para o período" />} />
             {cTot && cTot.dias_com_registro > 0 ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                 <Kpi titulo="Horas trabalhadas" valor={h1(cTot.horas_trabalhadas)} cur={cTot.horas_trabalhadas} betterLower={false} sufixo="h" ctx="worked_time somado por dia" />
@@ -425,10 +441,11 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           {/* ═══ CAMADA 1b · FECHAMENTO DO PROVEDOR (período do IO Point) ═══ */}
           {/* HE-CLT por faixa, noturno, banco, faltas, afastados: só o provedor fecha. NÃO recorta pela
               janela do usuário → período do provedor explícito, nunca fingindo ser o filtro selecionado. */}
-          {totais && totais.headcount > 0 && (
-            <div>
-              <SecHdr titulo="Fechamento do provedor" lock tag={`período do IO Point: ${provPer}`}
-                nota="HE-CLT, adicional noturno, banco, faltas e afastados vêm do fechamento legal do provedor. Não recorta pela janela acima — o período real do provedor está no rótulo." />
+          <div>
+            <SecHdr titulo="Fechamento do provedor" lock tag={totais && totais.headcount > 0 ? `período do IO Point: ${provPer}` : undefined}
+              nota="HE-CLT, adicional noturno, banco, faltas e afastados vêm do fechamento legal do provedor. Não recorta pela janela acima — o período real do provedor está no rótulo."
+              selo={<SeloFrescor icone="🔒" fonte="IO Point (fechamento legal)" dataAte={biFonte?.data_ate} sync={biFonte?.sincronizado_em} temDados={(biFonte?.tem_dados ?? false) && !!totais && totais.headcount > 0} semDadosTexto="sem fechamento para o período" />} />
+            {totais && totais.headcount > 0 ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                 <Kpi titulo="HE-CLT (por faixa)" valor={h1(totais.horas_extras)} cur={pctExtras} prev={pctExtrasPrev ?? undefined} betterLower deltaFmt={pct} tomForce={pctExtras > 12 ? 'vermelho' : pctExtras > 8 ? 'amarelo' : 'verde'} ctx={`${pct(pctExtras)} sobre trabalhadas (provedor)`} />
                 <Kpi titulo="Absenteísmo" valor={pct(totais.faltas_pct)} spark={sparkOf((p) => p.faltas_pct)} cur={totais.faltas_pct} prev={biPrev?.totais.faltas_pct} betterLower deltaFmt={pct} tomForce={totais.faltas_pct > 10 ? 'vermelho' : totais.faltas_pct > 5 ? 'amarelo' : 'verde'} ctx={`${h1(totais.faltas)} · ausência pontual`} />
@@ -438,8 +455,10 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
                 <Kpi titulo="Headcount (fechamento)" valor={n0(totais.headcount)} cur={totais.headcount} betterLower={false} ctx={`${totais.headcount_ativo} ativos · base do provedor`} />
                 <Kpi titulo="Admissões" valor={n0(totais.admissoes ?? 0)} cur={totais.admissoes ?? 0} prev={biPrev?.totais.admissoes} betterLower={false} ctx="entradas no período" />
               </div>
-            </div>
-          )}
+            ) : (
+              <MiniVazio texto="Sem fechamento legal do provedor (IO Point) para o período filtrado. Use a marcação diária acima como fonte deste mês — não exibimos o fechamento de outro período." />
+            )}
+          </div>
 
           {/* ═══ CAMADA 2 · Tendência & Composição ═══ */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
@@ -729,13 +748,14 @@ function MiniKpi({ label, valor, sub, cor }: { label: string; valor: string; sub
     </div>
   )
 }
-function SecHdr({ titulo, nota, tag, lock }: { titulo: string; nota?: string; tag?: string; lock?: boolean }) {
+function SecHdr({ titulo, nota, tag, lock, selo }: { titulo: string; nota?: string; tag?: string; lock?: boolean; selo?: React.ReactNode }) {
   return (
     <div style={{ margin: '2px 0 10px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: ESP }}>{titulo}</span>
         {lock && <span style={{ fontSize: 10, fontWeight: 800, color: '#1E5A3A', background: '#DCF3E6', padding: '2px 8px', borderRadius: 6 }}>🔒 fechamento legal · não recorta pelo filtro</span>}
         {tag && <span style={{ fontSize: 10, fontWeight: 700, color: '#854F0B', background: '#FAEEDA', padding: '2px 8px', borderRadius: 6 }}>{tag}</span>}
+        {selo && <span style={{ marginLeft: 'auto' }}>{selo}</span>}
       </div>
       {nota && <div style={{ fontSize: 11, color: MUT, marginTop: 3, fontStyle: 'italic' }}>{nota}</div>}
     </div>
