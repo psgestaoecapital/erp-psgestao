@@ -379,6 +379,11 @@ export default function OrcamentosPage(){
     const update:any={status:novoStatus};
     if(novoStatus==='aprovado')update.data_aprovacao=new Date().toISOString();
     if(novoStatus==='recusado')update.data_recusa=new Date().toISOString();
+    // Enviar: garante o hash público (link do cliente). enviado_em não existe como coluna —
+    // o histórico abaixo já timestampa o envio (RD-44: não escrever em coluna inexistente).
+    if(novoStatus==='enviado'&&!o.hash_publico){
+      update.hash_publico=(crypto.randomUUID()+crypto.randomUUID()).replace(/-/g,"").slice(0,40);
+    }
     await supabase.from("erp_orcamentos").update(update).eq("id",o.id);
     await supabase.from("erp_orcamento_historico").insert({
       orcamento_id:o.id,company_id:o.company_id,evento:`status_${novoStatus}`,detalhe:`Status alterado para ${STATUS_CFG[novoStatus]?.label}`
@@ -388,12 +393,22 @@ export default function OrcamentosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  const linkPublico=(o:Orcamento)=>`${APP_URL}/orcamento/${o.hash_publico}`;
+
   const copiarLinkPublico=(o:Orcamento)=>{
-    const url=`${APP_URL}/orcamento/${o.hash_publico}`;
-    navigator.clipboard.writeText(url);
-    setMsg(`✅ Link copiado: ${url}`);
+    navigator.clipboard.writeText(linkPublico(o));
+    setMsg(`✅ Link copiado: ${linkPublico(o)}`);
     setTimeout(()=>setMsg(""),3000);
   };
+
+  // Compartilha a proposta por WhatsApp (o vendedor escolhe o contato). Só o link do hash — Pilar 2.
+  const enviarWhatsApp=(o:Orcamento)=>{
+    const texto=`Olá! Segue a proposta ${o.numero}: ${linkPublico(o)}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`,"_blank");
+  };
+
+  // Abre a MESMA página pública que o cliente vê (não recria — RD-52/#674).
+  const verComoCliente=(o:Orcamento)=>window.open(linkPublico(o),"_blank");
 
   const duplicar=async(o:Orcamento)=>{
     const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:o.company_id});
@@ -704,6 +719,8 @@ export default function OrcamentosPage(){
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}
                           {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ "+error.message);return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
                           <button onClick={()=>copiarLinkPublico(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:P+"12",color:P,border:`1px solid ${P}25`,cursor:"pointer"}} title="Copiar link público">🔗</button>
+                          <button onClick={()=>enviarWhatsApp(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}} title="Enviar por WhatsApp">📱</button>
+                          <button onClick={()=>verComoCliente(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}} title="Ver como cliente (página pública)">👁</button>
                           <button onClick={()=>duplicar(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}} title="Duplicar/Nova versão">📋</button>
                         </div>
                       </td>
