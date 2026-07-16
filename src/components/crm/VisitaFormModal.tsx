@@ -33,7 +33,7 @@ interface Props {
   onSaved: (visitaId: string) => void
 }
 
-type UserOpt = { id: string; email: string | null }
+type UserOpt = { id: string; email: string | null; full_name?: string | null }
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -83,19 +83,20 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // Carrega usuarios da empresa
+  // Carrega usuarios ATIVOS da empresa (todos — decisao CEO). Escopo por company_id (RD-45).
   useEffect(() => {
     supabase
       .from('user_companies')
-      .select('users(id, email)')
+      .select('users(id, email, full_name, is_active)')
       .eq('company_id', companyId)
       .then(({ data }) => {
-        const list = (data ?? []) as unknown as Array<{ users: UserOpt | UserOpt[] | null }>
+        const list = (data ?? []) as unknown as Array<{ users: (UserOpt & { is_active?: boolean }) | (UserOpt & { is_active?: boolean })[] | null }>
         const flat: UserOpt[] = []
         for (const r of list) {
           const u = Array.isArray(r.users) ? r.users[0] : r.users
-          if (u) flat.push(u)
+          if (u && (u.is_active ?? true)) flat.push({ id: u.id, email: u.email, full_name: u.full_name })
         }
+        flat.sort((a, b) => (a.full_name ?? a.email ?? '').localeCompare(b.full_name ?? b.email ?? '', 'pt-BR'))
         setUsers(flat)
       })
   }, [companyId])
@@ -198,19 +199,14 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
         {!oportunidadeFixa && (
           <label style={lbl}>
             Oportunidade *
-            <select
+            <Combobox
               value={oportunidadeId}
-              onChange={(e) => setOportunidadeId(e.target.value)}
-              style={inp}
+              onChange={setOportunidadeId}
               disabled={isEdit}
-            >
-              <option value="">Selecione…</option>
-              {oportunidades.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.titulo}{o.cliente_nome ? ` · ${o.cliente_nome}` : ''}
-                </option>
-              ))}
-            </select>
+              placeholder="Digite pra buscar (obra, cliente)…"
+              vazioTexto="Nenhuma oportunidade aberta nesta empresa."
+              options={oportunidades.map((o) => ({ id: o.id, label: o.titulo, sub: o.cliente_nome }))}
+            />
           </label>
         )}
         {oportunidadeFixa && (
@@ -234,10 +230,13 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
           </label>
           <label style={lbl}>
             Responsável
-            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={inp}>
-              <option value="">—</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.email ?? u.id.slice(0, 8)}</option>)}
-            </select>
+            <Combobox
+              value={responsavelId}
+              onChange={setResponsavelId}
+              placeholder="Digite pra buscar o vendedor…"
+              vazioTexto="Nenhum usuário nesta empresa. Cadastre em Acessos."
+              options={users.map((u) => ({ id: u.id, label: u.full_name ?? u.email ?? u.id.slice(0, 8), sub: u.full_name ? u.email : null }))}
+            />
           </label>
         </div>
 
@@ -296,6 +295,65 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
       </div>
     </div>
   )
+}
+
+// Combobox com busca (mobile-first): digita pra filtrar, toca pra escolher. Reusa nas 2 listas.
+function Combobox({ value, options, onChange, placeholder, vazioTexto, disabled }: {
+  value: string
+  options: { id: string; label: string; sub?: string | null }[]
+  onChange: (id: string) => void
+  placeholder: string
+  vazioTexto?: string
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const selecionado = options.find((o) => o.id === value)
+  const termo = q.trim().toLowerCase()
+  const filtradas = termo
+    ? options.filter((o) => `${o.label} ${o.sub ?? ''}`.toLowerCase().includes(termo))
+    : options
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        style={{ ...inp, width: '100%', boxSizing: 'border-box' }}
+        disabled={disabled}
+        placeholder={placeholder}
+        value={open ? q : (selecionado ? `${selecionado.label}${selecionado.sub ? ` · ${selecionado.sub}` : ''}` : '')}
+        onFocus={() => { if (!disabled) { setOpen(true); setQ('') } }}
+        onChange={(e) => setQ(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && !disabled && (
+        <div style={dropdown}>
+          {filtradas.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: TEXTM }}>{vazioTexto ?? 'Nada encontrado.'}</div>
+          ) : filtradas.slice(0, 50).map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); onChange(o.id); setOpen(false); setQ('') }}
+              style={{ ...dropItem, background: o.id === value ? OFFWHITE : '#fff' }}
+            >
+              <span style={{ fontWeight: 600, color: ESPRESSO }}>{o.label}</span>
+              {o.sub && <span style={{ color: TEXTM, marginLeft: 6 }}>· {o.sub}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const dropdown: CSSProperties = {
+  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 60, marginTop: 2,
+  background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8,
+  boxShadow: '0 6px 20px rgba(0,0,0,.12)', maxHeight: 240, overflowY: 'auto',
+}
+const dropItem: CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left', border: 'none',
+  padding: '10px 12px', fontSize: 13, cursor: 'pointer', minHeight: 40,
+  borderBottom: `1px solid ${OFFWHITE}`,
 }
 
 const overlay: CSSProperties = {
