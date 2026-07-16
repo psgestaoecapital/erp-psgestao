@@ -49,6 +49,7 @@ export default function SeloFrescor({
   fonte,
   dataAte,
   sync,
+  competencia,
   temDados = true,
   aoVivo = false,
   semDadosTexto,
@@ -57,6 +58,7 @@ export default function SeloFrescor({
   fonte: string               // "IO Point (fechamento legal)", "ponto diário", "erp_pec_animal"…
   dataAte?: string | null     // ISO 'YYYY-MM-DD' — última data REAL do dado (max da fonte)
   sync?: string | null        // ISO timestamp do último sync (opcional)
+  competencia?: string | null // ISO 'YYYY-MM-DD' — p/ fontes mensais (folha): mostra "competência MM/AAAA"
   temDados?: boolean          // false → declara "sem dado para o período"
   aoVivo?: boolean            // fonte é live (sem corte de data) → "dados ao vivo"
   semDadosTexto?: string      // texto custom p/ ausência (ex: "sem fechamento para o período")
@@ -86,6 +88,20 @@ export default function SeloFrescor({
       <span style={base} title={`fonte: ${fonte}`}>
         <span aria-hidden>{icone ?? '🟢'}</span>
         <span>dados ao vivo</span>
+        <span style={{ fontWeight: 600, color: MUT }}>· fonte: {fonte}</span>
+      </span>
+    )
+  }
+
+  // Fonte mensal (folha): competência em vez de "dados até dia".
+  if (competencia) {
+    const s = competencia.length >= 7 ? competencia.slice(0, 7) : competencia
+    const [y, m] = s.split('-')
+    const comp = y && m ? `${m}/${y}` : (fmtData(competencia) ?? '—')
+    return (
+      <span style={base} title={`fonte: ${fonte}`}>
+        <span aria-hidden>{icone ?? '🧾'}</span>
+        <span>competência <b style={{ color: GOLD }}>{comp}</b></span>
         <span style={{ fontWeight: 600, color: MUT }}>· fonte: {fonte}</span>
       </span>
     )
