@@ -138,9 +138,38 @@ export async function POST(
       metadata: { acao, nome_aprovador, comentario, via: 'link_publico' },
     });
 
+    // ELO aceite → Pedido: ao aprovar, gera o Pedido reusando o converter existente
+    // (converter_orcamento_pedido — RD-26). Idempotente: só cria com pedido_id NULL, e o
+    // guard de status no topo já bloqueia 2o aceite → nunca duplica Pedido. O Pedido nasce
+    // com o company_id do orçamento (Pilar 2 — não vaza entre empresas).
+    let pedido_id: string | null = null;
+    let pedido_aviso: string | undefined;
+    if (acao === 'aprovar') {
+      const { data: pid, error: convErr } = await sbAdmin.rpc('converter_orcamento_pedido', {
+        p_orcamento_id: orc.id,
+        p_user_id: null,
+      });
+      if (convErr) {
+        // O aceite do cliente VALE; a geração do Pedido fica pendente pra equipe concluir.
+        pedido_aviso = 'Proposta aprovada. A geração do pedido será concluída pela equipe.';
+        await sbAdmin.from('erp_orcamento_historico').insert({
+          orcamento_id: orc.id,
+          company_id: orc.company_id,
+          evento: 'conversao_pendente',
+          detalhe: `Aprovado pelo cliente, mas a conversão em pedido falhou: ${convErr.message}`,
+          usuario_nome: 'sistema',
+          ip_address: ip,
+        });
+      } else {
+        pedido_id = (pid as string) ?? null; // converter já marcou o orçamento como 'convertido'
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      status: novoStatus,
+      status: acao === 'aprovar' && pedido_id ? 'convertido' : novoStatus,
+      pedido_id,
+      aviso: pedido_aviso,
       message: acao === 'aprovar'
         ? 'Orçamento aprovado com sucesso!'
         : 'Orçamento recusado. Obrigado pelo retorno.'
