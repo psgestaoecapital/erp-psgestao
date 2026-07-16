@@ -19,6 +19,7 @@ import {
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import SeloFrescor from '@/components/comum/SeloFrescor'
+import CustoFolhaSetor from '@/components/inteligencia/CustoFolhaSetor'
 
 // ── Paleta PS premium ────────────────────────────────────────────────
 const ESP = '#3D2314'        // espresso
@@ -577,13 +578,15 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 8 }}>Ainda sem base de dado</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-              <SemDados titulo="🔄 Turnover por setor" falta="requer data de desligamento (hoje só há admissão)" />
               <SemDados titulo="❄️ Pausas térmicas NR-36" falta="requer regra NR-36 + marcações de intervalo por dia" />
-              <SemDados titulo="💵 Custo de mão de obra" falta="requer valor-hora por setor/função (é GE, não ponto)" />
             </div>
           </div>
         </>
       )}
+
+      {/* ═══ CUSTO DE FOLHA POR SETOR + TURNOVER (B2 · folha × ind_pessoa) ═══ */}
+      {/* Independe do ponto: renderiza mesmo sem marcação/fechamento no período. */}
+      <CustoFolhaSetor companyId={companyId} />
     </div>
   )
 }
