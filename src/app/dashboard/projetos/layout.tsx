@@ -19,6 +19,7 @@ import {
   Construction,
   TrendingUp,
   Settings,
+  Smartphone,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,6 +35,7 @@ const COMERCIAL: Tab[] = [
   { href: "/dashboard/projetos/clientes",       label: "Clientes",    icon: Users,           key: "2" },
   { href: "/dashboard/projetos/visitas",        label: "Visitas",     icon: MapPin,          key: "3" },
   { href: "/dashboard/projetos/propostas",      label: "Propostas",   icon: FileSignature,   key: "4" },
+  { href: "/dashboard/projetos/instalar-app",   label: "Instalar app", icon: Smartphone,     key: "i" },
 ];
 
 const TECNICO: Tab[] = [
