@@ -148,6 +148,7 @@ export class FocusNFeProvider implements FiscalProvider {
       prestador: {
         cnpj: req.prestador.cnpj.replace(/\D/g, ''),
         inscricao_municipal: req.prestador.inscricaoMunicipal,
+        codigo_municipio: req.prestador.codigoMunicipio,
       },
       tomador: {
         cnpj: req.tomador.cnpj?.replace(/\D/g, ''),

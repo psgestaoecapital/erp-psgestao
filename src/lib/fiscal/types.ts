@@ -31,6 +31,7 @@ export interface NFSeRequest {
     cnpj: string
     razaoSocial: string
     inscricaoMunicipal?: string
+    codigoMunicipio?: string
   }
   tomador: {
     cnpj?: string

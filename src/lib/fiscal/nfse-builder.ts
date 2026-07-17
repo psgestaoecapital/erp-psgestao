@@ -34,7 +34,7 @@ export async function buildNFSeFromReceber(opts: {
 
   const { data: cfg } = await supabaseAdmin
     .from('erp_fiscal_provider_config')
-    .select('cnae_padrao, serie_nfse_padrao')
+    .select('cnae_padrao, serie_nfse_padrao, gov_nfse_municipio_codigo')
     .eq('company_id', opts.companyId)
     .eq('provider', 'focusnfe')
     .eq('ativo', true)
@@ -81,6 +81,9 @@ export async function buildNFSeFromReceber(opts: {
       cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
       razaoSocial: emp.razao_social,
       inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
+      // FIX-PRESTADOR-CODIGO-MUNICIPIO: o Focus exige prestador.codigo_municipio (IBGE).
+      // Vem da config fiscal (gov_nfse_municipio_codigo). Antes nunca era enviado.
+      codigoMunicipio: cfg?.gov_nfse_municipio_codigo ?? undefined,
     },
     tomador: {
       cnpj: isCnpj ? docLimpo : undefined,
