@@ -32,6 +32,7 @@ interface ProviderConfig {
   cooperativa: string | null
   conta: string | null
   codigo_beneficiario: string | null
+  posto: string | null
   convenio: string | null
   cap_boleto: boolean | null
   cap_extrato: boolean | null
@@ -103,13 +104,15 @@ export default function ConexoesBancariasPage() {
   const [testando, setTestando] = useState<string | null>(null)
   const [testeResultado, setTesteResultado] = useState<Record<string, { ok: boolean; texto: string }>>({})
   const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
+  // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
+  const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     setLoading(true); setErro(null)
     const [cfgRes, contasRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, convenio, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -301,6 +304,18 @@ export default function ConexoesBancariasPage() {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {bancoInfo && (
+                          <button
+                            type="button"
+                            onClick={() => setEditando({ banco: bancoInfo, cfg })}
+                            style={{
+                              background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            ✏️ Editar/Reconfigurar
+                          </button>
+                        )}
                         {bancoInfo && PING_PROVIDERS.has(bancoInfo.sigla) && cfg.ativo && (
                           <button
                             type="button"
@@ -453,6 +468,16 @@ export default function ConexoesBancariasPage() {
         />
       )}
 
+      {editando && empresaUnica && (
+        <ConectarBancoModal
+          banco={editando.banco}
+          companyId={empresaUnica}
+          cfgExistente={editando.cfg}
+          onClose={() => setEditando(null)}
+          onSucesso={() => { setEditando(null); setMsg('Configuração atualizada (segredo do Vault preservado se deixado em branco).'); void carregar() }}
+        />
+      )}
+
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
   )
@@ -478,24 +503,29 @@ interface ConectarProps {
   companyId: string
   onClose: () => void
   onSucesso: () => void
+  // editar-config-existente · quando presente, o modal abre em modo EDIÇÃO:
+  // pré-preenche os campos NÃO-secretos; os secretos ficam em branco e, se
+  // continuarem em branco, o RPC preserva o segredo já gravado no Vault.
+  cfgExistente?: ProviderConfig | null
 }
-function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarProps) {
+function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente }: ConectarProps) {
+  const editMode = !!cfgExistente
   // Sicredi está em fase de teste → default Homologação (state controlado persiste a escolha).
-  const [ambiente, setAmbiente] = useState<Ambiente>(banco.sigla === 'sicredi' ? 'homologacao' : 'producao')
-  const [clientId, setClientId] = useState('')
+  const [ambiente, setAmbiente] = useState<Ambiente>(cfgExistente?.ambiente ?? (banco.sigla === 'sicredi' ? 'homologacao' : 'producao'))
+  const [clientId, setClientId] = useState(cfgExistente?.client_id ?? '')
   const [clientSecret, setClientSecret] = useState('')
-  const [cooperativa, setCooperativa] = useState('')
-  const [conta, setConta] = useState('')
-  const [codBenef, setCodBenef] = useState('')
+  const [cooperativa, setCooperativa] = useState(cfgExistente?.cooperativa ?? '')
+  const [conta, setConta] = useState(cfgExistente?.conta ?? '')
+  const [codBenef, setCodBenef] = useState(cfgExistente?.codigo_beneficiario ?? '')
   const [certA1Base64, setCertA1Base64] = useState('')
   const [certA1Nome, setCertA1Nome] = useState('')
   const [certSenha, setCertSenha] = useState('')
   // Sicredi Cobrança (auth OAuth2 real)
   const [apiKey, setApiKey] = useState('')
   const [codigoAcesso, setCodigoAcesso] = useState('')
-  const [posto, setPosto] = useState('')
-  const [capBoleto, setCapBoleto] = useState(true)
-  const [capExtrato, setCapExtrato] = useState(true)
+  const [posto, setPosto] = useState(cfgExistente?.posto ?? '')
+  const [capBoleto, setCapBoleto] = useState(cfgExistente?.cap_boleto ?? true)
+  const [capExtrato, setCapExtrato] = useState(cfgExistente?.cap_extrato ?? true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -591,7 +621,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
         <div style={{ padding: '16px 20px', borderBottom: `0.5px solid ${LINE}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
-              Conectar banco
+              {editMode ? 'Editar / Reconfigurar' : 'Conectar banco'}
             </div>
             <div style={{ fontSize: 16, color: ESP, fontWeight: 600 }}>
               {banco.nome} <span style={{ color: ESP60, fontWeight: 400 }}>({banco.codigo})</span>
@@ -606,6 +636,11 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
           {/* Iscas invisíveis: o Chrome injeta e-mail/senha salvos AQUI, não nos campos reais. */}
           <input type="text" name="ps_decoy_user" autoComplete="username" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
           <input type="password" name="ps_decoy_pass" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
+          {editMode && (
+            <div style={{ background: '#FEF3C7', border: `0.5px solid ${GOLD}`, color: '#7A5A0F', borderRadius: 6, padding: '9px 12px', fontSize: 12, lineHeight: 1.4 }}>
+              <b>Editar configuração.</b> Os campos podem ser alterados. Os campos de <b>segredo</b> (Código de Acesso / x-api-key / senha) estão em branco: <b>deixe em branco pra manter o segredo já guardado no Vault</b>; preencha só se quiser TROCAR.
+            </div>
+          )}
           <Field label="Ambiente">
             <select value={ambiente} onChange={(e) => setAmbiente(e.target.value as Ambiente)} style={inp}>
               <option value="producao">Produção</option>
@@ -692,7 +727,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso }: ConectarPr
             background: salvando ? 'rgba(200,148,26,0.4)' : GOLD,
             color: '#3D2314', border: 'none', padding: '8px 18px',
             borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer',
-          }}>{salvando ? 'Conectando…' : 'CONECTAR (cifrar no Vault)'}</button>
+          }}>{salvando ? (editMode ? 'Salvando…' : 'Conectando…') : (editMode ? 'SALVAR ALTERAÇÕES' : 'CONECTAR (cifrar no Vault)')}</button>
         </div>
       </div>
     </div>
