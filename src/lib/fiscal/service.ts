@@ -95,17 +95,35 @@ export async function createFiscalService(
     .eq('ativo', true)
     .maybeSingle()
 
-  if (cfgErr || !configRow?.api_key_encrypted) {
+  if (cfgErr || !configRow) {
     throw new FiscalError('API_KEY_INVALIDA', 'api_key Focus NFe nao encontrada')
   }
 
-  const apiKey = decryptApiKey(configRow.api_key_encrypted)
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
   // ambiente da config + override anti-engano: SO desce pra homologacao;
   // body NUNCA consegue subir pra producao
   const configAmbiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
   const ambiente: FiscalAmbiente =
     opts.ambienteOverride === 'homologacao' ? 'homologacao' : configAmbiente
+
+  // FIX-FOCUS-TOKEN-VAULT (RD-52): o "Atualizar" (fn_fiscal_salvar_token) grava o token
+  // no Vault (focus_token_vault_id), NAO em api_key_encrypted. A emissao lia so a coluna
+  // legada (vazia) -> "api_key nao encontrada" mesmo com o token salvo. Agora: usa a
+  // coluna legada se houver; senao obtem o token do Vault via fn_fiscal_obter_token.
+  let apiKey: string
+  if (configRow.api_key_encrypted) {
+    apiKey = decryptApiKey(configRow.api_key_encrypted)
+  } else {
+    const { data: tok, error: tokErr } = await supabaseAdmin.rpc('fn_fiscal_obter_token', {
+      p_company_id: companyId,
+      p_ambiente: configAmbiente,
+    })
+    const tokStr = typeof tok === 'string' ? tok.trim() : ''
+    if (tokErr || tokStr.length < 8) {
+      throw new FiscalError('API_KEY_INVALIDA', 'api_key Focus NFe nao encontrada')
+    }
+    apiKey = tokStr
+  }
 
   const { data: company, error: companyErr } = await supabaseAdmin
     .from('companies')
