@@ -8,7 +8,7 @@ export type ConteudoModulo = Omit<ModuloPreviewProps, 'icone'> & { icone: string
 export const PM_MODULOS: Record<string, ConteudoModulo> = {
   // ─── BLOCO 1: COMERCIAL ──────────────────────────────────
   leads: {
-    icone: '🎯', titulo: 'Leads / CRM', status: 'previsto',
+    icone: '🎯', titulo: 'Leads / CRM', status: 'pronto',
     subtitulo: 'Funil de captação de novos clientes da agência, do primeiro contato ao fechamento.',
     oQueE: 'Antes de virar contrato, todo prospect entra aqui. Você acompanha cada oportunidade de novo cliente num funil visual — quem chegou, em que etapa está, e o que falta pra fechar. Quando ganha, vira cliente da agência automaticamente.',
     comoFunciona: [
@@ -27,7 +27,7 @@ export const PM_MODULOS: Record<string, ConteudoModulo> = {
     diferencialIA: 'A IA sugere o próximo passo de cada lead e prioriza quem tem mais chance de fechar, com base no histórico.',
   },
   briefings: {
-    icone: '📋', titulo: 'Briefings', status: 'previsto',
+    icone: '📋', titulo: 'Briefings', status: 'pronto',
     subtitulo: 'Captação estruturada da demanda do cliente — o ponto de partida de todo job.',
     oQueE: 'O briefing organiza o que o cliente quer ANTES de começar a produzir: objetivo, público-alvo, referências, prazo e orçamento. Briefing bem feito = menos retrabalho. É a base de cada job.',
     comoFunciona: [
@@ -47,7 +47,7 @@ export const PM_MODULOS: Record<string, ConteudoModulo> = {
 
   // ─── BLOCO 2: PRODUÇÃO & CONTROLE ────────────────────────
   'apontamento-horas': {
-    icone: '⏱️', titulo: 'Apontamento de Horas', status: 'previsto',
+    icone: '⏱️', titulo: 'Apontamento de Horas', status: 'pronto',
     subtitulo: 'Cronômetro DENTRO do job — a base real da rentabilidade da agência.',
     oQueE: 'Mede quanto tempo cada pessoa gasta em cada job/cliente. Hoje o controle de horas é furado (cronômetro global, gente esquece de apontar). Aqui o cronômetro fica DENTRO do job: aperta play ao começar, stop ao terminar. Isso revela quais clientes realmente dão lucro.',
     comoFunciona: [
@@ -66,7 +66,7 @@ export const PM_MODULOS: Record<string, ConteudoModulo> = {
     diferencialIA: 'Aponte horas pelo WhatsApp ("job Boticário, 2h") — o bot registra. E a IA avisa quando um job está estourando as horas previstas.',
   },
   'margem-job': {
-    icone: '📊', titulo: 'Margem por Job', status: 'previsto',
+    icone: '📊', titulo: 'Margem por Job', status: 'pronto',
     subtitulo: 'Quanto cada job e cada cliente REALMENTE dá de lucro.',
     oQueE: 'Cruza o valor que o cliente paga × as horas investidas × o custo da equipe. O resultado: você vê, preto no branco, qual cliente dá lucro e qual dá prejuízo. Muita agência trabalha no vermelho com cliente sem saber.',
     comoFunciona: [
@@ -84,7 +84,7 @@ export const PM_MODULOS: Record<string, ConteudoModulo> = {
     diferencialIA: 'Antes de aceitar um job, a IA prevê a margem: "esse escopo historicamente estoura 30% das horas — cuidado".',
   },
   aprovacao: {
-    icone: '✅', titulo: 'Aprovação Cliente', status: 'previsto',
+    icone: '✅', titulo: 'Aprovação Cliente', status: 'pronto',
     subtitulo: 'O cliente aprova a arte DENTRO do sistema — fim do "Drive + WhatsApp" bagunçado.',
     oQueE: 'Hoje a aprovação é um caos: manda no Drive, cobra no WhatsApp, perde o histórico. Aqui a peça passa por conferência interna, vai pro cliente num portal, ele comenta e aprova — tudo registrado, com histórico de versões.',
     comoFunciona: [
@@ -102,7 +102,7 @@ export const PM_MODULOS: Record<string, ConteudoModulo> = {
     diferencialIA: 'Aprovação pelo WhatsApp com validade jurídica (o cliente responde "aprovo" e fica registrado). E a IA confere se a arte está on-brand ANTES de ir pro cliente.',
   },
   portfolio: {
-    icone: '🖼️', titulo: 'Portfólio de Entregas', status: 'previsto',
+    icone: '🖼️', titulo: 'Portfólio de Entregas', status: 'pronto',
     subtitulo: 'Galeria das entregas aprovadas — vitrine e memória de marca de cada cliente.',
     oQueE: 'Todo trabalho aprovado vira portfólio: organizado por cliente e período. Serve de vitrine pra novos clientes, de evidência do que foi entregue, e de memória da marca (o acervo do relacionamento).',
     comoFunciona: [
