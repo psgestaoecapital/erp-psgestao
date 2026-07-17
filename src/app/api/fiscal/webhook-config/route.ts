@@ -70,14 +70,32 @@ export const POST = withAuth(async (req: NextRequest) => {
       .eq('ativo', true)
       .maybeSingle()
 
-    if (error || !config?.api_key_encrypted) {
+    if (error || !config) {
       return NextResponse.json(
         { ok: false, mensagem: 'Config Focus NFe nao encontrada ou sem api_key' },
         { status: 404 }
       )
     }
 
-    const apiKey = decryptApiKey(config.api_key_encrypted)
+    // FIX-FOCUS-TOKEN-VAULT (RD-52): coluna legada api_key_encrypted OU token do Vault
+    // (fn_fiscal_obter_token) — o "Atualizar" grava no Vault, nao na coluna.
+    let apiKey: string
+    if (config.api_key_encrypted) {
+      apiKey = decryptApiKey(config.api_key_encrypted)
+    } else {
+      const { data: tok } = await supabaseAdmin.rpc('fn_fiscal_obter_token', {
+        p_company_id: companyId,
+        p_ambiente: config.ambiente ?? 'producao',
+      })
+      const tokStr = typeof tok === 'string' ? tok.trim() : ''
+      if (tokStr.length < 8) {
+        return NextResponse.json(
+          { ok: false, mensagem: 'Config Focus NFe nao encontrada ou sem api_key' },
+          { status: 404 }
+        )
+      }
+      apiKey = tokStr
+    }
     const baseUrl =
       config.ambiente === 'producao'
         ? 'https://api.focusnfe.com.br'
