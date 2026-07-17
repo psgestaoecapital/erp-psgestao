@@ -397,13 +397,27 @@ export default function ConexoesBancariasPage() {
                           {cfg.conta && `conta ${cfg.conta}`}
                         </div>
                       </div>
-                      <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
-                        background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
-                        padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                        textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
-                      }}>
-                        🧭 Continuar configuração
-                      </Link>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {bancoInfo && (
+                          <button
+                            type="button"
+                            onClick={() => setEditando({ banco: bancoInfo, cfg })}
+                            style={{
+                              background: GOLD, color: '#3D2314', border: 'none',
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            ✏️ Editar/Reconfigurar
+                          </button>
+                        )}
+                        <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
+                          background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                          padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                        }}>
+                          🧭 Continuar configuração
+                        </Link>
+                      </div>
                     </div>
                   )
                 })}
@@ -638,7 +652,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           <input type="password" name="ps_decoy_pass" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
           {editMode && (
             <div style={{ background: '#FEF3C7', border: `0.5px solid ${GOLD}`, color: '#7A5A0F', borderRadius: 6, padding: '9px 12px', fontSize: 12, lineHeight: 1.4 }}>
-              <b>Editar configuração.</b> Os campos podem ser alterados. Os campos de <b>segredo</b> (Código de Acesso / x-api-key / senha) estão em branco: <b>deixe em branco pra manter o segredo já guardado no Vault</b>; preencha só se quiser TROCAR.
+              <b>Editar configuração.</b> Os campos podem ser alterados. Os campos de <b>segredo</b> (Código de Acesso / x-api-key / senha) estão em branco: se já houver segredo guardado no Vault, <b>deixar em branco MANTÉM o atual</b>; para informar pela 1ª vez ou TROCAR, preencha.
             </div>
           )}
           <Field label="Ambiente">
