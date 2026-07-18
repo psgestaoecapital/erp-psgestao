@@ -49,6 +49,17 @@ type ContaExistente = {
   created_at: string | null
 }
 
+type DupLogica = {
+  id: string
+  descricao: string | null
+  valor: number | null
+  vencimento: string | null
+  status: string | null
+  numero_documento: string | null
+  codigo_barras: string | null
+  criado_em: string | null
+}
+
 interface NovaDespesaFormProps {
   companyId: string
   onSucesso?: (despesaId: string) => void
@@ -140,6 +151,32 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       .maybeSingle()
     if (data) setDupVer(data as ContaExistente)
   }
+
+  // FASE F · chave lógica (fornecedor cadastrado + valor + vencimento EXATO). 🟡 leve, não bloqueia.
+  const [dupLogica, setDupLogica] = useState<DupLogica[]>([])
+  const [dupLogicaIgnorado, setDupLogicaIgnorado] = useState(false)
+  // FASE E · log da decisão (reusa audit_log via RPC SECURITY DEFINER).
+  const logDup = (tipo: 'codigo' | 'logico', decisao: 'cancelou' | 'continuou', detalhe: string) => {
+    void supabase.rpc('fn_pagar_log_duplicidade', { p_tipo: tipo, p_decisao: decisao, p_detalhe: detalhe })
+  }
+  // dispara quando fornecedor(existente) + valor + vencimento estão preenchidos (qualquer ordem).
+  // 🔒 sem fornecedor_id → sem alerta. Suprimido quando o 🔴 (código idêntico) já aparece.
+  useEffect(() => {
+    if (dupContas.length > 0) { setDupLogica([]); return }
+    const v = parseFloat(valor)
+    if (!fornecedorId || !(v > 0) || !dataVencimento) { setDupLogica([]); return }
+    let alive = true
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('fn_pagar_checar_duplicidade_logica', {
+        p_company_id: companyId, p_fornecedor_id: fornecedorId, p_valor: v,
+        p_vencimento: dataVencimento, p_codigo_barras: codigoBarras || null, p_excluir_id: null,
+      })
+      if (!alive) return
+      setDupLogica((data as DupLogica[]) ?? []); setDupLogicaIgnorado(false)
+    }, 500)
+    return () => { alive = false; clearTimeout(t) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fornecedorId, valor, dataVencimento, codigoBarras, dupContas.length, companyId])
 
   // Prefill via query (?valor=&data=&descricao=) — usado pelo fluxo Conciliacao
   // "Incluir nova conta" que envia os dados do movimento.
@@ -592,8 +629,29 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               ))}
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                 <button type="button" onClick={() => { const c0 = dupContas[0]; if (c0) void verConta(c0.id) }} style={dupBtnStyle('ver')}>Ver a conta existente</button>
-                <button type="button" onClick={() => { setCodigoBarras(''); setDupContas([]); setDupIgnorado(false) }} style={dupBtnStyle('mesma')}>É a mesma — cancelar</button>
-                <button type="button" onClick={() => setDupIgnorado(true)} style={dupBtnStyle('diferente')}>É diferente — continuar</button>
+                <button type="button" onClick={() => { logDup('codigo', 'cancelou', `existente=${dupContas[0]?.id ?? ''}`); setCodigoBarras(''); setDupContas([]); setDupIgnorado(false) }} style={dupBtnStyle('mesma')}>É a mesma — cancelar</button>
+                <button type="button" onClick={() => { logDup('codigo', 'continuou', `existente=${dupContas[0]?.id ?? ''}`); setDupIgnorado(true) }} style={dupBtnStyle('diferente')}>É diferente — continuar</button>
+              </div>
+            </div>
+          )}
+
+          {dupLogica.length > 0 && !dupLogicaIgnorado && dupContas.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', background: '#FEF6E0', border: '1px solid #C8941A', borderRadius: 8, padding: '12px 14px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#854F0B', marginBottom: 6 }}>
+                🟡 Já existe uma conta parecida (mesmo fornecedor, valor e vencimento)
+              </div>
+              {dupLogica.slice(0, 3).map((c) => (
+                <div key={c.id} style={{ fontSize: 12, color: '#3D2314', marginBottom: 4 }}>
+                  “<b>{c.descricao || 'sem descrição'}</b>”, doc <b>{c.numero_documento || '—'}</b>{c.codigo_barras ? ` · cód …${c.codigo_barras.slice(-6)}` : ''}, lançada em <b>{fmtDataBr(c.criado_em)}</b>, situação <b>{situacaoLabel(c.status)}</b>.
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)', marginTop: 2 }}>
+                Esta: doc <b>{numeroDocumento || '—'}</b>{codigoBarras.replace(/\D/g, '').length >= 20 ? ` · cód …${codigoBarras.replace(/\D/g, '').slice(-6)}` : ''}.
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => { const c0 = dupLogica[0]; if (c0) void verConta(c0.id) }} style={dupBtnStyle('ver')}>Ver a conta existente</button>
+                <button type="button" onClick={() => { logDup('logico', 'cancelou', `existente=${dupLogica[0]?.id ?? ''}`); setDupLogica([]); setDupLogicaIgnorado(true) }} style={dupBtnStyle('mesma')}>É a mesma — cancelar</button>
+                <button type="button" onClick={() => { logDup('logico', 'continuou', `existente=${dupLogica[0]?.id ?? ''}`); setDupLogicaIgnorado(true) }} style={dupBtnStyle('diferente')}>É diferente — continuar</button>
               </div>
             </div>
           )}
