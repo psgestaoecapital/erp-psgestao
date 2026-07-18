@@ -25,6 +25,15 @@ type ContaBancaria = {
   banco: string
 }
 
+type DupConta = {
+  id: string
+  descricao: string | null
+  valor: number | null
+  vencimento: string | null
+  status: string | null
+  criado_em: string | null
+}
+
 interface NovaDespesaFormProps {
   companyId: string
   onSucesso?: (despesaId: string) => void
@@ -71,6 +80,40 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [copiarAberto, setCopiarAberto] = useState(false)
+
+  // ANTI-DUPLICIDADE (código de barras) — captura + alerta no REGISTRO (não bloqueia).
+  const [codigoBarras, setCodigoBarras] = useState('')
+  const [dupContas, setDupContas] = useState<DupConta[]>([])
+  const [dupIgnorado, setDupIgnorado] = useState(false) // "é diferente — continuar"
+  const [checandoDup, setChecandoDup] = useState(false)
+  const dupTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 🔑 leitor de código de barras "digita" rápido + Enter → onChange (debounce), onPaste (colar),
+  // onBlur (sair do campo). Normaliza só dígitos e só consulta com ≥44 dígitos.
+  const checarDup = React.useCallback(async (bruto: string) => {
+    const dig = bruto.replace(/\D/g, '')
+    if (dig.length < 44) { setDupContas([]); return }
+    setChecandoDup(true)
+    try {
+      const { data } = await supabase.rpc('fn_pagar_checar_duplicidade', {
+        p_company_id: companyId, p_codigo_barras: bruto, p_excluir_id: null,
+      })
+      setDupContas((data as DupConta[]) ?? [])
+      setDupIgnorado(false)
+    } finally {
+      setChecandoDup(false)
+    }
+  }, [companyId])
+
+  const onCodigoBarrasChange = (v: string) => {
+    setCodigoBarras(v); setDupContas([]); setDupIgnorado(false)
+    if (dupTimer.current) clearTimeout(dupTimer.current)
+    dupTimer.current = setTimeout(() => checarDup(v), 400)
+  }
+  const checarDupAgora = () => {
+    if (dupTimer.current) clearTimeout(dupTimer.current)
+    checarDup(codigoBarras)
+  }
 
   // Prefill via query (?valor=&data=&descricao=) — usado pelo fluxo Conciliacao
   // "Incluir nova conta" que envia os dados do movimento.
@@ -200,6 +243,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     const dataCompFinal = dataCompetencia || dataVencimento
     if (ids.length > 0 && dataCompFinal) {
       await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
+    }
+
+    // ANTI-DUPLICIDADE: grava o código de barras NORMALIZADO (só dígitos) na 1ª parcela
+    // (1 guia = 1 código). É a base da checagem futura — hoje 0/8556 têm código.
+    const codBarrasDig = codigoBarras.replace(/\D/g, '')
+    if (ids.length > 0 && codBarrasDig.length >= 44) {
+      await supabase.from('erp_pagar').update({ codigo_barras: codBarrasDig }).eq('id', ids[0])
     }
 
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
@@ -489,6 +539,39 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
 
+          <Campo label="Código de barras (boleto ou guia)" fullWidth>
+            <input
+              value={codigoBarras}
+              onChange={(e) => onCodigoBarrasChange(e.target.value)}
+              onPaste={(e) => { const t = e.clipboardData.getData('text') || ''; setTimeout(() => checarDup(t), 0) }}
+              onBlur={checarDupAgora}
+              placeholder="Cole ou passe o leitor · boleto ou guia de imposto"
+              style={inputStyle}
+              inputMode="numeric"
+            />
+            <small style={helperStyle}>
+              Opcional. Se preenchido, avisamos na hora se essa conta já foi lançada (não bloqueia){checandoDup ? ' · verificando…' : ''}.
+            </small>
+          </Campo>
+
+          {dupContas.length > 0 && !dupIgnorado && (
+            <div style={{ gridColumn: '1 / -1', background: '#FCEBEB', border: '1px solid #A32D2D', borderRadius: 8, padding: '12px 14px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#A32D2D', marginBottom: 6 }}>
+                🔴 Este código de barras já foi lançado
+              </div>
+              {dupContas.slice(0, 3).map((c) => (
+                <div key={c.id} style={{ fontSize: 12, color: '#3D2314', marginBottom: 4 }}>
+                  Em <b>{fmtDataBr(c.criado_em)}</b> como “<b>{c.descricao || 'sem descrição'}</b>”, <b>{fmtBRL(c.valor)}</b>, situação <b>{situacaoLabel(c.status)}</b>.
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => router.push('/dashboard/financeiro/pagar?area=gestao_empresarial')} style={dupBtnStyle('ver')}>Ver a conta existente</button>
+                <button type="button" onClick={() => { setCodigoBarras(''); setDupContas([]); setDupIgnorado(false) }} style={dupBtnStyle('mesma')}>É a mesma — cancelar</button>
+                <button type="button" onClick={() => setDupIgnorado(true)} style={dupBtnStyle('diferente')}>É diferente — continuar</button>
+              </div>
+            </div>
+          )}
+
           <Campo label="Observação (opcional)" fullWidth>
             <textarea
               value={observacao}
@@ -766,6 +849,24 @@ const helperStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'rgba(61,35,20,0.55)',
   marginTop: 4,
+}
+
+// ANTI-DUPLICIDADE — helpers do alerta (linguagem do usuário, não "duplicate/SELECT").
+function fmtDataBr(iso: string | null): string {
+  if (!iso) return '—'
+  try { return new Date(iso).toLocaleDateString('pt-BR') } catch { return '—' }
+}
+function fmtBRL(v: number | null): string {
+  return Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+function situacaoLabel(status: string | null): string {
+  return status === 'pago' ? 'paga' : 'em aberto'
+}
+function dupBtnStyle(tipo: 'ver' | 'mesma' | 'diferente'): React.CSSProperties {
+  const base: React.CSSProperties = { padding: '7px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '0.5px solid rgba(61,35,20,0.25)' }
+  if (tipo === 'mesma') return { ...base, background: '#A32D2D', color: '#fff', border: 'none' }
+  if (tipo === 'diferente') return { ...base, background: 'transparent', color: '#3D2314' }
+  return { ...base, background: '#fff', color: '#3D2314' }
 }
 
 const menuItemStyle: React.CSSProperties = {
