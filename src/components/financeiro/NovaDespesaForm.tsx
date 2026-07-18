@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
+import { parseBoletoBarras } from '@/lib/financeiro/boleto-parser'
 
 type Fornecedor = {
   id: string
@@ -134,11 +135,32 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const onCodigoBarrasChange = (v: string) => {
     setCodigoBarras(v); setDupContas([]); setDupIgnorado(false)
     if (dupTimer.current) clearTimeout(dupTimer.current)
-    dupTimer.current = setTimeout(() => checarDup(v), 400)
+    dupTimer.current = setTimeout(() => { checarDup(v); autoPreencher(v) }, 400)
   }
   const checarDupAgora = () => {
     if (dupTimer.current) clearTimeout(dupTimer.current)
-    checarDup(codigoBarras)
+    checarDup(codigoBarras); autoPreencher(codigoBarras)
+  }
+
+  // AUTO-PREENCHIMENTO (Fase 1): valor + vencimento do BOLETO. Só campos VAZIOS,
+  // nunca sobrescreve o que a pessoa digitou (RD-46: não fabrica dado ausente).
+  const [vencimentoManual, setVencimentoManual] = useState(false)
+  const [autoMsg, setAutoMsg] = useState<string | null>(null)
+  const valorRef = React.useRef(valor)
+  const vencManualRef = React.useRef(vencimentoManual)
+  useEffect(() => { valorRef.current = valor }, [valor])
+  useEffect(() => { vencManualRef.current = vencimentoManual }, [vencimentoManual])
+  const autoPreencher = (bruto: string) => {
+    const lido = parseBoletoBarras(bruto)
+    if (!lido) return
+    const feitos: string[] = []
+    if (lido.valor != null && !(valorRef.current && valorRef.current.trim() !== '')) {
+      setValor(String(lido.valor)); feitos.push('valor')
+    }
+    if (lido.vencimento && !vencManualRef.current) {
+      setDataVencimento(lido.vencimento); feitos.push('vencimento')
+    }
+    setAutoMsg(feitos.length ? `Preenchemos ${feitos.join(' e ')} a partir do código de barras.` : null)
   }
   // CORREÇÃO 1: "Ver a conta existente" abre AQUELA conta num modal (não a lista genérica),
   // preservando o formulário em preenchimento.
@@ -459,7 +481,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             <input
               type="date"
               value={dataVencimento}
-              onChange={(e) => setDataVencimento(e.target.value)}
+              onChange={(e) => { setDataVencimento(e.target.value); setVencimentoManual(true) }}
               style={inputStyle}
             />
           </Campo>
@@ -618,7 +640,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             <input
               value={codigoBarras}
               onChange={(e) => onCodigoBarrasChange(e.target.value)}
-              onPaste={(e) => { const t = e.clipboardData.getData('text') || ''; setTimeout(() => checarDup(t), 0) }}
+              onPaste={(e) => { const t = e.clipboardData.getData('text') || ''; setTimeout(() => { checarDup(t); autoPreencher(t) }, 0) }}
               onBlur={checarDupAgora}
               placeholder="Cole ou passe o leitor · boleto ou guia de imposto"
               style={inputStyle}
@@ -627,6 +649,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             <small style={helperStyle}>
               Opcional. Se preenchido, avisamos na hora se essa conta já foi lançada (não bloqueia){checandoDup ? ' · verificando…' : ''}.
             </small>
+            {autoMsg && <small style={{ ...helperStyle, color: '#3B6D11' }}>⚡ {autoMsg} Tudo editável.</small>}
           </Campo>
 
           {dupContas.length > 0 && !dupIgnorado && (
