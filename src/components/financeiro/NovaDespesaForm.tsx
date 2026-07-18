@@ -34,6 +34,21 @@ type DupConta = {
   criado_em: string | null
 }
 
+type ContaExistente = {
+  id: string
+  descricao: string | null
+  fornecedor_nome: string | null
+  valor: number | null
+  data_vencimento: string | null
+  data_pagamento: string | null
+  status: string | null
+  numero_documento: string | null
+  categoria: string | null
+  forma_pagamento: string | null
+  codigo_barras: string | null
+  created_at: string | null
+}
+
 interface NovaDespesaFormProps {
   companyId: string
   onSucesso?: (despesaId: string) => void
@@ -113,6 +128,17 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const checarDupAgora = () => {
     if (dupTimer.current) clearTimeout(dupTimer.current)
     checarDup(codigoBarras)
+  }
+  // CORREÇÃO 1: "Ver a conta existente" abre AQUELA conta num modal (não a lista genérica),
+  // preservando o formulário em preenchimento.
+  const [dupVer, setDupVer] = useState<ContaExistente | null>(null)
+  const verConta = async (id: string) => {
+    const { data } = await supabase
+      .from('erp_pagar')
+      .select('id, descricao, fornecedor_nome, valor, data_vencimento, data_pagamento, status, numero_documento, categoria, forma_pagamento, codigo_barras, created_at')
+      .eq('id', id)
+      .maybeSingle()
+    if (data) setDupVer(data as ContaExistente)
   }
 
   // Prefill via query (?valor=&data=&descricao=) — usado pelo fluxo Conciliacao
@@ -565,7 +591,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <button type="button" onClick={() => router.push('/dashboard/financeiro/pagar?area=gestao_empresarial')} style={dupBtnStyle('ver')}>Ver a conta existente</button>
+                <button type="button" onClick={() => { const c0 = dupContas[0]; if (c0) void verConta(c0.id) }} style={dupBtnStyle('ver')}>Ver a conta existente</button>
                 <button type="button" onClick={() => { setCodigoBarras(''); setDupContas([]); setDupIgnorado(false) }} style={dupBtnStyle('mesma')}>É a mesma — cancelar</button>
                 <button type="button" onClick={() => setDupIgnorado(true)} style={dupBtnStyle('diferente')}>É diferente — continuar</button>
               </div>
@@ -716,6 +742,39 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           setCopiarAberto(false)
         }}
       />
+
+      {dupVer && (
+        <div onClick={() => setDupVer(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFFFF', borderRadius: 12, maxWidth: 480, width: '100%', border: '1px solid #A32D2D', overflow: 'hidden' }}>
+            <div style={{ background: '#A32D2D', color: '#fff', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <b style={{ fontSize: 14 }}>Conta já lançada com este código</b>
+              <button onClick={() => setDupVer(null)} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: 16, display: 'grid', gap: 8, fontSize: 13, color: '#3D2314' }}>
+              <LinhaDet rotulo="Descrição" valor={dupVer.descricao || '—'} />
+              <LinhaDet rotulo="Fornecedor" valor={dupVer.fornecedor_nome || '—'} />
+              <LinhaDet rotulo="Valor" valor={fmtBRL(dupVer.valor)} />
+              <LinhaDet rotulo="Vencimento" valor={fmtDataBr(dupVer.data_vencimento)} />
+              <LinhaDet rotulo="Situação" valor={dupVer.status === 'pago' ? `paga em ${fmtDataBr(dupVer.data_pagamento)}` : 'em aberto'} />
+              <LinhaDet rotulo="Categoria" valor={dupVer.categoria || '—'} />
+              <LinhaDet rotulo="Nº documento" valor={dupVer.numero_documento || '—'} />
+              <LinhaDet rotulo="Lançada em" valor={fmtDataBr(dupVer.created_at)} />
+            </div>
+            <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(61,35,20,0.12)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDupVer(null)} style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LinhaDet({ rotulo, valor }: { rotulo: string; valor: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '0.5px solid rgba(61,35,20,0.08)', paddingBottom: 4 }}>
+      <span style={{ color: 'rgba(61,35,20,0.55)' }}>{rotulo}</span>
+      <span style={{ fontWeight: 600, textAlign: 'right' }}>{valor}</span>
     </div>
   )
 }
