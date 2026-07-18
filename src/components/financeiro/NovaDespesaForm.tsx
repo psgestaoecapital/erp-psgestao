@@ -235,8 +235,16 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     }
   }, [companyId])
 
+  // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
+  // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
+  // relatórios e no alerta anti-duplicidade ("[descrição]"), então nunca fica vazia.
+  function montarDescricao(): string {
+    const cat = categorias.find((c) => c.codigo === categoriaCodigo)?.descricao?.trim() || ''
+    const partes = [fornecedorNome.trim(), cat].filter(Boolean)
+    return (partes.join(' — ') || 'Despesa').slice(0, 200)
+  }
+
   function validar(): string | null {
-    if (!descricao.trim()) return 'Descreva a despesa (ex: "Aluguel sala maio")'
     if (!valor || parseFloat(valor) <= 0) return 'Valor deve ser maior que zero'
     if (!dataVencimento) return 'Quando vence?'
     if (parcelas < 1 || parcelas > 60) return 'Parcelas entre 1 e 60'
@@ -265,11 +273,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     setLoading(true)
     setErro(null)
 
+    // se a pessoa digitou, respeita; se não, gera de fornecedor + categoria
+    const descricaoFinal = descricao.trim() || montarDescricao()
+
     const { data, error } = await supabase.rpc('fn_pagar_criar_com_parcelas', {
       p_company_id: companyId,
       p_fornecedor_id: fornecedorId || null,
       p_fornecedor_nome: fornecedorNome || null,
-      p_descricao: descricao.trim(),
+      p_descricao: descricaoFinal,
       p_valor_total: parseFloat(valor),
       p_data_emissao: new Date().toISOString().split('T')[0],
       p_data_primeiro_vencimento: dataVencimento,
@@ -420,14 +431,15 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             gap: 18,
           }}
         >
-          <Campo label="O que é essa despesa?" obrigatorio fullWidth>
+          <Campo label="O que é essa despesa? (opcional)" fullWidth>
             <input
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              placeholder='ex: "Aluguel sala maio" · "Combustível semana"'
+              placeholder='ex: "Aluguel sala maio" · vazio = geramos automático'
               style={inputStyle}
               maxLength={200}
             />
+            <small style={helperStyle}>Deixe em branco pra usar o nome automático (fornecedor — categoria).</small>
           </Campo>
 
           <Campo label="Quanto custa?" obrigatorio>
