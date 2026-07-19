@@ -103,6 +103,9 @@ export default function OSMecanicoPage() {
     return sel
   }, [sel])
 
+  const [verExcluidas, setVerExcluidas] = useState(false)
+  const [restaurandoId, setRestaurandoId] = useState<string | null>(null)
+
   const carregar = useCallback(async () => {
     if (!companyIdAtiva) { setOss([]); setLoading(false); return }
     setLoading(true)
@@ -110,7 +113,7 @@ export default function OSMecanicoPage() {
       .from('erp_os')
       .select('id, company_id, numero, cliente_nome, equipamento, placa, modelo, status, data_abertura, total, titulos_gerados, lancamento_id')
       .eq('company_id', companyIdAtiva)
-      .eq('excluida', false)
+      .eq('excluida', verExcluidas)
       .order('created_at', { ascending: false })
       .limit(200)
     if (error) setErro(error.message)
@@ -118,7 +121,17 @@ export default function OSMecanicoPage() {
     const safe = ((data ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
     setOss(safe)
     setLoading(false)
-  }, [companyIdAtiva])
+  }, [companyIdAtiva, verExcluidas])
+
+  const restaurarOS = useCallback(async (o: OSRow) => {
+    setRestaurandoId(o.id)
+    const { data, error } = await supabase.rpc('fn_os_restaurar', { p_os_id: o.id, p_motivo: null })
+    setRestaurandoId(null)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao restaurar'); return }
+    setOkMsg(`OS ${o.numero ?? ''} RESTAURADA`.trim()); window.setTimeout(() => setOkMsg(null), 3500)
+    void carregar()
+  }, [carregar])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -201,6 +214,18 @@ export default function OSMecanicoPage() {
 
       {erro && <div className="no-print" style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 10, fontSize: 12, fontWeight: 600 }} onClick={() => setErro(null)}>❌ {erro}</div>}
       {okMsg && <div className="no-print" style={{ background: C.greenBg, color: C.green, padding: '10px 12px', borderRadius: 8, marginBottom: 10, fontSize: 12, fontWeight: 600 }} onClick={() => setOkMsg(null)}>✓ {okMsg}</div>}
+
+      {/* Toggle: ativas × excluídas (restaurar) */}
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button
+          onClick={() => setVerExcluidas((v) => !v)}
+          data-testid="os-ver-excluidas"
+          style={{ minHeight: 34, padding: '6px 12px', borderRadius: 999, border: `1px solid ${verExcluidas ? C.gold : C.border}`, background: verExcluidas ? C.goldBg : C.white, color: verExcluidas ? C.gold : C.espressoM, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+        >
+          {verExcluidas ? '← Voltar às ativas' : '🗑️ Ver excluídas'}
+        </button>
+      </div>
+      {verExcluidas && <div className="no-print" style={{ fontSize: 12, color: C.espressoM, marginBottom: 8 }}>Estas OS foram excluídas (não somem do banco). Toque em <b>Restaurar</b> para trazer de volta.</div>}
 
       {/* Filtros */}
       <div className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
@@ -304,22 +329,36 @@ export default function OSMecanicoPage() {
 
               {/* AÇÕES · canto direito, discretas (nada escondido em menu 3-pontos) */}
               <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => abrirFichaOS(o.id)}
-                  style={{ height: 30, padding: '0 9px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espressoM, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                  title="Editar OS"
-                  data-testid="os-editar"
-                >
-                  ✏️ <span>Editar</span>
-                </button>
-                <button
-                  onClick={() => { setErroExcluir(null); setOsExcluir(o) }}
-                  style={{ width: 32, height: 30, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.red, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                  title={faturadaDe(o) ? 'Cancelar OS (faturada)' : 'Excluir OS'}
-                  data-testid="os-excluir"
-                >
-                  {faturadaDe(o) ? '🚫' : '🗑️'}
-                </button>
+                {verExcluidas ? (
+                  <button
+                    onClick={() => void restaurarOS(o)}
+                    disabled={restaurandoId === o.id}
+                    style={{ height: 30, padding: '0 11px', borderRadius: 8, border: `1px solid ${C.green}`, background: C.white, color: C.green, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    title="Restaurar OS"
+                    data-testid="os-restaurar"
+                  >
+                    ♻️ <span>{restaurandoId === o.id ? 'Restaurando…' : 'Restaurar'}</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => abrirFichaOS(o.id)}
+                      style={{ height: 30, padding: '0 9px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espressoM, fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      title="Editar OS"
+                      data-testid="os-editar"
+                    >
+                      ✏️ <span>Editar</span>
+                    </button>
+                    <button
+                      onClick={() => { setErroExcluir(null); setOsExcluir(o) }}
+                      style={{ width: 32, height: 30, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.red, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      title={faturadaDe(o) ? 'Cancelar OS (faturada)' : 'Excluir OS'}
+                      data-testid="os-excluir"
+                    >
+                      {faturadaDe(o) ? '🚫' : '🗑️'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             )
