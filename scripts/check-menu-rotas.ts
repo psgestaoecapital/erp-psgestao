@@ -12,10 +12,22 @@
  * Uso: npm run check:menu   (precisa de NEXT_PUBLIC_SUPABASE_URL/ANON_KEY no ambiente)
  */
 import { createClient } from '@supabase/supabase-js'
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 const APP_DIR = join(process.cwd(), 'src', 'app')
+const BASELINE_PATH = join(process.cwd(), 'scripts', 'menu-rotas-baseline.json')
+
+// Dívida pré-existente aceita (ratchet): rotas ativas sem página já conhecidas. A régua não falha
+// por estas, mas falha por qualquer NOVA fora da lista. Zera-se criando a página / apontando pro
+// placeholder / desativando o módulo e removendo a linha do baseline.
+function carregarBaseline(): Set<string> {
+  try {
+    if (!existsSync(BASELINE_PATH)) return new Set()
+    const j = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'))
+    return new Set<string>(Array.isArray(j?.rotas_sem_pagina) ? j.rotas_sem_pagina : [])
+  } catch { return new Set() }
+}
 
 // 1 · rotas REAIS a partir do filesystem (todo page.tsx/js/ts)
 export function coletarRotasReais(): string[] {
@@ -57,10 +69,11 @@ export function rotaTemPagina(rota: string, reais: string[]): boolean {
 }
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  // aceita o esquema local (NEXT_PUBLIC_*) e o de CI (SUPABASE_URL + SERVICE_ROLE_KEY)
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) {
-    console.warn('⚠️  check:menu — SKIP (sem NEXT_PUBLIC_SUPABASE_URL/ANON_KEY no ambiente).')
+    console.warn('⚠️  check:menu — SKIP (defina NEXT_PUBLIC_SUPABASE_URL/ANON_KEY ou SUPABASE_URL/SERVICE_ROLE_KEY).')
     process.exit(0)
   }
   const sb = createClient(url, key)
@@ -71,27 +84,34 @@ async function main() {
   if (error) { console.error('check:menu — erro ao ler module_catalog:', error.message); process.exit(0) }
 
   const reais = coletarRotasReais()
+  const baseline = carregarBaseline()
   const semRota: string[] = []
-  const semPagina: string[] = []
+  const semPaginaNovo: string[] = []
+  let baselineHits = 0
 
   for (const m of (data ?? []) as { id: string; nome: string; grupo: string | null; rota: string | null }[]) {
     const rota = (m.rota ?? '').trim()
     if (!rota) { semRota.push(`${m.grupo}/${m.id} (${m.nome})`); continue }
     if (/^https?:\/\//.test(rota) || rota.startsWith('/api/')) continue     // externo/API: fora do escopo
-    if (!rotaTemPagina(rota, reais)) semPagina.push(`${m.grupo}/${m.id} → ${rota}`)
+    if (rotaTemPagina(rota, reais)) continue
+    if (baseline.has(rota)) { baselineHits++; continue }                    // dívida conhecida: não falha
+    semPaginaNovo.push(`${m.grupo}/${m.id} → ${rota}`)
   }
 
-  const problemas = semRota.length + semPagina.length
+  if (baselineHits) console.log(`ℹ️  ${baselineHits} rota(s) sem página em baseline (dívida pré-existente conhecida — scripts/menu-rotas-baseline.json).`)
+
+  const problemas = semRota.length + semPaginaNovo.length
+  // itens ativos SEM rota nenhuma sempre falham (a RPC sintetiza um caminho morto → 404 garantido)
   if (semRota.length) {
     console.error(`\n🔴 ${semRota.length} item(ns) ATIVO(s) SEM ROTA (a RPC sintetiza rota morta → 404):`)
     semRota.forEach((s) => console.error('   - ' + s))
   }
-  if (semPagina.length) {
-    console.error(`\n🔴 ${semPagina.length} item(ns) com ROTA SEM PÁGINA real em src/app:`)
-    semPagina.forEach((s) => console.error('   - ' + s))
+  if (semPaginaNovo.length) {
+    console.error(`\n🔴 ${semPaginaNovo.length} item(ns) NOVO(s) com ROTA SEM PÁGINA real em src/app:`)
+    semPaginaNovo.forEach((s) => console.error('   - ' + s))
   }
   if (problemas === 0) {
-    console.log(`✅ check:menu — ${(data ?? []).length} itens ativos, todos com página real. Nenhum 404 no menu.`)
+    console.log(`✅ check:menu — ${(data ?? []).length} itens ativos; nenhum 404 novo no menu.`)
     process.exit(0)
   }
   console.error(`\n👉 Conserte: crie a página, ou aponte a rota pro placeholder /dashboard/em-construcao/<id>, ou desative o item.`)
