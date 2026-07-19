@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
+    "check:menu": "tsx scripts/check-menu-rotas.ts",
     "postinstall": "node scripts/copy-pdfjs-worker.mjs"
   },
   "dependencies": {
