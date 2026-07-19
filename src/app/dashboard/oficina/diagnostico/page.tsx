@@ -4,8 +4,9 @@
 // 🚫 SEM preço, SEM financeiro, SEM mudar status — só o laudo técnico (RD: financeiro é da GE).
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package } from 'lucide-react'
+import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { PlacaInline } from '../_components/PlacaInline'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -20,7 +21,7 @@ type ItemLaudo = {
   quantidade?: string; tempo_estimado_h?: string; severidade: string; observacao?: string
   _estoque?: number | null; _codigo?: string | null    // só p/ exibição (peça do catálogo)
 }
-type OSLinha = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null; status: string; defeito_relatado: string | null }
+type OSLinha = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null; status: string; defeito_relatado: string | null; tem_laudo?: boolean }
 type Tempario = { id: string; codigo: string | null; nome: string; tempo_padrao_h: number | null }
 type Peca = { id: string; codigo: string | null; nome: string; marca: string | null; unidade: string | null; preco_venda: number | null; estoque_atual: number | null; status_estoque: string | null }
 
@@ -59,13 +60,10 @@ export default function DiagnosticoPage() {
 
   const carregarLista = useCallback(async () => {
     if (!companyId) return
-    const { data } = await supabase.from('erp_os')
-      .select('id, numero, cliente_nome, placa, marca, modelo, status, defeito_relatado')
-      .eq('company_id', companyId).eq('excluida', false)
-      .not('status', 'in', '("entregue","cancelada")')
-      .order('created_at', { ascending: false }).limit(50)
+    const { data } = await supabase.rpc('fn_oficina_os_fila', { p_company_id: companyId, p_etapa: 'diagnostico' })
     setLista((data as OSLinha[]) ?? [])
   }, [companyId])
+  const setPlacaLocal = (osId: string, placa: string) => setLista((p) => p.map((o) => (o.id === osId ? { ...o, placa } : o)))
 
   useEffect(() => { void carregarLista() }, [carregarLista])
 
@@ -152,14 +150,15 @@ export default function DiagnosticoPage() {
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual veículo diagnosticar?</h1>
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhum veículo ativo no pátio. Faça a recepção primeiro.</div>}
         {lista.map((os) => (
-          <button key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: 15 }}>{os.placa || '—'} · {os.marca} {os.modelo}</span>
+          <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <PlacaInline companyId={companyId} osId={os.id} placa={os.placa} onSaved={(p) => setPlacaLocal(os.id, p)} />
               <span style={{ fontSize: 11, color: ESP60 }}>{os.numero}</span>
             </div>
-            <div style={{ fontSize: 13, color: ESP60, marginTop: 3 }}>{os.cliente_nome || 'Cliente não informado'}</div>
-            {os.defeito_relatado && <div style={{ fontSize: 12, color: ESP, marginTop: 4 }}>“{os.defeito_relatado}”</div>}
-          </button>
+            <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || 'Veículo'}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
+            {os.defeito_relatado && <div style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>“{os.defeito_relatado}”</div>}
+            {os.tem_laudo && <div style={{ fontSize: 11, fontWeight: 700, color: OK, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} /> já tem laudo — toque p/ editar</div>}
+          </div>
         ))}
       </div>
       {msg && <Toast>{msg}</Toast>}

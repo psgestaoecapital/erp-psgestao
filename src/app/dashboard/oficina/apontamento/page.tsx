@@ -6,6 +6,7 @@ import React, { useEffect, useState, useCallback, type CSSProperties } from 'rea
 import { useRouter } from 'next/navigation'
 import { Timer, ChevronLeft, Play, Square } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { PlacaInline } from '../_components/PlacaInline'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -59,13 +60,10 @@ export default function ApontamentoPage() {
 
   const carregarLista = useCallback(async () => {
     if (!companyId) return
-    const { data } = await supabase.from('erp_os')
-      .select('id, numero, cliente_nome, placa, marca, modelo')
-      .eq('company_id', companyId).eq('excluida', false)
-      .not('status', 'in', '("entregue","cancelada")')
-      .order('created_at', { ascending: false }).limit(50)
+    const { data } = await supabase.rpc('fn_oficina_os_fila', { p_company_id: companyId, p_etapa: 'apontamento' })
     setLista((data as OSLinha[]) ?? [])
   }, [companyId])
+  const setPlacaLocal = (osId: string, placa: string) => setLista((p) => p.map((o) => (o.id === osId ? { ...o, placa } : o)))
 
   useEffect(() => { void carregarLista() }, [carregarLista])
 
@@ -123,15 +121,15 @@ export default function ApontamentoPage() {
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Apontamento</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={22} /> Em qual carro você vai trabalhar?</h1>
-        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhum veículo ativo no pátio.</div>}
+        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS aprovada ainda. Passe pela Aprovação primeiro.</div>}
         {lista.map((os) => (
-          <button key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: 15 }}>{os.placa || '—'} · {os.marca} {os.modelo}</span>
+          <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <PlacaInline companyId={companyId} osId={os.id} placa={os.placa} onSaved={(p) => setPlacaLocal(os.id, p)} />
               <span style={{ fontSize: 11, color: ESP60 }}>{os.numero}</span>
             </div>
-            <div style={{ fontSize: 13, color: ESP60, marginTop: 3 }}>{os.cliente_nome || 'Cliente não informado'}</div>
-          </button>
+            <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || 'Veículo'}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
+          </div>
         ))}
       </div>
       {msg && <Toast>{msg}</Toast>}
