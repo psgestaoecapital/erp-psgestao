@@ -57,10 +57,11 @@ export function rotaTemPagina(rota: string, reais: string[]): boolean {
 }
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  // aceita o esquema local (NEXT_PUBLIC_*) e o de CI (SUPABASE_URL + SERVICE_ROLE_KEY)
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) {
-    console.warn('⚠️  check:menu — SKIP (sem NEXT_PUBLIC_SUPABASE_URL/ANON_KEY no ambiente).')
+    console.warn('⚠️  check:menu — SKIP (defina NEXT_PUBLIC_SUPABASE_URL/ANON_KEY ou SUPABASE_URL/SERVICE_ROLE_KEY).')
     process.exit(0)
   }
   const sb = createClient(url, key)
