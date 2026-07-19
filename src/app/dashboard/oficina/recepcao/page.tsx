@@ -12,6 +12,28 @@ const BUCKET = 'oficina-recepcao'
 const CHECK_ITENS = ['Pneus', 'Estepe', 'Faróis / lanternas', 'Retrovisores', 'Vidros', 'Documentos', 'Tapetes / objetos']
 const COMBUSTIVEL = [{ v: 'vazio', l: 'Vazio' }, { v: '1_4', l: '1/4' }, { v: 'meio', l: '1/2' }, { v: '3_4', l: '3/4' }, { v: 'cheio', l: 'Cheio' }]
 
+type Foto = { path: string; legenda: string; url?: string }
+
+// Comprime a foto no celular antes de subir (box com 4G ruim): redimensiona p/ máx 1600px e JPEG 0.7.
+async function comprimirImagem(file: File): Promise<Blob> {
+  if (!file.type.startsWith('image/')) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const MAX = 1600
+    let { width, height } = bitmap
+    if (width > MAX || height > MAX) {
+      const r = Math.min(MAX / width, MAX / height)
+      width = Math.round(width * r); height = Math.round(height * r)
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return file
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
+  } catch { return file }
+}
+
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
   useEffect(() => {
@@ -36,7 +58,7 @@ export default function RecepcaoPage() {
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
-  const [fotos, setFotos] = useState<string[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
+  const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
 
   const buscarPlaca = async () => {
@@ -55,18 +77,25 @@ export default function RecepcaoPage() {
   }
 
   const onFotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? [])
+    const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith('image/'))
     if (!files.length || !companyId) return
     setSubindoFoto(true)
-    const novos: string[] = []
+    const novos: Foto[] = []
     for (const f of files) {
-      const path = `${companyId}/recepcao/${crypto.randomUUID()}-${f.name.replace(/[^\w.-]/g, '_')}`
-      const { error } = await supabase.storage.from(BUCKET).upload(path, f, { contentType: f.type || 'image/jpeg', upsert: false })
-      if (!error) novos.push(path)
+      const blob = await comprimirImagem(f)
+      const path = `${companyId}/recepcao/${crypto.randomUUID()}.jpg`
+      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+      if (error) continue
+      // gera signed URL já aqui: se o thumbnail renderiza, a LEITURA do bucket privado está OK (o ⚠️ do CEO)
+      const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
+      novos.push({ path, legenda: '', url: signed?.signedUrl })
     }
     setFotos((p) => [...p, ...novos]); setSubindoFoto(false)
     if (novos.length < files.length) setMsg('Algumas fotos não subiram — tente de novo.')
+    e.target.value = '' // permite re-selecionar o mesmo arquivo / tirar outra foto
   }
+  const setLegenda = (i: number, v: string) => setFotos((p) => p.map((f, idx) => (idx === i ? { ...f, legenda: v } : f)))
+  const removerFoto = (i: number) => setFotos((p) => p.filter((_, idx) => idx !== i))
 
   const salvar = async () => {
     if (!companyId) return
@@ -77,7 +106,8 @@ export default function RecepcaoPage() {
       p_dados: {
         cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
         placa, marca, modelo, ano, km, chassi, queixa, combustivel,
-        checklist: check, avarias, objetos, fotos,
+        checklist: check, avarias, objetos,
+        fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
       },
     })
     setSalvando(false)
@@ -140,10 +170,12 @@ export default function RecepcaoPage() {
           {CHECK_ITENS.map((item) => {
             const st = check[item]
             return (
-              <button key={item} onClick={() => toggleCheck(item)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 12px', marginBottom: 6, borderRadius: 10, border: `1px solid ${LINE}`, background: '#fff', cursor: 'pointer', minHeight: 46 }}>
-                <span style={{ fontSize: 14 }}>{item}</span>
+              <button key={item} onClick={() => toggleCheck(item)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 12px', marginBottom: 6, borderRadius: 10, cursor: 'pointer', minHeight: 46,
+                border: `1px solid ${st === 'avaria' ? RED : st === 'ok' ? OK : LINE}`,
+                background: st === 'avaria' ? 'rgba(163,45,45,0.07)' : st === 'ok' ? 'rgba(22,101,52,0.06)' : '#fff' }}>
+                <span style={{ fontSize: 14, fontWeight: st ? 600 : 400 }}>{item}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4, color: st === 'avaria' ? RED : st === 'ok' ? OK : ESP60 }}>
-                  {st === 'avaria' ? <><X size={14} /> Avaria</> : st === 'ok' ? <><Check size={14} /> OK</> : 'toque'}
+                  {st === 'avaria' ? <><X size={14} /> Avaria</> : st === 'ok' ? <><Check size={14} /> OK</> : 'toque p/ marcar'}
                 </span>
               </button>
             )
@@ -158,8 +190,21 @@ export default function RecepcaoPage() {
             <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar fotos'}
             <input type="file" accept="image/*" capture="environment" multiple onChange={onFotos} style={{ display: 'none' }} />
           </label>
-          {fotos.length > 0 && <div style={{ fontSize: 12, color: OK, marginTop: 8, fontWeight: 600 }}>{fotos.length} foto(s) anexada(s) ✓</div>}
-          <div style={{ fontSize: 11, color: ESP60, marginTop: 6 }}>Protege a oficina: registra o estado do carro na entrada.</div>
+          {fotos.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
+              {fotos.map((f, i) => (
+                <div key={f.path} style={{ border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                  {f.url
+                    ? <img src={f.url} alt={f.legenda || 'foto'} style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
+                    : <div style={{ width: '100%', height: 72, background: '#F0EADE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: ESP60 }}>enviando…</div>}
+                  <input value={f.legenda} onChange={(e) => setLegenda(i, e.target.value)} placeholder="Legenda…"
+                    style={{ width: '100%', border: 'none', borderTop: `1px solid ${LINE}`, padding: '6px 8px', fontSize: 11, color: ESP, outline: 'none', fontFamily: 'inherit' }} />
+                  <button onClick={() => removerFoto(i)} style={{ width: '100%', border: 'none', borderTop: `1px solid ${LINE}`, background: '#fff', color: RED, fontSize: 11, fontWeight: 700, padding: '5px 0', cursor: 'pointer' }}>remover</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: ESP60, marginTop: 8 }}>Várias fotos (risco na porta, para-choque, farol…) · comprimidas p/ subir rápido · legenda em cada uma.</div>
         </Sec>
       </div>
 
