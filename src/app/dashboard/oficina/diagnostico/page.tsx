@@ -16,11 +16,13 @@ const SEVERIDADES = [
 ]
 
 type ItemLaudo = {
-  tipo: 'servico' | 'peca'; servico_id?: string | null; descricao: string
+  tipo: 'servico' | 'peca'; servico_id?: string | null; produto_id?: string | null; descricao: string
   quantidade?: string; tempo_estimado_h?: string; severidade: string; observacao?: string
+  _estoque?: number | null; _codigo?: string | null    // só p/ exibição (peça do catálogo)
 }
 type OSLinha = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null; status: string; defeito_relatado: string | null }
 type Tempario = { id: string; codigo: string | null; nome: string; tempo_padrao_h: number | null }
+type Peca = { id: string; codigo: string | null; nome: string; marca: string | null; unidade: string | null; preco_venda: number | null; estoque_atual: number | null; status_estoque: string | null }
 
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
@@ -51,6 +53,9 @@ export default function DiagnosticoPage() {
   // busca no tempário
   const [buscaServ, setBuscaServ] = useState('')
   const [sugestoes, setSugestoes] = useState<Tempario[]>([])
+  // busca de peça no catálogo/estoque
+  const [buscaPeca, setBuscaPeca] = useState('')
+  const [sugestoesPeca, setSugestoesPeca] = useState<Peca[]>([])
 
   const carregarLista = useCallback(async () => {
     if (!companyId) return
@@ -72,7 +77,7 @@ export default function DiagnosticoPage() {
     setDiagnostico(d?.os?.diagnostico ?? '')
     setKm(d?.os?.km ? String(d.os.km) : '')
     setItens((d?.itens ?? []).map((i) => ({
-      tipo: i.tipo === 'peca' ? 'peca' : 'servico', servico_id: i.servico_id ?? null,
+      tipo: i.tipo === 'peca' ? 'peca' : 'servico', servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null,
       descricao: i.descricao ?? '', quantidade: i.quantidade != null ? String(i.quantidade) : '1',
       tempo_estimado_h: i.tempo_estimado_h != null ? String(i.tempo_estimado_h) : '',
       severidade: i.severidade ?? 'recomendado', observacao: i.observacao ?? '',
@@ -96,6 +101,21 @@ export default function DiagnosticoPage() {
     setItens((p) => [...p, { tipo: 'servico', servico_id: s.id, descricao: s.nome, quantidade: '1', tempo_estimado_h: s.tempo_padrao_h != null ? String(s.tempo_padrao_h) : '', severidade: 'recomendado' }])
     setBuscaServ(''); setSugestoes([])
   }
+
+  // busca de peça no catálogo/estoque (debounce)
+  useEffect(() => {
+    if (!companyId || buscaPeca.trim().length < 2) { setSugestoesPeca([]); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('fn_oficina_pecas_buscar', { p_company_id: companyId, p_termo: buscaPeca.trim() })
+      setSugestoesPeca((data as Peca[]) ?? [])
+    }, 300)
+    return () => clearTimeout(t)
+  }, [buscaPeca, companyId])
+
+  const addPecaCatalogo = (p: Peca) => {
+    setItens((prev) => [...prev, { tipo: 'peca', produto_id: p.id, descricao: p.nome, quantidade: '1', severidade: 'recomendado', _estoque: p.estoque_atual, _codigo: p.codigo }])
+    setBuscaPeca(''); setSugestoesPeca([])
+  }
   const addLinha = (tipo: 'servico' | 'peca') => setItens((p) => [...p, { tipo, descricao: '', quantidade: '1', tempo_estimado_h: '', severidade: 'recomendado' }])
   const setItem = (i: number, patch: Partial<ItemLaudo>) => setItens((p) => p.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
   const delItem = (i: number) => setItens((p) => p.filter((_, idx) => idx !== i))
@@ -105,7 +125,11 @@ export default function DiagnosticoPage() {
     setSalvando(true)
     const { data, error } = await supabase.rpc('fn_oficina_diagnostico_salvar', {
       p_company_id: companyId, p_os_id: osSel.id,
-      p_dados: { diagnostico, km, itens: itens.filter((i) => i.descricao.trim().length > 0) },
+      p_dados: { diagnostico, km, itens: itens.filter((i) => i.descricao.trim().length > 0).map((i) => ({
+        tipo: i.tipo, servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null,
+        descricao: i.descricao, quantidade: i.quantidade, tempo_estimado_h: i.tempo_estimado_h,
+        severidade: i.severidade, observacao: i.observacao ?? null,
+      })) },
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; itens?: number } | null
@@ -175,11 +199,40 @@ export default function DiagnosticoPage() {
             )}
           </div>
 
+          {/* busca de peça no catálogo/estoque */}
+          <div style={{ position: 'relative', marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 10, padding: '0 10px', background: '#fff' }}>
+              <Package size={16} color={ESP60} />
+              <input value={buscaPeca} onChange={(e) => setBuscaPeca(e.target.value)} placeholder="Buscar peça no estoque (código/nome)…" style={{ ...inp, border: 'none', padding: '10px 0' }} />
+            </div>
+            {sugestoesPeca.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, marginTop: 4, boxShadow: '0 6px 18px rgba(0,0,0,0.08)', maxHeight: 260, overflowY: 'auto' }}>
+                {sugestoesPeca.map((p) => (
+                  <button key={p.id} onClick={() => addPecaCatalogo(p)} style={{ width: '100%', textAlign: 'left', padding: '10px 12px', background: 'none', border: 'none', borderBottom: `1px solid ${LINE}`, cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>{p.nome}</span>
+                      {p.preco_venda != null && <span style={{ fontSize: 12, color: GOLD, fontWeight: 700, flexShrink: 0 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(p.preco_venda))}</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: ESP60, marginTop: 2 }}>
+                      {p.codigo ? `${p.codigo} · ` : ''}estoque {p.estoque_atual != null ? Number(p.estoque_atual) : '—'} {p.unidade ?? ''}
+                      {p.status_estoque && p.status_estoque !== 'ok' ? ` · ${p.status_estoque}` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {itens.map((it, i) => (
             <div key={i} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 10, background: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: it.tipo === 'peca' ? GOLD : ESP, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: it.tipo === 'peca' ? GOLD : ESP, display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                   {it.tipo === 'peca' ? <><Package size={14} /> Peça</> : <><Wrench size={14} /> Serviço</>}
+                  {it.tipo === 'peca' && it.produto_id && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: OK, background: 'rgba(22,101,52,0.08)', borderRadius: 6, padding: '2px 6px' }}>
+                      catálogo{it._estoque != null ? ` · estoque ${Number(it._estoque)}` : ''}
+                    </span>
+                  )}
                 </span>
                 <button onClick={() => delItem(i)} style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 4 }}><Trash2 size={16} /></button>
               </div>
