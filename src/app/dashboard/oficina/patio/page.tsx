@@ -64,6 +64,17 @@ function veiculoDe(o: OS): string {
   const partes = [o.marca, o.modelo].filter(Boolean).join(' ')
   return partes || o.equipamento || 'Veículo'
 }
+// Nome do mecânico pro card — quando o campo guarda o e-mail do usuário (dado legado),
+// mostra o nome derivado em vez de "fulano@gmail.com".
+function mecanicoLabel(nome: string | null): string {
+  const t = (nome ?? '').trim()
+  if (!t) return 'sem mecânico'
+  if (t.includes('@')) {
+    const local = t.split('@')[0].replace(/[._]+/g, ' ').trim()
+    return local ? local.replace(/\b\w/g, (c) => c.toUpperCase()) : 'sem mecânico'
+  }
+  return t
+}
 
 // Semáforo pelo TEMPO na coluna atual (proxy: updated_at). Verde < 1 dia,
 // amarelo 1–3 dias, vermelho > 3 dias. Prioridade 'alta'/'urgente' força vermelho.
@@ -162,7 +173,7 @@ export default function PatioKanbanPage() {
           <select value={filtroMec} onChange={(e) => setFiltroMec(e.target.value)}
             style={{ padding: '10px 12px', fontSize: 14, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }}>
             <option value="todos">👥 Todos os mecânicos</option>
-            {mecanicos.map((m) => <option key={m} value={m}>{m}</option>)}
+            {mecanicos.map((m) => <option key={m} value={m}>{mecanicoLabel(m)}</option>)}
           </select>
           <button onClick={() => void carregar()} title="Atualizar"
             style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer' }}>↻</button>
@@ -217,23 +228,23 @@ export default function PatioKanbanPage() {
                             {placa}
                           </span>
                         ) : (
-                          <span style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>🚗 {veiculoDe(o)}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: C.espressoM, background: C.bg, border: `1px dashed ${C.border}`, borderRadius: 6, padding: '2px 9px' }}>Sem placa</span>
                         )}
                         <div style={{ display: 'flex', gap: 4 }}>
                           {alta && <span title="Prioridade alta" style={{ fontSize: 12 }}>🔴</span>}
                           {o.status === 'aguardando_aprovacao' && <span title="Aguardando aprovação do cliente" style={{ fontSize: 12 }}>⚠️</span>}
                         </div>
                       </div>
-                      {/* Modelo + cliente (hierarquia) */}
-                      {placa && <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso, marginTop: 6 }}>{veiculoDe(o)}</div>}
-                      <div style={{ fontSize: 12, color: C.espressoM, marginTop: placa ? 1 : 6 }}>{o.cliente_nome || 'Cliente não informado'}</div>
+                      {/* Modelo + cliente (hierarquia) — sempre mostra o veículo como identificador secundário */}
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso, marginTop: 6 }}>{veiculoDe(o)}</div>
+                      <div style={{ fontSize: 12, color: C.espressoM, marginTop: 1 }}>{o.cliente_nome || 'Cliente não informado'}</div>
                       {/* Meta em cinza + valor */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 10.5, fontFamily: 'ui-monospace, Menlo, monospace', color: C.espressoD, fontWeight: 600 }}>{o.numero || 'sem nº'}</span>
                         <span style={{ fontSize: 13, fontWeight: 800, color: C.espresso }}>{fmtBRL(o.total)}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 6 }}>
-                        <span style={{ fontSize: 11, color: C.espressoD }}>🔧 {o.tecnico_nome || 'sem mecânico'}</span>
+                        <span style={{ fontSize: 11, color: C.espressoD }}>🔧 {mecanicoLabel(o.tecnico_nome)}</span>
                         {/* Pill de tempo (além da borda-semáforo) */}
                         <span style={{ fontSize: 10.5, fontWeight: 700, color: sem.cor, background: sem.cor + '16', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>
                           {tempoLabel(sem.horas)}

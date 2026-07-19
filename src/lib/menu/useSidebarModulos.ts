@@ -65,6 +65,11 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PM_PRODUCAO: '2 · Produção & Controle',
   PM_FINANCEIRO: '3 · Financeiro da Produção',
   PM_INTELIGENCIA: '4 · Inteligência & IA',
+  // Oficina: acentos + rótulos sem "Oficina" redundante (o usuário já está na área Oficina)
+  PATIO: 'Pátio',
+  OPERACAO: 'Operação',
+  OFICINA_ATENDIMENTO: 'Atendimento',
+  OFICINA_OPERACAO: 'Veículos & Comissão',
 }
 
 function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
