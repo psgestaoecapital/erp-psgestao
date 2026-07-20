@@ -24,6 +24,20 @@ const AREA_STORAGE_KEY = 'ps_area_sel'
 const EMPRESA_STORAGE_KEY = 'ps_empresa_sel'
 const AREA_GE = 'gestao_empresarial'
 
+// surfacing-admin-owner · atalho "Usuários & Acessos" no rodapé pro CLIENT_OWNER
+// ativo (Master da empresa) que NAO e PS_ADMIN. O painel /dashboard/admin ja
+// autoriza e escopa o dono (so a propria empresa · so abas Usuarios+Convites);
+// aqui so exibimos o LINK, que a RPC do menu (por plano) nao emite pra ele.
+// Aditivo, escopado por papel, reversivel — NAO toca a RPC/resolver de permissao.
+const OWNER_ADMIN_MODULO: SidebarModuleNode = {
+  id: 'usuarios-acessos-owner',
+  label: 'Usuários & Acessos',
+  href: '/dashboard/admin',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/admin'],
+}
+
 export type SidebarModoFonte = 'hardcoded' | 'rpc' | 'rpc-empty' | 'rpc-error'
 
 interface RpcRow {
@@ -174,6 +188,29 @@ export function useSidebarModulos(): State {
     return () => { alive = false }
   }, [])
 
+  // surfacing-admin-owner · e CLIENT_OWNER ativo e NAO PS_ADMIN? (mesma regra do
+  // checkAuth de /dashboard/admin: scoped = isOwner && !isSystemAdmin). Se sim,
+  // o rodape ganha o atalho "Usuarios & Acessos". Pilar 2: operador/viewer nao entram.
+  const [ownerAtalho, setOwnerAtalho] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { if (alive) setOwnerAtalho(false); return }
+      const { data: up } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
+      if (up?.system_role) { if (alive) setOwnerAtalho(false); return } // PS_ADMIN ja tem o painel via RPC
+      const { data: owner } = await supabase
+        .from('tenant_user_roles')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .eq('role', 'CLIENT_OWNER')
+        .eq('is_active', true)
+        .limit(1)
+      if (alive) setOwnerAtalho(!!(owner && owner.length > 0))
+    })()
+    return () => { alive = false }
+  }, [])
+
   // Resolve area atual (cascata: ?area= > persistida > path > primeira permitida > GE)
   const { areas } = useAreasVisiveis(companyId)
   const areaSlugDoPath = useMemo(() => {
@@ -301,6 +338,11 @@ export function useSidebarModulos(): State {
       status: 'pronto',
       separator: true,
     })
+  }
+  // surfacing-admin-owner · dono da empresa ganha o atalho pro painel escopado.
+  // Dedupe: nao adiciona se algum modulo/RPC ja aponta pra /dashboard/admin.
+  if (ownerAtalho && !modulos.some((m) => m.href === '/dashboard/admin' || m.items?.some((s) => s.href === '/dashboard/admin'))) {
+    modulos.push(OWNER_ADMIN_MODULO)
   }
   return { modulos, loading: false, mode: 'rpc' }
 }
