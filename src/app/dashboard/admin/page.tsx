@@ -72,6 +72,7 @@ export default function AdminPage(){
   const [currentEmail,setCurrentEmail]=useState("");
   const [editingUser,setEditingUser]=useState<string|null>(null);
   const [isAuthorized,setIsAuthorized]=useState(false);
+  const [isPS,setIsPS]=useState(false); // PS_ADMIN → vê ferramentas internas (ex.: mapa de cobertura por ramo)
   const [checkingAuth,setCheckingAuth]=useState(true);
   // admin-escopado-dono · CLIENT_OWNER pode abrir /admin (escopado a sua empresa)
   const [ownerScoped,setOwnerScoped]=useState(false);
@@ -130,6 +131,7 @@ export default function AdminPage(){
     if(!user){setCheckingAuth(false);return;}
     const{data:up}=await supabase.from("users").select("role,system_role").eq("id",user.id).single();
     const isSystemAdmin=up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"||!!up?.system_role;
+    setIsPS(up?.system_role==="PS_ADMIN");
     // Dono de empresa? (CLIENT_OWNER ativo) — RLS tur_self_read permite ler o proprio papel
     const{data:ownerRoles}=await supabase.from("tenant_user_roles").select("company_id").eq("user_id",user.id).eq("role","CLIENT_OWNER").eq("is_active",true);
     const ownerIds=(ownerRoles??[]).map((r:any)=>r.company_id);
@@ -615,6 +617,13 @@ export default function AdminPage(){
         <span style={{fontSize:13,color:TX}}><b style={{color:GO}}>🔐 Escopo de dados</b> — defina quais setores cada pessoa pode ver (jornada/ponto, SST, tudo).</span>
         <span style={{fontSize:13,fontWeight:700,color:GO}}>Abrir →</span>
       </a>
+      {isPS&&(
+        <a href="/dashboard/admin/ramos-cobertura" style={{display:"flex",justifyContent:"space-between",alignItems:"center",textDecoration:"none",
+          background:BL+"12",border:`1px solid ${BL}35`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+          <span style={{fontSize:13,color:TX}}><b style={{color:BL}}>🧭 Mapa de cobertura por ramo</b> — telas entregues vs. tagueadas (interno PS).</span>
+          <span style={{fontSize:13,fontWeight:700,color:BL}}>Abrir →</span>
+        </a>
+      )}
       <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>{usuarios.length} usuários</div>
       {usuarios.map(u=>{
         const uComps=getUserCompIds(u.id);const isEditing=editingUser===u.id;
