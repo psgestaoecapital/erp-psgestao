@@ -92,7 +92,7 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   INTELIGENCIA_BI: 'Inteligência (BI)',
 }
 
-function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
+function rpcRowsToModulos(rows: RpcRow[], isPS: boolean): SidebarModuleNode[] {
   // RPC ja vem ordenada (secao_ordem, ordem). Agrupar preservando a ordem
   // de aparicao da secao na lista (1a ocorrencia define a posicao).
   const grupos = new Map<string, { label: string; items: SidebarSubItemNode[] }>()
@@ -110,7 +110,7 @@ function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
       label: r.nome,
       href: r.rota ?? '#',
       status: statusFromRpc(r.status),
-      ...(r.badge_label ? { badge: r.badge_label } : {}),
+      ...(isPS && r.badge_label ? { badge: r.badge_label } : {}),
     })
   }
 
@@ -197,12 +197,16 @@ export function useSidebarModulos(): State {
   // checkAuth de /dashboard/admin: scoped = isOwner && !isSystemAdmin). Se sim,
   // o rodape ganha o atalho "Usuarios & Acessos". Pilar 2: operador/viewer nao entram.
   const [ownerAtalho, setOwnerAtalho] = useState(false)
+  // badge-so-ps · o badge de estado (Pronto/Parcial/Previsto) e dado interno da PS.
+  // Cliente nunca ve. So system_role='PS_ADMIN' recebe o badge no menu.
+  const [isPS, setIsPS] = useState(false)
   useEffect(() => {
     let alive = true
     void (async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { if (alive) setOwnerAtalho(false); return }
+      if (!user) { if (alive) { setOwnerAtalho(false); setIsPS(false) } return }
       const { data: up } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
+      if (alive) setIsPS(up?.system_role === 'PS_ADMIN')
       if (up?.system_role) { if (alive) setOwnerAtalho(false); return } // PS_ADMIN ja tem o painel via RPC
       const { data: owner } = await supabase
         .from('tenant_user_roles')
@@ -331,7 +335,7 @@ export function useSidebarModulos(): State {
     return { modulos: [], loading: false, mode: 'rpc-empty' }
   }
 
-  const modulos = rpcRowsToModulos(rows)
+  const modulos = rpcRowsToModulos(rows, isPS)
   // Rodape de apoio da Gestao Empresarial: Guia de Implantacao (onboarding
   // sob demanda). Hardcoded aqui pra evitar migration por cada apresentacao
   // — segue o mesmo padrao de SECAO_LABEL_OVERRIDE acima.

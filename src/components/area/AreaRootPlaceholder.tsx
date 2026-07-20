@@ -3,10 +3,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
 
 // Card de area-raiz para planos novos (M.A.7.5).
-// Renderiza titulo + status badge + mensagem proporcional ao status.
-// Busca dados em area_menu_config / fn_areas_menu_lateral pelo id da area.
+// PS (equipe interna) ve o painel comercial (status/MRR/clientes/evolucao — vem da RPC so pra PS).
+// CLIENTE ve uma home UTIL: atalhos reais das telas da area (fn_modulos_sidebar_por_area).
+// NUNCA renderiza MRR / clientes ativos / % adocao / badge piloto / "em breve" pro cliente
+// (dado comercial interno da PS — a RPC ja devolve NULL nesses campos pra nao-PS).
 
 export type AreaRootProps = {
   areaId: string
@@ -61,9 +64,14 @@ function getMensagem(area: AreaMenu): string {
   }
 }
 
+type AtalhoModulo = { id: string; label: string; href: string }
+
 export default function AreaRootPlaceholder({ areaId, fallbackNome, fallbackIcon }: AreaRootProps) {
   const [area, setArea] = useState<AreaMenu | null>(null)
   const [loading, setLoading] = useState(true)
+  const [atalhos, setAtalhos] = useState<AtalhoModulo[]>([])
+  const { companyIds } = useCompanyIds()
+  const companyId = companyIds[0] ?? null
 
   useEffect(() => {
     let alive = true
@@ -77,6 +85,31 @@ export default function AreaRootPlaceholder({ areaId, fallbackNome, fallbackIcon
     return () => { alive = false }
   }, [areaId])
 
+  // Home util do CLIENTE: atalhos reais das telas da area. So busca quando NAO e PS
+  // (PS = status_comercial presente, que a RPC so devolve pra equipe interna).
+  const isPS = !!area?.status_comercial
+  useEffect(() => {
+    if (loading || isPS) return
+    let alive = true
+    ;(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data } = await supabase.rpc('fn_modulos_sidebar_por_area', {
+        p_area_id: areaId, p_company_id: companyId, p_user_id: user?.id ?? null,
+      })
+      if (!alive) return
+      const vistos = new Set<string>()
+      const lista: AtalhoModulo[] = []
+      for (const r of (Array.isArray(data) ? data : [])) {
+        const href = r.rota as string | null
+        if (!href || href === '#' || vistos.has(r.modulo_id)) continue
+        vistos.add(r.modulo_id)
+        lista.push({ id: r.modulo_id, label: r.nome, href })
+      }
+      setAtalhos(lista)
+    })()
+    return () => { alive = false }
+  }, [loading, isPS, areaId, companyId])
+
   const nome = area?.nome_menu ?? fallbackNome
   const mrrNum = area ? (typeof area.mrr_brl === 'string' ? parseFloat(area.mrr_brl) : area.mrr_brl) : 0
 
@@ -85,14 +118,14 @@ export default function AreaRootPlaceholder({ areaId, fallbackNome, fallbackIcon
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8, flexWrap: 'wrap' }}>
         {fallbackIcon && <span style={{ color: C.gold, display: 'inline-flex' }}>{fallbackIcon}</span>}
         <h1 style={{ fontSize: 24, fontWeight: 700, color: C.espresso, margin: 0 }}>{nome}</h1>
-        {area && (
+        {isPS && area?.status_badge_label && (
           <span
             style={{
               fontSize: 11,
               padding: '4px 10px',
               borderRadius: 999,
-              background: area.status_badge_color + '22',
-              color: area.status_badge_color,
+              background: (area.status_badge_color ?? C.gray) + '22',
+              color: area.status_badge_color ?? C.gray,
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
@@ -104,7 +137,32 @@ export default function AreaRootPlaceholder({ areaId, fallbackNome, fallbackIcon
       </div>
 
       {loading ? (
-        <p style={{ color: C.espressoM, fontSize: 13 }}>Carregando informações da área…</p>
+        <p style={{ color: C.espressoM, fontSize: 13 }}>Carregando…</p>
+      ) : !isPS ? (
+        /* HOME DO CLIENTE — atalhos úteis das telas da área. Sem badge/MRR/clientes/"em breve". */
+        <>
+          <p style={{ color: C.espressoM, fontSize: 14, lineHeight: 1.6, marginBottom: 18, maxWidth: 640 }}>
+            Acesse as ferramentas de {nome}:
+          </p>
+          {atalhos.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+              {atalhos.map((m) => (
+                <Link key={m.id} href={m.href} style={{ textDecoration: 'none' }}>
+                  <div style={{
+                    background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10,
+                    padding: '14px 16px', color: C.espresso, fontSize: 14, fontWeight: 600,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                  }}>
+                    <span>{m.label}</span>
+                    <span style={{ color: C.gold }}>→</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: C.espressoM, fontSize: 13 }}>Use o menu lateral para acessar as telas desta área.</p>
+          )}
+        </>
       ) : area ? (
         <>
           <p style={{ color: C.espressoM, fontSize: 14, lineHeight: 1.6, marginBottom: 18, maxWidth: 640 }}>
