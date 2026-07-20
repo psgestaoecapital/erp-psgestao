@@ -66,15 +66,20 @@ function veiculoDe(o: OS): string {
 }
 // Nome do mecânico pro card — quando o campo guarda o e-mail do usuário (dado legado),
 // mostra o nome derivado em vez de "fulano@gmail.com".
+function tituloCase(s: string): string {
+  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+}
 function mecanicoLabel(nome: string | null): string {
   const t = (nome ?? '').trim()
   if (!t) return 'sem mecânico'
   if (t.includes('@')) {
     const local = t.split('@')[0].replace(/[._]+/g, ' ').trim()
-    return local ? local.replace(/\b\w/g, (c) => c.toUpperCase()) : 'sem mecânico'
+    return local ? tituloCase(local) : 'sem mecânico'
   }
-  return t
+  return tituloCase(t)  // GEAN/gean → "Gean"
 }
+// chave de identidade p/ dedup/comparação (case/acentos-insensível o bastante p/ o filtro)
+const normKey = (s: string | null) => (s ?? '').trim().toLowerCase()
 
 // Semáforo pelo TEMPO na coluna atual (proxy: updated_at). Verde < 1 dia,
 // amarelo 1–3 dias, vermelho > 3 dias. Prioridade 'alta'/'urgente' força vermelho.
@@ -104,6 +109,11 @@ export default function PatioKanbanPage() {
   const [filtroMec, setFiltroMec] = useState<string>('todos')
   const [cardAberto, setCardAberto] = useState<OS | null>(null)   // tablet: tap → picker de status
   const [dragId, setDragId] = useState<string | null>(null)       // desktop: drag
+  const [mecLimpos, setMecLimpos] = useState<string[]>([])        // lista LIMPA de mecânicos (RPC)
+  type MecOS = { id: string; mecanico_nome: string; papel: string; ativo: boolean }
+  const [mecsOS, setMecsOS] = useState<MecOS[]>([])               // mecânicos da OS aberta
+  const [novoMec, setNovoMec] = useState('')                      // input p/ novo nome
+  const [salvandoMec, setSalvandoMec] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -129,14 +139,46 @@ export default function PatioKanbanPage() {
 
   useEffect(() => { void carregar() }, [carregar])
 
-  const mecanicos = useMemo(
-    () => Array.from(new Set(oss.map((o) => o.tecnico_nome).filter((x): x is string => !!x))).sort(),
-    [oss],
-  )
+  // lista LIMPA do seletor (dedup identidade + Title Case + sem e-mail/TESTE/staff PS — via RPC)
+  const carregarMecanicos = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_oficina_mecanicos', { p_company_id: companyId })
+    setMecLimpos((Array.isArray(data) ? data.map((r: { nome: string }) => r.nome) : []))
+  }, [companyId])
+  useEffect(() => { void carregarMecanicos() }, [carregarMecanicos])
+
+  // mecânicos da OS aberta (responsável + auxiliares)
+  const carregarMecsOS = useCallback(async (osId: string) => {
+    const { data } = await supabase.rpc('fn_os_mecanicos_listar', { p_os_id: osId })
+    setMecsOS((Array.isArray(data) ? data : []) as MecOS[])
+  }, [])
+  useEffect(() => { if (cardAberto) void carregarMecsOS(cardAberto.id); else setMecsOS([]) }, [cardAberto, carregarMecsOS])
+
   const filtradas = useMemo(
-    () => (filtroMec === 'todos' ? oss : oss.filter((o) => (o.tecnico_nome ?? '') === filtroMec)),
+    () => (filtroMec === 'todos' ? oss : oss.filter((o) => normKey(o.tecnico_nome) === normKey(filtroMec))),
     [oss, filtroMec],
   )
+
+  // designar responsável / adicionar auxiliar / remover — via RPC, com trilha no banco
+  async function designar(rpc: 'fn_os_designar_responsavel' | 'fn_os_add_auxiliar', nome: string) {
+    if (!cardAberto || !nome.trim()) return
+    setSalvandoMec(true)
+    const { data, error } = await supabase.rpc(rpc, { p_os_id: cardAberto.id, p_nome: nome.trim() })
+    setSalvandoMec(false)
+    const res = data as { ok?: boolean; erro?: string } | null
+    if (error || !res?.ok) { setErro(error?.message || res?.erro || 'Falha ao designar mecânico'); return }
+    setNovoMec('')
+    await Promise.all([carregarMecsOS(cardAberto.id), carregarMecanicos(), carregar()])
+  }
+  async function removerMec(id: string) {
+    if (!cardAberto) return
+    setSalvandoMec(true)
+    const { data, error } = await supabase.rpc('fn_os_remover_mecanico', { p_os_mecanico_id: id })
+    setSalvandoMec(false)
+    const res = data as { ok?: boolean; erro?: string } | null
+    if (error || !res?.ok) { setErro(error?.message || res?.erro || 'Falha ao remover'); return }
+    await Promise.all([carregarMecsOS(cardAberto.id), carregar()])
+  }
 
   // A ação central: muda o status da OS (drag OU tap-picker). RLS escopa por
   // empresa; ainda travo por company_id (defense-in-depth). Otimista + refetch.
@@ -173,7 +215,7 @@ export default function PatioKanbanPage() {
           <select value={filtroMec} onChange={(e) => setFiltroMec(e.target.value)}
             style={{ padding: '10px 12px', fontSize: 14, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }}>
             <option value="todos">👥 Todos os mecânicos</option>
-            {mecanicos.map((m) => <option key={m} value={m}>{mecanicoLabel(m)}</option>)}
+            {mecLimpos.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <button onClick={() => void carregar()} title="Atualizar"
             style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer' }}>↻</button>
@@ -284,6 +326,35 @@ export default function PatioKanbanPage() {
                 </button>
               ))}
             </div>
+
+            {/* Designar mecânico — responsável + auxiliares, em qualquer coluna. Trilha no banco. */}
+            <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoD, marginBottom: 6 }}>Mecânico</div>
+              {mecsOS.filter((m) => m.ativo).length === 0 && (
+                <div style={{ fontSize: 12, color: C.espressoM, marginBottom: 6 }}>Sem mecânico designado.</div>
+              )}
+              {mecsOS.filter((m) => m.ativo).map((m) => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 14 }}>
+                  <span style={{ color: C.espresso }}>
+                    {m.papel === 'responsavel' ? '🔧 ' : '➕ '}<b>{tituloCase(m.mecanico_nome)}</b>
+                    <span style={{ color: C.espressoM, fontSize: 12 }}> · {m.papel === 'responsavel' ? 'Responsável' : 'Auxiliar'}</span>
+                  </span>
+                  <button onClick={() => void removerMec(m.id)} disabled={salvandoMec}
+                    style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.vermelho, cursor: 'pointer' }}>remover</button>
+                </div>
+              ))}
+              <input list="mec-limpos" value={novoMec} onChange={(e) => setNovoMec(e.target.value)}
+                placeholder="Nome do mecânico" enterKeyHint="done"
+                style={{ width: '100%', marginTop: 8, padding: '11px 12px', fontSize: 15, borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }} />
+              <datalist id="mec-limpos">{mecLimpos.map((m) => <option key={m} value={m} />)}</datalist>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button onClick={() => void designar('fn_os_designar_responsavel', novoMec)} disabled={salvandoMec || !novoMec.trim()}
+                  style={{ flex: 1, padding: '12px', fontSize: 14, fontWeight: 700, borderRadius: 10, border: 'none', background: C.gold, color: C.white, cursor: salvandoMec || !novoMec.trim() ? 'default' : 'pointer', opacity: salvandoMec || !novoMec.trim() ? 0.6 : 1 }}>Responsável</button>
+                <button onClick={() => void designar('fn_os_add_auxiliar', novoMec)} disabled={salvandoMec || !novoMec.trim()}
+                  style={{ flex: 1, padding: '12px', fontSize: 14, fontWeight: 700, borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: salvandoMec || !novoMec.trim() ? 'default' : 'pointer', opacity: salvandoMec || !novoMec.trim() ? 0.6 : 1 }}>+ Auxiliar</button>
+              </div>
+            </div>
+
             <button onClick={() => { router.push(`/dashboard/os?os=${cardAberto.id}`) }}
               style={{ width: '100%', marginTop: 10, padding: '12px', fontSize: 13, fontWeight: 600, borderRadius: 10, border: `1px solid ${C.border}`, background: C.bg, color: C.espresso, cursor: 'pointer' }}>
               📋 Abrir a Ordem de Serviço

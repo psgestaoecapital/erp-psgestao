@@ -57,6 +57,7 @@ export default function RecepcaoPage() {
   const [clienteNome, setClienteNome] = useState(''); const [clienteCnpj, setClienteCnpj] = useState(''); const [clienteId, setClienteId] = useState('')
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
+  const [mecanico, setMecanico] = useState(''); const [mecLimpos, setMecLimpos] = useState<string[]>([])  // responsável no check-in (opcional)
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
@@ -110,14 +111,24 @@ export default function RecepcaoPage() {
         fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
       },
     })
+    const j = data as { ok?: boolean; erro?: string; numero?: string; os_id?: string } | null
+    if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + (error?.message || j?.erro)); return }
+    // mecânico responsável opcional no check-in → reusa fn_os_designar_responsavel (trilha)
+    if (j?.os_id && mecanico.trim()) {
+      await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim() })
+    }
     setSalvando(false)
-    const j = data as { ok?: boolean; erro?: string; numero?: string } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
     setMsg(`✅ Recepção registrada — ${j?.numero}. O carro está no Pátio.`)
     setTimeout(() => router.push('/dashboard/oficina/patio'), 1200)
   }
 
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
+  useEffect(() => {
+    if (!companyId) return
+    void supabase.rpc('fn_oficina_mecanicos', { p_company_id: companyId }).then(({ data }) => {
+      setMecLimpos(Array.isArray(data) ? data.map((r: { nome: string }) => r.nome) : [])
+    })
+  }, [companyId])
 
   if (!companyId) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione uma empresa específica no topo para abrir a Recepção.</div>
 
@@ -157,6 +168,13 @@ export default function RecepcaoPage() {
         {/* QUEIXA */}
         <Sec titulo="O que está acontecendo? (queixa do cliente)">
           <textarea value={queixa} onChange={(e) => setQueixa(e.target.value)} rows={3} placeholder="Ex.: barulho na frente ao frear, luz do motor acesa…" style={{ ...inp, resize: 'vertical' }} />
+        </Sec>
+
+        {/* MECÂNICO RESPONSÁVEL (opcional no check-in; pode designar depois no Pátio) */}
+        <Sec titulo="Mecânico responsável (opcional)">
+          <input list="mec-recepcao" value={mecanico} onChange={(e) => setMecanico(e.target.value)}
+            placeholder="Nome do mecânico" style={inp} />
+          <datalist id="mec-recepcao">{mecLimpos.map((m) => <option key={m} value={m} />)}</datalist>
         </Sec>
 
         {/* CHECKLIST DE ENTRADA */}
