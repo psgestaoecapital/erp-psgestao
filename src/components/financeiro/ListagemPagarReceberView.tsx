@@ -784,10 +784,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
-                          <strong>{fmtBRL(r.status === 'pago' && r.valor_pago ? r.valor_pago : r.valor_documento)}</strong>
+                          {/* principal = valor do DOCUMENTO (fonte da verdade). valor_pago vira detalhe. */}
+                          <strong>{fmtBRL(r.valor_documento)}</strong>
                           {r.status === 'parcial' && (r.valor_pago ?? 0) > 0 && (
                             <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
-                              recebido {fmtBRL(r.valor_pago ?? 0)} · saldo {fmtBRL(Math.max(0, r.valor_documento - (r.valor_pago ?? 0)))}
+                              {tipo === 'pagar' ? 'pago' : 'recebido'} {fmtBRL(r.valor_pago ?? 0)} · saldo {fmtBRL(Math.max(0, r.valor_documento - (r.valor_pago ?? 0)))}
+                            </div>
+                          )}
+                          {/* AVISO de divergência: pago ≠ documento (sem juros/multa que justifique) → flag p/ conferir. */}
+                          {r.status === 'pago' && r.valor_pago != null && Math.abs((r.valor_pago ?? 0) - r.valor_documento) > 0.01 && (
+                            <div style={{ fontSize: 10, marginTop: 2, color: '#B45309', fontWeight: 600 }}>
+                              ⚠️ {tipo === 'pagar' ? 'pago' : 'recebido'} {fmtBRL(r.valor_pago ?? 0)} · diverge do documento
                             </div>
                           )}
                         </Td>
