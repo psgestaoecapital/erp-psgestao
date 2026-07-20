@@ -89,6 +89,7 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   ABASTECIMENTO: 'Abastecimento',
   VISAO_EXECUTIVA: 'Visão Executiva',
   INTELIGENCIA_PROTECAO: 'Inteligência & Proteção',
+  INTELIGENCIA_BI: 'Inteligência (BI)',
 }
 
 function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
