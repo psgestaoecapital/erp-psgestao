@@ -210,7 +210,15 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="NBS" value={codigoNbs} onChange={setCodigoNbs} placeholder="Nomenclatura Brasileira Serviços" mono />
                 <Campo label="Cód. Serviço Município" value={codigoServicoMun} onChange={setCodigoServicoMun} placeholder="ex: 140101" mono />
-                <Campo label="Cód. LC 116" value={codigoLc116} onChange={setCodigoLc116} placeholder="ex: 14.01" mono />
+                <Campo label="Cód. LC 116" value={codigoLc116}
+                  onChange={(v) => setCodigoLc116(v.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="ex.: 172401" mono
+                  hint={codigoLc116.replace(/\D/g, '').length === 6
+                    ? '6 dígitos ✓ (17.24.01 → 172401)'
+                    : codigoLc116.length > 0
+                      ? `⚠️ ${codigoLc116.replace(/\D/g, '').length} díg. — o LC 116 tem 6 (17.24.01 → 172401)`
+                      : '6 dígitos, só números (17.24.01 → 172401)'}
+                  hintWarn={codigoLc116.length > 0 && codigoLc116.replace(/\D/g, '').length !== 6} />
                 <Campo label="CNAE" value={cnae} onChange={setCnae} placeholder="0000-0/00" mono />
                 <Campo label="CNAE Secundário" value={cnaeSec} onChange={setCnaeSec} placeholder="opcional" mono />
                 <Select
@@ -314,10 +322,12 @@ interface CampoProps {
   placeholder?: string
   multiline?: boolean
   mono?: boolean
+  hint?: string
+  hintWarn?: boolean
 }
 
-function Campo({ label, value, onChange, placeholder, multiline, mono }: CampoProps) {
-  const cls = `w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 ${mono ? 'font-mono' : ''}`
+function Campo({ label, value, onChange, placeholder, multiline, mono, hint, hintWarn }: CampoProps) {
+  const cls = `w-full px-3 py-2 text-[13px] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 ${mono ? 'font-mono' : ''} ${hintWarn ? 'border-[#C8941A]/60' : 'border-[#3D2314]/15'}`
   return (
     <div>
       <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">{label}</label>
@@ -326,6 +336,7 @@ function Campo({ label, value, onChange, placeholder, multiline, mono }: CampoPr
       ) : (
         <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={cls} />
       )}
+      {hint && <p className={`text-[11px] mt-1 ${hintWarn ? 'text-[#8A5A00]' : 'text-[#3D2314]/55'}`}>{hint}</p>}
     </div>
   )
 }
