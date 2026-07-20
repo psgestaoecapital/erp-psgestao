@@ -610,6 +610,11 @@ export default function AdminPage(){
 
     {/* ═══ USUÁRIOS ═══ */}
     {tab==="usuarios"&&(<div>
+      <a href="/dashboard/admin/escopo-dados" style={{display:"flex",justifyContent:"space-between",alignItems:"center",textDecoration:"none",
+        background:GO+"14",border:`1px solid ${GO}40`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+        <span style={{fontSize:13,color:TX}}><b style={{color:GO}}>🔐 Escopo de dados</b> — defina quais setores cada pessoa pode ver (jornada/ponto, SST, tudo).</span>
+        <span style={{fontSize:13,fontWeight:700,color:GO}}>Abrir →</span>
+      </a>
       <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>{usuarios.length} usuários</div>
       {usuarios.map(u=>{
         const uComps=getUserCompIds(u.id);const isEditing=editingUser===u.id;
