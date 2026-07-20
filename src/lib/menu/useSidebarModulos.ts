@@ -85,6 +85,10 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   OFICINA_ATENDIMENTO: 'Atendimento',
   OFICINA_OPERACAO: 'Veículos & Comissão',
   OFICINA_INTELIGENCIA_IA: 'Inteligência IA',
+  // Industrial: acentos + Title Case (o menu segue o dia de quem usa)
+  ABASTECIMENTO: 'Abastecimento',
+  VISAO_EXECUTIVA: 'Visão Executiva',
+  INTELIGENCIA_PROTECAO: 'Inteligência & Proteção',
 }
 
 function rpcRowsToModulos(rows: RpcRow[]): SidebarModuleNode[] {
