@@ -125,6 +125,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [excluirAberto, setExcluirAberto] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
   const [erroExcluir, setErroExcluir] = useState<string | null>(null)
+  // OS → GE · faturar (gera título em Contas a Receber)
+  const [faturando, setFaturando] = useState(false)
+
+  const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
+  const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
+
+  async function faturar() {
+    if (!os) return
+    setFaturando(true); setErro(null); setMsgOk(null)
+    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.id })
+    setFaturando(false)
+    const r = data as { ok?: boolean; erro?: string; valor?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
+    const v = r?.valor != null ? ` — R$ ${Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
+    flash(`Faturada ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
+    void carregar()
+  }
 
   function flash(msg: string) {
     setMsgOk(msg)
@@ -572,6 +589,22 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         >
           🖨️ Imprimir OS
         </button>
+        {faturada ? (
+          <span data-testid="os-faturada" style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>
+            ✓ Faturada
+          </span>
+        ) : podeFaturar ? (
+          <button
+            type="button"
+            onClick={() => void faturar()}
+            disabled={faturando}
+            data-testid="os-faturar"
+            title="Gera o título em Contas a Receber (GE)"
+            style={{ ...btnPri, background: C.gold, color: '#3D2314', opacity: faturando ? 0.6 : 1 }}
+          >
+            {faturando ? 'Faturando…' : '💰 Faturar OS'}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={salvar}
