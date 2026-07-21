@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
+import SolicitarPecaModal from '@/components/oficina/SolicitarPecaModal'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -57,6 +58,7 @@ export default function DiagnosticoPage() {
   // busca de peça no catálogo/estoque
   const [buscaPeca, setBuscaPeca] = useState('')
   const [sugestoesPeca, setSugestoesPeca] = useState<Peca[]>([])
+  const [solicitarAberto, setSolicitarAberto] = useState(false)  // R5 · modal solicitar peça ao dono
 
   const carregarLista = useCallback(async () => {
     if (!companyId) return
@@ -222,6 +224,12 @@ export default function DiagnosticoPage() {
             )}
           </div>
 
+          {/* R5 · mecânico solicita peça ao dono (foto + qtd, sem preço) → alerta pro dono decidir */}
+          <button onClick={() => setSolicitarAberto(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 14px', borderRadius: 10, border: `1px dashed ${GOLD}`, background: 'rgba(200,148,26,0.06)', color: ESP, cursor: 'pointer', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+            <Package size={16} color={GOLD} /> Solicitar peça ao dono
+          </button>
+
           {itens.map((it, i) => (
             <div key={i} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 10, background: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -263,6 +271,11 @@ export default function DiagnosticoPage() {
         </button>
       </div>
       {msg && <Toast>{msg}</Toast>}
+      {osSel && companyId && (
+        <SolicitarPecaModal companyId={companyId} osId={osSel.id} aberto={solicitarAberto}
+          onFechar={() => setSolicitarAberto(false)}
+          onEnviada={() => setMsg('Solicitação enviada ao responsável.')} />
+      )}
     </div>
   )
 }
