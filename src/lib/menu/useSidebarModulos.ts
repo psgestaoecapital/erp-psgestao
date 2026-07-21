@@ -25,17 +25,17 @@ const EMPRESA_STORAGE_KEY = 'ps_empresa_sel'
 const AREA_GE = 'gestao_empresarial'
 
 // surfacing-admin-owner · atalho "Usuários & Acessos" no rodapé pro CLIENT_OWNER
-// ativo (Master da empresa) que NAO e PS_ADMIN. O painel /dashboard/admin ja
-// autoriza e escopa o dono (so a propria empresa · so abas Usuarios+Convites);
-// aqui so exibimos o LINK, que a RPC do menu (por plano) nao emite pra ele.
-// Aditivo, escopado por papel, reversivel — NAO toca a RPC/resolver de permissao.
+// ativo (Master da empresa) que NAO e PS_ADMIN. Fase 1 (tela em cascata): o atalho
+// aponta pra /dashboard/admin/acessos (Empresa → Áreas contratadas → Master → Pessoas),
+// que autoriza+escopa o dono via fn_acessos_pode_gerir. As 9 abas antigas seguem vivas
+// em /dashboard/admin (coexistem, não foram aposentadas). Aditivo, por papel, reversível.
 const OWNER_ADMIN_MODULO: SidebarModuleNode = {
   id: 'usuarios-acessos-owner',
   label: 'Usuários & Acessos',
-  href: '/dashboard/admin',
+  href: '/dashboard/admin/acessos',
   status: 'pronto',
   separator: true,
-  matchPaths: ['/dashboard/admin'],
+  matchPaths: ['/dashboard/admin/acessos', '/dashboard/admin'],
 }
 
 export type SidebarModoFonte = 'hardcoded' | 'rpc' | 'rpc-empty' | 'rpc-error'
@@ -350,7 +350,7 @@ export function useSidebarModulos(): State {
   }
   // surfacing-admin-owner · dono da empresa ganha o atalho pro painel escopado.
   // Dedupe: nao adiciona se algum modulo/RPC ja aponta pra /dashboard/admin.
-  if (ownerAtalho && !modulos.some((m) => m.href === '/dashboard/admin' || m.items?.some((s) => s.href === '/dashboard/admin'))) {
+  if (ownerAtalho && !modulos.some((m) => m.href === '/dashboard/admin/acessos' || m.items?.some((s) => s.href === '/dashboard/admin/acessos'))) {
     modulos.push(OWNER_ADMIN_MODULO)
   }
   return { modulos, loading: false, mode: 'rpc' }
