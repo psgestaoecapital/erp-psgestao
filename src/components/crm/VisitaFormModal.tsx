@@ -51,13 +51,12 @@ function nowLocalInput(): string {
 export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, onClose, onSaved }: Props) {
   const isEdit = !!initial?.id
 
-  // Oportunidade selecionada (id) — pre-seleciona se fixa ou se initial
-  const [oportunidadeId, setOportunidadeId] = useState<string>(
-    oportunidadeFixa?.id ?? initial?.oportunidade_id ?? '',
-  )
-  const [oportunidades, setOportunidades] = useState<OportunidadeOpt[]>(
-    oportunidadeFixa ? [oportunidadeFixa] : [],
-  )
+  // Oportunidade — só usada quando fixa (contexto de funil) ou em edição (já existe).
+  // No modo "novo" o vendedor escolhe o CLIENTE; a oportunidade é resolvida/criada no backend.
+  const oportunidadeBase = oportunidadeFixa?.id ?? initial?.oportunidade_id ?? ''
+  const [clienteId, setClienteId] = useState<string>('')
+  const [clientes, setClientes] = useState<{ id: string; label: string; sub?: string | null }[]>([])
+  const [criandoCliente, setCriandoCliente] = useState(false)
 
   const [data, setData] = useState<string>(() => {
     if (initial?.data_visita) {
@@ -101,36 +100,33 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
       })
   }, [companyId])
 
-  // Carrega oportunidades abertas do company (se nao fixa)
+  // Carrega clientes ATIVOS do company (autocomplete por nome) — modo "novo" sem oportunidade fixa.
   useEffect(() => {
-    if (oportunidadeFixa) return
+    if (oportunidadeFixa || isEdit) return
     supabase
-      .from('erp_crm_oportunidade')
-      .select('id, titulo, obra_endereco, etapa, erp_clientes(nome_fantasia, razao_social)')
+      .from('erp_clientes')
+      .select('id, nome_fantasia, razao_social')
       .eq('company_id', companyId)
-      .not('etapa', 'in', '(ganho,perdido)')
-      .order('created_at', { ascending: false })
+      .eq('ativo', true)
+      .order('nome_fantasia')
       .then(({ data }) => {
-        const rows = (data ?? []) as unknown as Array<{
-          id: string; titulo: string; obra_endereco: string | null
-          erp_clientes: { nome_fantasia: string | null; razao_social: string | null } | null
-        }>
-        const list: OportunidadeOpt[] = rows.map((r) => ({
-          id: r.id,
-          titulo: r.titulo,
-          obra_endereco: r.obra_endereco,
-          cliente_nome: r.erp_clientes?.nome_fantasia ?? r.erp_clientes?.razao_social ?? null,
-        }))
-        setOportunidades(list)
+        const rows = (data ?? []) as Array<{ id: string; nome_fantasia: string | null; razao_social: string | null }>
+        setClientes(rows.map((c) => ({ id: c.id, label: c.nome_fantasia ?? c.razao_social ?? 'Sem nome', sub: null })))
       })
-  }, [companyId, oportunidadeFixa])
+  }, [companyId, oportunidadeFixa, isEdit])
 
-  // Quando troca oportunidade, sugere endereco da obra
-  useEffect(() => {
-    if (!oportunidadeId || initial) return
-    const o = oportunidades.find((x) => x.id === oportunidadeId)
-    if (o?.obra_endereco && !endereco) setEndereco(o.obra_endereco)
-  }, [oportunidadeId, oportunidades, initial, endereco])
+  // Cadastro inline de cliente novo (nome mínimo) → seleciona o recém-criado.
+  async function criarCliente(termo: string) {
+    const nome = termo.trim()
+    if (!nome) return
+    setCriandoCliente(true); setErr(null)
+    const { data: novoId, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome })
+    setCriandoCliente(false)
+    if (error || !novoId) { setErr(`Erro ao cadastrar cliente: ${error?.message ?? 'falha'}`); return }
+    const id = novoId as string
+    setClientes((prev) => [{ id, label: nome, sub: null }, ...prev.filter((c) => c.id !== id)])
+    setClienteId(id)
+  }
 
   function capturarGPS() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -150,17 +146,28 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
   }
 
   async function salvar() {
-    if (!oportunidadeId) { setErr('Selecione a oportunidade.'); return }
     if (!data) { setErr('Informe a data/hora.'); return }
     setSaving(true)
     setErr(null)
+
+    // Resolve a oportunidade: fixa/edição usam a existente; no modo "novo" ela é resolvida/criada
+    // a partir do CLIENTE (necessário já aqui pro path da foto e pro vínculo da visita).
+    let oportId = oportunidadeBase
+    if (!oportId) {
+      if (!clienteId) { setSaving(false); setErr('Selecione o cliente.'); return }
+      const { data: opId, error: opErr } = await supabase.rpc('fn_crm_oportunidade_obter_ou_criar', {
+        p_cliente_id: clienteId, p_titulo: null,
+      })
+      if (opErr || !opId) { setSaving(false); setErr(`Erro: ${opErr?.message ?? 'não foi possível abrir a oportunidade'}`); return }
+      oportId = opId as string
+    }
 
     // Upload novas fotos para bucket visitas/{oportunidade_id}
     const fotosNovas: VisitaFotoRef[] = []
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
       const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const path = `${companyId}/visitas/${oportunidadeId}/${Date.now()}_${i}_${safe}`
+      const path = `${companyId}/visitas/${oportId}/${Date.now()}_${i}_${safe}`
       const up = await supabase.storage.from('projetos-plantas').upload(path, f, { upsert: false })
       if (up.error) { setSaving(false); setErr(`Upload falhou: ${up.error.message}`); return }
       fotosNovas.push({ path, name: f.name })
@@ -169,7 +176,8 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
 
     const { data: rpc, error } = await supabase.rpc('fn_crm_visita_salvar', {
       p_id: initial?.id ?? null,
-      p_oportunidade_id: oportunidadeId,
+      p_oportunidade_id: oportId,
+      p_cliente_id: clienteId || null,
       p_data_visita: new Date(data).toISOString(),
       p_responsavel_id: responsavelId || null,
       p_status: status,
@@ -196,23 +204,25 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
           <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
         </div>
 
-        {!oportunidadeFixa && (
-          <label style={lbl}>
-            Oportunidade *
-            <Combobox
-              value={oportunidadeId}
-              onChange={setOportunidadeId}
-              disabled={isEdit}
-              placeholder="Digite pra buscar (obra, cliente)…"
-              vazioTexto="Nenhuma oportunidade aberta nesta empresa."
-              options={oportunidades.map((o) => ({ id: o.id, label: o.titulo, sub: o.cliente_nome }))}
-            />
-          </label>
-        )}
-        {oportunidadeFixa && (
+        {oportunidadeFixa ? (
           <div style={{ ...lblTxt, marginBottom: 8 }}>
             Oportunidade: <strong style={{ color: ESPRESSO }}>{oportunidadeFixa.titulo}</strong>
           </div>
+        ) : isEdit ? (
+          <div style={{ ...lblTxt, marginBottom: 8 }}>Editando visita já registrada.</div>
+        ) : (
+          <label style={lbl}>
+            Cliente *
+            <Combobox
+              value={clienteId}
+              onChange={setClienteId}
+              placeholder="Digite o nome do cliente…"
+              vazioTexto="Nenhum cliente encontrado."
+              options={clientes}
+              onCriarNovo={criarCliente}
+              criarNovoBusy={criandoCliente}
+            />
+          </label>
         )}
 
         <div style={grid}>
@@ -298,13 +308,15 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
 }
 
 // Combobox com busca (mobile-first): digita pra filtrar, toca pra escolher. Reusa nas 2 listas.
-function Combobox({ value, options, onChange, placeholder, vazioTexto, disabled }: {
+function Combobox({ value, options, onChange, placeholder, vazioTexto, disabled, onCriarNovo, criarNovoBusy }: {
   value: string
   options: { id: string; label: string; sub?: string | null }[]
   onChange: (id: string) => void
   placeholder: string
   vazioTexto?: string
   disabled?: boolean
+  onCriarNovo?: (termo: string) => void
+  criarNovoBusy?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -326,9 +338,19 @@ function Combobox({ value, options, onChange, placeholder, vazioTexto, disabled 
       />
       {open && !disabled && (
         <div style={dropdown}>
-          {filtradas.length === 0 ? (
+          {filtradas.length === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12, color: TEXTM }}>{vazioTexto ?? 'Nada encontrado.'}</div>
-          ) : filtradas.slice(0, 50).map((o) => (
+          )}
+          {onCriarNovo && q.trim() !== '' && !filtradas.some((o) => o.label.toLowerCase() === termo) && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); if (!criarNovoBusy) onCriarNovo(q.trim()) }}
+              style={{ ...dropItem, color: DOURADO, fontWeight: 700 }}
+            >
+              {criarNovoBusy ? 'Cadastrando…' : `+ Cadastrar novo cliente “${q.trim()}”`}
+            </button>
+          )}
+          {filtradas.slice(0, 50).map((o) => (
             <button
               key={o.id}
               type="button"
