@@ -208,9 +208,9 @@ export default function DiagnosticoPage() {
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, marginTop: 4, boxShadow: '0 6px 18px rgba(0,0,0,0.08)', maxHeight: 260, overflowY: 'auto' }}>
                 {sugestoesPeca.map((p) => (
                   <button key={p.id} onClick={() => addPecaCatalogo(p)} style={{ width: '100%', textAlign: 'left', padding: '10px 12px', background: 'none', border: 'none', borderBottom: `1px solid ${LINE}`, cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    {/* 🚫 SEM preço na tela do mecânico (R4) — R$ fica só na Aprovação/Orçamento. Aqui: nome + estoque. */}
+                    <div style={{ display: 'flex', gap: 8 }}>
                       <span style={{ fontSize: 14 }}>{p.nome}</span>
-                      {p.preco_venda != null && <span style={{ fontSize: 12, color: GOLD, fontWeight: 700, flexShrink: 0 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(p.preco_venda))}</span>}
                     </div>
                     <div style={{ fontSize: 11, color: ESP60, marginTop: 2 }}>
                       {p.codigo ? `${p.codigo} · ` : ''}estoque {p.estoque_atual != null ? Number(p.estoque_atual) : '—'} {p.unidade ?? ''}
