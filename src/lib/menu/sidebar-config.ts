@@ -28,8 +28,8 @@ const MODULOS_ADMIN: SidebarModuleNode[] = [
     label: 'Administração',
     status: 'pronto',
     items: [
-      { id: 'admin', label: 'Admin', href: '/dashboard/admin',
-        status: 'pronto', matchPaths: ['/dashboard/admin'] },
+      { id: 'admin', label: 'Admin', href: '/dashboard/admin/acessos',
+        status: 'pronto', matchPaths: ['/dashboard/admin/acessos', '/dashboard/admin'] },
       { id: 'conectores', label: 'Conectores & APIs', href: '/dashboard/conectores',
         status: 'pronto', matchPaths: ['/dashboard/conectores'] },
       { id: 'conexoes-bancarias', label: 'Conexões Bancárias', href: '/dashboard/financeiro/conexoes-bancarias',
