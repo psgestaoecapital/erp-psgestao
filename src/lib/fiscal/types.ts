@@ -45,11 +45,9 @@ export interface NFSeRequest {
   // Quando padraoNacional=true, o provider Focus monta o layout nacional
   // (codigo_tributacao_nacional_iss, codigo_municipio_emissora, data_competencia, opção/regime SN).
   padraoNacional?: boolean
-  serieRps?: string
-  numeroRps?: number
+  codigoNbs?: string              // código NBS do serviço (obrigatório no layout nacional)
   opcaoSimplesNacional?: number   // 1=Não optante · 2=MEI · 3=ME/EPP
-  percentualTribSN?: number       // pTotTribSN
-  regimeApuracaoSN?: number       // regApTribSN (1/2/3)
+  regimeApuracaoSN?: number       // regime_tributario_simples_nacional (1/2/3)
 }
 
 export interface NFSeResponse {

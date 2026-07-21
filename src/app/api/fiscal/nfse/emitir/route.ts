@@ -272,18 +272,22 @@ export const POST = withAuth(async (req: NextRequest) => {
           nfseReq.padraoNacional = true
           const { data: snCfg } = await supabaseAdmin
             .from('erp_fiscal_provider_config')
-            .select('opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn')
+            .select('opcao_simples_nacional, regime_apuracao_sn')
             .eq('company_id', body.companyId)
             .eq('provider', 'focusnfe')
             .eq('ativo', true)
             .maybeSingle()
           nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
-          if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
-          if (snCfg?.regime_apuracao_sn != null) nfseReq.regimeApuracaoSN = Number(snCfg.regime_apuracao_sn)
-          const { data: numRows } = await supabaseAdmin.rpc('fn_proximo_numero_nfse', { p_company_id: body.companyId })
-          const numRow = Array.isArray(numRows) ? numRows[0] : numRows
-          if (numRow?.serie != null) nfseReq.serieRps = String(numRow.serie)
-          if (numRow?.numero != null) nfseReq.numeroRps = Number(numRow.numero)
+          nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
+          // codigo_nbs do serviço (obrigatório no layout nacional /v2/nfsen)
+          if (body.servicoId) {
+            const { data: sv } = await supabaseAdmin
+              .from('erp_servicos')
+              .select('codigo_nbs')
+              .eq('id', body.servicoId)
+              .maybeSingle()
+            if (sv?.codigo_nbs) nfseReq.codigoNbs = String(sv.codigo_nbs)
+          }
         }
       }
     }

@@ -45,14 +45,13 @@ function isoBrasilia(d: Date = new Date()): string {
 function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   const aliq = req.aliquotaIss ?? 0
   const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
-  const emissao = isoBrasilia()
+  const opc = req.opcaoSimplesNacional ?? 3
   const p: Record<string, unknown> = {
-    data_emissao: emissao,
-    data_competencia: emissao.split('T')[0],
+    // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
+    data_emissao: isoBrasilia(),
     codigo_municipio_emissora: muni,
     codigo_municipio_prestacao: muni,
     cnpj_prestador: req.prestador.cnpj.replace(/\D/g, ''),
-    codigo_opcao_simples_nacional: req.opcaoSimplesNacional ?? 3,
     regime_especial_tributacao: 0,
     codigo_tributacao_nacional_iss: req.codigoServico,
     descricao_servico: req.descricaoServico,
@@ -60,21 +59,29 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     valor_iss: round2(req.valorServicos * aliq / 100),
     tributacao_iss: 1,
     tipo_retencao_iss: req.retemIss ? 2 : 1,
+    // Simples Nacional: opção + regime + indicador (substituem percentual_total_tributos_simples_nacional).
+    codigo_opcao_simples_nacional: opc,
+    regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
+    indicador_total_tributacao: false,
   }
-  if (req.serieRps) p.serie_rps = req.serieRps
-  if (req.numeroRps != null) p.numero_rps = req.numeroRps
+  if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
   }
-  const opc = req.opcaoSimplesNacional ?? 3
-  if (opc === 2 || opc === 3) {
-    if (req.percentualTribSN != null) p.percentual_total_tributos_simples_nacional = req.percentualTribSN
-    if (req.regimeApuracaoSN != null) p.regime_tributario_simples_nacional = req.regimeApuracaoSN
-  }
+  // Tomador COMPLETO (obrigatório no layout nacional).
   const docTom = (req.tomador.cnpj ?? req.tomador.cpf ?? '').replace(/\D/g, '')
   if (docTom.length === 14) p.cnpj_tomador = docTom
   else if (docTom.length === 11) p.cpf_tomador = docTom
   if (req.tomador.razaoSocial) p.razao_social_tomador = req.tomador.razaoSocial
+  if (req.tomador.email) p.email_tomador = req.tomador.email
+  const end = req.tomador.endereco
+  if (end) {
+    if (end.codigoMunicipio) p.codigo_municipio_tomador = Number(String(end.codigoMunicipio).replace(/\D/g, ''))
+    if (end.cep) p.cep_tomador = String(end.cep).replace(/\D/g, '')
+    if (end.logradouro) p.logradouro_tomador = end.logradouro
+    if (end.numero) p.numero_tomador = end.numero
+    if (end.bairro) p.bairro_tomador = end.bairro
+  }
   return p
 }
 
