@@ -11,7 +11,9 @@ export function validateNFSeRequest(req: NFSeRequest): void {
     erros.push('valorServicos deve ser maior que zero')
   }
   if (!req.codigoServico) {
-    erros.push('codigoServico (item lista municipal) e obrigatorio · cadastre em /configuracoes/fiscal')
+    erros.push('codigoServico (item lista municipal) e obrigatorio · cadastre em /dashboard/cadastros/servicos')
+  } else if (!/^\d{6}$/.test(String(req.codigoServico).trim())) {
+    erros.push(`Codigo do servico invalido: "${req.codigoServico}" · precisa ter 6 digitos numericos (ex.: 170101). Corrija no cadastro do servico.`)
   }
   if (!req.prestador?.cnpj || req.prestador.cnpj.length !== 14) {
     erros.push('CNPJ do prestador invalido')
