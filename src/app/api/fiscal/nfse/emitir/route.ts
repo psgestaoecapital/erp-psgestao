@@ -152,6 +152,21 @@ export const POST = withAuth(async (req: NextRequest) => {
       )
     }
 
+    // [NFSE_DEBUG] TEMPORÁRIO (remover após achar o valor) — rastreia qual código o payload leva.
+    // Fica ANTES do validate: se o guard ^\d{6}$ barrar, ainda assim logamos o valor cru.
+    {
+      const s = dadosRpc?.servico as Record<string, unknown> | undefined
+      console.log('[NFSE_DEBUG]', JSON.stringify({
+        servicoId_recebido: body?.servicoId ?? null,
+        erpReceberId: body?.erpReceberId ?? null,
+        rpc_codigo_servico_municipio: s?.codigo_servico_municipio ?? null,
+        rpc_codigo_lc116: s?.codigo_lc116 ?? null,
+        rpc_codigo_tributacao_nacional_iss: s?.codigo_tributacao_nacional_iss ?? null,
+        override_codigoServico: servicoOverride?.codigoServico ?? null,
+        codigoServico_final_no_payload: nfseReq?.codigoServico ?? null,
+      }))
+    }
+
     validateNFSeRequest(nfseReq)
 
     // (a) IDEMPOTÊNCIA FISCAL — nunca emitir 2ª nota p/ o MESMO tomador+valor+competência
@@ -196,10 +211,18 @@ export const POST = withAuth(async (req: NextRequest) => {
     // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
     const { data: providerCfg } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('provider, gov_nfse_municipio_codigo, ambiente')
+      .select('id, provider, gov_nfse_municipio_codigo, ambiente')
       .eq('company_id', body.companyId)
       .eq('ativo', true)
       .maybeSingle()
+
+    // [NFSE_DEBUG] TEMPORÁRIO — qual config foi carregada em runtime + o código que vai no POST.
+    console.log('[NFSE_DEBUG] provider', JSON.stringify({
+      provider: providerCfg?.provider ?? null,
+      provider_config_id: providerCfg?.id ?? null,
+      ambiente: providerCfg?.ambiente ?? null,
+      codigoServico_que_vai_ao_provider: nfseReq?.codigoServico ?? null,
+    }))
 
     if (providerCfg?.provider === 'gov_nfse_nacional') {
       const authHeader = req.headers.get('authorization') ?? ''
