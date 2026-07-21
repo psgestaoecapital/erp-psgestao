@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import ClienteForm from '@/components/clientes/ClienteForm'
 
 export type VisitaFotoRef = { path: string; name?: string }
 
@@ -56,7 +57,9 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
   const oportunidadeBase = oportunidadeFixa?.id ?? initial?.oportunidade_id ?? ''
   const [clienteId, setClienteId] = useState<string>('')
   const [clientes, setClientes] = useState<{ id: string; label: string; sub?: string | null }[]>([])
-  const [criandoCliente, setCriandoCliente] = useState(false)
+  // Cadastro COMPLETO de cliente como drawer por cima da visita (não navega pra fora → estado preservado).
+  const [showClienteDrawer, setShowClienteDrawer] = useState(false)
+  const [nomePrefill, setNomePrefill] = useState('')
 
   const [data, setData] = useState<string>(() => {
     if (initial?.data_visita) {
@@ -115,17 +118,15 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
       })
   }, [companyId, oportunidadeFixa, isEdit])
 
-  // Cadastro inline de cliente novo (nome mínimo) → seleciona o recém-criado.
-  async function criarCliente(termo: string) {
-    const nome = termo.trim()
-    if (!nome) return
-    setCriandoCliente(true); setErr(null)
-    const { data: novoId, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome })
-    setCriandoCliente(false)
-    if (error || !novoId) { setErr(`Erro ao cadastrar cliente: ${error?.message ?? 'falha'}`); return }
-    const id = novoId as string
-    setClientes((prev) => [{ id, label: nome, sub: null }, ...prev.filter((c) => c.id !== id)])
-    setClienteId(id)
+  // Abre o cadastro COMPLETO de cliente (drawer) com o nome digitado pré-preenchido.
+  function abrirCadastroCliente(termo: string) {
+    setNomePrefill(termo.trim()); setErr(null); setShowClienteDrawer(true)
+  }
+  // Cliente salvo no drawer → adiciona à lista, seleciona e fecha (a visita segue intacta).
+  function onClienteCriado(c: { id: string; nome: string }) {
+    setClientes((prev) => [{ id: c.id, label: c.nome || 'Cliente', sub: null }, ...prev.filter((x) => x.id !== c.id)])
+    setClienteId(c.id)
+    setShowClienteDrawer(false)
   }
 
   function capturarGPS() {
@@ -195,6 +196,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
   }
 
   return (
+    <>
     <div style={overlay}>
       <div style={card}>
         <div style={head}>
@@ -219,8 +221,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
               placeholder="Digite o nome do cliente…"
               vazioTexto="Nenhum cliente encontrado."
               options={clientes}
-              onCriarNovo={criarCliente}
-              criarNovoBusy={criandoCliente}
+              onCriarNovo={abrirCadastroCliente}
             />
           </label>
         )}
@@ -304,6 +305,20 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
         </div>
       </div>
     </div>
+
+    {showClienteDrawer && (
+      <div style={{ ...overlay, zIndex: 60 }} onMouseDown={(e) => { if (e.target === e.currentTarget) setShowClienteDrawer(false) }}>
+        <div style={{ ...card, maxWidth: 720 }}>
+          <ClienteForm
+            companyId={companyId}
+            initial={{ razao_social: nomePrefill }}
+            onSaved={onClienteCriado}
+            onCancel={() => setShowClienteDrawer(false)}
+          />
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
