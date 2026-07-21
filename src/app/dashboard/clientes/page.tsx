@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import ClienteForm from "@/components/clientes/ClienteForm";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -25,21 +26,6 @@ type Cliente = {
   created_at:string; updated_at:string;
 };
 
-const CONDS_PGTO = ['À vista','7 dias','14 dias','21 dias','28 dias','30 dias','30/60 dias','30/60/90 dias','45 dias','60 dias','90 dias','Boleto 30d','PIX'];
-const REGIMES = ['Simples Nacional','Lucro Presumido','Lucro Real','MEI','Produtor Rural','Isento'];
-const SEGMENTOS = ['Indústria','Comércio','Serviço','Construção','Agro','Transporte','Educação','Saúde','Tecnologia','Varejo','Atacado','Outro'];
-const TAGS_DISPONIVEIS = ['VIP','Prospect','Inativo','Regular','Atenção','Fidelizado','Novo','Grande Conta','Governo'];
-const ORIGENS = ['Indicação','Site','WhatsApp','Instagram','Google','Feira','Cold Call','Cliente Antigo','Parceiro','Outro'];
-
-const EMPTY:Partial<Cliente> = {
-  codigo:'',razao_social:'',nome_fantasia:'',tipo_pessoa:'PJ',cpf_cnpj:'',ie:'',
-  telefone:'',celular:'',whatsapp:'',email:'',site:'',
-  cep:'',logradouro:'',numero:'',complemento:'',bairro:'',cidade:'',uf:'',
-  limite_credito:0,condicao_pagamento_padrao:'30 dias',prazo_medio_dias:30,
-  vendedor_nome:'',origem:'',tags:[],segmento:'',
-  observacoes:'',ativo:true,bloqueado:false,
-};
-
 const fmtCNPJ=(v:string)=>{const c=(v||'').replace(/\D/g,'');if(c.length===14)return c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5');if(c.length===11)return c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4');return v;};
 const fmtTel=(v:string)=>{const c=(v||'').replace(/\D/g,'');if(c.length===11)return c.replace(/^(\d{2})(\d{5})(\d{4})$/,'($1) $2-$3');if(c.length===10)return c.replace(/^(\d{2})(\d{4})(\d{4})$/,'($1) $2-$3');return v;};
 const fmtR=(v:number)=>`R$ ${(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
@@ -53,10 +39,7 @@ export default function ClientesPage(){
   const [filtroAtivo,setFiltroAtivo]=useState<string>("ativos");
   const [showForm,setShowForm]=useState(false);
   const [editing,setEditing]=useState<Cliente|null>(null);
-  const [form,setForm]=useState<Partial<Cliente>>(EMPTY);
   const [msg,setMsg]=useState("");
-  const [cnpjLoading,setCnpjLoading]=useState(false);
-  const [cepLoading,setCepLoading]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [sortBy,setSortBy]=useState("razao_social");
   const [sortDir,setSortDir]=useState<"asc"|"desc">("asc");
@@ -80,89 +63,8 @@ export default function ClientesPage(){
     setLoading(false);
   };
 
-  const buscarCNPJ=async()=>{
-    const cnpj=(form.cpf_cnpj||'').replace(/\D/g,'');
-    if(cnpj.length!==14){setMsg("⚠️ CNPJ deve ter 14 dígitos.");return;}
-    setCnpjLoading(true);
-    try{
-      const r=await fetch(`/api/cnpj-lookup?cnpj=${cnpj}`);
-      const d=await r.json();
-      if(d.error){setMsg("❌ "+d.error);setCnpjLoading(false);return;}
-      setForm({...form,
-        razao_social:d.razao_social||form.razao_social,
-        nome_fantasia:d.nome_fantasia||form.nome_fantasia,
-        cpf_cnpj:fmtCNPJ(d.cnpj),
-        atividade_principal:d.atividade_principal||'',
-        situacao_cadastral:d.situacao_cadastral||'',
-        data_abertura:d.data_abertura||'',
-        logradouro:d.logradouro||'',numero:d.numero||'',complemento:d.complemento||'',
-        bairro:d.bairro||'',cidade:d.cidade||'',uf:d.uf||'',cep:d.cep||'',
-        telefone:d.telefone||form.telefone||'',email:d.email||form.email||'',
-      });
-      setMsg("✅ Dados preenchidos automaticamente via Receita Federal");
-    }catch(e){setMsg("❌ Erro ao consultar CNPJ.");}
-    setCnpjLoading(false);
-    setTimeout(()=>setMsg(""),4000);
-  };
-
-  const buscarCEP=async()=>{
-    const cep=(form.cep||'').replace(/\D/g,'');
-    if(cep.length!==8){setMsg("⚠️ CEP deve ter 8 dígitos.");return;}
-    setCepLoading(true);
-    try{
-      const r=await fetch(`/api/cep-lookup?cep=${cep}`);
-      const d=await r.json();
-      if(d.error){setMsg("❌ "+d.error);setCepLoading(false);return;}
-      setForm({...form,
-        logradouro:d.logradouro||form.logradouro,
-        bairro:d.bairro||form.bairro,
-        cidade:d.cidade||form.cidade,
-        uf:d.uf||form.uf,
-        complemento:d.complemento||form.complemento||'',
-      });
-      setMsg("✅ Endereço preenchido automaticamente via ViaCEP");
-    }catch(e){setMsg("❌ Erro ao consultar CEP.");}
-    setCepLoading(false);
-    setTimeout(()=>setMsg(""),4000);
-  };
-
-  const salvar=async()=>{
-    if(!form.razao_social?.trim()){setMsg("❌ Razão Social é obrigatória.");return;}
-    if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa para cadastrar.");return;}
-    
-    if(!editing && (sel==="consolidado" || sel.startsWith("group_"))){
-      const empresaNome = companies.find(c=>c.id===companyIdParaCadastro)?.nome_fantasia || "primeira empresa";
-      if(!confirm(`Você está em modo consolidado. O novo cliente será cadastrado em "${empresaNome}". Continuar?`))return;
-    }
-    
-    const dados={...form,company_id:editing?editing.company_id:companyIdParaCadastro,
-      limite_credito:Number(form.limite_credito)||0,
-      prazo_medio_dias:Number(form.prazo_medio_dias)||0,
-      cpf_cnpj:(form.cpf_cnpj||'').replace(/\D/g,''),
-    };
-    delete(dados as any).id;delete(dados as any).created_at;delete(dados as any).updated_at;
-    delete(dados as any).score_inadimplencia;delete(dados as any).classificacao_risco;
-    delete(dados as any).total_compras;delete(dados as any).qtd_compras;delete(dados as any).qtd_atrasos;
-    delete(dados as any).dias_medio_atraso;delete(dados as any).ticket_medio;delete(dados as any).credito_utilizado;
-
-    if(editing){
-      const{error}=await supabase.from("erp_clientes").update(dados).eq("id",editing.id);
-      if(error){setMsg("Erro: "+error.message);return;}
-      setMsg("✅ Cliente atualizado!");
-    }else{
-      const{error}=await supabase.from("erp_clientes").insert(dados);
-      if(error){
-        if(error.message.includes("unique"))setMsg("❌ CNPJ já cadastrado para esta empresa.");
-        else setMsg("Erro: "+error.message);return;
-      }
-      setMsg("✅ Cliente cadastrado!");
-    }
-    setShowForm(false);setEditing(null);setForm(EMPTY);loadClientes();
-    setTimeout(()=>setMsg(""),3000);
-  };
-
-  const abrirEdicao=(c:Cliente)=>{setEditing(c);setForm({...c,cpf_cnpj:fmtCNPJ(c.cpf_cnpj)});setShowForm(true);};
-  const abrirNovo=()=>{setEditing(null);setForm({...EMPTY,codigo:String(clientes.length+1).padStart(4,'0')});setShowForm(true);};
+  const abrirEdicao=(c:Cliente)=>{setEditing(c);setShowForm(true);};
+  const abrirNovo=()=>{setEditing(null);setShowForm(true);};
   const toggleAtivo=async(c:Cliente)=>{await supabase.from("erp_clientes").update({ativo:!c.ativo}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,ativo:!x.ativo}:x));};
   const toggleBloqueado=async(c:Cliente)=>{await supabase.from("erp_clientes").update({bloqueado:!c.bloqueado}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,bloqueado:!x.bloqueado}:x));};
 
@@ -287,115 +189,12 @@ export default function ClientesPage(){
       {/* Formulário */}
       {showForm&&(
         <div style={{background:BG2,borderRadius:12,padding:20,marginBottom:16,border:`1px solid ${GO}40`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-            <div style={{fontSize:16,fontWeight:700,color:TX}}>{editing?"Editar":"Novo"} Cliente</div>
-            <button onClick={()=>{setShowForm(false);setEditing(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
-          </div>
-
-          {/* Identificação */}
-          <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8}}>📋 Identificação</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Tipo</div>
-              <select value={form.tipo_pessoa} onChange={e=>setForm({...form,tipo_pessoa:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                <option value="PJ">🏢 Pessoa Jurídica</option><option value="PF">👤 Pessoa Física</option>
-              </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>{form.tipo_pessoa==='PJ'?'CNPJ':'CPF'}</div>
-              <div style={{display:"flex",gap:4}}>
-                <input value={form.cpf_cnpj} onChange={e=>setForm({...form,cpf_cnpj:e.target.value})} placeholder={form.tipo_pessoa==='PJ'?'00.000.000/0000-00':'000.000.000-00'} style={{...inp,fontFamily:"monospace"}}/>
-                {form.tipo_pessoa==='PJ'&&<button onClick={buscarCNPJ} disabled={cnpjLoading} style={{padding:"0 12px",borderRadius:6,background:B+"15",color:B,border:`1px solid ${B}40`,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{cnpjLoading?"...":"🔍 Buscar"}</button>}
-              </div></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Código</div>
-              <input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value})} style={{...inp,fontFamily:"monospace"}}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>IE</div>
-              <input value={form.ie} onChange={e=>setForm({...form,ie:e.target.value})} style={inp}/></div>
-            <div style={{gridColumn:"span 2"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Razão Social / Nome *</div>
-              <input value={form.razao_social} onChange={e=>setForm({...form,razao_social:e.target.value})} style={inp}/></div>
-            <div style={{gridColumn:"span 2"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Nome Fantasia</div>
-              <input value={form.nome_fantasia} onChange={e=>setForm({...form,nome_fantasia:e.target.value})} style={inp}/></div>
-          </div>
-
-          {/* Contato */}
-          <div style={{fontSize:11,fontWeight:600,color:B,marginBottom:8}}>📱 Contato</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Telefone</div>
-              <input value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} placeholder="(00) 0000-0000" style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Celular / WhatsApp</div>
-              <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="(00) 00000-0000" style={inp}/></div>
-            <div style={{gridColumn:"span 2"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Email</div>
-              <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="contato@empresa.com.br" style={inp}/></div>
-          </div>
-
-          {/* Endereço */}
-          <div style={{fontSize:11,fontWeight:600,color:P,marginBottom:8}}>📍 Endereço</div>
-          <div style={{display:"grid",gridTemplateColumns:"120px 1fr 80px 1fr",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>CEP</div>
-              <div style={{display:"flex",gap:4}}>
-                <input value={form.cep} onChange={e=>setForm({...form,cep:e.target.value})} placeholder="00000-000" style={{...inp,fontFamily:"monospace"}}/>
-                <button onClick={buscarCEP} disabled={cepLoading} style={{padding:"0 8px",borderRadius:6,background:B+"15",color:B,border:`1px solid ${B}40`,fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>{cepLoading?"...":"🔍"}</button>
-              </div></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Logradouro</div>
-              <input value={form.logradouro} onChange={e=>setForm({...form,logradouro:e.target.value})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Número</div>
-              <input value={form.numero} onChange={e=>setForm({...form,numero:e.target.value})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Complemento</div>
-              <input value={form.complemento} onChange={e=>setForm({...form,complemento:e.target.value})} style={inp}/></div>
-            <div style={{gridColumn:"span 2"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Bairro</div>
-              <input value={form.bairro} onChange={e=>setForm({...form,bairro:e.target.value})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Cidade</div>
-              <input value={form.cidade} onChange={e=>setForm({...form,cidade:e.target.value})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>UF</div>
-              <input value={form.uf} onChange={e=>setForm({...form,uf:e.target.value.toUpperCase().slice(0,2)})} style={{...inp,textAlign:"center",fontWeight:600}}/></div>
-          </div>
-
-          {/* Comercial */}
-          <div style={{fontSize:11,fontWeight:600,color:G,marginBottom:8}}>💰 Comercial</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Limite de Crédito (R$)</div>
-              <input type="number" step="0.01" value={form.limite_credito||''} onChange={e=>setForm({...form,limite_credito:parseFloat(e.target.value)||0})} style={{...inp,color:G,fontWeight:600}}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Cond. Pagamento Padrão</div>
-              <select value={form.condicao_pagamento_padrao} onChange={e=>setForm({...form,condicao_pagamento_padrao:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                <option value="">—</option>{CONDS_PGTO.map(c=><option key={c} value={c}>{c}</option>)}
-              </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Prazo Médio (dias)</div>
-              <input type="number" value={form.prazo_medio_dias||''} onChange={e=>setForm({...form,prazo_medio_dias:parseInt(e.target.value)||0})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Vendedor</div>
-              <input value={form.vendedor_nome} onChange={e=>setForm({...form,vendedor_nome:e.target.value})} style={inp}/></div>
-          </div>
-
-          {/* Segmentação */}
-          <div style={{fontSize:11,fontWeight:600,color:T,marginBottom:8}}>🏷️ Segmentação</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Segmento</div>
-              <select value={form.segmento} onChange={e=>setForm({...form,segmento:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                <option value="">—</option>{SEGMENTOS.map(s=><option key={s} value={s}>{s}</option>)}
-              </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Origem (Como nos conheceu)</div>
-              <select value={form.origem} onChange={e=>setForm({...form,origem:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                <option value="">—</option>{ORIGENS.map(o=><option key={o} value={o}>{o}</option>)}
-              </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Regime Tributário</div>
-              <select value={form.regime_tributario} onChange={e=>setForm({...form,regime_tributario:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                <option value="">—</option>{REGIMES.map(r=><option key={r} value={r}>{r}</option>)}
-              </select></div>
-            <div style={{gridColumn:"span 3"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Tags</div>
-              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                {TAGS_DISPONIVEIS.map(tag=>{
-                  const on=(form.tags||[]).includes(tag);
-                  return(<button key={tag} onClick={()=>{const cur=form.tags||[];setForm({...form,tags:on?cur.filter(t=>t!==tag):[...cur,tag]});}} style={{padding:"4px 10px",borderRadius:12,fontSize:10,border:`1px solid ${on?GO:BD}`,background:on?GO+"15":"transparent",color:on?GO:TXM,cursor:"pointer",fontWeight:on?600:400}}>{on?"✓ ":""}{tag}</button>);
-                })}
-              </div></div>
-          </div>
-
-          {/* Observações */}
-          <div style={{marginBottom:16}}>
-            <div style={{fontSize:10,color:TXD,marginBottom:3}}>Observações</div>
-            <textarea value={form.observacoes} onChange={e=>setForm({...form,observacoes:e.target.value})} rows={2} style={{...inp,resize:"vertical"}} placeholder="Observações gerais sobre o cliente..."/>
-          </div>
-
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditing(null);}} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
-            <button onClick={salvar} style={{padding:"10px 24px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:"pointer"}}>{editing?"Salvar":"Cadastrar"}</button>
-          </div>
+          <ClienteForm
+            companyId={editing?editing.company_id:companyIdParaCadastro}
+            initial={editing ?? {codigo:String(clientes.length+1).padStart(4,'0')}}
+            onSaved={()=>{setShowForm(false);setEditing(null);setMsg("✅ Cliente salvo!");loadClientes();setTimeout(()=>setMsg(""),3000);}}
+            onCancel={()=>{setShowForm(false);setEditing(null);}}
+          />
         </div>
       )}
 
