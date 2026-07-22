@@ -32,6 +32,7 @@ type Resultado = {
   numero_documento: string | null
   forma_pagamento: string | null
   parcela: string | null
+  observacoes: string | null
 }
 
 type KpiBlock = { valor: number; qtd: number }
@@ -772,7 +773,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 ⛓ {r.parcela}
                               </span>
                             )}
+                            {r.observacoes && r.observacoes.trim() !== '' && (
+                              <span style={{ fontSize: 12, cursor: 'help' }} title={r.observacoes}>📝</span>
+                            )}
                           </div>
+                          {r.observacoes && r.observacoes.trim() !== '' && (
+                            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', fontStyle: 'italic', marginTop: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                              {r.observacoes}
+                            </div>
+                          )}
                           {r.numero_documento && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
                           )}
