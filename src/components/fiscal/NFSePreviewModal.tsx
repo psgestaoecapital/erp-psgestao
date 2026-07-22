@@ -131,7 +131,9 @@ export default function NFSePreviewModal(props: Props) {
         }),
       })
       const json = (await r.json()) as RespostaEmissao
-      if (!r.ok || !json.ok) {
+      // 'processando_autorizacao' NÃO é erro: a nota foi enviada e aguarda a prefeitura.
+      // Só trata como erro quando não é processando (rejeição real / falha HTTP).
+      if ((!r.ok || !json.ok) && json.status !== 'processando') {
         setErro(json.mensagem ?? json.motivoRejeicao ?? 'Erro ao emitir')
         setStatus('rejeitada')
         return

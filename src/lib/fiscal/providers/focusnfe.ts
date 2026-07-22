@@ -210,8 +210,6 @@ export class FocusNFeProvider implements FiscalProvider {
     // codigo_municipio_emissora, data_competencia, opção/regime Simples Nacional.
     if (req.padraoNacional) {
       const nacional = buildNacionalNFSePayload(req)
-      // [NFSE_NACIONAL_POST] TEMPORÁRIO — loga o JSON exato enviado ao Focus /v2/nfsen (sem dado sensível de auth).
-      console.log('[NFSE_NACIONAL_POST]', JSON.stringify(nacional))
       const data = await this.request<FocusNFeNFSeResponse>(
         'POST',
         `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
@@ -266,11 +264,20 @@ export class FocusNFeProvider implements FiscalProvider {
   }
 
   async consultarNFSe(referenceOrNumero: string): Promise<NFSeResponse> {
-    const data = await this.request<FocusNFeNFSeResponse>(
-      'GET',
-      `/v2/nfse/${encodeURIComponent(referenceOrNumero)}`
-    )
-    return this.mapFocusNFSeResponse(referenceOrNumero, data)
+    const enc = encodeURIComponent(referenceOrNumero)
+    // NFSe Nacional (/v2/nfsen) primeiro — é onde as notas de municípios aderidos são registradas.
+    // Se o Focus não achar lá (nota municipal antiga), cai no /v2/nfse. Sem isso, notas nacionais
+    // ficavam eternamente 'processando' (o consultar batia no endpoint errado).
+    try {
+      const data = await this.request<FocusNFeNFSeResponse>('GET', `/v2/nfsen/${enc}`)
+      return this.mapFocusNFSeResponse(referenceOrNumero, data)
+    } catch (err) {
+      if (err instanceof FiscalError && err.code === 'CHAVE_NAO_ENCONTRADA') {
+        const data = await this.request<FocusNFeNFSeResponse>('GET', `/v2/nfse/${enc}`)
+        return this.mapFocusNFSeResponse(referenceOrNumero, data)
+      }
+      throw err
+    }
   }
 
   async cancelarNFSe(referenceOrNumero: string, justificativa: string): Promise<NFSeResponse> {

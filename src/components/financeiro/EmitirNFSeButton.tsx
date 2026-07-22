@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText } from 'lucide-react'
+import { FileText, Download, FileCode } from 'lucide-react'
 import NFSePreviewModal from '@/components/fiscal/NFSePreviewModal'
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   valor?: number
   jaEmitida?: boolean
   processando?: boolean
+  pdfUrl?: string
+  xmlUrl?: string
   onSucesso?: () => void
 }
 
@@ -18,12 +20,29 @@ export default function EmitirNFSeButton(props: Props) {
   const [open, setOpen] = useState(false)
 
   if (props.jaEmitida) {
+    // Autorizada: chip + segunda via (PDF/XML) — só expõe o que já está no banco.
     return (
-      <span
-        className="inline-flex items-center gap-1 text-[10.5px] text-[#3F7012] font-medium px-2 py-0.5 rounded-full bg-[#E8F4DC]"
-        title="NFSe ja emitida"
-      >
-        <FileText size={11} /> NFSe OK
+      <span className="inline-flex items-center gap-1.5 flex-wrap">
+        <span
+          className="inline-flex items-center gap-1 text-[10.5px] text-[#3F7012] font-medium px-2 py-0.5 rounded-full bg-[#E8F4DC]"
+          title="NFSe ja emitida"
+        >
+          <FileText size={11} /> NFSe OK
+        </span>
+        {props.pdfUrl && (
+          <a href={props.pdfUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[10.5px] font-medium px-2 py-0.5 rounded-md border border-[#C8941A]/40 text-[#633806] bg-[#C8941A]/8 hover:bg-[#C8941A]/15 transition-colors"
+            title="Baixar PDF da NFSe">
+            <Download size={10} /> PDF
+          </a>
+        )}
+        {props.xmlUrl && (
+          <a href={props.xmlUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[10.5px] font-medium px-2 py-0.5 rounded-md border border-[#3D2314]/20 text-[#3D2314]/70 hover:bg-[#3D2314]/5 transition-colors"
+            title="Baixar XML da NFSe">
+            <FileCode size={10} /> XML
+          </a>
+        )}
       </span>
     )
   }
