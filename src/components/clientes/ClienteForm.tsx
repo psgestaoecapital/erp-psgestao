@@ -86,6 +86,17 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
     if (!form.razao_social?.trim()) { setMsg("❌ Razão Social / Nome é obrigatório."); return; }
     if (!companyId) { setMsg("❌ Empresa não definida."); return; }
     setSaving(true);
+    // IBGE obrigatório na NF nacional: se tem CEP e o IBGE ainda não foi preenchido (usuário pode não ter
+    // clicado no 🔍), busca automaticamente no submit via ViaCEP. Garante que nunca salva sem o código.
+    let ibgeFinal = (form.codigo_ibge_municipio ?? '').trim();
+    const cepDigits = (form.cep || '').replace(/\D/g, '');
+    if (!ibgeFinal && cepDigits.length === 8) {
+      try {
+        const r = await fetch(`/api/cep-lookup?cep=${cepDigits}`);
+        const d = await r.json();
+        if (d?.ibge) ibgeFinal = String(d.ibge);
+      } catch { /* sem rede — segue; o guard fiscal avisa na emissão */ }
+    }
     // Whitelist explícita — não gravar colunas computadas/readonly (score, timestamps, totais) que vêm no `initial` da edição.
     const dados: Record<string, unknown> = {
       company_id: initial?.company_id ?? companyId,
@@ -93,7 +104,7 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
       tipo_pessoa: form.tipo_pessoa ?? 'PJ', cpf_cnpj: (form.cpf_cnpj || '').replace(/\D/g, ''), ie: form.ie ?? '',
       telefone: form.telefone ?? '', whatsapp: form.whatsapp ?? '', email: form.email ?? '',
       cep: form.cep ?? '', logradouro: form.logradouro ?? '', numero: form.numero ?? '', complemento: form.complemento ?? '',
-      bairro: form.bairro ?? '', cidade: form.cidade ?? '', uf: form.uf ?? '', codigo_ibge_municipio: form.codigo_ibge_municipio ?? '',
+      bairro: form.bairro ?? '', cidade: form.cidade ?? '', uf: form.uf ?? '', codigo_ibge_municipio: ibgeFinal,
       limite_credito: Number(form.limite_credito) || 0, condicao_pagamento_padrao: form.condicao_pagamento_padrao ?? '',
       prazo_medio_dias: Number(form.prazo_medio_dias) || 0, vendedor_nome: form.vendedor_nome ?? '',
       origem: form.origem ?? '', tags: form.tags ?? [], segmento: form.segmento ?? '', regime_tributario: form.regime_tributario ?? '',
@@ -180,8 +191,11 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
           <input value={form.cidade} onChange={(e) => set("cidade", e.target.value)} style={inp} /></div>
         <div><div style={lbl}>UF</div>
           <input value={form.uf} onChange={(e) => set("uf", e.target.value.toUpperCase().slice(0, 2))} style={{ ...inp, textAlign: "center", fontWeight: 600 }} /></div>
-        <div><div style={lbl}>Cód. IBGE município</div>
-          <input value={form.codigo_ibge_municipio} readOnly placeholder="via CEP" style={{ ...inp, fontFamily: "monospace", color: form.codigo_ibge_municipio ? G : TXD }} /></div>
+        <div><div style={lbl}>Cód. IBGE município (NF)</div>
+          <input value={form.codigo_ibge_municipio} readOnly placeholder="via CEP" style={{ ...inp, fontFamily: "monospace", color: form.codigo_ibge_municipio ? G : R, borderColor: form.codigo_ibge_municipio ? BD : R }} />
+          <div style={{ fontSize: 9, marginTop: 2, color: form.codigo_ibge_municipio ? G : R }}>
+            {form.codigo_ibge_municipio ? `✓ ${form.cidade || ''}${form.uf ? '/' + form.uf : ''}` : 'obrigatório na NF — preenche pelo CEP (🔍) ou ao salvar'}
+          </div></div>
       </div>
 
       <div style={{ ...sec, color: G }}>💰 Comercial</div>
