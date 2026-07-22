@@ -48,6 +48,7 @@ export interface NFSeRequest {
   codigoNbs?: string              // código NBS do serviço (obrigatório no layout nacional)
   opcaoSimplesNacional?: number   // 1=Não optante · 2=MEI · 3=ME/EPP
   regimeApuracaoSN?: number       // regime_tributario_simples_nacional (1/2/3)
+  percentualTribSN?: number       // percentual_total_tributos_simples_nacional (totTrib p/ ME/EPP)
 }
 
 export interface NFSeResponse {

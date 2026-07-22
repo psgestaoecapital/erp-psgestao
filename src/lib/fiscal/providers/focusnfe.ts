@@ -63,9 +63,15 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     regime_especial_tributacao: 0,
     regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
   }
-  // Focus E0712: para ME/EPP (opção 3) o indicador de total de tributos NÃO pode ser informado — omite.
-  // Só envia quando NÃO é ME/EPP optante.
-  if (opc !== 3) p.indicador_total_tributacao = '0'
+  // totTrib (grupo trib exige tribFed OU totTrib):
+  //  - ME/EPP (opção 3): usa percentual_total_tributos_simples_nacional (E0712 proíbe indicador_total_tributacao).
+  //  - demais: usa indicador_total_tributacao.
+  // (doc Focus · exemplo Blumenau/SC usa percentual_total_tributos_simples_nacional p/ SN.)
+  if (opc === 3) {
+    if (req.percentualTribSN != null) p.percentual_total_tributos_simples_nacional = req.percentualTribSN
+  } else {
+    p.indicador_total_tributacao = '0'
+  }
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()

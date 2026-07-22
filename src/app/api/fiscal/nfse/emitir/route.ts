@@ -272,13 +272,14 @@ export const POST = withAuth(async (req: NextRequest) => {
           nfseReq.padraoNacional = true
           const { data: snCfg } = await supabaseAdmin
             .from('erp_fiscal_provider_config')
-            .select('opcao_simples_nacional, regime_apuracao_sn')
+            .select('opcao_simples_nacional, regime_apuracao_sn, percentual_total_tributos_sn')
             .eq('company_id', body.companyId)
             .eq('provider', 'focusnfe')
             .eq('ativo', true)
             .maybeSingle()
           nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
           nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
+          if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
           // codigo_nbs do serviço (opcional — só enviado se preenchido)
           if (body.servicoId) {
             const { data: sv } = await supabaseAdmin
