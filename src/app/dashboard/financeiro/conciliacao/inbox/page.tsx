@@ -31,6 +31,9 @@ interface Item {
   sugestao_contraparte: string | null
   sugestao_score: number | null
   sugestao_categoria: string | null
+  // dupla-identificacao-v1: exato | ambiguo | revisar | quase_la | fraco
+  sugestao_qualidade: string | null
+  sugestao_qtd_candidatos: number | null
 }
 
 interface Conciliado {
@@ -112,6 +115,21 @@ function seloPrecisao(score?: number | null) {
 
 function iconeOrigem(o?: string | null): string {
   return o === 'auto' ? '🤖 automático' : '👤 manual'
+}
+
+// dupla-identificacao-v1: selo de QUALIDADE do match (dupla identificação · RD-51).
+// 'exato' auto-concilia; 'ambiguo' (empate) e 'revisar' (sem identificação) exigem humano.
+function badgeQualidade(q?: string | null, qtd?: number | null): { label: string; cor: string; bg: string; forcaEscolha: boolean } | null {
+  switch (q) {
+    case 'ambiguo':
+      return { label: `⚖️ EM DISPUTA · ${qtd ?? 2} candidatos`, cor: '#B23A00', bg: '#FBE9DE', forcaEscolha: true }
+    case 'revisar':
+      return { label: '🔎 REVISAR · confirme a identidade', cor: '#8A5A00', bg: '#FBEED2', forcaEscolha: false }
+    case 'exato':
+      return { label: '✅ IDENTIFICADO · único', cor: '#1B873F', bg: '#E7F4EC', forcaEscolha: false }
+    default:
+      return null
+  }
 }
 
 // Sugestao_score do fn_conciliacao_inbox vem como 0-1 (legado). Normaliza para 0-100.
@@ -966,6 +984,15 @@ export default function InboxPage() {
                             {selo.emoji} {selo.label} · {scoreParaPercent(it.sugestao_score)}%
                           </span>
                         )}
+                        {/* dupla-identificacao-v1: selo de qualidade (dupla identificação) */}
+                        {(() => {
+                          const bq = badgeQualidade(it.sugestao_qualidade, it.sugestao_qtd_candidatos)
+                          return bq ? (
+                            <span style={{ display: 'inline-block', marginLeft: 6, background: bq.bg, color: bq.cor, padding: '2px 8px', borderRadius: 8, fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                              {bq.label}
+                            </span>
+                          ) : null
+                        })()}
                         {temSugestao ? (
                           <>
                             <div style={{ fontSize: 13, color: '#3D2314', marginBottom: 2 }}>
@@ -994,14 +1021,27 @@ export default function InboxPage() {
                         {expandidos.has(it.movimento_id) ? '▲ Recolher' : '▼ Ver opções'}
                       </button>
                       {temSugestao && (
-                        <>
-                          <button onClick={() => rejeitar(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
-                            Não é essa
+                        it.sugestao_qualidade === 'ambiguo' ? (
+                          // Empate: nunca concilia no escuro. Só permite ESCOLHER entre os candidatos.
+                          <button
+                            onClick={() => void toggleExpandir(it)}
+                            disabled={aplicando}
+                            style={primaryBtnLoad(aplicando)}
+                            data-testid="conc-escolher-ambiguo"
+                            title="Há mais de um título com este mesmo valor e data. Escolha o correto."
+                          >
+                            ⚖️ Escolher entre {it.sugestao_qtd_candidatos ?? 2}
                           </button>
-                          <button onClick={() => aplicarMatch(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>
-                            {aplicando ? 'Conciliando…' : 'Conciliar'}
-                          </button>
-                        </>
+                        ) : (
+                          <>
+                            <button onClick={() => rejeitar(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
+                              Não é essa
+                            </button>
+                            <button onClick={() => aplicarMatch(it)} disabled={aplicando} style={primaryBtnLoad(aplicando)}>
+                              {aplicando ? 'Conciliando…' : (it.sugestao_qualidade === 'revisar' ? 'Confirmar e conciliar' : 'Conciliar')}
+                            </button>
+                          </>
+                        )
                       )}
                     </div>
 
@@ -1034,8 +1074,13 @@ export default function InboxPage() {
                                       </span>
                                     </div>
                                     <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>
-                                      {sug.lancamento_tabela} · {fmtDate(sug.data_lancamento)} · R$ {fmt(sug.valor_lancamento)}
+                                      {sug.lancamento_tabela} · venc {fmtDate(sug.data_lancamento)} · R$ {fmt(sug.valor_lancamento)}
                                     </div>
+                                    {sug.descricao_lancamento && (
+                                      <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', marginTop: 2, wordBreak: 'break-word' }}>
+                                        {sug.descricao_lancamento}
+                                      </div>
+                                    )}
                                   </div>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button onClick={() => void rejeitarSugestao(it.movimento_id, sug)} disabled={aplicando} style={secondaryBtn(aplicando)}>Não é essa</button>
