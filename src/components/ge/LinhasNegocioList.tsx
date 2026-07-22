@@ -55,16 +55,16 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
 
   async function load() {
     setLoading(true)
-    // ⚠ linhas_negocio usa empresa_id (não company_id)
-    const { data: ldnsData } = await supabase
-      .from('linhas_negocio')
-      .select('id, nome, descricao, cor, ordem, ativo')
-      .eq('empresa_id', companyId)
-      .order('ordem', { nullsFirst: false })
-      .order('nome')
+    // RD-52: business_lines é a fonte da verdade (o agro lê daqui). Mapeia p/ o shape LDN da tela.
+    const { data: blData } = await supabase
+      .from('business_lines')
+      .select('id, name, descricao, cor, ln_number, is_active')
+      .eq('company_id', companyId)
+      .order('ln_number', { nullsFirst: false })
 
-    if (ldnsData) {
-      setLdns(ldnsData as LDN[])
+    if (blData) {
+      setLdns((blData as { id: string; name: string; descricao: string | null; cor: string | null; ln_number: number | null; is_active: boolean | null }[])
+        .map((b) => ({ id: b.id, nome: b.name, descricao: b.descricao ?? null, cor: b.cor ?? null, ordem: b.ln_number ?? null, ativo: b.is_active ?? true })))
       const { data: budgetsData } = await supabase
         .from('linhas_negocio_budget')
         .select('linha_id, receita_budget, despesa_budget')
@@ -95,12 +95,22 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
     }
     setSalvandoLdn(true)
     setErroLdn(null)
-    const { error } = await supabase.from('linhas_negocio').insert({
-      empresa_id: companyId,
-      nome: novoNome.trim(),
+    // RD-52: grava em business_lines. ln_number é obrigatório (1..12, único por empresa) —
+    // escolhe o menor livre.
+    const usados = new Set(ldns.map((l) => l.ordem).filter((n): n is number => typeof n === 'number'))
+    let prox = 1
+    while (prox <= 12 && usados.has(prox)) prox++
+    if (prox > 12) {
+      setErroLdn('Limite de 12 divisões por empresa atingido.')
+      setSalvandoLdn(false)
+      return
+    }
+    const { error } = await supabase.from('business_lines').insert({
+      company_id: companyId,
+      name: novoNome.trim(),
       cor: novaCor,
-      ativo: true,
-      ordem: ldns.length + 1,
+      is_active: true,
+      ln_number: prox,
     })
     setSalvandoLdn(false)
     if (error) {
@@ -114,7 +124,8 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
   }
 
   async function handleToggleAtivo(ldn: LDN) {
-    await supabase.from('linhas_negocio').update({ ativo: !ldn.ativo }).eq('id', ldn.id)
+    // RD-52: business_lines usa is_active
+    await supabase.from('business_lines').update({ is_active: !ldn.ativo }).eq('id', ldn.id)
     load()
   }
 
