@@ -46,7 +46,40 @@ export default function AreasPropriedadePage() {
   const [f, setF] = useState<typeof vazio>({ ...vazio })
   const [editId, setEditId] = useState<string | null>(null)
 
+  // seleção múltipla + atribuição em lote (destrava cadastro de dezenas de piquetes)
+  const [selec, setSelec] = useState<Set<string>>(new Set())
+  const [blLote, setBlLote] = useState<string>('')
+
   const blNome = useCallback((id: string | null) => id ? (bls.find((b) => b.id === id)?.name ?? '—') : '— não alocada', [bls])
+
+  function toggleSel(id: string) {
+    setSelec((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  function selecTodas(ids: string[], marcar: boolean) {
+    setSelec((prev) => {
+      const n = new Set(prev)
+      for (const id of ids) marcar ? n.add(id) : n.delete(id)
+      return n
+    })
+  }
+
+  async function atribuirLoteBL() {
+    if (!empresaUnica || selec.size === 0) return
+    setBusy(true); setMsg(null)
+    // business_line_id vazio = desalocar (comum). Update em lote; RLS garante só a própria empresa.
+    const { error } = await supabase
+      .from('erp_propriedade_area')
+      .update({ business_line_id: blLote || null })
+      .in('id', Array.from(selec))
+      .eq('company_id', empresaUnica)
+    if (error) setMsg('Erro na atribuição em lote: ' + error.message)
+    else {
+      setMsg(`${selec.size} área(s) → ${blLote ? (bls.find((b) => b.id === blLote)?.name ?? 'linha') : 'não alocada'}.`)
+      setSelec(new Set())
+      await carregar()
+    }
+    setBusy(false)
+  }
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -151,14 +184,44 @@ export default function AreasPropriedadePage() {
 
           <div style={{ ...card, marginTop: 16 }}>
             <div style={{ fontWeight: 700, marginBottom: 10 }}>Áreas ({areas.length}) · total {fmtNum(resumo.total)} ha</div>
+
+            {/* atribuição em lote — destrava alocar dezenas de áreas de uma vez */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: 10, background: '#FBF7EF', border: `1px solid ${LINE}`, borderRadius: 8 }}>
+              <span style={{ fontSize: 12, color: ESP60 }}>Selecionar por uso:</span>
+              {USOS.filter((u) => areas.some((a) => a.uso === u)).map((u) => (
+                <button key={u} onClick={() => selecTodas(areas.filter((a) => a.uso === u).map((a) => a.id), true)} style={{ ...chip, background: '#EDE5D6', color: ESP }}>
+                  todas {u}
+                </button>
+              ))}
+              <span style={{ flex: 1 }} />
+              <b style={{ fontSize: 12, color: selec.size ? ESP : ESP60 }}>{selec.size} selecionada(s)</b>
+              <select style={{ ...inp, width: 200, marginTop: 0 }} value={blLote} onChange={(e) => setBlLote(e.target.value)}>
+                <option value="">— não alocada (comum) —</option>
+                {bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <button onClick={() => void atribuirLoteBL()} disabled={busy || selec.size === 0} style={{ ...btnPri, opacity: selec.size === 0 ? 0.5 : 1 }}>
+                Atribuir linha aos {selec.size} selecionados
+              </button>
+              {selec.size > 0 && <button onClick={() => setSelec(new Set())} style={btnSec}>Limpar</button>}
+            </div>
+
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
+                  <th style={{ ...th, textAlign: 'center' }}>
+                    <input type="checkbox"
+                      checked={areas.length > 0 && areas.every((a) => selec.has(a.id))}
+                      onChange={(e) => selecTodas(areas.map((a) => a.id), e.target.checked)}
+                      aria-label="Selecionar todas" />
+                  </th>
                   <th style={th}>Nome</th><th style={th}>Uso</th><th style={{ ...th, textAlign: 'right' }}>ha</th><th style={th}>Linha</th><th style={th}>Posse</th><th style={{ ...th, textAlign: 'center' }}>Rateio</th><th style={th}></th>
                 </tr></thead>
                 <tbody>
                   {areas.map((a) => (
-                    <tr key={a.id} style={{ borderTop: `1px solid ${LINE}` }}>
+                    <tr key={a.id} style={{ borderTop: `1px solid ${LINE}`, background: selec.has(a.id) ? '#FBF3E0' : 'transparent' }}>
+                      <td style={{ ...td, textAlign: 'center' }}>
+                        <input type="checkbox" checked={selec.has(a.id)} onChange={() => toggleSel(a.id)} aria-label={`Selecionar ${a.nome}`} />
+                      </td>
                       <td style={td}>{a.nome}</td>
                       <td style={td}>{a.uso}{IMPRODUTIVOS.includes(a.uso) && <span style={{ color: ESP60 }}> (improd.)</span>}</td>
                       <td style={{ ...td, textAlign: 'right' }}>{fmtNum(a.area_ha)}</td>
@@ -168,7 +231,7 @@ export default function AreasPropriedadePage() {
                       <td style={td}><button onClick={() => editar(a)} style={linkBtn}>editar</button></td>
                     </tr>
                   ))}
-                  {areas.length === 0 && <tr><td style={td} colSpan={7}>Nenhuma área cadastrada.</td></tr>}
+                  {areas.length === 0 && <tr><td style={td} colSpan={8}>Nenhuma área cadastrada.</td></tr>}
                 </tbody>
               </table>
             </div>
