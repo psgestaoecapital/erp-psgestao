@@ -52,12 +52,13 @@ export async function buildNFSeFromReceber(opts: {
     uf?: string | null
     cep?: string | null
     codigo_ibge_municipio?: string | null
+    complemento?: string | null
   } | null = null
 
   if (rec.cliente_id) {
     const { data } = await supabaseAdmin
       .from('erp_clientes')
-      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, codigo_ibge_municipio')
+      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, codigo_ibge_municipio, complemento')
       .eq('id', rec.cliente_id)
       .maybeSingle()
     cliente = data ?? null
@@ -95,6 +96,7 @@ export async function buildNFSeFromReceber(opts: {
         ? {
             logradouro: cliente.logradouro,
             numero: cliente.numero ?? undefined,
+            complemento: cliente.complemento ?? undefined,
             bairro: cliente.bairro ?? '',
             cidade: cliente.cidade ?? '',
             uf: cliente.uf ?? '',

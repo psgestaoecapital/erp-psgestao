@@ -57,8 +57,10 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     valor_servico: req.valorServicos,
     tributacao_iss: 1,
     tipo_retencao_iss: req.retemIss ? 2 : 1,
-    // Simples Nacional: opção + regime + indicador (substituem percentual_total_tributos_simples_nacional).
+    // Grupo regTrib (Simples Nacional): opção + regEspTrib + regime + indicador.
+    // regime_especial_tributacao (regEspTrib) é EXIGIDO pelo XSD dentro do grupo regTrib (0 = Nenhum · SN).
     codigo_opcao_simples_nacional: opc,
+    regime_especial_tributacao: 0,
     regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
     indicador_total_tributacao: '0',
   }
@@ -66,7 +68,7 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
   }
-  // Tomador COMPLETO (obrigatório no layout nacional).
+  // Tomador COMPLETO. ORDEM sensível ao XSD (endereço): cMun → cep → logradouro → numero → complemento → bairro.
   const docTom = (req.tomador.cnpj ?? req.tomador.cpf ?? '').replace(/\D/g, '')
   if (docTom.length === 14) p.cnpj_tomador = docTom
   else if (docTom.length === 11) p.cpf_tomador = docTom
@@ -78,6 +80,7 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     if (end.cep) p.cep_tomador = String(end.cep).replace(/\D/g, '')
     if (end.logradouro) p.logradouro_tomador = end.logradouro
     if (end.numero) p.numero_tomador = end.numero
+    if (end.complemento) p.complemento_tomador = end.complemento
     if (end.bairro) p.bairro_tomador = end.bairro
   }
   return p
