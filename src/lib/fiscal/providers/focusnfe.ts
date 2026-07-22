@@ -57,13 +57,15 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     valor_servico: req.valorServicos,
     tributacao_iss: 1,
     tipo_retencao_iss: req.retemIss ? 2 : 1,
-    // Grupo regTrib (Simples Nacional): opção + regEspTrib + regime + indicador.
+    // Grupo regTrib (Simples Nacional): opção + regEspTrib + regime.
     // regime_especial_tributacao (regEspTrib) é EXIGIDO pelo XSD dentro do grupo regTrib (0 = Nenhum · SN).
     codigo_opcao_simples_nacional: opc,
     regime_especial_tributacao: 0,
     regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
-    indicador_total_tributacao: '0',
   }
+  // Focus E0712: para ME/EPP (opção 3) o indicador de total de tributos NÃO pode ser informado — omite.
+  // Só envia quando NÃO é ME/EPP optante.
+  if (opc !== 3) p.indicador_total_tributacao = '0'
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
