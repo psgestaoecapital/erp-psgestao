@@ -152,21 +152,6 @@ export const POST = withAuth(async (req: NextRequest) => {
       )
     }
 
-    // [NFSE_DEBUG] TEMPORÁRIO (remover após achar o valor) — rastreia qual código o payload leva.
-    // Fica ANTES do validate: se o guard ^\d{6}$ barrar, ainda assim logamos o valor cru.
-    {
-      const s = dadosRpc?.servico as Record<string, unknown> | undefined
-      console.log('[NFSE_DEBUG]', JSON.stringify({
-        servicoId_recebido: body?.servicoId ?? null,
-        erpReceberId: body?.erpReceberId ?? null,
-        rpc_codigo_servico_municipio: s?.codigo_servico_municipio ?? null,
-        rpc_codigo_lc116: s?.codigo_lc116 ?? null,
-        rpc_codigo_tributacao_nacional_iss: s?.codigo_tributacao_nacional_iss ?? null,
-        override_codigoServico: servicoOverride?.codigoServico ?? null,
-        codigoServico_final_no_payload: nfseReq?.codigoServico ?? null,
-      }))
-    }
-
     validateNFSeRequest(nfseReq)
 
     // (a) IDEMPOTÊNCIA FISCAL — nunca emitir 2ª nota p/ o MESMO tomador+valor+competência
@@ -215,14 +200,6 @@ export const POST = withAuth(async (req: NextRequest) => {
       .eq('company_id', body.companyId)
       .eq('ativo', true)
       .maybeSingle()
-
-    // [NFSE_DEBUG] TEMPORÁRIO — qual config foi carregada em runtime + o código que vai no POST.
-    console.log('[NFSE_DEBUG] provider', JSON.stringify({
-      provider: providerCfg?.provider ?? null,
-      provider_config_id: providerCfg?.id ?? null,
-      ambiente: providerCfg?.ambiente ?? null,
-      codigoServico_que_vai_ao_provider: nfseReq?.codigoServico ?? null,
-    }))
 
     if (providerCfg?.provider === 'gov_nfse_nacional') {
       const authHeader = req.headers.get('authorization') ?? ''
@@ -280,6 +257,41 @@ export const POST = withAuth(async (req: NextRequest) => {
     }
 
     // Default · Focus NFe (provider='focusnfe' ou nao configurado)
+    // NFSe NACIONAL VIA FOCUS: se o município do prestador aderiu (erp_gov_nfse_municipios.aderido),
+    // emite no layout nacional pelo endpoint /v2/nfsen (não migra pro gov.br direto). Carrega opção/regime
+    // do Simples Nacional e a numeração atômica da DPS.
+    {
+      const muni = String(nfseReq.prestador.codigoMunicipio ?? '').replace(/\D/g, '')
+      if (muni.length === 7) {
+        const { data: m } = await supabaseAdmin
+          .from('erp_gov_nfse_municipios')
+          .select('aderido')
+          .eq('codigo_ibge', muni)
+          .maybeSingle()
+        if (m?.aderido) {
+          nfseReq.padraoNacional = true
+          const { data: snCfg } = await supabaseAdmin
+            .from('erp_fiscal_provider_config')
+            .select('opcao_simples_nacional, regime_apuracao_sn')
+            .eq('company_id', body.companyId)
+            .eq('provider', 'focusnfe')
+            .eq('ativo', true)
+            .maybeSingle()
+          nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
+          nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
+          // codigo_nbs do serviço (obrigatório no layout nacional /v2/nfsen)
+          if (body.servicoId) {
+            const { data: sv } = await supabaseAdmin
+              .from('erp_servicos')
+              .select('codigo_nbs')
+              .eq('id', body.servicoId)
+              .maybeSingle()
+            if (sv?.codigo_nbs) nfseReq.codigoNbs = String(sv.codigo_nbs)
+          }
+        }
+      }
+    }
+
     const svc = await createFiscalService(body.companyId)
     const resposta = await svc.emitirNFSe(nfseReq)
 

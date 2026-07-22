@@ -33,6 +33,56 @@ const BASE_URLS: Record<FiscalAmbiente, FocusNFeBaseUrl> = {
   producao: 'https://api.focusnfe.com.br',
 }
 
+// ── NFSe Nacional (Focus POST /v2/nfsen) ────────────────────────────────────────────────
+// Layout do padrão nacional (doc Focus · exemplos Lages/SC e Porto Feliz/SP), pra a
+// emissão VIA FOCUS (município aderido) em vez do /v2/nfse municipal.
+function isoBrasilia(d: Date = new Date()): string {
+  const sp = new Date(d.getTime() - 3 * 60 * 60 * 1000)
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${sp.getUTCFullYear()}-${p(sp.getUTCMonth() + 1)}-${p(sp.getUTCDate())}T${p(sp.getUTCHours())}:${p(sp.getUTCMinutes())}:${p(sp.getUTCSeconds())}-03:00`
+}
+function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
+  const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
+  const opc = req.opcaoSimplesNacional ?? 3
+  const emissao = isoBrasilia()
+  const p: Record<string, unknown> = {
+    // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
+    data_emissao: emissao,
+    data_competencia: emissao.split('T')[0],
+    codigo_municipio_emissora: muni,
+    codigo_municipio_prestacao: muni,
+    cnpj_prestador: req.prestador.cnpj.replace(/\D/g, ''),
+    codigo_tributacao_nacional_iss: req.codigoServico,
+    descricao_servico: req.descricaoServico,
+    valor_servico: req.valorServicos,
+    tributacao_iss: 1,
+    tipo_retencao_iss: req.retemIss ? 2 : 1,
+    // Simples Nacional: opção + regime + indicador (substituem percentual_total_tributos_simples_nacional).
+    codigo_opcao_simples_nacional: opc,
+    regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
+    indicador_total_tributacao: '0',
+  }
+  if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
+  if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
+    p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
+  }
+  // Tomador COMPLETO (obrigatório no layout nacional).
+  const docTom = (req.tomador.cnpj ?? req.tomador.cpf ?? '').replace(/\D/g, '')
+  if (docTom.length === 14) p.cnpj_tomador = docTom
+  else if (docTom.length === 11) p.cpf_tomador = docTom
+  if (req.tomador.razaoSocial) p.razao_social_tomador = req.tomador.razaoSocial
+  if (req.tomador.email) p.email_tomador = req.tomador.email
+  const end = req.tomador.endereco
+  if (end) {
+    if (end.codigoMunicipio) p.codigo_municipio_tomador = Number(String(end.codigoMunicipio).replace(/\D/g, ''))
+    if (end.cep) p.cep_tomador = String(end.cep).replace(/\D/g, '')
+    if (end.logradouro) p.logradouro_tomador = end.logradouro
+    if (end.numero) p.numero_tomador = end.numero
+    if (end.bairro) p.bairro_tomador = end.bairro
+  }
+  return p
+}
+
 export class FocusNFeProvider implements FiscalProvider {
   readonly name = 'focusnfe'
   private readonly baseUrl: FocusNFeBaseUrl
@@ -143,6 +193,21 @@ export class FocusNFeProvider implements FiscalProvider {
 
   async emitirNFSe(req: NFSeRequest): Promise<NFSeResponse> {
     const referencia = `nfse-${Date.now()}`
+
+    // NFSe Nacional (município aderido): mesmo provider Focus, endpoint /v2/nfsen, layout nacional.
+    // Formato espelhado da edge gov-nfse-emitir (já provada): codigo_tributacao_nacional_iss,
+    // codigo_municipio_emissora, data_competencia, opção/regime Simples Nacional.
+    if (req.padraoNacional) {
+      const nacional = buildNacionalNFSePayload(req)
+      const data = await this.request<FocusNFeNFSeResponse>(
+        'POST',
+        `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
+        nacional
+      )
+      return this.mapFocusNFSeResponse(referencia, data)
+    }
+
+    // Padrão municipal (ABRASF) · /v2/nfse
     const payload: FocusNFeNFSePayload = {
       data_emissao: req.dataEmissao ?? new Date().toISOString(),
       prestador: {
