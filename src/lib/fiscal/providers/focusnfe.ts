@@ -34,35 +34,33 @@ const BASE_URLS: Record<FiscalAmbiente, FocusNFeBaseUrl> = {
 }
 
 // ── NFSe Nacional (Focus POST /v2/nfsen) ────────────────────────────────────────────────
-// Layout do padrão nacional espelhado da edge gov-nfse-emitir (fonte já provada), pra a
+// Layout do padrão nacional (doc Focus · exemplos Lages/SC e Porto Feliz/SP), pra a
 // emissão VIA FOCUS (município aderido) em vez do /v2/nfse municipal.
-function round2(n: number): number { return Math.round(n * 100) / 100 }
 function isoBrasilia(d: Date = new Date()): string {
   const sp = new Date(d.getTime() - 3 * 60 * 60 * 1000)
   const p = (x: number) => String(x).padStart(2, '0')
   return `${sp.getUTCFullYear()}-${p(sp.getUTCMonth() + 1)}-${p(sp.getUTCDate())}T${p(sp.getUTCHours())}:${p(sp.getUTCMinutes())}:${p(sp.getUTCSeconds())}-03:00`
 }
 function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
-  const aliq = req.aliquotaIss ?? 0
   const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
   const opc = req.opcaoSimplesNacional ?? 3
+  const emissao = isoBrasilia()
   const p: Record<string, unknown> = {
     // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
-    data_emissao: isoBrasilia(),
+    data_emissao: emissao,
+    data_competencia: emissao.split('T')[0],
     codigo_municipio_emissora: muni,
     codigo_municipio_prestacao: muni,
     cnpj_prestador: req.prestador.cnpj.replace(/\D/g, ''),
-    regime_especial_tributacao: 0,
     codigo_tributacao_nacional_iss: req.codigoServico,
     descricao_servico: req.descricaoServico,
     valor_servico: req.valorServicos,
-    valor_iss: round2(req.valorServicos * aliq / 100),
     tributacao_iss: 1,
     tipo_retencao_iss: req.retemIss ? 2 : 1,
     // Simples Nacional: opção + regime + indicador (substituem percentual_total_tributos_simples_nacional).
     codigo_opcao_simples_nacional: opc,
     regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
-    indicador_total_tributacao: false,
+    indicador_total_tributacao: '0',
   }
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
