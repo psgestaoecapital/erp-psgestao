@@ -281,11 +281,21 @@ export class FocusNFeProvider implements FiscalProvider {
   }
 
   async cancelarNFSe(referenceOrNumero: string, justificativa: string): Promise<NFSeResponse> {
-    const data = await this.request<FocusNFeNFSeResponse>(
-      'DELETE',
-      `/v2/nfse/${encodeURIComponent(referenceOrNumero)}?justificativa=${encodeURIComponent(justificativa)}`
-    )
-    return this.mapFocusNFSeResponse(referenceOrNumero, data)
+    const enc = encodeURIComponent(referenceOrNumero)
+    const qs = `justificativa=${encodeURIComponent(justificativa)}`
+    // Espelha o consultarNFSe: nota de município aderido vive no /v2/nfsen (nacional);
+    // se o Focus não achar lá (nota municipal antiga), cai no /v2/nfse. Sem isso, cancelar
+    // NFS-e nacional batia no endpoint errado e voltava "não encontrada".
+    try {
+      const data = await this.request<FocusNFeNFSeResponse>('DELETE', `/v2/nfsen/${enc}?${qs}`)
+      return this.mapFocusNFSeResponse(referenceOrNumero, data)
+    } catch (err) {
+      if (err instanceof FiscalError && err.code === 'CHAVE_NAO_ENCONTRADA') {
+        const data = await this.request<FocusNFeNFSeResponse>('DELETE', `/v2/nfse/${enc}?${qs}`)
+        return this.mapFocusNFSeResponse(referenceOrNumero, data)
+      }
+      throw err
+    }
   }
 
   private mapFocusNFSeResponse(referencia: string, data: FocusNFeNFSeResponse): NFSeResponse {
