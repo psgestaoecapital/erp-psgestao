@@ -109,6 +109,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [sincLiqBusy, setSincLiqBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
+  const [nfseDocMap, setNfseDocMap] = useState<Record<string, { pdf?: string | null; xml?: string | null }>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
@@ -157,7 +158,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     Promise.all([
       supabase
         .from('erp_nfse_emitidas')
-        .select('erp_receber_id, status')
+        .select('erp_receber_id, status, pdf_url, xml_url')
         .eq('company_id', companyId)
         .not('erp_receber_id', 'is', null),
       supabase
@@ -184,12 +185,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     ]).then(async ([nfseRes, nfeRes, boletoRes, provRes, compRes]) => {
       if (!alive) return
       const nfseMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
+      const nfseDocMapNew: Record<string, { pdf?: string | null; xml?: string | null }> = {}
       for (const row of nfseRes.data ?? []) {
         if (!row.erp_receber_id) continue
         if (nfseMapNew[row.erp_receber_id] === 'autorizada') continue
         nfseMapNew[row.erp_receber_id] = row.status
+        if (row.status === 'autorizada') nfseDocMapNew[row.erp_receber_id] = { pdf: row.pdf_url, xml: row.xml_url }
       }
       setNfseMap(nfseMapNew)
+      setNfseDocMap(nfseDocMapNew)
 
       const nfeMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'> = {}
       for (const row of nfeRes.data ?? []) {
@@ -818,6 +822,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 valor={r.valor_documento}
                                 jaEmitida={nfseMap[r.id] === 'autorizada'}
                                 processando={nfseMap[r.id] === 'processando'}
+                                pdfUrl={nfseDocMap[r.id]?.pdf ?? undefined}
+                                xmlUrl={nfseDocMap[r.id]?.xml ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
                               <EmitirNFeButton

@@ -67,6 +67,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [loading, setLoading] = useState(false)
   const [semPlano, setSemPlano] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [dupWarn, setDupWarn] = useState(false)
 
   // Prefill via query (?valor=&data=&descricao=) — fluxo Conciliacao "Incluir nova conta".
   useEffect(() => {
@@ -123,7 +124,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     return null
   }
 
-  async function salvar() {
+  async function salvar(forcar = false) {
     const erroValidacao = validar()
     if (erroValidacao) {
       setErro(erroValidacao)
@@ -132,6 +133,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
 
     setLoading(true)
     setErro(null)
+    setDupWarn(false)
 
     const { data, error } = await supabase.rpc('fn_receber_criar_com_parcelas', {
       p_company_id: companyId,
@@ -149,11 +151,17 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       p_intervalo_dias: intervaloDias,
       p_status_inicial: 'pendente',
       p_conta_bancaria: contaBancaria || null,
+      p_forcar_dup: forcar,
     })
 
     if (error) {
       setLoading(false)
-      setErro(error.message)
+      // Trava de título duplicado (nossa): oferece "criar mesmo assim" em vez de erro cru.
+      if (/idêntico|identico/i.test(error.message) || error.code === '23505') {
+        setDupWarn(true)
+      } else {
+        setErro(error.message)
+      }
       return
     }
 
@@ -518,7 +526,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             Cancelar
           </button>
           <button
-            onClick={salvar}
+            onClick={() => salvar()}
             disabled={loading}
             style={{
               background: '#C8941A',
@@ -536,6 +544,21 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           </button>
         </div>
       </div>
+
+      {dupWarn && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }} onClick={() => setDupWarn(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 440, width: '100%', border: '1px solid #E7DED3' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>Título parecido já existe</div>
+            <div style={{ fontSize: 13, color: '#6b5444', lineHeight: 1.5, marginBottom: 16 }}>
+              Já existe um título igual: <strong style={{ color: '#3D2314' }}>{descricao.trim() || '—'}</strong> · R$ {parseFloat(valor || '0').toLocaleString('pt-BR', { minimumFractionDigits: 2 })} · venc {dataRecebimento ? dataRecebimento.split('-').reverse().join('/') : '—'}. Isso costuma ser duplicidade. Deseja criar mesmo assim?
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDupWarn(false)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E7DED3', background: '#fff', color: '#3D2314', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => salvar(true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#C8941A', color: '#fff', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Criar mesmo assim</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
