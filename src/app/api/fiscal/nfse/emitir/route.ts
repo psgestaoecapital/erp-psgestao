@@ -279,7 +279,7 @@ export const POST = withAuth(async (req: NextRequest) => {
             .maybeSingle()
           nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
           nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
-          // codigo_nbs do serviço (obrigatório no layout nacional /v2/nfsen)
+          // codigo_nbs do serviço (opcional — só enviado se preenchido)
           if (body.servicoId) {
             const { data: sv } = await supabaseAdmin
               .from('erp_servicos')
@@ -287,6 +287,19 @@ export const POST = withAuth(async (req: NextRequest) => {
               .eq('id', body.servicoId)
               .maybeSingle()
             if (sv?.codigo_nbs) nfseReq.codigoNbs = String(sv.codigo_nbs)
+          }
+          // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
+          // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.
+          const endTom = nfseReq.tomador.endereco
+          const faltando: string[] = []
+          if (!endTom?.codigoMunicipio || !String(endTom.codigoMunicipio).replace(/\D/g, '')) faltando.push('código IBGE do município (preenche sozinho pelo CEP)')
+          if (!endTom?.numero || !String(endTom.numero).trim()) faltando.push('número do endereço')
+          if (faltando.length > 0) {
+            return NextResponse.json({
+              ok: false,
+              mensagem: 'Complete o cadastro fiscal do tomador antes de emitir a NFS-e nacional: ' +
+                faltando.join(' e ') + '. Edite o cliente em Clientes, informe o CEP (traz o IBGE) e o número, e emita de novo.',
+            }, { status: 400 })
           }
         }
       }

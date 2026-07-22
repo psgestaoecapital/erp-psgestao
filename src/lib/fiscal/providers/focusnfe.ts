@@ -202,6 +202,8 @@ export class FocusNFeProvider implements FiscalProvider {
     // codigo_municipio_emissora, data_competencia, opção/regime Simples Nacional.
     if (req.padraoNacional) {
       const nacional = buildNacionalNFSePayload(req)
+      // [NFSE_NACIONAL_POST] TEMPORÁRIO — loga o JSON exato enviado ao Focus /v2/nfsen (sem dado sensível de auth).
+      console.log('[NFSE_NACIONAL_POST]', JSON.stringify(nacional))
       const data = await this.request<FocusNFeNFSeResponse>(
         'POST',
         `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
