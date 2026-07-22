@@ -32,6 +32,18 @@ const EMPTY: ClienteFormInitial = {
 
 const fmtCNPJ = (v: string) => { const c = (v || '').replace(/\D/g, ''); if (c.length === 14) return c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'); if (c.length === 11) return c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'); return v; };
 
+// Número é obrigatório na NF e NÃO vem do ViaCEP (o CEP cobre a cidade toda). Mas cadastros antigos
+// (e o lookup de CNPJ da Receita) costumam deixar o número EMBUTIDO no logradouro ("Rua Jose Bernardi 968").
+// Extrai o número final quando o campo Número está vazio. Reversível/visível: o usuário confere na tela.
+function extrairNumeroDoLogradouro(logradouro?: string | null, numero?: string | null): { logradouro: string; numero: string } {
+  const log = (logradouro ?? '').trim();
+  const num = (numero ?? '').trim();
+  if (num || !log) return { logradouro: log, numero: num };
+  const m = log.match(/^(.*\S)[\s,]+(\d{1,6}[A-Za-z]?)$/);   // "... 968" ou "..., 968" ou "... 968A"
+  if (m) return { logradouro: m[1].replace(/[\s,]+$/, '').trim(), numero: m[2] };
+  return { logradouro: log, numero: num };
+}
+
 export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
   companyId: string;
   initial?: ClienteFormInitial | null;
@@ -39,7 +51,9 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
   onCancel: () => void;
 }) {
   const editing = !!initial?.id;
-  const [form, setForm] = useState<ClienteFormInitial>({ ...EMPTY, ...(initial ?? {}), cpf_cnpj: fmtCNPJ(initial?.cpf_cnpj ?? '') });
+  // Ao abrir, se o número está embutido no logradouro, já mostra separado pro usuário conferir.
+  const _end0 = extrairNumeroDoLogradouro(initial?.logradouro, initial?.numero);
+  const [form, setForm] = useState<ClienteFormInitial>({ ...EMPTY, ...(initial ?? {}), logradouro: _end0.logradouro, numero: _end0.numero, cpf_cnpj: fmtCNPJ(initial?.cpf_cnpj ?? '') });
   const [msg, setMsg] = useState("");
   const [cnpjLoading, setCnpjLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
@@ -97,13 +111,15 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
         if (d?.ibge) ibgeFinal = String(d.ibge);
       } catch { /* sem rede — segue; o guard fiscal avisa na emissão */ }
     }
+    // Extrai o número embutido no logradouro se o campo Número ainda estiver vazio.
+    const endNum = extrairNumeroDoLogradouro(form.logradouro, form.numero);
     // Whitelist explícita — não gravar colunas computadas/readonly (score, timestamps, totais) que vêm no `initial` da edição.
     const dados: Record<string, unknown> = {
       company_id: initial?.company_id ?? companyId,
       codigo: form.codigo ?? '', razao_social: (form.razao_social ?? '').trim(), nome_fantasia: form.nome_fantasia ?? '',
       tipo_pessoa: form.tipo_pessoa ?? 'PJ', cpf_cnpj: (form.cpf_cnpj || '').replace(/\D/g, ''), ie: form.ie ?? '',
       telefone: form.telefone ?? '', whatsapp: form.whatsapp ?? '', email: form.email ?? '',
-      cep: form.cep ?? '', logradouro: form.logradouro ?? '', numero: form.numero ?? '', complemento: form.complemento ?? '',
+      cep: form.cep ?? '', logradouro: endNum.logradouro, numero: endNum.numero, complemento: form.complemento ?? '',
       bairro: form.bairro ?? '', cidade: form.cidade ?? '', uf: form.uf ?? '', codigo_ibge_municipio: ibgeFinal,
       limite_credito: Number(form.limite_credito) || 0, condicao_pagamento_padrao: form.condicao_pagamento_padrao ?? '',
       prazo_medio_dias: Number(form.prazo_medio_dias) || 0, vendedor_nome: form.vendedor_nome ?? '',
@@ -182,7 +198,7 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
         <div><div style={lbl}>Logradouro</div>
           <input value={form.logradouro} onChange={(e) => set("logradouro", e.target.value)} style={inp} /></div>
         <div><div style={lbl}>Número</div>
-          <input value={form.numero} onChange={(e) => set("numero", e.target.value)} style={inp} /></div>
+          <input value={form.numero} onChange={(e) => set("numero", e.target.value)} placeholder="obrigatório NF" style={{ ...inp, borderColor: form.numero ? BD : R }} /></div>
         <div><div style={lbl}>Complemento</div>
           <input value={form.complemento} onChange={(e) => set("complemento", e.target.value)} style={inp} /></div>
         <div style={{ gridColumn: "span 2" }}><div style={lbl}>Bairro</div>
