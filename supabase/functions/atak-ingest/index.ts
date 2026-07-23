@@ -3,6 +3,11 @@
 // roda em maquina cliente sem JWT; o segredo Vault eh a chave).
 // company_id e FIXO no edge (seguranca Pilar 2 — coletor comprometido
 // nao grava em outra empresa).
+//
+// CAO DE GUARDA (PARTE 1.1): TODA chamada autenticada grava 1 heartbeat em
+// erp_sync_log (sucesso OU erro), com collector_version + host enviados pelo
+// coletor — e assim sabemos QUAL maquina parou. O heartbeat nunca derruba a
+// ingestao (falha de log e engolida).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const cors = {
@@ -20,19 +25,79 @@ Deno.serve(async (req) => {
 
   const secret = req.headers.get('x-ingest-secret')
   if (!secret || secret !== Deno.env.get('ATAK_INGEST_SECRET')) {
+    // Sem heartbeat aqui de proposito: chamada nao autenticada nao e o coletor
+    // legitimo; nao suja o log de saude da empresa.
     return json({ error: 'unauthorized' }, 401)
   }
 
-  let body: { registros?: unknown[] }
-  try { body = await req.json() } catch { return json({ error: 'bad json' }, 400) }
-
-  const registros = Array.isArray(body?.registros) ? body.registros : []
-  if (registros.length === 0) return json({ ok: true, gravados: 0 })
-
+  const iniciadoEm = new Date()
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
+
+  // heartbeat: grava SEMPRE (sucesso ou erro). Nunca lanca — se o log falhar,
+  // a ingestao segue e o erro do log fica so no console.
+  async function heartbeat(opts: {
+    fase: 'sucesso' | 'falha'
+    httpStatus: number
+    gravados: number
+    recebidos: number
+    collectorVersion: string | null
+    host: string | null
+    janelaDias: number | null
+    erro?: string | null
+  }) {
+    const fim = new Date()
+    try {
+      // duracao_ms é coluna GENERATED (finalizado_em - iniciado_em); não enviar.
+      await supabase.from('erp_sync_log').insert({
+        company_id: COMPANY_ID,
+        iniciado_em: iniciadoEm.toISOString(),
+        finalizado_em: fim.toISOString(),
+        fase: opts.fase,
+        http_status: opts.httpStatus,
+        trigger_type: 'coletor_atak',
+        http_response: {
+          fonte: 'atak',
+          gravados: opts.gravados,
+          recebidos: opts.recebidos,
+          janela_dias: opts.janelaDias,
+          collector_version: opts.collectorVersion,
+          host: opts.host,
+        },
+        erro: opts.erro ?? null,
+      })
+    } catch (e) {
+      console.error('[atak-ingest] heartbeat falhou (ignorado):', String((e as Error)?.message ?? e))
+    }
+  }
+
+  let body: {
+    registros?: unknown[]
+    collector_version?: string
+    hostname?: string
+    janela_dias?: number
+  }
+  try {
+    body = await req.json()
+  } catch {
+    await heartbeat({ fase: 'falha', httpStatus: 400, gravados: 0, recebidos: 0, collectorVersion: null, host: null, janelaDias: null, erro: 'bad json' })
+    return json({ error: 'bad json' }, 400)
+  }
+
+  const collectorVersion = typeof body?.collector_version === 'string' ? body.collector_version : null
+  const host = typeof body?.hostname === 'string' ? body.hostname : null
+  const janelaDias = typeof body?.janela_dias === 'number' ? body.janela_dias : null
+
+  const registros = Array.isArray(body?.registros) ? body.registros : []
+  const recebidos = registros.length
+  if (recebidos === 0) {
+    // Sync valido sem novidade (janela vazia) — CONTA como sucesso (a maquina
+    // esta viva), gravados=0.
+    await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: 0, recebidos: 0, collectorVersion, host, janelaDias })
+    return json({ ok: true, gravados: 0 })
+  }
 
   const rows = registros.map((rUnknown) => {
     const r = rUnknown as Record<string, unknown>
@@ -75,7 +140,12 @@ Deno.serve(async (req) => {
     .from('ind_abate_atak')
     .upsert(rows, { onConflict: 'company_id,cod_filial,chave_fato,seq_cabeca' })
 
-  if (error) return json({ error: error.message }, 500)
+  if (error) {
+    await heartbeat({ fase: 'falha', httpStatus: 500, gravados: 0, recebidos, collectorVersion, host, janelaDias, erro: error.message })
+    return json({ error: error.message }, 500)
+  }
+
+  await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: rows.length, recebidos, collectorVersion, host, janelaDias })
   return json({ ok: true, gravados: rows.length })
 
   function json(obj: unknown, status = 200) {
