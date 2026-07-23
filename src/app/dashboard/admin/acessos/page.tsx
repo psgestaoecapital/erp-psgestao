@@ -22,6 +22,10 @@ const PAPEIS: { role: string; nome: string }[] = [
 const DIAS = [{ n: 1, l: "Seg" }, { n: 2, l: "Ter" }, { n: 3, l: "Qua" }, { n: 4, l: "Qui" }, { n: 5, l: "Sex" }, { n: 6, l: "Sáb" }, { n: 7, l: "Dom" }];
 const SIT_LBL: Record<string, string> = { ATIVO: "Ativo", INATIVO_7DIAS: "Inativo 7d+", INATIVO_30DIAS: "Inativo 30d+", NUNCA_LOGOU: "Nunca logou" };
 const SIT_COR: Record<string, string> = { ATIVO: G, INATIVO_7DIAS: "#F59E0B", INATIVO_30DIAS: R, NUNCA_LOGOU: TXD };
+// Papel de gestao (tenant_user_roles) -> rotulo curto.
+const PAPEL_GESTAO_LBL: Record<string, string> = {
+  CLIENT_OWNER: "Master", CLIENT_MANAGER: "Gestor", CLIENT_OPERATOR: "Operador", CLIENT_VIEWER: "Visualizador",
+};
 
 type Empresa = { id: string; nome_fantasia: string | null; razao_social: string | null };
 type Area = { slug: string; nome: string };
@@ -30,6 +34,7 @@ type Master = { user_id: string; email: string; nome: string | null };
 type Horario = { dias_semana: number[] | null; hora_inicio: string | null; hora_fim: string | null; timezone: string | null; ativo: boolean | null };
 type Pessoa = {
   user_id: string; email: string; nome: string | null; role: string; nivel: string; is_master: boolean;
+  papel_gestao: string | null;
   restricted: boolean; areas: string[] | null; plantas: string[] | null; horario: Horario | null;
   ultimo_login: string | null; situacao: string;
 };
@@ -181,6 +186,31 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
     setMsg({ ok: true, t: "Salvo." });
     onSaved();
   }
+  const [acaoBusy, setAcaoBusy] = useState(false);
+  async function definirMaster(makeOwner: boolean) {
+    if (!confirm(makeOwner ? `Tornar "${p.nome || p.email}" MASTER da empresa?` : `Remover o papel de master de "${p.nome || p.email}"?`)) return;
+    setAcaoBusy(true); setMsg(null);
+    const { data, error } = await supabase.rpc("fn_acessos_definir_papel_gestao", {
+      p_company_id: companyId, p_user_id: p.user_id, p_papel: makeOwner ? "CLIENT_OWNER" : "CLIENT_MANAGER",
+    });
+    setAcaoBusy(false);
+    const res = data as { ok?: boolean; erro?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha." }); return; }
+    setMsg({ ok: true, t: makeOwner ? "Agora é master." : "Master removido." });
+    onSaved();
+  }
+  async function removerPessoa() {
+    if (!confirm(`Remover "${p.nome || p.email}" desta empresa?\n\nPerde o acesso a ESTA empresa (continua existindo se estiver em outras). O usuário NAO e apagado.`)) return;
+    setAcaoBusy(true); setMsg(null);
+    const { data, error } = await supabase.rpc("fn_acessos_remover_pessoa", {
+      p_company_id: companyId, p_user_id: p.user_id, p_modo: "desvincular",
+    });
+    setAcaoBusy(false);
+    const res = data as { ok?: boolean; erro?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha." }); return; }
+    setMsg({ ok: true, t: "Removido da empresa." });
+    onSaved();
+  }
   const toggle = <T,>(set: React.Dispatch<React.SetStateAction<Set<T>>>, v: T) =>
     set((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
 
@@ -194,7 +224,8 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
           </div>
           <div style={{ fontSize: 12, color: TXD }}>{p.email}</div>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: BL }}>{PAPEIS.find((x) => x.role === p.role)?.nome || p.role}</span>
+        <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {PAPEIS.find((x) => x.role === p.role)?.nome || p.role}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL }} title="Papel na empresa — o que a pessoa PODE GERIR">🛡 {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
         <span style={{ fontSize: 11, fontWeight: 700, color: SIT_COR[p.situacao] ?? TXD }}>{SIT_LBL[p.situacao] ?? p.situacao}</span>
       </button>
 
@@ -243,10 +274,18 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
             </div>
           </Field>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <button disabled={salvando} onClick={() => void salvar()}
               style={{ display: "inline-flex", alignItems: "center", gap: 6, background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontWeight: 700, cursor: salvando ? "default" : "pointer", opacity: salvando ? 0.6 : 1 }}>
               <Save size={15} /> {salvando ? "Salvando…" : "Salvar"}
+            </button>
+            <button disabled={acaoBusy} onClick={() => void definirMaster(!p.is_master)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
+              <Crown size={14} color={GO} /> {p.is_master ? "Remover master" : "Tornar master"}
+            </button>
+            <button disabled={acaoBusy} onClick={() => void removerPessoa()}
+              style={{ background: "#fff", color: R, border: `1px solid #E5C2C2`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
+              Excluir
             </button>
             {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.ok ? G : R }}>{msg.t}</span>}
           </div>
