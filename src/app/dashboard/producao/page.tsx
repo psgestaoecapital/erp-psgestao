@@ -2,6 +2,7 @@
 import React, { Suspense, useState, useEffect, type CSSProperties, type DragEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { labelUsuario } from '@/lib/usuarioLabel'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
 const ESPRESSO = '#3D2314'
@@ -26,7 +27,7 @@ type Cliente = {
 }
 type Job = {
   id: string; numero: string; titulo: string; tipo: string; status: string
-  prioridade: string; cliente_id: string; responsavel_id: string
+  prioridade: string; cliente_id: string; responsavel_id: string; responsavel_nome: string | null
   data_prazo: string; valor_job: number; horas_estimadas: number; horas_realizadas: number
   percentual_comissao: number | null; created_at: string
 }
@@ -66,7 +67,7 @@ function ProducaoPageInner() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [timesheets, setTimesheets] = useState<Timesheet[]>([])
   const [contratos, setContratos] = useState<ContratoOpt[]>([])
-  const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null }>>([])
+  const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null; full_name?: string | null }>>([])
 
   const [showForm, setShowForm] = useState<'cliente' | 'job' | 'timesheet' | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
@@ -117,7 +118,7 @@ function ProducaoPageInner() {
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
     setTimesheets((ts.data ?? []) as Timesheet[])
-    type U = { id: string; email: string | null }
+    type U = { id: string; email: string | null; full_name?: string | null }
     setResponsaveis((us.data ?? []) as U[])
     setContratos((ct.data ?? []) as ContratoOpt[])
 
@@ -362,7 +363,7 @@ function ProducaoPageInner() {
             <Select label="Estágio" v={(form.status as string) ?? 'nao_iniciada'} on={(v) => setForm({ ...form, status: v })}
               opts={ESTAGIOS.map((e) => [e.v, e.l])} />
             <Select label="Responsável" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
-              opts={[['', '—'], ...responsaveis.map((u) => [u.id, u.email ?? u.id.slice(0, 8)] as [string, string])]} />
+              opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
             <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
               on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
           </div>
@@ -522,7 +523,7 @@ function KanbanBoard({
 function JobsTabela({
   jobs, clientes, responsaveis, onNovo, onEditar, onExcluir,
 }: {
-  jobs: Job[]; clientes: Cliente[]; responsaveis: Array<{ id: string; email: string | null }>
+  jobs: Job[]; clientes: Cliente[]; responsaveis: Array<{ id: string; email: string | null; full_name?: string | null }>
   onNovo: () => void; onEditar: (j: Job) => void; onExcluir: (j: Job) => void
 }) {
   return (
@@ -555,7 +556,7 @@ function JobsTabela({
                     <Td><span style={{ ...etapaChip, background: cfg.bg, color: cfg.fg }}>{cfg.l}</span></Td>
                     <Td align="right">{brl(j.valor_job ?? 0)}</Td>
                     <Td align="right">{j.percentual_comissao != null ? `${j.percentual_comissao}%` : '—'}</Td>
-                    <Td>{resp?.email ?? '—'}</Td>
+                    <Td>{resp ? labelUsuario(resp, responsaveis) : (j.responsavel_nome ?? '—')}</Td>
                     <Td>{j.data_prazo ?? '—'}</Td>
                     <Td align="center">
                       <button onClick={() => onEditar(j)} style={btnSec}>Editar</button>

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
 import OportunidadesKanban from './OportunidadesKanban'
 
@@ -61,7 +62,7 @@ export default function OportunidadesPage() {
   const [filtroEtapa, setFiltroEtapa] = useState<string>('todas')
   const [filtroResp, setFiltroResp] = useState<string>('todos')
   const [busca, setBusca] = useState('')
-  const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null }>>([])
+  const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null; full_name?: string | null }>>([])
   const [toast, setToast] = useState<string | null>(null)
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [countKanban, setCountKanban] = useState(0)
@@ -134,7 +135,7 @@ export default function OportunidadesPage() {
     supabase
       .rpc('fn_usuarios_da_empresa', { p_company_id: empresaUnica })
       .then(({ data }) => {
-        setResponsaveis((data ?? []) as { id: string; email: string | null }[])
+        setResponsaveis((data ?? []) as { id: string; email: string | null; full_name?: string | null }[])
       })
   }, [empresaUnica])
 
@@ -176,7 +177,7 @@ export default function OportunidadesPage() {
         </select>
         <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
           <option value="todos">Todos os responsáveis</option>
-          {responsaveis.map((u) => <option key={u.id} value={u.id}>{u.email ?? u.id.slice(0, 8)}</option>)}
+          {responsaveis.map((u) => <option key={u.id} value={u.id}>{labelUsuario(u, responsaveis)}</option>)}
         </select>
         <input
           placeholder="Buscar por título ou cliente…"
