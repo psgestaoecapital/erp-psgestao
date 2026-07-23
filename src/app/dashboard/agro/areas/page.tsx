@@ -84,7 +84,7 @@ export default function AreasPropriedadePage() {
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     const [ar, bl, cf] = await Promise.all([
-      supabase.from('erp_propriedade_area').select('id,nome,uso,area_ha,business_line_id,entra_rateio,capacidade_ua,posse,contraparte,contrato_ref,ativo').eq('company_id', empresaUnica).eq('ativo', true).order('uso').order('nome'),
+      supabase.from('erp_propriedade_area').select('id,nome,uso,area_ha,business_line_id,entra_rateio,capacidade_ua,posse,contraparte,contrato_ref,ativo').eq('company_id', empresaUnica).order('ativo', { ascending: false }).order('uso').order('nome'),
       supabase.from('business_lines').select('id,name').eq('company_id', empresaUnica).order('ln_number'),
       supabase.from('rateio_config_empresa').select('id,driver,incluir_area_improdutiva').eq('company_id', empresaUnica).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
     ])
@@ -145,11 +145,38 @@ export default function AreasPropriedadePage() {
     await carregar()
   }
 
+  async function excluirArea(a: Area) {
+    if (!empresaUnica) return
+    // "em uso" = animais/lotes apontando pra esta área (area_atual_id = id). Se em uso, inativar.
+    const [an, lo] = await Promise.all([
+      supabase.from('erp_pec_animal').select('id', { count: 'exact', head: true }).eq('company_id', empresaUnica).eq('area_atual_id', a.id),
+      supabase.from('erp_pec_lote').select('id', { count: 'exact', head: true }).eq('company_id', empresaUnica).eq('area_atual_id', a.id),
+    ])
+    const emUso = (an.count ?? 0) + (lo.count ?? 0)
+    const ok = window.confirm(emUso > 0
+      ? `"${a.nome}" está em uso por ${emUso} animal(is)/lote(s). Para não quebrar histórico/rateio, NÃO será excluída — será INATIVADA (some das listagens ativas, sai do rateio). Continuar?`
+      : `Excluir a área "${a.nome}"? Esta ação não pode ser desfeita.`)
+    if (!ok) return
+    setMsg(null)
+    const { error } = emUso > 0
+      ? await supabase.from('erp_propriedade_area').update({ ativo: false }).eq('id', a.id).eq('company_id', empresaUnica)
+      : await supabase.from('erp_propriedade_area').delete().eq('id', a.id).eq('company_id', empresaUnica)
+    if (error) setMsg('Erro: ' + error.message)
+    else { setMsg(emUso > 0 ? `"${a.nome}" inativada (estava em uso).` : `"${a.nome}" excluída.`); await carregar() }
+  }
+
+  async function reativarArea(a: Area) {
+    if (!empresaUnica) return
+    const { error } = await supabase.from('erp_propriedade_area').update({ ativo: true }).eq('id', a.id).eq('company_id', empresaUnica)
+    if (error) setMsg('Erro: ' + error.message); else await carregar()
+  }
+
   const resumo = useMemo(() => {
     let prod = 0, improd = 0
-    for (const a of areas) { if (IMPRODUTIVOS.includes(a.uso)) improd += Number(a.area_ha); else prod += Number(a.area_ha) }
+    for (const a of areas) { if (!a.ativo) continue; if (IMPRODUTIVOS.includes(a.uso)) improd += Number(a.area_ha); else prod += Number(a.area_ha) }
     return { prod, improd, total: prod + improd }
   }, [areas])
+  const nAtivas = useMemo(() => areas.filter((a) => a.ativo).length, [areas])
   const totalBase = useMemo(() => base.reduce((s, b) => s + Number(b.base), 0), [base])
 
   if (!empresaUnica) return <div style={{ padding: 24, color: ESP60 }}>Selecione UMA empresa específica.</div>
@@ -183,13 +210,13 @@ export default function AreasPropriedadePage() {
           </div>
 
           <div style={{ ...card, marginTop: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 10 }}>Áreas ({areas.length}) · total {fmtNum(resumo.total)} ha</div>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Áreas ({nAtivas}) · total {fmtNum(resumo.total)} ha</div>
 
             {/* atribuição em lote — destrava alocar dezenas de áreas de uma vez */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: 10, background: '#FBF7EF', border: `1px solid ${LINE}`, borderRadius: 8 }}>
               <span style={{ fontSize: 12, color: ESP60 }}>Selecionar por uso:</span>
-              {USOS.filter((u) => areas.some((a) => a.uso === u)).map((u) => (
-                <button key={u} onClick={() => selecTodas(areas.filter((a) => a.uso === u).map((a) => a.id), true)} style={{ ...chip, background: '#EDE5D6', color: ESP }}>
+              {USOS.filter((u) => areas.some((a) => a.uso === u && a.ativo)).map((u) => (
+                <button key={u} onClick={() => selecTodas(areas.filter((a) => a.uso === u && a.ativo).map((a) => a.id), true)} style={{ ...chip, background: '#EDE5D6', color: ESP }}>
                   todas {u}
                 </button>
               ))}
@@ -210,25 +237,36 @@ export default function AreasPropriedadePage() {
                 <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
                   <th style={{ ...th, textAlign: 'center' }}>
                     <input type="checkbox"
-                      checked={areas.length > 0 && areas.every((a) => selec.has(a.id))}
-                      onChange={(e) => selecTodas(areas.map((a) => a.id), e.target.checked)}
+                      checked={nAtivas > 0 && areas.filter((a) => a.ativo).every((a) => selec.has(a.id))}
+                      onChange={(e) => selecTodas(areas.filter((a) => a.ativo).map((a) => a.id), e.target.checked)}
                       aria-label="Selecionar todas" />
                   </th>
                   <th style={th}>Nome</th><th style={th}>Uso</th><th style={{ ...th, textAlign: 'right' }}>ha</th><th style={th}>Linha</th><th style={th}>Posse</th><th style={{ ...th, textAlign: 'center' }}>Rateio</th><th style={th}></th>
                 </tr></thead>
                 <tbody>
                   {areas.map((a) => (
-                    <tr key={a.id} style={{ borderTop: `1px solid ${LINE}`, background: selec.has(a.id) ? '#FBF3E0' : 'transparent' }}>
+                    <tr key={a.id} style={{ borderTop: `1px solid ${LINE}`, background: selec.has(a.id) ? '#FBF3E0' : (!a.ativo ? '#F1EEE8' : 'transparent'), opacity: a.ativo ? 1 : 0.6 }}>
                       <td style={{ ...td, textAlign: 'center' }}>
-                        <input type="checkbox" checked={selec.has(a.id)} onChange={() => toggleSel(a.id)} aria-label={`Selecionar ${a.nome}`} />
+                        {a.ativo && <input type="checkbox" checked={selec.has(a.id)} onChange={() => toggleSel(a.id)} aria-label={`Selecionar ${a.nome}`} />}
                       </td>
-                      <td style={td}>{a.nome}</td>
+                      <td style={td}>{a.nome}{!a.ativo && <span style={{ color: ESP60, fontWeight: 700 }}> · ⏸ inativa</span>}</td>
                       <td style={td}>{a.uso}{IMPRODUTIVOS.includes(a.uso) && <span style={{ color: ESP60 }}> (improd.)</span>}</td>
                       <td style={{ ...td, textAlign: 'right' }}>{fmtNum(a.area_ha)}</td>
                       <td style={td}>{blNome(a.business_line_id)}</td>
                       <td style={td}>{a.posse}{a.contraparte ? ` · ${a.contraparte}` : ''}</td>
-                      <td style={{ ...td, textAlign: 'center' }}><button onClick={() => void toggleRateio(a)} style={{ ...chip, background: a.entra_rateio ? '#E8F4DC' : '#eee', color: a.entra_rateio ? GREEN : ESP60 }}>{a.entra_rateio ? 'sim' : 'não'}</button></td>
-                      <td style={td}><button onClick={() => editar(a)} style={linkBtn}>editar</button></td>
+                      <td style={{ ...td, textAlign: 'center' }}><button onClick={() => void toggleRateio(a)} disabled={!a.ativo} style={{ ...chip, background: a.entra_rateio ? '#E8F4DC' : '#eee', color: a.entra_rateio ? GREEN : ESP60 }}>{a.entra_rateio ? 'sim' : 'não'}</button></td>
+                      <td style={td}>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          {a.ativo ? (
+                            <>
+                              <button onClick={() => editar(a)} style={linkBtn}>editar</button>
+                              <button onClick={() => void excluirArea(a)} style={{ ...linkBtn, color: '#C44536' }}>excluir</button>
+                            </>
+                          ) : (
+                            <button onClick={() => void reativarArea(a)} style={linkBtn}>reativar</button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {areas.length === 0 && <tr><td style={td} colSpan={8}>Nenhuma área cadastrada.</td></tr>}
