@@ -10,6 +10,7 @@ export type VisitaInicial = {
   oportunidade_id: string
   data_visita: string | null
   responsavel_id: string | null
+  responsavel_nome?: string | null
   status: 'agendada' | 'realizada' | 'cancelada'
   endereco: string | null
   anotacoes: string | null
@@ -71,6 +72,8 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
     return nowLocalInput()
   })
   const [responsavelId, setResponsavelId] = useState<string>(initial?.responsavel_id ?? '')
+  // Fallback nome-livre (mesmo padrão do solicitado_por_nome da Oficina): quando a pessoa não tem login.
+  const [responsavelNome, setResponsavelNome] = useState<string>(initial?.responsavel_nome ?? '')
   const [status, setStatus] = useState<'agendada' | 'realizada' | 'cancelada'>(initial?.status ?? 'agendada')
   const [endereco, setEndereco] = useState<string>(initial?.endereco ?? oportunidadeFixa?.obra_endereco ?? '')
   const [anotacoes, setAnotacoes] = useState<string>(initial?.anotacoes ?? '')
@@ -87,19 +90,12 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
 
   // Carrega usuarios ATIVOS da empresa (todos — decisao CEO). Escopo por company_id (RD-45).
   useEffect(() => {
+    // Usuários via RPC SECURITY DEFINER (users tem RLS: join direto vem vazio p/ não-admin). Já vem ordenado por nome.
     supabase
-      .from('user_companies')
-      .select('users(id, email, full_name, is_active)')
-      .eq('company_id', companyId)
+      .rpc('fn_usuarios_da_empresa', { p_company_id: companyId })
       .then(({ data }) => {
-        const list = (data ?? []) as unknown as Array<{ users: (UserOpt & { is_active?: boolean }) | (UserOpt & { is_active?: boolean })[] | null }>
-        const flat: UserOpt[] = []
-        for (const r of list) {
-          const u = Array.isArray(r.users) ? r.users[0] : r.users
-          if (u && (u.is_active ?? true)) flat.push({ id: u.id, email: u.email, full_name: u.full_name })
-        }
-        flat.sort((a, b) => (a.full_name ?? a.email ?? '').localeCompare(b.full_name ?? b.email ?? '', 'pt-BR'))
-        setUsers(flat)
+        const rows = (data ?? []) as Array<UserOpt & { is_active?: boolean }>
+        setUsers(rows.filter((u) => u.is_active ?? true).map((u) => ({ id: u.id, email: u.email, full_name: u.full_name })))
       })
   }, [companyId])
 
@@ -181,6 +177,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
       p_cliente_id: clienteId || null,
       p_data_visita: new Date(data).toISOString(),
       p_responsavel_id: responsavelId || null,
+      p_responsavel_nome: responsavelId ? null : (responsavelNome.trim() || null),
       p_status: status,
       p_endereco: endereco || null,
       p_anotacoes: anotacoes || null,
@@ -247,6 +244,16 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
               placeholder="Digite pra buscar o vendedor…"
               vazioTexto="Nenhum usuário nesta empresa. Cadastre em Acessos."
               options={users.map((u) => ({ id: u.id, label: u.full_name ?? u.email ?? u.id.slice(0, 8), sub: u.full_name ? u.email : null }))}
+            />
+          </label>
+          <label style={lbl}>
+            ou nome (sem login)
+            <input
+              value={responsavelNome}
+              onChange={(e) => setResponsavelNome(e.target.value)}
+              style={inp}
+              placeholder="se a pessoa não tem acesso"
+              disabled={!!responsavelId}
             />
           </label>
         </div>

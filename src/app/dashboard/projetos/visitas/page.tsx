@@ -68,19 +68,11 @@ export default function VisitasPage() {
 
   useEffect(() => {
     if (!empresaUnica) return
+    // Usuários via RPC SECURITY DEFINER (users tem RLS: join direto vem vazio p/ não-admin).
     supabase
-      .from('user_companies')
-      .select('users(id, email)')
-      .eq('company_id', empresaUnica)
+      .rpc('fn_usuarios_da_empresa', { p_company_id: empresaUnica })
       .then(({ data }) => {
-        type U = { id: string; email: string | null }
-        const list = (data ?? []) as unknown as Array<{ users: U | U[] | null }>
-        const flat: U[] = []
-        for (const r of list) {
-          const u = Array.isArray(r.users) ? r.users[0] : r.users
-          if (u) flat.push(u)
-        }
-        setResponsaveis(flat)
+        setResponsaveis((data ?? []) as { id: string; email: string | null }[])
       })
   }, [empresaUnica])
 
