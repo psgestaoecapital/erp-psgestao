@@ -4,7 +4,7 @@
 // Horário = SÓ configuração nesta fase (trava de login é Fase 2). Coexiste com as 9 abas antigas.
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock } from "lucide-react";
+import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2 } from "lucide-react";
 
 const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
   BD = "var(--ps-border,#E0D8CC)", TX = "var(--ps-text,#3D2314)", TXM = "var(--ps-text-m,#6B5D4F)", TXD = "var(--ps-text-d,#9C8E80)",
@@ -42,6 +42,7 @@ export default function AcessosCascataPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
   useEffect(() => {
@@ -130,7 +131,17 @@ export default function AcessosCascataPage() {
           </div>
 
           {/* 4 · Pessoas */}
-          <Secao icon={<Users size={15} color={GO} />} titulo={`Pessoas · ${ctx.pessoas.length}`} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <Secao icon={<Users size={15} color={GO} />} titulo={`Pessoas · ${ctx.pessoas.length}`} />
+            <button onClick={() => setAddOpen((v) => !v)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: addOpen ? BG3 : GO, color: addOpen ? TX : "#fff", border: `1px solid ${addOpen ? BD : GO}`, borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+              <UserPlus size={15} /> {addOpen ? "Fechar" : "+ Adicionar pessoa"}
+            </button>
+          </div>
+          {addOpen && (
+            <AdicionarPessoa areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas} companyId={companyId}
+              onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void carregar(companyId); }} />
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ctx.pessoas.map((p) => (
               <PessoaRow key={p.user_id} p={p} aberto={editId === p.user_id}
@@ -239,6 +250,126 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
             </button>
             {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.ok ? G : R }}>{msg.t}</span>}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Papel de gestão (o que a pessoa PODE GERIR) — os 4 valores, sem esconder OPERATOR (decisão CEO).
+const PAPEIS_GESTAO: { v: string; l: string }[] = [
+  { v: "CLIENT_VIEWER", l: "Visualizador (só lê)" },
+  { v: "CLIENT_OPERATOR", l: "Operador" },
+  { v: "CLIENT_MANAGER", l: "Gestor" },
+  { v: "CLIENT_OWNER", l: "Master (gere a empresa)" },
+];
+
+// GAP 1 · incluir pessoa nova (genérico p/ qualquer empresa/áreas). Vincula direto se o e-mail já
+// existe; senão gera convite por link. Backend: fn_acessos_convidar_pessoa (guards no servidor).
+function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSaved }: {
+  areasContratadas: Area[]; plantas: Planta[]; companyId: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [nome, setNome] = useState("");
+  const [role, setRole] = useState("viewer");
+  const [papel, setPapel] = useState("CLIENT_VIEWER");
+  const [areas, setAreas] = useState<Set<string>>(new Set(areasContratadas.map((a) => a.slug)));
+  const [plantasSel, setPlantasSel] = useState<Set<string>>(new Set());
+  const [dias, setDias] = useState<Set<number>>(new Set());
+  const [ini, setIni] = useState("");
+  const [fim, setFim] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const toggle = <T,>(set: React.Dispatch<React.SetStateAction<Set<T>>>, v: T) =>
+    set((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
+
+  async function enviar() {
+    setSalvando(true); setMsg(null); setLink(null);
+    const horario = (dias.size || ini || fim)
+      ? { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true }
+      : null;
+    const { data, error } = await supabase.rpc("fn_acessos_convidar_pessoa", {
+      p_company_id: companyId, p_email: email, p_nome: nome || null,
+      p_areas: Array.from(areas), p_role: role, p_plantas: Array.from(plantasSel),
+      p_horario: horario, p_papel_gestao: papel,
+    });
+    setSalvando(false);
+    const res = data as { ok?: boolean; erro?: string; acao?: string; link?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao adicionar." }); return; }
+    if (res.acao === "vinculado") {
+      setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." });
+      onSaved();
+    } else {
+      const full = (typeof window !== "undefined" ? window.location.origin : "") + (res.link || "");
+      setMsg({ ok: true, t: "Convite criado. Envie o link para a pessoa concluir o cadastro." });
+      setLink(full);
+    }
+  }
+
+  return (
+    <div style={{ border: `1px solid ${GO}`, borderRadius: 10, background: BG2, padding: 16, marginBottom: 8, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontWeight: 800, color: TX, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <UserPlus size={16} color={GO} /> Adicionar pessoa
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Field icon={<Users size={14} color={GO} />} label="E-mail *">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@empresa.com" style={{ ...inp, minWidth: 240 }} />
+        </Field>
+        <Field icon={<Users size={14} color={GO} />} label="Nome">
+          <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da pessoa" style={{ ...inp, minWidth: 200 }} />
+        </Field>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (o que VÊ)">
+          <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
+            {PAPEIS.map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+          </select>
+        </Field>
+        <Field icon={<Crown size={14} color={GO} />} label="Papel na empresa (o que PODE GERIR)">
+          <select value={papel} onChange={(e) => setPapel(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
+            {PAPEIS_GESTAO.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field icon={<Shield size={14} color={GO} />} label="Áreas liberadas (dentro do que a empresa contratou)">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {areasContratadas.length === 0 && <span style={{ color: TXD, fontSize: 13 }}>Nenhuma área contratada.</span>}
+          {areasContratadas.map((a) => <Chip key={a.slug} on={areas.has(a.slug)} onClick={() => toggle(setAreas, a.slug)}>{a.nome}</Chip>)}
+        </div>
+      </Field>
+      {plantas.length > 0 && (
+        <Field icon={<Factory size={14} color={GO} />} label="Plantas / unidades">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {plantas.map((pl) => <Chip key={pl.id} on={plantasSel.has(pl.id)} onClick={() => toggle(setPlantasSel, pl.id)}>{pl.nome}</Chip>)}
+          </div>
+        </Field>
+      )}
+      <Field icon={<Clock size={14} color={GO} />} label="Horário de acesso (opcional)">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {DIAS.map((d) => <Chip key={d.n} on={dias.has(d.n)} onClick={() => toggle(setDias, d.n)}>{d.l}</Chip>)}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <input type="time" value={ini} onChange={(e) => setIni(e.target.value)} style={inp} />
+          <span style={{ color: TXD }}>até</span>
+          <input type="time" value={fim} onChange={(e) => setFim(e.target.value)} style={inp} />
+        </div>
+      </Field>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <button disabled={salvando} onClick={() => void enviar()}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontWeight: 700, cursor: salvando ? "default" : "pointer", opacity: salvando ? 0.6 : 1 }}>
+          <UserPlus size={15} /> {salvando ? "Enviando…" : "Adicionar"}
+        </button>
+        <button onClick={onClose} style={{ background: "none", border: `1px solid ${BD}`, borderRadius: 8, padding: "9px 16px", color: TXM, cursor: "pointer", fontWeight: 600 }}>Cancelar</button>
+        {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.ok ? G : R }}>{msg.t}</span>}
+      </div>
+      {link && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: BG3, border: `1px solid ${BD}`, borderRadius: 8, padding: "10px 12px", flexWrap: "wrap" }}>
+          <Link2 size={15} color={GO} />
+          <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 220, fontSize: 12 }} />
+          <button onClick={() => { if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(link); }}
+            style={{ background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Copiar</button>
         </div>
       )}
     </div>
