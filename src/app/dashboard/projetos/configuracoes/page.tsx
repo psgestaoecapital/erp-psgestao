@@ -617,9 +617,11 @@ export default function ConfiguracoesPage() {
             />
             <Toggle
               label="Exige aprovação do engenheiro"
-              hint="Take-off precisa ser revisado antes de virar proposta"
+              badge="Em breve"
+              hint="Ainda não ativo — o fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto."
               valor={!!config.exige_aprovacao_engenheiro}
               onChange={(v) => setField("exige_aprovacao_engenheiro", v)}
+              disabled
             />
           </div>
         </div>
@@ -799,25 +801,35 @@ function Toggle({
   hint,
   valor,
   onChange,
+  disabled = false,
+  badge,
 }: {
   label: string;
   hint: string;
   valor: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
+  badge?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-3 hover:bg-[#FAF7F2]">
+    <label className={`flex items-start justify-between gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-3 ${disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:bg-[#FAF7F2]"}`}>
       <div className="flex-1">
-        <div className="text-sm font-medium text-[#3D2314]">{label}</div>
+        <div className="text-sm font-medium text-[#3D2314]">
+          {label}
+          {badge && (
+            <span className="ml-2 rounded-full bg-[#3D2314]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#3D2314]/60">{badge}</span>
+          )}
+        </div>
         <div className="text-xs text-[#3D2314]/60">{hint}</div>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={valor}
-        onClick={() => onChange(!valor)}
+        disabled={disabled}
+        onClick={() => { if (!disabled) onChange(!valor); }}
         className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-          valor ? "bg-[#C8941A]" : "bg-[#3D2314]/15"
+          disabled ? "bg-[#3D2314]/15 cursor-not-allowed" : valor ? "bg-[#C8941A]" : "bg-[#3D2314]/15"
         }`}
       >
         <span
