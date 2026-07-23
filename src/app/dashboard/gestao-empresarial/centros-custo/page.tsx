@@ -13,7 +13,7 @@ const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE 
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#5C8D3F'; const RED = '#C44536'
 const TIPOS = ['direto', 'comum', 'extra'] as const
 
-type Row = { valor_origem: string; ocorrencias: number; mapeado: boolean; tipo_apropriacao: string | null; business_line_id: string | null; lote_id: string | null }
+type Row = { valor_origem: string; ocorrencias: number; mapeado: boolean; ativo: boolean; tipo_apropriacao: string | null; business_line_id: string | null; lote_id: string | null }
 type BL = { id: string; name: string }
 type Lote = { id: string; codigo: string; fase: string | null }
 type Draft = { tipo: string; bl: string; lote: string }
@@ -69,6 +69,30 @@ export default function CentrosCustoPage() {
     else { setMsg(`"${valor}" mapeado.`); await carregar() }
   }
 
+  async function excluir(r: Row) {
+    if (!empresaUnica) return
+    const emUso = r.ocorrencias > 0
+    const ok = window.confirm(emUso
+      ? `"${r.valor_origem}" tem ${r.ocorrencias} lançamento(s) usando este centro. Para não quebrar o rateio já processado, ele NÃO será excluído — será INATIVADO (para de ser aplicado, mas fica no histórico). Continuar?`
+      : `Excluir o mapeamento "${r.valor_origem}"? Lançamentos que usarem esse centro voltarão a ficar não mapeados.`)
+    if (!ok) return
+    setMsg(null)
+    const { error } = emUso
+      ? await supabase.from('cost_center_map').update({ ativo: false }).eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', r.valor_origem)
+      : await supabase.from('cost_center_map').delete().eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', r.valor_origem)
+    if (error) setMsg('Erro: ' + error.message)
+    else { setMsg(emUso ? `"${r.valor_origem}" inativado (estava em uso).` : `"${r.valor_origem}" excluído.`); await carregar() }
+  }
+
+  async function reativar(r: Row) {
+    if (!empresaUnica) return
+    setMsg(null)
+    const { error } = await supabase.from('cost_center_map').update({ ativo: true })
+      .eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', r.valor_origem)
+    if (error) setMsg('Erro: ' + error.message)
+    else { setMsg(`"${r.valor_origem}" reativado.`); await carregar() }
+  }
+
   async function adicionarManual() {
     const key = novo.key.trim()
     if (!key) { setMsg('Digite o nome do centro de custo (ex.: DIR_GADO).'); return }
@@ -118,10 +142,14 @@ export default function CentrosCustoPage() {
             {rows.map((r) => {
               const d = draft[r.valor_origem] ?? { tipo: 'comum', bl: '', lote: '' }
               return (
-                <tr key={r.valor_origem} style={{ borderTop: `1px solid ${LINE}`, background: r.mapeado ? 'transparent' : '#FCF2F2' }}>
+                <tr key={r.valor_origem} style={{ borderTop: `1px solid ${LINE}`, background: !r.mapeado ? '#FCF2F2' : (!r.ativo ? '#F1EEE8' : 'transparent'), opacity: r.mapeado && !r.ativo ? 0.65 : 1 }}>
                   <td style={{ ...td, fontWeight: 600 }}>{r.valor_origem}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{r.ocorrencias}</td>
-                  <td style={td}>{r.mapeado ? <span style={{ color: GREEN }}>✓ mapeado</span> : <span style={{ color: RED, fontWeight: 700 }}>não mapeado</span>}</td>
+                  <td style={td}>
+                    {!r.mapeado ? <span style={{ color: RED, fontWeight: 700 }}>não mapeado</span>
+                      : r.ativo ? <span style={{ color: GREEN }}>✓ mapeado</span>
+                      : <span style={{ color: ESP60, fontWeight: 700 }}>⏸ inativo</span>}
+                  </td>
                   <td style={td}>
                     <select style={inp} value={d.tipo} onChange={(e) => setDraft({ ...draft, [r.valor_origem]: { ...d, tipo: e.target.value } })}>
                       {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -137,7 +165,13 @@ export default function CentrosCustoPage() {
                       <option value="">—</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo} ({l.fase})</option>)}
                     </select>
                   </td>
-                  <td style={td}><button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button></td>
+                  <td style={td}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button>
+                      {r.mapeado && r.ativo && <button onClick={() => void excluir(r)} style={btnDel} title={r.ocorrencias > 0 ? 'Em uso — será inativado' : 'Excluir mapeamento'}>{r.ocorrencias > 0 ? 'Inativar' : 'Excluir'}</button>}
+                      {r.mapeado && !r.ativo && <button onClick={() => void reativar(r)} style={btnSec}>Reativar</button>}
+                    </div>
+                  </td>
                 </tr>
               )
             })}
@@ -153,3 +187,5 @@ const inp: React.CSSProperties = { padding: '5px 7px', border: `1px solid ${LINE
 const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }
 const td: React.CSSProperties = { padding: '6px 8px', verticalAlign: 'middle' }
 const btnPri: React.CSSProperties = { padding: '6px 12px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
+const btnDel: React.CSSProperties = { padding: '6px 12px', background: 'transparent', color: RED, border: `1px solid ${RED}55`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
+const btnSec: React.CSSProperties = { padding: '6px 12px', background: 'transparent', color: ESP, border: `1px solid ${LINE}`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
