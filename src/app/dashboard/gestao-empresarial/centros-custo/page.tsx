@@ -1,8 +1,10 @@
 'use client'
 
-// "Centros de Custo" — lista os valores distintos de centro_custo em erp_pagar/erp_receber
-// e permite mapear cada um → tipo + linha de negócio (+ lote quando direto).
-// Não mapeados destacados em vermelho: o importador NÃO adivinha (entram como extra+revisar).
+// "Centros de Custo" (GE — conceito de Gestão Empresarial, compartilhado com o Agro).
+// Fonte da verdade: cost_center_map (source_type='centro_custo'). Mapeia cada centro →
+// tipo de apropriação + linha de negócio (+ lote quando direto). NÃO adivinha: não mapeado
+// entra como extra+revisar no importador. Permite CADASTRO MANUAL PRÉVIO (antes de haver
+// lançamento) — resolve o ovo-e-galinha.
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
@@ -14,6 +16,7 @@ const TIPOS = ['direto', 'comum', 'extra'] as const
 type Row = { valor_origem: string; ocorrencias: number; mapeado: boolean; tipo_apropriacao: string | null; business_line_id: string | null; lote_id: string | null }
 type BL = { id: string; name: string }
 type Lote = { id: string; codigo: string; fase: string | null }
+type Draft = { tipo: string; bl: string; lote: string }
 
 export default function CentrosCustoPage() {
   const { companyId } = useEmpresaSelecionada()
@@ -23,8 +26,9 @@ export default function CentrosCustoPage() {
   const [bls, setBls] = useState<BL[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
   const [msg, setMsg] = useState<string | null>(null)
-  // edição inline por valor_origem
-  const [draft, setDraft] = useState<Record<string, { tipo: string; bl: string; lote: string }>>({})
+  const [draft, setDraft] = useState<Record<string, Draft>>({})
+  // cadastro manual prévio
+  const [novo, setNovo] = useState<{ key: string; tipo: string; bl: string; lote: string }>({ key: '', tipo: 'comum', bl: '', lote: '' })
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -37,24 +41,41 @@ export default function CentrosCustoPage() {
     setRows(data)
     setBls((bl.data ?? []) as BL[])
     setLotes((lo.data ?? []) as Lote[])
-    const d: Record<string, { tipo: string; bl: string; lote: string }> = {}
+    const d: Record<string, Draft> = {}
     for (const r of data) d[r.valor_origem] = { tipo: r.tipo_apropriacao ?? 'comum', bl: r.business_line_id ?? '', lote: r.lote_id ?? '' }
     setDraft(d)
   }, [empresaUnica])
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // grava 1 mapeamento por centro em cost_center_map (delete+insert; RLS garante a empresa)
+  async function gravar(sourceKey: string, d: Draft): Promise<string | null> {
+    if (!empresaUnica) return 'sem empresa'
+    await supabase.from('cost_center_map').delete()
+      .eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', sourceKey)
+    const { error } = await supabase.from('cost_center_map').insert({
+      company_id: empresaUnica, source_type: 'centro_custo', source_key: sourceKey,
+      business_line_id: d.bl || null, tipo_apropriacao: d.tipo,
+      lote_id: d.tipo === 'direto' ? (d.lote || null) : null,
+      allocation_pct: 100, cost_scope: 'todos', priority: 0, ativo: true,
+    })
+    return error ? error.message : null
+  }
+
   async function salvar(valor: string) {
-    if (!empresaUnica) return
-    const d = draft[valor]
     setMsg(null)
-    const { error } = await supabase.from('erp_centro_custo_mapa').upsert({
-      company_id: empresaUnica, valor_origem: valor,
-      tipo_apropriacao: d.tipo, business_line_id: d.bl || null,
-      lote_id: d.tipo === 'direto' ? (d.lote || null) : null, ativo: true,
-    }, { onConflict: 'company_id,valor_origem' })
-    if (error) setMsg('Erro: ' + error.message)
+    const err = await gravar(valor, draft[valor] ?? { tipo: 'comum', bl: '', lote: '' })
+    if (err) setMsg('Erro: ' + err)
     else { setMsg(`"${valor}" mapeado.`); await carregar() }
+  }
+
+  async function adicionarManual() {
+    const key = novo.key.trim()
+    if (!key) { setMsg('Digite o nome do centro de custo (ex.: DIR_GADO).'); return }
+    setMsg(null)
+    const err = await gravar(key, { tipo: novo.tipo, bl: novo.bl, lote: novo.lote })
+    if (err) setMsg('Erro: ' + err)
+    else { setMsg(`"${key}" cadastrado.`); setNovo({ key: '', tipo: 'comum', bl: '', lote: '' }); await carregar() }
   }
 
   const naoMapeados = rows.filter((r) => !r.mapeado).length
@@ -67,6 +88,20 @@ export default function CentrosCustoPage() {
       <div style={{ fontSize: 13, color: ESP60, marginBottom: 16 }}>
         Mapeie cada centro de custo → tipo + linha. O importador NÃO adivinha: não mapeado entra como <b>extra + revisar</b>.
       </div>
+
+      {/* cadastro manual prévio — resolve o ovo-e-galinha (criar antes de ter lançamento) */}
+      <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Cadastrar centro de custo manualmente</div>
+        <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Crie o mapeamento antes de existir lançamento (ex.: DIR_GADO, DIR_SOJA, COMUM, EXTRA).</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input value={novo.key} onChange={(e) => setNovo({ ...novo, key: e.target.value })} placeholder="Nome do centro (ex.: DIR_GADO)" style={{ ...inp, minWidth: 200 }} />
+          <select style={inp} value={novo.tipo} onChange={(e) => setNovo({ ...novo, tipo: e.target.value })}>{TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+          <select style={inp} value={novo.bl} onChange={(e) => setNovo({ ...novo, bl: e.target.value })}><option value="">— linha —</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+          <select style={inp} value={novo.lote} disabled={novo.tipo !== 'direto'} onChange={(e) => setNovo({ ...novo, lote: e.target.value })}><option value="">— lote (se direto) —</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo} ({l.fase})</option>)}</select>
+          <button onClick={() => void adicionarManual()} style={btnPri}>+ Cadastrar</button>
+        </div>
+      </div>
+
       {naoMapeados > 0 && (
         <div style={{ marginBottom: 12, fontSize: 13, color: RED, background: '#FCE8E8', padding: 8, borderRadius: 6 }}>
           ⚠️ {naoMapeados} centro(s) de custo não mapeado(s) — configure antes de ratear.
@@ -106,7 +141,7 @@ export default function CentrosCustoPage() {
                 </tr>
               )
             })}
-            {rows.length === 0 && <tr><td style={td} colSpan={7}>Nenhum centro de custo encontrado em Contas a Pagar/Receber.</td></tr>}
+            {rows.length === 0 && <tr><td style={td} colSpan={7}>Nenhum centro de custo ainda. Use o cadastro manual acima (ex.: DIR_GADO).</td></tr>}
           </tbody>
         </table>
       </div>
