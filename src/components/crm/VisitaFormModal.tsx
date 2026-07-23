@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { labelUsuario } from '@/lib/usuarioLabel'
 import ClienteForm from '@/components/clientes/ClienteForm'
 
 export type VisitaFotoRef = { path: string; name?: string }
@@ -243,7 +244,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
               onChange={setResponsavelId}
               placeholder="Digite pra buscar o vendedor…"
               vazioTexto="Nenhum usuário nesta empresa. Cadastre em Acessos."
-              options={users.map((u) => ({ id: u.id, label: u.full_name ?? u.email ?? u.id.slice(0, 8), sub: u.full_name ? u.email : null }))}
+              options={users.map((u) => ({ id: u.id, label: labelUsuario(u, users), sub: u.full_name ? u.email : null }))}
             />
           </label>
           <label style={lbl}>

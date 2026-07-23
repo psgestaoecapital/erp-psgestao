@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import Sidebar from '@/components/layout/Sidebar'
 import TopNav from '@/components/layout/TopNav'
 import AreaRedirectGuard from '@/components/layout/AreaRedirectGuard'
+import DashboardMain from '@/components/layout/DashboardMain'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -12,9 +13,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Sidebar />
         <div className="md:ml-[220px] min-h-screen flex flex-col">
           <TopNav />
-          <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
+          <DashboardMain>
             <Suspense fallback={null}>{children}</Suspense>
-          </main>
+          </DashboardMain>
         </div>
       </div>
     </SelectedCompanyProvider>

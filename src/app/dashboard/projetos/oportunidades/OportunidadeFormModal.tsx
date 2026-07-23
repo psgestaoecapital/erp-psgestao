@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { labelUsuario } from '@/lib/usuarioLabel'
 
 type ClienteOpt = { id: string; nome: string; cpf_cnpj: string | null }
-type UserOpt = { id: string; email: string | null }
+type UserOpt = { id: string; email: string | null; full_name?: string | null }
 
 export type OportunidadeRow = {
   id?: string
@@ -378,7 +379,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               style={inp}
             />
             <datalist id="responsaveis-list">
-              {users.map((u) => <option key={u.id} value={u.email ?? u.id.slice(0, 8)} />)}
+              {users.map((u) => <option key={u.id} value={labelUsuario(u, users)} />)}
             </datalist>
           </label>
         </div>

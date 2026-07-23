@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { labelUsuario } from '@/lib/usuarioLabel'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
 
 type Row = {
@@ -48,7 +49,7 @@ export default function VisitasPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'agendada' | 'realizada' | 'cancelada'>('todas')
-  const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null }>>([])
+  const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null; full_name?: string | null }>>([])
   const [editing, setEditing] = useState<VisitaInicial | null | undefined>(undefined)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -72,7 +73,7 @@ export default function VisitasPage() {
     supabase
       .rpc('fn_usuarios_da_empresa', { p_company_id: empresaUnica })
       .then(({ data }) => {
-        setResponsaveis((data ?? []) as { id: string; email: string | null }[])
+        setResponsaveis((data ?? []) as { id: string; email: string | null; full_name?: string | null }[])
       })
   }, [empresaUnica])
 
@@ -181,7 +182,7 @@ export default function VisitasPage() {
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: TEXTM }}>
-                {resp && <span>resp: {resp.email}</span>}
+                {resp && <span>resp: {labelUsuario(resp, responsaveis)}</span>}
                 {nFotos > 0 && <span>{nFotos} foto(s)</span>}
                 {r.gps_lat != null && r.gps_lng != null && (
                   <span>📍 lat {Number(r.gps_lat).toFixed(4)}, lng {Number(r.gps_lng).toFixed(4)}</span>

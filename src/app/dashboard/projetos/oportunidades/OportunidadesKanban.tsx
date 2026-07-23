@@ -54,9 +54,21 @@ interface Props {
   refreshKey: number
   onMoved: (msg: string) => void
   onError: (msg: string) => void
+  // Filtros herdados da antiga visão Lista (agora únicos, no topo da página).
+  filtroEtapa: string
+  filtroResp: string
+  busca: string
+  onCount: (n: number) => void
+  // Ações por card (a página resolve o Row completo por id: abre modal / exclui).
+  onEdit: (id: string) => void
+  onExcluir: (id: string) => void
+  excluindoId?: string | null
 }
 
-export default function OportunidadesKanban({ companyId, refreshKey, onMoved, onError }: Props) {
+export default function OportunidadesKanban({
+  companyId, refreshKey, onMoved, onError,
+  filtroEtapa, filtroResp, busca, onCount, onEdit, onExcluir, excluindoId,
+}: Props) {
   const router = useRouter()
   const [pipe, setPipe] = useState<Pipeline | null>(null)
   const [loading, setLoading] = useState(true)
@@ -88,14 +100,29 @@ export default function OportunidadesKanban({ companyId, refreshKey, onMoved, on
 
   useEffect(() => { carregar() }, [companyId, refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cardsPorEtapa = (etapa: string): Card[] => {
-    return pipe?.etapas?.find((e) => e.etapa === etapa)?.cards ?? []
+  const termo = busca.trim().toLowerCase()
+  const cardVisivel = (c: Card): boolean => {
+    if (filtroResp !== 'todos' && c.responsavel_id !== filtroResp) return false
+    if (termo && !`${c.titulo} ${c.cliente ?? ''}`.toLowerCase().includes(termo)) return false
+    return true
   }
+  const cardsPorEtapa = (etapa: string): Card[] =>
+    (pipe?.etapas?.find((e) => e.etapa === etapa)?.cards ?? []).filter(cardVisivel)
+
+  // Filtro de etapa vira "foco": mostra só a coluna escolhida (equivalência com o filtro da lista).
+  const colunasVisiveis = ETAPAS_OPS.filter((e) => filtroEtapa === 'todas' || e.v === filtroEtapa)
 
   const totalEtapa = (etapa: string): { qtd: number; valor: number } => {
-    const e = pipe?.etapas?.find((x) => x.etapa === etapa)
-    return { qtd: e?.qtd ?? 0, valor: e?.valor_total ?? 0 }
+    const cards = cardsPorEtapa(etapa)
+    return { qtd: cards.length, valor: cards.reduce((s, c) => s + Number(c.valor_estimado ?? 0), 0) }
   }
+
+  // Contador "N oportunidade(s)" herdado da lista → reporta ao topo da página.
+  useEffect(() => {
+    let n = 0
+    for (const et of colunasVisiveis) n += cardsPorEtapa(et.v).length
+    onCount(n)
+  }, [pipe, filtroEtapa, filtroResp, busca]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function moverPara(cardId: string, novaEtapa: string, etapaAtual: string | null) {
     if (etapaAtual === novaEtapa) return
@@ -198,7 +225,7 @@ export default function OportunidadesKanban({ companyId, refreshKey, onMoved, on
       {/* Board com scroll horizontal mobile-first */}
       <div style={boardWrap}>
         <div style={board}>
-          {ETAPAS_OPS.map((et) => {
+          {colunasVisiveis.map((et) => {
             const cards = cardsPorEtapa(et.v)
             const tot = totalEtapa(et.v)
             const hover = hoverEtapa === et.v
@@ -265,6 +292,17 @@ export default function OportunidadesKanban({ companyId, refreshKey, onMoved, on
                           ))}
                         </select>
                       </div>
+                      {/* Ações herdadas da lista: Editar · Orçamento/ficha · Excluir */}
+                      <div style={cardActions} onClick={(e) => e.stopPropagation()}>
+                        <button style={cardActBtn} onClick={() => onEdit(c.id)} title="Editar" aria-label="Editar">✏️</button>
+                        <button style={cardActBtn} onClick={() => router.push(`/dashboard/projetos/oportunidades/${c.id}`)} title="Orçamento / ficha" aria-label="Orçamento">📄</button>
+                        <button
+                          style={{ ...cardActBtn, color: '#9A1F1F' }}
+                          onClick={() => onExcluir(c.id)}
+                          disabled={excluindoId === c.id}
+                          title="Excluir" aria-label="Excluir"
+                        >🗑️</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -298,22 +336,23 @@ const tileSt: CSSProperties = {
 const boardWrap: CSSProperties = {
   overflowX: 'auto',
   paddingBottom: 8,
-  margin: '0 -16px',
-  paddingLeft: 16,
-  paddingRight: 16,
   WebkitOverflowScrolling: 'touch',
+  scrollSnapType: 'x mandatory', // mobile: cada coluna "encaixa" ao rolar
 }
 const board: CSSProperties = {
-  display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 'max-content',
+  // Desktop: colunas flex ocupam a largura toda e cabem SEM scroll horizontal.
+  // Mobile/estreito: minWidth por coluna força overflow → boardWrap rola (com snap).
+  display: 'flex', gap: 10, alignItems: 'stretch', width: '100%',
 }
 const col: CSSProperties = {
-  width: 260, flexShrink: 0,
+  flex: '1 1 0', minWidth: 190,
+  scrollSnapAlign: 'start',
   background: OFFWHITE,
   border: `1px solid ${BORDA}`,
   borderRadius: 12,
-  padding: 10,
+  padding: 8,
   display: 'flex', flexDirection: 'column', gap: 6,
-  maxHeight: 'calc(100vh - 280px)',
+  height: 'calc(100vh - 250px)', // altura igual, ocupa a viewport (scroll interno por coluna)
 }
 const colHover: CSSProperties = {
   background: '#F3E9D8',
@@ -326,14 +365,21 @@ const colSubHead: CSSProperties = {
   fontSize: 11, color: TEXTM, paddingBottom: 4, borderBottom: `1px dashed ${BORDA}`,
 }
 const colList: CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1,
+  display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1,
 }
 const etapaChip: CSSProperties = {
   fontSize: 11, padding: '2px 8px', borderRadius: 999, fontWeight: 600,
 }
 const cardSt: CSSProperties = {
-  background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 10,
-  padding: 10, userSelect: 'none', transition: 'opacity .15s',
+  background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8,
+  padding: 8, userSelect: 'none', transition: 'opacity .15s',
+}
+const cardActions: CSSProperties = {
+  display: 'flex', gap: 4, marginTop: 6, justifyContent: 'flex-end',
+}
+const cardActBtn: CSSProperties = {
+  border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 6,
+  padding: '2px 7px', fontSize: 12, lineHeight: 1.1, cursor: 'pointer', minHeight: 26,
 }
 const probBadge: CSSProperties = {
   fontSize: 10, fontWeight: 600, color: TEXTM,

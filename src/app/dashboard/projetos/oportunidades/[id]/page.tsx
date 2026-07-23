@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeFormModal'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
 
@@ -59,7 +60,7 @@ type Visita = {
   created_at: string
 }
 
-type UserOpt = { id: string; email: string | null }
+type UserOpt = { id: string; email: string | null; full_name?: string | null }
 
 const ETAPAS: { v: string; l: string; bg: string; fg: string }[] = [
   { v: 'prospeccao',       l: 'Prospecção',       bg: '#F0E9DE', fg: '#6b5444' },
@@ -254,7 +255,8 @@ export default function OportunidadeFichaPage() {
   const cfg = etapaCfg(op.etapa)
   const cliNome = op.erp_clientes?.nome_fantasia ?? op.erp_clientes?.razao_social ?? '—'
   // Responsável = texto livre (op.responsavel_nome); fallback ao e-mail do usuário legado.
-  const respNome = op.responsavel_nome || users.find((u) => u.id === op.responsavel_id)?.email || null
+  const respUser = users.find((u) => u.id === op.responsavel_id)
+  const respNome = op.responsavel_nome || (respUser ? labelUsuario(respUser, users) : null)
 
   return (
     <div className="p-4 max-w-4xl mx-auto" style={{ color: ESPRESSO }}>
@@ -355,7 +357,7 @@ export default function OportunidadeFichaPage() {
                     </span>
                   </div>
                   {v.endereco && <div className="text-xs" style={{ color: TEXTM }}>{v.endereco}</div>}
-                  {r && <div className="text-xs" style={{ color: TEXTM }}>resp: {r.email}</div>}
+                  {r && <div className="text-xs" style={{ color: TEXTM }}>resp: {labelUsuario(r, users)}</div>}
                   {v.anotacoes && <p className="text-sm mt-1">{v.anotacoes}</p>}
                   {v.fotos && v.fotos.length > 0 && <FotosVisita fotos={v.fotos} />}
                   <div className="mt-2 flex gap-2 flex-wrap">
