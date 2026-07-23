@@ -111,17 +111,14 @@ function ProducaoPageInner() {
       supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('*').eq('company_id', sel).order('data', { ascending: false }),
-      supabase.from('user_companies').select('users(id,email)').eq('company_id', sel),
+      supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
     setTimesheets((ts.data ?? []) as Timesheet[])
     type U = { id: string; email: string | null }
-    const users = ((us.data ?? []) as unknown as Array<{ users: U | U[] | null }>)
-      .map((r) => Array.isArray(r.users) ? r.users[0] : r.users)
-      .filter(Boolean) as U[]
-    setResponsaveis(users)
+    setResponsaveis((us.data ?? []) as U[])
     setContratos((ct.data ?? []) as ContratoOpt[])
 
     const now = new Date()
@@ -364,8 +361,10 @@ function ProducaoPageInner() {
             <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
             <Select label="Estágio" v={(form.status as string) ?? 'nao_iniciada'} on={(v) => setForm({ ...form, status: v })}
               opts={ESTAGIOS.map((e) => [e.v, e.l])} />
-            <Select label="Responsável" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null })}
+            <Select label="Responsável" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, u.email ?? u.id.slice(0, 8)] as [string, string])]} />
+            <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
+              on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
           </div>
           {(form.valor_job && form.percentual_comissao) ? (
             <p style={hintBox}>
