@@ -6,6 +6,7 @@ import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
+import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -22,6 +23,7 @@ type ItemOrc = {
   desconto_percentual:number; desconto_valor:number;
   subtotal:number; margem_percentual?:number;
   observacoes?:string;
+  _srv_eng?:boolean; // linha = serviço do catálogo de ENGENHARIA (projetos_servicos), precificado com BDI
 };
 
 type Orcamento = {
@@ -63,6 +65,7 @@ const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.
 const OBS_PADRAO="O presente orçamento pode sofrer variações durante a execução do serviço.\nFormas de pagamento: À vista R$ ____ | Parcelado (cartão ou boleto) R$ ____.";
 const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+const EMPTY_ITEM_SERVICO_ENG:ItemOrc = {ordem:0,tipo_item:'servico',_srv_eng:true,produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,preco_custo:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 
 export default function OrcamentosPage(){
   const router = useRouter();
@@ -87,6 +90,10 @@ export default function OrcamentosPage(){
   const [produtosCache,setProdutosCache]=useState<any[]>([]);
   const [buscaProduto,setBuscaProduto]=useState<{idx:number;termo:string}|null>(null);
   const [produtosBusca,setProdutosBusca]=useState<any[]>([]);
+  // Contexto de ENGENHARIA (Hub/Projetos): BDI + trava de preço. Decidido por presença de config, não por empresa hardcoded.
+  const [bdiPct,setBdiPct]=useState(0);
+  const [temProjetos,setTemProjetos]=useState(false);
+  const [podeAlterarPreco,setPodeAlterarPreco]=useState(true);
 
   // Empresa individual para novos orçamentos
   const companyIdParaCadastro = useMemo(()=>{
@@ -97,6 +104,25 @@ export default function OrcamentosPage(){
   useEffect(()=>{
     if(companyIds.length>0){loadOrcamentos();loadProdutos();}
   },[companyIds.join(",")]);
+
+  // Contexto de engenharia: se a empresa tem projetos_modulo_config → habilita busca de serviço
+  // de engenharia + BDI. Trava de preço: vendedor_pode_alterar_preco, senão só quem pode gerir (master).
+  useEffect(()=>{
+    const cid=companyIdParaCadastro;
+    if(!cid){setTemProjetos(false);setBdiPct(0);setPodeAlterarPreco(true);return;}
+    (async()=>{
+      const{data:cfg}=await supabase.from("projetos_modulo_config").select("bdi_total_pct,vendedor_pode_alterar_preco").eq("company_id",cid).maybeSingle();
+      if(!cfg){setTemProjetos(false);setBdiPct(0);setPodeAlterarPreco(true);return;}
+      setTemProjetos(true);
+      setBdiPct(Number(cfg.bdi_total_pct)||0);
+      let pode=!!cfg.vendedor_pode_alterar_preco;
+      if(!pode){
+        const{data:g}=await supabase.rpc("fn_acessos_pode_gerir",{p_company_id:cid});
+        pode=!!g;
+      }
+      setPodeAlterarPreco(pode);
+    })();
+  },[companyIdParaCadastro]);
 
   useEffect(()=>{
     if(buscaCliente.length<2){setClientesBusca([]);return;}
@@ -212,6 +238,7 @@ export default function OrcamentosPage(){
     setItens((itensData||[]).map(i=>({
       ...i,
       tipo_item:(i.tipo_item==='servico'?'servico':'produto') as 'produto'|'servico',
+      _srv_eng: i.tipo_item==='servico' && Number(i.preco_custo||0)>0, // serviço com custo = engenharia (BDI)
       quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
       desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),
       subtotal:Number(i.subtotal),
@@ -235,6 +262,26 @@ export default function OrcamentosPage(){
 
   const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
   const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
+  const addItemServicoEng=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO_ENG,ordem:itens.length+1}]);
+  // Serviço de ENGENHARIA: preço de venda = custo × (1 + BDI/100). Mostra a margem resultante.
+  const selecionarServicoEng=(idx:number,s:ServicoEngSelecionado)=>{
+    const custo=Number(s.custo_unitario_total)||0;
+    const preco=Math.round(custo*(1+bdiPct/100)*100)/100;
+    const novosItens=[...itens];
+    novosItens[idx]={
+      ...novosItens[idx],
+      tipo_item:'servico', _srv_eng:true,
+      servico_id:s.id, servico_codigo:s.codigo ?? '', servico_descricao:s.nome,
+      produto_nome:s.nome, unidade:s.unidade || 'UN',
+      preco_custo:custo, preco_unitario:preco,
+    };
+    recalcularItem(idx,novosItens);
+  };
+  const limparServicoEng=(idx:number)=>{
+    const novosItens=[...itens];
+    novosItens[idx]={...novosItens[idx],servico_id:undefined,servico_codigo:'',servico_descricao:'',produto_nome:'',preco_custo:0,preco_unitario:0};
+    setItens(novosItens);
+  };
   const selecionarServico=(idx:number,s:ServicoSelecionado)=>{
     const novosItens=[...itens];
     novosItens[idx]={
@@ -543,6 +590,9 @@ export default function OrcamentosPage(){
             <div style={{display:"flex",gap:6}}>
               <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Produto</button>
               <button onClick={addItemServico} data-testid="orc-add-servico" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:P+"15",color:P,border:`1px solid ${P}40`,cursor:"pointer",fontWeight:600}}>+ Serviço</button>
+              {temProjetos && (
+                <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço do catálogo de engenharia (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço eng.</button>
+              )}
             </div>
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
@@ -553,10 +603,18 @@ export default function OrcamentosPage(){
               <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
                 <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
                   {it.ordem}
-                  <div style={{fontSize:8,fontWeight:700,color:it.tipo_item==='servico'?P:GO,marginTop:2}}>{it.tipo_item==='servico'?'SRV':'PRD'}</div>
+                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:GO),marginTop:2}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':'PRD')}</div>
                 </div>
                 <div style={{position:"relative"}}>
-                  {it.tipo_item==='servico' ? (
+                  {it._srv_eng ? (
+                    <ServicoEngenhariaAutocomplete
+                      companyId={companyIdParaCadastro || ''}
+                      selecionado={it.servico_id ? { id: it.servico_id, codigo: it.servico_codigo ?? null, nome: it.servico_descricao || it.produto_nome, unidade: it.unidade, custo_unitario_total: it.preco_custo ?? 0 } : null}
+                      onSelect={s=>selecionarServicoEng(idx,s)}
+                      onClear={()=>limparServicoEng(idx)}
+                      testId={`orc-servico-eng-${idx}`}
+                    />
+                  ) : it.tipo_item==='servico' ? (
                     <ServicoAutocomplete
                       companyId={companyIdParaCadastro || ''}
                       selecionado={it.servico_id ? { id: it.servico_id, codigo: it.servico_codigo ?? null, descricao_resumida: it.servico_descricao || it.produto_nome, valor_unitario: it.preco_unitario } : null}
@@ -580,7 +638,19 @@ export default function OrcamentosPage(){
                 </div>
                 <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
-                <input type="number" step="0.01" value={it.preco_unitario||''} onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                <div>
+                  <input type="number" step="0.01" value={it.preco_unitario||''}
+                    readOnly={!!it._srv_eng && !podeAlterarPreco}
+                    title={(it._srv_eng && !podeAlterarPreco) ? "Preço definido pelo catálogo (custo + BDI). Ajuste requer engenheiro/master." : undefined}
+                    onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)}
+                    style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right",background:(it._srv_eng && !podeAlterarPreco)?BG3:'#fff',cursor:(it._srv_eng && !podeAlterarPreco)?'not-allowed':'auto'}}/>
+                  {it._srv_eng && (
+                    <div style={{fontSize:8,textAlign:"right",marginTop:1,color:(it.margem_percentual!=null && it.margem_percentual<0)?R:TXD}}>
+                      {(it.preco_custo??0)>0 ? `custo ${fmtR(it.preco_custo||0)} · mrg ${it.margem_percentual!=null?it.margem_percentual+'%':'—'}` : ''}
+                      {!podeAlterarPreco ? ' 🔒 eng.' : ''}
+                    </div>
+                  )}
+                </div>
                 <input type="number" step="0.1" value={it.desconto_percentual||''} onChange={e=>atualizarItem(idx,'desconto_percentual',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:G}}>{fmtR(it.subtotal)}</div>
                 <button onClick={()=>removerItem(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
