@@ -148,7 +148,7 @@ interface MovimentoOFX {
   id_externo: string | null
 }
 
-// conciliacao-tela-sugestoes-acoes-v1
+// conciliacao-tela-sugestoes-acoes-v1 · v3: + status_lancamento
 interface SugestaoMatch {
   lancamento_tabela: 'erp_pagar' | 'erp_receber' | string
   lancamento_id: string
@@ -156,9 +156,20 @@ interface SugestaoMatch {
   valor_lancamento: number | null
   descricao_lancamento: string | null
   contraparte: string | null
+  status_lancamento: 'pago' | 'aberto' | 'vencido' | string | null
   match_score: number
   match_categoria: 'perfeito' | 'quase' | 'fraco' | string
   motivo: string | null
+}
+
+// conciliacao-sugerir-match-v3: badge do status do lancamento sugerido
+function badgeStatusLancamento(s?: string | null) {
+  switch ((s ?? '').toLowerCase()) {
+    case 'pago': return { label: '✔ Baixado', cor: '#1B873F', bg: '#E7F4EC' }
+    case 'aberto': return { label: '⏳ Em aberto', cor: '#B7791F', bg: '#FBF3E0' }
+    case 'vencido': return { label: '🔴 Vencido', cor: '#C53030', bg: '#FCE8E8' }
+    default: return { label: s ?? '—', cor: '#6B5D4F', bg: 'rgba(61,35,20,0.08)' }
+  }
 }
 
 function parseOFX(text: string): MovimentoOFX[] {
@@ -1059,15 +1070,19 @@ export default function InboxPage() {
                             )}
                             {(sugestoesPorMov[it.movimento_id] ?? []).map((sug) => {
                               const seloSug = seloPrecisao(sug.match_score)
+                              const bSt = badgeStatusLancamento(sug.status_lancamento)
                               return (
                                 <div key={`${sug.lancamento_tabela}:${sug.lancamento_id}`} style={{
                                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                   gap: 10, padding: '8px 10px', background: '#FAF7F2', borderRadius: 6, marginBottom: 6, flexWrap: 'wrap',
                                 }}>
                                   <div style={{ flex: 1, minWidth: 200 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
                                       <span style={{ background: seloSug.bg, color: seloSug.cor, padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
                                         {seloSug.emoji} {seloSug.label} · {Math.round(Number(sug.match_score ?? 0))}
+                                      </span>
+                                      <span style={{ background: bSt.bg, color: bSt.cor, padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
+                                        {bSt.label}
                                       </span>
                                       <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>
                                         {sug.contraparte ?? sug.descricao_lancamento ?? '(sem nome)'}
