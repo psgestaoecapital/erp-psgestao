@@ -331,10 +331,19 @@ export default function CofrePage() {
                 </div>
               </div>
               <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+                {/* Decoy: absorve o autofill do Chrome (que ignora autocomplete=off em campos
+                    de credencial) para NÃO preencher Rótulo/Valor com login e senha pessoal. */}
+                <input type="text" name="username" autoComplete="username" tabIndex={-1} aria-hidden="true"
+                  style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} readOnly />
+                <input type="password" name="password" autoComplete="current-password" tabIndex={-1} aria-hidden="true"
+                  style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} readOnly />
                 <div>
                   <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Provider</label>
                   <input
                     list="providers-sugeridos"
+                    name="cofre-provider"
+                    autoComplete="off"
+                    autoFocus={!editando.id}
                     value={editando.provider ?? ''}
                     disabled={!!editando.id}
                     onChange={(e) => setEditando({ ...editando, provider: e.target.value.toLowerCase() })}
@@ -348,6 +357,8 @@ export default function CofrePage() {
                 <div>
                   <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Chave</label>
                   <input
+                    name="cofre-chave"
+                    autoComplete="off"
                     value={editando.chave ?? ''}
                     disabled={!!editando.id}
                     onChange={(e) => setEditando({ ...editando, chave: e.target.value.toLowerCase() })}
@@ -384,6 +395,8 @@ export default function CofrePage() {
                 <div>
                   <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Rótulo (opcional)</label>
                   <input
+                    name="cofre-rotulo"
+                    autoComplete="off"
                     value={editando.label ?? ''}
                     onChange={(e) => setEditando({ ...editando, label: e.target.value })}
                     placeholder="ex.: Autodesk APS produção"
@@ -396,7 +409,9 @@ export default function CofrePage() {
                   </label>
                   <input
                     type="password"
-                    autoComplete="off"
+                    name="cofre-secret"
+                    autoComplete="new-password"
+                    autoFocus={!!editando.id}
                     value={editando.valor ?? ''}
                     onChange={(e) => setEditando({ ...editando, valor: e.target.value })}
                     placeholder={editando.id ? 'novo valor (deixa vazio p/ manter atual)' : ''}
