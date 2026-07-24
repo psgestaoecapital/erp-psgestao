@@ -64,6 +64,41 @@ export async function buildNFSeFromReceber(opts: {
     cliente = data ?? null
   }
 
+  // FIX-IBGE-TOMADOR (24/07/2026): o codigo IBGE do municipio do tomador e obrigatorio na NFS-e nacional.
+  // Cadastros antigos / preenchimento por CNPJ deixavam CEP sem IBGE, e a emissao rejeitava pedindo um
+  // dado que o usuario NAO controla (o campo e derivado). Em vez de rejeitar: resolve pelo CEP na hora e
+  // AUTO-CURA (grava de volta no cliente) — backfill progressivo, cada emissao conserta aquele cliente.
+  let ibgeTomador = (cliente?.codigo_ibge_municipio ?? '').trim() || null
+  const cepTomador = (cliente?.cep ?? '').replace(/\D/g, '')
+  if (!ibgeTomador && cepTomador.length === 8) {
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${cepTomador}/json/`, { next: { revalidate: 86400 } })
+      const d = await r.json()
+      if (d?.ibge) {
+        ibgeTomador = String(d.ibge)
+        if (rec.cliente_id) {
+          await supabaseAdmin.from('erp_clientes')
+            .update({ codigo_ibge_municipio: ibgeTomador })
+            .eq('id', rec.cliente_id)
+        }
+      }
+    } catch { /* sem rede: segue; o guard abaixo dá a mensagem honesta */ }
+  }
+
+  // Guard com mensagem HONESTA (RD-51): nunca pedir o que o usuario ja fez.
+  if (cliente?.logradouro && !ibgeTomador) {
+    if (cepTomador.length === 8) {
+      throw new FiscalError('PAYLOAD_INVALIDO',
+        `Nao consegui resolver o codigo IBGE do municipio do tomador pelo CEP ${cepTomador}. ` +
+        `O CEP ja esta preenchido — a falha e na resolucao (sistema/rede), nao no seu cadastro. ` +
+        `Tente emitir de novo; se persistir, avise o suporte.`)
+    } else {
+      throw new FiscalError('PAYLOAD_INVALIDO',
+        `O tomador "${cliente?.razao_social ?? rec.cliente_nome ?? ''}" esta sem CEP. ` +
+        `Informe o CEP no cadastro do cliente para a NFS-e sair com o municipio correto.`)
+    }
+  }
+
   const tomadorRazao = cliente?.razao_social ?? rec.cliente_nome ?? 'Consumidor nao identificado'
   const docLimpo = (cliente?.cnpj_cpf ?? cliente?.cpf_cnpj ?? '').replace(/\D/g, '')
   const isCnpj = docLimpo.length === 14
@@ -101,7 +136,7 @@ export async function buildNFSeFromReceber(opts: {
             cidade: cliente.cidade ?? '',
             uf: cliente.uf ?? '',
             cep: (cliente.cep ?? '').replace(/\D/g, ''),
-            codigoMunicipio: cliente.codigo_ibge_municipio ?? undefined,
+            codigoMunicipio: ibgeTomador ?? undefined,
           }
         : undefined,
     },
