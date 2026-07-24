@@ -46,6 +46,7 @@ Deno.serve(async (req) => {
     collectorVersion: string | null
     host: string | null
     janelaDias: number | null
+    triggerType: string
     erro?: string | null
   }) {
     const fim = new Date()
@@ -57,7 +58,9 @@ Deno.serve(async (req) => {
         finalizado_em: fim.toISOString(),
         fase: opts.fase,
         http_status: opts.httpStatus,
-        trigger_type: 'coletor_atak',
+        // 'coletor_atak' (diário) OU 'coletor_atak_backfill' (carga histórica) —
+        // separados para não confundir o cão de guarda (R6).
+        trigger_type: opts.triggerType,
         http_response: {
           fonte: 'atak',
           gravados: opts.gravados,
@@ -78,24 +81,28 @@ Deno.serve(async (req) => {
     collector_version?: string
     hostname?: string
     janela_dias?: number
+    collector_mode?: string
   }
   try {
     body = await req.json()
   } catch {
-    await heartbeat({ fase: 'falha', httpStatus: 400, gravados: 0, recebidos: 0, collectorVersion: null, host: null, janelaDias: null, erro: 'bad json' })
+    // bad json: sem body, cai no trigger diário por padrão.
+    await heartbeat({ fase: 'falha', httpStatus: 400, gravados: 0, recebidos: 0, collectorVersion: null, host: null, janelaDias: null, triggerType: 'coletor_atak', erro: 'bad json' })
     return json({ error: 'bad json' }, 400)
   }
 
   const collectorVersion = typeof body?.collector_version === 'string' ? body.collector_version : null
   const host = typeof body?.hostname === 'string' ? body.hostname : null
   const janelaDias = typeof body?.janela_dias === 'number' ? body.janela_dias : null
+  // Modo backfill marca o heartbeat separado (R6). Ausente/qualquer-coisa → diário (não muda o fluxo atual, R1).
+  const triggerType = body?.collector_mode === 'backfill' ? 'coletor_atak_backfill' : 'coletor_atak'
 
   const registros = Array.isArray(body?.registros) ? body.registros : []
   const recebidos = registros.length
   if (recebidos === 0) {
     // Sync valido sem novidade (janela vazia) — CONTA como sucesso (a maquina
     // esta viva), gravados=0.
-    await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: 0, recebidos: 0, collectorVersion, host, janelaDias })
+    await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: 0, recebidos: 0, collectorVersion, host, janelaDias, triggerType })
     return json({ ok: true, gravados: 0 })
   }
 
@@ -141,11 +148,11 @@ Deno.serve(async (req) => {
     .upsert(rows, { onConflict: 'company_id,cod_filial,chave_fato,seq_cabeca' })
 
   if (error) {
-    await heartbeat({ fase: 'falha', httpStatus: 500, gravados: 0, recebidos, collectorVersion, host, janelaDias, erro: error.message })
+    await heartbeat({ fase: 'falha', httpStatus: 500, gravados: 0, recebidos, collectorVersion, host, janelaDias, triggerType, erro: error.message })
     return json({ error: error.message }, 500)
   }
 
-  await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: rows.length, recebidos, collectorVersion, host, janelaDias })
+  await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: rows.length, recebidos, collectorVersion, host, janelaDias, triggerType })
   return json({ ok: true, gravados: rows.length })
 
   function json(obj: unknown, status = 200) {
