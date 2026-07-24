@@ -489,6 +489,15 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
             <Heatmap deptos={deptos} onPick={(s) => setDepto(s)} selecionado={depto} mostrarBanco={heatMostrarBanco} />
           </Card>
 
+          {/* D1 · RD-46 declarada: métrica removida por honestidade DECLARA o porquê — não evapora.
+              Faltas%/Noturno/Banco só existem no fechamento do provedor (janela fixa) e não recortam
+              pela janela do filtro. Some da análise, mas o gestor sabe por quê e quando volta. */}
+          <MetricaOmitida
+            metricas="Faltas % · Adicional noturno · Banco de horas"
+            porque={`existem só no fechamento do provedor (${provPer}), que fecha uma janela fixa e não recorta pela data do filtro`}
+            volta="Voltam calculados na janela do filtro quando a dimensão apura_ponto entrar."
+          />
+
           <Card titulo="Semáforo por setor" tag={badgeFiltro} nota="Análise da janela do filtro. Tom por HE% + infrações de jornada. Clique num setor para filtrar todo o painel.">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
               {semaforoSetores.map((d) => {
@@ -778,6 +787,19 @@ function Card({ titulo, nota, tag, children }: { titulo: string; nota?: string; 
 }
 function MiniVazio({ texto }: { texto: string }) {
   return <div style={{ padding: 28, textAlign: 'center', color: MUT, fontSize: 12, border: `1px dashed ${LINE}`, borderRadius: 10 }}>{texto}</div>
+}
+// D1 · placeholder honesto: uma métrica que saiu por não caber na janela do filtro se DECLARA.
+// Nunca some em silêncio (isso é uma forma de mentir — o gestor acharia que nunca existiu).
+function MetricaOmitida({ metricas, porque, volta }: { metricas: string; porque: string; volta: string }) {
+  return (
+    <div style={{ background: '#FBF3E4', border: '1px solid #E7CE9E', borderRadius: 10, padding: '11px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <span style={{ fontSize: 15, lineHeight: 1.3 }}>⚠️</span>
+      <div style={{ fontSize: 12, color: '#6B4E1E', lineHeight: 1.55 }}>
+        <b>{metricas}</b> não aparecem nesta análise porque {porque}. Não sumiram por bug — o sistema
+        prefere admitir que não sabe na sua janela a mostrar o número do período errado. {volta}
+      </div>
+    </div>
+  )
 }
 function SemDados({ titulo, falta }: { titulo: string; falta: string }) {
   return (
