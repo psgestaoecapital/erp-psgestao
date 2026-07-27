@@ -28,7 +28,7 @@ type Linha = {
   peso_carcaca_kg: number | null; meia_carcaca1_kg: number | null; meia_carcaca2_kg: number | null
   arrobas: number | null; tem_rastreio: boolean; especie: string | null
 }
-type Aba = 'visao' | 'abate'
+type Aba = 'visao' | 'abate' | 'peso' | 'lote'
 type Atalho = '1' | '7' | '30' | 'mes' | 'custom'
 
 export default function ProducaoIndustrialPage() {
@@ -177,6 +177,8 @@ export default function ProducaoIndustrialPage() {
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, marginBottom: 16 }}>
           <button onClick={() => setAba('visao')} style={tabStyle(aba === 'visao')}>Visão geral</button>
           <button onClick={() => setAba('abate')} style={tabStyle(aba === 'abate')}>Abate</button>
+          <button onClick={() => setAba('peso')} style={tabStyle(aba === 'peso')}>Peso &amp; rendimento</button>
+          <button onClick={() => setAba('lote')} style={tabStyle(aba === 'lote')}>Por lote</button>
         </div>
 
         {loading ? (
@@ -185,9 +187,13 @@ export default function ProducaoIndustrialPage() {
           <div style={{ ...CARD, textAlign: 'center', color: MUT, fontSize: 14, padding: 40 }}>Sem abate registrado neste período.</div>
         ) : aba === 'visao' ? (
           <VisaoGeral ag={ag} />
-        ) : (
+        ) : aba === 'abate' ? (
           <Abate ag={agAbate} porDiaSem={ag.porDiaSem} lotes={lotesUnicos} camaras={camarasUnicas}
             fLote={fLote} fCamara={fCamara} setFLote={setFLote} setFCamara={setFCamara} n={linhasAbate.length} />
+        ) : aba === 'peso' ? (
+          <PesoRendimento linhas={linhas} />
+        ) : (
+          <PorLote linhas={linhas} />
         )}
       </div>
     </div>
@@ -305,6 +311,119 @@ function Abate({ ag, porDiaSem, lotes, camaras, fLote, fCamara, setFLote, setFCa
       {/* Placeholder honesto: tipificação não vem da origem hoje (RD-58, não mostra vazio como se fosse 0) */}
       <div style={{ ...CARD, background: 'rgba(200,148,26,0.06)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 12, color: MUT }}>Tipificação de carcaça (acabamento/carne magra) — <strong>aguardando origem</strong>. O ATAK não envia esses campos hoje; a aba os acomoda quando começarem a chegar. (Confirmar com a TI Frioeste.)</div>
+      </div>
+    </div>
+  )
+}
+
+// ── F2 · PESO & RENDIMENTO ──
+function PesoRendimento({ linhas }: { linhas: Linha[] }) {
+  const dados = useMemo(() => {
+    const pesos = linhas.map((l) => l.peso_carcaca_kg).filter((v): v is number => v != null)
+    // histograma em faixas de 20kg (do dado, não fixo em nada de espécie)
+    const FAIXA = 20
+    const bins = new Map<number, number>()
+    for (const p of pesos) { const b = Math.floor(p / FAIXA) * FAIXA; bins.set(b, (bins.get(b) ?? 0) + 1) }
+    const hist = [...bins.entries()].map(([b, n]) => ({ rotulo: `${b}–${b + FAIXA}`, valor: n })).sort((a, b) => parseInt(a.rotulo) - parseInt(b.rotulo))
+    // peso médio por lote
+    const porLote = new Map<string, { kg: number; n: number }>()
+    for (const l of linhas) { if (!l.lote) continue; const d = porLote.get(l.lote) ?? { kg: 0, n: 0 }; d.kg += l.peso_carcaca_kg ?? 0; d.n++; porLote.set(l.lote, d) }
+    const medioLote = [...porLote.entries()].map(([lote, v]) => ({ rotulo: lote, valor: v.n ? Math.round(v.kg / v.n) : 0 })).sort((a, b) => b.valor - a.valor)
+    // meia-carcaça 1 vs 2
+    const m1 = linhas.reduce((s, l) => s + (l.meia_carcaca1_kg ?? 0), 0)
+    const m2 = linhas.reduce((s, l) => s + (l.meia_carcaca2_kg ?? 0), 0)
+    const c1 = linhas.filter((l) => l.meia_carcaca1_kg != null).length
+    const c2 = linhas.filter((l) => l.meia_carcaca2_kg != null).length
+    return { hist, medioLote, m1: c1 ? m1 / c1 : 0, m2: c2 ? m2 / c2 : 0, n: pesos.length }
+  }, [linhas])
+  const maxH = Math.max(1, ...dados.hist.map((d) => d.valor))
+  const maxL = Math.max(1, ...dados.medioLote.map((d) => d.valor))
+  const difMeia = dados.m1 && dados.m2 ? (100 * Math.abs(dados.m1 - dados.m2)) / ((dados.m1 + dados.m2) / 2) : 0
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div style={CARD}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 4 }}>Distribuição de peso de carcaça (faixas de 20 kg)</div>
+        <Barras dados={dados.hist} max={maxH} />
+        <Procedencia linhas={dados.n} />
+      </div>
+      <div style={CARD}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 4 }}>Peso médio por lote (kg) — melhor rendimento à esquerda</div>
+        <Barras dados={dados.medioLote} max={maxL} cor={ESP} />
+        <Procedencia linhas={dados.n} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+        <Card titulo="Meia-carcaça 1 (média)" valor={`${fmtN(dados.m1, 1)} kg`} />
+        <Card titulo="Meia-carcaça 2 (média)" valor={`${fmtN(dados.m2, 1)} kg`} />
+        <Card titulo="Diferença entre meias" valor={`${fmtN(difMeia, 1)}%`} sub={difMeia <= 3 ? 'equilíbrio bom' : 'verificar desossa'} />
+      </div>
+      <div style={{ ...CARD, background: 'rgba(200,148,26,0.06)', borderStyle: 'dashed' }}>
+        <div style={{ fontSize: 12, color: MUT }}>Tipificação / % carne magra — <strong>aguardando origem</strong> (o ATAK não envia hoje). A aba acomoda quando chegar.</div>
+      </div>
+    </div>
+  )
+}
+
+// ── F2 · POR LOTE ──
+function PorLote({ linhas }: { linhas: Linha[] }) {
+  const { lotes, camaras } = useMemo(() => {
+    const map = new Map<string, { n: number; kg: number; arr: number; camaras: Map<string, number>; datas: Set<string> }>()
+    const cam = new Map<string, number>()
+    for (const l of linhas) {
+      if (l.camara) cam.set(l.camara, (cam.get(l.camara) ?? 0) + 1)
+      if (!l.lote) continue
+      const d = map.get(l.lote) ?? { n: 0, kg: 0, arr: 0, camaras: new Map(), datas: new Set() }
+      d.n++; d.kg += l.peso_carcaca_kg ?? 0; d.arr += l.arrobas ?? 0
+      if (l.camara) d.camaras.set(l.camara, (d.camaras.get(l.camara) ?? 0) + 1)
+      d.datas.add(l.data_abate)
+      map.set(l.lote, d)
+    }
+    const lotes = [...map.entries()].map(([lote, v]) => {
+      const camPred = [...v.camaras.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+      const datas = [...v.datas].sort()
+      return { lote, cab: v.n, medio: v.n ? v.kg / v.n : 0, kg: v.kg, arr: v.arr, camPred, data: datas.length > 1 ? `${fmtDDMM(datas[0])}–${fmtDDMM(datas[datas.length - 1])}` : fmtDDMM(datas[0] ?? '') }
+    }).sort((a, b) => b.medio - a.medio)
+    const camaras = [...cam.entries()].map(([rotulo, valor]) => ({ rotulo: `Câm ${rotulo}`, valor })).sort((a, b) => a.rotulo.localeCompare(b.rotulo))
+    return { lotes, camaras }
+  }, [linhas])
+  const maxCam = Math.max(1, ...camaras.map((c) => c.valor))
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div style={CARD}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 4 }}>Ocupação por câmara</div>
+        <Barras dados={camaras} max={maxCam} cor={GOLD} />
+        <Procedencia linhas={linhas.length} />
+      </div>
+      <div style={{ ...CARD, overflowX: 'auto' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 8 }}>{lotes.length} lotes · ranking por peso médio</div>
+        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ color: MUT, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              <th style={{ textAlign: 'left', padding: '6px 8px' }}>#</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px' }}>Lote</th>
+              <th style={{ textAlign: 'right', padding: '6px 8px' }}>Cabeças</th>
+              <th style={{ textAlign: 'right', padding: '6px 8px' }}>Peso médio</th>
+              <th style={{ textAlign: 'right', padding: '6px 8px' }}>Carcaça (kg)</th>
+              <th style={{ textAlign: 'right', padding: '6px 8px' }}>Arrobas</th>
+              <th style={{ textAlign: 'center', padding: '6px 8px' }}>Câmara</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px' }}>Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lotes.map((l, i) => (
+              <tr key={l.lote} style={{ borderTop: `0.5px solid ${LINE}`, color: ESP }}>
+                <td style={{ padding: '6px 8px', color: MUT }}>{i + 1}</td>
+                <td style={{ padding: '6px 8px', fontWeight: 600 }}>{l.lote}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{fmtN(l.cab)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{fmtN(l.medio, 0)} kg</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{fmtN(l.kg, 1)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{fmtN(l.arr, 1)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'center' }}>{l.camPred}</td>
+                <td style={{ padding: '6px 8px' }}>{l.data}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <Procedencia linhas={linhas.length} />
       </div>
     </div>
   )
