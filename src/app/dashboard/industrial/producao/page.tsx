@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import PainelGente from '@/components/inteligencia/PainelGente'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -28,7 +29,7 @@ type Linha = {
   peso_carcaca_kg: number | null; meia_carcaca1_kg: number | null; meia_carcaca2_kg: number | null
   arrobas: number | null; tem_rastreio: boolean; especie: string | null
 }
-type Aba = 'visao' | 'abate' | 'peso' | 'lote'
+type Aba = 'visao' | 'abate' | 'peso' | 'lote' | 'gente'
 type Atalho = '1' | '7' | '30' | 'mes' | 'custom'
 
 export default function ProducaoIndustrialPage() {
@@ -43,6 +44,7 @@ export default function ProducaoIndustrialPage() {
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [planta, setPlanta] = useState<{ nome: string; especies: string[] } | null>(null)
   const [frescor, setFrescor] = useState<{ status: string; rotulo: string } | null>(null)
+  const [setores, setSetores] = useState<string[] | null>(null) // escopo LGPD da aba Gente (null = vê tudo)
   const [loading, setLoading] = useState(true)
   // filtros secundários da aba Abate
   const [fLote, setFLote] = useState('')
@@ -60,18 +62,21 @@ export default function ProducaoIndustrialPage() {
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true)
-    const [ab, pl, fr] = await Promise.all([
+    const [ab, pl, fr, sc] = await Promise.all([
       supabase.from('v_ind_producao_abate')
         .select('data_abate,lote,camara,peso_carcaca_kg,meia_carcaca1_kg,meia_carcaca2_kg,arrobas,tem_rastreio,especie')
         .eq('company_id', companyId).gte('data_abate', dataIni).lte('data_abate', dataFim).order('data_abate'),
       supabase.from('industrial_plants').select('nome_planta,especies').eq('company_id', companyId).eq('is_active', true).limit(1),
       supabase.rpc('fn_frescor_fonte', { p_company_id: companyId, p_fonte: 'atak_abate' }),
+      supabase.rpc('fn_bi_gente_setores_visiveis', { p_company_id: companyId }),
     ])
     setLinhas((ab.data as Linha[]) ?? [])
     const p0 = (pl.data as { nome_planta: string; especies: string[] }[] | null)?.[0]
     setPlanta(p0 ? { nome: p0.nome_planta, especies: p0.especies ?? [] } : null)
     const f = fr.data as { status?: string; rotulo?: string } | null
     setFrescor(f?.status ? { status: f.status, rotulo: f.rotulo ?? '' } : null)
+    const scope = sc.data as { ve_tudo?: boolean; setores?: string[] } | null
+    setSetores(scope?.ve_tudo ? null : (scope?.setores ?? []))
     setFLote(''); setFCamara('')
     setLoading(false)
   }, [companyId, dataIni, dataFim])
@@ -179,10 +184,14 @@ export default function ProducaoIndustrialPage() {
           <button onClick={() => setAba('abate')} style={tabStyle(aba === 'abate')}>Abate</button>
           <button onClick={() => setAba('peso')} style={tabStyle(aba === 'peso')}>Peso &amp; rendimento</button>
           <button onClick={() => setAba('lote')} style={tabStyle(aba === 'lote')}>Por lote</button>
+          <button onClick={() => setAba('gente')} style={tabStyle(aba === 'gente')}>Gente</button>
         </div>
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
+        ) : aba === 'gente' ? (
+          // Gente é dado independente do abate (ponto) — renderiza mesmo sem abate no período.
+          <PainelGente companyId={companyId} dataIni={dataIni} dataFim={dataFim} setoresPermitidos={setores} />
         ) : ag.n === 0 ? (
           <div style={{ ...CARD, textAlign: 'center', color: MUT, fontSize: 14, padding: 40 }}>Sem abate registrado neste período.</div>
         ) : aba === 'visao' ? (
