@@ -83,6 +83,12 @@ export default function ProducaoIndustrialPage() {
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // Deep-link: /dashboard/industrial/producao?aba=gente abre direto na aba (usado pelo Hub de BI).
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('aba')
+    if (p && ['visao', 'abate', 'peso', 'lote', 'gente'].includes(p)) setAba(p as Aba)
+  }, [])
+
   // ── agregações (client-side; 321 linhas é trivial) ──
   const ag = useMemo(() => {
     const n = linhas.length
