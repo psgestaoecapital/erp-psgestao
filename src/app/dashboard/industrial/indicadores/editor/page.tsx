@@ -83,10 +83,16 @@ export default function IndicadoresEditorPage() {
 
   useEffect(() => { void carregar() }, [carregar])
 
-  const areas = useMemo(() => itens.filter((i) => i.nivel === 1), [itens])
-  const folhasPor = useMemo(() => {
+  // Árvore de 3 níveis: BLOCO (n1) → ÁREA (n2) → INDICADOR (n3, folha).
+  const blocos = useMemo(() => itens.filter((i) => i.nivel === 1), [itens])
+  const areasPor = useMemo(() => {
     const m: Record<string, Indicador[]> = {}
     for (const i of itens) if (i.nivel === 2 && i.pai_codigo) (m[i.pai_codigo] ??= []).push(i)
+    return m
+  }, [itens])
+  const folhasPor = useMemo(() => {
+    const m: Record<string, Indicador[]> = {}
+    for (const i of itens) if (i.nivel === 3 && i.pai_codigo) (m[i.pai_codigo] ??= []).push(i)
     return m
   }, [itens])
   const metasPor = useMemo(() => {
@@ -219,19 +225,34 @@ export default function IndicadoresEditorPage() {
               </div>
             )}
 
-            {areas.map((area) => {
-              const folhas = folhasPor[area.codigo] ?? []
-              const aberto = abertos[area.codigo] ?? true
+            {blocos.map((bloco) => {
+              const areasB = areasPor[bloco.codigo] ?? []
+              const nLeaves = areasB.reduce((acc, a) => acc + (folhasPor[a.codigo]?.filter((f) => f.ativo).length ?? 0), 0)
+              const blocoAberto = abertos[bloco.codigo] ?? true
               return (
-                <div key={area.id} style={{ marginBottom: 12, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }}>
-                  <div onClick={() => setAbertos((s) => ({ ...s, [area.codigo]: !aberto }))}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', cursor: 'pointer', borderBottom: aberto ? `0.5px solid ${LINE}` : 'none' }}>
-                    <span style={{ fontSize: 12, color: MUT, transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: ESP }}>{area.nome}</span>
-                    <span style={{ fontSize: 11, color: MUT, background: BG, borderRadius: 20, padding: '2px 8px' }}>{folhas.filter((f) => f.ativo).length} indicadores</span>
+                <div key={bloco.id} style={{ marginBottom: 12, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }}>
+                  <div onClick={() => setAbertos((s) => ({ ...s, [bloco.codigo]: !blocoAberto }))}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', cursor: 'pointer', background: '#FBF7EF', borderBottom: blocoAberto ? `0.5px solid ${LINE}` : 'none' }}>
+                    <span style={{ fontSize: 12, color: MUT, transform: blocoAberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                    <span style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 17, color: ESP }}>{bloco.nome}</span>
+                    <span style={{ fontSize: 11, color: MUT, background: BG, borderRadius: 20, padding: '2px 8px' }}>{nLeaves} indicadores</span>
                   </div>
 
-                  {aberto && (
+                  {blocoAberto && (
+                   <div>
+                    {areasB.map((area) => {
+                     const folhas = folhasPor[area.codigo] ?? []
+                     const aberto = abertos[area.codigo] ?? true
+                     return (
+                      <div key={area.id} style={{ borderTop: `0.5px solid ${LINE}` }}>
+                        <div onClick={() => setAbertos((s) => ({ ...s, [area.codigo]: !aberto }))}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 10px 28px', cursor: 'pointer' }}>
+                          <span style={{ fontSize: 11, color: MUT, transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: ESP }}>{area.nome}</span>
+                          <span style={{ fontSize: 10.5, color: MUT, background: BG, borderRadius: 20, padding: '1px 7px' }}>{folhas.filter((f) => f.ativo).length}</span>
+                        </div>
+
+                      {aberto && (
                     <div>
                       {folhas.map((f) => {
                         const emEdicao = editId === f.id
@@ -322,6 +343,11 @@ export default function IndicadoresEditorPage() {
                         </div>
                       )}
                     </div>
+                      )}
+                      </div>
+                     )
+                    })}
+                   </div>
                   )}
                 </div>
               )
