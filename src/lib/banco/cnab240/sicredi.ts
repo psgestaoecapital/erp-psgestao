@@ -1,15 +1,14 @@
 // PERFIL SICREDI (banco 748 — NÃO confundir com Sicoob 756) para o motor CNAB 240 de PAGAMENTO.
-// Mapas de campo + constantes MEDIDOS do arquivo real anonimizado (docs/cnab/cnab_pgto_748_sicredi_anon.rem,
+// Mapas + constantes MEDIDOS do arquivo real anonimizado (docs/cnab/cnab_pgto_748_sicredi_anon.rem,
 // 66 linhas, 2 lotes, 30 boletos = par J000+J52). Provado byte a byte em scripts/cnab-gen-proof-sicredi.ts.
-// NÃO toca no motor (engine.ts) nem no perfil Sicoob (sicoob.ts) — RD-52.
+// NÃO toca no motor (engine.ts) nem no perfil Sicoob (sicoob.ts) — RD-52. Tipos próprios (self-contained).
 //
 // Diferenças medidas vs Sicoob: banco 748; nomeBanco "SICREDI"; versão de arquivo 082; versão de lote 042;
-// convênio/cedente ALFANUMÉRICO ("6YT6"); J52 sepBenef "1" + cauda "1000000000000100"; trailer de lote com
-// resto próprio. Estrutura (numeração, lotes, trailers) é computada pelo gerador, igual ao Sicoob.
+// convênio/cedente ALFANUMÉRICO ("6YT6"). Estrutura (numeração, lotes, trailers) é computada pelo gerador.
+// O J000 é totalmente modelado (código de barras, valor, datas, seu número; desconto/mora/moeda = 0).
+// O corpo do beneficiário do J52 (nome/doc do fornecedor e sacador) é dado por-título → passthrough.
 import { Field, buildLine, joinArquivo, truncPad, parseLine } from './engine'
-import type { ArquivoInput, LoteInput, ItemJ, ItemO, EmpresaSicoob } from './sicoob'
 
-// ---------------- MAPAS DE CAMPO (largura FEBRABAN; convênio é ALFA no Sicredi) ----------------
 export const HEADER_ARQ: Field[] = [
   ['banco', 3, 'N'], ['lote', 4, 'N'], ['tipo', 1, 'N'], ['cnab1', 9, 'R'], ['tpInsc', 1, 'N'], ['cnpj', 14, 'N'],
   ['convenio', 20, 'A'], ['agCoop', 5, 'N'], ['dvAg', 1, 'A'], ['conta', 12, 'N'], ['dvCta', 1, 'A'], ['dvAgCta', 1, 'R'],
@@ -26,10 +25,10 @@ export const SEG_J: Field[] = [
   ['codBarras', 44, 'A'], ['nomeBenef', 30, 'A'], ['dtVenc', 8, 'N'], ['valTitulo', 15, 'N'], ['desconto', 15, 'N'],
   ['acrescimo', 15, 'N'], ['dtPagto', 8, 'N'], ['valPagto', 15, 'N'], ['qtdMoeda', 15, 'N'], ['seuNum', 20, 'A'], ['resto', 38, 'R'],
 ]
+// J52: cabeçalho estrutural + pagador; o corpo do beneficiário/sacador (a partir da pos 76) é passthrough.
 export const SEG_J52: Field[] = [
   ['banco', 3, 'N'], ['lote', 4, 'N'], ['tipo', 1, 'N'], ['nSeq', 5, 'N'], ['seg', 1, 'A'], ['pref', 6, 'R'],
-  ['tpInscPag', 1, 'R'], ['cnpjPag', 14, 'N'], ['nomePag', 40, 'A'], ['sepBenef', 1, 'R'], ['tpInscBenef', 1, 'R'],
-  ['cnpjBenef', 14, 'N'], ['nomeBenef', 40, 'A'], ['resto', 109, 'R'],
+  ['tpInscPag', 1, 'R'], ['cnpjPag', 14, 'N'], ['nomePag', 40, 'A'], ['benefBody', 165, 'R'],
 ]
 export const TRAILER_LOTE: Field[] = [
   ['banco', 3, 'N'], ['lote', 4, 'N'], ['tipo', 1, 'N'], ['cnab1', 9, 'R'], ['qtdReg', 6, 'N'], ['somaVal', 18, 'N'], ['resto', 199, 'R'],
@@ -45,26 +44,35 @@ export function mapForLine(line: string): Field[] {
   if (tipo === '5') return TRAILER_LOTE
   if (tipo === '9') return TRAILER_ARQ
   const seg = line[13]
-  if (seg === 'O') return SEG_O
   if (seg === 'J') return line[14] === ' ' ? SEG_J52 : SEG_J
   throw new Error('registro CNAB Sicredi desconhecido: tipo=' + tipo + ' seg=' + seg)
 }
-export const SEG_O: Field[] = [
-  ['banco', 3, 'N'], ['lote', 4, 'N'], ['tipo', 1, 'N'], ['nSeq', 5, 'N'], ['seg', 1, 'A'], ['mov', 3, 'N'],
-  ['codBarras', 44, 'A'], ['nomeConc', 30, 'A'], ['dtVenc', 8, 'N'], ['dtPagto', 8, 'N'], ['valPagto', 15, 'N'], ['resto', 118, 'R'],
-]
 
 // ---------------- CONSTANTES DE LAYOUT (medidas do real) ----------------
 const SP = (n: number) => ' '.repeat(n)
 const BANCO = '748'
-const J_RESTO = SP(20) + '09' + SP(16)                        // [203-240] constante em todo J000
-const J52_TAIL = '1000000000000100' + SP(93)                  // [132-240] no J52 do Sicredi (Sicoob usa zeros)
-const TRAILER_LOTE_RESTO = '100000000000010000000000' + SP(175) // [42-240] próprio do Sicredi
-const TRAILER_ARQ_RESTO = '000000' + SP(205)                  // [30-240]
+const J_RESTO = SP(20) + '09' + SP(16)                 // [203-240] constante em todo J000
+const TRAILER_LOTE_RESTO = '0'.repeat(24) + SP(175)    // [42-240] zeros (igual ao Sicoob no arquivo limpo)
+const TRAILER_ARQ_RESTO = '000000' + SP(205)           // [30-240]
 
 const cents = (n: number) => String(Math.round(n))
 
-function enderecoBloco(e: EmpresaSicoob, formaPg: string): string {
+// ---------------- TIPOS DE ENTRADA (próprios do Sicredi) ----------------
+export type EmpresaSicredi = {
+  cnpj: string; convenio: string; agCoop: string; dvAg: string; conta: string; dvCta: string; nome: string
+  logradouro: string; numero: string; complemento: string; cidade: string; cep: string; uf: string
+}
+export type ItemJSicredi = {
+  codBarras: string; nomeBenef: string; dtVenc: string; valTitulo: number; valPagto: number
+  desconto?: number; acrescimo?: number; qtdMoeda?: number; dtPagto: string; seuNum: string
+  benefBody: string // [76-240] do J52: doc/nome do beneficiário e sacador (passthrough por título)
+}
+export type LoteInputSicredi = { tpServ: string; formaPg: string; itens: ItemJSicredi[] }
+export type ArquivoInputSicredi = {
+  empresa: EmpresaSicredi; nomePagador: string; dataGer: string; horaGer: string; seqArq: number; lotes: LoteInputSicredi[]
+}
+
+function enderecoBloco(e: EmpresaSicredi, formaPg: string): string {
   const ind = formaPg === '30' || formaPg === '31' ? SP(2) : '01'
   return (
     SP(40) + truncPad(e.logradouro, 30) + String(e.numero).replace(/\D/g, '').padStart(5, '0') +
@@ -73,11 +81,8 @@ function enderecoBloco(e: EmpresaSicoob, formaPg: string): string {
   )
 }
 
-/**
- * Gera o arquivo de remessa CNAB 240 do SICREDI (banco 748) a partir de dados semânticos.
- * Boleto = par J000 (dados do pagamento) + J52 (CNPJ/nome do pagador e do beneficiário). Estrutura computada.
- */
-export function buildArquivoSicredi(inp: ArquivoInput): string {
+/** Gera o arquivo de remessa CNAB 240 do SICREDI (banco 748) a partir de dados semânticos. */
+export function buildArquivoSicredi(inp: ArquivoInputSicredi): string {
   const e = inp.empresa
   const emp = {
     banco: BANCO, tpInsc: '2', cnpj: e.cnpj, convenio: e.convenio, agCoop: e.agCoop, dvAg: e.dvAg,
@@ -101,29 +106,19 @@ export function buildArquivoSicredi(inp: ArquivoInput): string {
     let nseq = 0
     let soma = 0
     for (const it of lote.itens) {
-      if (it.seg === 'O') {
-        nseq += 1; soma += it.valPagto
-        linhas.push(buildLine({
-          banco: BANCO, lote: loteNum, tipo: '3', nSeq: String(nseq), seg: 'O', mov: '000',
-          codBarras: it.codBarras, nomeConc: it.nomeConc, dtVenc: it.dtVenc, dtPagto: it.dtPagto,
-          valPagto: cents(it.valPagto), resto: truncPad(it.controle, 118),
-        }, SEG_O))
-      } else {
-        nseq += 1; soma += it.valPagto
-        linhas.push(buildLine({
-          banco: BANCO, lote: loteNum, tipo: '3', nSeq: String(nseq), seg: 'J', mov: '000',
-          codBarras: it.codBarras, nomeBenef: it.nomeBenef, dtVenc: it.dtVenc, valTitulo: cents(it.valTitulo),
-          desconto: cents(it.desconto ?? 0), acrescimo: cents(it.acrescimo ?? 0), dtPagto: it.dtPagto,
-          valPagto: cents(it.valPagto), qtdMoeda: cents(it.qtdMoeda ?? 0), seuNum: it.seuNum, resto: J_RESTO,
-        }, SEG_J))
-        nseq += 1
-        const pref = ' 0' + (lote.formaPg === '47' ? '0' : '1') + '522'
-        linhas.push(buildLine({
-          banco: BANCO, lote: loteNum, tipo: '3', nSeq: String(nseq), seg: 'J', pref,
-          tpInscPag: '0', cnpjPag: e.cnpj, nomePag: e.nome, sepBenef: '1', tpInscBenef: '0',
-          cnpjBenef: it.cnpjBenef, nomeBenef: it.nomeBenefFull, resto: J52_TAIL,
-        }, SEG_J52))
-      }
+      nseq += 1; soma += it.valPagto
+      linhas.push(buildLine({
+        banco: BANCO, lote: loteNum, tipo: '3', nSeq: String(nseq), seg: 'J', mov: '000',
+        codBarras: it.codBarras, nomeBenef: it.nomeBenef, dtVenc: it.dtVenc, valTitulo: cents(it.valTitulo),
+        desconto: cents(it.desconto ?? 0), acrescimo: cents(it.acrescimo ?? 0), dtPagto: it.dtPagto,
+        valPagto: cents(it.valPagto), qtdMoeda: cents(it.qtdMoeda ?? 0), seuNum: it.seuNum, resto: J_RESTO,
+      }, SEG_J))
+      nseq += 1
+      const pref = ' 0' + (lote.formaPg === '47' ? '0' : '1') + '522'
+      linhas.push(buildLine({
+        banco: BANCO, lote: loteNum, tipo: '3', nSeq: String(nseq), seg: 'J', pref,
+        tpInscPag: '0', cnpjPag: e.cnpj, nomePag: inp.nomePagador, benefBody: it.benefBody,
+      }, SEG_J52))
     }
     const qtdReg = 1 + nseq + 1
     linhas.push(buildLine({
@@ -141,38 +136,37 @@ export function buildArquivoSicredi(inp: ArquivoInput): string {
 }
 
 /** Reconstrói o ArquivoInput semântico a partir de um .rem real do Sicredi (para o gen-proof byte a byte). */
-export function reconstruirInputSicredi(raw: string): ArquivoInput {
+export function reconstruirInputSicredi(raw: string): ArquivoInputSicredi {
   const lines = raw.replace(/\r\n/g, '\n').split('\n').filter((l) => l.length > 0)
   const ha = parseLine(lines[0], HEADER_ARQ)
   const end = lines.find((l) => l[7] === '1')!
-  const empresa: EmpresaSicoob = {
+  const primeiroJ52 = lines.find((l) => l[7] === '3' && l[13] === 'J' && l[14] === ' ')!
+  const nomePagador = parseLine(primeiroJ52, SEG_J52).nomePag
+  const empresa: EmpresaSicredi = {
     cnpj: ha.cnpj, convenio: ha.convenio.replace(/ +$/, ''), agCoop: ha.agCoop, dvAg: ha.dvAg, conta: ha.conta, dvCta: ha.dvCta,
     nome: ha.nomeEmp, logradouro: end.slice(142, 172).replace(/ +$/, ''), numero: end.slice(172, 177),
     complemento: end.slice(177, 192).replace(/ +$/, ''), cidade: end.slice(192, 212).replace(/ +$/, ''),
     cep: end.slice(212, 220), uf: end.slice(220, 222),
   }
-  const lotes: LoteInput[] = []
-  let cur: LoteInput | null = null
+  const lotes: LoteInputSicredi[] = []
+  let cur: LoteInputSicredi | null = null
   for (const l of lines) {
     const tipo = l[7]
     if (tipo === '1') { const h = parseLine(l, HEADER_LOTE); cur = { tpServ: h.tpServ, formaPg: h.formaPg, itens: [] }; lotes.push(cur) }
-    else if (tipo === '3' && cur) {
-      const rec = parseLine(l, mapForLine(l))
-      if (rec.seg === 'O') {
-        cur.itens.push({ seg: 'O', codBarras: rec.codBarras, nomeConc: rec.nomeConc, dtVenc: rec.dtVenc, dtPagto: rec.dtPagto, valPagto: parseInt(rec.valPagto, 10), controle: rec.resto.replace(/ +$/, '') } as ItemO)
-      } else if (rec.seg === 'J' && l[14] !== ' ') {
+    else if (tipo === '3' && cur && l[13] === 'J') {
+      if (l[14] !== ' ') {
+        const rec = parseLine(l, SEG_J)
         cur.itens.push({
-          seg: 'J', codBarras: rec.codBarras, nomeBenef: rec.nomeBenef, dtVenc: rec.dtVenc,
+          codBarras: rec.codBarras, nomeBenef: rec.nomeBenef, dtVenc: rec.dtVenc,
           valTitulo: parseInt(rec.valTitulo, 10), valPagto: parseInt(rec.valPagto, 10),
           desconto: parseInt(rec.desconto, 10), acrescimo: parseInt(rec.acrescimo, 10), qtdMoeda: parseInt(rec.qtdMoeda, 10),
-          dtPagto: rec.dtPagto, seuNum: rec.seuNum, cnpjBenef: '', nomeBenefFull: '',
-        } as ItemJ)
+          dtPagto: rec.dtPagto, seuNum: rec.seuNum, benefBody: '',
+        })
       } else {
-        const last = cur.itens[cur.itens.length - 1] as ItemJ
-        last.cnpjBenef = rec.cnpjBenef
-        last.nomeBenefFull = rec.nomeBenef
+        const last = cur.itens[cur.itens.length - 1]
+        last.benefBody = l.slice(75, 240) // [76-240]: doc/nome do beneficiário e sacador (passthrough)
       }
     }
   }
-  return { empresa, dataGer: ha.dataGer.padStart(8, '0'), horaGer: ha.horaGer.padStart(6, '0'), seqArq: parseInt(ha.seqArq, 10), lotes }
+  return { empresa, nomePagador, dataGer: ha.dataGer.padStart(8, '0'), horaGer: ha.horaGer.padStart(6, '0'), seqArq: parseInt(ha.seqArq, 10), lotes }
 }
