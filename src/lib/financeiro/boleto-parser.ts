@@ -49,6 +49,26 @@ function fatorParaData(fator: number): string {
   return new Date(escolhido).toISOString().slice(0, 10)
 }
 
+// Normaliza QUALQUER entrada de boleto para o CÓDIGO DE BARRAS de 44 dígitos.
+// Aceita linha digitável (47 díg · boleto bancário) e código de barras (44 díg), retornando sempre 44.
+// - 47 → converte (linhaParaBarras) e valida o DV geral (mód 11); DV errado → null (paste com erro).
+// - 44 → devolve como está (preserva o comportamento antigo; guia de arrecadação começa com '8' e
+//   tem DV próprio mód 10/11, então NÃO reaplicamos o DV bancário aqui).
+// - qualquer outro tamanho → null. Não fabrica dado (RD-46/51).
+export function normalizarCodigoBarras(entrada?: string | null): string | null {
+  const dig = (entrada || '').replace(/\D/g, '')
+  if (!dig) return null
+  if (dig.length === 44) return dig
+  if (dig.length === 47) {
+    const barras = linhaParaBarras(dig)
+    if (barras.length !== 44) return null
+    const semDv = barras.slice(0, 4) + barras.slice(5)
+    if (dvModulo11(semDv) !== parseInt(barras[4], 10)) return null
+    return barras
+  }
+  return null
+}
+
 export function parseBoletoBarras(entrada: string): BoletoLido | null {
   const dig = (entrada || '').replace(/\D/g, '')
   let barras: string
