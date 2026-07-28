@@ -92,10 +92,17 @@ export default function RemessaPagamentoPage() {
   async function salvarDv() {
     if (!cfg || !dvInput.trim()) return
     setBusy(true); setMsg('')
-    const { error } = await supabase.from('erp_banco_provider_config').update({ agencia_dv: dvInput.trim() }).eq('id', cfg.id)
+    // A RLS de erp_banco_provider_config só dá UPDATE ao service_role — o .update() do cliente casava
+    // 0 linhas sem erro (dizia "salvo" e gravava null). Persistimos via RPC SECURITY DEFINER, que retorna
+    // o valor gravado; só confirmamos "salvo" se o banco confirmar.
+    const { data, error } = await supabase.rpc('fn_banco_config_salvar_agencia_dv', {
+      p_config_id: cfg.id, p_agencia_dv: dvInput.trim(),
+    })
     setBusy(false)
     if (error) { setMsg('Erro ao salvar DV: ' + error.message); return }
-    setCfg({ ...cfg, agencia_dv: dvInput.trim() }); setMsg('DV da agência salvo.')
+    const j = data as { sucesso?: boolean; erro?: string; agencia_dv?: string | null } | null
+    if (!j?.sucesso) { setMsg('Não salvou o DV: ' + (j?.erro ?? 'erro desconhecido')); return }
+    setCfg({ ...cfg, agencia_dv: j.agencia_dv ?? dvInput.trim() }); setMsg('DV da agência salvo.')
   }
 
   async function gerar() {

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
-import { parseBoletoBarras } from '@/lib/financeiro/boleto-parser'
+import { parseBoletoBarras, normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 
 type Fornecedor = {
   id: string
@@ -341,11 +341,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
     }
 
-    // ANTI-DUPLICIDADE: grava o código de barras NORMALIZADO (só dígitos) na 1ª parcela
-    // (1 guia = 1 código). É a base da checagem futura — hoje 0/8556 têm código.
-    const codBarrasDig = codigoBarras.replace(/\D/g, '')
-    if (ids.length > 0 && codBarrasDig.length >= 44) {
-      await supabase.from('erp_pagar').update({ codigo_barras: codBarrasDig }).eq('id', ids[0])
+    // ANTI-DUPLICIDADE + REMESSA: grava o código de barras já NORMALIZADO p/ 44 dígitos na 1ª parcela.
+    // Aceita linha digitável (47) ou código de barras (44) colado — sempre persiste os 44 (RD-52), pra
+    // remessa de pagamento e a checagem anti-dup baterem no mesmo formato canônico.
+    const cb44 = normalizarCodigoBarras(codigoBarras)
+    if (ids.length > 0 && cb44) {
+      await supabase.from('erp_pagar').update({ codigo_barras: cb44 }).eq('id', ids[0])
     }
 
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo

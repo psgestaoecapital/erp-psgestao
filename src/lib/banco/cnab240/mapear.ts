@@ -2,6 +2,7 @@
 // entra (sai com motivo). RD-38: nada gera em produção sem homologação — DV da agência ausente BLOQUEIA.
 // Detecta tributo (código de barras de arrecadação começa com '8') e o roteia para o segmento O.
 import type { ArquivoInput, ItemJ, ItemO, LoteInput } from './sicoob'
+import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 
 export type FornecedorPag = { pix?: string | null; cnpj_cpf?: string | null; nome?: string | null }
 export type TituloPag = {
@@ -45,8 +46,9 @@ export function mapearRemessaSicoob(cfg: ConfigSicoobDb, titulos: TituloPag[], o
     if (valor <= 0) { erros.push({ id: t.id, motivo: 'valor inválido (zero ou negativo)' }); continue }
 
     if (forma === 'boleto') {
-      const cb = soDigitos(t.codigo_barras)
-      if (cb.length !== 44) { erros.push({ id: t.id, motivo: 'boleto sem código de barras de 44 dígitos' }); continue }
+      // aceita linha digitável (47) OU código de barras (44) — normaliza sempre p/ 44 (RD-52)
+      const cb = normalizarCodigoBarras(t.codigo_barras)
+      if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras válido (44 díg) nem linha digitável (47 díg)' }); continue }
       if (cb[0] === '8') { // arrecadação/tributo -> segmento O
         tributos.push({ seg: 'O', codBarras: cb, nomeConc: nome, dtVenc, dtPagto, valPagto: valor, controle: seuNum })
       } else {
