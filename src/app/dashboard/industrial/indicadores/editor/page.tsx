@@ -34,6 +34,15 @@ const REGRAS: Record<string, string> = {
 }
 const DIRECOES: Record<string, string> = { maior: '↑ maior é melhor', menor: '↓ menor é melhor', neutro: '– neutro' }
 
+// Rótulo do recorte da meta (F2.1): negócio/unidade/setor. Setor mostra o nome cru (nunca normalizado).
+function rotuloRecorte(tipo: string, ref: string | null, unidades: { id: string; nome: string }[]): string {
+  if (tipo === 'negocio' || tipo === 'empresa') return 'Negócio'
+  if (tipo === 'unidade') return unidades.find((u) => u.id === ref)?.nome ?? 'Unidade'
+  if (tipo === 'setor') return ref ?? 'Setor'
+  if (tipo === 'area') return ref ?? 'Área'
+  return ref ?? tipo
+}
+
 function corRegra(r: string | null): string {
   if (r === 'soma') return '#2E6B8B'
   if (r === 'media') return '#7A5A9E'
@@ -57,7 +66,11 @@ export default function IndicadoresEditorPage() {
   const [editId, setEditId] = useState<string | null>(null)
   const [rascunho, setRascunho] = useState<Partial<Indicador>>({})
   const [metaFor, setMetaFor] = useState<string | null>(null)
-  const [novoMeta, setNovoMeta] = useState<{ ano: string; mes: string; valor: string }>({ ano: String(new Date().getFullYear()), mes: '', valor: '' })
+  // F2.1: meta em QUALQUER nível — recorte negócio/unidade/setor (a tabela suporta area também; entra quando
+  // houver agrupamento área→setor real, RD-51). tipo='negocio' sem ref; 'unidade'=plant_id; 'setor'=department.
+  const [novoMeta, setNovoMeta] = useState<{ tipo: string; ref: string; ano: string; mes: string; valor: string }>({ tipo: 'negocio', ref: '', ano: String(new Date().getFullYear()), mes: '', valor: '' })
+  const [unidades, setUnidades] = useState<{ id: string; nome: string }[]>([])
+  const [setores, setSetores] = useState<string[]>([])
   const [novoSob, setNovoSob] = useState<string | null>(null)
   const [novo, setNovo] = useState<{ sigla: string; nome: string; unidade: string; regra: string; direcao: string }>({ sigla: '', nome: '', unidade: '', regra: 'soma', direcao: 'maior' })
 
@@ -71,13 +84,18 @@ export default function IndicadoresEditorPage() {
     const pVer = !!ver.data; const pEdit = !!edit.data
     setPodeVer(pVer); setPodeEditar(pEdit)
     if (!pVer) { setLoading(false); return }
-    const [cat, met] = await Promise.all([
+    const [cat, met, pl, pt] = await Promise.all([
       supabase.from('ind_indicador_catalogo').select('*').eq('company_id', companyId)
         .order('ambito', { ascending: true }).order('nivel', { ascending: true }).order('ordem', { ascending: true }),
       supabase.from('ind_indicador_meta').select('*').eq('company_id', companyId).eq('ativo', true),
+      supabase.from('industrial_plants').select('id,nome_planta').eq('company_id', companyId).eq('is_active', true).order('nome_planta'),
+      supabase.from('ind_ponto_dia').select('department').eq('company_id', companyId).not('department', 'is', null).limit(5000),
     ])
     setItens((cat.data as Indicador[]) ?? [])
     setMetas((met.data as Meta[]) ?? [])
+    setUnidades(((pl.data as { id: string; nome_planta: string }[] | null) ?? []).map((u) => ({ id: u.id, nome: u.nome_planta })))
+    // setores DISTINTOS e LEGÍTIMOS — nunca normalizar/juntar (RD-52: cada setor é único)
+    setSetores([...new Set(((pt.data as { department: string }[] | null) ?? []).map((r) => r.department))].sort())
     setLoading(false)
   }, [companyId])
 
@@ -154,23 +172,27 @@ export default function IndicadoresEditorPage() {
     if (!ano || Number.isNaN(valor)) { setMsg('Informe ano e valor da meta.'); return }
     const mes = novoMeta.mes ? parseInt(novoMeta.mes, 10) : null
     if (mes !== null && (mes < 1 || mes > 12)) { setMsg('Mês deve ser entre 1 e 12.'); return }
+    const tipo = novoMeta.tipo || 'negocio'
+    const ref = tipo === 'negocio' ? null : (novoMeta.ref || null)
+    if (tipo !== 'negocio' && !ref) { setMsg('Escolha a ' + (tipo === 'unidade' ? 'unidade' : 'setor') + ' do recorte.'); return }
     setSalvando(true); setMsg('')
     // Índice único é parcial/expressão (COALESCE … WHERE ativo) — upsert por coluna não alcança.
-    // Resolve manualmente: procura a meta ativa da mesma chave e atualiza; senão insere.
+    // Resolve manualmente: procura a meta ativa da mesma chave (indicador+recorte+período) e atualiza; senão insere.
     let q = supabase.from('ind_indicador_meta').select('id').eq('company_id', companyId)
-      .eq('indicador_id', ind.id).eq('recorte_tipo', 'empresa').is('recorte_ref', null)
+      .eq('indicador_id', ind.id).eq('recorte_tipo', tipo)
       .eq('periodo_ano', ano).eq('ativo', true)
+    q = ref === null ? q.is('recorte_ref', null) : q.eq('recorte_ref', ref)
     q = mes === null ? q.is('periodo_mes', null) : q.eq('periodo_mes', mes)
     const { data: existente } = await q.maybeSingle()
     const { error } = existente
       ? await supabase.from('ind_indicador_meta').update({ meta_valor: valor, atualizado_em: new Date().toISOString() }).eq('id', (existente as { id: string }).id)
       : await supabase.from('ind_indicador_meta').insert({
-          company_id: companyId, indicador_id: ind.id, recorte_tipo: 'empresa', recorte_ref: null,
+          company_id: companyId, indicador_id: ind.id, recorte_tipo: tipo, recorte_ref: ref,
           periodo_ano: ano, periodo_mes: mes, meta_valor: valor, ativo: true,
         })
     setSalvando(false)
     if (error) { setMsg('Erro ao gravar meta: ' + error.message); return }
-    setNovoMeta({ ano: String(ano), mes: '', valor: '' })
+    setNovoMeta({ tipo, ref: '', ano: String(ano), mes: '', valor: '' })
     void carregar()
   }
 
@@ -276,7 +298,7 @@ export default function IndicadoresEditorPage() {
                                     <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                       {fMetas.map((m) => (
                                         <span key={m.id} style={{ fontSize: 11, color: ESP, background: '#FBF4E4', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '1px 6px' }}>
-                                          meta {m.periodo_ano}{m.periodo_mes ? '/' + String(m.periodo_mes).padStart(2, '0') : ''}: <b>{m.meta_valor}</b>
+                                          {rotuloRecorte(m.recorte_tipo, m.recorte_ref, unidades)} · meta {m.periodo_ano}{m.periodo_mes ? '/' + String(m.periodo_mes).padStart(2, '0') : ''}: <b>{m.meta_valor}</b>
                                         </span>
                                       ))}
                                     </div>
@@ -313,10 +335,27 @@ export default function IndicadoresEditorPage() {
 
                             {metaFor === f.id && podeEditar && (
                               <div style={{ marginTop: 8, padding: 10, background: BG, borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 12, color: MUT }}>Definir meta:</span>
+                                <span style={{ fontSize: 12, color: MUT }}>Definir meta em:</span>
+                                <select value={novoMeta.tipo} onChange={(e) => setNovoMeta((m) => ({ ...m, tipo: e.target.value, ref: '' }))} style={inp}>
+                                  <option value="negocio">Negócio (todo)</option>
+                                  {unidades.length > 0 && <option value="unidade">Unidade</option>}
+                                  {setores.length > 0 && <option value="setor">Setor</option>}
+                                </select>
+                                {novoMeta.tipo === 'unidade' && (
+                                  <select value={novoMeta.ref} onChange={(e) => setNovoMeta((m) => ({ ...m, ref: e.target.value }))} style={inp}>
+                                    <option value="">— unidade —</option>
+                                    {unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                                  </select>
+                                )}
+                                {novoMeta.tipo === 'setor' && (
+                                  <select value={novoMeta.ref} onChange={(e) => setNovoMeta((m) => ({ ...m, ref: e.target.value }))} style={{ ...inp, maxWidth: 200 }}>
+                                    <option value="">— setor —</option>
+                                    {setores.map((s) => <option key={s} value={s}>{s}</option>)}
+                                  </select>
+                                )}
                                 <input value={novoMeta.ano} onChange={(e) => setNovoMeta((m) => ({ ...m, ano: e.target.value }))} placeholder="Ano" style={{ ...inp, width: 70 }} />
                                 <input value={novoMeta.mes} onChange={(e) => setNovoMeta((m) => ({ ...m, mes: e.target.value }))} placeholder="Mês (opc)" style={{ ...inp, width: 90 }} />
-                                <input value={novoMeta.valor} onChange={(e) => setNovoMeta((m) => ({ ...m, valor: e.target.value }))} placeholder="Valor" style={{ ...inp, width: 100 }} />
+                                <input value={novoMeta.valor} onChange={(e) => setNovoMeta((m) => ({ ...m, valor: e.target.value }))} placeholder={'Valor' + (f.unidade_medida ? ' (' + f.unidade_medida + ')' : '')} style={{ ...inp, width: 130 }} />
                                 <button onClick={() => salvarMeta(f)} disabled={salvando} style={btnPrimary}>Gravar meta</button>
                               </div>
                             )}
