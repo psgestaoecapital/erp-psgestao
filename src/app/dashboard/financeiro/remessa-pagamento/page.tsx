@@ -188,16 +188,16 @@ export default function RemessaPagamentoPage() {
           ) : filtradas.map((r) => {
             const erro = preview?.erros.find((e) => e.id === r.id)
             return (
-              <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderTop: `0.5px solid ${BG}`, cursor: 'pointer', opacity: r._sel && erro ? 0.6 : 1 }}>
-                <input type="checkbox" checked={r._sel} onChange={() => toggle(r.id)} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600 }}>{r.fornecedor?.nome || r.descricao || '—'}</div>
-                  <div style={{ fontSize: 11.5, color: MUT }}>
-                    {(r.forma_pagamento ?? '—')} · venc {r.data_vencimento?.slice(0, 10)} {r.numero_documento ? `· doc ${r.numero_documento}` : ''}
+              <label key={r.id} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', borderTop: `0.5px solid ${BG}`, cursor: 'pointer', opacity: r._sel && erro ? 0.6 : 1 }}>
+                <input type="checkbox" checked={r._sel} onChange={() => toggle(r.id)} style={{ width: 16, height: 16, margin: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.fornecedor?.nome || r.descricao || '—'}</div>
+                  <div style={{ fontSize: 11.5, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {(r.forma_pagamento ?? '—')} · venc {r.data_vencimento?.slice(0, 10).split('-').reverse().join('/')}{r.numero_documento ? ` · doc ${r.numero_documento}` : ''}
                     {r._sel && erro && <span style={{ color: VERM, fontWeight: 700 }}> · ⚠ {erro.motivo}</span>}
                   </div>
                 </div>
-                <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600 }}>{brl(Math.round((r.valor ?? 0) * 100))}</div>
+                <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>{brl(Math.round((r.valor ?? 0) * 100))}</div>
               </label>
             )
           })}
