@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -27,6 +28,8 @@ export default function InteligenciaHubPage() {
   const router = useRouter()
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
+  const { papel } = usePapelUsuario()
+  const soGente = ehRhIndustrial(papel) // RH industrial: só o card Gente, sem Produção/Abate (filtro por papel)
 
   const [c, setC] = useState<{ prod: number; gente: number; qual: number }>({ prod: 0, gente: 0, qual: 0 })
   const [especie, setEspecie] = useState<string>('')
@@ -78,7 +81,7 @@ export default function InteligenciaHubPage() {
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-              {temas.map((t) => {
+              {temas.filter((t) => !soGente || t.key === 'gente').map((t) => {
                 const ativo = t.count > 0 && !!t.rota
                 return (
                   <div key={t.key}
