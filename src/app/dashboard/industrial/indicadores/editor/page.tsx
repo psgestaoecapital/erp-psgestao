@@ -101,16 +101,21 @@ export default function IndicadoresEditorPage() {
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // Editor mostra SÓ os ATIVOS por padrão. Desativados (soft-delete, ex.: blocos de outro ramo que a
+  // semeadura por ramo desligou) ficam ocultos até o gestor pedir "mostrar desativados (restaurar)".
+  const [mostrarDesativados, setMostrarDesativados] = useState(false)
+  const vis = (i: Indicador) => mostrarDesativados || i.ativo
+
   // Árvore de 3 níveis: BLOCO (n1) → ÁREA (n2) → INDICADOR (n3, folha).
-  const blocos = useMemo(() => itens.filter((i) => i.nivel === 1), [itens])
+  const blocos = useMemo(() => itens.filter((i) => i.nivel === 1 && vis(i)), [itens, mostrarDesativados])
   const areasPor = useMemo(() => {
     const m: Record<string, Indicador[]> = {}
-    for (const i of itens) if (i.nivel === 2 && i.pai_codigo) (m[i.pai_codigo] ??= []).push(i)
+    for (const i of itens) if (i.nivel === 2 && i.pai_codigo && vis(i)) (m[i.pai_codigo] ??= []).push(i)
     return m
-  }, [itens])
+  }, [itens, mostrarDesativados])
   const folhasPor = useMemo(() => {
     const m: Record<string, Indicador[]> = {}
-    for (const i of itens) if (i.nivel === 3 && i.pai_codigo) (m[i.pai_codigo] ??= []).push(i)
+    for (const i of itens) if (i.nivel === 3 && i.pai_codigo && vis(i)) (m[i.pai_codigo] ??= []).push(i)
     return m
   }, [itens])
   const metasPor = useMemo(() => {
@@ -241,9 +246,14 @@ export default function IndicadoresEditorPage() {
         ) : (
           <>
             {podeEditar && (
-              <div style={{ marginBottom: 14 }}>
+              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <button onClick={semear} disabled={salvando} style={btnGhost}>↻ Restaurar sugestões do modelo</button>
-                <span style={{ fontSize: 11, color: MUT, marginLeft: 10 }}>Readiciona indicadores do modelo que faltarem. Não sobrescreve suas edições.</span>
+                <span style={{ fontSize: 11, color: MUT }}>Readiciona indicadores do modelo que faltarem. Não sobrescreve suas edições.</span>
+                {itens.some((i) => !i.ativo) && (
+                  <button onClick={() => setMostrarDesativados((v) => !v)} style={{ ...btnGhost, marginLeft: 'auto' }}>
+                    {mostrarDesativados ? 'Ocultar desativados' : `Mostrar desativados (${itens.filter((i) => !i.ativo).length})`}
+                  </button>
+                )}
               </div>
             )}
 
