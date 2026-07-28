@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PainelGente from '@/components/inteligencia/PainelGente'
+import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -35,6 +36,8 @@ type Atalho = '1' | '7' | '30' | 'mes' | 'custom'
 export default function ProducaoIndustrialPage() {
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
+  const { papel } = usePapelUsuario()
+  const soGente = ehRhIndustrial(papel) // RH industrial: só a aba Gente; Produção/Abate/Peso/Lote ocultos (por papel)
 
   const [aba, setAba] = useState<Aba>('visao')
   const [atalho, setAtalho] = useState<Atalho>('7')
@@ -63,9 +66,12 @@ export default function ProducaoIndustrialPage() {
     if (!companyId) { setLoading(false); return }
     setLoading(true)
     const [ab, pl, fr, sc] = await Promise.all([
-      supabase.from('v_ind_producao_abate')
-        .select('data_abate,lote,camara,peso_carcaca_kg,meia_carcaca1_kg,meia_carcaca2_kg,arrobas,tem_rastreio,especie')
-        .eq('company_id', companyId).gte('data_abate', dataIni).lte('data_abate', dataFim).order('data_abate'),
+      // RH industrial não puxa abate (só vê Gente) — filtro por papel, não só ocultar a aba.
+      soGente
+        ? Promise.resolve({ data: [] as Linha[] })
+        : supabase.from('v_ind_producao_abate')
+            .select('data_abate,lote,camara,peso_carcaca_kg,meia_carcaca1_kg,meia_carcaca2_kg,arrobas,tem_rastreio,especie')
+            .eq('company_id', companyId).gte('data_abate', dataIni).lte('data_abate', dataFim).order('data_abate'),
       supabase.from('industrial_plants').select('nome_planta,especies').eq('company_id', companyId).eq('is_active', true).limit(1),
       supabase.rpc('fn_frescor_fonte', { p_company_id: companyId, p_fonte: 'atak_abate' }),
       supabase.rpc('fn_bi_gente_setores_visiveis', { p_company_id: companyId }),
@@ -79,7 +85,7 @@ export default function ProducaoIndustrialPage() {
     setSetores(scope?.ve_tudo ? null : (scope?.setores ?? []))
     setFLote(''); setFCamara('')
     setLoading(false)
-  }, [companyId, dataIni, dataFim])
+  }, [companyId, dataIni, dataFim, soGente])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -88,6 +94,9 @@ export default function ProducaoIndustrialPage() {
     const p = new URLSearchParams(window.location.search).get('aba')
     if (p && ['visao', 'abate', 'peso', 'lote', 'gente'].includes(p)) setAba(p as Aba)
   }, [])
+
+  // RH industrial só vê Gente: aba efetiva sempre 'gente' (sem effect/setState — deriva do papel).
+  const abaEfetiva: Aba = soGente ? 'gente' : aba
 
   // ── agregações (client-side; 321 linhas é trivial) ──
   const ag = useMemo(() => {
@@ -184,28 +193,28 @@ export default function ProducaoIndustrialPage() {
           <span style={{ marginLeft: 'auto', fontSize: 12, color: ESP, fontWeight: 600 }}>{ag.dias} {ag.dias === 1 ? 'dia' : 'dias'} · {fmtN(ag.n)} cabeças</span>
         </div>
 
-        {/* Abas (F1: Visão geral + Abate; Peso/Lote/Gente chegam em F2/F3) */}
+        {/* Abas · RH industrial vê SÓ Gente (filtro por papel); demais papéis veem tudo. */}
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, marginBottom: 16 }}>
-          <button onClick={() => setAba('visao')} style={tabStyle(aba === 'visao')}>Visão geral</button>
-          <button onClick={() => setAba('abate')} style={tabStyle(aba === 'abate')}>Abate</button>
-          <button onClick={() => setAba('peso')} style={tabStyle(aba === 'peso')}>Peso &amp; rendimento</button>
-          <button onClick={() => setAba('lote')} style={tabStyle(aba === 'lote')}>Por lote</button>
-          <button onClick={() => setAba('gente')} style={tabStyle(aba === 'gente')}>Gente</button>
+          {!soGente && <button onClick={() => setAba('visao')} style={tabStyle(aba === 'visao')}>Visão geral</button>}
+          {!soGente && <button onClick={() => setAba('abate')} style={tabStyle(aba === 'abate')}>Abate</button>}
+          {!soGente && <button onClick={() => setAba('peso')} style={tabStyle(aba === 'peso')}>Peso &amp; rendimento</button>}
+          {!soGente && <button onClick={() => setAba('lote')} style={tabStyle(aba === 'lote')}>Por lote</button>}
+          <button onClick={() => setAba('gente')} style={tabStyle(abaEfetiva === 'gente')}>Gente</button>
         </div>
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
-        ) : aba === 'gente' ? (
+        ) : abaEfetiva === 'gente' ? (
           // Gente é dado independente do abate (ponto) — renderiza mesmo sem abate no período.
           <PainelGente companyId={companyId} dataIni={dataIni} dataFim={dataFim} setoresPermitidos={setores} />
         ) : ag.n === 0 ? (
           <div style={{ ...CARD, textAlign: 'center', color: MUT, fontSize: 14, padding: 40 }}>Sem abate registrado neste período.</div>
-        ) : aba === 'visao' ? (
+        ) : abaEfetiva === 'visao' ? (
           <VisaoGeral ag={ag} />
-        ) : aba === 'abate' ? (
+        ) : abaEfetiva === 'abate' ? (
           <Abate ag={agAbate} porDiaSem={ag.porDiaSem} lotes={lotesUnicos} camaras={camarasUnicas}
             fLote={fLote} fCamara={fCamara} setFLote={setFLote} setFCamara={setFCamara} n={linhasAbate.length} />
-        ) : aba === 'peso' ? (
+        ) : abaEfetiva === 'peso' ? (
           <PesoRendimento linhas={linhas} />
         ) : (
           <PorLote linhas={linhas} />
