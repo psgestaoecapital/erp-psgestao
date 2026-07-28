@@ -198,6 +198,13 @@ export async function DELETE(req: NextRequest) {
   if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
 
   const sb = createClient(SUPA_URL, KEY());
+  // Soft-delete em pagar/receber (RD-30/57: nunca DELETE físico — o dado não some, dá pra restaurar).
+  // As RLS de SELECT já escondem deleted_at IS NOT NULL. Demais tabelas seguem o delete padrão.
+  if (tabela === "erp_pagar" || tabela === "erp_receber") {
+    const { error } = await sb.from(tabela).update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, soft_delete: true });
+  }
   const { error } = await sb.from(tabela).delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
