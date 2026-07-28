@@ -151,18 +151,16 @@ export default function AjustarValoresModal({
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
           <label style={{ display: 'block' }}>
-            <span style={labelSpan}>Valor da conta (R$)</span>
+            <span style={labelSpan}>✏️ Valor da conta (editável)</span>
             <input
               type="number" step="0.01" min="0" value={valorConta}
               onChange={(e) => setValorConta(e.target.value)}
-              style={{ ...input, fontWeight: 700 }}
+              style={{ ...input, fontWeight: 700, border: '1px solid #C8941A', background: '#FFFDF6' }}
               title="Valor real do título. Para conta recorrente (energia/água), corrija aqui quando a fatura vier diferente do programado."
             />
-            {valorMudou && (
-              <span style={{ fontSize: 10.5, color: '#854F0B', display: 'block', marginTop: 3 }}>
-                editado de R$ {fmtBRL(valorOriginal)}
-              </span>
-            )}
+            <span style={{ fontSize: 10.5, color: valorMudou ? '#854F0B' : 'rgba(61,35,20,0.5)', display: 'block', marginTop: 3 }}>
+              {valorMudou ? `editado de R$ ${fmtBRL(valorOriginal)}` : 'clique para corrigir o valor real do título'}
+            </span>
           </label>
           {valorBanco != null && (
             <Info label={tipo === 'receber' ? 'Valor recebido' : 'Valor pago'} valor={`R$ ${fmtBRL(valorBanco)}`} cor="#3D2314" />
