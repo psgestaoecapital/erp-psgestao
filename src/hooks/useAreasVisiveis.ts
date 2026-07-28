@@ -47,14 +47,29 @@ export function useAreasVisiveis(companyId: string | null): State {
     error: null,
   })
 
+  // FIX-VAZAMENTO-AREAS: resolve o usuário ANTES de chamar a RPC. Antes, o efeito dependia só de
+  // [companyId] e chamava fn_listar_areas_visiveis mesmo com getUser ainda null → a RPC (que falhava
+  // aberta) devolvia TODAS as áreas para um usuário restrito, e como não havia refetch ao resolver o
+  // usuário, o resultado errado grudava. Agora: userId em estado, nas deps, e a RPC só roda com usuário.
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userResolvido, setUserResolvido] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void supabase.auth.getUser().then(({ data }) => {
+      if (!alive) return
+      setUserId(data?.user?.id ?? null)
+      setUserResolvido(true)
+    })
+    return () => { alive = false }
+  }, [])
+
   useEffect(() => {
     let mounted = true
 
     async function carregar() {
+      if (!userResolvido) { setState((s) => ({ ...s, loading: true })); return } // espera o usuário
+      if (!userId) { setState({ areas: [], loading: false, error: null }); return } // sem usuário = sem áreas (fail-closed)
       setState((s) => ({ ...s, loading: true, error: null }))
-
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? null
 
       const [visiveisRes, statusRes] = await Promise.all([
         supabase.rpc('fn_listar_areas_visiveis', { p_company_id: companyId, p_user_id: userId }),
@@ -98,7 +113,7 @@ export function useAreasVisiveis(companyId: string | null): State {
     return () => {
       mounted = false
     }
-  }, [companyId])
+  }, [companyId, userId, userResolvido])
 
   return state
 }
