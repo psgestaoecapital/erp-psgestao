@@ -33,10 +33,27 @@ const S_AMBAR = '#C8941A'
 const S_VERM = '#B23B3B'
 const RED_BG = '#FCEBEB'
 
-type Tom = 'verde' | 'amarelo' | 'vermelho'
-const TOM_COR: Record<Tom, string> = { verde: S_VERDE, amarelo: S_AMBAR, vermelho: S_VERM }
-const TOM_DOT: Record<Tom, string> = { verde: '🟢', amarelo: '🟡', vermelho: '🔴' }
-const TOM_BG: Record<Tom, string> = { verde: '#EAF3DE', amarelo: '#FAEEDA', vermelho: RED_BG }
+type Tom = 'verde' | 'amarelo' | 'vermelho' | 'cinza'
+const S_CINZA = '#9A8F80'
+const TOM_COR: Record<Tom, string> = { verde: S_VERDE, amarelo: S_AMBAR, vermelho: S_VERM, cinza: S_CINZA }
+const TOM_DOT: Record<Tom, string> = { verde: '🟢', amarelo: '🟡', vermelho: '🔴', cinza: '⚪' }
+const TOM_BG: Record<Tom, string> = { verde: '#EAF3DE', amarelo: '#FAEEDA', vermelho: RED_BG, cinza: '#EFEAE1' }
+
+// F2.2 · semáforo contra a META (troca o critério fixo). Compara realizado vs meta do recorte, ciente da
+// direcao_boa. SEM meta = CINZA (RD-51/58: não inventar meta). Tolerância padrão 10% da meta = amarelo.
+const TOL_META = 0.10
+function tomContraMeta(realizado: number, meta: number | null | undefined, direcao: 'menor' | 'maior'): Tom {
+  if (meta == null) return 'cinza' // sem meta definida → não mente
+  if (direcao === 'maior') {
+    if (realizado >= meta) return 'verde'
+    if (realizado >= meta * (1 - TOL_META)) return 'amarelo'
+    return 'vermelho'
+  }
+  // 'menor' (absenteísmo, HE, turnover): quanto menor, melhor
+  if (realizado <= meta) return 'verde'
+  if (realizado <= meta * (1 + TOL_META)) return 'amarelo'
+  return 'vermelho'
+}
 
 const h1 = (n: number) => `${(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
 const n0 = (n: number) => (n ?? 0).toLocaleString('pt-BR')
@@ -295,12 +312,40 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
 
   const rankingBarras = useMemo(() => deptos.slice().sort((a, b) => b.extras - a.extras).slice(0, 12).map((d) => ({ nome: d.departamento, extras: +d.extras.toFixed(1) })), [deptos])
   const headcountArea = useMemo(() => deptos.slice().sort((a, b) => b.headcount - a.headcount).slice(0, 12).map((d) => ({ nome: d.departamento, headcount: d.headcount })), [deptos])
+  // F2.2 · metas de HE% (sigla HEX) por recorte: negócio + por setor. Vazio = cinza (sem meta).
+  const [metaHE, setMetaHE] = useState<{ negocio: number | null; porSetor: Map<string, number> }>({ negocio: null, porSetor: new Map() })
+  useEffect(() => {
+    if (!companyId) return
+    let ok = true
+    void (async () => {
+      const { data: cat } = await supabase.from('ind_indicador_catalogo').select('id')
+        .eq('company_id', companyId).eq('sigla', 'HEX').eq('ativo', true)
+      const ids = ((cat as { id: string }[] | null) ?? []).map((c) => c.id)
+      if (!ids.length) { if (ok) setMetaHE({ negocio: null, porSetor: new Map() }); return }
+      const anoAtual = new Date(dataFim + 'T00:00:00').getFullYear()
+      const { data: ms } = await supabase.from('ind_indicador_meta')
+        .select('recorte_tipo, recorte_ref, meta_valor, periodo_ano')
+        .eq('company_id', companyId).eq('ativo', true).in('indicador_id', ids)
+      let neg: number | null = null
+      const porSetor = new Map<string, number>()
+      for (const m of ((ms as { recorte_tipo: string; recorte_ref: string | null; meta_valor: number; periodo_ano: number | null }[] | null) ?? [])) {
+        if (m.periodo_ano != null && m.periodo_ano !== anoAtual) continue // meta permanente (ano null) ou do ano
+        if (m.recorte_tipo === 'negocio') neg = Number(m.meta_valor)
+        else if (m.recorte_tipo === 'setor' && m.recorte_ref) porSetor.set(m.recorte_ref, Number(m.meta_valor))
+      }
+      if (ok) setMetaHE({ negocio: neg, porSetor })
+    })()
+    return () => { ok = false }
+  }, [companyId, dataFim])
+
   const semaforoSetores = useMemo(() => deptos.map((d) => {
     const ep = d.trabalhadas > 0 ? d.extras / d.trabalhadas * 100 : 0
     const inf = d.infracoes ?? 0
-    const tom: Tom = ep > 12 || inf >= 5 ? 'vermelho' : ep > 8 || inf > 0 ? 'amarelo' : 'verde'
-    return { ...d, extras_pct: ep, infracoes: inf, tom }
-  }).sort((a, b) => (b.extras_pct + (b.infracoes ?? 0)) - (a.extras_pct + (a.infracoes ?? 0))), [deptos])
+    // F2.2 · tom vem da META do recorte (setor herda a do negócio quando não tem a própria). Sem meta = cinza.
+    const meta = metaHE.porSetor.get(d.departamento) ?? metaHE.negocio
+    const tom = tomContraMeta(ep, meta, 'menor')
+    return { ...d, extras_pct: ep, infracoes: inf, tom, meta }
+  }).sort((a, b) => (b.extras_pct + (b.infracoes ?? 0)) - (a.extras_pct + (a.infracoes ?? 0))), [deptos, metaHE])
 
   // Camada 5 · fadiga/excesso HE (CALCULADO — temos dado)
   const setoresFadiga = useMemo(() => semaforoSetores.filter((d) => d.extras_pct > 15 && d.headcount > 0), [semaforoSetores])
@@ -489,7 +534,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
             <Heatmap deptos={deptos} onPick={(s) => setDepto(s)} selecionado={depto} mostrarBanco={heatMostrarBanco} />
           </Card>
 
-          <Card titulo="Semáforo por setor" tag={badgeFiltro} nota="Análise da janela do filtro. Tom por HE% + infrações de jornada. Clique num setor para filtrar todo o painel.">
+          <Card titulo="Semáforo por setor" tag={badgeFiltro} nota="Tom por HE% REALIZADO vs META do recorte (setor herda a do negócio). Sem meta = ⚪ cinza (não inventamos meta). Defina metas no editor de indicadores. Clique num setor para filtrar.">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
               {semaforoSetores.map((d) => {
                 const ativo = depto === d.departamento
@@ -501,7 +546,7 @@ export default function PainelGente({ companyId, dataIni, dataFim, setoresPermit
                       <span style={{ fontSize: 12.5, fontWeight: 700, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{TOM_DOT[d.tom]} {d.departamento}</span>
                       <span style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap' }}>{d.headcount}p</span>
                     </div>
-                    <div style={{ fontSize: 11, color: MUT, margin: '3px 0 5px' }}>HE {pct(d.extras_pct)} · {(d.infracoes ?? 0) > 0 ? `⚠ ${d.infracoes} infr.` : 'sem infração'}</div>
+                    <div style={{ fontSize: 11, color: MUT, margin: '3px 0 5px' }}>HE {pct(d.extras_pct)} · {d.meta != null ? `meta ${pct(d.meta)}` : 'sem meta'}{(d.infracoes ?? 0) > 0 ? ` · ⚠ ${d.infracoes} infr.` : ''}</div>
                     <div style={{ height: 6, background: CREAM, borderRadius: 4, overflow: 'hidden' }}>
                       <div style={{ width: `${Math.min(100, d.extras_pct / maxRef * 100)}%`, height: '100%', background: TOM_COR[d.tom] }} />
                     </div>
