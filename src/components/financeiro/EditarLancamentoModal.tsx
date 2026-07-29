@@ -160,7 +160,7 @@ export default function EditarLancamentoModal({
   if (!open) return null
 
   return (
-    <div role="dialog" aria-modal="true" onClick={onClose} style={{
+    <div role="dialog" aria-modal="true" style={{
       position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.55)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 16, zIndex: 1000,

@@ -25,6 +25,8 @@ type ContaBancaria = {
   banco: string
 }
 
+type CentroCusto = { id: string; nome: string }
+
 interface NovaReceitaFormProps {
   companyId: string
   onSucesso?: (receitaId: string) => void
@@ -45,6 +47,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [contas, setContas] = useState<ContaBancaria[]>([])
+  const [centros, setCentros] = useState<CentroCusto[]>([])
 
   const [clienteId, setClienteId] = useState('')
   const [clienteNome, setClienteNome] = useState('')
@@ -59,7 +62,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaRecebimento, setFormaRecebimento] = useState('pix')
-  const [contaBancaria, setContaBancaria] = useState('')
+  const [contaBancaria, setContaBancaria] = useState('') // agora guarda o ID da conta (erp_banco_contas.id)
+  const [centroCustoId, setCentroCustoId] = useState('')
   const [observacao, setObservacao] = useState('')
   const [jaRecebido, setJaRecebido] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
@@ -85,7 +89,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     if (!companyId) return
     let alive = true
     ;(async () => {
-      const [cli, cats, bcs] = await Promise.all([
+      const [cli, cats, bcs, ccs] = await Promise.all([
         supabase
           .from('erp_clientes')
           .select('id, nome_fantasia, razao_social, cpf_cnpj')
@@ -105,11 +109,18 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           .eq('company_id', companyId)
           .eq('ativo', true)
           .order('nome'),
+        supabase
+          .from('erp_centros_custo')
+          .select('id, nome')
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+          .order('nome'),
       ])
       if (!alive) return
       setClientes((cli.data as Cliente[] | null) ?? [])
       setCategorias((cats.data as Categoria[] | null) ?? [])
       setContas((bcs.data as ContaBancaria[] | null) ?? [])
+      setCentros((ccs.data as CentroCusto[] | null) ?? [])
     })()
     return () => {
       alive = false
@@ -117,7 +128,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   }, [companyId])
 
   function validar(): string | null {
-    if (!descricao.trim()) return 'Descreva a receita (ex: "Mensalidade cliente X · maio")'
+    // descrição é OPCIONAL (Jordana): se vazia, usamos um rótulo-fallback ao salvar.
     if (!valor || parseFloat(valor) <= 0) return 'Valor deve ser maior que zero'
     if (!dataRecebimento) return 'Quando entra na conta?'
     if (parcelas < 1 || parcelas > 60) return 'Parcelas entre 1 e 60'
@@ -135,11 +146,17 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     setErro(null)
     setDupWarn(false)
 
+    // descrição opcional (1a): fallback = cliente · competência quando vazia.
+    const compRef = (dataCompetencia || dataRecebimento || '').slice(0, 7)
+    const descricaoFinal = descricao.trim() || `${clienteNome || 'Receita'}${compRef ? ' · ' + compRef : ''}`
+    // conta agora é ID; a coluna legada conta_bancaria (texto) recebe o NOME p/ compat/histórico.
+    const nomeContaSel = contas.find((c) => c.id === contaBancaria)?.nome ?? null
+
     const { data, error } = await supabase.rpc('fn_receber_criar_com_parcelas', {
       p_company_id: companyId,
       p_cliente_id: clienteId || null,
       p_cliente_nome: clienteNome || null,
-      p_descricao: descricao.trim(),
+      p_descricao: descricaoFinal,
       p_valor_total: parseFloat(valor),
       p_data_emissao: new Date().toISOString().split('T')[0],
       p_data_primeiro_recebimento: dataRecebimento,
@@ -150,7 +167,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       p_observacao: observacao || null,
       p_intervalo_dias: intervaloDias,
       p_status_inicial: 'pendente',
-      p_conta_bancaria: contaBancaria || null,
+      p_conta_bancaria: nomeContaSel,
       p_forcar_dup: forcar,
     })
 
@@ -182,8 +199,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
 
     const ids = resultado?.ids ?? []
     const dataCompFinal = dataCompetencia || dataRecebimento
-    if (ids.length > 0 && dataCompFinal) {
-      await supabase.from('erp_receber').update({ data_competencia: dataCompFinal }).in('id', ids)
+    if (ids.length > 0) {
+      // Persistir competência + FKs novas (conta/centro). Aditivo: a coluna texto legada já foi gravada pela RPC.
+      const patch: Record<string, unknown> = {}
+      if (dataCompFinal) patch.data_competencia = dataCompFinal
+      if (contaBancaria) patch.conta_bancaria_id = contaBancaria
+      if (centroCustoId) patch.centro_custo_id = centroCustoId
+      if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
     }
 
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
@@ -270,11 +292,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             gap: 18,
           }}
         >
-          <Campo label="O que é essa receita?" obrigatorio fullWidth>
+          <Campo label="O que é essa receita? (opcional)" fullWidth>
             <input
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              placeholder='ex: "Mensalidade cliente X · maio" · "Venda 200 unidades"'
+              placeholder='opcional · ex: "Mensalidade cliente X · maio" · "Venda 200 unidades"'
               style={inputStyle}
               maxLength={200}
             />
@@ -400,7 +422,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             >
               <option value="">— escolher depois —</option>
               {contas.map((c) => (
-                <option key={c.id} value={c.nome}>
+                <option key={c.id} value={c.id}>
                   {c.nome}{c.banco ? ` · ${c.banco}` : ''}
                 </option>
               ))}
@@ -408,6 +430,24 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             {contas.length === 0 && (
               <small style={{ ...helperStyle, color: '#854F0B' }}>
                 Nenhuma conta bancária cadastrada · pule por agora
+              </small>
+            )}
+          </Campo>
+
+          <Campo label="Centro de custo (opcional)">
+            <select
+              value={centroCustoId}
+              onChange={(e) => setCentroCustoId(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">— sem centro de custo —</option>
+              {centros.map((c) => (
+                <option key={c.id} value={c.id}>{c.nome}</option>
+              ))}
+            </select>
+            {centros.length === 0 && (
+              <small style={{ ...helperStyle, color: '#854F0B' }}>
+                Nenhum centro de custo · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: '#C8941A' }}>cadastrar</a>
               </small>
             )}
           </Campo>
@@ -546,7 +586,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       </div>
 
       {dupWarn && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }} onClick={() => setDupWarn(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 440, width: '100%', border: '1px solid #E7DED3' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>Título parecido já existe</div>
             <div style={{ fontSize: 13, color: '#6b5444', lineHeight: 1.5, marginBottom: 16 }}>
