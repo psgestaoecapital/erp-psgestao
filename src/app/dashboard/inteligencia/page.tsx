@@ -1,11 +1,11 @@
 'use client'
 
-// Hub de BI Industrial — CONFIG-DRIVEN (RD-26/35): não há cards hardcoded. Lê o catálogo via
-// fn_bi_temas_industrial(company) e renderiza por seção. Cada card "acende sozinho" quando a fonte
-// tem dado p/ a empresa (RD-58: badge nunca mente). Empresa vem do seletor global (Pilar 2).
-// Adicionar tema / ligar fonte = INSERT/UPDATE em ind_bi_tema, sem deploy.
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+// Hub de BI — CONFIG-DRIVEN e ÁREA-AWARE (RD-26/35). Lê o catálogo da área (query ?area=) via a RPC certa
+// e renderiza por seção. Card "acende sozinho" quando a fonte tem dado (RD-58). Empresa = seletor global.
+//   area=industrial → fn_bi_temas_industrial (não regride — RD-53)
+//   area=agro       → fn_bi_temas_agro
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
@@ -22,25 +22,60 @@ type Tema = {
 
 // Catálogo diz o NOME do ícone (tabler); o hub mapeia p/ emoji (config-driven, sem dependência nova).
 const ICONE: Record<string, string> = {
+  // industrial
   truck: '🚚', fence: '🐂', meat: '🥩', 'clipboard-check': '📋', award: '🏅', snowflake: '❄️',
   cut: '🔪', droplet: '💧', package: '📦', 'truck-delivery': '🚛', 'shopping-cart': '🛒',
   'shield-check': '🛡️', users: '👥', bolt: '⚡', tools: '🛠️', coin: '🪙', cow: '🐄',
   'chart-bar': '📊', 'arrows-cross': '✳️',
+  // agro
+  plant: '🌱', 'chart-line': '📈', heart: '❤️', vaccine: '💉', 'building-warehouse': '🏬',
+  milk: '🥛', 'report-money': '💰', 'building-bank': '🏦', 'trending-up': '💹',
 }
-const SECOES: { key: string; label: string }[] = [
-  { key: 'entrada', label: 'Entrada e gado' },
-  { key: 'abate', label: 'Abate e carcaça' },
-  { key: 'frio_desossa', label: 'Frio e desossa' },
-  { key: 'saida', label: 'Saída e mercado' },
-  { key: 'transversais', label: 'Transversais · toda a cadeia' },
-]
+
+type AreaCfg = { rpc: string; kicker: string; subtitulo: string; secoes: { key: string; label: string }[]; soRh: boolean }
+const AREAS: Record<string, AreaCfg> = {
+  industrial: {
+    rpc: 'fn_bi_temas_industrial',
+    kicker: '📊 Inteligência (BI) · industrial · bovino',
+    subtitulo: 'Inteligência (BI) · industrial · bovino — você vê só o que seu escopo permite.',
+    secoes: [
+      { key: 'entrada', label: 'Entrada e gado' }, { key: 'abate', label: 'Abate e carcaça' },
+      { key: 'frio_desossa', label: 'Frio e desossa' }, { key: 'saida', label: 'Saída e mercado' },
+      { key: 'transversais', label: 'Transversais · toda a cadeia' },
+    ],
+    soRh: true,
+  },
+  agro: {
+    rpc: 'fn_bi_temas_agro',
+    kicker: '📊 Inteligência (BI) · agro · pecuária',
+    subtitulo: 'Inteligência (BI) · agro · pecuária — você vê só o que seu escopo permite.',
+    secoes: [
+      { key: 'rebanho', label: 'Rebanho e campo' }, { key: 'desempenho', label: 'Desempenho' },
+      { key: 'nutricao', label: 'Nutrição' }, { key: 'financeiro', label: 'Financeiro' },
+      { key: 'cruzamento', label: 'Cruzamento' },
+    ],
+    soRh: false,
+  },
+}
 
 export default function InteligenciaHubPage() {
+  return (
+    <Suspense fallback={<div style={{ background: BG, minHeight: '100vh', padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>}>
+      <Hub />
+    </Suspense>
+  )
+}
+
+function Hub() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const area = (searchParams.get('area') ?? 'industrial') === 'agro' ? 'agro' : 'industrial'
+  const cfg = AREAS[area]
+
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const { papel } = usePapelUsuario()
-  const soRh = ehRhIndustrial(papel) // RH industrial: só o card de RH (filtro por papel)
+  const soRh = cfg.soRh && ehRhIndustrial(papel) // RH industrial: só o card de RH (só na área industrial)
 
   const [temas, setTemas] = useState<Tema[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,11 +84,11 @@ export default function InteligenciaHubPage() {
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_bi_temas_industrial', { p_company_id: companyId })
+    const { data, error } = await supabase.rpc(cfg.rpc, { p_company_id: companyId })
     if (error) setErro(error.message)
     setTemas((data ?? []) as Tema[])
     setLoading(false)
-  }, [companyId])
+  }, [companyId, cfg.rpc])
 
   /* eslint-disable-next-line react-hooks/set-state-in-effect */
   useEffect(() => { void carregar() }, [carregar])
@@ -73,9 +108,9 @@ export default function InteligenciaHubPage() {
     <div style={{ background: BG, minHeight: '100vh', padding: '28px 20px' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <header style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>📊 Inteligência (BI) · industrial · bovino</div>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>{cfg.kicker}</div>
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Análise de dados</h1>
-          <p style={{ fontSize: 13, color: MUT, margin: '4px 0 0' }}>Inteligência (BI) · industrial · bovino — você vê só o que seu escopo permite.</p>
+          <p style={{ fontSize: 13, color: MUT, margin: '4px 0 0' }}>{cfg.subtitulo}</p>
         </header>
 
         {erro && <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>{erro}</div>}
@@ -84,8 +119,8 @@ export default function InteligenciaHubPage() {
           <div style={{ padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
         ) : (
           <>
-            {SECOES.filter((s) => (porSecao[s.key] ?? []).length > 0).map((s) => {
-              const faixa = s.key === 'transversais'
+            {cfg.secoes.filter((s) => (porSecao[s.key] ?? []).length > 0).map((s) => {
+              const faixa = s.key === 'transversais' || s.key === 'cruzamento'
               return (
                 <section key={s.key} style={{ marginBottom: 18, ...(faixa ? { background: SURF1, borderRadius: 12, padding: '14px 14px 4px' } : {}) }}>
                   <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: MUT, fontWeight: 700, marginBottom: 10 }}>{s.label}</div>
@@ -108,7 +143,6 @@ export default function InteligenciaHubPage() {
 function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
   const fase1 = t.destaque === 'fase1' && t.tem_dado
   const novo = t.destaque === 'novo'
-  // pill: ativo (verde) > fase 1 / novo (accent) > em breve (muted)
   const pill = t.tem_dado
     ? { txt: '● ativo', cor: VERDE, bg: 'rgba(46,139,87,0.10)' }
     : fase1 ? { txt: 'fase 1', cor: GOLD, bg: ACCENT_BG }
@@ -123,7 +157,7 @@ function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
       style={{
         background: '#FFF', border: fase1 ? `2px solid ${GOLD}` : `0.5px solid ${LINE}`, borderRadius: 12,
         padding: 16, display: 'flex', flexDirection: 'column', minHeight: 132, cursor: 'pointer',
-        transition: 'border-color .15s, box-shadow .15s',
+        transition: 'border-color .15s',
       }}
       onMouseEnter={(e) => { if (!fase1) e.currentTarget.style.borderColor = GOLD }}
       onMouseLeave={(e) => { if (!fase1) e.currentTarget.style.borderColor = LINE }}
