@@ -9,6 +9,8 @@ import EmitirNFSeButton from './EmitirNFSeButton'
 import EmitirNFeButton from './EmitirNFeButton'
 import GerarBoletoButton from './GerarBoletoButton'
 import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoActions'
+
+const SEM_CONTA = '— sem conta informada —' // 3b: chip de filtro p/ lançamentos sem conta bancária
 import ConciliarTituloModal from './ConciliarTituloModal'
 import EditarLancamentoModal from './EditarLancamentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
@@ -299,7 +301,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const q = busca.trim().toLowerCase()
     const filtrado = base.filter((r) => {
       if (categoria && r.categoria !== categoria) return false
-      if (contasSel.size > 0 && !contasSel.has(contaMap[r.id] ?? '')) return false   // item 3
+      // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
+      if (contasSel.size > 0) {
+        const ck = contaMap[r.id]?.trim() ? contaMap[r.id] : SEM_CONTA
+        if (!contasSel.has(ck)) return false
+      }
       if (q) {
         const hay = `${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
@@ -379,10 +385,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     return () => { alive = false }
   }, [data, tipo])
 
-  const contasDistinct = useMemo(
-    () => Array.from(new Set(Object.values(contaMap))).sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [contaMap],
-  )
+  const contasDistinct = useMemo(() => {
+    const reais = Array.from(new Set(Object.values(contaMap))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    // 3b: linhas sem conta informada? (resultados que não estão no contaMap) → oferece o chip sentinel
+    const temSemConta = (data?.resultados ?? []).some((r) => !contaMap[r.id]?.trim())
+    return temSemConta ? [...reais, SEM_CONTA] : reais
+  }, [contaMap, data])
 
   function aplicarPeriodo(choice: PeriodoChoice) {
     setPeriodoChoice(choice)
