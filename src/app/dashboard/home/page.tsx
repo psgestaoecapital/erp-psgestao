@@ -12,6 +12,7 @@ const SHOW_LEGACY_HOME = false;
 
 import { useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { authFetch } from '@/lib/authFetch';
+import { supabase } from '@/lib/supabase';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useCompanyIds } from '@/lib/useCompanyIds';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
@@ -70,8 +71,29 @@ function DashboardUniversalInner() {
   // Esta página NÃO mantém estado local de seleção — eliminado para evitar
   // duplo seletor e estado inconsistente.
   const { sel, companyIds } = useCompanyIds();
-  // Chave estável para useEffect (companyIds é re-criado a cada render do hook)
-  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds]);
+
+  // CONSOLIDAÇÃO POR GRUPO: se a seleção é 1 empresa que pertence a um grupo,
+  // expande pros CNPJs do grupo (via fn_grupo_empresa) — assim TODAS as seções
+  // da home (Saldos, Saúde, Operação, cards) consolidam igual ao topo. Empresa
+  // sem grupo → [ela mesma] (nada muda). Fonte única, sem hardcode.
+  const empresaUnica = sel && sel !== 'consolidado' && !sel.startsWith('group_') ? sel : null;
+  const [grupoIds, setGrupoIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (empresaUnica) {
+      void supabase.rpc('fn_grupo_empresa', { p_company_id: empresaUnica }).then(({ data, error }) => {
+        if (!alive) return;
+        const g = data as { ok?: boolean; company_ids?: string[] } | null;
+        setGrupoIds(!error && g?.ok && Array.isArray(g.company_ids) && g.company_ids.length ? g.company_ids : [empresaUnica]);
+      });
+    } else {
+      setGrupoIds(null);
+    }
+    return () => { alive = false; };
+  }, [empresaUnica]);
+  const effectiveIds = useMemo(() => (grupoIds && grupoIds.length ? grupoIds : (companyIds ?? [])), [grupoIds, companyIds]);
+  // Chave estável para useEffect (effectiveIds é re-criado a cada render)
+  const companyIdsKey = useMemo(() => [...effectiveIds].sort().join(','), [effectiveIds]);
 
   // Lista de grupos/empresas para o modal "Gerenciar Grupos" (não para seleção).
   const [grupos, setGrupos] = useState<Grupo[]>([]);
