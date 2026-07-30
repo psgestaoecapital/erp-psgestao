@@ -1,12 +1,12 @@
 'use client'
 
-// DRE Horizontal Consolidado (Grupo) — F1.
-// - resolve o grupo da empresa via fn_grupo_empresa (genérico), consolida os CNPJs;
-// - meses nas colunas (sticky header) + conta em árvore (sticky 1ª coluna);
-// - linhas colapsáveis por grupo do DRE; subtotais/resultado em negrito;
-// - projeção (meses futuros) marcada; toggle Competência × Caixa;
-// - números abreviados (R$ 31,5 mi) com valor cheio no title.
-// Drill cliente/fornecedor = F2; coluna por CNPJ + export = F3.
+// DRE Consolidado (Grupo).
+// - resolve o grupo via fn_grupo_empresa (genérico), consolida os CNPJs;
+// - SELETOR DE MESES clicável (◂ ano ▸ + Jan…Dez); clique = 1 mês, shift = intervalo;
+// - intervalo > 1 mês → colunas = MESES (fn_psgc_dre_horizontal);
+// - 1 mês (De = Até) → colunas = DIAS 1…31 (fn_psgc_dre_horizontal_dia), cada conta
+//   com valor por dia; expandir conta-folha abre o detalhe por pessoa × dia (#813);
+// - árvore colapsável; sticky; abreviado com valor cheio no title.
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -21,7 +21,9 @@ const GREEN = '#166534'
 const RED = '#A32D2D'
 const CREAM = '#F2EBDF'
 
-type Mes = { ym: string; ano: number; mes: number; label: string; projecao: boolean }
+const MESES_LBL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+type Coluna = { key: string; label: string; projecao?: boolean }
 type Linha = {
   ordem: number
   kind: 'grupo' | 'conta' | 'resultado'
@@ -34,19 +36,15 @@ type Linha = {
   afeta_margem_bruta?: boolean
   afeta_margem_contribuicao?: boolean
   afeta_ebitda?: boolean
-  valores_mes: Record<string, number>
+  valores: Record<string, number>
 }
-type DreResult = { ok: boolean; erro?: string; regime: string; empresas: number; meses: Mes[]; linhas: Linha[] }
+type Uni = { regime: string; empresas: number; modo: 'mes' | 'dia'; colunas: Coluna[]; linhas: Linha[] }
 
-// primeiro dia do mês, deslocado por n meses
-const monthShift = (n: number) => {
-  const d = new Date()
-  return new Date(d.getFullYear(), d.getMonth() + n, 1)
-}
-const toYM = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-const ymToDate = (ym: string) => `${ym}-01`
+type RawLinha = Omit<Linha, 'valores'> & { valores_mes?: Record<string, number>; valores_dia?: Record<string, number> }
+type MesRaw = { ym: string; label: string; projecao: boolean }
+type DiaRaw = { d: number; ymd: string }
 
-// R$ abreviado: 31,5 mi · 812,3 mil · 940 — com valor cheio no title
+const pad2 = (n: number) => String(n).padStart(2, '0')
 function abrev(n: number): string {
   const a = Math.abs(n)
   if (a >= 1_000_000) return `${(n / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`
@@ -57,29 +55,26 @@ const cheio = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', curr
 
 export default function DREHorizontal() {
   const { sel, companyIds, selInfo, loading: loadingSel } = useCompanyIds()
+  const now = useMemo(() => new Date(), [])
+  const anoAtual = now.getFullYear()
 
   const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia')
-  const [mesIni, setMesIni] = useState<string>(toYM(monthShift(-11))) // 12 realizados
-  const [mesFim, setMesFim] = useState<string>(toYM(monthShift(6)))   // + projeção
+  const [ano, setAno] = useState<number>(anoAtual)
+  const [selIni, setSelIni] = useState<number>(1)                       // 1..12
+  const [selFim, setSelFim] = useState<number>(now.getMonth() + 1)      // YTD por padrão
   const [colapsados, setColapsados] = useState<Set<string>>(new Set())
   const [tudoAberto, setTudoAberto] = useState(false)
-  const [contaAberta, setContaAberta] = useState<string | null>(null) // drill diário (1 mês)
-
-  // Modo Diário só quando 1 mês está filtrado (mês_ini = mês_fim). Aí expandir uma
-  // conta-folha abre a grade de dias × pessoa (cliente/fornecedor).
-  const umMes = mesIni === mesFim
-  const drillAno = Number(mesIni.slice(0, 4))
-  const drillMes = Number(mesIni.slice(5, 7))
+  const [contaAberta, setContaAberta] = useState<string | null>(null)
 
   const [membros, setMembros] = useState<string[]>([])
   const [grupoNome, setGrupoNome] = useState<string>('')
-  const [data, setData] = useState<DreResult | null>(null)
+  const [data, setData] = useState<Uni | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Resolve o grupo da empresa selecionada via fn_grupo_empresa (fonte única,
-  // genérica). Se a seleção global for consolidado/grupo (sem 1 empresa), usa
-  // os companyIds já resolvidos pelo seletor. Nunca hardcode de empresa.
+  const umMes = selIni === selFim
+
+  // Resolve o grupo da empresa selecionada (fonte única, genérica).
   const empresaUnica = sel && sel !== 'consolidado' && !sel.startsWith('group_') ? sel : null
   useEffect(() => {
     let alive = true
@@ -87,13 +82,11 @@ export default function DREHorizontal() {
       void supabase.rpc('fn_grupo_empresa', { p_company_id: empresaUnica }).then(({ data: g, error }) => {
         if (!alive) return
         const r = g as { ok?: boolean; grupo_nome?: string; company_ids?: string[] } | null
-        if (error || !r?.ok) { setMembros(empresaUnica ? [empresaUnica] : []); setGrupoNome(selInfo.nome); return }
-        setMembros(r.company_ids ?? [empresaUnica])
-        setGrupoNome(r.grupo_nome ?? selInfo.nome)
+        if (error || !r?.ok) { setMembros([empresaUnica]); setGrupoNome(selInfo.nome); return }
+        setMembros(r.company_ids ?? [empresaUnica]); setGrupoNome(r.grupo_nome ?? selInfo.nome)
       })
     } else {
-      setMembros(companyIds)
-      setGrupoNome(selInfo.nome)
+      setMembros(companyIds); setGrupoNome(selInfo.nome)
     }
     return () => { alive = false }
   }, [empresaUnica, companyIds, selInfo.nome])
@@ -101,70 +94,81 @@ export default function DREHorizontal() {
   const carregar = useCallback(async () => {
     if (!membros.length) return
     setLoading(true); setErro(null)
-    const { data: res, error } = await supabase.rpc('fn_psgc_dre_horizontal', {
-      p_company_ids: membros,
-      p_mes_ini: ymToDate(mesIni),
-      p_mes_fim: ymToDate(mesFim),
-      p_regime: regime,
-    })
-    const r = res as DreResult | null
-    if (error) { setErro(error.message); setData(null) }
-    else if (r && r.ok === false) { setErro(r.erro || 'Sem acesso'); setData(null) }
-    else setData(r)
+    if (selIni === selFim) {
+      // 1 mês → DIAS no cabeçalho
+      const { data: res, error } = await supabase.rpc('fn_psgc_dre_horizontal_dia', {
+        p_company_ids: membros, p_ano: ano, p_mes: selIni, p_regime: regime,
+      })
+      const r = res as { ok?: boolean; erro?: string; regime: string; empresas: number; dias: DiaRaw[]; linhas: RawLinha[] } | null
+      if (error) { setErro(error.message); setData(null) }
+      else if (!r || r.ok === false) { setErro(r?.erro || 'Sem acesso'); setData(null) }
+      else setData({
+        regime: r.regime, empresas: r.empresas, modo: 'dia',
+        colunas: (r.dias ?? []).map((x) => ({ key: x.ymd, label: String(x.d) })),
+        linhas: (r.linhas ?? []).map((l) => ({ ...l, valores: l.valores_dia ?? {} })),
+      })
+    } else {
+      // intervalo → MESES
+      const { data: res, error } = await supabase.rpc('fn_psgc_dre_horizontal', {
+        p_company_ids: membros, p_mes_ini: `${ano}-${pad2(selIni)}-01`, p_mes_fim: `${ano}-${pad2(selFim)}-01`, p_regime: regime,
+      })
+      const r = res as { ok?: boolean; erro?: string; regime: string; empresas: number; meses: MesRaw[]; linhas: RawLinha[] } | null
+      if (error) { setErro(error.message); setData(null) }
+      else if (!r || r.ok === false) { setErro(r?.erro || 'Sem acesso'); setData(null) }
+      else setData({
+        regime: r.regime, empresas: r.empresas, modo: 'mes',
+        colunas: (r.meses ?? []).map((m) => ({ key: m.ym, label: m.label, projecao: m.projecao })),
+        linhas: (r.linhas ?? []).map((l) => ({ ...l, valores: l.valores_mes ?? {} })),
+      })
+    }
     setLoading(false)
-  }, [membros, mesIni, mesFim, regime])
+  }, [membros, ano, selIni, selFim, regime])
 
   useEffect(() => { void carregar() }, [carregar])
 
-  // colapso: por padrão todos os grupos recolhidos (mostra a espinha do DRE)
   useEffect(() => {
     if (!data) return
-    setContaAberta(null) // novo período/regime → fecha o drill diário aberto
+    setContaAberta(null)
     if (tudoAberto) { setColapsados(new Set()); return }
     setColapsados(new Set(data.linhas.filter((l) => l.kind === 'grupo').map((l) => l.codigo)))
   }, [data, tudoAberto])
 
   function toggleGrupo(codigo: string) {
-    setColapsados((prev) => {
-      const n = new Set(prev)
-      if (n.has(codigo)) n.delete(codigo); else n.add(codigo)
-      return n
-    })
+    setColapsados((prev) => { const n = new Set(prev); if (n.has(codigo)) n.delete(codigo); else n.add(codigo); return n })
   }
 
-  const meses = useMemo(() => data?.meses ?? [], [data])
+  // Seletor de meses: clique = 1 mês; shift+clique = intervalo a partir do início atual.
+  function clicaMes(m: number, shift: boolean) {
+    if (shift) { const base = selIni; setSelIni(Math.min(base, m)); setSelFim(Math.max(base, m)) }
+    else { setSelIni(m); setSelFim(m) }
+  }
+  const atalhoMes = () => { setAno(anoAtual); setSelIni(now.getMonth() + 1); setSelFim(now.getMonth() + 1) }
+  const atalhoTri = () => { setSelIni(Math.max(1, selFim - 2)) }
+  const atalhoAno = () => { setSelIni(1); setSelFim(12) }
+
+  const colunas = useMemo(() => data?.colunas ?? [], [data])
   const linhasVisiveis = useMemo(() => {
     if (!data) return []
     return data.linhas.filter((l) => l.kind !== 'conta' || !colapsados.has(l.grupo_ref ?? ''))
   }, [data, colapsados])
-
-  // total por linha (soma dos meses do range)
-  const totalLinha = useCallback((l: Linha) => meses.reduce((s, m) => s + (l.valores_mes[m.ym] ?? 0), 0), [meses])
+  const totalLinha = useCallback((l: Linha) => colunas.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0), [colunas])
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>Financeiro · Grupo</p>
-        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>DRE Horizontal Consolidado</h1>
+        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>DRE Consolidado</h1>
         <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
-          Demonstrativo gerencial com meses no cabeçalho, consolidando os CNPJs do grupo. Competência × Caixa · projeção marcada.
+          Escolha 1 mês (dias no cabeçalho) ou um intervalo (meses no cabeçalho), consolidando os CNPJs do grupo. Competência × Caixa.
         </p>
 
-        {/* Controles */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
+        {/* Controles: grupo + regime + seletor de meses */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
           <div>
             <label style={lbl}>{membros.length > 1 ? 'Grupo' : 'Empresa'}</label>
-            <div style={{ ...inp, minWidth: 200, display: 'flex', alignItems: 'center', gap: 6, background: CREAM, fontWeight: 700 }}>
+            <div style={{ ...inp, minWidth: 190, display: 'flex', alignItems: 'center', gap: 6, background: CREAM, fontWeight: 700 }}>
               {grupoNome || '—'}{membros.length > 1 && <span style={{ fontWeight: 500, color: MUT }}>· {membros.length} CNPJs</span>}
             </div>
-          </div>
-          <div>
-            <label style={lbl}>De</label>
-            <input type="month" value={mesIni} onChange={(e) => setMesIni(e.target.value)} style={inp} />
-          </div>
-          <div>
-            <label style={lbl}>Até</label>
-            <input type="month" value={mesFim} onChange={(e) => setMesFim(e.target.value)} style={inp} />
           </div>
           <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
             <button type="button" onClick={() => setRegime('competencia')} style={regime === 'competencia' ? segOn : segOff}>Competência</button>
@@ -173,7 +177,35 @@ export default function DREHorizontal() {
           <button type="button" onClick={() => setTudoAberto((v) => !v)} style={btnSec}>
             {tudoAberto ? '▾ Recolher tudo' : '▸ Expandir tudo'}
           </button>
-          {data && <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{data.empresas} empresa(s) · regime {data.regime}</span>}
+          {data && <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{data.empresas} empresa(s) · {data.modo === 'dia' ? 'diário' : 'mensal'} · {data.regime}</span>}
+        </div>
+
+        {/* Seletor de ano + meses clicável */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => setAno((a) => Math.max(2024, a - 1))} style={navBtn} aria-label="Ano anterior">◂</button>
+            <span style={{ fontSize: 15, fontWeight: 800, color: ESP, minWidth: 52, textAlign: 'center' }}>{ano}</span>
+            <button type="button" onClick={() => setAno((a) => Math.min(anoAtual + 1, a + 1))} style={navBtn} aria-label="Próximo ano">▸</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4, flex: 1, minWidth: 260 }}>
+            {MESES_LBL.map((lbl_, i) => {
+              const m = i + 1
+              const ativo = m >= selIni && m <= selFim
+              return (
+                <button key={m} type="button"
+                  onClick={(e) => clicaMes(m, e.shiftKey)}
+                  title="Clique = 1 mês · Shift+clique = intervalo"
+                  style={{ ...mesBtn, ...(ativo ? mesBtnOn : null) }}>
+                  {lbl_}
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" onClick={atalhoMes} style={chip}>Mês atual</button>
+            <button type="button" onClick={atalhoTri} style={chip}>Trimestre</button>
+            <button type="button" onClick={atalhoAno} style={chip}>Ano</button>
+          </div>
         </div>
 
         {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
@@ -182,18 +214,20 @@ export default function DREHorizontal() {
           <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: MUT }}>Carregando DRE…</div>
         ) : !data || data.linhas.length === 0 ? (
           <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '32px 20px', textAlign: 'center', color: MUT, fontSize: 13 }}>
-            Sem DRE calculado para o grupo/período. Ajuste o intervalo ou verifique se o grupo tem empresas com dados (2024+).
+            Sem DRE para o grupo/período. Ajuste o período ou verifique se o grupo tem empresas com dados (2024+).
           </div>
         ) : (
           <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>Conta</th>
-                  {meses.map((m) => (
-                    <th key={m.ym} style={{ ...thMes, ...(m.projecao ? projStyle : null) }}>
-                      {m.label}
-                      {m.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
+                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>
+                    {data.modo === 'dia' ? `Conta · ${MESES_LBL[selIni - 1]}/${ano} (dias)` : 'Conta'}
+                  </th>
+                  {colunas.map((c) => (
+                    <th key={c.key} style={{ ...thMes, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null) }}>
+                      {c.label}
+                      {c.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
                     </th>
                   ))}
                   <th style={{ ...thMes, borderLeft: `2px solid ${LINE}`, background: CREAM }}>Total</th>
@@ -206,17 +240,15 @@ export default function DREHorizontal() {
                   const isConta = l.kind === 'conta'
                   const bold = isRes || isGrp
                   const total = totalLinha(l)
-                  const contaDrillavel = isConta && umMes            // folha + 1 mês → drill diário
+                  const contaDrillavel = isConta && umMes            // folha + 1 mês → drill por pessoa
                   const aberta = contaDrillavel && contaAberta === l.codigo
                   return (
                     <Fragment key={`${l.kind}-${l.codigo}-${l.ordem}`}>
-                    <tr style={{ borderTop: `0.5px solid ${LINE}`, background: isRes ? '#FBF7EF' : aberta ? '#FBF7EF' : '#FFF' }}>
+                    <tr style={{ borderTop: `0.5px solid ${LINE}`, background: isRes || aberta ? '#FBF7EF' : '#FFF' }}>
                       <td style={{
                         ...tdConta, position: 'sticky', left: 0, zIndex: 2,
-                        background: isRes ? '#FBF7EF' : aberta ? '#FBF7EF' : '#FFF',
-                        paddingLeft: 12 + l.nivel * 18,
-                        fontWeight: bold ? 700 : 500,
-                        color: ESP,
+                        background: isRes || aberta ? '#FBF7EF' : '#FFF',
+                        paddingLeft: 12 + l.nivel * 18, fontWeight: bold ? 700 : 500, color: ESP,
                         cursor: contaDrillavel ? 'pointer' : 'default',
                       }} onClick={contaDrillavel ? () => setContaAberta(aberta ? null : l.codigo) : undefined}>
                         {l.colapsavel ? (
@@ -228,12 +260,12 @@ export default function DREHorizontal() {
                         ) : <span style={{ display: 'inline-block', width: 16 }} />}
                         {l.nome}
                       </td>
-                      {meses.map((m) => {
-                        const v = l.valores_mes[m.ym]
+                      {colunas.map((c) => {
+                        const v = l.valores[c.key]
                         return (
-                          <td key={m.ym} title={v != null ? cheio(v) : ''} style={{
-                            ...tdVal,
-                            ...(m.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
+                          <td key={c.key} title={v != null ? cheio(v) : ''} style={{
+                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
+                            ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
                             fontWeight: bold ? 700 : 400,
                             color: isRes ? (v != null && v < 0 ? RED : v != null && v > 0 ? GREEN : MUT) : ESP,
                           }}>
@@ -243,16 +275,15 @@ export default function DREHorizontal() {
                       })}
                       <td title={cheio(total)} style={{
                         ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
-                        fontWeight: 700,
-                        color: isRes ? (total < 0 ? RED : total > 0 ? GREEN : MUT) : ESP,
+                        fontWeight: 700, color: isRes ? (total < 0 ? RED : total > 0 ? GREEN : MUT) : ESP,
                       }}>
                         {abrev(total)}
                       </td>
                     </tr>
                     {aberta && (
                       <tr>
-                        <td colSpan={meses.length + 2} style={{ padding: 0, background: BG }}>
-                          <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={drillAno} mes={drillMes} regime={regime} />
+                        <td colSpan={colunas.length + 2} style={{ padding: 0, background: BG }}>
+                          <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={ano} mes={selIni} regime={regime} />
                         </td>
                       </tr>
                     )}
@@ -266,17 +297,16 @@ export default function DREHorizontal() {
 
         <p style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
           Valores abreviados (toque/hover mostra o valor cheio). Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem.
-          Meses marcados <b style={{ color: GOLD }}>PROJ.</b> são projeção (títulos com vencimento futuro). Verde/vermelho só nas linhas de resultado.
           {umMes
-            ? <> Com <b>1 mês</b> filtrado, clique numa conta pra abrir o <b>Modo Diário</b> (dias × cliente/fornecedor).</>
-            : <> Filtre <b>1 mês só</b> (De = Até) pra habilitar o Modo Diário por conta.</>}
+            ? <> Mostrando <b>{MESES_LBL[selIni - 1]}/{ano} por dia</b> — clique numa conta pra ver <b>clientes/fornecedores × dia</b>. A soma dos dias = o total da conta no mês.</>
+            : <> Intervalo com <b>meses</b> no cabeçalho. Clique <b>1 mês só</b> (ou use “Mês atual”) pra ver o diário.</>}
         </p>
       </div>
     </div>
   )
 }
 
-// ── Modo Diário: grade dias × pessoa (cliente/fornecedor) de uma conta ──────
+// ── Modo Diário: grade dias × pessoa (cliente/fornecedor) de uma conta (#813) ──
 type DiarioPessoa = { pessoa_id: string | null; pessoa_nome: string; valores_dia: Record<string, number>; total: number }
 type DiarioResult = { ok: boolean; erro?: string; is_receita: boolean; ano: number; mes: number; regime: string; dias_no_mes: number; dre_mes: number; total: number; pessoas: DiarioPessoa[] }
 
@@ -308,7 +338,7 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
   if (!d || d.pessoas.length === 0) return <div style={{ padding: 12, fontSize: 12, color: MUT }}>Sem lançamentos classificados nesta conta no mês.</div>
 
   const dias = Array.from({ length: d.dias_no_mes }, (_, i) => i + 1)
-  const ymd = (dia: number) => `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+  const ymd = (dia: number) => `${ano}-${pad2(mes)}-${pad2(dia)}`
   const rotulo = d.is_receita ? 'Cliente' : 'Fornecedor'
   const subtotalDia = (dia: number) => d.pessoas.reduce((s, p) => s + (p.valores_dia[ymd(dia)] ?? 0), 0)
   const diff = Math.round((d.total - d.dre_mes) * 100) / 100
@@ -360,11 +390,17 @@ const inp: React.CSSProperties = { padding: '9px 12px', border: '0.5px solid rgb
 const segOn: React.CSSProperties = { padding: '9px 14px', background: GOLD, color: '#fff', border: 'none', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }
 const segOff: React.CSSProperties = { padding: '9px 14px', background: '#FFF', color: MUT, border: 'none', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }
 const btnSec: React.CSSProperties = { padding: '9px 14px', background: 'transparent', color: ESP, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }
+const navBtn: React.CSSProperties = { width: 30, height: 30, borderRadius: 6, border: `1px solid ${LINE}`, background: '#FFF', color: ESP, fontSize: 15, fontWeight: 700, cursor: 'pointer', lineHeight: 1 }
+const mesBtn: React.CSSProperties = { padding: '7px 4px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#FFF', color: MUT, fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+const mesBtnOn: React.CSSProperties = { background: GOLD, color: '#fff', borderColor: GOLD, fontWeight: 800 }
+const chip: React.CSSProperties = { padding: '6px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: 'transparent', color: ESP, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }
 const thConta: React.CSSProperties = { position: 'sticky', top: 0, textAlign: 'left', padding: '10px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, minWidth: 240 }
 const thMes: React.CSSProperties = { position: 'sticky', top: 0, textAlign: 'right', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: ESP, background: CREAM, whiteSpace: 'nowrap', minWidth: 78 }
+const thDiaCol: React.CSSProperties = { minWidth: 46, padding: '8px 7px' }
 const projStyle: React.CSSProperties = { fontStyle: 'italic', color: '#8A6A1E' }
 const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap', minWidth: 240 }
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
+const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
 const thDiaPessoa: React.CSSProperties = { position: 'sticky', left: 0, top: 0, zIndex: 2, background: CREAM, textAlign: 'left', padding: '6px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT, minWidth: 170 }
 const thDia: React.CSSProperties = { padding: '6px 8px', textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: ESP, background: CREAM, minWidth: 46, whiteSpace: 'nowrap' }
