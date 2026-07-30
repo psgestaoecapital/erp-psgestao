@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
+import Modal from '@/components/ui/Modal'
+import ClienteForm, { type ClienteFormInitial } from '@/components/clientes/ClienteForm'
 
 type Cliente = {
   id: string
@@ -73,6 +75,57 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [erro, setErro] = useState<string | null>(null)
   const [dupWarn, setDupWarn] = useState(false)
 
+  // Lote B — cliente inline: o cadastro de cliente abre COMO MODAL por cima da Nova Receita.
+  // O form continua montado atrás (React não desmonta) → todo o estado digitado é preservado.
+  const [clienteModal, setClienteModal] = useState<
+    | null
+    | { modo: 'novo' }
+    | { modo: 'editar'; initial: ClienteFormInitial }
+  >(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Recarrega a lista do seletor (mesma query do load inicial) e devolve os clientes atualizados,
+  // pra podermos auto-selecionar o recém-criado/editado sem esperar o estado propagar.
+  async function recarregarClientes(): Promise<Cliente[]> {
+    const { data } = await supabase
+      .from('erp_clientes')
+      .select('id, nome_fantasia, razao_social, cpf_cnpj')
+      .eq('company_id', companyId)
+      .eq('ativo', true)
+      .order('nome_fantasia')
+    const lista = (data as Cliente[] | null) ?? []
+    setClientes(lista)
+    return lista
+  }
+
+  // Abre o Modal de edição carregando o cadastro COMPLETO do cliente selecionado (RD-52: ClienteForm
+  // é a fonte única — edita direto em erp_clientes, RLS por company). Nunca desmonta a Nova Receita.
+  async function abrirEditarCliente() {
+    if (!clienteId) return
+    const { data, error } = await supabase
+      .from('erp_clientes')
+      .select('*')
+      .eq('id', clienteId)
+      .single()
+    if (error || !data) {
+      setToast('Não consegui abrir o cadastro do cliente.')
+      return
+    }
+    setClienteModal({ modo: 'editar', initial: data as ClienteFormInitial })
+  }
+
+  // Pós-save (criar OU editar): recarrega o seletor, auto-seleciona o cliente, fecha o Modal
+  // e mostra o toast. A Nova Receita reaparece com TODOS os campos intactos (nada foi desmontado).
+  async function onClienteSalvo(cli: { id: string; nome: string }) {
+    const modoAtual = clienteModal?.modo
+    const lista = await recarregarClientes()
+    const encontrado = lista.find((c) => c.id === cli.id)
+    setClienteId(cli.id)
+    setClienteNome(encontrado ? exibirNomeCliente(encontrado) : cli.nome)
+    setClienteModal(null)
+    setToast(`${modoAtual === 'editar' ? 'ALTEROU' : 'CRIOU'} cliente ${cli.nome || '—'}`)
+  }
+
   // Prefill via query (?valor=&data=&descricao=) — fluxo Conciliacao "Incluir nova conta".
   useEffect(() => {
     if (!searchParams) return
@@ -126,6 +179,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       alive = false
     }
   }, [companyId])
+
+  // Toast some sozinho (UX). setTimeout no browser é OK.
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(t)
+  }, [toast])
 
   function validar(): string | null {
     // descrição é OPCIONAL (Jordana): se vazia, usamos um rótulo-fallback ao salvar.
@@ -338,25 +398,44 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           </Campo>
 
           <Campo label="De quem você vai receber?">
-            <select
-              value={clienteId}
-              onChange={(e) => {
-                setClienteId(e.target.value)
-                const c = clientes.find((x) => x.id === e.target.value)
-                setClienteNome(c ? exibirNomeCliente(c) : '')
-              }}
-              style={inputStyle}
-            >
-              <option value="">— sem cliente cadastrado —</option>
-              {clientes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {exibirNomeCliente(c)}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
+              <select
+                value={clienteId}
+                onChange={(e) => {
+                  setClienteId(e.target.value)
+                  const c = clientes.find((x) => x.id === e.target.value)
+                  setClienteNome(c ? exibirNomeCliente(c) : '')
+                }}
+                style={{ ...inputStyle, flex: '1 1 180px', minWidth: 0 }}
+              >
+                <option value="">— sem cliente cadastrado —</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {exibirNomeCliente(c)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setClienteModal({ modo: 'novo' })}
+                style={clienteBtnStyle}
+                title="Cadastrar um cliente novo sem sair desta receita"
+              >
+                + Novo cliente
+              </button>
+              <button
+                type="button"
+                onClick={abrirEditarCliente}
+                disabled={!clienteId}
+                style={{ ...clienteBtnStyle, opacity: clienteId ? 1 : 0.45, cursor: clienteId ? 'pointer' : 'not-allowed' }}
+                title={clienteId ? 'Editar o cadastro do cliente selecionado' : 'Selecione um cliente para editar'}
+              >
+                ✎ Editar
+              </button>
+            </div>
             {clientes.length === 0 && (
               <small style={{ ...helperStyle, color: '#854F0B' }}>
-                Você ainda não tem clientes · cadastra um primeiro?
+                Você ainda não tem clientes · use “+ Novo cliente” — o form desta receita fica salvo.
               </small>
             )}
           </Campo>
@@ -599,8 +678,55 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           </div>
         </div>
       )}
+
+      {/* Lote B — Modal de cliente SOBRE a Nova Receita. O form desta tela continua montado atrás,
+          então valor/competência/descrição/conta etc. permanecem intactos ao abrir/salvar/cancelar. */}
+      <Modal
+        open={clienteModal !== null}
+        onClose={() => setClienteModal(null)}
+        title={clienteModal?.modo === 'editar' ? 'Editar cliente' : 'Novo cliente'}
+        subtitle="O que você já preencheu na receita fica guardado."
+        maxWidth={880}
+      >
+        {clienteModal && (
+          <ClienteForm
+            companyId={companyId}
+            hideHeader
+            initial={clienteModal.modo === 'editar' ? clienteModal.initial : null}
+            onSaved={onClienteSalvo}
+            onCancel={() => setClienteModal(null)}
+          />
+        )}
+      </Modal>
+
+      {toast && (
+        <div
+          role="status"
+          onClick={() => setToast(null)}
+          style={{
+            position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
+            background: '#3D2314', color: '#FAF7F2', padding: '10px 18px', borderRadius: 8,
+            fontSize: 13, fontWeight: 500, zIndex: 1100, boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+            cursor: 'pointer', maxWidth: '90vw',
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   )
+}
+
+const clienteBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  color: '#3D2314',
+  border: '0.5px solid rgba(61,35,20,0.25)',
+  borderRadius: 6,
+  padding: '0 12px',
+  fontSize: 12,
+  fontWeight: 500,
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
 }
 
 const inputStyle: React.CSSProperties = {

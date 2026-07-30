@@ -44,11 +44,14 @@ function extrairNumeroDoLogradouro(logradouro?: string | null, numero?: string |
   return { logradouro: log, numero: num };
 }
 
-export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
+export default function ClienteForm({ companyId, initial, onSaved, onCancel, hideHeader = false }: {
   companyId: string;
   initial?: ClienteFormInitial | null;
   onSaved: (cliente: { id: string; nome: string }) => void;
   onCancel: () => void;
+  // Quando renderizado DENTRO do <Modal> central (que já traz título + ✕), esconde o header interno
+  // pra não duplicar. Default false → nenhuma mudança nos usos atuais (aba Clientes / drawer Visita). RD-55.
+  hideHeader?: boolean;
 }) {
   const editing = !!initial?.id;
   // Ao abrir, se o número está embutido no logradouro, já mostra separado pro usuário conferir.
@@ -150,12 +153,14 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel }: {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: TX }}>{editing ? "Editar" : "Novo"} Cliente</div>
-        <button onClick={onCancel} style={{ background: "none", border: "none", color: TXD, fontSize: 18, cursor: "pointer" }}>✕</button>
-      </div>
+      {!hideHeader && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: TX }}>{editing ? "Editar" : "Novo"} Cliente</div>
+          <button onClick={onCancel} style={{ background: "none", border: "none", color: TXD, fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+      )}
 
-      {msg && <div onClick={() => setMsg("")} style={{ background: (msg.startsWith("✅") ? G : msg.startsWith("❌") ? R : "#F59E0B") + "15", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 11, color: msg.startsWith("✅") ? G : msg.startsWith("❌") ? R : "#F59E0B", cursor: "pointer" }}>{msg}</div>}
+      {msg &&<div onClick={() => setMsg("")} style={{ background: (msg.startsWith("✅") ? G : msg.startsWith("❌") ? R : "#F59E0B") + "15", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 11, color: msg.startsWith("✅") ? G : msg.startsWith("❌") ? R : "#F59E0B", cursor: "pointer" }}>{msg}</div>}
 
       <div style={{ ...sec, color: GO }}>📋 Identificação</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
