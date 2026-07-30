@@ -1,7 +1,7 @@
 'use client'
 
 // DRE Horizontal Consolidado (Grupo) — F1.
-// - lê o grupo (dashboard_grupos + dashboard_grupos_empresas), consolida os CNPJs;
+// - resolve o grupo da empresa via fn_grupo_empresa (genérico), consolida os CNPJs;
 // - meses nas colunas (sticky header) + conta em árvore (sticky 1ª coluna);
 // - linhas colapsáveis por grupo do DRE; subtotais/resultado em negrito;
 // - projeção (meses futuros) marcada; toggle Competência × Caixa;
@@ -37,7 +37,6 @@ type Linha = {
   valores_mes: Record<string, number>
 }
 type DreResult = { ok: boolean; erro?: string; regime: string; empresas: number; meses: Mes[]; linhas: Linha[] }
-type Grupo = { id: string; nome: string; is_padrao: boolean; membros: string[] }
 
 // primeiro dia do mês, deslocado por n meses
 const monthShift = (n: number) => {
@@ -57,58 +56,46 @@ function abrev(n: number): string {
 const cheio = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export default function DREHorizontal() {
-  const { sel, loading: loadingSel } = useCompanyIds()
+  const { sel, companyIds, selInfo, loading: loadingSel } = useCompanyIds()
 
-  const [grupos, setGrupos] = useState<Grupo[]>([])
-  const [grupoId, setGrupoId] = useState<string>('')
   const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia')
   const [mesIni, setMesIni] = useState<string>(toYM(monthShift(-11))) // 12 realizados
   const [mesFim, setMesFim] = useState<string>(toYM(monthShift(6)))   // + projeção
   const [colapsados, setColapsados] = useState<Set<string>>(new Set())
   const [tudoAberto, setTudoAberto] = useState(false)
 
+  const [membros, setMembros] = useState<string[]>([])
+  const [grupoNome, setGrupoNome] = useState<string>('')
   const [data, setData] = useState<DreResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Carrega os grupos do usuário (matriz → membros via dashboard_grupos_empresas)
+  // Resolve o grupo da empresa selecionada via fn_grupo_empresa (fonte única,
+  // genérica). Se a seleção global for consolidado/grupo (sem 1 empresa), usa
+  // os companyIds já resolvidos pelo seletor. Nunca hardcode de empresa.
+  const empresaUnica = sel && sel !== 'consolidado' && !sel.startsWith('group_') ? sel : null
   useEffect(() => {
     let alive = true
-    void supabase
-      .from('dashboard_grupos')
-      .select('id, nome, is_padrao, dashboard_grupos_empresas(company_id)')
-      .order('ordem')
-      .then(({ data: gs, error }) => {
+    if (empresaUnica) {
+      void supabase.rpc('fn_grupo_empresa', { p_company_id: empresaUnica }).then(({ data: g, error }) => {
         if (!alive) return
-        if (error) { setErro(error.message); return }
-        const lista: Grupo[] = (gs ?? []).map((g: Record<string, unknown>) => ({
-          id: g.id as string,
-          nome: g.nome as string,
-          is_padrao: !!g.is_padrao,
-          membros: ((g.dashboard_grupos_empresas as { company_id: string }[]) ?? []).map((m) => m.company_id),
-        })).filter((g) => g.membros.length > 0)
-        setGrupos(lista)
+        const r = g as { ok?: boolean; grupo_nome?: string; company_ids?: string[] } | null
+        if (error || !r?.ok) { setMembros(empresaUnica ? [empresaUnica] : []); setGrupoNome(selInfo.nome); return }
+        setMembros(r.company_ids ?? [empresaUnica])
+        setGrupoNome(r.grupo_nome ?? selInfo.nome)
       })
+    } else {
+      setMembros(companyIds)
+      setGrupoNome(selInfo.nome)
+    }
     return () => { alive = false }
-  }, [])
-
-  // Default: grupo que contém a empresa selecionada → padrão → 1º
-  useEffect(() => {
-    if (!grupos.length || grupoId) return
-    const contendo = sel && sel !== 'consolidado' && !sel.startsWith('group_')
-      ? grupos.find((g) => g.membros.includes(sel))
-      : undefined
-    const escolha = contendo ?? grupos.find((g) => g.is_padrao) ?? grupos[0]
-    setGrupoId(escolha.id)
-  }, [grupos, sel, grupoId])
-
-  const grupoSel = useMemo(() => grupos.find((g) => g.id === grupoId) ?? null, [grupos, grupoId])
+  }, [empresaUnica, companyIds, selInfo.nome])
 
   const carregar = useCallback(async () => {
-    if (!grupoSel) return
+    if (!membros.length) return
     setLoading(true); setErro(null)
     const { data: res, error } = await supabase.rpc('fn_psgc_dre_horizontal', {
-      p_company_ids: grupoSel.membros,
+      p_company_ids: membros,
       p_mes_ini: ymToDate(mesIni),
       p_mes_fim: ymToDate(mesFim),
       p_regime: regime,
@@ -118,7 +105,7 @@ export default function DREHorizontal() {
     else if (r && r.ok === false) { setErro(r.erro || 'Sem acesso'); setData(null) }
     else setData(r)
     setLoading(false)
-  }, [grupoSel, mesIni, mesFim, regime])
+  }, [membros, mesIni, mesFim, regime])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -158,11 +145,10 @@ export default function DREHorizontal() {
         {/* Controles */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
           <div>
-            <label style={lbl}>Grupo</label>
-            <select value={grupoId} onChange={(e) => setGrupoId(e.target.value)} style={{ ...inp, minWidth: 200 }}>
-              {grupos.length === 0 && <option value="">— sem grupos —</option>}
-              {grupos.map((g) => <option key={g.id} value={g.id}>{g.nome} ({g.membros.length})</option>)}
-            </select>
+            <label style={lbl}>{membros.length > 1 ? 'Grupo' : 'Empresa'}</label>
+            <div style={{ ...inp, minWidth: 200, display: 'flex', alignItems: 'center', gap: 6, background: CREAM, fontWeight: 700 }}>
+              {grupoNome || '—'}{membros.length > 1 && <span style={{ fontWeight: 500, color: MUT }}>· {membros.length} CNPJs</span>}
+            </div>
           </div>
           <div>
             <label style={lbl}>De</label>
