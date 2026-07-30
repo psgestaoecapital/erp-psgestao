@@ -22,7 +22,6 @@ const CREAM = '#F2EBDF'
 type Empresa = { id: string; nome_fantasia: string; cnpj: string | null; ordem: number }
 type Grupo = { ok: boolean; grupo_id: string | null; grupo_nome: string; is_grupo: boolean; company_ids: string[]; empresas: Empresa[] }
 type PorEmpresa = { id: string; nome: string; receber: number; pagar: number }
-type ErpRow = { company_id: string; valor: number | null; data_vencimento: string | null }
 
 const firstOfMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
 const abrev = (n: number) => {
@@ -67,16 +66,17 @@ export default function DashboardConsolidado() {
     return m
   }, [grupo])
 
-  // 2) carrega cards (DRE mês corrente) + aberto por empresa (erp)
+  // 2) carrega cards (DRE mês corrente) + aberto por empresa.
+  // O aberto vem de fn_grupo_aberto_por_empresa (agregação NO BANCO): somar linhas
+  // no client truncava no cap de 1000 do PostgREST e subestimava empresas grandes.
   const carregar = useCallback(async () => {
     if (!membros.length) return
     setLoading(true)
     const cur = firstOfMonth()
     const ym = cur.slice(0, 7)
-    const [dreRes, recRes, pagRes] = await Promise.all([
+    const [dreRes, abertoRes] = await Promise.all([
       supabase.rpc('fn_psgc_dre_horizontal', { p_company_ids: membros, p_mes_ini: cur, p_mes_fim: cur, p_regime: 'competencia' }),
-      supabase.from('erp_receber').select('company_id, valor, data_vencimento').in('company_id', membros).in('status', ['aberto', 'vencido']),
-      supabase.from('erp_pagar').select('company_id, valor, data_vencimento').in('company_id', membros).in('status', ['aberto', 'vencido']),
+      supabase.rpc('fn_grupo_aberto_por_empresa', { p_company_ids: membros }),
     ])
 
     const r = dreRes.data as { ok?: boolean; linhas?: { kind: string; codigo: string; sinal: string; valores_mes: Record<string, number> }[] } | null
@@ -87,18 +87,13 @@ export default function DashboardConsolidado() {
       setDre({ receita, despesa, resultado })
     } else setDre(null)
 
-    const rec = (recRes.data ?? []) as ErpRow[]
-    const pag = (pagRes.data ?? []) as ErpRow[]
-    const map = new Map<string, { receber: number; pagar: number }>()
-    for (const id of membros) map.set(id, { receber: 0, pagar: 0 })
-    let tr = 0, tp = 0
-    for (const x of rec) { const e = map.get(x.company_id); if (e) e.receber += Number(x.valor || 0); tr += Number(x.valor || 0) }
-    for (const x of pag) { const e = map.get(x.company_id); if (e) e.pagar += Number(x.valor || 0); tp += Number(x.valor || 0) }
-    setTotais({ receber: tr, pagar: tp })
-    setPorEmpresa(
-      membros.map((id) => ({ id, nome: nomePorId.get(id) || id.slice(0, 8), receber: map.get(id)!.receber, pagar: map.get(id)!.pagar }))
-        .sort((a, b) => (b.receber + b.pagar) - (a.receber + a.pagar))
-    )
+    const ab = abertoRes.data as { ok?: boolean; totais?: { receber: number; pagar: number }; por_empresa?: { company_id: string; nome_fantasia: string; receber_aberto: number; pagar_aberto: number }[] } | null
+    if (ab?.ok) {
+      setTotais({ receber: ab.totais?.receber ?? 0, pagar: ab.totais?.pagar ?? 0 })
+      setPorEmpresa((ab.por_empresa ?? []).map((e) => ({ id: e.company_id, nome: e.nome_fantasia || nomePorId.get(e.company_id) || e.company_id.slice(0, 8), receber: e.receber_aberto, pagar: e.pagar_aberto })))
+    } else {
+      setTotais({ receber: 0, pagar: 0 }); setPorEmpresa([])
+    }
     setLoading(false)
   }, [membros, nomePorId])
 
