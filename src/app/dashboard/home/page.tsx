@@ -16,6 +16,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useCompanyIds } from '@/lib/useCompanyIds';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
+import DashboardConsolidado from '@/components/dashboard/DashboardConsolidado';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
 import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
 import PeriodoSelector, { type SelecaoPeriodo } from '@/components/dashboard/PeriodoSelector';
@@ -291,6 +292,9 @@ function DashboardUniversalInner() {
       
       {/* ============ CORPO ============ */}
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 60px' }}>
+
+        {/* Dashboard Consolidado (genérico · grupo ou empresa única · fn_grupo_empresa) */}
+        <DashboardConsolidado />
 
         {/* UX Onda 1: Painel Operacional ContaAzul-like — operacao do dia
             ANTES dos KPIs estrategicos. companyIdsKey vem do useCompanyIds. */}
