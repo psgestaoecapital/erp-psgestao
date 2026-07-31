@@ -100,6 +100,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [pagandoItem, setPagandoItem] = useState<Resultado | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  // Ações em massa (RD-41 · só despesas): alterar valor / excluir em lote.
+  const [massaValorAberto, setMassaValorAberto] = useState(false)
+  const [massaExcluirAberto, setMassaExcluirAberto] = useState(false)
+  const [massaNovoValor, setMassaNovoValor] = useState('')
+  const [massaBusy, setMassaBusy] = useState(false)
+  const [massaMsg, setMassaMsg] = useState<string | null>(null)
   const [loteAberto, setLoteAberto] = useState(false)
   const [periodoChoice, setPeriodoChoice] = useState<PeriodoChoice>('mes_atual')
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'avencer' | 'vencidos' | 'pagos' | 'hoje'>('todos')
@@ -437,6 +443,36 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setReloadKey((k) => k + 1)
   }
 
+  // Edição em massa · aplica o mesmo valor a N selecionados (reusa fn_pagar_editar_massa → RLS + log).
+  const aplicarAlterarValorMassa = async () => {
+    const v = parseFloat(massaNovoValor)
+    if (!(v > 0)) { alert('Informe um valor maior que zero.'); return }
+    setMassaBusy(true)
+    const { data, error } = await supabase.rpc('fn_pagar_editar_massa', {
+      p_ids: Array.from(selecionados), p_campos: { valor: v },
+    })
+    setMassaBusy(false)
+    if (error) { alert('Erro ao alterar: ' + error.message); return }
+    const j = data as { alterados?: number; falhas?: number } | null
+    setMassaMsg(`ALTEROU ${j?.alterados ?? 0}${j?.falhas ? ` · ${j.falhas} não alteradas` : ''}`)
+    setMassaValorAberto(false); setMassaNovoValor('')
+    limparSelecao(); setReloadKey((k) => k + 1)
+    setTimeout(() => setMassaMsg(null), 5000)
+  }
+
+  // Exclusão em massa · soft-delete (reusa fn_pagar_excluir_massa → bloqueia pago/conciliado + log).
+  const aplicarExcluirMassa = async () => {
+    setMassaBusy(true)
+    const { data, error } = await supabase.rpc('fn_pagar_excluir_massa', { p_ids: Array.from(selecionados) })
+    setMassaBusy(false)
+    if (error) { alert('Erro ao excluir: ' + error.message); return }
+    const j = data as { excluidos?: number; ignoradas_pago_conciliado?: number } | null
+    setMassaMsg(`EXCLUIU ${j?.excluidos ?? 0}${j?.ignoradas_pago_conciliado ? ` · ${j.ignoradas_pago_conciliado} ignorada(s) (paga/conciliada)` : ''}`)
+    setMassaExcluirAberto(false)
+    limparSelecao(); setReloadKey((k) => k + 1)
+    setTimeout(() => setMassaMsg(null), 6000)
+  }
+
   // Duplicar via RPC fn_lancamento_duplicar — grava origem + novo em log.
   const duplicar = async (r: Resultado) => {
     const { data, error } = await supabase.rpc('fn_lancamento_duplicar', {
@@ -704,6 +740,24 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                   ✅ <strong>{selecionados.size}</strong> selecionado{selecionados.size !== 1 ? 's' : ''} · R$ <strong>{fmtBRL(valorTotalSelecionados)}</strong> total
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {tipo === 'pagar' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setMassaNovoValor(''); setMassaValorAberto(true) }}
+                        style={{ background: '#FAF7F2', color: '#3D2314', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Alterar valor
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMassaExcluirAberto(true)}
+                        style={{ background: 'transparent', color: '#FAF7F2', border: '0.5px solid rgba(250,247,242,0.3)', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        🗑 Excluir
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => setLoteAberto(true)}
@@ -1034,7 +1088,73 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         ids={Array.from(selecionados)}
         valorTotal={valorTotalSelecionados}
       />
+
+      {/* RD-41 · Alterar valor em massa */}
+      {massaValorAberto && (
+        <ModalMassa
+          titulo="Alterar valor"
+          onClose={() => setMassaValorAberto(false)}
+          confirmar={aplicarAlterarValorMassa}
+          confirmarLabel={massaBusy ? 'Aplicando…' : 'Aplicar valor'}
+          confirmarDisabled={massaBusy || !(parseFloat(massaNovoValor) > 0)}
+        >
+          <div style={{ fontSize: 12, marginBottom: 6 }}>Novo valor (R$)</div>
+          <input
+            type="number" step="0.01" min="0" autoFocus
+            value={massaNovoValor}
+            onChange={(e) => setMassaNovoValor(e.target.value)}
+            placeholder="0,00"
+            style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}
+          />
+          <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginTop: 8 }}>
+            Será aplicado às <b>{selecionados.size}</b> conta{selecionados.size !== 1 ? 's' : ''} selecionada{selecionados.size !== 1 ? 's' : ''}.
+          </div>
+        </ModalMassa>
+      )}
+
+      {/* RD-41 · Excluir em massa */}
+      {massaExcluirAberto && (
+        <ModalMassa
+          titulo={`Excluir ${selecionados.size} conta${selecionados.size !== 1 ? 's' : ''}?`}
+          onClose={() => setMassaExcluirAberto(false)}
+          confirmar={aplicarExcluirMassa}
+          confirmarLabel={massaBusy ? 'Excluindo…' : `Excluir ${selecionados.size}`}
+          confirmarDisabled={massaBusy}
+        >
+          <div style={{ fontSize: 13, color: '#3D2314' }}>
+            Contas <b>pagas</b> ou já <b>conciliadas</b> serão ignoradas. Esta ação registra histórico e pode ser auditada.
+          </div>
+        </ModalMassa>
+      )}
+
+      {massaMsg && (
+        <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 2000, background: '#3D2314', color: '#FAF7F2', padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, boxShadow: '0 8px 24px rgba(61,35,20,0.25)' }}>
+          {massaMsg}
+        </div>
+      )}
     </Wrapper>
+  )
+}
+
+// Modal simples reusado pelas ações em massa (RD-41).
+function ModalMassa({ titulo, children, onClose, confirmar, confirmarLabel, confirmarDisabled }: {
+  titulo: string; children: React.ReactNode; onClose: () => void
+  confirmar: () => void; confirmarLabel: string; confirmarDisabled?: boolean
+}) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFFFF', borderRadius: 12, maxWidth: 420, width: '100%', overflow: 'hidden', border: '0.5px solid rgba(61,35,20,0.15)' }}>
+        <div style={{ background: '#3D2314', color: '#FAF7F2', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <b style={{ fontSize: 14 }}>{titulo}</b>
+          <button onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: '#FAF7F2', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 16 }}>{children}</div>
+        <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(61,35,20,0.12)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '8px 16px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={confirmar} disabled={confirmarDisabled} style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: confirmarDisabled ? 'not-allowed' : 'pointer', opacity: confirmarDisabled ? 0.55 : 1 }}>{confirmarLabel}</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
