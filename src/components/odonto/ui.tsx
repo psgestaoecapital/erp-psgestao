@@ -121,7 +121,11 @@ const stFin = (s: string) => s === "pago" || s === "recebido" ? { l: "Pago", cor
   : s === "vencido" ? { l: "Vencido", cor: TOK.red, bg: "#FBEBEB" }
   : { l: "Aberto", cor: "#8A6A1E", bg: "#FBF3DE" };
 
-type Titulo = { id: string; descricao: string; valor: number; data_vencimento: string; data_competencia: string; status: string; parcela: string; do_plano: boolean };
+type Titulo = { id: string; descricao: string; valor: number; data_vencimento: string; data_competencia: string; status: string; parcela: string; do_plano: boolean; nfse_status: string | null; nfse_numero: string | null };
+// estado honesto da NFS-e (RD-58) — a ficha só EXIBE.
+const stNfse = (s: string | null) => s === "autorizada" ? { l: "NFS-e emitida", cor: TOK.green, bg: "#E7F3EA" }
+  : s === "processando" ? { l: "NFS-e processando", cor: "#B45309", bg: "#FBF0DF" }
+  : s === "rejeitada" ? { l: "NFS-e rejeitada", cor: TOK.red, bg: "#FBEBEB" } : null;
 type Debitos = { paciente_id: string; cliente_id: string | null; total_recebido: number; total_aberto: number; titulos: Titulo[] };
 
 // Badge de saldo — reusável (ficha, agenda). Verde se quitado; âmbar/vermelho se deve.
@@ -166,17 +170,20 @@ export function DebitosPaciente({ pacienteId }: { pacienteId: string }) {
           {loading ? <div style={{ fontSize: 13, color: TOK.mut }}>Carregando…</div> :
             (d.titulos || []).length === 0 ? <div style={{ fontSize: 13, color: TOK.mut }}>Nenhum título {incRec ? "" : "em aberto"} para este paciente.</div> :
               <div style={{ border: hair, borderRadius: 12, overflow: "hidden" }}>
-                {d.titulos.map((t, i) => { const S = stFin(t.status); return (
+                {d.titulos.map((t, i) => { const S = stFin(t.status); const N = stNfse(t.nfse_status); return (
                   <div key={t.id} className="flex items-center gap-3 px-3 py-2.5" style={{ borderTop: i ? hair : "none" }}>
                     <div className="min-w-0 flex-1">
                       <div style={{ fontSize: 13, color: TOK.esp }} className="truncate">{t.descricao}</div>
-                      <div style={{ fontSize: 11.5, color: TOK.mut }}>venc. {new Date(t.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}{t.do_plano ? " · plano" : ""}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap" style={{ fontSize: 11.5, color: TOK.mut }}>
+                        <span>venc. {new Date(t.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}{t.do_plano ? " · plano" : ""}</span>
+                        {N && <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 7px", borderRadius: 999, background: N.bg, color: N.cor }}>{N.l}{t.nfse_numero ? ` nº ${t.nfse_numero}` : ""}</span>}
+                      </div>
                     </div>
                     <span style={{ fontSize: 10.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: S.bg, color: S.cor, flexShrink: 0 }}>{S.l}</span>
                     <div style={{ fontSize: 13.5, fontWeight: 500, color: TOK.esp, fontVariantNumeric: "tabular-nums", minWidth: 82, textAlign: "right" }}>{brl(t.valor)}</div>
                   </div>); })}
               </div>}
-          <div style={{ fontSize: 11, color: TOK.mut30, marginTop: 8 }}>O financeiro vive na Gestão Empresarial · a ficha só exibe. NFS-e e régua de cobrança chegam a seguir.</div>
+          <div style={{ fontSize: 11, color: TOK.mut30, marginTop: 8 }}>O financeiro vive na Gestão Empresarial · a ficha só exibe. NFS-e emite pelo plano; régua de cobrança chega na Onda 3.</div>
         </>}
     </CardOdonto>
   );
