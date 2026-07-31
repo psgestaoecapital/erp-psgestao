@@ -36,6 +36,22 @@ interface Item {
   sugestao_qtd_candidatos: number | null
 }
 
+type IgnoradoMov = {
+  id: string
+  data_transacao: string | null
+  valor: number
+  descricao: string | null
+  natureza: string | null
+  motivo_status: string | null
+}
+const MOTIVO_IGNORADO: Record<string, string> = {
+  saldo_informativo: 'Saldo informativo (ignorado automaticamente)',
+  lancamento_futuro: 'Lançamento futuro',
+  manual: 'Ignorado manualmente',
+}
+const motivoIgnoradoLabel = (m: string | null) =>
+  MOTIVO_IGNORADO[m ?? ''] ?? (m ? `Ignorado · ${m}` : 'Ignorado')
+
 interface Conciliado {
   movimento_id: string
   lote_id: string | null
@@ -193,9 +209,12 @@ export default function InboxPage() {
 
   const [items, setItems] = useState<Item[]>([])
   const [conciliados, setConciliados] = useState<Conciliado[]>([])
+  // RD-41 · aba de ruído ignorado (saldo/futuro/manual), reversível.
+  const [ignorados, setIgnorados] = useState<IgnoradoMov[]>([])
+  const [avisoOk, setAvisoOk] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [soOuro, setSoOuro] = useState(false)
-  const [aba, setAba] = useState<'pendentes' | 'conciliados'>('pendentes')
+  const [aba, setAba] = useState<'pendentes' | 'conciliados' | 'ignorados'>('pendentes')
   // Camada1/Fatia1 estabilizacao conciliacao (08/07): busca, contador por natureza, editar linha sistema
   const [busca, setBusca] = useState('')
   const [filtroNatExtrato, setFiltroNatExtrato] = useState<'todos' | 'credito' | 'debito'>('todos')
@@ -300,6 +319,27 @@ export default function InboxPage() {
       p_limite: 500,
     })
     if (!error) setConciliados((data ?? []) as Conciliado[])
+  }
+
+  // Ignorados (ruído) — leitura direta (RLS escopa por empresa) pra trazer motivo_status.
+  async function carregarIgnorados() {
+    if (!empresaUnica) return
+    const { data } = await supabase.from('conciliacao_movimento')
+      .select('id, data_transacao, valor, descricao, natureza, motivo_status')
+      .eq('company_id', empresaUnica).eq('status', 'ignorado')
+      .order('data_transacao', { ascending: false }).limit(500)
+    setIgnorados((data ?? []) as IgnoradoMov[])
+  }
+
+  // Reincluir (desfaz) → volta pra pendentes. Reversibilidade Pilar 1.
+  async function reincluir(id: string) {
+    const { data, error } = await supabase.rpc('fn_conciliacao_reincluir_movimento', { p_movimento_id: id })
+    if (error) { setErro('Erro ao reincluir: ' + error.message); return }
+    const j = data as { sucesso?: boolean; erro?: string } | null
+    if (!j?.sucesso) { setErro('Não foi possível reincluir: ' + (j?.erro ?? 'erro')); return }
+    setAvisoOk('REINCLUIU · voltou para pendentes')
+    await Promise.all([carregarIgnorados(), carregar()])
+    setTimeout(() => setAvisoOk(null), 4000)
   }
 
   async function carregarConfig() {
@@ -433,6 +473,7 @@ export default function InboxPage() {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
     void carregar()
     void carregarConciliados()
+    void carregarIgnorados()
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [loteSelId, modo])
 
@@ -659,7 +700,7 @@ export default function InboxPage() {
     // conciliado com lancamento_tabela NULL) — o botão "não fazia nada" e parecia bug.
     // Agora avisa em vez de virar no-op silencioso.
     if (!c.lancamento_id || !c.lancamento_tabela) {
-      setErro('Este movimento não tem vínculo de título para desfazer. Use "Arquivar" na aba Pendentes se precisar removê-lo.')
+      setErro('Este movimento não tem vínculo de título para desfazer. Use "Ignorar" na aba Pendentes se precisar removê-lo.')
       return
     }
     if (!confirm(`Desvincular este lançamento conciliado? O movimento volta para pendente.`)) return
@@ -824,6 +865,10 @@ export default function InboxPage() {
             style={aba === 'conciliados' ? tabActive : tabInactive}
           >Conciliados ({totConc})</button>
           <button
+            onClick={() => setAba('ignorados')}
+            style={aba === 'ignorados' ? tabActive : tabInactive}
+          >Ignorados ({ignorados.length})</button>
+          <button
             onClick={sincronizarExtratoAgora}
             disabled={sincExtratoBusy || !empresaUnica}
             style={{
@@ -939,8 +984,43 @@ export default function InboxPage() {
             {erro}
           </div>
         )}
+        {avisoOk && (
+          <div style={{ background: '#EAF3DE', color: '#3B6D11', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 12, fontWeight: 600 }}>
+            {avisoOk}
+          </div>
+        )}
 
-        {aba === 'pendentes' ? (
+        {aba === 'ignorados' ? (
+          ignorados.length === 0 ? (
+            <div style={emptyBox}>
+              <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600, marginBottom: 6 }}>Nenhum movimento ignorado</div>
+              <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Saldo informativo e lançamentos futuros do extrato caem aqui automaticamente.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {ignorados.map((ig) => {
+                const v = formatarValorMovimento(ig.valor, ig.natureza)
+                return (
+                  <div key={ig.id} style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 4 }}>{ig.data_transacao ? fmtBR(ig.data_transacao) : '—'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', marginBottom: 6, wordBreak: 'break-word' }}>{ig.descricao ?? '(sem descrição)'}</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 18, fontWeight: 600, color: v.cor, fontVariantNumeric: 'tabular-nums' }}>{v.texto}</span>
+                          <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'rgba(61,35,20,0.07)', color: 'rgba(61,35,20,0.7)' }}>
+                            {motivoIgnoradoLabel(ig.motivo_status)}
+                          </span>
+                        </div>
+                      </div>
+                      <button onClick={() => void reincluir(ig.id)} style={secondaryBtn(false)}>↩ Reincluir</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        ) : aba === 'pendentes' ? (
           loading ? (
             <div style={emptyBox}>Carregando…</div>
           ) : filtrados.length === 0 ? (
@@ -1015,7 +1095,7 @@ export default function InboxPage() {
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <button onClick={() => setArquivando(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
-                        ✕ Arquivar
+                        ✕ Ignorar
                       </button>
                       <button onClick={() => void toggleExpandir(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-toggle-expand">
                         {expandidos.has(it.movimento_id) ? '▲ Recolher' : '▼ Ver opções'}
@@ -1261,7 +1341,7 @@ export default function InboxPage() {
       <ArquivarMovimentoModal
         open={!!arquivando}
         onClose={() => setArquivando(null)}
-        onSucesso={() => { setArquivando(null); void carregar() }}
+        onSucesso={() => { setArquivando(null); setAvisoOk('IGNOROU · saiu das pendências'); void carregar(); void carregarIgnorados(); setTimeout(() => setAvisoOk(null), 4000) }}
         movimentoId={arquivando?.movimento_id ?? ''}
         descricao={arquivando ? `${arquivando.descricao ?? '(sem descrição)'} · R$ ${Math.abs(arquivando.valor).toFixed(2)}` : undefined}
       />

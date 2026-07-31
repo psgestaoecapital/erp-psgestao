@@ -51,11 +51,11 @@ export default function ArquivarMovimentoModal({ open, onClose, onSucesso, movim
   return (
     <div onClick={onClose} style={overlay}>
       <div onClick={(e) => e.stopPropagation()} style={modal}>
-        <h2 style={h2}>Arquivar movimento</h2>
+        <h2 style={h2}>Ignorar movimento</h2>
         {descricao && <p style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', marginTop: 4, marginBottom: 14 }}>{descricao}</p>}
 
         <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
-          Por que arquivar?
+          Por que ignorar?
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
           {SUGESTOES.map((s) => (
@@ -81,7 +81,7 @@ export default function ArquivarMovimentoModal({ open, onClose, onSucesso, movim
         <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={loading} style={secondaryBtn(loading)}>Cancelar</button>
           <button onClick={confirmar} disabled={loading} style={primaryBtn(loading)}>
-            {loading ? 'Arquivando…' : 'Arquivar movimento'}
+            {loading ? 'Ignorando…' : 'Ignorar movimento'}
           </button>
         </div>
       </div>
