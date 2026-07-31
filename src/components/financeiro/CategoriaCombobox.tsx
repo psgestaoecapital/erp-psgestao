@@ -51,6 +51,24 @@ const C = {
   red: '#B91C1C',
 }
 
+// RD-41 · ordem e rótulos das seções por tipo de conta (saídas + receita).
+const ORDEM_TIPO: { tipo: string; label: string }[] = [
+  { tipo: 'despesa', label: 'Despesas' },
+  { tipo: 'custo', label: 'Custos' },
+  { tipo: 'investimento', label: 'Investimentos' },
+  { tipo: 'financeiro', label: 'Financeiro' },
+  { tipo: 'receita', label: 'Receitas' },
+]
+function agruparPorTipo(itens: Categoria[]): { tipo: string; label: string; itens: Categoria[] }[] {
+  const secoes = ORDEM_TIPO
+    .map((g) => ({ ...g, itens: itens.filter((c) => c.tipo === g.tipo) }))
+    .filter((s) => s.itens.length > 0)
+  const conhecidos = new Set(ORDEM_TIPO.map((g) => g.tipo))
+  const outros = itens.filter((c) => !conhecidos.has(c.tipo))
+  if (outros.length) secoes.push({ tipo: '_outros', label: 'Outros', itens: outros })
+  return secoes
+}
+
 export default function CategoriaCombobox({
   companyId,
   aplicacao,
@@ -227,42 +245,55 @@ export default function CategoriaCombobox({
 
           {!buscando && !erroRpc && resultados.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {resultados.map((c) => (
-                <li key={c.codigo}>
-                  <button
-                    type="button"
-                    onClick={() => selecionar(c)}
-                    style={{
-                      width: '100%', textAlign: 'left',
-                      padding: '8px 12px', border: 'none', background: 'transparent',
-                      cursor: 'pointer', fontSize: 12, color: C.espresso,
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      borderBottom: `0.5px solid ${C.border}`,
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = C.goldBg)}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <span style={{
-                      fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
-                      color: c.is_totalizador ? C.espressoL : C.gold,
-                      minWidth: 60,
-                    }}>{c.codigo}</span>
-                    <span style={{ flex: 1 }}>
-                      {c.descricao}
-                      {c.is_totalizador && (
-                        <span style={{ marginLeft: 6, fontSize: 9, color: C.espressoL, fontStyle: 'italic' }}>
-                          (grupo)
-                        </span>
-                      )}
-                    </span>
-                    {c.origem === 'empresa' && (
-                      <span style={{
-                        fontSize: 9, padding: '1px 5px', borderRadius: 3,
-                        background: C.greenBg, color: C.green, fontWeight: 700,
-                        textTransform: 'uppercase', letterSpacing: 0.3,
-                      }}>custom</span>
-                    )}
-                  </button>
+              {/* RD-41 · agrupa por tipo (Despesas/Custos/Investimentos/Financeiro/Receitas)
+                  pra a Jordana ver "Investimentos" separado da despesa operacional. */}
+              {agruparPorTipo(resultados).map((sec) => (
+                <li key={sec.tipo}>
+                  <div style={{
+                    padding: '6px 12px', fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
+                    textTransform: 'uppercase', color: C.espressoM, background: C.cream,
+                    borderBottom: `0.5px solid ${C.border}`, position: 'sticky', top: 0,
+                  }}>{sec.label}</div>
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                    {sec.itens.map((c) => (
+                      <li key={c.codigo}>
+                        <button
+                          type="button"
+                          onClick={() => selecionar(c)}
+                          style={{
+                            width: '100%', textAlign: 'left',
+                            padding: '8px 12px', border: 'none', background: 'transparent',
+                            cursor: 'pointer', fontSize: 12, color: C.espresso,
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            borderBottom: `0.5px solid ${C.border}`,
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = C.goldBg)}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <span style={{
+                            fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+                            color: c.is_totalizador ? C.espressoL : C.gold,
+                            minWidth: 60,
+                          }}>{c.codigo}</span>
+                          <span style={{ flex: 1 }}>
+                            {c.descricao}
+                            {c.is_totalizador && (
+                              <span style={{ marginLeft: 6, fontSize: 9, color: C.espressoL, fontStyle: 'italic' }}>
+                                (grupo)
+                              </span>
+                            )}
+                          </span>
+                          {c.origem === 'empresa' && (
+                            <span style={{
+                              fontSize: 9, padding: '1px 5px', borderRadius: 3,
+                              background: C.greenBg, color: C.green, fontWeight: 700,
+                              textTransform: 'uppercase', letterSpacing: 0.3,
+                            }}>custom</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </li>
               ))}
             </ul>
