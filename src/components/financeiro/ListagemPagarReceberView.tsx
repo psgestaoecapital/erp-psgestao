@@ -443,12 +443,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setReloadKey((k) => k + 1)
   }
 
-  // Edição em massa · aplica o mesmo valor a N selecionados (reusa fn_pagar_editar_massa → RLS + log).
+  // Edição em massa · aplica o mesmo valor a N selecionados. Reusa a RPC do domínio
+  // (pagar/receber) → herda RLS + log (RD-57).
   const aplicarAlterarValorMassa = async () => {
     const v = parseFloat(massaNovoValor)
     if (!(v > 0)) { alert('Informe um valor maior que zero.'); return }
     setMassaBusy(true)
-    const { data, error } = await supabase.rpc('fn_pagar_editar_massa', {
+    const rpc = tipo === 'pagar' ? 'fn_pagar_editar_massa' : 'fn_receber_editar_massa'
+    const { data, error } = await supabase.rpc(rpc, {
       p_ids: Array.from(selecionados), p_campos: { valor: v },
     })
     setMassaBusy(false)
@@ -460,14 +462,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setTimeout(() => setMassaMsg(null), 5000)
   }
 
-  // Exclusão em massa · soft-delete (reusa fn_pagar_excluir_massa → bloqueia pago/conciliado + log).
+  // Exclusão em massa · soft-delete. Reusa a RPC do domínio → bloqueia pago/conciliado
+  // (e, no receber, boleto ativo) + log.
   const aplicarExcluirMassa = async () => {
     setMassaBusy(true)
-    const { data, error } = await supabase.rpc('fn_pagar_excluir_massa', { p_ids: Array.from(selecionados) })
+    const rpc = tipo === 'pagar' ? 'fn_pagar_excluir_massa' : 'fn_receber_excluir_massa'
+    const { data, error } = await supabase.rpc(rpc, { p_ids: Array.from(selecionados) })
     setMassaBusy(false)
     if (error) { alert('Erro ao excluir: ' + error.message); return }
-    const j = data as { excluidos?: number; ignoradas_pago_conciliado?: number } | null
-    setMassaMsg(`EXCLUIU ${j?.excluidos ?? 0}${j?.ignoradas_pago_conciliado ? ` · ${j.ignoradas_pago_conciliado} ignorada(s) (paga/conciliada)` : ''}`)
+    const j = data as { excluidos?: number; ignoradas_pago_conciliado?: number; ignoradas_boleto_ativo?: number } | null
+    const partes = [
+      j?.ignoradas_pago_conciliado ? `${j.ignoradas_pago_conciliado} paga(s)/conciliada(s)` : '',
+      j?.ignoradas_boleto_ativo ? `${j.ignoradas_boleto_ativo} com boleto ativo` : '',
+    ].filter(Boolean)
+    setMassaMsg(`EXCLUIU ${j?.excluidos ?? 0}${partes.length ? ' · ' + partes.join(' · ') + ' ignorada(s)' : ''}`)
     setMassaExcluirAberto(false)
     limparSelecao(); setReloadKey((k) => k + 1)
     setTimeout(() => setMassaMsg(null), 6000)
@@ -740,7 +748,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                   ✅ <strong>{selecionados.size}</strong> selecionado{selecionados.size !== 1 ? 's' : ''} · R$ <strong>{fmtBRL(valorTotalSelecionados)}</strong> total
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {tipo === 'pagar' && (
+                  {(tipo === 'pagar' || tipo === 'receber') && (
                     <>
                       <button
                         type="button"
@@ -1124,6 +1132,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <div style={{ fontSize: 13, color: '#3D2314' }}>
             Contas <b>pagas</b> ou já <b>conciliadas</b> serão ignoradas. Esta ação registra histórico e pode ser auditada.
           </div>
+          {tipo === 'receber' && (
+            <div style={{ fontSize: 12, color: '#854F0B', marginTop: 8, background: '#FEF6E0', border: '1px solid #C8941A', borderRadius: 6, padding: '8px 10px' }}>
+              Títulos com <b>boleto emitido ativo</b> não serão excluídos — cancele o boleto no banco antes, senão o banco continua cobrando.
+            </div>
+          )}
         </ModalMassa>
       )}
 
