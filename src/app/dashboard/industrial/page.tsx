@@ -355,9 +355,12 @@ export default function IndustrialPage() {
         <a href="/dashboard/inteligencia" style={{ color: '#C8941A', fontWeight: 700 }}>Inteligência → Gente</a>.
       </div>
       {/* HEADER */}
-      <div style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: C.gold, margin: 0 }}>Industrial <span style={{ fontSize: 11, fontWeight: 700, color: '#7A5A0F', background: '#FBEED2', padding: '2px 8px', borderRadius: 6, verticalAlign: 'middle' }}>🧪 demonstração</span></h1>
-        <div style={{ fontSize: 10, color: C.muted }}>200+ KPIs ilustrativos | Cruzamento entre Areas | Analise IA | Campo ao Comercial</div>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: C.gold, margin: 0 }}>Industrial <span style={{ fontSize: 11, fontWeight: 700, color: '#7A5A0F', background: '#FBEED2', padding: '2px 8px', borderRadius: 6, verticalAlign: 'middle' }}>🧪 demonstração</span></h1>
+          <div style={{ fontSize: 10, color: C.muted }}>200+ KPIs ilustrativos | Cruzamento entre Areas | Analise IA | Campo ao Comercial</div>
+        </div>
+        <a href="/dashboard/industrial/conectores" style={{ color: C.gold, fontSize: 11, fontWeight: 700, textDecoration: 'none', padding: '7px 12px', border: '1px solid ' + C.border, borderRadius: 6, whiteSpace: 'nowrap' }}>🔌 Conectores (ERPs)</a>
       </div>
 
       {/* SELECTORS */}
