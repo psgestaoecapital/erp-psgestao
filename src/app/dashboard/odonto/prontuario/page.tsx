@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Search, ChevronLeft, Lock, Plus, Stethoscope } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { SaldoBadge, DebitosPaciente } from '@/components/odonto/ui'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const TOP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
@@ -135,8 +136,15 @@ export default function ProntuarioPage() {
   return (
     <div style={{ background: BG, color: ESP, minHeight: '100%' }} className="p-4 sm:p-6 max-w-3xl mx-auto">
       <button onClick={() => setPac(null)} className="text-sm inline-flex items-center gap-1 mb-2" style={{ color: ESP60 }}><ChevronLeft size={16} /> trocar paciente</button>
-      <h1 className="text-2xl font-semibold" style={{ fontFamily: 'ui-serif,Georgia,serif' }}>{pac.nome}</h1>
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-2xl font-semibold" style={{ fontFamily: 'ui-serif,Georgia,serif' }}>{pac.nome}</h1>
+        <SaldoBadge pacienteId={pac.id} />
+      </div>
       {msg && <div className="mt-2 text-sm rounded-lg px-3 py-2" style={{ background: '#fff', border: `1px solid ${LINE}` }}>{msg}</div>}
+
+      {/* LIGAÇÃO FINANCEIRA (Onda 0) — a ficha só EXIBE o débito (financeiro é da GE) */}
+      <div className="mt-4"><DebitosPaciente pacienteId={pac.id} /></div>
+
 
       {/* ODONTOGRAMA CLÍNICO */}
       <div className="mt-4 rounded-2xl p-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
