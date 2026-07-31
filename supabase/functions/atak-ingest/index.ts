@@ -47,6 +47,7 @@ Deno.serve(async (req) => {
     host: string | null
     janelaDias: number | null
     triggerType: string
+    dominio?: string | null
     erro?: string | null
   }) {
     const fim = new Date()
@@ -63,6 +64,7 @@ Deno.serve(async (req) => {
         trigger_type: opts.triggerType,
         http_response: {
           fonte: 'atak',
+          dominio: opts.dominio ?? 'abate',
           gravados: opts.gravados,
           recebidos: opts.recebidos,
           janela_dias: opts.janelaDias,
@@ -82,6 +84,7 @@ Deno.serve(async (req) => {
     hostname?: string
     janela_dias?: number
     collector_mode?: string
+    dominio?: string
   }
   try {
     body = await req.json()
@@ -96,16 +99,46 @@ Deno.serve(async (req) => {
   const janelaDias = typeof body?.janela_dias === 'number' ? body.janela_dias : null
   // Modo backfill marca o heartbeat separado (R6). Ausente/qualquer-coisa → diário (não muda o fluxo atual, R1).
   const triggerType = body?.collector_mode === 'backfill' ? 'coletor_atak_backfill' : 'coletor_atak'
+  // dominio ausente/'abate' → landing legado ind_abate_atak (sem regressao · RD-53).
+  // Qualquer outro (embalagem, estoque, ...) → landing UNIVERSAL ind_atak_fato (F1).
+  const dominio = typeof body?.dominio === 'string' && body.dominio.trim() ? body.dominio.trim() : 'abate'
 
   const registros = Array.isArray(body?.registros) ? body.registros : []
   const recebidos = registros.length
   if (recebidos === 0) {
     // Sync valido sem novidade (janela vazia) — CONTA como sucesso (a maquina
     // esta viva), gravados=0.
-    await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: 0, recebidos: 0, collectorVersion, host, janelaDias, triggerType })
+    await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: 0, recebidos: 0, collectorVersion, host, janelaDias, triggerType, dominio })
     return json({ ok: true, gravados: 0 })
   }
 
+  // ── Domínios GENÉRICOS (embalagem, estoque, …) → ind_atak_fato ──────────────
+  // Resiliência (F1): guarda o `raw` inteiro; os campos tipados saem das VIEWS
+  // (v_ind_embalagem/v_ind_estoque), ajustáveis sem recarregar. O coletor manda
+  // { dominio, registros:[{ cod_filial, chave_fato, raw }] }.
+  if (dominio !== 'abate') {
+    const rows = registros.map((rUnknown) => {
+      const r = rUnknown as Record<string, unknown>
+      return {
+        company_id: COMPANY_ID,
+        cod_filial: r.cod_filial != null ? String(r.cod_filial) : null,
+        dominio,
+        chave_fato: String(r.chave_fato),
+        raw: r.raw ?? r,
+      }
+    })
+    const { error } = await supabase
+      .from('ind_atak_fato')
+      .upsert(rows, { onConflict: 'company_id,dominio,chave_fato' })
+    if (error) {
+      await heartbeat({ fase: 'falha', httpStatus: 500, gravados: 0, recebidos, collectorVersion, host, janelaDias, triggerType, dominio, erro: error.message })
+      return json({ error: error.message }, 500)
+    }
+    await heartbeat({ fase: 'sucesso', httpStatus: 200, gravados: rows.length, recebidos, collectorVersion, host, janelaDias, triggerType, dominio })
+    return json({ ok: true, gravados: rows.length, dominio })
+  }
+
+  // ── ABATE (legado) → ind_abate_atak ───────────────────────────────────────
   const rows = registros.map((rUnknown) => {
     const r = rUnknown as Record<string, unknown>
     return {
