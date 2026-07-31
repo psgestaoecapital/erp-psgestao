@@ -4,7 +4,8 @@
 // Financeiro clínico...). Identidade PS: espresso/off-white/dourado; hairlines
 // finas; cantos suaves; sentence case; 2 pesos; 1 destaque por tela; semáforo SÓ
 // pra status clínico/financeiro. Mobile-first (regra #ZERO).
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 export const TOK = {
   esp: "#3D2314",            // texto forte / estrutura
@@ -102,4 +103,81 @@ export function EmptyStateOdonto({ titulo, linha, acao }: { titulo: string; linh
 export function PillWrap({ children, active, onClick, title }: { children: React.ReactNode; active?: boolean; onClick?: () => void; title?: string }) {
   return <button onClick={onClick} title={title} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
     style={{ background: active ? TOK.gold : TOK.card, color: active ? "#fff" : TOK.esp, border: hair, borderRadius: TOK.rCtrl, fontWeight: active ? 500 : 400 }}>{children}</button>;
+}
+
+// Toggle premium (label + switch dourado).
+export function Toggle({ t, on, set }: { t: string; on: boolean; set: (v: boolean) => void }) {
+  return <button onClick={() => set(!on)} className="inline-flex items-center gap-2" style={{ fontSize: 12.5, color: TOK.esp }}>
+    <span>{t}</span>
+    <span style={{ width: 36, height: 20, borderRadius: 999, position: "relative", background: on ? TOK.gold : TOK.line, transition: "background .15s" }}>
+      <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 16, height: 16, borderRadius: 999, background: "#fff", transition: "left .15s" }} /></span>
+  </button>;
+}
+
+// ── Ligação Financeira (Onda 0) · débitos do paciente ────────────────────────
+const brl = (n: number) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+// cor por status financeiro (semáforo): pago=verde, vencido=vermelho, aberto=neutro/dourado.
+const stFin = (s: string) => s === "pago" || s === "recebido" ? { l: "Pago", cor: TOK.green, bg: "#E7F3EA" }
+  : s === "vencido" ? { l: "Vencido", cor: TOK.red, bg: "#FBEBEB" }
+  : { l: "Aberto", cor: "#8A6A1E", bg: "#FBF3DE" };
+
+type Titulo = { id: string; descricao: string; valor: number; data_vencimento: string; data_competencia: string; status: string; parcela: string; do_plano: boolean };
+type Debitos = { paciente_id: string; cliente_id: string | null; total_recebido: number; total_aberto: number; titulos: Titulo[] };
+
+// Badge de saldo — reusável (ficha, agenda). Verde se quitado; âmbar/vermelho se deve.
+export function SaldoBadge({ pacienteId, compact }: { pacienteId: string; compact?: boolean }) {
+  const [d, setD] = useState<{ recebido: number; aberto: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void supabase.rpc("fn_odonto_debitos_paciente", { p_paciente_id: pacienteId, p_incluir_recebidos: true })
+      .then(({ data }) => { const r = data as Debitos | null; if (alive && r) setD({ recebido: r.total_recebido, aberto: r.total_aberto }); });
+    return () => { alive = false; };
+  }, [pacienteId]);
+  if (!d) return null;
+  const deve = d.aberto > 0;
+  return <span className="inline-flex items-center gap-1.5" style={{ fontSize: compact ? 11 : 12, fontWeight: 500, padding: "3px 10px", borderRadius: 999, background: deve ? "#FBEBEB" : "#E7F3EA", color: deve ? TOK.red : TOK.green }}>
+    {deve ? `A receber ${brl(d.aberto)}` : d.recebido > 0 ? "Em dia" : "Sem débitos"}</span>;
+}
+
+// Aba Débitos premium — a ficha só EXIBE (fronteira: financeiro é da GE).
+export function DebitosPaciente({ pacienteId }: { pacienteId: string }) {
+  const [d, setD] = useState<Debitos | null>(null);
+  const [incRec, setIncRec] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true; setLoading(true);
+    void supabase.rpc("fn_odonto_debitos_paciente", { p_paciente_id: pacienteId, p_incluir_recebidos: incRec })
+      .then(({ data }) => { if (!alive) return; setD(data as Debitos | null); setLoading(false); });
+    return () => { alive = false; };
+  }, [pacienteId, incRec]);
+
+  return (
+    <CardOdonto>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div style={{ fontSize: 14, fontWeight: 500, color: TOK.esp }}>Débitos e recebimentos</div>
+        <Toggle t="Mostrar recebidos" on={incRec} set={setIncRec} />
+      </div>
+      {!d?.cliente_id ? <div style={{ fontSize: 13, color: TOK.mut }}>Paciente ainda não vinculado ao financeiro. Aprove um plano para gerar os títulos.</div> :
+        <>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div style={{ background: "#E7F3EA", borderRadius: 12, padding: "10px 14px" }}><MetricStat valor={brl(d.total_recebido)} label="Recebido" cor={TOK.green} /></div>
+            <div style={{ background: d.total_aberto > 0 ? "#FBEBEB" : TOK.bg, borderRadius: 12, padding: "10px 14px" }}><MetricStat valor={brl(d.total_aberto)} label="A receber" cor={d.total_aberto > 0 ? TOK.red : TOK.mut} /></div>
+          </div>
+          {loading ? <div style={{ fontSize: 13, color: TOK.mut }}>Carregando…</div> :
+            (d.titulos || []).length === 0 ? <div style={{ fontSize: 13, color: TOK.mut }}>Nenhum título {incRec ? "" : "em aberto"} para este paciente.</div> :
+              <div style={{ border: hair, borderRadius: 12, overflow: "hidden" }}>
+                {d.titulos.map((t, i) => { const S = stFin(t.status); return (
+                  <div key={t.id} className="flex items-center gap-3 px-3 py-2.5" style={{ borderTop: i ? hair : "none" }}>
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontSize: 13, color: TOK.esp }} className="truncate">{t.descricao}</div>
+                      <div style={{ fontSize: 11.5, color: TOK.mut }}>venc. {new Date(t.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}{t.do_plano ? " · plano" : ""}</div>
+                    </div>
+                    <span style={{ fontSize: 10.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: S.bg, color: S.cor, flexShrink: 0 }}>{S.l}</span>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, color: TOK.esp, fontVariantNumeric: "tabular-nums", minWidth: 82, textAlign: "right" }}>{brl(t.valor)}</div>
+                  </div>); })}
+              </div>}
+          <div style={{ fontSize: 11, color: TOK.mut30, marginTop: 8 }}>O financeiro vive na Gestão Empresarial · a ficha só exibe. NFS-e e régua de cobrança chegam a seguir.</div>
+        </>}
+    </CardOdonto>
+  );
 }
