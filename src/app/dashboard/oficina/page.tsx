@@ -1,6 +1,7 @@
-import { Wrench } from 'lucide-react'
-import AreaRootPlaceholder from '@/components/area/AreaRootPlaceholder'
+import OficinaHome from '@/components/oficina/OficinaHome'
 
+// RD-41 · home da Oficina = operação real do tenant (por company_id), não o painel
+// comercial interno da PS. Zero placeholder — todo número vem do banco do tenant.
 export default function OficinaRootPage() {
-  return <AreaRootPlaceholder areaId="oficina" fallbackNome="Oficina" fallbackIcon={<Wrench size={24} />} />
+  return <OficinaHome />
 }
