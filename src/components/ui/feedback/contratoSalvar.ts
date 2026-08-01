@@ -16,6 +16,7 @@ export type ResultadoSalvar = {
   erro?: string            // 'sem_acesso' | 'parcela_incompleta' | 'bloqueado_boleto_ativo' ...
   campo?: string           // nome do input a destacar (ex.: 'valor', 'data_vencimento')
   orientacao?: string      // texto pronto; se vier, é o que aparece
+  mensagem?: string        // (saída do useSalvar) texto de sucesso pronto p/ o toast
 }
 
 export type AcaoSalvar = 'criar' | 'alterar' | 'excluir'

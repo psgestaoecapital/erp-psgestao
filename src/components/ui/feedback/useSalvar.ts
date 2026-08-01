@@ -64,10 +64,10 @@ export function useSalvar() {
           return { ...r, sucesso: false }
         }
 
-        // Sucesso — verbo da casa + label opcional (ex.: "CRIOU 3 parcelas...").
+        // Sucesso — D3: vira TOAST no chamador (não banner fixo). Devolve o texto pronto.
         const verbo = VERBO_SUCESSO[opts.acao]
-        setFeedback({ tipo: 'sucesso', texto: `${verbo}${opts.label ? ' ' + opts.label : ''}` })
-        return { ...r, sucesso: true }
+        const mensagem = `${verbo}${opts.label ? ' ' + opts.label : ''}`
+        return { ...r, sucesso: true, mensagem }
       } finally {
         setSalvando(false)
       }
