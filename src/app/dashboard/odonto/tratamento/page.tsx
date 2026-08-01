@@ -1,17 +1,25 @@
 'use client'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Trash2, Check, Printer, FileText, ChevronLeft } from 'lucide-react'
+import { Search, Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
+import { SaldoBadge } from '@/components/odonto/ui'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
 const GOLD = '#C8941A'
 const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.55)'
+const GREEN = '#166534'
+const RED = '#A32D2D'
 const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const dbr = (s: string) => (s ? new Date(s + 'T00:00:00').toLocaleDateString('pt-BR') : '—')
 
 const TOP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 const BOTTOM = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
+
+// Estados aprovados/em execução: o plano sai do editor e entra na visão de execução.
+const EXEC_STATUS = new Set(['aprovado', 'em_andamento', 'concluido'])
 
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
@@ -36,6 +44,26 @@ type Proc = { id: string; nome: string; cor: string; valor?: number; duracao_min
 type Item = { id?: string; procedimento_id?: string; descricao: string; dente: string | null; valor: number; status?: string; ordem: number }
 type Pac = { id: string; nome: string }
 type Plano = { id: string; titulo: string; status: string; valor_total: number; criado_em: string }
+type Servico = { id: string; descricao_resumida: string }
+type Titulo = {
+  id: string; descricao: string; valor: number; valor_pago: number
+  data_vencimento: string; data_competencia: string; parcela: string; status: string
+  nfse_status: string | null; nfse_numero: string | null
+}
+type Financeiro = { plano_id: string; company_id: string; cliente_id: string | null; total_recebido: number; total_aberto: number; titulos: Titulo[] }
+
+const stFin = (s: string) =>
+  s === 'pago' || s === 'recebido' ? { l: 'Pago', cor: GREEN, bg: '#E7F3EA' }
+    : s === 'vencido' ? { l: 'Vencido', cor: RED, bg: '#FBEBEB' }
+      : s === 'parcial' ? { l: 'Parcial', cor: '#B45309', bg: '#FBF0DF' }
+        : { l: 'Aberto', cor: '#8A6A1E', bg: '#FBF3DE' }
+
+// Estado honesto da NFS-e (RD-58): nunca um selo que mente.
+const stNfse = (s: string | null) =>
+  s === 'autorizada' ? { l: 'NFS-e emitida', cor: GREEN, bg: '#E7F3EA' }
+    : s === 'processando' ? { l: 'NFS-e processando', cor: '#B45309', bg: '#FBF0DF' }
+      : s === 'rejeitada' ? { l: 'NFS-e rejeitada', cor: RED, bg: '#FBEBEB' }
+        : null
 
 export default function TratamentoPage() {
   const companyId = useCompanyId()
@@ -44,13 +72,27 @@ export default function TratamentoPage() {
   const [pac, setPac] = useState<Pac | null>(null)
   const [planos, setPlanos] = useState<Plano[]>([])
   const [procs, setProcs] = useState<Proc[]>([])
-  const [editando, setEditando] = useState(false)
+  const [modo, setModo] = useState<'lista' | 'edit' | 'exec'>('lista')
   const [planoId, setPlanoId] = useState<string | null>(null)
   const [itens, setItens] = useState<Item[]>([])
   const [desconto, setDesconto] = useState(0)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [procSel, setProcSel] = useState<string>('')
   const [valorItem, setValorItem] = useState<number>(0)
+
+  // condição de pagamento (aprovação → financeiro)
+  const hoje = new Date().toISOString().slice(0, 10)
+  const [parcelas, setParcelas] = useState(1)
+  const [entrada, setEntrada] = useState(0)
+  const [primeiraVenc, setPrimeiraVenc] = useState(hoje)
+  const [forma, setForma] = useState('boleto')
+
+  // execução
+  const [fin, setFin] = useState<Financeiro | null>(null)
+  const [servicos, setServicos] = useState<Servico[]>([])
+  const [servicoSel, setServicoSel] = useState('')
+  const [recebidoAoConcluir, setRecebidoAoConcluir] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
     if (!companyId || busca.length < 2) { setPacs([]); return }
@@ -77,17 +119,47 @@ export default function TratamentoPage() {
     setPlanos((data as Plano[]) ?? [])
   }, [companyId])
 
-  const escolherPac = (p: Pac) => { setPac(p); setPacs([]); setBusca(''); carregarPlanos(p); setEditando(false) }
+  const carregarServicos = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase.from('erp_servicos').select('id,descricao_resumida')
+      .eq('company_id', companyId).eq('ativo', true).order('descricao_resumida')
+    const list = (data as Servico[]) ?? []
+    setServicos(list)
+    setServicoSel((prev) => prev || (list[0]?.id ?? ''))
+  }, [companyId])
 
-  const novoPlano = () => { setPlanoId(null); setItens([]); setDesconto(0); setSel(new Set()); setEditando(true) }
-  const abrirPlano = async (id: string) => {
-    const { data } = await supabase.rpc('fn_odonto_plano_obter', { p_id: id })
-    const d = data as { itens: Item[]; plano: { desconto: number } | null }
-    setPlanoId(id)
+  const carregarExec = useCallback(async (id: string) => {
+    const [obt, finr] = await Promise.all([
+      supabase.rpc('fn_odonto_plano_obter', { p_id: id }),
+      supabase.rpc('fn_odonto_plano_financeiro', { p_plano_id: id }),
+    ])
+    const d = obt.data as { itens: Item[]; plano: { status: string; desconto: number } | null }
+    setItens((d?.itens ?? []).map((i) => ({ ...i })))
+    setFin(finr.data as Financeiro | null)
+  }, [])
+
+  const escolherPac = (p: Pac) => { setPac(p); setPacs([]); setBusca(''); carregarPlanos(p); setModo('lista') }
+
+  const novoPlano = () => {
+    setPlanoId(null); setItens([]); setDesconto(0); setSel(new Set())
+    setParcelas(1); setEntrada(0); setPrimeiraVenc(hoje); setForma('boleto')
+    setModo('edit')
+  }
+
+  const abrirPlano = async (p: Plano) => {
+    if (EXEC_STATUS.has(p.status)) {
+      setPlanoId(p.id)
+      await Promise.all([carregarExec(p.id), carregarServicos()])
+      setModo('exec')
+      return
+    }
+    const { data } = await supabase.rpc('fn_odonto_plano_obter', { p_id: p.id })
+    const d = data as { itens: Item[]; plano: { desconto: number; status: string } | null }
+    setPlanoId(p.id)
     setItens((d?.itens ?? []).map((i) => ({ ...i })))
     setDesconto(Number(d?.plano?.desconto ?? 0))
-    setSel(new Set())
-    setEditando(true)
+    setSel(new Set()); setParcelas(1); setEntrada(0); setPrimeiraVenc(hoje); setForma('boleto')
+    setModo('edit')
   }
 
   const toggleDente = (d: number) => {
@@ -134,15 +206,68 @@ export default function TratamentoPage() {
     carregarPlanos(pac)
     return id
   }
+
+  // Aprovar → gera as contas a receber reais (Onda 0). Reusa fn_odonto_plano_aprovar_financeiro.
   const aprovar = async () => {
     let id = planoId
     if (!id) id = await salvar('orcamento')
     if (!id) return
-    const quem = prompt('Aprovado por (nome do paciente/responsável):') || 'Paciente'
-    const { error } = await supabase.rpc('fn_odonto_plano_aprovar', { p_id: id, p_aprovado_por: quem })
+    setBusy('aprovar')
+    const { error } = await supabase.rpc('fn_odonto_plano_aprovar_financeiro', {
+      p_id: id,
+      p_aprovado_por: 'Paciente',
+      p_itens_ids: null,
+      p_parcelas: Math.max(1, parcelas),
+      p_entrada: Math.max(0, entrada),
+      p_primeira_venc: primeiraVenc || hoje,
+      p_forma: forma,
+    })
+    setBusy(null)
     if (error) { alert(error.message); return }
+    setPlanoId(id)
+    await Promise.all([carregarExec(id), carregarServicos()])
+    setModo('exec')
     if (pac) carregarPlanos(pac)
-    alert('Orçamento aprovado.')
+  }
+
+  const concluirItem = async (item: Item) => {
+    if (!item.id) return
+    setBusy(item.id)
+    const { data, error } = await supabase.rpc('fn_odonto_item_concluir', {
+      p_item_id: item.id,
+      p_baixar: recebidoAoConcluir,
+      p_data: hoje,
+      p_conta_bancaria_id: null,
+      p_forma: 'PIX',
+    })
+    setBusy(null)
+    if (error) { alert(error.message); return }
+    const r = data as { titulos_reconhecidos?: number; baixa?: { sucesso?: boolean; erro?: string } | null }
+    if (r?.baixa && r.baixa.sucesso === false) alert('Procedimento concluído, mas a baixa não entrou: ' + (r.baixa.erro ?? ''))
+    if (planoId) await carregarExec(planoId)
+  }
+
+  const emitirNfse = async (titulo: Titulo) => {
+    if (!fin) return
+    if (!servicoSel) { alert('Cadastre e selecione um serviço odontológico (com item LC116) em Cadastros › Serviços para emitir NFS-e.'); return }
+    setBusy('nfse:' + titulo.id)
+    try {
+      const r = await authFetch('/api/fiscal/nfse/emitir', {
+        method: 'POST',
+        body: JSON.stringify({ companyId: fin.company_id, erpReceberId: titulo.id, servicoId: servicoSel }),
+      })
+      const j = await r.json()
+      if ((!r.ok || !j.ok) && j.status !== 'processando') {
+        alert(j.mensagem ?? j.motivoRejeicao ?? 'Não foi possível emitir a NFS-e.')
+      } else {
+        alert(j.status === 'autorizada' ? `NFS-e autorizada — nº ${j.numero}.` : 'NFS-e em processamento — a prefeitura vai autorizar em instantes.')
+      }
+    } catch (e) {
+      alert('Falha ao chamar a emissão: ' + ((e as Error)?.message ?? 'erro'))
+    } finally {
+      setBusy(null)
+      if (planoId) await carregarExec(planoId)
+    }
   }
 
   if (!companyId) return (
@@ -171,12 +296,15 @@ export default function TratamentoPage() {
 
   return (
     <div style={{ background: BG, color: ESP, minHeight: '100%' }} className="p-4 sm:p-6 max-w-3xl mx-auto">
-      <button onClick={() => setPac(null)} className="text-sm inline-flex items-center gap-1 mb-2" style={{ color: ESP60 }}>
+      <button onClick={() => { setPac(null); setModo('lista') }} className="text-sm inline-flex items-center gap-1 mb-2" style={{ color: ESP60 }}>
         <ChevronLeft size={16} /> trocar paciente
       </button>
-      <h1 className="text-2xl font-semibold" style={{ fontFamily: 'ui-serif,Georgia,serif' }}>{pac.nome}</h1>
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-2xl font-semibold" style={{ fontFamily: 'ui-serif,Georgia,serif' }}>{pac.nome}</h1>
+        <SaldoBadge pacienteId={pac.id} />
+      </div>
 
-      {!editando && (
+      {modo === 'lista' && (
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold">Planos</span>
@@ -188,7 +316,7 @@ export default function TratamentoPage() {
             <div className="rounded-xl p-6 text-center text-sm" style={{ border: `1px dashed ${LINE}`, color: ESP60 }}>Nenhum plano ainda.</div>
           )}
           {planos.map((p) => (
-            <button key={p.id} onClick={() => abrirPlano(p.id)} className="w-full flex items-center justify-between px-3 py-3 rounded-xl mb-1" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <button key={p.id} onClick={() => abrirPlano(p)} className="w-full flex items-center justify-between px-3 py-3 rounded-xl mb-1" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
               <span className="text-sm"><FileText size={14} className="inline mr-1" />{p.titulo} · <span style={{ color: ESP60 }}>{p.status}</span></span>
               <b>{money(Number(p.valor_total))}</b>
             </button>
@@ -196,8 +324,11 @@ export default function TratamentoPage() {
         </div>
       )}
 
-      {editando && (
+      {modo === 'edit' && (
         <div className="mt-4 space-y-4">
+          <button onClick={() => setModo('lista')} className="text-sm inline-flex items-center gap-1" style={{ color: ESP60 }}>
+            <ChevronLeft size={15} /> voltar aos planos
+          </button>
           <div className="rounded-2xl p-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
             <div className="text-xs font-semibold mb-2" style={{ color: ESP60 }}>Selecione os dentes (FDI)</div>
             {[TOP, BOTTOM].map((arc, ai) => (
@@ -261,14 +392,141 @@ export default function TratamentoPage() {
             </div>
           </div>
 
+          {/* Condição de pagamento — vira as contas a receber ao aprovar */}
+          <div className="rounded-2xl p-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="text-xs font-semibold mb-2" style={{ color: ESP60 }}>Condição de pagamento · ao aprovar, gera a cobrança</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Parcelas</label>
+                <input type="number" min={1} value={parcelas} onChange={(e) => setParcelas(Math.max(1, Number(e.target.value)))} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              </div>
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Entrada (R$)</label>
+                <input type="number" min={0} value={entrada} onChange={(e) => setEntrada(Math.max(0, Number(e.target.value)))} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              </div>
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>1º vencimento</label>
+                <input type="date" value={primeiraVenc} onChange={(e) => setPrimeiraVenc(e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              </div>
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Forma</label>
+                <select value={forma} onChange={(e) => setForma(e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm bg-white outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }}>
+                  <option value="boleto">Boleto</option>
+                  <option value="pix">PIX</option>
+                  <option value="cartao">Cartão</option>
+                  <option value="dinheiro">Dinheiro</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <button onClick={() => salvar('orcamento')} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Salvar orçamento</button>
-            <button onClick={aprovar} className="flex-1 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2" style={{ background: GOLD, color: '#fff' }}>
-              <Check size={16} /> Aprovar
+            <button onClick={aprovar} disabled={busy === 'aprovar'} className="flex-1 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: GOLD, color: '#fff' }}>
+              <Check size={16} /> {busy === 'aprovar' ? 'Aprovando…' : 'Aprovar e gerar cobrança'}
             </button>
             <button onClick={() => window.print()} className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: ESP, color: '#fff' }}>
               <Printer size={16} /> Imprimir
             </button>
+          </div>
+        </div>
+      )}
+
+      {modo === 'exec' && (
+        <div className="mt-4 space-y-4">
+          <button onClick={() => setModo('lista')} className="text-sm inline-flex items-center gap-1" style={{ color: ESP60 }}>
+            <ChevronLeft size={15} /> voltar aos planos
+          </button>
+
+          {/* Procedimentos — concluir reconhece a receita na competência */}
+          <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <span className="text-sm font-semibold">Procedimentos</span>
+              <label className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: ESP60 }}>
+                <input type="checkbox" checked={recebidoAoConcluir} onChange={(e) => setRecebidoAoConcluir(e.target.checked)} />
+                Registrar recebimento ao concluir
+              </label>
+            </div>
+            {itens.length === 0 && <div className="p-5 text-center text-sm" style={{ color: ESP60 }}>Plano sem itens.</div>}
+            {itens.map((i) => {
+              const done = i.status === 'concluido'
+              return (
+                <div key={i.id} className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+                  <span className="text-sm flex-1">{i.descricao}{i.dente ? ` · dente ${i.dente}` : ' · geral'}</span>
+                  <b className="text-sm" style={{ minWidth: 78, textAlign: 'right' }}>{money(Number(i.valor))}</b>
+                  {done ? (
+                    <span className="inline-flex items-center gap-1 text-[12px]" style={{ color: GREEN, minWidth: 96, justifyContent: 'flex-end' }}>
+                      <CircleCheck size={15} /> Concluído
+                    </span>
+                  ) : (
+                    <button onClick={() => concluirItem(i)} disabled={busy === i.id} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-50" style={{ background: ESP, color: '#fff', minWidth: 96 }}>
+                      {busy === i.id ? '…' : 'Concluir'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Financeiro do plano — títulos reais + NFS-e (a ação fiscal reusa o Focus da GE) */}
+          <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <span className="text-sm font-semibold inline-flex items-center gap-1.5"><Receipt size={15} style={{ color: GOLD }} /> Cobrança do plano</span>
+              {fin && <span className="text-[12px]" style={{ color: ESP60 }}>Recebido <b style={{ color: GREEN }}>{money(fin.total_recebido)}</b> · A receber <b style={{ color: fin.total_aberto > 0 ? RED : ESP60 }}>{money(fin.total_aberto)}</b></span>}
+            </div>
+
+            <div className="px-3 py-2" style={{ borderBottom: `1px solid ${LINE}`, background: BG }}>
+              <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Serviço fiscal (NFS-e)</label>
+              {servicos.length === 0 ? (
+                <div className="text-[12px]" style={{ color: RED }}>Nenhum serviço com item LC116 cadastrado. Configure em Cadastros › Serviços para emitir NFS-e.</div>
+              ) : (
+                <select value={servicoSel} onChange={(e) => setServicoSel(e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm bg-white outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }}>
+                  {servicos.map((s) => <option key={s.id} value={s.id}>{s.descricao_resumida}</option>)}
+                </select>
+              )}
+            </div>
+
+            {!fin || fin.titulos.length === 0 ? (
+              <div className="p-5 text-center text-sm" style={{ color: ESP60 }}>Nenhum título gerado.</div>
+            ) : fin.titulos.map((t) => {
+              const S = stFin(t.status)
+              const N = stNfse(t.nfse_status)
+              const pago = t.status === 'pago' || t.status === 'recebido'
+              return (
+                <div key={t.id} className="px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] truncate">{t.descricao}</div>
+                      <div className="text-[11.5px] inline-flex items-center gap-1" style={{ color: ESP60 }}>
+                        <Clock size={11} /> venc. {dbr(t.data_vencimento)} · comp. {dbr(t.data_competencia)}
+                      </div>
+                    </div>
+                    <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: S.bg, color: S.cor }}>{S.l}</span>
+                    <b className="text-[13.5px]" style={{ minWidth: 78, textAlign: 'right' }}>{money(Number(t.valor))}</b>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {N ? (
+                      <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: N.bg, color: N.cor }}>
+                        {N.l}{t.nfse_numero ? ` · nº ${t.nfse_numero}` : ''}
+                      </span>
+                    ) : (
+                      <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id || servicos.length === 0}
+                        className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                        style={{ background: '#fff', border: `1px solid ${GOLD}`, color: GOLD }}>
+                        <Receipt size={13} /> {busy === 'nfse:' + t.id ? 'Emitindo…' : 'Emitir NFS-e'}
+                      </button>
+                    )}
+                    {N?.l === 'NFS-e rejeitada' && (
+                      <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id} className="px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:opacity-50" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }}>Reenviar</button>
+                    )}
+                    {pago && <span className="text-[11px]" style={{ color: GREEN }}>recebido {money(Number(t.valor_pago))}</span>}
+                  </div>
+                </div>
+              )
+            })}
+            <div className="px-3 py-2 text-[11px]" style={{ color: 'rgba(61,35,20,0.35)' }}>
+              O financeiro vive na Gestão Empresarial · aqui o plano só dispara a cobrança e a nota. Régua de cobrança (WhatsApp) chega na Onda 3.
+            </div>
           </div>
         </div>
       )}
