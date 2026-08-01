@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAcesso } from '@/hooks/useAcesso'
 import VisaoExecucaoModal from '@/components/oficina/VisaoExecucaoModal'
+import AssinaturaModal from '@/components/oficina/AssinaturaModal'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', espressoD: '#9C8E80',
@@ -119,6 +120,9 @@ export default function PatioKanbanPage() {
   const [mecsOS, setMecsOS] = useState<MecOS[]>([])               // mecânicos da OS aberta
   const [novoMec, setNovoMec] = useState('')                      // input p/ novo nome
   const [salvandoMec, setSalvandoMec] = useState(false)
+  // RD-41 · assinaturas tipadas (checklist_ciente / entrega) da OS aberta
+  const [assinaturasCard, setAssinaturasCard] = useState<string[]>([])
+  const [assinarEntregaOs, setAssinarEntregaOs] = useState<OS | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -157,7 +161,18 @@ export default function PatioKanbanPage() {
     const { data } = await supabase.rpc('fn_os_mecanicos_listar', { p_os_id: osId })
     setMecsOS((Array.isArray(data) ? data : []) as MecOS[])
   }, [])
-  useEffect(() => { if (cardAberto) void carregarMecsOS(cardAberto.id); else setMecsOS([]) }, [cardAberto, carregarMecsOS])
+  // RD-41 · quais assinaturas (checklist_ciente/entrega) a OS já tem (helper simples)
+  const recarregarAssinaturas = async (osId: string) => {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_os_assinaturas_listar', { p_company_id: companyId, p_os_id: osId })
+    setAssinaturasCard(Array.isArray(data) ? data.map((r: { tipo: string }) => r.tipo) : [])
+  }
+  useEffect(() => {
+    if (!cardAberto) { setMecsOS([]); setAssinaturasCard([]); return }
+    void carregarMecsOS(cardAberto.id)
+    void recarregarAssinaturas(cardAberto.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardAberto, carregarMecsOS, companyId])
 
   const filtradas = useMemo(
     () => (filtroMec === 'todos' ? oss : oss.filter((o) => normKey(o.tecnico_nome) === normKey(filtroMec))),
@@ -361,6 +376,23 @@ export default function PatioKanbanPage() {
               </div>
             </div>
 
+            {/* RD-41 · assinaturas operacionais do cliente (checklist na entrada, entrega na saída) */}
+            <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoD, marginBottom: 6 }}>Assinaturas do cliente</div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: assinaturasCard.includes('checklist_ciente') ? C.verde : C.espressoD }}>
+                  {assinaturasCard.includes('checklist_ciente') ? '✓' : '○'} Ciente do checklist
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: assinaturasCard.includes('entrega') ? C.verde : C.espressoD }}>
+                  {assinaturasCard.includes('entrega') ? '✓' : '○'} Entrega
+                </span>
+              </div>
+              <button onClick={() => setAssinarEntregaOs(cardAberto)}
+                style={{ width: '100%', padding: '12px', fontSize: 14, fontWeight: 700, borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer' }}>
+                ✍️ {assinaturasCard.includes('entrega') ? 'Refazer assinatura de entrega' : 'Assinar entrega'}
+              </button>
+            </div>
+
             <button onClick={() => { router.push(`/dashboard/os?os=${cardAberto.id}`) }}
               style={{ width: '100%', marginTop: 10, padding: '12px', fontSize: 13, fontWeight: 600, borderRadius: 10, border: `1px solid ${C.border}`, background: C.bg, color: C.espresso, cursor: 'pointer' }}>
               📋 Abrir a Ordem de Serviço
@@ -369,6 +401,19 @@ export default function PatioKanbanPage() {
               style={{ width: '100%', marginTop: 8, padding: '10px', fontSize: 13, color: C.espressoM, background: 'transparent', border: 'none', cursor: 'pointer' }}>Fechar</button>
           </div>
         </div>
+      )}
+
+      {/* RD-41 · Assinar entrega (saída) — a partir do card no Pátio. */}
+      {assinarEntregaOs && companyId && (
+        <AssinaturaModal
+          osId={assinarEntregaOs.id}
+          tipo="entrega"
+          titulo="Assinar entrega"
+          subtitulo="Recebi o veículo com o serviço finalizado."
+          aberto
+          onFechar={() => setAssinarEntregaOs(null)}
+          onAssinado={() => { if (assinarEntregaOs) void recarregarAssinaturas(assinarEntregaOs.id) }}
+        />
       )}
 
       {/* RD-41 · Visão de Execução (Auxiliar/OPERATOR): abre em contexto pelo clique no card. */}

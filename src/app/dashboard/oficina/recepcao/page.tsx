@@ -5,6 +5,7 @@ import React, { useEffect, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, Camera, Car, ChevronLeft, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import AssinaturaModal from '@/components/oficina/AssinaturaModal'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -61,6 +62,7 @@ export default function RecepcaoPage() {
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
+  const [assinarOsId, setAssinarOsId] = useState<string | null>(null)  // RD-41 · assinatura "ciente do checklist"
 
   const buscarPlaca = async () => {
     if (!companyId || placa.trim().length < 5) return
@@ -118,8 +120,10 @@ export default function RecepcaoPage() {
       await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim() })
     }
     setSalvando(false)
-    setMsg(`✅ Recepção registrada — ${j?.numero}. O carro está no Pátio.`)
-    setTimeout(() => router.push('/dashboard/oficina/patio'), 1200)
+    setMsg(`✅ Recepção registrada — ${j?.numero}.`)
+    // RD-41 · colher a assinatura "ciente do checklist" do cliente (pode pular).
+    if (j?.os_id) setAssinarOsId(j.os_id)
+    else setTimeout(() => router.push('/dashboard/oficina/patio'), 1200)
   }
 
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
@@ -233,6 +237,19 @@ export default function RecepcaoPage() {
         </button>
       </div>
       {msg && <div style={{ position: 'fixed', bottom: 74, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{msg}</div>}
+
+      {/* RD-41 · assinatura "ciente do checklist" (entrada). Pode pular ("Agora não"). */}
+      {assinarOsId && (
+        <AssinaturaModal
+          osId={assinarOsId}
+          tipo="checklist_ciente"
+          titulo="Cliente ciente do checklist"
+          subtitulo="Confirmo que estou ciente do estado/checklist do veículo. (Não é aprovação de orçamento.)"
+          aberto
+          onFechar={() => { setAssinarOsId(null); router.push('/dashboard/oficina/patio') }}
+          onAssinado={() => setMsg('✅ Checklist assinado pelo cliente.')}
+        />
+      )}
     </div>
   )
 }
