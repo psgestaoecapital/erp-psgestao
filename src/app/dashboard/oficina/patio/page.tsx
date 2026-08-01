@@ -47,12 +47,21 @@ type OS = {
   total: number | null
   data_abertura: string | null
   updated_at: string | null
+  entregue_em?: string | null
 }
 
-const SELECT_OS = 'id, company_id, numero, cliente_nome, equipamento, placa, modelo, marca, ano, km, tecnico_nome, status, prioridade, total, data_abertura, updated_at'
+const SELECT_OS = 'id, company_id, numero, cliente_nome, equipamento, placa, modelo, marca, ano, km, tecnico_nome, status, prioridade, total, data_abertura, updated_at, entregue_em'
 
-const fmtBRL = (v: number | null) =>
-  (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
+// RD-41 · cor CATEGÓRICA por etapa (accent do card). Ramps que NÃO são o semáforo
+// (verde/amarelo/vermelho) — a lei reserva os 3 ao tempo/SLA. Um tom por coluna.
+const COL_COR: Record<string, string> = {
+  aberta: '#3D6FA8',              // azul
+  aguardando_aprovacao: '#7C3AED', // roxo
+  em_execucao: '#0F766E',        // teal
+  aguardando_peca: '#0891B2',    // ciano
+  pronta: '#4F46E5',             // indigo
+  entregue: '#6B7280',           // cinza
+}
 
 // Placa formatada (ABC-1234 / ABC1D23). Usa a coluna estruturada; senão tenta
 // extrair do texto livre 'equipamento'. Retorna null se não achar.
@@ -94,10 +103,21 @@ function semaforo(o: OS): { cor: string; horas: number } {
   if (horas > 24) return { cor: C.amarelo, horas }
   return { cor: C.verde, horas }
 }
-function tempoLabel(horas: number): string {
-  if (horas < 1) return 'agora há pouco'
-  if (horas < 24) return `${Math.floor(horas)}h na coluna`
-  return `${Math.floor(horas / 24)}d na coluna`
+// tempo curto p/ o card compacto: "agora" · "5h" · "3d"
+function tempoCurto(horas: number): string {
+  if (horas < 1) return 'agora'
+  if (horas < 24) return `${Math.floor(horas)}h`
+  return `${Math.floor(horas / 24)}d`
+}
+function inicialMec(nome: string | null): string {
+  const t = mecanicoLabel(nome)
+  return t === 'sem mecânico' ? '—' : t.charAt(0).toUpperCase()
+}
+// "entregue hoje" no fuso de São Paulo
+const ehHojeSP = (iso: string | null | undefined): boolean => {
+  if (!iso) return false
+  const tz = 'America/Sao_Paulo'
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: tz }) === new Date().toLocaleDateString('pt-BR', { timeZone: tz })
 }
 
 export default function PatioKanbanPage() {
@@ -123,6 +143,7 @@ export default function PatioKanbanPage() {
   // RD-41 · assinaturas tipadas (checklist_ciente / entrega) da OS aberta
   const [assinaturasCard, setAssinaturasCard] = useState<string[]>([])
   const [assinarEntregaOs, setAssinarEntregaOs] = useState<OS | null>(null)
+  const [entregueTotal, setEntregueTotal] = useState(0)   // total de entregues (p/ "ver histórico (N)")
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -135,14 +156,17 @@ export default function PatioKanbanPage() {
       .order('updated_at', { ascending: true })
       .limit(400)
     if (error) { setErro(error.message); setLoading(false); return }
-    // Traz também os entregues das últimas 48h (pra fechar o fluxo visual sem poluir).
+    // Entregues recentes (a coluna filtra só as de HOJE; o resto vira "ver histórico").
     const { data: entregues } = await supabase
       .from('erp_os')
       .select(SELECT_OS)
       .eq('company_id', companyId).eq('status', 'entregue')
-      .gte('updated_at', new Date(Date.now() - 48 * 3_600_000).toISOString())
-      .order('updated_at', { ascending: false }).limit(50)
+      .order('entregue_em', { ascending: false, nullsFirst: false }).limit(60)
     setOss([...(data ?? []), ...(entregues ?? [])] as OS[])
+    // total de entregues (pro contador do histórico)
+    const { count } = await supabase.from('erp_os').select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId).eq('status', 'entregue')
+    setEntregueTotal(count ?? 0)
     setLoading(false)
   }, [companyId])
 
@@ -247,75 +271,61 @@ export default function PatioKanbanPage() {
       {loading ? (
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM }}>Carregando o pátio…</div>
       ) : (
-        // Board: rolagem horizontal (tablet). Colunas grandes, cards grandes.
-        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, WebkitOverflowScrolling: 'touch' }}>
+        // Board compacto: cabe numa tela; cada coluna rola por dentro. Cor categórica por etapa.
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', height: 'calc(100vh - 150px)', paddingBottom: 4, WebkitOverflowScrolling: 'touch' }}>
           {COLUNAS.map((col) => {
-            const cards = filtradas.filter((o) => o.status === col.status)
+            const cor = COL_COR[col.status] ?? C.espressoD
+            const entregueCol = col.status === 'entregue'
+            let cards = filtradas.filter((o) => o.status === col.status)
+            if (entregueCol) cards = cards.filter((o) => ehHojeSP(o.entregue_em ?? o.updated_at))
+            const histN = entregueCol ? Math.max(0, entregueTotal - cards.length) : 0
             return (
               <div key={col.status}
                 onDragOver={(e) => { e.preventDefault() }}
                 onDrop={() => { const o = oss.find((x) => x.id === dragId); if (o) void mover(o, col.status); setDragId(null) }}
-                style={{ flex: '0 0 260px', minWidth: 260, background: '#FFFDF9', border: `1px solid ${C.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{col.icone} {col.label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: C.espressoD, background: C.bg, borderRadius: 20, padding: '2px 9px' }}>{cards.length}</span>
+                style={{ flex: '0 0 200px', minWidth: 200, background: '#FFFDF9', border: `1px solid ${C.border}`, borderTop: `3px solid ${cor}`, borderRadius: 10, padding: 6, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.espresso }}>{col.icone} {entregueCol ? 'Entregue hoje' : col.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: cor, background: cor + '18', borderRadius: 20, padding: '1px 8px' }}>{cards.length}</span>
                 </div>
-                {cards.length === 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '22px 6px', color: C.espressoD }}>
-                    <span style={{ fontSize: 22, opacity: 0.5 }}>{col.icone}</span>
-                    <span style={{ fontSize: 11.5 }}>Nenhum carro aqui</span>
-                  </div>
-                )}
-                {cards.map((o) => {
-                  const sem = semaforo(o)
-                  const placa = placaDe(o)
-                  const alta = (o.prioridade ?? '').match(/alta|urgente/i)
-                  return (
-                    <div key={o.id}
-                      draggable={!isOperator}
-                      onDragStart={() => { if (!isOperator) setDragId(o.id) }}
-                      onClick={() => (isOperator ? setExecOs(o) : setCardAberto(o))}
-                      style={{
-                        background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${sem.cor}`,
-                        borderRadius: 12, padding: 12, cursor: 'pointer', opacity: salvandoId === o.id ? 0.5 : 1,
-                        boxShadow: '0 2px 6px rgba(61,35,20,0.06)', transition: 'transform .08s, box-shadow .08s',
-                      }}
-                      onMouseDown={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(0.985)' }}
-                      onMouseUp={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}>
-                      {/* Placa em destaque (identidade do carro) + alertas */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                        {placa ? (
-                          <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1, color: C.espresso, fontFamily: 'ui-monospace, Menlo, monospace', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 9px' }}>
-                            {placa}
+                <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0 }}>
+                  {cards.length === 0 && <div style={{ padding: '14px 6px', color: C.espressoD, fontSize: 11, textAlign: 'center' }}>vazio</div>}
+                  {cards.map((o) => {
+                    const sem = semaforo(o)
+                    const placa = placaDe(o)
+                    const alta = (o.prioridade ?? '').match(/alta|urgente/i)
+                    return (
+                      <div key={o.id}
+                        draggable={!isOperator}
+                        onDragStart={() => { if (!isOperator) setDragId(o.id) }}
+                        onClick={() => (isOperator ? setExecOs(o) : setCardAberto(o))}
+                        style={{ background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${cor}`, borderRadius: 8, padding: '7px 9px', cursor: 'pointer', opacity: salvandoId === o.id ? 0.5 : 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {/* linha 1: placa (destaque) + tempo na coluna (semáforo/SLA) */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: 0.5, color: C.espresso, fontFamily: 'ui-monospace, Menlo, monospace' }}>{placa ?? 'sem placa'}</span>
+                          <span title={`${Math.floor(sem.horas)}h na coluna`} style={{ fontSize: 9.5, fontWeight: 700, color: sem.cor, background: sem.cor + '18', borderRadius: 20, padding: '1px 7px', whiteSpace: 'nowrap' }}>{tempoCurto(sem.horas)}</span>
+                        </div>
+                        {/* linha 2: veículo · cliente (menor) */}
+                        <div style={{ fontSize: 11, color: C.espressoM, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{veiculoDe(o)} · {o.cliente_nome || '—'}</div>
+                        {/* linha 3: OS# + alertas + mecânico (inicial) */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 9.5, fontFamily: 'ui-monospace, Menlo, monospace', color: C.espressoD, fontWeight: 600 }}>{o.numero || 'sem nº'}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            {alta && <span title="Prioridade alta" style={{ fontSize: 10 }}>🔴</span>}
+                            {o.status === 'aguardando_aprovacao' && <span title="Aguardando aprovação do cliente" style={{ fontSize: 10 }}>⚠️</span>}
+                            <span title={mecanicoLabel(o.tecnico_nome)} style={{ width: 18, height: 18, borderRadius: 999, background: cor + '22', color: cor, fontSize: 10, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{inicialMec(o.tecnico_nome)}</span>
                           </span>
-                        ) : (
-                          <span style={{ fontSize: 13, fontWeight: 700, color: C.espressoM, background: C.bg, border: `1px dashed ${C.border}`, borderRadius: 6, padding: '2px 9px' }}>Sem placa</span>
-                        )}
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          {alta && <span title="Prioridade alta" style={{ fontSize: 12 }}>🔴</span>}
-                          {o.status === 'aguardando_aprovacao' && <span title="Aguardando aprovação do cliente" style={{ fontSize: 12 }}>⚠️</span>}
                         </div>
                       </div>
-                      {/* Modelo + cliente (hierarquia) — sempre mostra o veículo como identificador secundário */}
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso, marginTop: 6 }}>{veiculoDe(o)}</div>
-                      <div style={{ fontSize: 12, color: C.espressoM, marginTop: 1 }}>{o.cliente_nome || 'Cliente não informado'}</div>
-                      {/* Meta em cinza + valor */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 10.5, fontFamily: 'ui-monospace, Menlo, monospace', color: C.espressoD, fontWeight: 600 }}>{o.numero || 'sem nº'}</span>
-                        {/* R$ é gerencial (GE) — Auxiliar (OPERATOR) não vê valor no pátio. */}
-                        {!isOperator && <span style={{ fontSize: 13, fontWeight: 800, color: C.espresso }}>{fmtBRL(o.total)}</span>}
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 6 }}>
-                        <span style={{ fontSize: 11, color: C.espressoD }}>🔧 {mecanicoLabel(o.tecnico_nome)}</span>
-                        {/* Pill de tempo (além da borda-semáforo) */}
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: sem.cor, background: sem.cor + '16', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>
-                          {tempoLabel(sem.horas)}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
+                {entregueCol && histN > 0 && (
+                  <button onClick={() => router.push('/dashboard/os')}
+                    style={{ fontSize: 11, fontWeight: 700, color: cor, background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 2px', textAlign: 'left' }}>
+                    ver histórico ({histN}) →
+                  </button>
+                )}
               </div>
             )
           })}
@@ -330,7 +340,7 @@ export default function PatioKanbanPage() {
             style={{ background: C.white, borderRadius: '16px 16px 0 0', padding: 16, width: '100%', maxWidth: 520, boxShadow: '0 -4px 24px rgba(61,35,20,0.2)' }}>
             <div style={{ textAlign: 'center', marginBottom: 4 }}>
               <div style={{ fontSize: 17, fontWeight: 800, color: C.espresso }}>{placaDe(cardAberto) ?? `🚗 ${veiculoDe(cardAberto)}`}</div>
-              <div style={{ fontSize: 12, color: C.espressoM }}>{veiculoDe(cardAberto)} · {cardAberto.cliente_nome || '—'} · {fmtBRL(cardAberto.total)}</div>
+              <div style={{ fontSize: 12, color: C.espressoM }}>{veiculoDe(cardAberto)} · {cardAberto.cliente_nome || '—'}</div>
             </div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoD, textAlign: 'center', margin: '10px 0 8px' }}>Mover para</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
