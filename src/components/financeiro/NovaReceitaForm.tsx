@@ -61,6 +61,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [dataCompetencia, setDataCompetencia] = useState('')
   const [parcelas, setParcelas] = useState(1)
   const [intervaloDias, setIntervaloDias] = useState(30)
+  // Prévia editável de parcelas (RD-41 · espelho do #823): valor digitado = TOTAL
+  // (total/N, última absorve resto) ou valor de CADA parcela (valor×N). Editável.
+  const [modoValor, setModoValor] = useState<'total' | 'parcela'>('total')
+  const [parcelasEdit, setParcelasEdit] = useState<{ vencimento: string; valor: number }[]>([])
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaRecebimento, setFormaRecebimento] = useState('pix')
@@ -125,6 +129,30 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     setClienteModal(null)
     setToast(`${modoAtual === 'editar' ? 'ALTEROU' : 'CRIOU'} cliente ${cli.nome || '—'}`)
   }
+
+  // Semeia a prévia quando N ≥ 2. Reseeda ao mudar N/valor/recebimento/intervalo/modo.
+  useEffect(() => {
+    if (parcelas < 2) { setParcelasEdit([]); return }
+    const total = parseFloat(valor) || 0
+    const rows: { vencimento: string; valor: number }[] = []
+    for (let i = 0; i < parcelas; i++) {
+      const venc = addDaysISO(dataRecebimento, i * intervaloDias)
+      const v = modoValor === 'total' ? round2(total / parcelas) : round2(total)
+      rows.push({ vencimento: venc, valor: v })
+    }
+    if (modoValor === 'total' && parcelas > 0) {
+      const somaAntes = round2(round2(total / parcelas) * (parcelas - 1))
+      rows[parcelas - 1].valor = round2(total - somaAntes)
+    }
+    setParcelasEdit(rows)
+  }, [parcelas, valor, dataRecebimento, intervaloDias, modoValor])
+
+  const editParcela = (idx: number, campo: 'vencimento' | 'valor', valorNovo: string) => {
+    setParcelasEdit((prev) => prev.map((p, i) => i === idx
+      ? { ...p, [campo]: campo === 'valor' ? (parseFloat(valorNovo) || 0) : valorNovo }
+      : p))
+  }
+  const somaParcelas = parcelasEdit.reduce((s, p) => s + (Number(p.valor) || 0), 0)
 
   // Prefill via query (?valor=&data=&descricao=) — fluxo Conciliacao "Incluir nova conta".
   useEffect(() => {
@@ -212,24 +240,43 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     // conta agora é ID; a coluna legada conta_bancaria (texto) recebe o NOME p/ compat/histórico.
     const nomeContaSel = contas.find((c) => c.id === contaBancaria)?.nome ?? null
 
-    const { data, error } = await supabase.rpc('fn_receber_criar_com_parcelas', {
-      p_company_id: companyId,
-      p_cliente_id: clienteId || null,
-      p_cliente_nome: clienteNome || null,
-      p_descricao: descricaoFinal,
-      p_valor_total: parseFloat(valor),
-      p_data_emissao: new Date().toISOString().split('T')[0],
-      p_data_primeiro_recebimento: dataRecebimento,
-      p_total_parcelas: parcelas,
-      p_categoria: categoriaCodigo || null,
-      p_numero_documento: numeroDocumento || null,
-      p_forma_recebimento: formaRecebimento || null,
-      p_observacao: observacao || null,
-      p_intervalo_dias: intervaloDias,
-      p_status_inicial: 'pendente',
-      p_conta_bancaria: nomeContaSel,
-      p_forcar_dup: forcar,
-    })
+    const hoje = new Date().toISOString().split('T')[0]
+    // N ≥ 2 → v2 com o array editado (datas/valores por parcela). À vista → v1 (com trava de dup).
+    const { data, error } = parcelas >= 2
+      ? await supabase.rpc('fn_receber_criar_com_parcelas_v2', {
+          p_company_id: companyId,
+          p_cliente_id: clienteId || null,
+          p_cliente_nome: clienteNome || null,
+          p_descricao: descricaoFinal,
+          p_data_emissao: hoje,
+          p_categoria: categoriaCodigo || null,
+          p_numero_documento: numeroDocumento || null,
+          p_forma_recebimento: formaRecebimento || null,
+          p_observacao: observacao || null,
+          p_conta_bancaria: nomeContaSel,
+          p_status_inicial: 'pendente',
+          p_parcelas: parcelasEdit.map((p, idx) => ({
+            n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
+          })),
+        })
+      : await supabase.rpc('fn_receber_criar_com_parcelas', {
+          p_company_id: companyId,
+          p_cliente_id: clienteId || null,
+          p_cliente_nome: clienteNome || null,
+          p_descricao: descricaoFinal,
+          p_valor_total: parseFloat(valor),
+          p_data_emissao: hoje,
+          p_data_primeiro_recebimento: dataRecebimento,
+          p_total_parcelas: parcelas,
+          p_categoria: categoriaCodigo || null,
+          p_numero_documento: numeroDocumento || null,
+          p_forma_recebimento: formaRecebimento || null,
+          p_observacao: observacao || null,
+          p_intervalo_dias: intervaloDias,
+          p_status_inicial: 'pendente',
+          p_conta_bancaria: nomeContaSel,
+          p_forcar_dup: forcar,
+        })
 
     if (error) {
       setLoading(false)
@@ -244,7 +291,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
 
     const resultado = data as {
       success?: boolean
+      sucesso?: boolean
       sem_plano?: boolean
+      erro?: string
+      indice?: number
       qtd_parcelas_criadas?: number
       valor_por_parcela?: number
       status_inicial?: string
@@ -254,6 +304,15 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     if (resultado?.sem_plano) {
       setLoading(false)
       setSemPlano(true)
+      return
+    }
+
+    if (resultado?.sucesso === false) {
+      setLoading(false)
+      setErro(
+        resultado.erro === 'parcela_incompleta' ? `A parcela ${resultado.indice} está sem data ou valor.`
+          : resultado.erro === 'sem_acesso' ? 'Você não tem permissão nesta empresa.'
+          : 'Não foi possível salvar: ' + (resultado.erro ?? 'erro desconhecido'))
       return
     }
 
@@ -475,6 +534,52 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
                 <option value="60">Bimestral (60 dias)</option>
               </select>
             </Campo>
+          )}
+
+          {parcelas >= 2 && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é:</span>
+                <div style={{ display: 'inline-flex', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, overflow: 'hidden' }}>
+                  {([['total', 'Total da conta'], ['parcela', 'Valor de cada parcela']] as const).map(([m, rot]) => (
+                    <button key={m} type="button" onClick={() => setModoValor(m)}
+                      style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none', fontFamily: 'inherit', background: modoValor === m ? '#3D2314' : 'transparent', color: modoValor === m ? '#FAF7F2' : '#3D2314' }}>
+                      {rot}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', background: '#F3ECE0' }}>
+                  <div style={cellHead}>Nº</div>
+                  <div style={cellHead}>Vencimento</div>
+                  <div style={cellHead}>Valor (R$)</div>
+                </div>
+                {parcelasEdit.map((p, idx) => (
+                  <div key={idx} style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', borderTop: '0.5px solid rgba(61,35,20,0.1)', alignItems: 'center' }}>
+                    <div style={{ ...cellBody, fontWeight: 600 }}>{idx + 1}/{parcelas}</div>
+                    <div style={cellBody}>
+                      <input type="date" value={p.vencimento} onChange={(e) => editParcela(idx, 'vencimento', e.target.value)} style={inputMini} />
+                    </div>
+                    <div style={cellBody}>
+                      <input type="number" step="0.01" min="0" value={p.valor} onChange={(e) => editParcela(idx, 'valor', e.target.value)} style={inputMini} />
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderTop: '0.5px solid rgba(61,35,20,0.15)', background: '#FAF7F2' }}>
+                  <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)' }}>Soma das parcelas</span>
+                  <b style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{brl(somaParcelas)}</b>
+                </div>
+              </div>
+
+              {modoValor === 'total' && Math.abs(somaParcelas - (parseFloat(valor) || 0)) > 0.01 && (
+                <div style={{ marginTop: 8, background: '#FEF6E0', border: '1px solid #C8941A', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
+                  A soma das parcelas difere do total informado ({brl(parseFloat(valor) || 0)}) — variação permitida.
+                </div>
+              )}
+              <small style={helperStyle}>Ajuste vencimento e valor de cada parcela livremente (permite parcelas de valor/data variável).</small>
+            </div>
           )}
 
           <Campo label="Como você vai receber?">
@@ -746,6 +851,19 @@ const helperStyle: React.CSSProperties = {
   color: 'rgba(61,35,20,0.55)',
   marginTop: 4,
 }
+
+// Prévia de parcelas (RD-41 · espelho do #823)
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+const brl = (n: number) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+function addDaysISO(iso: string, days: number): string {
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : new Date().toISOString().slice(0, 10)
+  const d = new Date(base + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+const cellHead: React.CSSProperties = { padding: '7px 10px', fontSize: 11, fontWeight: 600, color: 'rgba(61,35,20,0.6)' }
+const cellBody: React.CSSProperties = { padding: '6px 10px', fontSize: 13, color: '#3D2314' }
+const inputMini: React.CSSProperties = { width: '100%', padding: '6px 8px', border: '0.5px solid rgba(61,35,20,0.2)', borderRadius: 5, fontSize: 13, background: '#FFFFFF', color: '#3D2314', fontFamily: 'inherit', boxSizing: 'border-box' }
 
 function Campo({
   label,
