@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { useAcesso } from '@/hooks/useAcesso'
+import VisaoExecucaoModal from '@/components/oficina/VisaoExecucaoModal'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', espressoD: '#9C8E80',
@@ -101,8 +103,11 @@ export default function PatioKanbanPage() {
   const router = useRouter()
   const { companyIds } = useCompanyIds()
   const companyId = companyIds.length === 1 ? companyIds[0] : null
+  // RD-41 · Auxiliar (OPERATOR) → abre a Visão de Execução (sem R$/gerencial).
+  const { isOperator } = useAcesso(companyId)
 
   const [oss, setOss] = useState<OS[]>([])
+  const [execOs, setExecOs] = useState<OS | null>(null)   // OPERATOR: visão de execução em contexto
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [salvandoId, setSalvandoId] = useState<string | null>(null)
@@ -252,9 +257,9 @@ export default function PatioKanbanPage() {
                   const alta = (o.prioridade ?? '').match(/alta|urgente/i)
                   return (
                     <div key={o.id}
-                      draggable
-                      onDragStart={() => setDragId(o.id)}
-                      onClick={() => setCardAberto(o)}
+                      draggable={!isOperator}
+                      onDragStart={() => { if (!isOperator) setDragId(o.id) }}
+                      onClick={() => (isOperator ? setExecOs(o) : setCardAberto(o))}
                       style={{
                         background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${sem.cor}`,
                         borderRadius: 12, padding: 12, cursor: 'pointer', opacity: salvandoId === o.id ? 0.5 : 1,
@@ -283,7 +288,8 @@ export default function PatioKanbanPage() {
                       {/* Meta em cinza + valor */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 10.5, fontFamily: 'ui-monospace, Menlo, monospace', color: C.espressoD, fontWeight: 600 }}>{o.numero || 'sem nº'}</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: C.espresso }}>{fmtBRL(o.total)}</span>
+                        {/* R$ é gerencial (GE) — Auxiliar (OPERATOR) não vê valor no pátio. */}
+                        {!isOperator && <span style={{ fontSize: 13, fontWeight: 800, color: C.espresso }}>{fmtBRL(o.total)}</span>}
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 6 }}>
                         <span style={{ fontSize: 11, color: C.espressoD }}>🔧 {mecanicoLabel(o.tecnico_nome)}</span>
@@ -363,6 +369,17 @@ export default function PatioKanbanPage() {
               style={{ width: '100%', marginTop: 8, padding: '10px', fontSize: 13, color: C.espressoM, background: 'transparent', border: 'none', cursor: 'pointer' }}>Fechar</button>
           </div>
         </div>
+      )}
+
+      {/* RD-41 · Visão de Execução (Auxiliar/OPERATOR): abre em contexto pelo clique no card. */}
+      {execOs && companyId && (
+        <VisaoExecucaoModal
+          companyId={companyId}
+          osId={execOs.id}
+          osResumo={{ numero: execOs.numero, placa: placaDe(execOs), marca: execOs.marca, modelo: execOs.modelo, cliente_nome: execOs.cliente_nome }}
+          aberto
+          onFechar={() => { setExecOs(null); void carregar() }}
+        />
       )}
     </div>
   )
