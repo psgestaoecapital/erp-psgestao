@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
 import { parseBoletoBarras, normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
+import { PSGC_COLORS } from '@/lib/psgc-tokens'
+// RD-41 · padrão único de "erro de salvamento" (piloto)
+import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
+import { Campo } from '@/components/ui/feedback/Campo'
+import { useSalvar } from '@/components/ui/feedback/useSalvar'
+import { estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 
 type Fornecedor = {
   id: string
@@ -106,12 +112,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
   // Fatia 3 estabilização nova-despesa (09/07): ⚡ conta com integração + salvar-dropdown
   const [contasAuto, setContasAuto] = useState<Set<string>>(new Set())
-  const [ok, setOk] = useState<string | null>(null)
   const [salvarMenu, setSalvarMenu] = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
   const [copiarAberto, setCopiarAberto] = useState(false)
+
+  // RD-41 piloto · padrão único de feedback. Erro → banner fixo (feedback) +
+  // destaque vermelho no campo (erroCampo); sucesso → toast CRIOU/ALTEROU/EXCLUIU.
+  const { salvar: rpcSalvar, salvando: loading, feedback, erroCampo, limpar: limparFeedback, setFeedback, setErroCampo } = useSalvar()
+  const [toast, setToast] = useState<string | null>(null)
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t) }, [toast])
 
   // ANTI-DUPLICIDADE (código de barras) — captura + alerta no REGISTRO (não bloqueia).
   const [codigoBarras, setCodigoBarras] = useState('')
@@ -297,10 +305,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     return (partes.join(' — ') || 'Despesa').slice(0, 200)
   }
 
-  function validar(): string | null {
-    if (!valor || parseFloat(valor) <= 0) return 'Valor deve ser maior que zero'
-    if (!dataVencimento) return 'Quando vence?'
-    if (parcelas < 1 || parcelas > 60) return 'Parcelas entre 1 e 60'
+  // Validação client-side no padrão RD-41: banner "Faltou preencher: X" +
+  // destaque vermelho no campo. Retorna o campo a destacar + o texto do banner.
+  function validarCampos(): { campo: string; banner: string } | null {
+    if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
+    if (!dataVencimento) return { campo: 'dataVencimento', banner: 'Faltou preencher: Vencimento' }
+    if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
     return null
   }
 
@@ -316,87 +326,58 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   //       valores pra lançar uma parecida. (Fatia 3 · "Salvar" dropdown estilo ContaAzul.)
   async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar') {
     setSalvarMenu(false)
-    setOk(null)
-    const erroValidacao = validar()
-    if (erroValidacao) {
-      setErro(erroValidacao)
-      return
-    }
+    setToast(null)
+    limparFeedback()
 
-    setLoading(true)
-    setErro(null)
+    // Validação client-side no padrão: banner + destaque no campo, antes da RPC.
+    const faltou = validarCampos()
+    if (faltou) { setErroCampo(faltou.campo); setFeedback({ tipo: 'erro', texto: faltou.banner }); return }
 
     // se a pessoa digitou, respeita; se não, gera de fornecedor + categoria
     const descricaoFinal = descricao.trim() || montarDescricao()
-
     const hoje = new Date().toISOString().split('T')[0]
-    // N ≥ 2 → v2 com o array editado (datas/valores por parcela). À vista → v1 (inalterado).
-    const { data, error } = parcelas >= 2
-      ? await supabase.rpc('fn_pagar_criar_com_parcelas_v2', {
-          p_company_id: companyId,
-          p_fornecedor_id: fornecedorId || null,
-          p_fornecedor_nome: fornecedorNome || null,
-          p_descricao: descricaoFinal,
-          p_data_emissao: hoje,
-          p_categoria: categoriaCodigo || null,
-          p_numero_documento: numeroDocumento || null,
-          p_forma_pagamento: formaPagamento || null,
-          p_observacao: observacao || null,
-          p_conta_bancaria: contaBancaria || null,
-          p_parcelas: parcelasEdit.map((p, idx) => ({
-            n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
-          })),
-        })
-      : await supabase.rpc('fn_pagar_criar_com_parcelas', {
-          p_company_id: companyId,
-          p_fornecedor_id: fornecedorId || null,
-          p_fornecedor_nome: fornecedorNome || null,
-          p_descricao: descricaoFinal,
-          p_valor_total: parseFloat(valor),
-          p_data_emissao: hoje,
-          p_data_primeiro_vencimento: dataVencimento,
-          p_total_parcelas: parcelas,
-          p_categoria: categoriaCodigo || null,
-          p_numero_documento: numeroDocumento || null,
-          p_forma_pagamento: formaPagamento || null,
-          p_observacao: observacao || null,
-          p_intervalo_dias: intervaloDias,
-          p_conta_bancaria: contaBancaria || null,
-        })
+    const labelSucesso = parcelas >= 2 ? `${parcelas} parcelas · ${fmtBRL(somaParcelas)}` : fmtBRL(parseFloat(valor) || 0)
 
-    if (error) {
-      setLoading(false)
-      setErro(error.message)
-      return
-    }
+    // useSalvar faz o cast do contrato, mapeia erro→mensagem+campo (banner + input
+    // vermelho) e devolve o texto pronto de sucesso pro toast (CRIOU …).
+    const ret = await rpcSalvar(
+      async () => parcelas >= 2
+        ? supabase.rpc('fn_pagar_criar_com_parcelas_v2', {
+            p_company_id: companyId,
+            p_fornecedor_id: fornecedorId || null,
+            p_fornecedor_nome: fornecedorNome || null,
+            p_descricao: descricaoFinal,
+            p_data_emissao: hoje,
+            p_categoria: categoriaCodigo || null,
+            p_numero_documento: numeroDocumento || null,
+            p_forma_pagamento: formaPagamento || null,
+            p_observacao: observacao || null,
+            p_conta_bancaria: contaBancaria || null,
+            p_parcelas: parcelasEdit.map((p, idx) => ({
+              n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
+            })),
+          })
+        : supabase.rpc('fn_pagar_criar_com_parcelas', {
+            p_company_id: companyId,
+            p_fornecedor_id: fornecedorId || null,
+            p_fornecedor_nome: fornecedorNome || null,
+            p_descricao: descricaoFinal,
+            p_valor_total: parseFloat(valor),
+            p_data_emissao: hoje,
+            p_data_primeiro_vencimento: dataVencimento,
+            p_total_parcelas: parcelas,
+            p_categoria: categoriaCodigo || null,
+            p_numero_documento: numeroDocumento || null,
+            p_forma_pagamento: formaPagamento || null,
+            p_observacao: observacao || null,
+            p_intervalo_dias: intervaloDias,
+            p_conta_bancaria: contaBancaria || null,
+          }),
+      { acao: 'criar', label: labelSucesso },
+    )
+    if (!ret.sucesso) return // hook já exibiu banner + destaque de campo
 
-    const resultado = data as {
-      success?: boolean
-      sucesso?: boolean
-      sem_plano?: boolean
-      erro?: string
-      indice?: number
-      qtd_parcelas_criadas?: number
-      valor_por_parcela?: number
-      ids?: string[]
-    } | null
-
-    if (resultado?.sem_plano) {
-      setLoading(false)
-      setErro('Não foi possível salvar agora. Verifique o cadastro da empresa.')
-      return
-    }
-
-    if (resultado?.sucesso === false) {
-      setLoading(false)
-      setErro(
-        resultado.erro === 'parcela_incompleta' ? `A parcela ${resultado.indice} está sem data ou valor.`
-          : resultado.erro === 'sem_acesso' ? 'Você não tem permissão nesta empresa.'
-          : 'Não foi possível salvar: ' + (resultado.erro ?? 'erro desconhecido'))
-      return
-    }
-
-    const ids = resultado?.ids ?? []
+    const ids = (ret as { ids?: string[] }).ids ?? []
     const dataCompFinal = dataCompetencia || dataVencimento
     if (ids.length > 0 && dataCompFinal) {
       await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
@@ -438,15 +419,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
         p_origem: 'novo_lancamento',
       })
       if (matchErr) {
-        setLoading(false)
-        setErro('Despesa CRIOU mas nao CONCILIOU: ' + matchErr.message)
+        setFeedback({ tipo: 'erro', texto: 'Despesa CRIOU, mas não CONCILIOU. Concilie manualmente no inbox de conciliação.' })
         return
       }
     }
 
-    setLoading(false)
-
     const primeiroId = ids[0]
+    const msg = ret.mensagem ?? 'CRIOU a despesa'
     if (origemConciliacao) {
       // Volta pra Conciliacao (o movimento agora esta CONCILIADO) — fluxo sempre fecha.
       router.push('/dashboard/financeiro/conciliacao/inbox')
@@ -455,16 +434,17 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     // Fatia 3: "Salvar e nova" / "Salvar e duplicar" NÃO navegam — ficam no form.
     if (modo === 'nova') {
       limparForm()
-      setOk('✓ CRIOU a despesa. Form limpo pra lançar outra.')
+      setToast(`${msg} · form limpo pra lançar outra`)
       return
     }
     if (modo === 'duplicar') {
-      setOk('✓ CRIOU a despesa. Valores mantidos — ajuste e salve outra.')
+      setToast(`${msg} · valores mantidos, ajuste e salve outra`)
       return
     }
     if (primeiroId && onSucesso) {
       onSucesso(primeiroId)
     } else {
+      setToast(msg)
       router.push('/dashboard/financeiro/pagar?area=gestao_empresarial')
     }
   }
@@ -526,25 +506,25 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             <small style={helperStyle}>Deixe em branco pra usar o nome automático (fornecedor — categoria).</small>
           </Campo>
 
-          <Campo label="Quanto custa?" obrigatorio>
+          <Campo label="Quanto custa?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
             <input
               type="number"
               step="0.01"
               min="0"
               value={valor}
-              onChange={(e) => setValor(e.target.value)}
+              onChange={(e) => { setValor(e.target.value); if (erroCampo === 'valor') limparFeedback() }}
               placeholder="0,00"
-              style={inputStyle}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null) }}
             />
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
 
-          <Campo label="Quando vence?" obrigatorio>
+          <Campo label="Quando vence?" obrigatorio erro={erroCampo === 'dataVencimento' ? 'Informe o vencimento' : null}>
             <input
               type="date"
               value={dataVencimento}
-              onChange={(e) => { setDataVencimento(e.target.value); setVencimentoManual(true) }}
-              style={inputStyle}
+              onChange={(e) => { setDataVencimento(e.target.value); setVencimentoManual(true); if (erroCampo === 'dataVencimento') limparFeedback() }}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataVencimento' ? 'x' : null) }}
             />
           </Campo>
 
@@ -621,14 +601,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
 
-          <Campo label="Quantas parcelas?">
+          <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
               min="1"
               max="60"
               value={parcelas}
-              onChange={(e) => setParcelas(parseInt(e.target.value) || 1)}
-              style={inputStyle}
+              onChange={(e) => { setParcelas(parseInt(e.target.value) || 1); if (erroCampo === 'parcelas') limparFeedback() }}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'parcelas' ? 'x' : null) }}
             />
             <small style={helperStyle}>1 = pagamento à vista</small>
           </Campo>
@@ -686,7 +666,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               </div>
 
               {modoValor === 'total' && Math.abs(somaParcelas - (parseFloat(valor) || 0)) > 0.01 && (
-                <div style={{ marginTop: 8, background: '#FEF6E0', border: '1px solid #C8941A', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
+                <div style={{ marginTop: 8, background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
                   A soma das parcelas difere do total informado ({fmtBRL(parseFloat(valor) || 0)}) — variação permitida.
                 </div>
               )}
@@ -761,8 +741,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           </Campo>
 
           {dupContas.length > 0 && !dupIgnorado && (
-            <div style={{ gridColumn: '1 / -1', background: '#FCEBEB', border: '1px solid #A32D2D', borderRadius: 8, padding: '12px 14px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#A32D2D', marginBottom: 6 }}>
+            <div style={{ gridColumn: '1 / -1', background: PSGC_COLORS.vermelhoSoft, border: `1px solid ${PSGC_COLORS.alta}`, borderRadius: 8, padding: '12px 14px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: PSGC_COLORS.alta, marginBottom: 6 }}>
                 🔴 Este código de barras já foi lançado
               </div>
               {dupContas.slice(0, 3).map((c) => (
@@ -779,7 +759,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           )}
 
           {dupLogica.length > 0 && !dupLogicaIgnorado && dupContas.length === 0 && (
-            <div style={{ gridColumn: '1 / -1', background: '#FEF6E0', border: '1px solid #C8941A', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ gridColumn: '1 / -1', background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 8, padding: '12px 14px' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#854F0B', marginBottom: 6 }}>
                 🟡 Já existe uma conta parecida (mesmo fornecedor, valor e vencimento)
               </div>
@@ -814,7 +794,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
                 🔗 Esta despesa CRIOU a partir de um movimento do extrato bancário.
                 Ao salvar, ela CONCILIA automaticamente com o movimento — a baixa é feita
-                pelo sistema (não precisa marcar "já paguei").
+                pelo sistema (não precisa marcar &quot;já paguei&quot;).
               </div>
             ) : (
               <>
@@ -839,7 +819,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
                   />
                 </Campo>
                 {!contaBancaria && (
-                  <small style={{ ...helperStyle, color: '#A32D2D', gridColumn: '1 / -1' }}>
+                  <small style={{ ...helperStyle, color: PSGC_COLORS.alta, gridColumn: '1 / -1' }}>
                     Selecione uma conta bancária acima pra registrar o pagamento.
                   </small>
                 )}
@@ -848,25 +828,11 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           </div>
         </div>
 
-        {erro && (
-          <div
-            style={{
-              background: '#FCEBEB',
-              color: '#A32D2D',
-              padding: '10px 14px',
-              borderRadius: 6,
-              marginTop: 18,
-              fontSize: 13,
-            }}
-          >
-            {erro}
-          </div>
-        )}
-        {ok && (
-          <div style={{ background: '#EAF3DE', color: '#3B6D11', padding: '10px 14px', borderRadius: 6, marginTop: 18, fontSize: 13, fontWeight: 600 }}>
-            {ok}
-          </div>
-        )}
+        {/* Padrão RD-41 · erro de salvamento em banner fixo, mesmo ponto em toda tela.
+            Sucesso não vem aqui — vira toast (ver fim do componente). */}
+        <div style={{ marginTop: 18 }}>
+          <FeedbackSalvar estado={feedback} />
+        </div>
 
         <div
           style={{
@@ -898,7 +864,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               onClick={() => void salvar('fechar')}
               disabled={loading}
               style={{
-                background: '#C8941A', color: '#3D2314', border: 'none',
+                background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none',
                 padding: '10px 20px', borderRadius: '6px 0 0 6px', fontSize: 13, fontWeight: 500,
                 cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
               }}
@@ -911,7 +877,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               onClick={() => setSalvarMenu((v) => !v)}
               disabled={loading}
               style={{
-                background: '#C8941A', color: '#3D2314', border: 'none',
+                background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none',
                 borderLeft: '1px solid rgba(61,35,20,0.25)', padding: '10px 12px',
                 borderRadius: '0 6px 6px 0', fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
               }}
@@ -946,8 +912,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
 
       {dupVer && (
         <div onClick={() => setDupVer(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFFFF', borderRadius: 12, maxWidth: 480, width: '100%', border: '1px solid #A32D2D', overflow: 'hidden' }}>
-            <div style={{ background: '#A32D2D', color: '#fff', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFFFF', borderRadius: 12, maxWidth: 480, width: '100%', border: `1px solid ${PSGC_COLORS.alta}`, overflow: 'hidden' }}>
+            <div style={{ background: PSGC_COLORS.alta, color: '#fff', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <b style={{ fontSize: 14 }}>Conta já lançada com este código</b>
               <button onClick={() => setDupVer(null)} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
             </div>
@@ -962,9 +928,26 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               <LinhaDet rotulo="Lançada em" valor={fmtDataBr(dupVer.created_at)} />
             </div>
             <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(61,35,20,0.12)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setDupVer(null)} style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Fechar</button>
+              <button onClick={() => setDupVer(null)} style={{ background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Fechar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Padrão RD-41 · sucesso vira toast (CRIOU/ALTEROU/EXCLUIU), some em ~4s. */}
+      {toast && (
+        <div
+          role="status"
+          onClick={() => setToast(null)}
+          style={{
+            position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
+            background: PSGC_COLORS.espresso, color: PSGC_COLORS.offWhite,
+            padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 1200,
+            boxShadow: '0 8px 24px rgba(61,35,20,0.25)', cursor: 'pointer', maxWidth: '90vw',
+            borderLeft: `3px solid ${PSGC_COLORS.dourado}`,
+          }}
+        >
+          ✓ {toast}
         </div>
       )}
     </div>
@@ -1028,7 +1011,7 @@ function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: '#FAF7F2', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #C8941A' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#FAF7F2', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto', border: `1px solid ${PSGC_COLORS.dourado}` }}>
         <div style={{ background: '#3D2314', color: '#FAF7F2', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 12, borderTopRightRadius: 12, position: 'sticky', top: 0 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Copiar de outra despesa</h2>
           <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', color: '#FAF7F2', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
@@ -1063,7 +1046,7 @@ function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
                       {d.fornecedor_nome ? `${d.fornecedor_nome} · ` : ''}{d.categoria ? `${d.categoria} · ` : ''}{d.forma_pagamento ?? ''}
                     </div>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: PSGC_COLORS.alta, fontVariantNumeric: 'tabular-nums' }}>
                     R$ {Number(d.valor ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </div>
                 </button>
@@ -1136,7 +1119,7 @@ function situacaoLabel(status: string | null): string {
 }
 function dupBtnStyle(tipo: 'ver' | 'mesma' | 'diferente'): React.CSSProperties {
   const base: React.CSSProperties = { padding: '7px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '0.5px solid rgba(61,35,20,0.25)' }
-  if (tipo === 'mesma') return { ...base, background: '#A32D2D', color: '#fff', border: 'none' }
+  if (tipo === 'mesma') return { ...base, background: PSGC_COLORS.alta, color: '#fff', border: 'none' }
   if (tipo === 'diferente') return { ...base, background: 'transparent', color: '#3D2314' }
   return { ...base, background: '#fff', color: '#3D2314' }
 }
@@ -1153,32 +1136,3 @@ const menuItemStyle: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-function Campo({
-  label,
-  children,
-  obrigatorio = false,
-  fullWidth = false,
-}: {
-  label: string
-  children: React.ReactNode
-  obrigatorio?: boolean
-  fullWidth?: boolean
-}) {
-  return (
-    <div style={fullWidth ? { gridColumn: '1 / -1' } : undefined}>
-      <label
-        style={{
-          display: 'block',
-          fontSize: 11,
-          color: 'rgba(61,35,20,0.65)',
-          marginBottom: 6,
-          fontWeight: 500,
-        }}
-      >
-        {label}
-        {obrigatorio && <span style={{ color: '#A32D2D', marginLeft: 4 }}>*</span>}
-      </label>
-      {children}
-    </div>
-  )
-}

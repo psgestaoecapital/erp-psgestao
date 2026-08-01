@@ -6,6 +6,12 @@ import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
 import Modal from '@/components/ui/Modal'
 import ClienteForm, { type ClienteFormInitial } from '@/components/clientes/ClienteForm'
+import { PSGC_COLORS } from '@/lib/psgc-tokens'
+// RD-41 · padrão único de "erro de salvamento" (piloto)
+import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
+import { Campo } from '@/components/ui/feedback/Campo'
+import { useSalvar } from '@/components/ui/feedback/useSalvar'
+import { estiloBordaInput, mensagemDeResultado, VERBO_SUCESSO, type ResultadoSalvar } from '@/components/ui/feedback/contratoSalvar'
 
 type Cliente = {
   id: string
@@ -75,9 +81,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
 
   const [loading, setLoading] = useState(false)
-  const [semPlano, setSemPlano] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
   const [dupWarn, setDupWarn] = useState(false)
+  // RD-41 piloto · feedback padrão. Erro → banner fixo + campo vermelho; sucesso → toast.
+  const { feedback, erroCampo, limpar: limparFeedback, setFeedback, setErroCampo } = useSalvar()
 
   // Lote B — cliente inline: o cadastro de cliente abre COMO MODAL por cima da Nova Receita.
   // O form continua montado atrás (React não desmonta) → todo o estado digitado é preservado.
@@ -215,23 +221,21 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     return () => clearTimeout(t)
   }, [toast])
 
-  function validar(): string | null {
-    // descrição é OPCIONAL (Jordana): se vazia, usamos um rótulo-fallback ao salvar.
-    if (!valor || parseFloat(valor) <= 0) return 'Valor deve ser maior que zero'
-    if (!dataRecebimento) return 'Quando entra na conta?'
-    if (parcelas < 1 || parcelas > 60) return 'Parcelas entre 1 e 60'
+  // Validação client-side no padrão RD-41: banner "Faltou preencher: X" + destaque no campo.
+  function validarCampos(): { campo: string; banner: string } | null {
+    if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
+    if (!dataRecebimento) return { campo: 'dataRecebimento', banner: 'Faltou preencher: Quando entra na conta' }
+    if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
     return null
   }
 
   async function salvar(forcar = false) {
-    const erroValidacao = validar()
-    if (erroValidacao) {
-      setErro(erroValidacao)
-      return
-    }
+    setToast(null)
+    limparFeedback()
+    const faltou = validarCampos()
+    if (faltou) { setErroCampo(faltou.campo); setFeedback({ tipo: 'erro', texto: faltou.banner }); return }
 
     setLoading(true)
-    setErro(null)
     setDupWarn(false)
 
     // descrição opcional (1a): fallback = cliente · competência quando vazia.
@@ -284,35 +288,18 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       if (/idêntico|identico/i.test(error.message) || error.code === '23505') {
         setDupWarn(true)
       } else {
-        setErro(error.message)
+        setFeedback({ tipo: 'erro', texto: mensagemDeResultado(null) })
       }
       return
     }
 
-    const resultado = data as {
-      success?: boolean
-      sucesso?: boolean
-      sem_plano?: boolean
-      erro?: string
-      indice?: number
-      qtd_parcelas_criadas?: number
-      valor_por_parcela?: number
-      status_inicial?: string
-      ids?: string[]
-    } | null
+    const resultado = data as (ResultadoSalvar & { ids?: string[] }) | null
 
-    if (resultado?.sem_plano) {
+    // Regra de negócio negou (sem_plano ou sucesso:false) → banner da casa + campo vermelho.
+    if (resultado?.sem_plano || resultado?.sucesso === false) {
       setLoading(false)
-      setSemPlano(true)
-      return
-    }
-
-    if (resultado?.sucesso === false) {
-      setLoading(false)
-      setErro(
-        resultado.erro === 'parcela_incompleta' ? `A parcela ${resultado.indice} está sem data ou valor.`
-          : resultado.erro === 'sem_acesso' ? 'Você não tem permissão nesta empresa.'
-          : 'Não foi possível salvar: ' + (resultado.erro ?? 'erro desconhecido'))
+      setFeedback({ tipo: 'erro', texto: mensagemDeResultado(resultado) })
+      if (resultado?.campo) setErroCampo(resultado.campo)
       return
     }
 
@@ -356,13 +343,14 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       })
       if (matchErr) {
         setLoading(false)
-        setErro('Receita CRIOU mas nao CONCILIOU: ' + matchErr.message)
+        setFeedback({ tipo: 'erro', texto: 'Receita CRIOU, mas não CONCILIOU. Concilie manualmente no inbox de conciliação.' })
         return
       }
     }
 
     setLoading(false)
 
+    const msg = `${VERBO_SUCESSO.criar}${parcelas >= 2 ? ` ${parcelas} parcelas · ${brl(somaParcelas)}` : ` ${brl(parseFloat(valor) || 0)}`}`
     const primeiroId = ids[0]
     if (origemConciliacao) {
       router.push('/dashboard/financeiro/conciliacao/inbox')
@@ -371,6 +359,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     if (primeiroId && onSucesso) {
       onSucesso(primeiroId)
     } else {
+      setToast(msg)
       router.push('/dashboard/financeiro/receber?area=gestao_empresarial')
     }
   }
@@ -421,25 +410,25 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
 
-          <Campo label="Quanto vou receber?" obrigatorio>
+          <Campo label="Quanto vou receber?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
             <input
               type="number"
               step="0.01"
               min="0"
               value={valor}
-              onChange={(e) => setValor(e.target.value)}
+              onChange={(e) => { setValor(e.target.value); if (erroCampo === 'valor') limparFeedback() }}
               placeholder="0,00"
-              style={inputStyle}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null) }}
             />
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
 
-          <Campo label="Quando entra na conta?" obrigatorio>
+          <Campo label="Quando entra na conta?" obrigatorio erro={erroCampo === 'dataRecebimento' ? 'Informe quando entra na conta' : null}>
             <input
               type="date"
               value={dataRecebimento}
-              onChange={(e) => setDataRecebimento(e.target.value)}
-              style={inputStyle}
+              onChange={(e) => { setDataRecebimento(e.target.value); if (erroCampo === 'dataRecebimento') limparFeedback() }}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataRecebimento' ? 'x' : null) }}
             />
           </Campo>
 
@@ -509,14 +498,14 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
 
-          <Campo label="Quantas parcelas?">
+          <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
               min="1"
               max="60"
               value={parcelas}
-              onChange={(e) => setParcelas(parseInt(e.target.value) || 1)}
-              style={inputStyle}
+              onChange={(e) => { setParcelas(parseInt(e.target.value) || 1); if (erroCampo === 'parcelas') limparFeedback() }}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'parcelas' ? 'x' : null) }}
             />
             <small style={helperStyle}>1 = recebimento à vista</small>
           </Campo>
@@ -574,7 +563,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
               </div>
 
               {modoValor === 'total' && Math.abs(somaParcelas - (parseFloat(valor) || 0)) > 0.01 && (
-                <div style={{ marginTop: 8, background: '#FEF6E0', border: '1px solid #C8941A', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
+                <div style={{ marginTop: 8, background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
                   A soma das parcelas difere do total informado ({brl(parseFloat(valor) || 0)}) — variação permitida.
                 </div>
               )}
@@ -631,7 +620,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             </select>
             {centros.length === 0 && (
               <small style={{ ...helperStyle, color: '#854F0B' }}>
-                Nenhum centro de custo · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: '#C8941A' }}>cadastrar</a>
+                Nenhum centro de custo · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: PSGC_COLORS.dourado }}>cadastrar</a>
               </small>
             )}
           </Campo>
@@ -684,7 +673,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
                   />
                 </Campo>
                 {!contaBancaria && (
-                  <small style={{ ...helperStyle, color: '#A32D2D', gridColumn: '1 / -1' }}>
+                  <small style={{ ...helperStyle, color: PSGC_COLORS.alta, gridColumn: '1 / -1' }}>
                     Selecione uma conta bancária acima pra registrar o recebimento.
                   </small>
                 )}
@@ -693,37 +682,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
           </div>
         </div>
 
-        {semPlano && (
-          <div
-            style={{
-              background: '#FFF7ED',
-              color: '#854F0B',
-              border: '0.5px solid rgba(200,148,26,0.4)',
-              padding: '10px 14px',
-              borderRadius: 6,
-              marginTop: 18,
-              fontSize: 13,
-            }}
-          >
-            Esta empresa ainda não tem o plano <strong>Gestão Empresarial Pro</strong> ativo.
-            Ative o plano pra cadastrar receitas.
-          </div>
-        )}
-
-        {erro && (
-          <div
-            style={{
-              background: '#FCEBEB',
-              color: '#A32D2D',
-              padding: '10px 14px',
-              borderRadius: 6,
-              marginTop: 18,
-              fontSize: 13,
-            }}
-          >
-            {erro}
-          </div>
-        )}
+        {/* Padrão RD-41 · erro de salvamento em banner fixo (mesmo ponto em toda tela).
+            Sucesso não vem aqui — vira toast. */}
+        <div style={{ marginTop: 18 }}>
+          <FeedbackSalvar estado={feedback} />
+        </div>
 
         <div
           style={{
@@ -753,7 +716,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             onClick={() => salvar()}
             disabled={loading}
             style={{
-              background: '#C8941A',
+              background: PSGC_COLORS.dourado,
               color: '#3D2314',
               border: 'none',
               padding: '10px 28px',
@@ -778,7 +741,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setDupWarn(false)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E7DED3', background: '#fff', color: '#3D2314', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={() => salvar(true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#C8941A', color: '#fff', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Criar mesmo assim</button>
+              <button onClick={() => salvar(true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: PSGC_COLORS.dourado, color: '#fff', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Criar mesmo assim</button>
             </div>
           </div>
         </div>
@@ -865,32 +828,3 @@ const cellHead: React.CSSProperties = { padding: '7px 10px', fontSize: 11, fontW
 const cellBody: React.CSSProperties = { padding: '6px 10px', fontSize: 13, color: '#3D2314' }
 const inputMini: React.CSSProperties = { width: '100%', padding: '6px 8px', border: '0.5px solid rgba(61,35,20,0.2)', borderRadius: 5, fontSize: 13, background: '#FFFFFF', color: '#3D2314', fontFamily: 'inherit', boxSizing: 'border-box' }
 
-function Campo({
-  label,
-  children,
-  obrigatorio = false,
-  fullWidth = false,
-}: {
-  label: string
-  children: React.ReactNode
-  obrigatorio?: boolean
-  fullWidth?: boolean
-}) {
-  return (
-    <div style={fullWidth ? { gridColumn: '1 / -1' } : undefined}>
-      <label
-        style={{
-          display: 'block',
-          fontSize: 11,
-          color: 'rgba(61,35,20,0.65)',
-          marginBottom: 6,
-          fontWeight: 500,
-        }}
-      >
-        {label}
-        {obrigatorio && <span style={{ color: '#A32D2D', marginLeft: 4 }}>*</span>}
-      </label>
-      {children}
-    </div>
-  )
-}
