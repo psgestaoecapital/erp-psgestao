@@ -12,6 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAcesso } from '@/hooks/useAcesso'
 import VisaoExecucaoModal from '@/components/oficina/VisaoExecucaoModal'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
+import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', espressoD: '#9C8E80',
@@ -71,10 +72,10 @@ function placaDe(o: OS): string | null {
   const p = raw.replace(/[- ]/g, '').toUpperCase()
   return p.length === 7 ? `${p.slice(0, 3)}-${p.slice(3)}` : p
 }
-// Modelo/descrição do veículo pro card (estruturado > texto livre).
-function veiculoDe(o: OS): string {
+// Modelo/descrição do objeto pro card (estruturado > texto livre). fallback por ramo.
+function veiculoDe(o: OS, fallback = 'Veículo'): string {
   const partes = [o.marca, o.modelo].filter(Boolean).join(' ')
-  return partes || o.equipamento || 'Veículo'
+  return partes || o.equipamento || fallback
 }
 // Nome do mecânico pro card — quando o campo guarda o e-mail do usuário (dado legado),
 // mostra o nome derivado em vez de "fulano@gmail.com".
@@ -124,6 +125,7 @@ export default function PatioKanbanPage() {
   const router = useRouter()
   const { companyIds } = useCompanyIds()
   const companyId = companyIds.length === 1 ? companyIds[0] : null
+  const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · card/labels coerentes por ramo
   // RD-41 · Auxiliar (OPERATOR) → abre a Visão de Execução (sem R$/gerencial).
   const { isOperator } = useAcesso(companyId)
 
@@ -285,7 +287,7 @@ export default function PatioKanbanPage() {
                 onDrop={() => { const o = oss.find((x) => x.id === dragId); if (o) void mover(o, col.status); setDragId(null) }}
                 style={{ flex: '0 0 200px', minWidth: 200, background: '#FFFDF9', border: `1px solid ${C.border}`, borderTop: `3px solid ${cor}`, borderRadius: 10, padding: 6, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '100%' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: C.espresso }}>{col.icone} {entregueCol ? 'Entregue hoje' : col.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.espresso }}>{entregueCol && !ramo.automotivo ? '📦' : col.icone} {entregueCol ? 'Entregue hoje' : col.label}</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: cor, background: cor + '18', borderRadius: 20, padding: '1px 8px' }}>{cards.length}</span>
                 </div>
                 <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0 }}>
@@ -302,11 +304,11 @@ export default function PatioKanbanPage() {
                         style={{ background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${cor}`, borderRadius: 8, padding: '7px 9px', cursor: 'pointer', opacity: salvandoId === o.id ? 0.5 : 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {/* linha 1: placa (destaque) + tempo na coluna (semáforo/SLA) */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: 0.5, color: C.espresso, fontFamily: 'ui-monospace, Menlo, monospace' }}>{placa ?? 'sem placa'}</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: 0.5, color: C.espresso, fontFamily: ramo.automotivo ? 'ui-monospace, Menlo, monospace' : 'inherit' }}>{ramo.automotivo ? (placa ?? 'sem placa') : veiculoDe(o, ramo.objetoLabel)}</span>
                           <span title={`${Math.floor(sem.horas)}h na coluna`} style={{ fontSize: 9.5, fontWeight: 700, color: sem.cor, background: sem.cor + '18', borderRadius: 20, padding: '1px 7px', whiteSpace: 'nowrap' }}>{tempoCurto(sem.horas)}</span>
                         </div>
                         {/* linha 2: veículo · cliente (menor) */}
-                        <div style={{ fontSize: 11, color: C.espressoM, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{veiculoDe(o)} · {o.cliente_nome || '—'}</div>
+                        <div style={{ fontSize: 11, color: C.espressoM, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ramo.automotivo ? `${veiculoDe(o)} · ${o.cliente_nome || '—'}` : (o.cliente_nome || '—')}</div>
                         {/* linha 3: OS# + alertas + mecânico (inicial) */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontSize: 9.5, fontFamily: 'ui-monospace, Menlo, monospace', color: C.espressoD, fontWeight: 600 }}>{o.numero || 'sem nº'}</span>
@@ -339,8 +341,8 @@ export default function PatioKanbanPage() {
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: C.white, borderRadius: '16px 16px 0 0', padding: 16, width: '100%', maxWidth: 520, boxShadow: '0 -4px 24px rgba(61,35,20,0.2)' }}>
             <div style={{ textAlign: 'center', marginBottom: 4 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, color: C.espresso }}>{placaDe(cardAberto) ?? `🚗 ${veiculoDe(cardAberto)}`}</div>
-              <div style={{ fontSize: 12, color: C.espressoM }}>{veiculoDe(cardAberto)} · {cardAberto.cliente_nome || '—'}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: C.espresso }}>{placaDe(cardAberto) ?? `${ramo.automotivo ? '🚗 ' : ''}${veiculoDe(cardAberto, ramo.objetoLabel)}`}</div>
+              <div style={{ fontSize: 12, color: C.espressoM }}>{veiculoDe(cardAberto, ramo.objetoLabel)} · {cardAberto.cliente_nome || '—'}</div>
             </div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoD, textAlign: 'center', margin: '10px 0 8px' }}>Mover para</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -353,7 +355,7 @@ export default function PatioKanbanPage() {
                     background: col.status === cardAberto.status ? C.bg : C.white,
                     color: col.status === cardAberto.status ? C.gold : C.espresso, opacity: col.status === cardAberto.status ? 0.7 : 1,
                   }}>
-                  {col.icone} {col.label}{col.status === cardAberto.status ? ' ✓' : ''}
+                  {col.status === 'entregue' && !ramo.automotivo ? '📦' : col.icone} {col.label}{col.status === cardAberto.status ? ' ✓' : ''}
                 </button>
               ))}
             </div>
@@ -419,7 +421,7 @@ export default function PatioKanbanPage() {
           osId={assinarEntregaOs.id}
           tipo="entrega"
           titulo="Assinar entrega"
-          subtitulo="Recebi o veículo com o serviço finalizado."
+          subtitulo={ramo.automotivo ? 'Recebi o veículo com o serviço finalizado.' : `Recebi a ${ramo.objetoLabelCurto} com o serviço finalizado.`}
           aberto
           onFechar={() => setAssinarEntregaOs(null)}
           onAssinado={() => { if (assinarEntregaOs) void recarregarAssinaturas(assinarEntregaOs.id) }}

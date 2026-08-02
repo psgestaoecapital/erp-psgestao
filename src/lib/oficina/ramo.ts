@@ -26,6 +26,12 @@ export interface RamoConfig {
   identPlaceholder: string
   /** título da recepção. */
   recepcaoTitulo: string
+  /** título da seção "o que fazer" (queixa do cliente / o que fazer na peça). */
+  servicoLabel: string
+  /** rótulo do item de menu da Recepção (por ramo, sem schema novo). */
+  menuRecepcao: string
+  /** rótulo do item de menu de "Entregues". */
+  menuEntregues: string
   /** mostra/obriga placa+marca+modelo+ano+km. */
   pedeVeiculo: boolean
   /** mostra combustível + checklist de carro (retrovisores/pneus…) + objetos. */
@@ -49,6 +55,8 @@ const BASE: Record<Ramo, Omit<RamoConfig, 'ramo'>> = {
     objetoLabel: 'Veículo', objetoLabelCurto: 'veículo',
     identLabel: 'Placa', identPlaceholder: 'ABC-1234',
     recepcaoTitulo: 'Check-in do veículo',
+    servicoLabel: 'O que está acontecendo? (queixa do cliente)',
+    menuRecepcao: 'Recepção de Veículo', menuEntregues: 'Veículos Entregues',
     pedeVeiculo: true, pedeCheckinAutomotivo: true,
     categorias: CAT_AUTOMOTIVA,
   },
@@ -57,6 +65,8 @@ const BASE: Record<Ramo, Omit<RamoConfig, 'ramo'>> = {
     objetoLabel: 'Peça / trabalho', objetoLabelCurto: 'peça',
     identLabel: 'Peça', identPlaceholder: 'Ex.: cabeçote 4cc',
     recepcaoTitulo: 'Recebimento da peça',
+    servicoLabel: 'O que fazer na peça',
+    menuRecepcao: 'Recepção da Peça', menuEntregues: 'Entregas',
     pedeVeiculo: false, pedeCheckinAutomotivo: false,
     categorias: [
       cat('cabecote', 'Cabeçote'), cat('virabrequim', 'Virabrequim'), cat('bloco', 'Bloco'),
@@ -69,6 +79,8 @@ const BASE: Record<Ramo, Omit<RamoConfig, 'ramo'>> = {
     objetoLabel: 'Peça / trabalho', objetoLabelCurto: 'peça',
     identLabel: 'Peça', identPlaceholder: 'Ex.: eixo Ø40',
     recepcaoTitulo: 'Recebimento da peça',
+    servicoLabel: 'O que fazer na peça',
+    menuRecepcao: 'Recepção da Peça', menuEntregues: 'Entregas',
     pedeVeiculo: false, pedeCheckinAutomotivo: false,
     categorias: [
       cat('usinagem', 'Usinagem'), cat('torneamento', 'Torneamento'), cat('fresa', 'Fresa'),
@@ -80,6 +92,8 @@ const BASE: Record<Ramo, Omit<RamoConfig, 'ramo'>> = {
     objetoLabel: 'Equipamento', objetoLabelCurto: 'equipamento',
     identLabel: 'Equipamento', identPlaceholder: 'Ex.: motor 5cv trifásico',
     recepcaoTitulo: 'Recebimento do equipamento',
+    servicoLabel: 'O que fazer no equipamento',
+    menuRecepcao: 'Recepção do Equipamento', menuEntregues: 'Entregas',
     pedeVeiculo: false, pedeCheckinAutomotivo: false,
     categorias: [
       cat('eletrica', 'Elétrica'), cat('rebobinamento', 'Rebobinamento'), cat('bobinas', 'Bobinas'),
@@ -91,6 +105,8 @@ const BASE: Record<Ramo, Omit<RamoConfig, 'ramo'>> = {
     objetoLabel: 'Item / trabalho', objetoLabelCurto: 'item',
     identLabel: 'Item', identPlaceholder: 'Ex.: descrição do item',
     recepcaoTitulo: 'Recebimento',
+    servicoLabel: 'O que fazer',
+    menuRecepcao: 'Recepção', menuEntregues: 'Entregas',
     pedeVeiculo: false, pedeCheckinAutomotivo: false,
     categorias: [cat('servico', 'Serviço'), cat('outros', 'Outros')],
   },

@@ -8,6 +8,7 @@ import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check 
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import SolicitarPecaModal from '@/components/oficina/SolicitarPecaModal'
+import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -44,6 +45,7 @@ function useCompanyId(): string | null {
 
 export default function DiagnosticoPage() {
   const companyId = useCompanyId()
+  const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · texto coerente por ramo
   const router = useRouter()
   const [lista, setLista] = useState<OSLinha[]>([])
   const [osSel, setOsSel] = useState<OSLinha | null>(null)
@@ -149,15 +151,15 @@ export default function DiagnosticoPage() {
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 40px' }}>
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Diagnóstico</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual veículo diagnosticar?</h1>
-        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhum veículo ativo no pátio. Faça a recepção primeiro.</div>}
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual {ramo.objetoLabelCurto} diagnosticar?</h1>
+        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>{ramo.automotivo ? 'Nenhum veículo ativo no pátio.' : 'Nada ativo no pátio.'} Faça a recepção primeiro.</div>}
         {lista.map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <PlacaInline companyId={companyId} osId={os.id} placa={os.placa} onSaved={(p) => setPlacaLocal(os.id, p)} />
               <span style={{ fontSize: 11, color: ESP60 }}>{os.numero}</span>
             </div>
-            <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || 'Veículo'}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
+            <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || ramo.objetoLabel}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
             {os.defeito_relatado && <div style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>“{os.defeito_relatado}”</div>}
             {os.tem_laudo && <div style={{ fontSize: 11, fontWeight: 700, color: OK, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} /> já tem laudo — toque p/ editar</div>}
           </div>
@@ -171,12 +173,12 @@ export default function DiagnosticoPage() {
   return (
     <div style={{ background: BG, minHeight: '100vh', color: ESP }}>
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 96px' }}>
-        <button onClick={() => setOsSel(null)} style={linkBtn}><ChevronLeft size={16} /> Trocar veículo</button>
+        <button onClick={() => setOsSel(null)} style={linkBtn}><ChevronLeft size={16} /> Trocar {ramo.objetoLabelCurto}</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Diagnóstico · {osSel.numero}</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 4px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
         {osSel.defeito_relatado && <div style={{ fontSize: 13, color: ESP60, marginBottom: 12 }}>Queixa do cliente: “{osSel.defeito_relatado}”</div>}
 
-        <Sec titulo="Causa provável (o que o carro tem)">
+        <Sec titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
           <textarea value={diagnostico} onChange={(e) => setDiagnostico(e.target.value)} rows={3} placeholder="Ex.: barulho ao frear — pastilha dianteira gasta e disco com sulco." style={{ ...inp, resize: 'vertical' }} />
           <Campo l="KM confirmado"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
         </Sec>

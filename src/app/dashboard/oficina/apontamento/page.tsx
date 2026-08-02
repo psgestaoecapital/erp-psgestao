@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { Timer, ChevronLeft, Play, Square } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
+import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -45,6 +46,7 @@ function fmtH(h: number | null | undefined): string {
 
 export default function ApontamentoPage() {
   const companyId = useCompanyId()
+  const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · texto coerente por ramo
   const router = useRouter()
   const [lista, setLista] = useState<OSLinha[]>([])
   const [osSel, setOsSel] = useState<OSLinha | null>(null)
@@ -120,7 +122,7 @@ export default function ApontamentoPage() {
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 40px' }}>
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Apontamento</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={22} /> Em qual carro você vai trabalhar?</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={22} /> {ramo.automotivo ? 'Em qual carro você vai trabalhar?' : 'Em qual trabalho você vai atuar?'}</h1>
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS aprovada ainda. Passe pela Aprovação primeiro.</div>}
         {lista.map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
@@ -128,7 +130,7 @@ export default function ApontamentoPage() {
               <PlacaInline companyId={companyId} osId={os.id} placa={os.placa} onSaved={(p) => setPlacaLocal(os.id, p)} />
               <span style={{ fontSize: 11, color: ESP60 }}>{os.numero}</span>
             </div>
-            <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || 'Veículo'}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
+            <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || ramo.objetoLabel}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
           </div>
         ))}
       </div>
@@ -142,7 +144,7 @@ export default function ApontamentoPage() {
   return (
     <div style={{ background: BG, minHeight: '100vh', color: ESP }}>
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 96px' }}>
-        <button onClick={() => setOsSel(null)} style={linkBtn}><ChevronLeft size={16} /> Trocar veículo</button>
+        <button onClick={() => setOsSel(null)} style={linkBtn}><ChevronLeft size={16} /> Trocar {ramo.objetoLabelCurto}</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Apontamento · {osSel.numero}</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 10px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
 
