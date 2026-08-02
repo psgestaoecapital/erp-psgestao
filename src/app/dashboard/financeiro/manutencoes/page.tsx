@@ -18,9 +18,9 @@ type Linha = {
   id: string; numero: string | null; entregue_em: string | null; cliente_nome: string | null
   placa: string | null; veiculo: string | null; tecnico_nome: string | null
   receita: number | null; custo_pecas: number | null; custo_mo: number | null
-  lucro: number | null; margem: number | null; tem_snapshot: boolean; estimado: boolean
+  lucro: number | null; margem: number | null; aguardando: boolean
 }
-type Totais = { qtd: number; receita: number; custo_pecas: number; custo_mo: number; lucro: number; ticket_medio: number; margem_media: number | null; estimadas: number }
+type Totais = { qtd: number; receita: number | null; custo_pecas: number; custo_mo: number; lucro: number | null; ticket_medio: number | null; margem_media: number | null; qtd_aguardando: number }
 type Detalhe = { pecas: { descricao: string; quantidade: number; status: string; custo_unit: number; custo_total: number }[]; mao_obra: { horas: number; custo_hora: number | null; custo: number } }
 
 export default function ManutencoesPage() {
@@ -82,7 +82,7 @@ export default function ManutencoesPage() {
     const linhasCsv = visiveis.map((l) => [
       fmtData(l.entregue_em), l.cliente_nome ?? '', l.veiculo ?? '', l.placa ?? '', l.tecnico_nome ?? '',
       l.receita ?? '', l.custo_pecas ?? '', l.custo_mo ?? '', l.lucro ?? '', l.margem ?? '',
-      l.estimado || !l.tem_snapshot ? 'estimado' : 'real',
+      l.aguardando ? 'aguardando faturamento' : 'faturado',
     ])
     const csv = [head, ...linhasCsv].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
@@ -127,9 +127,10 @@ export default function ManutencoesPage() {
           <Tot l="Ticket médio" v={brl(totais.ticket_medio)} />
         </div>
       )}
-      {totais && totais.estimadas > 0 && (
-        <div style={{ fontSize: 12, color: '#854F0B', background: '#FCF3DA', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
-          ⚠️ {totais.estimadas} manutenção(ões) com custo <b>estimado</b> (snapshot aproximado / sem custo-hora no período) — o restante é real da entrega.
+      {totais && totais.qtd_aguardando > 0 && (
+        <div style={{ fontSize: 12, color: '#1D4671', background: '#E5EEF8', border: '1px solid #3D6FA8', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+          ℹ️ <b>Receita e lucro aguardam o faturamento pela OS</b> (previsto após a validação do GE). Os <b>custos</b> (peças e mão de obra) já refletem o real.
+          {' '}{totais.qtd_aguardando} de {totais.qtd} sem faturamento vinculado.
         </div>
       )}
 
@@ -145,7 +146,7 @@ export default function ManutencoesPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {visiveis.map((l) => {
-            const est = l.estimado || !l.tem_snapshot
+            const est = l.aguardando
             const aberto = expandido === l.id
             return (
               <div key={l.id} style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -153,7 +154,7 @@ export default function ManutencoesPage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: ESP, display: 'flex', alignItems: 'center', gap: 6 }}>
                       {l.placa || 'sem placa'}
-                      {est && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#854F0B', background: '#FCF3DA', borderRadius: 4, padding: '1px 5px' }}>estimado</span>}
+                      {est && <span title="Sem faturamento vinculado à OS ainda" style={{ fontSize: 9.5, fontWeight: 700, color: '#1D4671', background: '#E5EEF8', borderRadius: 4, padding: '1px 5px' }}>aguardando faturamento</span>}
                     </div>
                     <div style={{ fontSize: 12, color: ESP60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtData(l.entregue_em)} · {l.cliente_nome || '—'}{l.veiculo ? ` · ${l.veiculo}` : ''}</div>
                   </div>
