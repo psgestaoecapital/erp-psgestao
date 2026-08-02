@@ -19,6 +19,7 @@ import {
   type SidebarStatus,
 } from './sidebar-config'
 import { useAreasVisiveis } from '@/hooks/useAreasVisiveis'
+import { ramoConfig, RAMOS, type Ramo } from '@/lib/oficina/ramo'
 
 const AREA_STORAGE_KEY = 'ps_area_sel'
 const EMPRESA_STORAGE_KEY = 'ps_empresa_sel'
@@ -92,7 +93,7 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   INTELIGENCIA_BI: 'Inteligência (BI)',
 }
 
-function rpcRowsToModulos(rows: RpcRow[], isPS: boolean): SidebarModuleNode[] {
+function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, labelOverride?: Record<string, string>): SidebarModuleNode[] {
   // RPC ja vem ordenada (secao_ordem, ordem). Agrupar preservando a ordem
   // de aparicao da secao na lista (1a ocorrencia define a posicao).
   const grupos = new Map<string, { label: string; items: SidebarSubItemNode[] }>()
@@ -107,7 +108,7 @@ function rpcRowsToModulos(rows: RpcRow[], isPS: boolean): SidebarModuleNode[] {
     const grp = grupos.get(secaoKey)!
     grp.items.push({
       id: r.modulo_id,
-      label: r.nome,
+      label: labelOverride?.[r.modulo_id] ?? r.nome,
       href: r.rota ?? '#',
       status: statusFromRpc(r.status),
       ...(isPS && r.badge_label ? { badge: r.badge_label } : {}),
@@ -192,6 +193,19 @@ export function useSidebarModulos(): State {
     })()
     return () => { alive = false }
   }, [])
+
+  // RD-41 Fase 2 · ramo da oficina → renomeia itens de menu (Recepção da Peça / Entregas)
+  // quando ramo≠automotiva. So consulta na area oficina; automotiva mantem os nomes da RPC.
+  const [ramoOficina, setRamoOficina] = useState<Ramo | null>(null)
+  useEffect(() => {
+    let alive = true
+    if (!companyId) { setRamoOficina(null); return }
+    void supabase.rpc('fn_oficina_ramo', { p_company_id: companyId }).then(({ data }) => {
+      if (!alive) return
+      setRamoOficina(typeof data === 'string' && RAMOS.includes(data as Ramo) ? (data as Ramo) : null)
+    })
+    return () => { alive = false }
+  }, [companyId])
 
   // surfacing-admin-owner · e CLIENT_OWNER ativo e NAO PS_ADMIN? (mesma regra do
   // checkAuth de /dashboard/admin: scoped = isOwner && !isSystemAdmin). Se sim,
@@ -335,7 +349,12 @@ export function useSidebarModulos(): State {
     return { modulos: [], loading: false, mode: 'rpc-empty' }
   }
 
-  const modulos = rpcRowsToModulos(rows, isPS)
+  // RD-41 Fase 2 · nomes de menu por ramo (só na oficina, só quando ramo≠automotiva).
+  // automotiva mantém EXATAMENTE os nomes da RPC (regressão zero).
+  const overrideNomes = (areaSlugRpc === 'oficina' && ramoOficina && ramoOficina !== 'automotiva')
+    ? { oficina_recepcao: ramoConfig(ramoOficina).menuRecepcao, oficina_entregues: ramoConfig(ramoOficina).menuEntregues }
+    : undefined
+  const modulos = rpcRowsToModulos(rows, isPS, overrideNomes)
   // Rodape de apoio da Gestao Empresarial: Guia de Implantacao (onboarding
   // sob demanda). Hardcoded aqui pra evitar migration por cada apresentacao
   // — segue o mesmo padrao de SECAO_LABEL_OVERRIDE acima.

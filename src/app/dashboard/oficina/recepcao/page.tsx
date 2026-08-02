@@ -61,8 +61,9 @@ export default function RecepcaoPage() {
   const [clienteNome, setClienteNome] = useState(''); const [clienteCnpj, setClienteCnpj] = useState(''); const [clienteId, setClienteId] = useState('')
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
-  // não-automotiva: descrição da peça/trabalho + medidas/specs + material (dados nullable, sem cirurgia de schema).
-  const [itemDesc, setItemDesc] = useState(''); const [medidas, setMedidas] = useState(''); const [material, setMaterial] = useState('')
+  // não-automotiva: descrição da peça/trabalho + material + medidas/specs + quantidade (colunas nullable estruturadas).
+  const [itemDesc, setItemDesc] = useState(''); const [medidas, setMedidas] = useState(''); const [material, setMaterial] = useState(''); const [quantidade, setQuantidade] = useState('')
+  const [origemAberta, setOrigemAberta] = useState(false)   // "motor/veículo de origem" colapsado
   const [mecanico, setMecanico] = useState(''); const [mecLimpos, setMecLimpos] = useState<string[]>([])  // responsável no check-in (opcional)
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
@@ -114,7 +115,6 @@ export default function RecepcaoPage() {
     }
     setSalvando(true)
     // automotiva → check-in de carro; demais ramos → recebimento da peça (dados nullable, sem placa/combustível/km).
-    const especs = [medidas.trim() && `Medidas: ${medidas.trim()}`, material.trim() && `Material: ${material.trim()}`].filter(Boolean).join(' · ')
     const p_dados = ramo.automotivo
       ? {
           cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
@@ -124,11 +124,13 @@ export default function RecepcaoPage() {
         }
       : {
           cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
-          placa: null, marca: marca || null, modelo: itemDesc.trim() || null,   // objeto = peça/trabalho → erp_os.modelo
+          placa: null, marca: marca || null, modelo: itemDesc.trim() || null,   // objeto = peça/trabalho → erp_os.modelo (aparece nos cards)
           ano: null, km: null, chassi: null,
-          queixa: queixa.trim() || itemDesc.trim(),
+          queixa: queixa.trim() || itemDesc.trim(),                             // "o que fazer" → erp_os.descricao_servico
           combustivel: null, checklist: {}, avarias: null, objetos: null,
-          observacoes: especs || null,
+          // snapshot estruturado da peça (colunas aditivas em erp_os_recepcao)
+          peca_descricao: itemDesc.trim() || null, peca_material: material.trim() || null,
+          peca_medidas: medidas.trim() || null, peca_quantidade: quantidade.trim() || null,
           fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
         }
     const { data, error } = await supabase.rpc('fn_oficina_recepcao_criar', {
@@ -199,17 +201,25 @@ export default function RecepcaoPage() {
           ) : (
             <>
               <Campo l={`${ramo.objetoLabel} *`}><input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder={ramo.identPlaceholder} style={inp} /></Campo>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <Campo l="Material (opcional)"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: alumínio / ferro fundido" style={inp} /></Campo>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: 8 }}>
                 <Campo l="Medidas / specs (opcional)"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>
-                <Campo l="Material (opcional)"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: ferro fundido" style={inp} /></Campo>
+                <Campo l="Quantidade (opcional)"><input value={quantidade} onChange={(e) => setQuantidade(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder="1" style={inp} /></Campo>
               </div>
-              <Campo l="Origem (opcional)"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor/veículo de origem do cabeçote" style={inp} /></Campo>
+              {/* Motor/veículo de origem — colapsado (rastreio opcional de qual carro veio a peça) */}
+              {origemAberta ? (
+                <Campo l="Motor / veículo de origem (opcional)"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor AP 1.8 / Gol G4" style={inp} autoFocus /></Campo>
+              ) : (
+                <button onClick={() => setOrigemAberta(true)} style={{ background: 'none', border: 'none', color: GOLD, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 0', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  + Motor / veículo de origem
+                </button>
+              )}
             </>
           )}
         </Sec>
 
-        {/* SERVIÇO / QUEIXA */}
-        <Sec titulo={ramo.automotivo ? 'O que está acontecendo? (queixa do cliente)' : 'Serviço solicitado'}>
+        {/* SERVIÇO / O QUE FAZER */}
+        <Sec titulo={ramo.servicoLabel}>
           <textarea value={queixa} onChange={(e) => setQueixa(e.target.value)} rows={3}
             placeholder={ramo.automotivo ? 'Ex.: barulho na frente ao frear, luz do motor acesa…' : 'Ex.: retífica de cabeçote, plaina, brunimento…'}
             style={{ ...inp, resize: 'vertical' }} />
