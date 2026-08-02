@@ -321,7 +321,7 @@ export default function PatioKanbanPage() {
                   })}
                 </div>
                 {entregueCol && histN > 0 && (
-                  <button onClick={() => router.push('/dashboard/os')}
+                  <button onClick={() => router.push('/dashboard/oficina/entregues')}
                     style={{ fontSize: 11, fontWeight: 700, color: cor, background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 2px', textAlign: 'left' }}>
                     ver histórico ({histN}) →
                   </button>
