@@ -22,7 +22,11 @@ type ItemLaudo = {
   tipo: 'servico' | 'peca'; servico_id?: string | null; produto_id?: string | null; descricao: string
   quantidade?: string; tempo_estimado_h?: string; severidade: string; observacao?: string
   _estoque?: number | null; _codigo?: string | null    // só p/ exibição (peça do catálogo)
+  // RD-41 · orçamento operacional (vem da RPC pós-aprovação; SEMPRE presente no dado)
+  preco?: number | null; subtotal?: number | null; status_item?: string; aprovado?: boolean | null
 }
+type Resumo = { total_aprovado: number; total_geral: number; qtd_aprovados: number; qtd_pendentes: number; qtd_recusados: number }
+const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 type OSLinha = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null; status: string; defeito_relatado: string | null; tem_laudo?: boolean }
 type Tempario = { id: string; codigo: string | null; nome: string; tempo_padrao_h: number | null }
 type Peca = { id: string; codigo: string | null; nome: string; marca: string | null; unidade: string | null; preco_venda: number | null; estoque_atual: number | null; status_estoque: string | null }
@@ -52,6 +56,7 @@ export default function DiagnosticoPage() {
   const [diagnostico, setDiagnostico] = useState('')
   const [km, setKm] = useState('')
   const [itens, setItens] = useState<ItemLaudo[]>([])
+  const [resumo, setResumo] = useState<Resumo | null>(null)   // RD-41 · total aprovado/geral da OS
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   // busca no tempário
@@ -75,14 +80,16 @@ export default function DiagnosticoPage() {
     if (!companyId) return
     setOsSel(os)
     const { data } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: companyId, p_os_id: os.id })
-    const d = data as { os?: { diagnostico?: string; km?: number }; itens?: ItemLaudo[] } | null
+    const d = data as { os?: { diagnostico?: string; km?: number }; itens?: (ItemLaudo & { preco?: number; subtotal?: number; status_item?: string })[]; resumo?: Resumo } | null
     setDiagnostico(d?.os?.diagnostico ?? '')
     setKm(d?.os?.km ? String(d.os.km) : '')
+    setResumo(d?.resumo ?? null)
     setItens((d?.itens ?? []).map((i) => ({
       tipo: i.tipo === 'peca' ? 'peca' : 'servico', servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null,
       descricao: i.descricao ?? '', quantidade: i.quantidade != null ? String(i.quantidade) : '1',
       tempo_estimado_h: i.tempo_estimado_h != null ? String(i.tempo_estimado_h) : '',
       severidade: i.severidade ?? 'recomendado', observacao: i.observacao ?? '',
+      preco: i.preco ?? null, subtotal: i.subtotal ?? null, status_item: i.status_item, aprovado: i.aprovado ?? null,
     })))
   }
 
@@ -243,7 +250,17 @@ export default function DiagnosticoPage() {
                     </span>
                   )}
                 </span>
-                <button onClick={() => delItem(i)} style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 4 }}><Trash2 size={16} /></button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {/* RD-41 · valor SEMPRE à vista pós-aprovação. recusado = sem valor (só indicação). */}
+                  {it.status_item === 'recusado' ? (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: ESP60 }}>recusado</span>
+                  ) : it.preco != null ? (
+                    <span style={{ fontSize: 13, fontWeight: 800, color: it.status_item === 'aprovado' ? OK : GOLD, whiteSpace: 'nowrap' }}>
+                      {brl(it.subtotal ?? it.preco)}{it.status_item === 'aprovado' ? ' ✓' : it.status_item === 'pendente' ? ' · aguardando' : ''}
+                    </span>
+                  ) : null}
+                  <button onClick={() => delItem(i)} style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 4 }}><Trash2 size={16} /></button>
+                </div>
               </div>
               <input value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder={it.tipo === 'peca' ? 'Qual peça?' : 'Qual serviço?'} style={{ ...inp, marginBottom: 8 }} />
               <div style={{ display: 'grid', gridTemplateColumns: it.tipo === 'peca' ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 8 }}>
@@ -264,6 +281,16 @@ export default function DiagnosticoPage() {
             <button onClick={() => addLinha('servico')} style={{ ...btnLine, flex: 1 }}><Plus size={15} /> Serviço</button>
             <button onClick={() => addLinha('peca')} style={{ ...btnLine, flex: 1 }}><Plus size={15} /> Peça</button>
           </div>
+
+          {/* RD-41 · total do orçamento (operacional; faturamento continua [→GE]) */}
+          {resumo && (resumo.qtd_aprovados > 0 || resumo.qtd_pendentes > 0 || resumo.qtd_recusados > 0) && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${LINE}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: ESP60 }}>
+                {resumo.qtd_aprovados} aprovado(s){resumo.qtd_pendentes ? ` · ${resumo.qtd_pendentes} aguardando` : ''}{resumo.qtd_recusados ? ` · ${resumo.qtd_recusados} recusado(s)` : ''}
+              </span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: OK }}>Total aprovado {brl(resumo.total_aprovado)}</span>
+            </div>
+          )}
         </Sec>
       </div>
 
