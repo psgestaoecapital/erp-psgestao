@@ -14,6 +14,7 @@ const OK = '#166534'; const RED = '#A32D2D'
 
 type Apont = { id: string; status: string; tempo_real_h: number | null; iniciado_em: string | null; finalizado_em: string | null; mecanico_nome: string | null }
 type ItemAp = { item_id: string; servico_id: string | null; descricao: string; tempo_estimado_h: number | null; severidade: string; apontamento: Apont | null }
+type PecaAp = { item_id: string; descricao: string; quantidade: number | null }   // RD-41 · contexto read-only (sem hora/R$)
 type OSLinha = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null }
 
 function useCompanyId(): string | null {
@@ -51,6 +52,7 @@ export default function ApontamentoPage() {
   const [lista, setLista] = useState<OSLinha[]>([])
   const [osSel, setOsSel] = useState<OSLinha | null>(null)
   const [itens, setItens] = useState<ItemAp[]>([])
+  const [pecas, setPecas] = useState<PecaAp[]>([])   // peças aprovadas (contexto do escopo)
   const [mecanico, setMecanico] = useState('')
   const [tempoManual, setTempoManual] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -72,16 +74,16 @@ export default function ApontamentoPage() {
   const carregarOS = useCallback(async (os: OSLinha) => {
     if (!companyId) return
     const { data } = await supabase.rpc('fn_oficina_apontamento_obter', { p_company_id: companyId, p_os_id: os.id })
-    const d = data as { itens?: ItemAp[] } | null
-    setItens(d?.itens ?? [])
+    const d = data as { itens?: ItemAp[]; pecas?: PecaAp[] } | null
+    setItens(d?.itens ?? []); setPecas(d?.pecas ?? [])
   }, [companyId])
 
   const abrirOS = async (os: OSLinha) => {
     if (!companyId) return
     const { data } = await supabase.rpc('fn_oficina_apontamento_obter', { p_company_id: companyId, p_os_id: os.id })
-    const d = data as { itens?: ItemAp[] } | null
-    if ((d?.itens ?? []).length === 0) { setMsg('Sem serviços aprovados nessa OS. Faça diagnóstico + aprovação primeiro.'); return }
-    setOsSel(os); setItens(d?.itens ?? [])
+    const d = data as { itens?: ItemAp[]; pecas?: PecaAp[] } | null
+    if ((d?.itens ?? []).length === 0 && (d?.pecas ?? []).length === 0) { setMsg('Nada aprovado nessa OS. Faça diagnóstico + aprovação primeiro.'); return }
+    setOsSel(os); setItens(d?.itens ?? []); setPecas(d?.pecas ?? [])
   }
 
   const iniciar = async (it: ItemAp) => {
@@ -189,8 +191,21 @@ export default function ApontamentoPage() {
               </div>
             )
           })}
-          {itens.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Nenhum serviço aprovado.</div>}
+          {itens.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Nenhum serviço aprovado (só peças — veja abaixo).</div>}
         </Sec>
+
+        {/* RD-41 · peças aprovadas = contexto do escopo (read-only; sem hora e SEM R$ na tela do mecânico) */}
+        {pecas.length > 0 && (
+          <Sec titulo={`Peças aprovadas · ${pecas.length}`}>
+            {pecas.map((p) => (
+              <div key={p.item_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${LINE}` }}>
+                <span style={{ fontSize: 14, color: ESP }}>{p.descricao}</span>
+                <span style={{ fontSize: 12, color: ESP60, whiteSpace: 'nowrap' }}>× {p.quantidade != null ? Number(p.quantidade) : 1}</span>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: ESP60, marginTop: 8 }}>Peças não têm apontamento de hora — aparecem aqui só pra você ver o escopo aprovado.</div>
+          </Sec>
+        )}
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${LINE}`, padding: '10px 14px' }}>
