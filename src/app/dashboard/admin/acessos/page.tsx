@@ -149,7 +149,9 @@ export default function AcessosCascataPage() {
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ctx.pessoas.map((p) => (
-              <PessoaRow key={p.user_id} p={p} aberto={editId === p.user_id}
+              // RD-41 🅲 · key inclui a versão de áreas/papel → remonta e re-sincroniza do banco
+              // após Salvar (fim do estado "preso" na memória que fazia as marcações reverterem).
+              <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}`} p={p} aberto={editId === p.user_id}
                 onToggle={() => setEditId(editId === p.user_id ? null : p.user_id)}
                 areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas}
                 companyId={companyId} onSaved={() => carregar(companyId)} />
@@ -328,20 +330,25 @@ function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSave
     const horario = (dias.size || ini || fim)
       ? { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true }
       : null;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
     const { data, error } = await supabase.rpc("fn_acessos_convidar_pessoa", {
       p_company_id: companyId, p_email: email, p_nome: nome || null,
       p_areas: Array.from(areas), p_role: role, p_plantas: Array.from(plantasSel),
-      p_horario: horario, p_papel_gestao: papel,
+      p_horario: horario, p_papel_gestao: papel, p_base_url: origin,
     });
     setSalvando(false);
-    const res = data as { ok?: boolean; erro?: string; acao?: string; link?: string } | null;
+    const res = data as { ok?: boolean; erro?: string; acao?: string; link?: string; email_enviado?: boolean } | null;
     if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao adicionar." }); return; }
     if (res.acao === "vinculado") {
       setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." });
       onSaved();
     } else {
-      const full = (typeof window !== "undefined" ? window.location.origin : "") + (res.link || "");
-      setMsg({ ok: true, t: "Convite criado. Envie o link para a pessoa concluir o cadastro." });
+      // 🅲 · email + link (os dois). Se o provedor de email ainda não está no Vault, o email
+      // não sai — mas o link fica visível pra enviar manualmente (nunca deixa a pessoa na mão).
+      const full = origin + (res.link || "");
+      setMsg({ ok: true, t: res.email_enviado
+        ? `Convite criado e email enviado para ${email}. O link também está aqui pra copiar.`
+        : "Convite criado. O email ainda não sai (provedor não configurado no Vault) — copie o link e envie." });
       setLink(full);
     }
   }
