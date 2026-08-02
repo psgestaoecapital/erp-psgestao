@@ -3,9 +3,10 @@
 // Busca por placa → prefill do histórico → cliente/veículo/km/queixa + checklist + FOTOS → cria OS (pátio).
 import React, { useEffect, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Camera, Car, ChevronLeft, Check, X } from 'lucide-react'
+import { Search, Camera, Car, Package, ChevronLeft, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
+import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -54,10 +55,14 @@ function useCompanyId(): string | null {
 export default function RecepcaoPage() {
   const companyId = useCompanyId()
   const router = useRouter()
+  // RD-41 · ramo dirige a recepção: automotiva = check-in de carro; retífica/usinagem/elétrica = recebimento da peça.
+  const { config: ramo } = useOficinaRamo(companyId)
   const [placa, setPlaca] = useState(''); const [buscando, setBuscando] = useState(false); const [historico, setHistorico] = useState<string | null>(null)
   const [clienteNome, setClienteNome] = useState(''); const [clienteCnpj, setClienteCnpj] = useState(''); const [clienteId, setClienteId] = useState('')
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
+  // não-automotiva: descrição da peça/trabalho + medidas/specs + material (dados nullable, sem cirurgia de schema).
+  const [itemDesc, setItemDesc] = useState(''); const [medidas, setMedidas] = useState(''); const [material, setMaterial] = useState('')
   const [mecanico, setMecanico] = useState(''); const [mecLimpos, setMecLimpos] = useState<string[]>([])  // responsável no check-in (opcional)
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
@@ -102,16 +107,33 @@ export default function RecepcaoPage() {
 
   const salvar = async () => {
     if (!companyId) return
-    if (placa.trim().length < 5) { setMsg('Informe a placa.'); return }
+    if (ramo.automotivo) {
+      if (placa.trim().length < 5) { setMsg('Informe a placa.'); return }
+    } else if (!itemDesc.trim() && !queixa.trim()) {
+      setMsg(`Descreva a ${ramo.objetoLabelCurto} ou o serviço solicitado.`); return
+    }
     setSalvando(true)
+    // automotiva → check-in de carro; demais ramos → recebimento da peça (dados nullable, sem placa/combustível/km).
+    const especs = [medidas.trim() && `Medidas: ${medidas.trim()}`, material.trim() && `Material: ${material.trim()}`].filter(Boolean).join(' · ')
+    const p_dados = ramo.automotivo
+      ? {
+          cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
+          placa, marca, modelo, ano, km, chassi, queixa, combustivel,
+          checklist: check, avarias, objetos,
+          fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
+        }
+      : {
+          cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
+          placa: null, marca: marca || null, modelo: itemDesc.trim() || null,   // objeto = peça/trabalho → erp_os.modelo
+          ano: null, km: null, chassi: null,
+          queixa: queixa.trim() || itemDesc.trim(),
+          combustivel: null, checklist: {}, avarias: null, objetos: null,
+          observacoes: especs || null,
+          fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
+        }
     const { data, error } = await supabase.rpc('fn_oficina_recepcao_criar', {
       p_company_id: companyId,
-      p_dados: {
-        cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
-        placa, marca, modelo, ano, km, chassi, queixa, combustivel,
-        checklist: check, avarias, objetos,
-        fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
-      },
+      p_dados,
     })
     const j = data as { ok?: boolean; erro?: string; numero?: string; os_id?: string } | null
     if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + (error?.message || j?.erro)); return }
@@ -143,35 +165,54 @@ export default function RecepcaoPage() {
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 96px' }}>
         <button onClick={() => router.push('/dashboard/oficina')} style={{ background: 'none', border: 'none', color: ESP60, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: 0 }}><ChevronLeft size={16} /> Oficina</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Recepção</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Car size={22} /> Check-in do veículo</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {ramo.automotivo ? <Car size={22} /> : <Package size={22} />} {ramo.recepcaoTitulo}
+        </h1>
 
-        {/* PLACA + busca */}
-        <Sec titulo="Placa">
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input value={placa} onChange={(e) => setPlaca(e.target.value.toUpperCase())} onBlur={buscarPlaca}
-              placeholder="ABC1D23" inputMode="text" autoCapitalize="characters"
-              style={{ ...inp, fontSize: 20, fontWeight: 700, letterSpacing: 2, textAlign: 'center' }} />
-            <button onClick={buscarPlaca} disabled={buscando} style={{ ...btnGold, minWidth: 52 }}><Search size={18} /></button>
-          </div>
-          {historico && <div style={{ fontSize: 12, color: historico.startsWith('Veículo novo') ? GOLD : OK, marginTop: 6, fontWeight: 600 }}>{historico}</div>}
-        </Sec>
+        {/* PLACA + busca — só na automotiva (a peça/trabalho não tem placa) */}
+        {ramo.pedeVeiculo && (
+          <Sec titulo="Placa">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={placa} onChange={(e) => setPlaca(e.target.value.toUpperCase())} onBlur={buscarPlaca}
+                placeholder="ABC1D23" inputMode="text" autoCapitalize="characters"
+                style={{ ...inp, fontSize: 20, fontWeight: 700, letterSpacing: 2, textAlign: 'center' }} />
+              <button onClick={buscarPlaca} disabled={buscando} style={{ ...btnGold, minWidth: 52 }}><Search size={18} /></button>
+            </div>
+            {historico && <div style={{ fontSize: 12, color: historico.startsWith('Veículo novo') ? GOLD : OK, marginTop: 6, fontWeight: 600 }}>{historico}</div>}
+          </Sec>
+        )}
 
-        {/* CLIENTE + VEÍCULO */}
-        <Sec titulo="Cliente & veículo">
-          <Campo l="Cliente"><input value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+        {/* CLIENTE + OBJETO (veículo OU peça/trabalho) */}
+        <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`}>
+          <Campo l="Cliente"><input value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Nome do cliente (pode ser outra oficina)" style={inp} /></Campo>
           <Campo l="CPF/CNPJ (opcional)"><input value={clienteCnpj} onChange={(e) => setClienteCnpj(e.target.value)} inputMode="numeric" style={inp} /></Campo>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <Campo l="Marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
-            <Campo l="Modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
-            <Campo l="Ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
-            <Campo l="KM atual"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
-          </div>
-          <Campo l="Chassi (opcional)"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
+          {ramo.automotivo ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Campo l="Marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
+                <Campo l="Modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
+                <Campo l="Ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
+                <Campo l="KM atual"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
+              </div>
+              <Campo l="Chassi (opcional)"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
+            </>
+          ) : (
+            <>
+              <Campo l={`${ramo.objetoLabel} *`}><input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder={ramo.identPlaceholder} style={inp} /></Campo>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Campo l="Medidas / specs (opcional)"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>
+                <Campo l="Material (opcional)"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: ferro fundido" style={inp} /></Campo>
+              </div>
+              <Campo l="Origem (opcional)"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor/veículo de origem do cabeçote" style={inp} /></Campo>
+            </>
+          )}
         </Sec>
 
-        {/* QUEIXA */}
-        <Sec titulo="O que está acontecendo? (queixa do cliente)">
-          <textarea value={queixa} onChange={(e) => setQueixa(e.target.value)} rows={3} placeholder="Ex.: barulho na frente ao frear, luz do motor acesa…" style={{ ...inp, resize: 'vertical' }} />
+        {/* SERVIÇO / QUEIXA */}
+        <Sec titulo={ramo.automotivo ? 'O que está acontecendo? (queixa do cliente)' : 'Serviço solicitado'}>
+          <textarea value={queixa} onChange={(e) => setQueixa(e.target.value)} rows={3}
+            placeholder={ramo.automotivo ? 'Ex.: barulho na frente ao frear, luz do motor acesa…' : 'Ex.: retífica de cabeçote, plaina, brunimento…'}
+            style={{ ...inp, resize: 'vertical' }} />
         </Sec>
 
         {/* MECÂNICO RESPONSÁVEL (opcional no check-in; pode designar depois no Pátio) */}
@@ -181,33 +222,35 @@ export default function RecepcaoPage() {
           <datalist id="mec-recepcao">{mecLimpos.map((m) => <option key={m} value={m} />)}</datalist>
         </Sec>
 
-        {/* CHECKLIST DE ENTRADA */}
-        <Sec titulo="Como o carro chegou (checklist)">
-          <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: ESP60 }}>Combustível:</span>
-            {COMBUSTIVEL.map((c) => (
-              <button key={c.v} onClick={() => setCombustivel(c.v)} style={{ ...chip, background: combustivel === c.v ? ESP : '#fff', color: combustivel === c.v ? '#fff' : ESP }}>{c.l}</button>
-            ))}
-          </div>
-          {CHECK_ITENS.map((item) => {
-            const st = check[item]
-            return (
-              <button key={item} onClick={() => toggleCheck(item)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 12px', marginBottom: 6, borderRadius: 10, cursor: 'pointer', minHeight: 46,
-                border: `1px solid ${st === 'avaria' ? RED : st === 'ok' ? OK : LINE}`,
-                background: st === 'avaria' ? 'rgba(163,45,45,0.07)' : st === 'ok' ? 'rgba(22,101,52,0.06)' : '#fff' }}>
-                <span style={{ fontSize: 14, fontWeight: st ? 600 : 400 }}>{item}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4, color: st === 'avaria' ? RED : st === 'ok' ? OK : ESP60 }}>
-                  {st === 'avaria' ? <><X size={14} /> Avaria</> : st === 'ok' ? <><Check size={14} /> OK</> : 'toque p/ marcar'}
-                </span>
-              </button>
-            )
-          })}
-          <Campo l="Avarias na entrada (riscos, amassados…)"><textarea value={avarias} onChange={(e) => setAvarias(e.target.value)} rows={2} placeholder="Ex.: risco na porta esquerda" style={{ ...inp, resize: 'vertical' }} /></Campo>
-          <Campo l="Objetos deixados no veículo"><input value={objetos} onChange={(e) => setObjetos(e.target.value)} placeholder="Ex.: documento no porta-luvas" style={inp} /></Campo>
-        </Sec>
+        {/* CHECKLIST DE ENTRADA — só automotiva (combustível/retrovisores/pneus não fazem sentido p/ peça) */}
+        {ramo.pedeCheckinAutomotivo && (
+          <Sec titulo="Como o carro chegou (checklist)">
+            <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: ESP60 }}>Combustível:</span>
+              {COMBUSTIVEL.map((c) => (
+                <button key={c.v} onClick={() => setCombustivel(c.v)} style={{ ...chip, background: combustivel === c.v ? ESP : '#fff', color: combustivel === c.v ? '#fff' : ESP }}>{c.l}</button>
+              ))}
+            </div>
+            {CHECK_ITENS.map((item) => {
+              const st = check[item]
+              return (
+                <button key={item} onClick={() => toggleCheck(item)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 12px', marginBottom: 6, borderRadius: 10, cursor: 'pointer', minHeight: 46,
+                  border: `1px solid ${st === 'avaria' ? RED : st === 'ok' ? OK : LINE}`,
+                  background: st === 'avaria' ? 'rgba(163,45,45,0.07)' : st === 'ok' ? 'rgba(22,101,52,0.06)' : '#fff' }}>
+                  <span style={{ fontSize: 14, fontWeight: st ? 600 : 400 }}>{item}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4, color: st === 'avaria' ? RED : st === 'ok' ? OK : ESP60 }}>
+                    {st === 'avaria' ? <><X size={14} /> Avaria</> : st === 'ok' ? <><Check size={14} /> OK</> : 'toque p/ marcar'}
+                  </span>
+                </button>
+              )
+            })}
+            <Campo l="Avarias na entrada (riscos, amassados…)"><textarea value={avarias} onChange={(e) => setAvarias(e.target.value)} rows={2} placeholder="Ex.: risco na porta esquerda" style={{ ...inp, resize: 'vertical' }} /></Campo>
+            <Campo l="Objetos deixados no veículo"><input value={objetos} onChange={(e) => setObjetos(e.target.value)} placeholder="Ex.: documento no porta-luvas" style={inp} /></Campo>
+          </Sec>
+        )}
 
         {/* FOTOS */}
-        <Sec titulo="Fotos de como o carro chegou">
+        <Sec titulo={ramo.automotivo ? 'Fotos de como o carro chegou' : `Fotos da ${ramo.objetoLabelCurto}`}>
           <label style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
             <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar fotos'}
             <input type="file" accept="image/*" capture="environment" multiple onChange={onFotos} style={{ display: 'none' }} />
@@ -243,8 +286,10 @@ export default function RecepcaoPage() {
         <AssinaturaModal
           osId={assinarOsId}
           tipo="checklist_ciente"
-          titulo="Cliente ciente do checklist"
-          subtitulo="Confirmo que estou ciente do estado/checklist do veículo. (Não é aprovação de orçamento.)"
+          titulo={ramo.automotivo ? 'Cliente ciente do checklist' : `Cliente ciente do recebimento da ${ramo.objetoLabelCurto}`}
+          subtitulo={ramo.automotivo
+            ? 'Confirmo que estou ciente do estado/checklist do veículo. (Não é aprovação de orçamento.)'
+            : `Confirmo a entrega da ${ramo.objetoLabelCurto} para o serviço solicitado. (Não é aprovação de orçamento.)`}
           aberto
           onFechar={() => { setAssinarOsId(null); router.push('/dashboard/oficina/patio') }}
           onAssinado={() => setMsg('✅ Checklist assinado pelo cliente.')}

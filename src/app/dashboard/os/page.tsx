@@ -11,6 +11,7 @@ import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
+import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 export const dynamic = 'force-dynamic'
 
@@ -444,6 +445,8 @@ function ModalNovaOS({
   const [prioridade, setPrioridade] = useState('normal')
   const [salvando, setSalvando] = useState(false)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+  // RD-41 · ramo dirige labels/campos (automotiva pede placa/veículo; retífica etc. não).
+  const { config: ramo } = useOficinaRamo(companyIdAtiva)
   // cliente
   const [busca, setBusca] = useState('')
   const [resultados, setResultados] = useState<Cliente[]>([])
@@ -573,29 +576,43 @@ function ModalNovaOS({
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: 8 }}>
-            <div>
-              <label style={lbl}>Placa</label>
-              <input
-                value={placa}
-                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
-                placeholder="ABC-1234"
-                maxLength={8}
-                style={{ ...inp, fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 1 }}
-                data-testid="os-nova-placa"
-              />
+          {ramo.automotivo ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: 8 }}>
+              <div>
+                <label style={lbl}>Placa</label>
+                <input
+                  value={placa}
+                  onChange={(e) => setPlaca(e.target.value.toUpperCase())}
+                  placeholder="ABC-1234"
+                  maxLength={8}
+                  style={{ ...inp, fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 1 }}
+                  data-testid="os-nova-placa"
+                />
+              </div>
+              <div>
+                <label style={lbl}>Modelo / veículo (opcional)</label>
+                <input
+                  value={veiculo}
+                  onChange={(e) => setVeiculo(e.target.value)}
+                  placeholder="Ex.: VW Gol 2015"
+                  style={inp}
+                  data-testid="os-nova-veiculo"
+                />
+              </div>
             </div>
+          ) : (
+            // não-automotiva (retífica/usinagem/elétrica): o objeto é a PEÇA/trabalho — sem placa.
             <div>
-              <label style={lbl}>Modelo / veículo (opcional)</label>
+              <label style={lbl}>{ramo.objetoLabel} (opcional)</label>
               <input
                 value={veiculo}
                 onChange={(e) => setVeiculo(e.target.value)}
-                placeholder="Ex.: VW Gol 2015"
+                placeholder={ramo.identPlaceholder}
                 style={inp}
                 data-testid="os-nova-veiculo"
               />
             </div>
-          </div>
+          )}
 
           <div>
             <label style={lbl}>Defeito relatado (opcional)</label>

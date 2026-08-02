@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { useOficinaRamo, labelCategoria, type Categoria } from '@/lib/oficina/ramo'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,11 +23,8 @@ const C = {
   blue: '#2563EB', blueBg: '#EFF6FF',
 }
 
-const CATEGORIAS = ['mecanica','eletrica','suspensao','motor','freios','transmissao','arrefecimento','outros'] as const
-const CAT_LABEL: Record<string, string> = {
-  mecanica: 'Mecânica', eletrica: 'Elétrica', suspensao: 'Suspensão', motor: 'Motor',
-  freios: 'Freios', transmissao: 'Transmissão', arrefecimento: 'Arrefecimento', outros: 'Outros',
-}
+// RD-41 · categorias vêm do RAMO da oficina (retífica: Cabeçote/Virabrequim/Bloco/…).
+// O rótulo de exibição usa labelCategoria (busca em todos os ramos) p/ não quebrar serviços antigos.
 
 const ORIGEM: Record<string, { emoji: string; label: string }> = {
   manual:       { emoji: '👤', label: 'Manual' },
@@ -106,6 +104,8 @@ export default function TemparioPage() {
     if (!sel || sel === 'consolidado' || sel.startsWith('group_')) return null
     return sel
   }, [sel])
+  // RD-41 · categorias do tempário seguem o ramo da oficina (automotiva idêntica ao que já existe).
+  const { config: ramo } = useOficinaRamo(companyIdAtiva)
 
   const flash = useCallback((m: string) => {
     setOkMsg(m); window.setTimeout(() => setOkMsg((x) => (x === m ? null : x)), 3500)
@@ -307,7 +307,7 @@ export default function TemparioPage() {
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar serviço por nome ou categoria…" style={inp} />
             <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
               <FiltroChip label="Todas" ativo={filtroCat === 'todas'} onClick={() => setFiltroCat('todas')} />
-              {CATEGORIAS.map((c) => <FiltroChip key={c} label={CAT_LABEL[c]} ativo={filtroCat === c} onClick={() => setFiltroCat(c)} />)}
+              {ramo.categorias.map((c) => <FiltroChip key={c.id} label={c.label} ativo={filtroCat === c.id} onClick={() => setFiltroCat(c.id)} />)}
             </div>
           </div>
 
@@ -334,7 +334,7 @@ export default function TemparioPage() {
                     </div>
                     {/* categoria + origem */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap', fontSize: 12, color: C.espressoM }}>
-                      {s.categoria && <span>{CAT_LABEL[s.categoria] ?? s.categoria}</span>}
+                      {s.categoria && <span>{labelCategoria(s.categoria)}</span>}
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: C.cream, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
                         {o.emoji} {o.label}{s.origem_tempo === 'ia_aprendido' && s.execucoes_conta ? ` (${s.execucoes_conta}×)` : ''}
                       </span>
@@ -368,6 +368,7 @@ export default function TemparioPage() {
         <ModalServico
           companyId={companyIdAtiva}
           servico={editando === 'novo' ? null : editando}
+          categorias={ramo.categorias}
           custoHora={custoHora}
           margemMo={params?.margem_alvo_mao_obra_pct ?? 30}
           onClose={() => setEditando(null)}
@@ -412,10 +413,11 @@ function FiltroChip({ label, ativo, onClick }: { label: string; ativo: boolean; 
 // Modal criar/editar serviço
 // ─────────────────────────────────────────────────────────────
 function ModalServico({
-  companyId, servico, custoHora, margemMo, onClose, onSalvo, onErro,
+  companyId, servico, categorias, custoHora, margemMo, onClose, onSalvo, onErro,
 }: {
   companyId: string
   servico: Servico | null
+  categorias: Categoria[]
   custoHora: number | null
   margemMo: number
   onClose: () => void
@@ -423,7 +425,7 @@ function ModalServico({
   onErro: (m: string) => void
 }) {
   const [nome, setNome] = useState(servico?.nome ?? '')
-  const [categoria, setCategoria] = useState(servico?.categoria ?? 'mecanica')
+  const [categoria, setCategoria] = useState(servico?.categoria ?? categorias[0]?.id ?? 'outros')
   const [tempoStr, setTempoStr] = useState(servico ? String(servico.tempo_padrao_h) : '')
   const [salvando, setSalvando] = useState(false)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
@@ -466,7 +468,7 @@ function ModalServico({
           <div>
             <label style={lbl}>Categoria</label>
             <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={{ ...inp, cursor: 'pointer' }}>
-              {CATEGORIAS.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
+              {categorias.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </div>
           <div>
