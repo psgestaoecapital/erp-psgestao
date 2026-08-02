@@ -1,169 +1,109 @@
 'use client'
 
-// FEAT-OS-ONDA4-O44-IMPRESSAO-v1
-// Pagina print-friendly da Ordem de Servico · 1 RPC consolidada.
-// Layout A4 · espresso · mobile-first · botao Imprimir window.print().
+// FEAT-OS-ONDA4-O44-IMPRESSAO-v2 · RD-41 🅱️ — Impressão/Orçamento completo da OS.
+// Documento único que adapta pelo status: ORÇAMENTO (antes de aprovar) vs ORDEM DE SERVIÇO/
+// COMPROVANTE (executada/entregue). Cabeçalho com placa/proprietário/KM (ramo-aware — retífica
+// oculta o automotivo). Itens aprovados COM valor, recusados SEM valor (só indicação). Total
+// aprovado. Histórico fotográfico opcional (toggle · PDF leve por padrão).
+// FRONTEIRA GE: documento operacional (orçamento/serviço) — a NF fiscal continua [→GE].
 
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
+const BUCKET = 'oficina-recepcao'
 
-interface Empresa {
-  nome?: string | null
-  razao_social?: string | null
-  cnpj?: string | null
-  endereco?: string | null
-  cidade_estado?: string | null
-  ie?: string | null
-  im?: string | null
-}
-interface OSDados {
-  numero?: string | null
-  status?: string | null
-  equipamento?: string | null
-  defeito_relatado?: string | null
-  descricao_servico?: string | null
-  diagnostico?: string | null
-  solucao?: string | null
-  tecnico_nome?: string | null
-  horas_previstas?: number | null
-  horas_executadas?: number | null
-  valor_hora?: number | null
-  mao_obra_estimada?: number | null
-  assinatura_cliente?: string | null
-  assinatura_data?: string | null
-  data_abertura?: string | null
-  data_conclusao?: string | null
-}
-interface Pedido {
-  numero?: string | null
-  data_pedido?: string | null
-  cliente_nome?: string | null
-  cliente_cnpj?: string | null
-  cliente_email?: string | null
-  cliente_telefone?: string | null
-  subtotal?: number | null
-  desconto_valor?: number | null
-  total?: number | null
+interface Empresa { nome?: string | null; razao_social?: string | null; cnpj?: string | null; endereco?: string | null; cidade_estado?: string | null; ie?: string | null; im?: string | null }
+interface Cabecalho {
+  numero?: string | null; status?: string | null; data_abertura?: string | null; data_conclusao?: string | null
+  placa?: string | null; km?: number | null; veiculo?: string | null; marca?: string | null; modelo?: string | null; ano?: number | null
+  cliente_nome?: string | null; cliente_cnpj?: string | null; defeito_relatado?: string | null; diagnostico?: string | null; tecnico_nome?: string | null
 }
 interface Item {
-  descricao?: string | null
-  tipo_item?: string | null
-  quantidade?: number | null
-  unidade?: string | null
-  preco_unitario?: number | null
-  subtotal?: number | null
+  descricao?: string | null; detalhe?: string | null; tipo?: string | null; quantidade?: number | null
+  preco_unit?: number | null; subtotal?: number | null; aprovado?: boolean | null; status_item?: string | null
 }
-interface Parcela {
-  numero?: number | null
-  valor?: number | null
-  vencimento?: string | null
-  forma_pagamento?: string | null
-}
+interface Resumo { total_aprovado?: number; total_orcamento?: number; qtd_aprovados?: number; qtd_pendentes?: number; qtd_recusados?: number }
+interface Foto { foto_path?: string | null; descricao?: string | null; autor?: string | null; data?: string | null }
+interface OSExtra { assinatura_cliente?: string | null; assinatura_data?: string | null; descricao_servico?: string | null; solucao?: string | null }
 interface Dados {
-  ok: boolean
-  erro?: string
-  empresa?: Empresa
-  os?: OSDados
-  pedido?: Pedido | null
-  itens?: Item[]
-  parcelas?: Parcela[]
+  ok: boolean; erro?: string; ramo?: string
+  empresa?: Empresa; cabecalho?: Cabecalho; itens?: Item[]; resumo?: Resumo; fotos?: Foto[] | null; os?: OSExtra
 }
 
-const fmtBRL = (v: number | null | undefined) =>
-  v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-const fmtData = (s: string | null | undefined) => {
-  if (!s) return '—'
-  try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' }
-}
-
-const fmtDataHora = (s: string | null | undefined) => {
-  if (!s) return '—'
-  try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' }
-}
+const fmtBRL = (v: number | null | undefined) => v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' } }
+const fmtDataHora = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' } }
 
 const STATUS_LABEL: Record<string, string> = {
-  aberta: 'Aberta',
-  em_execucao: 'Em execução',
-  aguardando_peca: 'Aguardando peça/material',
-  aguardando_aprovacao: 'Aguardando aprovação',
-  pronta: 'Pronta',
-  entregue: 'Entregue',
-  cancelada: 'Cancelada',
+  aberta: 'Aberta', em_execucao: 'Em execução', aguardando_peca: 'Aguardando peça/material',
+  aguardando_aprovacao: 'Aguardando aprovação', pronta: 'Pronta', entregue: 'Entregue', cancelada: 'Cancelada',
 }
+const EXECUTADA = new Set(['pronta', 'entregue'])
 
 export default function ImprimirOSPage({ params }: { params: Promise<{ osId: string }> }) {
   const { osId } = use(params)
   const [dados, setDados] = useState<Dados | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [incluirFotos, setIncluirFotos] = useState(false)
+  const [fotos, setFotos] = useState<(Foto & { _url?: string | null })[]>([])
+  const [carregandoFotos, setCarregandoFotos] = useState(false)
 
   useEffect(() => {
     let alive = true
     void (async () => {
-      const { data, error } = await supabase.rpc('fn_os_imprimir_dados', { p_os_id: osId })
+      const { data, error } = await supabase.rpc('fn_os_imprimir_dados', { p_os_id: osId, p_incluir_fotos: false })
       if (!alive) return
       if (error) { setErro(error.message); setLoading(false); return }
       const d = data as Dados
       if (!d?.ok) { setErro(d?.erro ?? 'Falha ao carregar dados.'); setLoading(false); return }
-      setDados(d)
-      setLoading(false)
+      setDados(d); setLoading(false)
     })()
     return () => { alive = false }
   }, [osId])
 
-  if (loading) {
-    return (
-      <div style={{ padding: 40, fontSize: 14, color: '#3D2314', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-        Carregando…
-      </div>
-    )
-  }
-  if (erro || !dados) {
-    return (
-      <div style={{ padding: 40, fontSize: 14, color: '#791F1F', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-        ❌ {erro ?? 'Sem dados'}
-      </div>
-    )
+  // toggle "incluir histórico fotográfico": busca as fotos (RPC com p_incluir_fotos) e assina as URLs.
+  async function alternarFotos(ligar: boolean) {
+    setIncluirFotos(ligar)
+    if (!ligar || fotos.length > 0) return
+    setCarregandoFotos(true)
+    const { data } = await supabase.rpc('fn_os_imprimir_dados', { p_os_id: osId, p_incluir_fotos: true })
+    const lista = ((data as Dados)?.fotos ?? []).filter((f) => f.foto_path)
+    const comUrl = await Promise.all(lista.map(async (f) => {
+      const { data: s } = await supabase.storage.from(BUCKET).createSignedUrl(f.foto_path as string, 3600)
+      return { ...f, _url: s?.signedUrl ?? null }
+    }))
+    setFotos(comUrl); setCarregandoFotos(false)
   }
 
+  if (loading) return <div style={{ padding: 40, fontSize: 14, color: '#3D2314', fontFamily: 'system-ui, sans-serif' }}>Carregando…</div>
+  if (erro || !dados) return <div style={{ padding: 40, fontSize: 14, color: '#791F1F', fontFamily: 'system-ui, sans-serif' }}>❌ {erro ?? 'Sem dados'}</div>
+
   const empresa = dados.empresa ?? {}
+  const cab = dados.cabecalho ?? {}
   const os = dados.os ?? {}
-  const pedido = dados.pedido ?? null
   const itens = dados.itens ?? []
-  const parcelas = dados.parcelas ?? []
+  const resumo = dados.resumo ?? {}
+  const auto = (dados.ramo ?? 'automotiva') === 'automotiva'
+  const executada = EXECUTADA.has(cab.status ?? '')
+  const docTitulo = executada ? 'ORDEM DE SERVIÇO' : 'ORÇAMENTO'
+  const docSub = executada ? 'Comprovante do serviço executado' : 'Orçamento para aprovação'
+  const aprovadosEPend = itens.filter((i) => i.status_item !== 'recusado')
+  const recusados = itens.filter((i) => i.status_item === 'recusado')
 
   return (
     <>
       <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          @page { size: A4; margin: 14mm 14mm; }
-          body { background: #fff !important; }
-        }
+        @media print { .no-print { display: none !important; } @page { size: A4; margin: 14mm 14mm; } body { background: #fff !important; } }
         .print-root { background: #FAF7F2; min-height: 100vh; }
-        .print-page {
-          max-width: 760px; margin: 24px auto; padding: 32px;
-          background: #fff; color: #3D2314;
-          font-family: 'Inter', system-ui, -apple-system, sans-serif;
-          font-size: 12px; line-height: 1.5;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-        }
-        @media print {
-          .print-page { box-shadow: none; margin: 0; max-width: none; padding: 0; }
-          .print-root { background: #fff; }
-        }
+        .print-page { max-width: 760px; margin: 24px auto; padding: 32px; background: #fff; color: #3D2314; font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+        @media print { .print-page { box-shadow: none; margin: 0; max-width: none; padding: 0; } .print-root { background: #fff; } }
         .pp-header { border-bottom: 2px solid #3D2314; padding-bottom: 12px; margin-bottom: 16px; }
-        .pp-title { font-size: 18px; font-weight: 700; color: #3D2314; margin: 12px 0 4px; letter-spacing: 0.5px; }
-        .pp-section-title {
-          font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
-          color: #6B5D4F; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #E0D8CC;
-        }
+        .pp-title { font-size: 18px; font-weight: 700; color: #3D2314; margin: 12px 0 2px; letter-spacing: 0.5px; }
+        .pp-section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #6B5D4F; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #E0D8CC; }
         .pp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
         .pp-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 16px; }
-        .pp-row { display: flex; gap: 8px; }
         .pp-lbl { color: #6B5D4F; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
         .pp-val { color: #3D2314; }
         .pp-tabela { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
@@ -171,131 +111,91 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
         .pp-tabela td { padding: 6px 8px; border-bottom: 1px solid #EDE7DA; vertical-align: top; }
         .pp-tot-row { display: flex; justify-content: space-between; padding: 4px 0; }
         .pp-tot-row.big { border-top: 2px solid #3D2314; margin-top: 6px; padding-top: 8px; font-weight: 700; font-size: 14px; color: #C8941A; }
-        .pp-status {
-          display: inline-block; padding: 2px 8px; border-radius: 999px;
-          background: #F0ECE3; color: #3D2314; font-size: 10px; font-weight: 700;
-          letter-spacing: 0.5px; margin-left: 8px; vertical-align: middle;
-        }
-        .pp-assinatura {
-          margin-top: 8px; padding: 8px; border: 1px solid #E0D8CC; border-radius: 6px;
-          background: #fff;
-        }
+        .pp-status { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #F0ECE3; color: #3D2314; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; margin-left: 8px; vertical-align: middle; }
+        .pp-assinatura { margin-top: 8px; padding: 8px; border: 1px solid #E0D8CC; border-radius: 6px; background: #fff; }
         .pp-assinatura img { display: block; width: 100%; max-height: 160px; object-fit: contain; }
-        .pp-assinatura-vazia {
-          margin-top: 32px; border-top: 1px dashed #6B5D4F; padding-top: 4px;
-          text-align: center; color: #6B5D4F; font-size: 11px;
-        }
+        .pp-assinatura-vazia { margin-top: 32px; border-top: 1px dashed #6B5D4F; padding-top: 4px; text-align: center; color: #6B5D4F; font-size: 11px; }
+        .pp-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+        .pp-foto { border: 1px solid #E0D8CC; border-radius: 6px; overflow: hidden; background: #fff; }
+        .pp-foto img { display: block; width: 100%; height: 120px; object-fit: cover; }
+        .pp-foto .cap { font-size: 9.5px; color: #6B5D4F; padding: 4px 6px; }
         .pp-footer { margin-top: 24px; font-size: 10px; color: #9C8E80; text-align: center; }
-        .pp-btn {
-          padding: 10px 18px; border-radius: 8px; border: none;
-          background: #C8941A; color: #fff; font-weight: 700; font-size: 13px;
-          cursor: pointer; min-height: 44px;
-        }
+        .pp-btn { padding: 10px 18px; border-radius: 8px; border: none; background: #C8941A; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; min-height: 44px; }
+        .pp-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #3D2314; cursor: pointer; }
       `}</style>
 
       <div className="print-root">
-        <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', maxWidth: 760, margin: '16px auto 0', padding: '0 16px' }}>
-          <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">
-            🖨️ Imprimir
-          </button>
+        <div className="no-print" style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'flex-end', maxWidth: 760, margin: '16px auto 0', padding: '0 16px', flexWrap: 'wrap' }}>
+          <label className="pp-toggle">
+            <input type="checkbox" checked={incluirFotos} onChange={(e) => void alternarFotos(e.target.checked)} />
+            Incluir histórico fotográfico
+          </label>
+          <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">🖨️ Imprimir</button>
         </div>
 
         <div className="print-page">
-          {/* 1. Cabecalho · empresa */}
+          {/* 1. Cabeçalho · empresa + título por status */}
           <header className="pp-header">
             <div style={{ fontSize: 15, fontWeight: 700 }}>{empresa.nome ?? '—'}</div>
-            {empresa.razao_social && empresa.razao_social !== empresa.nome && (
-              <div style={{ fontSize: 11, color: '#6B5D4F' }}>{empresa.razao_social}</div>
-            )}
+            {empresa.razao_social && empresa.razao_social !== empresa.nome && <div style={{ fontSize: 11, color: '#6B5D4F' }}>{empresa.razao_social}</div>}
             <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 12px' }}>
               {empresa.cnpj && <span>CNPJ: {empresa.cnpj}</span>}
               {empresa.ie && <span>IE: {empresa.ie}</span>}
               {empresa.im && <span>IM: {empresa.im}</span>}
             </div>
-            {(empresa.endereco || empresa.cidade_estado) && (
-              <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 2 }}>
-                {[empresa.endereco, empresa.cidade_estado].filter(Boolean).join(' · ')}
-              </div>
-            )}
+            {(empresa.endereco || empresa.cidade_estado) && <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 2 }}>{[empresa.endereco, empresa.cidade_estado].filter(Boolean).join(' · ')}</div>}
 
             <h1 className="pp-title">
-              ORDEM DE SERVIÇO Nº {os.numero ?? '—'}
-              {os.status && <span className="pp-status">{STATUS_LABEL[os.status] ?? os.status}</span>}
+              {docTitulo} Nº {cab.numero ?? '—'}
+              {cab.status && <span className="pp-status">{STATUS_LABEL[cab.status] ?? cab.status}</span>}
             </h1>
             <div style={{ fontSize: 10, color: '#6B5D4F' }}>
-              Aberta em {fmtData(os.data_abertura)}
-              {os.data_conclusao && <> · Concluída em {fmtData(os.data_conclusao)}</>}
+              {docSub} · Aberta em {fmtData(cab.data_abertura)}{cab.data_conclusao && <> · Concluída em {fmtData(cab.data_conclusao)}</>}
             </div>
           </header>
 
-          {/* 2. Cliente */}
-          {pedido && (
-            <section>
-              <div className="pp-section-title">Cliente</div>
-              <div className="pp-grid-2">
-                <div><span className="pp-lbl">Nome</span><div className="pp-val">{pedido.cliente_nome ?? '—'}</div></div>
-                <div><span className="pp-lbl">CNPJ/CPF</span><div className="pp-val">{pedido.cliente_cnpj ?? '—'}</div></div>
-                {pedido.cliente_telefone && <div><span className="pp-lbl">Telefone</span><div className="pp-val">{pedido.cliente_telefone}</div></div>}
-                {pedido.cliente_email && <div><span className="pp-lbl">E-mail</span><div className="pp-val">{pedido.cliente_email}</div></div>}
-                {pedido.numero && <div><span className="pp-lbl">Pedido</span><div className="pp-val" style={{ fontFamily: 'monospace' }}>{pedido.numero}</div></div>}
-                {pedido.data_pedido && <div><span className="pp-lbl">Data do pedido</span><div className="pp-val">{fmtData(pedido.data_pedido)}</div></div>}
-              </div>
-            </section>
-          )}
-
-          {/* 3. Servico */}
+          {/* 2. Cliente + objeto (veículo/placa/KM só na automotiva) */}
           <section>
-            <div className="pp-section-title">Serviço</div>
-            {os.equipamento && <div style={{ marginBottom: 4 }}><span className="pp-lbl">Equipamento / Item</span><div className="pp-val">{os.equipamento}</div></div>}
-            {os.defeito_relatado && <div style={{ marginBottom: 4 }}><span className="pp-lbl">Problema / solicitação</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{os.defeito_relatado}</div></div>}
-            {os.descricao_servico && <div style={{ marginBottom: 4 }}><span className="pp-lbl">Descrição do serviço</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{os.descricao_servico}</div></div>}
-            {os.diagnostico && <div style={{ marginBottom: 4 }}><span className="pp-lbl">Diagnóstico</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{os.diagnostico}</div></div>}
-            {os.solucao && <div style={{ marginBottom: 4 }}><span className="pp-lbl">Solução</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{os.solucao}</div></div>}
+            <div className="pp-section-title">{auto ? 'Cliente & veículo' : 'Cliente & peça/serviço'}</div>
+            <div className="pp-grid-3">
+              <div><span className="pp-lbl">Proprietário / cliente</span><div className="pp-val">{cab.cliente_nome || '—'}</div></div>
+              {cab.cliente_cnpj && <div><span className="pp-lbl">CPF/CNPJ</span><div className="pp-val">{cab.cliente_cnpj}</div></div>}
+              {auto && <div><span className="pp-lbl">Placa</span><div className="pp-val" style={{ fontFamily: 'monospace', fontWeight: 700 }}>{cab.placa || '—'}</div></div>}
+              {auto && cab.veiculo && <div><span className="pp-lbl">Veículo</span><div className="pp-val">{cab.veiculo}{cab.ano ? ` ${cab.ano}` : ''}</div></div>}
+              {auto && cab.km != null && <div><span className="pp-lbl">KM</span><div className="pp-val">{Number(cab.km).toLocaleString('pt-BR')}</div></div>}
+              {!auto && cab.veiculo && <div><span className="pp-lbl">Peça / trabalho</span><div className="pp-val">{cab.veiculo}</div></div>}
+              {cab.tecnico_nome && <div><span className="pp-lbl">Responsável</span><div className="pp-val">{cab.tecnico_nome}</div></div>}
+            </div>
+            {cab.defeito_relatado && <div style={{ marginTop: 6 }}><span className="pp-lbl">Relato / solicitação</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{cab.defeito_relatado}</div></div>}
+            {cab.diagnostico && <div style={{ marginTop: 6 }}><span className="pp-lbl">Diagnóstico</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{cab.diagnostico}</div></div>}
+            {os.solucao && <div style={{ marginTop: 6 }}><span className="pp-lbl">Solução</span><div className="pp-val" style={{ whiteSpace: 'pre-wrap' }}>{os.solucao}</div></div>}
           </section>
 
-          {/* 4. Execucao */}
-          {(os.tecnico_nome || os.horas_previstas || os.horas_executadas || os.valor_hora) && (
+          {/* 3. Itens (aprovados + pendentes) COM valor */}
+          {aprovadosEPend.length > 0 && (
             <section>
-              <div className="pp-section-title">Execução</div>
-              <div className="pp-grid-2">
-                {os.tecnico_nome && <div><span className="pp-lbl">Responsável</span><div className="pp-val">{os.tecnico_nome}</div></div>}
-                {os.horas_previstas != null && <div><span className="pp-lbl">Horas previstas</span><div className="pp-val">{Number(os.horas_previstas).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} h</div></div>}
-                {os.horas_executadas != null && <div><span className="pp-lbl">Horas executadas</span><div className="pp-val">{Number(os.horas_executadas).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} h</div></div>}
-                {os.valor_hora != null && <div><span className="pp-lbl">Valor/hora</span><div className="pp-val">{fmtBRL(os.valor_hora)}</div></div>}
-                {os.mao_obra_estimada != null && Number(os.mao_obra_estimada) > 0 && (
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <span className="pp-lbl">Mão de obra estimada</span>
-                    <div className="pp-val" style={{ fontWeight: 700, color: '#C8941A' }}>{fmtBRL(os.mao_obra_estimada)}</div>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* 5. Itens */}
-          {itens.length > 0 && (
-            <section>
-              <div className="pp-section-title">Peças e serviços</div>
+              <div className="pp-section-title">Itens {executada ? 'executados' : 'do orçamento'}</div>
               <table className="pp-tabela">
                 <thead>
                   <tr>
-                    <th>Descrição</th>
-                    <th style={{ textAlign: 'right' }}>Qtd</th>
-                    <th>Un</th>
+                    <th style={{ textAlign: 'right', width: 40 }}>Qt</th>
+                    <th>Produto / serviço</th>
+                    <th>Detalhe</th>
                     <th style={{ textAlign: 'right' }}>Vlr unit</th>
                     <th style={{ textAlign: 'right' }}>Subtotal</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {itens.map((it, i) => (
+                  {aprovadosEPend.map((it, i) => (
                     <tr key={i}>
+                      <td style={{ textAlign: 'right' }}>{it.quantidade != null ? Number(it.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '1'}</td>
                       <td>
                         {it.descricao ?? '—'}
-                        {it.tipo_item === 'servico' && <span style={{ marginLeft: 4, fontSize: 9, color: '#A855F7' }}>(serviço)</span>}
+                        {it.tipo === 'servico' && <span style={{ marginLeft: 4, fontSize: 9, color: '#A855F7' }}>(serviço)</span>}
+                        {it.status_item === 'pendente' && <span style={{ marginLeft: 4, fontSize: 9, color: '#C8941A' }}>(aguardando aprovação)</span>}
                       </td>
-                      <td style={{ textAlign: 'right' }}>{it.quantidade != null ? Number(it.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}</td>
-                      <td>{it.unidade ?? '—'}</td>
-                      <td style={{ textAlign: 'right' }}>{fmtBRL(it.preco_unitario)}</td>
+                      <td style={{ color: '#6B5D4F' }}>{it.detalhe ?? '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{fmtBRL(it.preco_unit)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtBRL(it.subtotal)}</td>
                     </tr>
                   ))}
@@ -304,69 +204,79 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
             </section>
           )}
 
-          {/* 6. Totais */}
-          {pedido && (
-            <section>
-              <div className="pp-section-title">Totais</div>
-              <div style={{ maxWidth: 320, marginLeft: 'auto' }}>
-                <div className="pp-tot-row"><span>Subtotal</span><span>{fmtBRL(pedido.subtotal)}</span></div>
-                {Number(pedido.desconto_valor ?? 0) > 0 && (
-                  <div className="pp-tot-row"><span>Desconto</span><span>- {fmtBRL(pedido.desconto_valor)}</span></div>
-                )}
-                <div className="pp-tot-row big"><span>Total</span><span>{fmtBRL(pedido.total)}</span></div>
-              </div>
-            </section>
-          )}
+          {/* 4. Totais (aprovado) */}
+          <section>
+            <div className="pp-section-title">Totais</div>
+            <div style={{ maxWidth: 320, marginLeft: 'auto' }}>
+              {Number(resumo.total_orcamento ?? 0) !== Number(resumo.total_aprovado ?? 0) && (
+                <div className="pp-tot-row"><span>Total do orçamento</span><span>{fmtBRL(resumo.total_orcamento)}</span></div>
+              )}
+              <div className="pp-tot-row big"><span>Total aprovado</span><span>{fmtBRL(resumo.total_aprovado)}</span></div>
+            </div>
+          </section>
 
-          {/* 7. Parcelas */}
-          {parcelas.length > 0 && (
+          {/* 5. Itens indicados não autorizados (SEM valor — só indicação) */}
+          {recusados.length > 0 && (
             <section>
-              <div className="pp-section-title">Parcelas</div>
+              <div className="pp-section-title">Itens indicados não autorizados</div>
               <table className="pp-tabela">
-                <thead>
-                  <tr>
-                    <th style={{ width: 40 }}>Nº</th>
-                    <th>Vencimento</th>
-                    <th>Forma</th>
-                    <th style={{ textAlign: 'right' }}>Valor</th>
-                  </tr>
-                </thead>
+                <thead><tr><th style={{ textAlign: 'right', width: 40 }}>Qt</th><th>Produto / serviço</th><th>Detalhe</th><th style={{ textAlign: 'right' }}>Situação</th></tr></thead>
                 <tbody>
-                  {parcelas.map((p, i) => (
+                  {recusados.map((it, i) => (
                     <tr key={i}>
-                      <td>{p.numero ?? '—'}</td>
-                      <td>{fmtData(p.vencimento)}</td>
-                      <td>{p.forma_pagamento ?? '—'}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtBRL(p.valor)}</td>
+                      <td style={{ textAlign: 'right' }}>{it.quantidade != null ? Number(it.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '1'}</td>
+                      <td>{it.descricao ?? '—'}{it.tipo === 'servico' && <span style={{ marginLeft: 4, fontSize: 9, color: '#A855F7' }}>(serviço)</span>}</td>
+                      <td style={{ color: '#6B5D4F' }}>{it.detalhe ?? '—'}</td>
+                      <td style={{ textAlign: 'right', color: '#A32D2D', fontWeight: 600 }}>troca indicada · não autorizada</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <div style={{ fontSize: 10, color: '#9C8E80', marginTop: 4 }}>Registro do que foi indicado pelo técnico e não autorizado pelo cliente (sem cobrança).</div>
             </section>
           )}
 
-          {/* 8. Assinatura */}
+          {/* 6. Histórico fotográfico (opcional) */}
+          {incluirFotos && (
+            <section>
+              <div className="pp-section-title">Histórico fotográfico</div>
+              {carregandoFotos ? (
+                <div style={{ fontSize: 11, color: '#6B5D4F' }}>Carregando fotos…</div>
+              ) : fotos.length === 0 ? (
+                <div style={{ fontSize: 11, color: '#9C8E80' }}>Sem fotos registradas nesta OS.</div>
+              ) : (
+                <div className="pp-fotos">
+                  {fotos.map((f, i) => (
+                    <div className="pp-foto" key={i}>
+                      {f._url
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        ? <img src={f._url} alt={f.descricao ?? 'foto'} />
+                        : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#9C8E80' }}>indisponível</div>}
+                      {(f.descricao || f.autor) && <div className="cap">{[f.descricao, f.autor].filter(Boolean).join(' · ')}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* 7. Assinatura */}
           <section>
             <div className="pp-section-title">Assinatura do cliente</div>
             {os.assinatura_cliente ? (
               <div className="pp-assinatura">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={os.assinatura_cliente} alt="Assinatura do cliente" />
-                <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 6 }}>
-                  Assinado em <strong style={{ color: '#3D2314' }}>{fmtDataHora(os.assinatura_data)}</strong>
-                </div>
+                <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 6 }}>Assinado em <strong style={{ color: '#3D2314' }}>{fmtDataHora(os.assinatura_data)}</strong></div>
               </div>
             ) : (
-              <div className="pp-assinatura-vazia">
-                _____________________________________________<br />
-                Assinatura do cliente
-              </div>
+              <div className="pp-assinatura-vazia">_____________________________________________<br />Assinatura do cliente</div>
             )}
           </section>
 
-          {/* 9. Rodape */}
+          {/* 8. Rodapé */}
           <div className="pp-footer">
-            Emitido em {new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+            Documento operacional (orçamento/serviço) — não é documento fiscal. Emitido em {new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
           </div>
         </div>
       </div>
