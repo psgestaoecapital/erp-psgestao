@@ -59,6 +59,15 @@ const PAGE_SIZE = 20
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
 
+// RD-41 · busca ampla: normaliza acento + caixa p/ match acento-insensitive.
+const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+// aceita "1.234,56" ou "1234.56" ou "1234" → número (null se vazio/inválido).
+const parseValorBR = (s: string): number | null => {
+  const t = s.trim(); if (!t) return null
+  const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 const fmtData = (iso: string) => {
   if (!iso) return ''
   const [y, m, d] = iso.split('-')
@@ -112,6 +121,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'avencer' | 'vencidos' | 'pagos' | 'hoje'>('todos')
   const [categoria, setCategoria] = useState('')
   const [busca, setBusca] = useState('')
+  // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  const [fPessoa, setFPessoa] = useState('')
+  const [fValorMin, setFValorMin] = useState('')
+  const [fValorMax, setFValorMax] = useState('')
+  const [fForma, setFForma] = useState('')
   const [page, setPage] = useState(1)
 
   const [data, setData] = useState<Resposta | null>(null)
@@ -306,8 +321,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
     const q = busca.trim().toLowerCase()
+    const qn = norm(busca.trim())
     // RD-41 · busca por CPF/CNPJ: normaliza (só dígitos) p/ achar com ou sem pontuação.
     const qDigitos = busca.replace(/\D/g, '')
+    const vMin = parseValorBR(fValorMin)
+    const vMax = parseValorBR(fValorMax)
     const filtrado = base.filter((r) => {
       if (categoria && r.categoria !== categoria) return false
       // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
@@ -315,12 +333,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         const ck = contaMap[r.id]?.trim() ? contaMap[r.id] : SEM_CONTA
         if (!contasSel.has(ck)) return false
       }
+      // RD-41 · filtros por coluna (client-side)
+      if (fPessoa.trim() && !norm(r.nome_pessoa ?? '').includes(norm(fPessoa.trim()))) return false
+      if (fForma && r.forma_pagamento !== fForma) return false
+      if (vMin != null && (r.valor_documento ?? 0) < vMin) return false
+      if (vMax != null && (r.valor_documento ?? 0) > vMax) return false
       if (q) {
-        const hay = `${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''}`.toLowerCase()
-        // acha por nome/descrição/nº do título OU por CPF/CNPJ do cadastro (normalizado, ≥3 dígitos)
+        // busca AMPLA (acento-insensitive): nome, descrição, nº do título, forma, categoria e valor;
+        // + CPF/CNPJ do cadastro normalizado (só dígitos, ≥3) — acha com OU sem pontuação.
+        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${r.categoria ?? ''} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
         const docDigitos = (r.documento ?? '').replace(/\D/g, '')
         const achouDoc = qDigitos.length >= 3 && docDigitos.includes(qDigitos)
-        if (!hay.includes(q) && !achouDoc) return false
+        if (!hay.includes(qn) && !achouDoc) return false
       }
       return true
     })
@@ -336,7 +360,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       })
     }
     return filtrado
-  }, [data, busca, categoria, contasSel, contaMap, pagSort])
+  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax])
 
   const idsSelecionaveis = useMemo(
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
@@ -376,6 +400,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     })
     return Array.from(set).sort()
   }, [data])
+
+  // RD-41 · formas de pagamento distintas (p/ o filtro por coluna)
+  const formasDistinct = useMemo(() => {
+    const set = new Set<string>()
+    ;(data?.resultados ?? []).forEach((r) => { if (r.forma_pagamento) set.add(r.forma_pagamento) })
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [data])
+
+  const filtrosColunaAtivos = (fPessoa.trim() ? 1 : 0) + (fValorMin.trim() ? 1 : 0) + (fValorMax.trim() ? 1 : 0) + (fForma ? 1 : 0)
+  const limparFiltrosColuna = () => { setFPessoa(''); setFValorMin(''); setFValorMax(''); setFForma(''); setPage(1) }
 
   // Camada1/Fatia2 item 3: busca a conta bancaria (texto) de cada linha carregada,
   // padrao aditivo (mesmo dos maps de nfse/boleto). Se a coluna nao existir (ex.
@@ -670,10 +704,48 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <input
             value={busca}
             onChange={(e) => { setBusca(e.target.value); setPage(1) }}
-            placeholder="Buscar por nome, CPF/CNPJ ou nº do título"
+            placeholder="Buscar por nome, CPF/CNPJ, descrição, documento ou valor"
             style={inputStyle}
           />
         </Campo>
+      </div>
+
+      {/* RD-41 · Filtros por coluna (recolhível · chips do que está ativo · limpar). Mobile-first. */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => setFiltrosAbertos((v) => !v)}
+            style={{ background: filtrosColunaAtivos ? '#3D2314' : '#FAF7F2', color: filtrosColunaAtivos ? '#FAF7F2' : '#3D2314', border: '0.5px solid rgba(61,35,20,0.2)', padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {filtrosAbertos ? '▾' : '▸'} Filtros{filtrosColunaAtivos ? ` · ${filtrosColunaAtivos}` : ''}
+          </button>
+          {filtrosColunaAtivos > 0 && (
+            <>
+              {fPessoa.trim() && <FiltroChip label={`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`} onX={() => { setFPessoa(''); setPage(1) }} />}
+              {fForma && <FiltroChip label={`Forma: ${fForma}`} onX={() => { setFForma(''); setPage(1) }} />}
+              {fValorMin.trim() && <FiltroChip label={`≥ R$ ${fValorMin.trim()}`} onX={() => { setFValorMin(''); setPage(1) }} />}
+              {fValorMax.trim() && <FiltroChip label={`≤ R$ ${fValorMax.trim()}`} onX={() => { setFValorMax(''); setPage(1) }} />}
+              <button type="button" onClick={limparFiltrosColuna} style={{ background: 'transparent', color: '#A32D2D', border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>limpar filtros</button>
+            </>
+          )}
+        </div>
+        {filtrosAbertos && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 10, padding: 12, background: '#FAF7F2', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 10 }}>
+            <Campo label={tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}>
+              <input value={fPessoa} onChange={(e) => { setFPessoa(e.target.value); setPage(1) }} placeholder={`Nome do ${tipo === 'pagar' ? 'fornecedor' : 'cliente'}`} style={inputStyle} />
+            </Campo>
+            <Campo label="Forma de pagamento">
+              <select value={fForma} onChange={(e) => { setFForma(e.target.value); setPage(1) }} style={inputStyle}>
+                <option value="">Todas</option>
+                {formasDistinct.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Valor mín (R$)">
+              <input value={fValorMin} onChange={(e) => { setFValorMin(e.target.value); setPage(1) }} inputMode="decimal" placeholder="0,00" style={inputStyle} />
+            </Campo>
+            <Campo label="Valor máx (R$)">
+              <input value={fValorMax} onChange={(e) => { setFValorMax(e.target.value); setPage(1) }} inputMode="decimal" placeholder="0,00" style={inputStyle} />
+            </Campo>
+          </div>
+        )}
       </div>
 
       {/* Camada1/Fatia2 item 3: filtro Conta = multi-select com chips (só aparece se houver contas) */}
@@ -1360,6 +1432,16 @@ function EmptyState({ labels }: { labels: ReturnType<typeof labelsPorTipo> }) {
         + {labels.ctaNovo}
       </Link>
     </div>
+  )
+}
+
+// RD-41 · chip de filtro ativo (rótulo + × p/ remover)
+function FiltroChip({ label, onX }: { label: string; onX: () => void }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F0ECE3', border: '0.5px solid rgba(61,35,20,0.2)', borderRadius: 16, padding: '3px 6px 3px 10px', fontSize: 11, fontWeight: 600, color: '#3D2314' }}>
+      {label}
+      <button type="button" onClick={onX} aria-label="remover filtro" style={{ background: 'transparent', border: 'none', color: '#A32D2D', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
+    </span>
   )
 }
 
