@@ -6,6 +6,7 @@
 // Mobile-first · touch 44px+ · linguagem CRIOU/ABRIU.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -86,6 +87,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function OSMecanicoPage() {
   const { companyIds, sel, companies } = useCompanyIds()
+  const searchParams = useSearchParams()
   const [oss, setOss] = useState<OSRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroStatus, setFiltroStatus] = useState<string>('todas')
@@ -135,6 +137,14 @@ export default function OSMecanicoPage() {
   }, [carregar])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // RD-41 · "Abrir OS" (ex.: Veículos Entregues) navega com ?os=<id> → abre AQUELA OS
+  // direto no modal existente (OrdemServicoCard, RD-26), sem cair na busca.
+  useEffect(() => {
+    const osParam = searchParams?.get('os')
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (osParam) setOsAberta(osParam)
+  }, [searchParams])
 
   const filtradas = useMemo(() => {
     let r = oss
