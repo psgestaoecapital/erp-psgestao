@@ -35,6 +35,7 @@ type Resultado = {
   forma_pagamento: string | null
   parcela: string | null
   observacoes: string | null
+  documento: string | null   // RD-41 · CPF/CNPJ do cliente/fornecedor (do cadastro) p/ busca
 }
 
 type KpiBlock = { valor: number; qtd: number }
@@ -305,6 +306,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
     const q = busca.trim().toLowerCase()
+    // RD-41 · busca por CPF/CNPJ: normaliza (só dígitos) p/ achar com ou sem pontuação.
+    const qDigitos = busca.replace(/\D/g, '')
     const filtrado = base.filter((r) => {
       if (categoria && r.categoria !== categoria) return false
       // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
@@ -314,7 +317,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       }
       if (q) {
         const hay = `${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''}`.toLowerCase()
-        if (!hay.includes(q)) return false
+        // acha por nome/descrição/nº do título OU por CPF/CNPJ do cadastro (normalizado, ≥3 dígitos)
+        const docDigitos = (r.documento ?? '').replace(/\D/g, '')
+        const achouDoc = qDigitos.length >= 3 && docDigitos.includes(qDigitos)
+        if (!hay.includes(q) && !achouDoc) return false
       }
       return true
     })
@@ -664,7 +670,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <input
             value={busca}
             onChange={(e) => { setBusca(e.target.value); setPage(1) }}
-            placeholder="descrição, quem, documento..."
+            placeholder="Buscar por nome, CPF/CNPJ ou nº do título"
             style={inputStyle}
           />
         </Campo>
