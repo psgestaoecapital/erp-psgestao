@@ -116,8 +116,21 @@ export default function ClinicaOdontoPage() {
     return null
   }, [itens, estado, itemDoDente])
 
+  // estado do DENTE inteiro (p/ a silhueta anatômica): plano concluído (verde) > pendente (âmbar)
+  // > condição (cárie/restaurado/ausente). Ausente = silhueta riscada.
+  const corDente = useCallback((dente: string): { fill: string | null; ausente: boolean } => {
+    const it = itemDoDente(dente)
+    if (it) return { fill: it.status === 'concluido' ? TOK.green : TOK.amber, ausente: false }
+    const conds = estado.filter((x) => x.dente === dente).map((x) => x.condicao)
+    if (conds.includes('ausente')) return { fill: TOK.gray, ausente: true }
+    const c = conds.find((cc) => COND_COR[cc])
+    return { fill: c ? COND_COR[c] : null, ausente: false }
+  }, [estado, itemDoDente])
+
   // clicar face → prefill o "adicionar tratamento"
   const onFace = (dente: string, face: Face) => { setFDente(dente); setFFace(face); flash(true, `Dente ${dente} · ${FACE_LABEL[face]} — preencha o tratamento`) }
+  // clicar a silhueta (dente inteiro) → prefill o dente (sem face)
+  const onDente = (dente: string) => { setFDente(dente); setFFace(''); flash(true, `Dente ${dente} — preencha o tratamento`) }
   const onNum = (dente: string) => setSelecionados((s) => { const n = new Set(s); if (n.has(dente)) n.delete(dente); else n.add(dente); return n })
   const selGrupo = (g: 'maxila' | 'mandibula' | 'arc_sup' | 'arc_inf' | 'todos') =>
     setSelecionados((s) => { const grp = grupoDentes(g, deciduos); const todos = grp.every((d) => s.has(d)); const n = new Set(s); grp.forEach((d) => todos ? n.delete(d) : n.add(d)); return n })
@@ -238,7 +251,7 @@ export default function ClinicaOdontoPage() {
             {selecionados.size > 0 && <span style={{ fontSize: 11, color: TOK.gold, fontWeight: 700 }}>{selecionados.size} selecionado(s) · <button type="button" onClick={() => setSelecionados(new Set())} style={{ background: 'none', border: 'none', color: TOK.red, cursor: 'pointer', fontWeight: 700 }}>limpar</button></span>}
           </div>
 
-          <Odontograma deciduos={deciduos} onToggleDecidua={setDeciduos} cor={corDaFace} selecionados={selecionados} onFace={onFace} onNum={onNum} />
+          <Odontograma deciduos={deciduos} onToggleDecidua={setDeciduos} cor={corDaFace} corDente={corDente} selecionados={selecionados} onFace={onFace} onNum={onNum} onDente={onDente} />
 
           {/* legenda */}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, color: TOK.mut }}>
