@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { PatioAlertaPecas } from '@/components/oficina/PatioAlertaPecas'
 import { useAcesso } from '@/hooks/useAcesso'
 import VisaoExecucaoModal from '@/components/oficina/VisaoExecucaoModal'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
@@ -258,6 +259,7 @@ export default function PatioKanbanPage() {
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: C.espresso, margin: '2px 0 0' }}>🚗 Pátio</h1>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <PatioAlertaPecas companyId={companyId} />
           <select value={filtroMec} onChange={(e) => setFiltroMec(e.target.value)}
             style={{ padding: '10px 12px', fontSize: 14, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }}>
             <option value="todos">👥 Todos os mecânicos</option>
