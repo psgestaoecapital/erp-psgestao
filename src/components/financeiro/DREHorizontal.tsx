@@ -218,7 +218,8 @@ export default function DREHorizontal() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: 12.5, minWidth: 720 }}>
+            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41) */}
+            <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%', minWidth: 720 }}>
               <thead>
                 <tr>
                   <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>
@@ -352,7 +353,7 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
           : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_mes)}) em {cheio(diff)} — há título fora do de-para</span>}
       </div>
       <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 11.5 }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 11.5, width: '100%' }}>
           <thead>
             <tr>
               <th style={thDiaPessoa}>{rotulo}</th>
@@ -394,11 +395,12 @@ const navBtn: React.CSSProperties = { width: 30, height: 30, borderRadius: 6, bo
 const mesBtn: React.CSSProperties = { padding: '7px 4px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#FFF', color: MUT, fontSize: 12, fontWeight: 600, cursor: 'pointer' }
 const mesBtnOn: React.CSSProperties = { background: GOLD, color: '#fff', borderColor: GOLD, fontWeight: 800 }
 const chip: React.CSSProperties = { padding: '6px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: 'transparent', color: ESP, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }
-const thConta: React.CSSProperties = { position: 'sticky', top: 0, textAlign: 'left', padding: '10px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, minWidth: 240 }
+// width:1% + nowrap = coluna CONTA encolhe pro conteúdo; a sobra vai pras colunas de dia/mês (distribuem e preenchem)
+const thConta: React.CSSProperties = { position: 'sticky', top: 0, textAlign: 'left', padding: '10px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, minWidth: 240, width: '1%', whiteSpace: 'nowrap' }
 const thMes: React.CSSProperties = { position: 'sticky', top: 0, textAlign: 'right', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: ESP, background: CREAM, whiteSpace: 'nowrap', minWidth: 78 }
 const thDiaCol: React.CSSProperties = { minWidth: 46, padding: '8px 7px' }
 const projStyle: React.CSSProperties = { fontStyle: 'italic', color: '#8A6A1E' }
-const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap', minWidth: 240 }
+const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap', minWidth: 240, width: '1%' }
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
 const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
