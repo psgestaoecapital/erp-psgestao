@@ -157,6 +157,10 @@ export default function AgendaOdontoPage() {
       className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm" style={{ background: GOLD, color: "#fff", borderRadius: TOK.rCtrl, fontWeight: 500 }}>
       <Plus size={16} /> Novo
     </button>
+    <a href="/dashboard/odonto/gestao-agenda" title="Gestão da Agenda — cadeiras e profissionais"
+      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm" style={{ background: TOK.card, color: TOK.esp, border: `0.5px solid ${LINE}`, borderRadius: TOK.rCtrl, fontWeight: 500, textDecoration: "none" }}>
+      ⚙️ Gestão
+    </a>
     <div className="relative">
       <button onClick={() => setShowOpts(v => !v)} className="p-2" style={{ background: TOK.card, border: `0.5px solid ${LINE}`, borderRadius: TOK.rCtrl }} title="Opções de visualização"><Sliders size={16} /></button>
       {showOpts && (
