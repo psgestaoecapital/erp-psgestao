@@ -8,7 +8,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, BrandIcon, TOK } from '@/components/odonto/ui'
-import { CalendarCog, Plus, Pencil, Archive, ChevronUp, ChevronDown, Armchair, UserRound, ChevronLeft } from 'lucide-react'
+import { IndicadoresAgenda } from '@/components/odonto/IndicadoresAgenda'
+import { CalendarCog, Plus, Pencil, Archive, ChevronUp, ChevronDown, Armchair, UserRound, ChevronLeft, Settings2, BarChart3 } from 'lucide-react'
 
 const CORES = ['#3D2314', '#C8941A', '#2F6F7E', '#3A5A8C', '#A65A3A', '#6C6480', '#166534', '#A32D2D']
 const DIAS = [{ n: 1, l: 'Seg' }, { n: 2, l: 'Ter' }, { n: 3, l: 'Qua' }, { n: 4, l: 'Qui' }, { n: 5, l: 'Sex' }, { n: 6, l: 'Sáb' }, { n: 0, l: 'Dom' }]
@@ -42,6 +43,7 @@ export default function GestaoAgendaPage() {
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null)
   const [editCadeira, setEditCadeira] = useState<Cadeira | 'novo' | null>(null)
   const [editProf, setEditProf] = useState<Prof | 'novo' | null>(null)
+  const [aba, setAba] = useState<'gestao' | 'indicadores'>('gestao')
 
   const carregar = useCallback(async () => {
     if (!companyId) return
@@ -112,6 +114,15 @@ export default function GestaoAgendaPage() {
 
       {msg && <div style={{ margin: '4px 0 12px', padding: '8px 12px', borderRadius: 10, fontSize: 13, fontWeight: 600, background: msg.ok ? '#E7F3EA' : '#FBEBEB', color: msg.ok ? TOK.green : TOK.red }}>{msg.t}</div>}
 
+      {/* abas: Cadeiras & Profissionais | Indicadores (PR2 · diferencial PS) */}
+      <div style={{ display: 'inline-flex', gap: 4, background: TOK.bg, borderRadius: 999, padding: 3, margin: '4px 0 6px' }}>
+        {([['gestao', 'Cadeiras & Profissionais', <Settings2 key="g" size={14} />], ['indicadores', 'Indicadores', <BarChart3 key="i" size={14} />]] as const).map(([k, l, ic]) => (
+          <button key={k} onClick={() => setAba(k)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, padding: '6px 14px', borderRadius: 999, cursor: 'pointer', border: 'none', background: aba === k ? TOK.gold : 'transparent', color: aba === k ? '#fff' : TOK.mut }}>{ic} {l}</button>
+        ))}
+      </div>
+
+      {aba === 'indicadores' ? <IndicadoresAgenda companyId={companyId} /> : (<>
+
       {/* CADEIRAS */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '14px 0 8px' }}>
         <div style={{ fontSize: 13, fontWeight: 800, color: TOK.esp, textTransform: 'uppercase', letterSpacing: 0.6, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Armchair size={16} color={TOK.gold} /> Cadeiras · {cadeirasVis.length}</div>
@@ -172,6 +183,8 @@ export default function GestaoAgendaPage() {
           ))}
         </div>
       )}
+
+      </>)}
 
       {editCadeira && companyId && <ModalCadeira companyId={companyId} cadeira={editCadeira === 'novo' ? null : editCadeira} onClose={() => setEditCadeira(null)} onSalvo={(t) => { setEditCadeira(null); flash(true, t); void carregar() }} onErro={(t) => flash(false, t)} />}
       {editProf && companyId && <ModalProf companyId={companyId} prof={editProf === 'novo' ? null : editProf} usuarios={usuarios} onClose={() => setEditProf(null)} onSalvo={(t) => { setEditProf(null); flash(true, t); void carregar() }} onErro={(t) => flash(false, t)} />}
