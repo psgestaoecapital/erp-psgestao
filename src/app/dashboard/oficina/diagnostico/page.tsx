@@ -4,11 +4,28 @@
 // 🚫 SEM preço, SEM financeiro, SEM mudar status — só o laudo técnico (RD: financeiro é da GE).
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check } from 'lucide-react'
+import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import SolicitarPecaModal from '@/components/oficina/SolicitarPecaModal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+
+const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
+// comprime a foto no celular/tablet antes de subir (mesmo padrão da recepção)
+async function comprimirImagem(file: File): Promise<Blob> {
+  if (!file.type.startsWith('image/')) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const MAX = 1600
+    let { width, height } = bitmap
+    if (width > MAX || height > MAX) { const r = Math.min(MAX / width, MAX / height); width = Math.round(width * r); height = Math.round(height * r) }
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
+    const ctx = canvas.getContext('2d'); if (!ctx) return file
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
+  } catch { return file }
+}
+type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; _url?: string | null }
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -66,6 +83,21 @@ export default function DiagnosticoPage() {
   const [buscaPeca, setBuscaPeca] = useState('')
   const [sugestoesPeca, setSugestoesPeca] = useState<Peca[]>([])
   const [solicitarAberto, setSolicitarAberto] = useState(false)  // R5 · modal solicitar peça ao dono
+  // RD-41 · fotos do diagnóstico (reusa erp_os_registro_foto, etapa='diagnostico')
+  const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
+  const [fotoPend, setFotoPend] = useState<{ path: string; url?: string | null; descricao: string } | null>(null)
+  const [subindoFoto, setSubindoFoto] = useState(false)
+
+  const carregarFotos = useCallback(async (osId: string) => {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_oficina_registro_listar', { p_company_id: companyId, p_os_id: osId, p_etapa: 'diagnostico' })
+    const regs = (data as FotoDiag[]) ?? []
+    const comUrl = await Promise.all(regs.map(async (r) => {
+      const { data: s } = await supabase.storage.from(BUCKET).createSignedUrl(r.foto_path, 3600)
+      return { ...r, _url: s?.signedUrl ?? null }
+    }))
+    setFotosDiag(comUrl)
+  }, [companyId])
 
   const carregarLista = useCallback(async () => {
     if (!companyId) return
@@ -78,7 +110,7 @@ export default function DiagnosticoPage() {
 
   const abrirOS = async (os: OSLinha) => {
     if (!companyId) return
-    setOsSel(os)
+    setOsSel(os); setFotoPend(null); setFotosDiag([]); void carregarFotos(os.id)
     const { data } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: companyId, p_os_id: os.id })
     const d = data as { os?: { diagnostico?: string; km?: number }; itens?: (ItemLaudo & { preco?: number; subtotal?: number; status_item?: string })[]; resumo?: Resumo } | null
     setDiagnostico(d?.os?.diagnostico ?? '')
@@ -128,6 +160,31 @@ export default function DiagnosticoPage() {
   const addLinha = (tipo: 'servico' | 'peca') => setItens((p) => [...p, { tipo, descricao: '', quantidade: '1', tempo_estimado_h: '', severidade: 'recomendado' }])
   const setItem = (i: number, patch: Partial<ItemLaudo>) => setItens((p) => p.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
   const delItem = (i: number) => setItens((p) => p.filter((_, idx) => idx !== i))
+
+  // captura a foto (comprime + sobe pro bucket) → fica pendente pra descrever e salvar
+  const onFotoDiag = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = Array.from(e.target.files ?? []).find((f) => f.type.startsWith('image/'))
+    e.target.value = ''
+    if (!file || !companyId || !osSel) return
+    setSubindoFoto(true)
+    const blob = await comprimirImagem(file)
+    const path = `${companyId}/diagnostico/${osSel.id}/${crypto.randomUUID()}.jpg`
+    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+    if (error) { setSubindoFoto(false); setMsg('❌ Falha ao subir a foto — tente de novo.'); return }
+    const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
+    setFotoPend({ path, url: signed?.signedUrl, descricao: '' }); setSubindoFoto(false)
+  }
+  // salva o registro da foto (etapa='diagnostico') — aparece na impressão (#843)
+  const salvarFotoDiag = async () => {
+    if (!companyId || !osSel || !fotoPend) return
+    const desc = fotoPend.descricao.trim() || 'Foto do diagnóstico'
+    const { data } = await supabase.rpc('fn_oficina_registro_salvar', {
+      p_company_id: companyId, p_os_id: osSel.id, p_foto_path: fotoPend.path, p_descricao: desc, p_etapa: 'diagnostico',
+    })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setMsg('❌ ' + (r?.erro ?? 'Falha ao salvar a foto')); return }
+    setFotoPend(null); setMsg('📷 Foto do diagnóstico salva'); void carregarFotos(osSel.id)
+  }
 
   const salvar = async () => {
     if (!companyId || !osSel) return
@@ -289,6 +346,42 @@ export default function DiagnosticoPage() {
                 {resumo.qtd_aprovados} aprovado(s){resumo.qtd_pendentes ? ` · ${resumo.qtd_pendentes} aguardando` : ''}{resumo.qtd_recusados ? ` · ${resumo.qtd_recusados} recusado(s)` : ''}
               </span>
               <span style={{ fontSize: 16, fontWeight: 800, color: OK }}>Total aprovado {brl(resumo.total_aprovado)}</span>
+            </div>
+          )}
+        </Sec>
+
+        {/* RD-41 · Fotos do diagnóstico (tablet do mecânico) — entram no histórico fotográfico da impressão (#843) */}
+        <Sec titulo={ramo.automotivo ? 'Fotos do diagnóstico' : `Fotos da ${ramo.objetoLabelCurto}`}>
+          <label style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
+            <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar foto'}
+            <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
+          </label>
+          <div style={{ fontSize: 11, color: ESP60, marginTop: 6 }}>Ex.: peça com defeito, vazamento, desgaste. Aparecem na impressão da OS (histórico fotográfico).</div>
+
+          {fotoPend && (
+            <div style={{ marginTop: 10, border: `1px solid ${GOLD}`, borderRadius: 10, padding: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {fotoPend.url && <img src={fotoPend.url} alt="foto do diagnóstico" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input value={fotoPend.descricao} onChange={(e) => setFotoPend((p) => (p ? { ...p, descricao: e.target.value } : p))} placeholder="Descreva a foto (ex.: pastilha gasta)" style={{ ...inp, padding: '9px 11px', fontSize: 13 }} autoFocus />
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <button onClick={() => void salvarFotoDiag()} style={{ ...btnGold, flex: 1, padding: '9px 12px', fontSize: 13 }}>Salvar foto</button>
+                  <button onClick={() => setFotoPend(null)} style={{ ...btnLine, padding: '9px 12px', fontSize: 13 }}><X size={14} /></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {fotosDiag.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
+              {fotosDiag.map((f) => (
+                <div key={f.id} style={{ border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
+                    : <div style={{ width: '100%', height: 72, background: '#F0EADE' }} />}
+                  <div style={{ fontSize: 10.5, color: ESP60, padding: '5px 7px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.descricao || 'Foto'}{f.criado_por_nome ? ` · ${f.criado_por_nome}` : ''}</div>
+                </div>
+              ))}
             </div>
           )}
         </Sec>

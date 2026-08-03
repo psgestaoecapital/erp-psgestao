@@ -24,7 +24,8 @@ interface Item {
   preco_unit?: number | null; subtotal?: number | null; aprovado?: boolean | null; status_item?: string | null
 }
 interface Resumo { total_aprovado?: number; total_orcamento?: number; qtd_aprovados?: number; qtd_pendentes?: number; qtd_recusados?: number }
-interface Foto { foto_path?: string | null; descricao?: string | null; autor?: string | null; data?: string | null }
+interface Foto { foto_path?: string | null; descricao?: string | null; autor?: string | null; data?: string | null; etapa?: string | null }
+const ETAPA_LABEL: Record<string, string> = { recepcao: 'Recepção', diagnostico: 'Diagnóstico', servico: 'Serviço' }
 interface OSExtra { assinatura_cliente?: string | null; assinatura_data?: string | null; descricao_servico?: string | null; solucao?: string | null }
 interface Dados {
   ok: boolean; erro?: string; ramo?: string
@@ -252,7 +253,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                         /* eslint-disable-next-line @next/next/no-img-element */
                         ? <img src={f._url} alt={f.descricao ?? 'foto'} />
                         : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#9C8E80' }}>indisponível</div>}
-                      {(f.descricao || f.autor) && <div className="cap">{[f.descricao, f.autor].filter(Boolean).join(' · ')}</div>}
+                      {(f.descricao || f.autor || f.etapa) && <div className="cap">{[f.etapa ? (ETAPA_LABEL[f.etapa] ?? f.etapa) : null, f.descricao, f.autor].filter(Boolean).join(' · ')}</div>}
                     </div>
                   ))}
                 </div>
