@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Bell } from 'lucide-react'
+import { Bell, LogOut } from 'lucide-react'
 import MobileDrawer from './MobileDrawer'
 import { supabase } from '@/lib/supabase'
 
@@ -14,6 +14,24 @@ interface UserResumo {
 export default function TopNav() {
   const [user, setUser] = useState<UserResumo | null>(null)
   const [temNotificacao, setTemNotificacao] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // fecha o menu da conta ao clicar fora ou apertar Esc
+  useEffect(() => {
+    if (!menuAberto) return
+    const onDoc = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuAberto(false) }
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuAberto(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onEsc)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
+  }, [menuAberto])
+
+  // Logout: encerra a sessão Supabase e volta pro login (raiz `/` é a tela de login).
+  // window.location garante estado limpo (zera caches/estados do app).
+  const sair = async () => {
+    try { await supabase.auth.signOut() } finally { window.location.href = '/' }
+  }
 
   useEffect(() => {
     let ignore = false
@@ -63,14 +81,36 @@ export default function TopNav() {
         </button>
 
         {user && (
-          <button
-            type="button"
-            aria-label={`Conta de ${user.email}`}
-            data-testid="user-avatar"
-            className="w-9 h-9 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[13px] flex items-center justify-center hover:opacity-95 transition-opacity ring-[1.5px] ring-[#3D2314]/15"
-          >
-            {user.iniciais}
-          </button>
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              aria-label={`Conta de ${user.email}`}
+              aria-haspopup="menu"
+              aria-expanded={menuAberto}
+              data-testid="user-avatar"
+              onClick={() => setMenuAberto((v) => !v)}
+              className="w-9 h-9 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[13px] flex items-center justify-center hover:opacity-95 transition-opacity ring-[1.5px] ring-[#3D2314]/15"
+            >
+              {user.iniciais}
+            </button>
+            {menuAberto && (
+              <div role="menu" className="absolute right-0 top-full mt-2 w-60 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-lg border border-[#3D2314]/10 py-1 z-30">
+                <div className="px-4 py-2.5 border-b border-[#3D2314]/8">
+                  <div className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/45">Conectado como</div>
+                  <div className="text-[13px] font-medium text-[#3D2314] truncate">{user.email}</div>
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="logout-button"
+                  onClick={() => { setMenuAberto(false); void sair() }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-[#A32D2D] hover:bg-[#A32D2D]/8 transition-colors text-left"
+                >
+                  <LogOut size={15} /> Sair
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </header>

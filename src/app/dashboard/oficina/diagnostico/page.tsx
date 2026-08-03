@@ -87,6 +87,7 @@ export default function DiagnosticoPage() {
   const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
   const [fotoPend, setFotoPend] = useState<{ path: string; url?: string | null; descricao: string } | null>(null)
   const [subindoFoto, setSubindoFoto] = useState(false)
+  const [fotoZoom, setFotoZoom] = useState<string | null>(null)   // lightbox: abrir foto em tamanho grande ao clicar
 
   const carregarFotos = useCallback(async (osId: string) => {
     if (!companyId) return
@@ -377,7 +378,7 @@ export default function DiagnosticoPage() {
               {fotosDiag.map((f) => (
                 <div key={f.id} style={{ border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
+                  {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} onClick={() => setFotoZoom(f._url ?? null)} title="Clique para ampliar" style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} />
                     : <div style={{ width: '100%', height: 72, background: '#F0EADE' }} />}
                   <div style={{ fontSize: 10.5, color: ESP60, padding: '5px 7px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.descricao || 'Foto'}{f.criado_por_nome ? ` · ${f.criado_por_nome}` : ''}</div>
                 </div>
@@ -397,6 +398,16 @@ export default function DiagnosticoPage() {
         <SolicitarPecaModal companyId={companyId} osId={osSel.id} aberto={solicitarAberto}
           onFechar={() => setSolicitarAberto(false)}
           onEnviada={() => setMsg('Solicitação enviada ao responsável.')} />
+      )}
+      {/* Lightbox: foto em tamanho grande (clique na miniatura). Toque/clique fora fecha. */}
+      {fotoZoom && (
+        <div onClick={() => setFotoZoom(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={fotoZoom} alt="foto do diagnóstico" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
+          <button type="button" aria-label="Fechar" onClick={() => setFotoZoom(null)}
+            style={{ position: 'fixed', top: 14, right: 14, width: 40, height: 40, borderRadius: 999, border: 'none', background: 'rgba(255,255,255,0.9)', color: '#3D2314', fontSize: 20, fontWeight: 700, cursor: 'pointer' }}>×</button>
+        </div>
       )}
     </div>
   )
