@@ -455,6 +455,8 @@ function ModalNovaOS({
   const [prioridade, setPrioridade] = useState('normal')
   const [salvando, setSalvando] = useState(false)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+  // aviso (não bloqueio): já existe OS aberta pra esta placa?
+  const [avisoPlaca, setAvisoPlaca] = useState<{ id: string; numero: string; status?: string } | null>(null)
   // RD-41 · ramo dirige labels/campos (automotiva pede placa/veículo; retífica etc. não).
   const { config: ramo } = useOficinaRamo(companyIdAtiva)
   // cliente
@@ -491,10 +493,19 @@ function ModalNovaOS({
     return () => window.clearTimeout(t)
   }, [busca, companyIdAtiva, cliente])
 
-  async function salvar() {
+  async function salvar(forcar = false) {
     setErroLocal(null)
     if (!descricao.trim()) { setErroLocal('Descrição do serviço é obrigatória.'); return }
     if (!companyIdAtiva) { setErroLocal('Selecione uma empresa antes de criar a OS.'); return }
+    // Aviso (não bloqueio): já existe OS não-finalizada pra esta placa? Genérico: sem placa, pula.
+    const placaTrim = placa.trim()
+    if (placaTrim && !forcar) {
+      setSalvando(true)
+      const { data: chk } = await supabase.rpc('fn_os_placa_aberta', { p_company_id: companyIdAtiva, p_placa: placaTrim })
+      setSalvando(false)
+      const c = chk as { existe?: boolean; id?: string; numero?: string; status?: string } | null
+      if (c?.existe && c.id && c.numero) { setAvisoPlaca({ id: c.id, numero: c.numero, status: c.status }); return }
+    }
     setSalvando(true)
     const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase.rpc('fn_os_criar', {
@@ -658,7 +669,7 @@ function ModalNovaOS({
           {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>❌ {erroLocal}</div>}
 
           <button
-            onClick={salvar}
+            onClick={() => void salvar()}
             disabled={salvando || !descricao.trim()}
             style={{
               minHeight: 48, padding: '12px 18px', borderRadius: 10,
@@ -673,6 +684,32 @@ function ModalNovaOS({
           </button>
         </div>
       </div>
+
+      {/* Aviso (não bloqueio): placa já tem OS aberta → abrir a existente ou criar nova mesmo assim */}
+      {avisoPlaca && (
+        <div onClick={(e) => e.stopPropagation()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: C.white, borderRadius: 12, width: '100%', maxWidth: 420, padding: 18, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.espresso, marginBottom: 6 }}>Placa {placa.trim().toUpperCase()} já tem OS aberta</div>
+            <div style={{ fontSize: 13, color: C.espressoM, marginBottom: 14 }}>
+              Já existe a <b>{avisoPlaca.numero}</b>{avisoPlaca.status ? ` (${avisoPlaca.status})` : ''} pra esta placa. Quer abrir a existente ou criar uma nova mesmo assim (ex.: 2 serviços distintos)?
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button onClick={() => { const a = avisoPlaca; setAvisoPlaca(null); onCriada(a.id, a.numero) }}
+                style={{ minHeight: 46, borderRadius: 10, background: C.gold, color: C.white, border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                Abrir {avisoPlaca.numero}
+              </button>
+              <button onClick={() => { setAvisoPlaca(null); void salvar(true) }}
+                style={{ minHeight: 46, borderRadius: 10, background: C.white, color: C.espresso, border: `1px solid ${C.border}`, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                Criar nova mesmo assim
+              </button>
+              <button onClick={() => setAvisoPlaca(null)}
+                style={{ minHeight: 40, borderRadius: 10, background: 'transparent', color: C.espressoM, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
