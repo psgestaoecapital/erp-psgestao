@@ -14,7 +14,7 @@
 const sql = require('mssql')
 const os = require('os')
 
-const AGENT_VERSION = 'atak-agente-1.0'
+const AGENT_VERSION = 'atak-agente-1.1'
 
 // Constantes de PLATAFORMA (não são segredo do cliente; vêm do instalador/.env do agente).
 // A identidade do cliente é SÓ o token.
@@ -162,12 +162,25 @@ async function main() {
   if (!dominios.length) { console.warn('[agente] nenhum domínio ativo pra coletar.'); return }
 
   const pool = await conectarComRetry(cfg)
+  let enviados = 0, erros = 0
   for (const dom of dominios) {
-    try { await coletarDominio(pool, cfg, dom) }
-    catch (e) { console.error(`[agente][${dom.dominio}] ERRO: ${e.message}`) } // um domínio não derruba os outros
+    try { enviados += await coletarDominio(pool, cfg, dom) }
+    catch (e) { erros++; console.error(`[agente][${dom.dominio}] ERRO: ${e.message}`) } // um domínio não derruba os outros
   }
   await pool.close()
-  console.log(`[agente] ciclo concluído em ${((Date.now() - t0) / 1000).toFixed(1)}s.`)
+
+  // Heartbeat de VIVACIDADE (RD-58): conectou no banco do cliente e varreu todos os
+  // domínios, mas a janela veio vazia (0 linhas novas). Sem isto o agente saudável
+  // ficaria mudo e o monitor o mostraria "Parado" — mentindo. Bate um lote vazio
+  // (o atak-ingest já registra `sucesso · gravados=0 · máquina viva`). Só bate quando
+  // NÃO houve erro de domínio — assim não mascara uma falha real (aí o silêncio é honesto).
+  if (enviados === 0 && erros === 0 && dominios.length) {
+    try {
+      await postBatch([], dominios[0].dominio, cfg.__ingestSecret)
+      console.log('[agente] ciclo sem novidades — heartbeat de vivacidade enviado.')
+    } catch (e) { console.error('[agente] falha ao enviar heartbeat de vivacidade:', e.message) }
+  }
+  console.log(`[agente] ciclo concluído em ${((Date.now() - t0) / 1000).toFixed(1)}s — ${enviados} enviado(s), ${erros} domínio(s) com erro.`)
 }
 
 main().catch((e) => { console.error('[agente] ERRO:', e.message); process.exit(1) })

@@ -16,6 +16,11 @@ banco, credencial (via Vault), de-paras e janela vêm da nuvem PS pela RPC
    com janela por `coluna_watermark` quando houver. Sem adivinhar casing no JS.
 4. Empurra pro edge `atak-ingest` (idempotente). O edge **já grava o heartbeat** em
    `erp_sync_log` → alimenta o **monitor / semáforo** da tela.
+5. **Heartbeat de vivacidade (RD-58, v1.1):** se o ciclo conectou e varreu tudo mas a
+   janela veio **vazia** (0 linhas novas), o agente bate um lote vazio mesmo assim —
+   senão um agente saudável ficaria mudo e o monitor o mostraria _Parado_ (mentira).
+   Só bate quando **não houve erro de domínio**; se algo falhou, o silêncio é honesto
+   e o `fn_atak_alerta_silencio` acende o vermelho.
 
 Resiliência: um domínio que falha não derruba os outros (try/catch); conexão com
 retry + backoff.
