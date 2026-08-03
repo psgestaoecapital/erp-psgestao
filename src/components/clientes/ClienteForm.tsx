@@ -74,11 +74,26 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
         razao_social: d.razao_social || f.razao_social, nome_fantasia: d.nome_fantasia || f.nome_fantasia,
         cpf_cnpj: fmtCNPJ(d.cnpj), logradouro: d.logradouro || '', numero: d.numero || '', complemento: d.complemento || '',
         bairro: d.bairro || '', cidade: d.cidade || '', uf: d.uf || '', cep: d.cep || '',
+        // IBGE p/ NFS-e: a BrasilAPI já traz; se não veio (ReceitaWS), resolve pela tabela (cidade+UF) abaixo.
+        codigo_ibge_municipio: d.ibge || f.codigo_ibge_municipio || '',
         telefone: d.telefone || f.telefone || '', email: d.email || f.email || '',
       }));
-      setMsg("✅ Dados preenchidos via Receita Federal");
+      if (!d.ibge && d.cidade && d.uf) await resolverIbge(d.cidade, d.uf);
+      setMsg(d.ibge ? "✅ Dados + IBGE preenchidos via Receita Federal" : "✅ Dados preenchidos via Receita Federal");
     } catch { setMsg("❌ Erro ao consultar CNPJ."); }
     setCnpjLoading(false); setTimeout(() => setMsg(""), 4000);
+  };
+
+  // Resolve o código IBGE pela tabela oficial (5.570 municípios) a partir de cidade + UF.
+  // Preenche sozinho quando o CNPJ/CEP não trouxe o código, ou quando a cidade é digitada à mão.
+  // Honesto (RD-51): não acha → não inventa; só preenche quando há match exato de cidade+UF.
+  const resolverIbge = async (cidade?: string, uf?: string) => {
+    const nome = (cidade ?? form.cidade ?? '').trim();
+    const sigla = (uf ?? form.uf ?? '').trim();
+    if (!nome || sigla.length !== 2) return;
+    const { data } = await supabase.rpc('fn_municipio_por_nome_uf', { p_nome: nome, p_uf: sigla });
+    const cod = Array.isArray(data) ? data[0]?.codigo_ibge : (data as { codigo_ibge?: string } | null)?.codigo_ibge;
+    if (cod) setForm((f) => ({ ...f, codigo_ibge_municipio: String(cod) }));
   };
 
   const buscarCEP = async () => {
@@ -113,6 +128,14 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
         const d = await r.json();
         if (d?.ibge) ibgeFinal = String(d.ibge);
       } catch { /* sem rede — segue; o guard fiscal avisa na emissão */ }
+    }
+    // Fallback final pela tabela oficial (5.570): resolve pelo par cidade+UF (cobre cidade digitada à mão).
+    if (!ibgeFinal && (form.cidade ?? '').trim() && (form.uf ?? '').trim().length === 2) {
+      try {
+        const { data } = await supabase.rpc('fn_municipio_por_nome_uf', { p_nome: (form.cidade ?? '').trim(), p_uf: (form.uf ?? '').trim() });
+        const cod = Array.isArray(data) ? data[0]?.codigo_ibge : (data as { codigo_ibge?: string } | null)?.codigo_ibge;
+        if (cod) ibgeFinal = String(cod);
+      } catch { /* segue; guard fiscal avisa na emissão */ }
     }
     // Extrai o número embutido no logradouro se o campo Número ainda estiver vazio.
     const endNum = extrairNumeroDoLogradouro(form.logradouro, form.numero);
@@ -209,13 +232,13 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
         <div style={{ gridColumn: "span 2" }}><div style={lbl}>Bairro</div>
           <input value={form.bairro} onChange={(e) => set("bairro", e.target.value)} style={inp} /></div>
         <div><div style={lbl}>Cidade</div>
-          <input value={form.cidade} onChange={(e) => set("cidade", e.target.value)} style={inp} /></div>
+          <input value={form.cidade} onChange={(e) => set("cidade", e.target.value)} onBlur={() => resolverIbge()} style={inp} /></div>
         <div><div style={lbl}>UF</div>
-          <input value={form.uf} onChange={(e) => set("uf", e.target.value.toUpperCase().slice(0, 2))} style={{ ...inp, textAlign: "center", fontWeight: 600 }} /></div>
+          <input value={form.uf} onChange={(e) => set("uf", e.target.value.toUpperCase().slice(0, 2))} onBlur={() => resolverIbge()} style={{ ...inp, textAlign: "center", fontWeight: 600 }} /></div>
         <div><div style={lbl}>Cód. IBGE município (NF)</div>
-          <input value={form.codigo_ibge_municipio} readOnly placeholder="via CEP" style={{ ...inp, fontFamily: "monospace", color: form.codigo_ibge_municipio ? G : R, borderColor: form.codigo_ibge_municipio ? BD : R }} />
+          <input value={form.codigo_ibge_municipio} readOnly placeholder="via cidade/UF" style={{ ...inp, fontFamily: "monospace", color: form.codigo_ibge_municipio ? G : R, borderColor: form.codigo_ibge_municipio ? BD : R }} />
           <div style={{ fontSize: 9, marginTop: 2, color: form.codigo_ibge_municipio ? G : R }}>
-            {form.codigo_ibge_municipio ? `✓ ${form.cidade || ''}${form.uf ? '/' + form.uf : ''}` : 'obrigatório na NF — preenche pelo CEP (🔍) ou ao salvar'}
+            {form.codigo_ibge_municipio ? `✓ ${form.cidade || ''}${form.uf ? '/' + form.uf : ''}` : 'obrigatório na NF — preenche pelo CNPJ/CEP (🔍) ou pela cidade+UF'}
           </div></div>
       </div>
 

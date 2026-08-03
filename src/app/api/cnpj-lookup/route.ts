@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
         cep: d.cep ? String(d.cep).padStart(8, '0').replace(/(\d{5})(\d{3})/, '$1-$2') : '',
         telefone: d.ddd_telefone_1 ? `(${String(d.ddd_telefone_1).slice(0, 2)}) ${String(d.ddd_telefone_1).slice(2)}` : '',
         email: d.email || '',
+        // código IBGE do município (obrigatório na NFS-e) — a BrasilAPI já devolve; evita 2ª consulta.
+        ibge: d.codigo_municipio_ibge ? String(d.codigo_municipio_ibge) : '',
         source: 'brasilapi',
       });
     }
@@ -73,12 +75,13 @@ export async function GET(req: NextRequest) {
         cep: d.cep || '',
         telefone: d.telefone || '',
         email: d.email || '',
+        ibge: '',   // ReceitaWS não devolve IBGE — resolvido pela tabela (cidade+UF) no cadastro.
         source: 'receitaws',
       });
     }
     
     return NextResponse.json({ error: 'CNPJ não encontrado nos serviços.' }, { status: 404 });
-  } catch (e: any) {
-    return NextResponse.json({ error: 'Erro ao consultar: ' + e.message }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ error: 'Erro ao consultar: ' + (e instanceof Error ? e.message : String(e)) }, { status: 500 });
   }
 }
