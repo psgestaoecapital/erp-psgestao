@@ -36,6 +36,41 @@ const fmtBRL = (v: number | null | undefined) => v == null ? '—' : 'R$ ' + Num
 const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' } }
 const fmtDataHora = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' } }
 
+// valor por extenso (BRL) — pra Nota Promissória. Compacto, cobre até bilhões + centavos.
+function valorExtenso(v: number): string {
+  const u = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const d10 = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const d = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const c = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+  const tres = (n: number): string => {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+    const cen = Math.floor(n / 100), r = n % 100, p: string[] = []
+    if (cen) p.push(c[cen])
+    if (r < 10) { if (r) p.push(u[r]) }
+    else if (r < 20) p.push(d10[r - 10])
+    else { const dz = Math.floor(r / 10), un = r % 10; p.push(un ? `${d[dz]} e ${u[un]}` : d[dz]) }
+    return p.join(' e ')
+  }
+  const inteiro = Math.floor(v), cent = Math.round((v - inteiro) * 100)
+  const chunks: number[] = []
+  let resto = inteiro
+  if (inteiro === 0) chunks.push(0)
+  while (resto > 0) { chunks.push(resto % 1000); resto = Math.floor(resto / 1000) }
+  const escala: [string, string][] = [['', ''], ['mil', 'mil'], ['milhão', 'milhões'], ['bilhão', 'bilhões']]
+  const grupos: string[] = []
+  for (let k = chunks.length - 1; k >= 0; k--) {
+    const n = chunks[k]; if (n === 0) continue
+    let txt = tres(n)
+    if (k === 1) txt = n === 1 ? 'mil' : `${txt} mil`
+    else if (k >= 2) txt = `${txt} ${n === 1 ? escala[k][0] : escala[k][1]}`
+    grupos.push(txt)
+  }
+  let out = `${grupos.join(', ') || 'zero'} ${inteiro === 1 ? 'real' : 'reais'}`
+  if (cent > 0) out += ` e ${tres(cent)} ${cent === 1 ? 'centavo' : 'centavos'}`
+  return out.charAt(0).toUpperCase() + out.slice(1)
+}
+
 const STATUS_LABEL: Record<string, string> = {
   aberta: 'Aberta', em_execucao: 'Em execução', aguardando_peca: 'Aguardando peça/material',
   aguardando_aprovacao: 'Aguardando aprovação', pronta: 'Pronta', entregue: 'Entregue', cancelada: 'Cancelada',
@@ -48,6 +83,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
   const [erro, setErro] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [incluirFotos, setIncluirFotos] = useState(false)
+  const [incluirPromissoria, setIncluirPromissoria] = useState(true)   // default ligado (pedido KGF)
   const [fotos, setFotos] = useState<(Foto & { _url?: string | null })[]>([])
   const [carregandoFotos, setCarregandoFotos] = useState(false)
 
@@ -130,6 +166,10 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
           <label className="pp-toggle">
             <input type="checkbox" checked={incluirFotos} onChange={(e) => void alternarFotos(e.target.checked)} />
             Incluir histórico fotográfico
+          </label>
+          <label className="pp-toggle">
+            <input type="checkbox" checked={incluirPromissoria} onChange={(e) => setIncluirPromissoria(e.target.checked)} />
+            Incluir nota promissória
           </label>
           <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">🖨️ Imprimir</button>
         </div>
@@ -274,6 +314,32 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
               <div className="pp-assinatura-vazia">_____________________________________________<br />Assinatura do cliente</div>
             )}
           </section>
+
+          {/* 7b. Nota Promissória (opcional) — pré-preenchida com o total aprovado da OS [→GE] */}
+          {incluirPromissoria && (
+            <section style={{ marginTop: 24, pageBreakInside: 'avoid' }}>
+              <div className="pp-section-title">Nota Promissória</div>
+              <div style={{ border: '1.5px solid #3D2314', borderRadius: 8, padding: 16, fontSize: 12, lineHeight: 1.7 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>NOTA PROMISSÓRIA {cab.numero ? `· ref. ${cab.numero}` : ''}</div>
+                  <div style={{ fontWeight: 700, color: '#C8941A' }}>{fmtBRL(resumo.total_aprovado ?? 0)}</div>
+                </div>
+                <div style={{ marginBottom: 6 }}>Vencimento: ____ / ____ / __________</div>
+                <div>
+                  Aos <strong>{fmtData(new Date().toISOString())}</strong>, pagarei por esta Nota Promissória
+                  à empresa <strong>{empresa.nome ?? empresa.razao_social ?? '—'}</strong>{empresa.cnpj ? ` (CNPJ ${empresa.cnpj})` : ''},
+                  ou à sua ordem, a quantia de <strong>{fmtBRL(resumo.total_aprovado ?? 0)}</strong>
+                  {' '}(<em>{valorExtenso(Number(resumo.total_aprovado ?? 0))}</em>), referente à {docTitulo.toLowerCase()} {cab.numero ?? ''},
+                  em moeda corrente deste país.
+                </div>
+                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                  <div><span className="pp-lbl">Emitente</span><div className="pp-val">{cab.cliente_nome ?? '—'}</div></div>
+                  <div><span className="pp-lbl">CPF/CNPJ</span><div className="pp-val">{cab.cliente_cnpj ?? '—'}</div></div>
+                </div>
+                <div className="pp-assinatura-vazia" style={{ marginTop: 40 }}>_____________________________________________<br />Assinatura do emitente</div>
+              </div>
+            </section>
+          )}
 
           {/* 8. Rodapé */}
           <div className="pp-footer">
