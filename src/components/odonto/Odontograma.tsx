@@ -42,16 +42,58 @@ const PATHS: Record<Face, string> = {
   O: '', // renderizado como <rect>
 }
 
-function Dente({ num, cor, selecionado, onFace, onNum }: {
+// ── Silhueta ANATÔMICA (coroa + raiz) · reconhecimento clínico imediato ──────────────
+// A arcada vem do 1º dígito FDI (1,2,5,6 = superior); o grupo dentário do 2º dígito.
+// Formas canônicas com a COROA em cima (orientação inferior: coroa pra oclusão/centro).
+// Superior → flip vertical (raiz pra cima, coroa pra baixo/centro).
+type Grupo = 'incisivo' | 'canino' | 'premolar' | 'molar'
+export function arcadaSuperior(num: string): boolean { return ['1', '2', '5', '6'].includes(num[0]) }
+export function grupoDentario(num: string): Grupo {
+  const deciduo = ['5', '6', '7', '8'].includes(num[0])
+  const p = num[1]
+  if (p === '1' || p === '2') return 'incisivo'
+  if (p === '3') return 'canino'
+  if (p === '4' || p === '5') return deciduo ? 'molar' : 'premolar'
+  return 'molar' // 6,7,8
+}
+// paths num box 22×30 (coroa y≈0–14 · raiz y≈14–30)
+const SHAPES: Record<Grupo, string[]> = {
+  incisivo: ['M4,3 Q11,0.5 18,3 L16.5,13 Q11,15 5.5,13 Z', 'M8,13 Q11,14 14,13 L12.5,28.5 Q11,30 9.5,28.5 Z'],
+  canino: ['M6.5,2.5 L11,0 L15.5,2.5 L15,13 Q11,15 7,13 Z', 'M8,13 L14,13 L12.5,29.5 Q11,30 9.5,29.5 Z'],
+  premolar: ['M5,3.5 Q11,1.5 17,3.5 Q18.5,8 16.5,13.5 Q11,15.5 5.5,13.5 Q3.5,8 5,3.5 Z', 'M8.5,13.5 L13.5,13.5 L12,28.5 Q11,29.5 10,28.5 Z'],
+  molar: ['M3,4.5 Q11,1.5 19,4.5 Q20.5,9 18.5,14 Q11,16 3.5,14 Q1.5,9 3,4.5 Z', 'M5.5,14 L9.5,14 L8.5,28 Q7.5,29 6.5,28 Z', 'M12.5,14 L16.5,14 L15.5,28 Q14.5,29 13.5,28 Z'],
+}
+function Silhueta({ num, fill, ausente, menor, onClick }: { num: string; fill: string | null; ausente: boolean; menor: boolean; onClick: () => void }) {
+  const sup = arcadaSuperior(num)
+  const shapes = SHAPES[grupoDentario(num)]
+  const paintFill = ausente ? '#EDE7DA' : (fill ?? '#FDFBF7')
+  return (
+    <svg width={menor ? 16 : 20} height={menor ? 22 : 27} viewBox="0 0 22 30" style={{ cursor: 'pointer', overflow: 'visible' }} onClick={onClick}>
+      <title>{`Dente ${num}${ausente ? ' · ausente' : ''} — toque para adicionar tratamento`}</title>
+      <g transform={sup ? 'translate(0,30) scale(1,-1)' : undefined} opacity={ausente ? 0.4 : 1}>
+        {shapes.map((d, i) => <path key={i} d={d} fill={paintFill} stroke={TOK.line} strokeWidth={0.7} strokeLinejoin="round" />)}
+      </g>
+      {ausente && <line x1={3} y1={27} x2={19} y2={3} stroke={TOK.gray} strokeWidth={1.6} strokeLinecap="round" />}
+    </svg>
+  )
+}
+
+function Dente({ num, cor, corDente, selecionado, menor, onFace, onNum, onDente }: {
   num: string
   cor: (face: Face) => string | null
+  corDente: { fill: string | null; ausente: boolean }
   selecionado: boolean
+  menor: boolean
   onFace: (dente: string, face: Face) => void
   onNum: (dente: string) => void
+  onDente: (dente: string) => void
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-      <svg width={30} height={30} viewBox="0 0 30 30" style={{ borderRadius: 4, overflow: 'visible' }}>
+      {/* silhueta anatômica (coroa+raiz) — clique = seleciona o dente inteiro (prefill tratamento) */}
+      <Silhueta num={num} fill={corDente.fill} ausente={corDente.ausente} menor={menor} onClick={() => onDente(num)} />
+      {/* diagrama de faces (marcação precisa por face) */}
+      <svg width={menor ? 26 : 30} height={menor ? 26 : 30} viewBox="0 0 30 30" style={{ borderRadius: 4, overflow: 'visible' }}>
         {(['V', 'D', 'L', 'M'] as Face[]).map((f) => (
           <path key={f} d={PATHS[f]} fill={cor(f) ?? '#FFFFFF'} stroke={TOK.line} strokeWidth={0.5}
             style={{ cursor: 'pointer' }} onClick={() => onFace(num, f)}>
@@ -63,7 +105,7 @@ function Dente({ num, cor, selecionado, onFace, onNum }: {
           <title>{`Dente ${num} · ${FACE_LABEL.O}`}</title>
         </rect>
       </svg>
-      <button type="button" onClick={() => onNum(num)}
+      <button type="button" onClick={() => onNum(num)} title="Selecionar (seleção em massa)"
         style={{ fontSize: 10, fontWeight: 700, lineHeight: 1, padding: '2px 4px', borderRadius: 4, cursor: 'pointer',
           border: `0.5px solid ${selecionado ? TOK.gold : TOK.line}`,
           background: selecionado ? TOK.gold : '#fff', color: selecionado ? '#fff' : TOK.mut }}>
@@ -73,20 +115,25 @@ function Dente({ num, cor, selecionado, onFace, onNum }: {
   )
 }
 
-function Arcada({ linhas, cor, selecionados, onFace, onNum }: {
+const semEstado = { fill: null, ausente: false }
+function Arcada({ linhas, cor, corDente, selecionados, menor, onFace, onNum, onDente }: {
   linhas: string[][]
   cor: (dente: string, face: Face) => string | null
+  corDente?: (dente: string) => { fill: string | null; ausente: boolean }
   selecionados: Set<string>
+  menor: boolean
   onFace: (dente: string, face: Face) => void
   onNum: (dente: string) => void
+  onDente: (dente: string) => void
 }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'nowrap', overflowX: 'auto', padding: '2px 0' }}>
       {linhas.map((linha, i) => (
         <div key={i} style={{ display: 'flex', gap: 3 }}>
           {linha.map((num) => (
-            <Dente key={num} num={num} selecionado={selecionados.has(num)}
-              cor={(f) => cor(num, f)} onFace={onFace} onNum={onNum} />
+            <Dente key={num} num={num} selecionado={selecionados.has(num)} menor={menor}
+              cor={(f) => cor(num, f)} corDente={corDente ? corDente(num) : semEstado}
+              onFace={onFace} onNum={onNum} onDente={onDente} />
           ))}
         </div>
       ))}
@@ -95,15 +142,18 @@ function Arcada({ linhas, cor, selecionados, onFace, onNum }: {
 }
 
 export function Odontograma({
-  deciduos, onToggleDecidua, cor, selecionados, onFace, onNum,
+  deciduos, onToggleDecidua, cor, corDente, selecionados, onFace, onNum, onDente,
 }: {
   deciduos: boolean
   onToggleDecidua: (v: boolean) => void
   cor: (dente: string, face: Face) => string | null   // cor da face (null = branco)
+  corDente?: (dente: string) => { fill: string | null; ausente: boolean }   // estado da silhueta (opcional)
   selecionados: Set<string>
   onFace: (dente: string, face: Face) => void
   onNum: (dente: string) => void
+  onDente?: (dente: string) => void   // clicar a silhueta (dente inteiro); fallback = onNum
 }) {
+  const clickDente = onDente ?? onNum
   const [aberto, setAberto] = useState(true)
   const sup = deciduos ? DEC_SUP : PERM_SUP
   const inf = deciduos ? DEC_INF : PERM_INF
@@ -126,9 +176,9 @@ export function Odontograma({
       </div>
       {aberto && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Arcada linhas={sup} cor={cor} selecionados={selecionados} onFace={onFace} onNum={onNum} />
+          <Arcada linhas={sup} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} onFace={onFace} onNum={onNum} onDente={clickDente} />
           <div style={{ height: 1, background: TOK.line, margin: '2px 0' }} />
-          <Arcada linhas={inf} cor={cor} selecionados={selecionados} onFace={onFace} onNum={onNum} />
+          <Arcada linhas={inf} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} onFace={onFace} onNum={onNum} onDente={clickDente} />
         </div>
       )}
     </div>
