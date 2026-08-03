@@ -78,12 +78,13 @@ function Silhueta({ num, fill, ausente, menor, onClick }: { num: string; fill: s
   )
 }
 
-function Dente({ num, cor, corDente, selecionado, menor, onFace, onNum, onDente }: {
+function Dente({ num, cor, corDente, selecionado, menor, badge, onFace, onNum, onDente }: {
   num: string
   cor: (face: Face) => string | null
   corDente: { fill: string | null; ausente: boolean }
   selecionado: boolean
   menor: boolean
+  badge: number   // nº de lançamentos neste dente (>1 mostra contador — vários tratamentos)
   onFace: (dente: string, face: Face) => void
   onNum: (dente: string) => void
   onDente: (dente: string) => void
@@ -105,23 +106,34 @@ function Dente({ num, cor, corDente, selecionado, menor, onFace, onNum, onDente 
           <title>{`Dente ${num} · ${FACE_LABEL.O}`}</title>
         </rect>
       </svg>
-      <button type="button" onClick={() => onNum(num)} title="Selecionar (seleção em massa)"
-        style={{ fontSize: 11, fontWeight: 700, lineHeight: 1, padding: '3px 7px', borderRadius: 5, cursor: 'pointer',
-          border: `0.5px solid ${selecionado ? TOK.gold : TOK.line}`,
-          background: selecionado ? TOK.gold : '#fff', color: selecionado ? '#fff' : TOK.mut }}>
-        {num}
-      </button>
+      <div style={{ position: 'relative' }}>
+        <button type="button" onClick={() => onNum(num)} title="Selecionar (seleção em massa)"
+          style={{ fontSize: 11, fontWeight: 700, lineHeight: 1, padding: '3px 7px', borderRadius: 5, cursor: 'pointer',
+            border: `0.5px solid ${selecionado ? TOK.gold : TOK.line}`,
+            background: selecionado ? TOK.gold : '#fff', color: selecionado ? '#fff' : TOK.mut }}>
+          {num}
+        </button>
+        {badge > 1 && (
+          <span title={`${badge} lançamentos neste dente`} onClick={() => onDente(num)}
+            style={{ position: 'absolute', top: -7, right: -7, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999,
+              background: TOK.esp, color: '#fff', fontSize: 9.5, fontWeight: 800, lineHeight: '15px', textAlign: 'center',
+              cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,.25)' }}>
+            {badge}
+          </span>
+        )}
+      </div>
     </div>
   )
 }
 
 const semEstado = { fill: null, ausente: false }
-function Arcada({ linhas, cor, corDente, selecionados, menor, onFace, onNum, onDente }: {
+function Arcada({ linhas, cor, corDente, selecionados, menor, badge, onFace, onNum, onDente }: {
   linhas: string[][]
   cor: (dente: string, face: Face) => string | null
   corDente?: (dente: string) => { fill: string | null; ausente: boolean }
   selecionados: Set<string>
   menor: boolean
+  badge?: (dente: string) => number
   onFace: (dente: string, face: Face) => void
   onNum: (dente: string) => void
   onDente: (dente: string) => void
@@ -133,6 +145,7 @@ function Arcada({ linhas, cor, corDente, selecionados, menor, onFace, onNum, onD
         <div key={i} style={{ display: 'flex', gap: 8 }}>
           {linha.map((num) => (
             <Dente key={num} num={num} selecionado={selecionados.has(num)} menor={menor}
+              badge={badge ? badge(num) : 0}
               cor={(f) => cor(num, f)} corDente={corDente ? corDente(num) : semEstado}
               onFace={onFace} onNum={onNum} onDente={onDente} />
           ))}
@@ -143,13 +156,14 @@ function Arcada({ linhas, cor, corDente, selecionados, menor, onFace, onNum, onD
 }
 
 export function Odontograma({
-  deciduos, onToggleDecidua, cor, corDente, selecionados, onFace, onNum, onDente,
+  deciduos, onToggleDecidua, cor, corDente, selecionados, badge, onFace, onNum, onDente,
 }: {
   deciduos: boolean
   onToggleDecidua: (v: boolean) => void
   cor: (dente: string, face: Face) => string | null   // cor da face (null = branco)
   corDente?: (dente: string) => { fill: string | null; ausente: boolean }   // estado da silhueta (opcional)
   selecionados: Set<string>
+  badge?: (dente: string) => number   // nº de lançamentos por dente (>1 mostra contador)
   onFace: (dente: string, face: Face) => void
   onNum: (dente: string) => void
   onDente?: (dente: string) => void   // clicar a silhueta (dente inteiro); fallback = onNum
@@ -177,9 +191,9 @@ export function Odontograma({
       </div>
       {aberto && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Arcada linhas={sup} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} onFace={onFace} onNum={onNum} onDente={clickDente} />
+          <Arcada linhas={sup} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} badge={badge} onFace={onFace} onNum={onNum} onDente={clickDente} />
           <div style={{ height: 1, background: TOK.line, margin: '6px 0' }} />
-          <Arcada linhas={inf} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} onFace={onFace} onNum={onNum} onDente={clickDente} />
+          <Arcada linhas={inf} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} badge={badge} onFace={onFace} onNum={onNum} onDente={clickDente} />
         </div>
       )}
     </div>
