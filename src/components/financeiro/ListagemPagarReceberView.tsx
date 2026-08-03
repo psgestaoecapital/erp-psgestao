@@ -366,10 +366,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
     [resultadosFiltrados],
   )
-  const valorTotalSelecionados = useMemo(() => {
-    return resultadosFiltrados
-      .filter((r) => selecionados.has(r.id))
-      .reduce((s, r) => s + (r.valor_documento - (r.valor_pago ?? 0)), 0)
+  // Dois somatórios (Jordana/CEO): Total = Σ valor cheio ("quanto tem nas contas");
+  // Pendente = Σ (valor − valor_pago) ("quanto ainda falta"), nunca negativo (clamp em 0).
+  const { valorTotalSelecionados, valorPendenteSelecionados } = useMemo(() => {
+    const sel = resultadosFiltrados.filter((r) => selecionados.has(r.id))
+    const total = sel.reduce((s, r) => s + (r.valor_documento ?? 0), 0)
+    const pendente = sel.reduce((s, r) => s + Math.max(0, (r.valor_documento ?? 0) - (r.valor_pago ?? 0)), 0)
+    return { valorTotalSelecionados: total, valorPendenteSelecionados: pendente }
   }, [resultadosFiltrados, selecionados])
 
   function toggleSelecionado(id: string) {
@@ -822,8 +825,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 gap: 12, flexWrap: 'wrap', marginBottom: -1,
               }}>
-                <div style={{ fontSize: 13 }}>
-                  ✅ <strong>{selecionados.size}</strong> selecionado{selecionados.size !== 1 ? 's' : ''} · R$ <strong>{fmtBRL(valorTotalSelecionados)}</strong> total
+                <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  ✅ <strong>{selecionados.size}</strong> selecionado{selecionados.size !== 1 ? 's' : ''}
+                  <span style={{ opacity: 0.5 }}>·</span>
+                  <span>Total <strong style={{ fontVariantNumeric: 'tabular-nums' }}>R$ {fmtBRL(valorTotalSelecionados)}</strong></span>
+                  <span style={{ opacity: 0.5 }}>·</span>
+                  <span title={tipo === 'pagar' ? 'quanto ainda falta pagar' : 'quanto o cliente ainda deve'}>
+                    Pendente <strong style={{ color: '#F0C674', fontVariantNumeric: 'tabular-nums' }}>R$ {fmtBRL(valorPendenteSelecionados)}</strong>
+                  </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {(tipo === 'pagar' || tipo === 'receber') && (
@@ -1172,7 +1181,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         companyId={companyId}
         tipo={tipo}
         ids={Array.from(selecionados)}
-        valorTotal={valorTotalSelecionados}
+        valorTotal={valorPendenteSelecionados}
       />
 
       {/* RD-41 · Alterar valor em massa */}
