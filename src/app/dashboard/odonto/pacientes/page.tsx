@@ -1,8 +1,23 @@
 'use client'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Plus, Search, X, UploadCloud, User } from 'lucide-react'
+import { Plus, Search, X, UploadCloud, User, Pencil, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+
+// idade a partir da data de nascimento (RD-51: sem data → null)
+function calcIdade(nasc: string | null | undefined): number | null {
+  if (!nasc) return null
+  const d = new Date(nasc); if (isNaN(d.getTime())) return null
+  const hoje = new Date(); let i = hoje.getFullYear() - d.getFullYear()
+  const m = hoje.getMonth() - d.getMonth()
+  if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) i--
+  return i >= 0 && i < 130 ? i : null
+}
+// link WhatsApp (55 + dígitos) — padrão do app
+function waLink(fone: string | null | undefined): string | null {
+  const t = (fone ?? '').replace(/\D/g, ''); if (t.length < 10) return null
+  return `https://wa.me/${t.length <= 11 ? '55' + t : t}`
+}
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -97,32 +112,26 @@ export default function PacientesPage() {
   const salvar = async (p: Paciente) => {
     if (!companyId) return
     if (!p.nome.trim()) { setMsg('Nome é obrigatório.'); return }
-    const cpfClean = (p.cpf ?? '').replace(/\D/g, '') || null
-    const payload = {
-      ...p,
-      company_id: companyId,
-      nome: p.nome.trim(),
-      cpf: cpfClean,
-    }
     const isNew = !p.id
-    let error: { code?: string; message: string } | null = null
-    if (isNew) {
-      const { id: _drop, ...insertPayload } = payload
-      void _drop
-      const res = await supabase.from('erp_odonto_paciente').insert(insertPayload)
-      error = res.error
-    } else {
-      const res = await supabase.from('erp_odonto_paciente').update(payload).eq('id', p.id)
-      error = res.error
-    }
-    if (error) {
-      if (error.code === '23505') setMsg('Já existe paciente com este CPF nesta empresa.')
-      else setMsg(error.message)
-      return
-    }
+    // FRONTEIRA GE (RD-25): salva via RPC que cria/vincula o cliente GE (cliente_id) — ponte pro O0.
+    const { data, error } = await supabase.rpc('fn_odonto_paciente_salvar', {
+      p_company_id: companyId,
+      p_id: p.id || null,
+      p_dados: {
+        nome: p.nome.trim(), cpf: (p.cpf ?? '').replace(/\D/g, ''), data_nascimento: p.data_nascimento ?? '',
+        sexo: p.sexo ?? '', telefone: p.telefone ?? '', celular: p.celular ?? '', email: p.email ?? '',
+        cep: (p.cep ?? '').replace(/\D/g, ''), logradouro: p.logradouro ?? '', numero: p.numero ?? '', complemento: p.complemento ?? '',
+        bairro: p.bairro ?? '', cidade: p.cidade ?? '', uf: p.uf ?? '',
+        responsavel_nome: p.responsavel_nome ?? '', responsavel_cpf: (p.responsavel_cpf ?? '').replace(/\D/g, ''), responsavel_parentesco: p.responsavel_parentesco ?? '',
+        convenio_nome: p.convenio_nome ?? '', convenio_carteirinha: p.convenio_carteirinha ?? '',
+        alergias: p.alergias ?? '', observacao: p.observacao ?? '',
+      },
+    })
+    const r = data as { ok?: boolean; erro?: string; cliente_id?: string | null } | null
+    if (error || !r?.ok) { setMsg(r?.erro || error?.message || 'Falha ao salvar o paciente.'); return }
     setEdit(null)
-    setMsg(isNew ? 'Paciente cadastrado.' : 'Paciente atualizado.')
-    setTimeout(() => setMsg(null), 3000)
+    setMsg((isNew ? 'Paciente cadastrado' : 'Paciente atualizado') + (r.cliente_id ? ' · vinculado ao financeiro (GE).' : '.'))
+    setTimeout(() => setMsg(null), 3500)
     load()
   }
 
@@ -180,19 +189,26 @@ export default function PacientesPage() {
             {filtrados.map((p, i) => (
               <li key={p.id}>
                 {i > 0 && <div style={{ height: 1, background: LINE, marginLeft: 16 }} />}
-                <button onClick={() => setEdit(p)} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[rgba(200,148,26,0.06)] transition-colors">
-                  <div className="rounded-full grid place-items-center" style={{ width: 36, height: 36, background: BG, color: ESP }}>
-                    {p.nome.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">{p.nome}</div>
-                    <div className="text-xs truncate" style={{ color: ESP60 }}>
-                      {p.celular || p.telefone || 'sem telefone'}
-                      {p.convenio_nome ? ` · ${p.convenio_nome}` : ''}
+                <div className="px-2 sm:px-4 py-3 flex items-center gap-2 hover:bg-[rgba(200,148,26,0.06)] transition-colors">
+                  {/* linha inteira → abre a Ficha do paciente (abas) */}
+                  <Link href={`/dashboard/odonto/pacientes/${p.id}`} className="flex-1 min-w-0 flex items-center gap-3">
+                    <div className="rounded-full grid place-items-center flex-shrink-0" style={{ width: 36, height: 36, background: BG, color: ESP }}>
+                      {p.nome.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
-                  </div>
-                  {p.cpf && <span className="text-xs font-mono" style={{ color: ESP60 }}>{formatCpf(p.cpf)}</span>}
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold truncate">{p.nome}{(() => { const a = calcIdade(p.data_nascimento); return a != null ? <span className="font-normal" style={{ color: ESP60 }}> · {a}a</span> : null })()}</div>
+                      <div className="text-xs truncate" style={{ color: ESP60 }}>
+                        {p.celular || p.telefone || 'sem telefone'}
+                        {p.convenio_nome ? ` · ${p.convenio_nome}` : ''}
+                        {p.cpf ? ` · ${formatCpf(p.cpf)}` : ''}
+                      </div>
+                    </div>
+                  </Link>
+                  {waLink(p.celular || p.telefone) && (
+                    <a href={waLink(p.celular || p.telefone) as string} target="_blank" rel="noreferrer" title="WhatsApp" onClick={(e) => e.stopPropagation()} className="p-2 rounded-lg flex-shrink-0" style={{ color: '#166534' }}><MessageCircle size={17} /></a>
+                  )}
+                  <button onClick={() => setEdit(p)} title="Editar" className="p-2 rounded-lg flex-shrink-0" style={{ color: ESP60 }}><Pencil size={16} /></button>
+                </div>
               </li>
             ))}
           </ul>
