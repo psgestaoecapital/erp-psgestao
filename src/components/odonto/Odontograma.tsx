@@ -68,7 +68,7 @@ function Silhueta({ num, fill, ausente, menor, onClick }: { num: string; fill: s
   const shapes = SHAPES[grupoDentario(num)]
   const paintFill = ausente ? '#EDE7DA' : (fill ?? '#FDFBF7')
   return (
-    <svg width={menor ? 16 : 20} height={menor ? 22 : 27} viewBox="0 0 22 30" style={{ cursor: 'pointer', overflow: 'visible' }} onClick={onClick}>
+    <svg width={menor ? 24 : 32} height={menor ? 32 : 42} viewBox="0 0 22 30" style={{ cursor: 'pointer', overflow: 'visible' }} onClick={onClick}>
       <title>{`Dente ${num}${ausente ? ' · ausente' : ''} — toque para adicionar tratamento`}</title>
       <g transform={sup ? 'translate(0,30) scale(1,-1)' : undefined} opacity={ausente ? 0.4 : 1}>
         {shapes.map((d, i) => <path key={i} d={d} fill={paintFill} stroke={TOK.line} strokeWidth={0.7} strokeLinejoin="round" />)}
@@ -89,11 +89,11 @@ function Dente({ num, cor, corDente, selecionado, menor, onFace, onNum, onDente 
   onDente: (dente: string) => void
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
       {/* silhueta anatômica (coroa+raiz) — clique = seleciona o dente inteiro (prefill tratamento) */}
       <Silhueta num={num} fill={corDente.fill} ausente={corDente.ausente} menor={menor} onClick={() => onDente(num)} />
       {/* diagrama de faces (marcação precisa por face) */}
-      <svg width={menor ? 26 : 30} height={menor ? 26 : 30} viewBox="0 0 30 30" style={{ borderRadius: 4, overflow: 'visible' }}>
+      <svg width={menor ? 34 : 40} height={menor ? 34 : 40} viewBox="0 0 30 30" style={{ borderRadius: 4, overflow: 'visible' }}>
         {(['V', 'D', 'L', 'M'] as Face[]).map((f) => (
           <path key={f} d={PATHS[f]} fill={cor(f) ?? '#FFFFFF'} stroke={TOK.line} strokeWidth={0.5}
             style={{ cursor: 'pointer' }} onClick={() => onFace(num, f)}>
@@ -106,7 +106,7 @@ function Dente({ num, cor, corDente, selecionado, menor, onFace, onNum, onDente 
         </rect>
       </svg>
       <button type="button" onClick={() => onNum(num)} title="Selecionar (seleção em massa)"
-        style={{ fontSize: 10, fontWeight: 700, lineHeight: 1, padding: '2px 4px', borderRadius: 4, cursor: 'pointer',
+        style={{ fontSize: 11, fontWeight: 700, lineHeight: 1, padding: '3px 7px', borderRadius: 5, cursor: 'pointer',
           border: `0.5px solid ${selecionado ? TOK.gold : TOK.line}`,
           background: selecionado ? TOK.gold : '#fff', color: selecionado ? '#fff' : TOK.mut }}>
         {num}
@@ -127,9 +127,10 @@ function Arcada({ linhas, cor, corDente, selecionados, menor, onFace, onNum, onD
   onDente: (dente: string) => void
 }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'nowrap', overflowX: 'auto', padding: '2px 0' }}>
+    // gap 36 entre os dois quadrantes (linha média) · scroll horizontal no mobile (não espreme)
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 36, flexWrap: 'nowrap', overflowX: 'auto', padding: '4px 2px' }}>
       {linhas.map((linha, i) => (
-        <div key={i} style={{ display: 'flex', gap: 3 }}>
+        <div key={i} style={{ display: 'flex', gap: 8 }}>
           {linha.map((num) => (
             <Dente key={num} num={num} selecionado={selecionados.has(num)} menor={menor}
               cor={(f) => cor(num, f)} corDente={corDente ? corDente(num) : semEstado}
@@ -175,9 +176,9 @@ export function Odontograma({
         </div>
       </div>
       {aberto && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Arcada linhas={sup} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} onFace={onFace} onNum={onNum} onDente={clickDente} />
-          <div style={{ height: 1, background: TOK.line, margin: '2px 0' }} />
+          <div style={{ height: 1, background: TOK.line, margin: '6px 0' }} />
           <Arcada linhas={inf} cor={cor} corDente={corDente} selecionados={selecionados} menor={deciduos} onFace={onFace} onNum={onNum} onDente={clickDente} />
         </div>
       )}
