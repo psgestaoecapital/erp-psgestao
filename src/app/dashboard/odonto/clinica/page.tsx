@@ -104,28 +104,30 @@ export default function ClinicaOdontoPage() {
 
   const escolher = async (p: Paciente) => { setPac(p); setResultados([]); setBusca(p.nome); await recarregarClinico(p) }
 
-  // cor da face no odontograma: plano concluído (verde) > pendente (âmbar) > condição/ausente
-  const itemDoDente = useCallback((dente: string) => itens.find((i) => i.dente === dente), [itens])
+  // Vários lançamentos por dente/face são normais (restaurações diferentes na mesma face).
+  // A cor reflete o MAIS RELEVANTE entre TODOS os itens daquele dente/face — pendente (âmbar)
+  // vence finalizado (verde), sem esconder os demais (RD-38). O contador `contagemDente` avisa
+  // no odontograma quando há mais de um.
+  const itensDoDente = useCallback((dente: string) => itens.filter((i) => i.dente === dente), [itens])
+  const contagemDente = useCallback((dente: string) => itensDoDente(dente).length, [itensDoDente])
   const corDaFace = useCallback((dente: string, face: Face): string | null => {
-    const it = itens.find((i) => i.dente === dente && (!i.faces || i.faces.split(',').includes(face)))
-    if (it) return it.status === 'concluido' ? TOK.green : TOK.amber
-    const anyItem = itemDoDente(dente)
-    if (anyItem && (!anyItem.faces)) return anyItem.status === 'concluido' ? TOK.green : TOK.amber
+    const matches = itens.filter((i) => i.dente === dente && (!i.faces || i.faces.split(',').includes(face)))
+    if (matches.length) return matches.some((m) => m.status !== 'concluido') ? TOK.amber : TOK.green
     const e = estado.find((x) => x.dente === dente && (x.face === face || x.face == null))
     if (e) return COND_COR[e.condicao] ?? null
     return null
-  }, [itens, estado, itemDoDente])
+  }, [itens, estado])
 
-  // estado do DENTE inteiro (p/ a silhueta anatômica): plano concluído (verde) > pendente (âmbar)
+  // estado do DENTE inteiro (p/ a silhueta anatômica): pendente (âmbar) > finalizado (verde)
   // > condição (cárie/restaurado/ausente). Ausente = silhueta riscada.
   const corDente = useCallback((dente: string): { fill: string | null; ausente: boolean } => {
-    const it = itemDoDente(dente)
-    if (it) return { fill: it.status === 'concluido' ? TOK.green : TOK.amber, ausente: false }
+    const its = itensDoDente(dente)
+    if (its.length) return { fill: its.some((i) => i.status !== 'concluido') ? TOK.amber : TOK.green, ausente: false }
     const conds = estado.filter((x) => x.dente === dente).map((x) => x.condicao)
     if (conds.includes('ausente')) return { fill: TOK.gray, ausente: true }
     const c = conds.find((cc) => COND_COR[cc])
     return { fill: c ? COND_COR[c] : null, ausente: false }
-  }, [estado, itemDoDente])
+  }, [estado, itensDoDente])
 
   // clicar face → prefill o "adicionar tratamento"
   const onFace = (dente: string, face: Face) => { setFDente(dente); setFFace(face); flash(true, `Dente ${dente} · ${FACE_LABEL[face]} — preencha o tratamento`) }
@@ -251,7 +253,7 @@ export default function ClinicaOdontoPage() {
             {selecionados.size > 0 && <span style={{ fontSize: 11, color: TOK.gold, fontWeight: 700 }}>{selecionados.size} selecionado(s) · <button type="button" onClick={() => setSelecionados(new Set())} style={{ background: 'none', border: 'none', color: TOK.red, cursor: 'pointer', fontWeight: 700 }}>limpar</button></span>}
           </div>
 
-          <Odontograma deciduos={deciduos} onToggleDecidua={setDeciduos} cor={corDaFace} corDente={corDente} selecionados={selecionados} onFace={onFace} onNum={onNum} onDente={onDente} />
+          <Odontograma deciduos={deciduos} onToggleDecidua={setDeciduos} cor={corDaFace} corDente={corDente} selecionados={selecionados} badge={contagemDente} onFace={onFace} onNum={onNum} onDente={onDente} />
 
           {/* legenda */}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, color: TOK.mut }}>
@@ -283,6 +285,23 @@ export default function ClinicaOdontoPage() {
                 <input value={fValor} onChange={(e) => setFValor(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder="0,00" style={{ ...inp, borderColor: procSel && (!procSel.valor || procSel.valor <= 0) ? TOK.gold : TOK.line }} />
               </label>
             </div>
+            {fDente.trim() && contagemDente(fDente.trim()) > 0 && (
+              <div style={{ marginTop: 10, padding: '8px 10px', background: TOK.bg, borderRadius: TOK.rCtrl, border: `0.5px solid ${TOK.line}` }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: TOK.esp, marginBottom: 4 }}>
+                  Dente {fDente.trim()} já tem {contagemDente(fDente.trim())} lançamento(s) — adicionar cria um novo, não substitui:
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {itensDoDente(fDente.trim()).map((it, k) => (
+                    <div key={it.id ?? k} style={{ fontSize: 11.5, color: TOK.mut, display: 'flex', gap: 6, alignItems: 'baseline' }}>
+                      <span style={{ color: TOK.esp, fontWeight: 600 }}>{it.descricao}</span>
+                      {it.faces ? <span>· {it.faces}</span> : null}
+                      <span>· {brl(it.valor)}</span>
+                      <span style={{ marginLeft: 'auto', fontWeight: 700 }}>{it.status ?? 'proposto'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button type="button" onClick={() => void adicionar()} disabled={busy}
                 style={{ background: TOK.gold, color: '#fff', border: 'none', borderRadius: TOK.rCtrl, padding: '10px 18px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>+ Adicionar ao plano</button>
