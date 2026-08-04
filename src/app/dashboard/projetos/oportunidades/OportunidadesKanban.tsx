@@ -2,6 +2,9 @@
 import { useEffect, useState, type CSSProperties, type DragEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { labelUsuario } from '@/lib/usuarioLabel'
+
+type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 
 // Etapas operacionais (V1): mostradas como colunas do Kanban.
 // 'ganho'/'perdido' nao entram aqui — sao resumo lateral (ja vem em fn_crm_pipeline.resumo).
@@ -51,6 +54,7 @@ type Pipeline = {
 
 interface Props {
   companyId: string
+  usuarios: UsuarioOpt[]   // FIX 3 · p/ exibir o responsável por nome (via responsavel_id)
   refreshKey: number
   onMoved: (msg: string) => void
   onError: (msg: string) => void
@@ -66,10 +70,16 @@ interface Props {
 }
 
 export default function OportunidadesKanban({
-  companyId, refreshKey, onMoved, onError,
+  companyId, usuarios, refreshKey, onMoved, onError,
   filtroEtapa, filtroResp, busca, onCount, onEdit, onExcluir, excluindoId,
 }: Props) {
   const router = useRouter()
+  // FIX 3 · responsável exibido pelo NOME do usuário (via responsavel_id), não pelo texto legado.
+  const nomeResp = (id: string | null): string | null => {
+    if (!id) return null
+    const u = usuarios.find((x) => x.id === id)
+    return u ? labelUsuario(u, usuarios) : null
+  }
   const [pipe, setPipe] = useState<Pipeline | null>(null)
   const [loading, setLoading] = useState(true)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -276,6 +286,11 @@ export default function OportunidadesKanban({
                           <span style={probBadge}>{c.probabilidade}%</span>
                         )}
                       </div>
+                      {nomeResp(c.responsavel_id) && (
+                        <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span aria-hidden>👤</span>{nomeResp(c.responsavel_id)}
+                        </div>
+                      )}
                       {/* Fallback touch: select de etapa */}
                       <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
                         <select

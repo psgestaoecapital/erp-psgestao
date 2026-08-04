@@ -191,6 +191,7 @@ export default function OportunidadesPage() {
 
       <OportunidadesKanban
         companyId={empresaUnica}
+        usuarios={responsaveis}
         refreshKey={kanbanKey}
         filtroEtapa={filtroEtapa}
         filtroResp={filtroResp}

@@ -1,7 +1,10 @@
 'use client'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
-import { labelUsuario } from '@/lib/usuarioLabel'
+import SeletorUsuario from '@/components/crm/SeletorUsuario'
+
+// FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
+const up = (s: string | null): string | null => { const t = (s ?? '').trim(); return t ? t.toUpperCase() : null }
 
 type ClienteOpt = { id: string; nome: string; cpf_cnpj: string | null }
 type UserOpt = { id: string; email: string | null; full_name?: string | null }
@@ -57,6 +60,9 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const isEdit = !!initial?.id
+
+  // FIX 1 · último título que preenchemos automaticamente (p/ não sobrescrever título digitado à mão)
+  const [tituloAuto, setTituloAuto] = useState('')
 
   // Cliente autocomplete
   const [buscaCli, setBuscaCli] = useState('')
@@ -129,7 +135,13 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     setCliSel(c)
     setBuscaCli(c.nome)
     setShowOpts(false)
-    setF('cliente_id', c.id)
+    // FIX 1 · título recebe o nome do cliente — mas só se estiver vazio ou ainda igual ao autofill
+    // anterior (quem digitou um título próprio não é sobrescrito silenciosamente).
+    setForm((f) => {
+      const podeAuto = !f.titulo.trim() || f.titulo === tituloAuto
+      return { ...f, cliente_id: c.id, ...(podeAuto ? { titulo: c.nome } : {}) }
+    })
+    setTituloAuto(c.nome)
   }
 
   function limparCliente() {
@@ -194,15 +206,15 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     const payload = {
       company_id: companyId,
       cliente_id: form.cliente_id,
-      titulo: form.titulo,
+      titulo: (form.titulo.trim().toUpperCase()),      // FIX 2 · caixa alta
       etapa: form.etapa,
-      valor_estimado: form.valor_estimado,
+      valor_estimado: form.valor_estimado,             // número — não mexe
       origem: form.origem,
-      obra_endereco: form.obra_endereco,
-      obra_cidade: form.obra_cidade,
-      obra_bairro: form.obra_bairro,
-      responsavel_id: form.responsavel_id,
-      responsavel_nome: form.responsavel_nome,
+      obra_endereco: up(form.obra_endereco),           // FIX 2 · caixa alta
+      obra_cidade: up(form.obra_cidade),               // FIX 2 · caixa alta
+      obra_bairro: up(form.obra_bairro),               // FIX 2 · caixa alta
+      responsavel_id: form.responsavel_id,             // FIX 3 · uuid do usuário
+      responsavel_nome: form.responsavel_nome,         // nome de pessoa — não força caixa alta
       data_prevista_fechamento: form.data_prevista_fechamento,
       probabilidade: form.probabilidade,
       observacoes: form.observacoes,
@@ -241,7 +253,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             value={form.titulo}
             onChange={(e) => setF('titulo', e.target.value)}
             placeholder="Forro gesso · Residência X"
-            style={inp}
+            style={inpUpper}
           />
         </label>
 
@@ -369,18 +381,13 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           </label>
           <label style={lbl}>
             Responsável
-            {/* Texto livre (decisão CEO): digita o nome, não precisa ser usuário do
-                sistema. Sugere usuários da empresa via datalist, mas aceita qualquer nome. */}
-            <input
-              list="responsaveis-list"
-              value={form.responsavel_nome ?? ''}
-              onChange={(e) => setF('responsavel_nome', e.target.value || null)}
-              placeholder="Nome do responsável (ex: Gilmar)"
-              style={inp}
+            {/* FIX 3 · seletor de usuários do tenant (fn_usuarios_da_empresa). Grava responsavel_id +
+                responsavel_nome (full_name). Sem mais prefixo de e-mail / responsavel_id nulo. */}
+            <SeletorUsuario
+              users={users}
+              value={form.responsavel_id}
+              onChange={(id, nome) => setForm((f) => ({ ...f, responsavel_id: id, responsavel_nome: nome }))}
             />
-            <datalist id="responsaveis-list">
-              {users.map((u) => <option key={u.id} value={labelUsuario(u, users)} />)}
-            </datalist>
           </label>
         </div>
 
@@ -411,7 +418,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               <input
                 value={form.obra_endereco ?? ''}
                 onChange={(e) => setF('obra_endereco', e.target.value || null)}
-                style={inp}
+                style={inpUpper}
               />
             </label>
             <label style={lbl}>
@@ -419,7 +426,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               <input
                 value={form.obra_cidade ?? ''}
                 onChange={(e) => setF('obra_cidade', e.target.value || null)}
-                style={inp}
+                style={inpUpper}
               />
             </label>
             <label style={lbl}>
@@ -427,7 +434,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               <input
                 value={form.obra_bairro ?? ''}
                 onChange={(e) => setF('obra_bairro', e.target.value || null)}
-                style={inp}
+                style={inpUpper}
               />
             </label>
           </div>
@@ -486,6 +493,8 @@ const inp: CSSProperties = {
   background: '#fff', color: '#3D2314',
   colorScheme: 'light' as CSSProperties['colorScheme'],
 }
+// FIX 2 · feedback visual imediato de caixa alta (o valor é gravado em maiúsculo no submit).
+const inpUpper: CSSProperties = { ...inp, textTransform: 'uppercase' }
 const selectedRow: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   border: '1px solid #E7DED3', borderRadius: 8, padding: '8px 10px',
