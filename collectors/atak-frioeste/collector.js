@@ -12,6 +12,7 @@
 // ind_atak_fato dedup por (company,dominio,chave_fato). Re-rodar não duplica.
 const sql = require('mssql')
 const os = require('os')
+const crypto = require('crypto')
 
 const COLLECTOR_VERSION = 'atak-frioeste-3.0-config-driven'
 
@@ -135,20 +136,32 @@ async function coletarAbate(pool) {
 async function coletarDominioMapa(pool, dom) {
   const wmCol = dom.coluna_watermark
   const incremental = wmCol && !String(wmCol).startsWith('REVISAR') && dom.watermark != null
-  const where = incremental ? ` WHERE ${wmCol} > @ultimo` : ''
-  const query = `SELECT *, (${dom.chave_fato_sql}) AS __chave_fato FROM ${dom.tabela_origem}${where}`
+  // colchete o nome da coluna: watermark pode vir "sujo" (espaço/ponto/maiúsculas, ex.: [TITULO.DATA EMISSAO]).
+  const where = incremental ? ` WHERE [${wmCol}] > @ultimo` : ''
+  // HASH_ROW (ou chave vazia): evento/snapshot SEM chave natural → hash sha256 da linha (idempotente).
+  // Senão: chave natural = EXPRESSÃO SQL computada no SQL Server (robusto a casing).
+  const hashRow = !dom.chave_fato_sql || String(dom.chave_fato_sql).trim().toUpperCase() === 'HASH_ROW'
+  const query = hashRow
+    ? `SELECT * FROM ${dom.tabela_origem}${where}`
+    : `SELECT *, (${dom.chave_fato_sql}) AS __chave_fato FROM ${dom.tabela_origem}${where}`
   const req = pool.request()
   if (incremental) req.input('ultimo', sql.NVarChar, String(dom.watermark))
   const rows = clean((await req.query(query)).recordset)
   const registros = []
   let semChave = 0
   for (const row of rows) {
-    const chave = row.__chave_fato
+    let chave
+    if (hashRow) {
+      // ordem estável das colunas → mesmo hash pra mesma linha (zero colisão; upsert no-op se repetir).
+      chave = crypto.createHash('sha256').update(JSON.stringify(row, Object.keys(row).sort())).digest('hex')
+    } else {
+      chave = row.__chave_fato
+      delete row.__chave_fato
+    }
     if (chave == null || String(chave).trim() === '') { semChave++; continue }
-    delete row.__chave_fato
     registros.push({ cod_filial: String(ATAK_FILIAL), chave_fato: String(chave).trim(), raw: row })
   }
-  console.log(`[ATAK][${dom.dominio}] ${registros.length} registros ${incremental ? '(incremental)' : '(FULL)'}${semChave ? ` · ${semChave} sem chave` : ''}.`)
+  console.log(`[ATAK][${dom.dominio}] ${registros.length} registros ${incremental ? '(incremental)' : '(FULL)'}${hashRow ? ' [hash]' : ''}${semChave ? ` · ${semChave} sem chave` : ''}.`)
   if (registros.length) await enviarLotes(registros, dom.dominio)
   return registros.length
 }
