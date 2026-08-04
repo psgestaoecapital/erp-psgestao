@@ -331,12 +331,9 @@ export default function DREHorizontal() {
                         {abrev(totalDisplay)}
                       </td>
                     </tr>
+                    {/* Drill como LINHAS da MESMA tabela (mesmas colunas do topo) → dia N sempre sob dia N. */}
                     {aberta && (
-                      <tr>
-                        <td colSpan={colunas.length + 2} style={{ padding: 0, background: BG }}>
-                          <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={ano} mes={selIni} regime={regime} />
-                        </td>
-                      </tr>
+                      <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={ano} mes={selIni} regime={regime} colunas={colunas} />
                     )}
                     </Fragment>
                   )
@@ -371,12 +368,16 @@ export default function DREHorizontal() {
 type DiarioPessoa = { pessoa_id: string | null; pessoa_nome: string; valores_dia: Record<string, number>; total: number }
 type DiarioResult = { ok: boolean; erro?: string; is_receita: boolean; ano: number; mes: number; regime: string; dias_no_mes: number; dre_mes: number | null; total: number; pessoas: DiarioPessoa[] }
 
-function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
-  membros: string[]; codigo: string; nome: string; ano: number; mes: number; regime: string
+// Drill = LINHAS (<tr>) da MESMA tabela do topo. Recebe `colunas` do pai e usa a MESMA chave (ymd) por
+// coluna → a coluna do dia N do detalhe fica exatamente sob a coluna do dia N do cabeçalho e do
+// totalizador (impossível divergir, pois é uma tabela só). Régua de dias continua só no topo (#867).
+function DrillDiario({ membros, codigo, nome, ano, mes, regime, colunas }: {
+  membros: string[]; codigo: string; nome: string; ano: number; mes: number; regime: string; colunas: Coluna[]
 }) {
   const [d, setD] = useState<DiarioResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  const nCols = colunas.length + 2 // 1 rótulo + N dias + 1 total
 
   useEffect(() => {
     let alive = true
@@ -394,53 +395,52 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
     return () => { alive = false }
   }, [membros, codigo, ano, mes, regime])
 
-  if (loading) return <div style={{ padding: 12, fontSize: 12, color: MUT }}>Carregando diário…</div>
-  if (erro) return <div style={{ padding: 12, fontSize: 12, color: RED }}>{erro}</div>
-  if (!d || d.pessoas.length === 0) return <div style={{ padding: 12, fontSize: 12, color: MUT }}>Sem lançamentos classificados nesta conta no mês.</div>
+  const msgRow = (texto: string, cor: string) => (
+    <tr><td colSpan={nCols} style={{ padding: '10px 12px', fontSize: 12, color: cor, background: '#FCFAF5' }}>{texto}</td></tr>
+  )
+  if (loading) return msgRow('Carregando diário…', MUT)
+  if (erro) return msgRow(erro, RED)
+  if (!d || d.pessoas.length === 0) return msgRow('Sem lançamentos classificados nesta conta no mês.', MUT)
 
-  const dias = Array.from({ length: d.dias_no_mes }, (_, i) => i + 1)
-  const ymd = (dia: number) => `${ano}-${pad2(mes)}-${pad2(dia)}`
   const rotulo = d.is_receita ? 'Cliente' : 'Fornecedor'
-  const subtotalDia = (dia: number) => d.pessoas.reduce((s, p) => s + (p.valores_dia[ymd(dia)] ?? 0), 0)
   const ehPrevisto = d.regime === 'previsto'
   const diff = d.dre_mes == null ? 0 : Math.round((d.total - d.dre_mes) * 100) / 100
+  const subtotalDia = (key: string) => d.pessoas.reduce((s, p) => s + (p.valores_dia[key] ?? 0), 0)
+  const labelPad = 12 + 2 * 18 // recuo do detalhe (abaixo de grupo/conta)
 
   return (
-    <div style={{ padding: '8px 8px 12px' }}>
-      <div style={{ fontSize: 11, color: MUT, marginBottom: 6 }}>
-        {rotulo}s por dia · <b style={{ color: ESP }}>{nome}</b> · total <b style={{ color: ESP }}>{cheio(d.total)}</b>
-        {ehPrevisto
-          ? <span style={{ color: MUT, marginLeft: 6 }}>· a vencer (previsão de fluxo, por vencimento)</span>
-          : Math.abs(diff) < 0.01
-          ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
-          : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_mes ?? 0)}) em {cheio(diff)} — há título fora do de-para</span>}
-      </div>
-      <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
-        {/* Parte C · a régua de dias (1–31) fica SÓ no topo — o drill herda o alinhamento das colunas
-            (mesmas larguras de dia) sem repetir o cabeçalho de dias (era o ponto do CEO). */}
-        <table style={{ borderCollapse: 'collapse', fontSize: 11.5, width: '100%' }}>
-          <tbody>
-            {d.pessoas.map((p, i) => (
-              <tr key={p.pessoa_id ?? `x${i}`} style={{ borderTop: `0.5px solid ${LINE}` }}>
-                <td style={tdPessoa} title={p.pessoa_nome}>{p.pessoa_nome}</td>
-                {dias.map((dia) => {
-                  const v = p.valores_dia[ymd(dia)]
-                  return <td key={dia} title={v != null ? cheio(v) : ''} style={tdDia}>{v != null ? abrev(v) : ''}</td>
-                })}
-                <td title={cheio(p.total)} style={{ ...tdDia, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 700 }}>{abrev(p.total)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#FBF7EF' }}>
-              <td style={{ ...tdPessoa, fontWeight: 700, background: '#FBF7EF' }}>Subtotal do dia</td>
-              {dias.map((dia) => { const s = subtotalDia(dia); return <td key={dia} title={s ? cheio(s) : ''} style={{ ...tdDia, fontWeight: 700 }}>{s ? abrev(s) : ''}</td> })}
-              <td style={{ ...tdDia, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 800 }}>{abrev(d.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
+    <>
+      {/* legenda do drill — linha full-width (não é dia-alinhada) */}
+      <tr style={{ background: '#FBF7EF' }}>
+        <td colSpan={nCols} style={{ padding: '6px 12px', fontSize: 11, color: MUT, position: 'sticky', left: 0 }}>
+          {rotulo}s por dia · <b style={{ color: ESP }}>{nome}</b> · total <b style={{ color: ESP }}>{cheio(d.total)}</b>
+          {ehPrevisto
+            ? <span style={{ color: MUT, marginLeft: 6 }}>· a vencer (previsão de fluxo, por vencimento)</span>
+            : Math.abs(diff) < 0.01
+            ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
+            : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_mes ?? 0)}) em {cheio(diff)} — há título fora do de-para</span>}
+        </td>
+      </tr>
+      {/* cliente/fornecedor × dia — MESMAS colunas do topo */}
+      {d.pessoas.map((p, i) => (
+        <tr key={p.pessoa_id ?? `x${i}`} style={{ borderTop: `0.5px solid ${LINE}`, background: '#FCFAF5' }}>
+          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
+            {p.pessoa_nome}
+          </td>
+          {colunas.map((c) => {
+            const v = p.valores_dia[c.key]
+            return <td key={c.key} title={v != null ? cheio(v) : ''} style={{ ...tdVal, ...tdDiaCol, color: ESP }}>{v != null ? abrev(v) : ''}</td>
+          })}
+          <td title={cheio(p.total)} style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 700 }}>{abrev(p.total)}</td>
+        </tr>
+      ))}
+      {/* subtotal do dia — também dia-alinhado */}
+      <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#FBF7EF' }}>
+        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
+        {colunas.map((c) => { const s = subtotalDia(c.key); return <td key={c.key} title={s ? cheio(s) : ''} style={{ ...tdVal, ...tdDiaCol, fontWeight: 700, color: ESP }}>{s ? abrev(s) : ''}</td> })}
+        <td style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
+      </tr>
+    </>
   )
 }
 
@@ -536,7 +536,5 @@ const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap'
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
 const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
-// Parte C · sem cabeçalho de dias no drill (só o do topo). minWidth 240 + tdDia 46 = mesmas larguras
-// da tabela do topo → o drill alinha sob a régua única.
-const tdPessoa: React.CSSProperties = { position: 'sticky', left: 0, zIndex: 1, background: '#FFF', padding: '6px 10px', whiteSpace: 'nowrap', minWidth: 240, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', color: ESP, fontWeight: 500 }
-const tdDia: React.CSSProperties = { padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: ESP, minWidth: 46 }
+// Parte C (#867) + alinhamento do drill: o detalhe (cliente/fornecedor × dia) usa as MESMAS colunas
+// da tabela do topo (tdConta/tdVal/tdDiaCol) — régua de dias só no topo, e cada dia N sob o dia N.
