@@ -266,17 +266,22 @@ export default function DREHorizontal() {
                   const isRes = l.kind === 'resultado'
                   const isGrp = l.kind === 'grupo'
                   const isConta = l.kind === 'conta'
-                  const isFluxo = l.kind === 'fluxo'
-                  const bold = isRes || isGrp || isFluxo
+                  const bold = isRes || isGrp
+                  // Previsto: linhas de ENTRADA (grupo/conta) verdes, de SAÍDA vermelhas (via grupo_ref);
+                  // Movimento/Saldo (resultado) coloridos por sinal.
+                  const isPrevisto = data.regime === 'previsto'
+                  const prevEnt = isPrevisto && (l.codigo === 'PREV_ENT' || l.grupo_ref === 'PREV_ENT')
+                  const prevSai = isPrevisto && (l.codigo === 'PREV_SAI' || l.grupo_ref === 'PREV_SAI')
                   const total = totalLinha(l)
                   // SALDO é acumulado → o "Total" do mês é o SALDO do ÚLTIMO dia (saldo final projetado),
                   // não a soma dos saldos diários. Entradas/Saídas/Movimento: a soma faz sentido.
-                  const totalDisplay = isFluxo && l.codigo === 'SALDO'
+                  const totalDisplay = isPrevisto && l.codigo === 'SALDO'
                     ? (colunas.length ? (l.valores[colunas[colunas.length - 1].key] ?? 0) : 0)
                     : total
-                  const corTotalFluxo = l.codigo === 'ENTRADAS' ? (totalDisplay > 0 ? GREEN : MUT)
-                    : l.codigo === 'SAIDAS' ? (totalDisplay > 0 ? RED : MUT)
-                    : (totalDisplay < 0 ? RED : totalDisplay > 0 ? GREEN : MUT)
+                  const corTotal = prevEnt ? (totalDisplay > 0 ? GREEN : MUT)
+                    : prevSai ? (totalDisplay > 0 ? RED : MUT)
+                    : isRes ? (totalDisplay < 0 ? RED : totalDisplay > 0 ? GREEN : MUT)
+                    : ESP
                   const contaDrillavel = isConta && umMes            // folha + 1 mês → drill por pessoa
                   const aberta = contaDrillavel && contaAberta === l.codigo
                   return (
@@ -299,20 +304,21 @@ export default function DREHorizontal() {
                       </td>
                       {colunas.map((c) => {
                         const v = l.valores[c.key]
-                        // Previsto (fluxo): entradas verdes, saídas vermelhas, movimento/saldo por sinal;
+                        // entradas verdes, saídas vermelhas (previsto); resultado por sinal; demais espresso.
                         // dia em que o SALDO acumulado fica negativo → célula com fundo vermelho (alerta visual).
-                        const corFluxo = v == null ? ESP
-                          : l.codigo === 'ENTRADAS' ? (v > 0 ? GREEN : MUT)
-                          : l.codigo === 'SAIDAS' ? (v > 0 ? RED : MUT)
-                          : (v < 0 ? RED : v > 0 ? GREEN : MUT)
-                        const saldoNeg = isFluxo && l.codigo === 'SALDO' && v != null && v < 0
+                        const corCel = v == null ? ESP
+                          : prevEnt ? (v > 0 ? GREEN : MUT)
+                          : prevSai ? (v > 0 ? RED : MUT)
+                          : isRes ? (v < 0 ? RED : v > 0 ? GREEN : MUT)
+                          : ESP
+                        const saldoNeg = isPrevisto && l.codigo === 'SALDO' && v != null && v < 0
                         return (
                           <td key={c.key} title={v != null ? cheio(v) : ''} style={{
                             ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
                             ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
                             ...(saldoNeg ? { background: '#FCEBEB' } : null),
                             fontWeight: bold ? 700 : 400,
-                            color: isFluxo ? corFluxo : isRes ? (v != null && v < 0 ? RED : v != null && v > 0 ? GREEN : MUT) : ESP,
+                            color: corCel,
                           }}>
                             {v != null ? abrev(v) : ''}
                           </td>
@@ -320,7 +326,7 @@ export default function DREHorizontal() {
                       })}
                       <td title={cheio(totalDisplay)} style={{
                         ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
-                        fontWeight: 700, color: isFluxo ? corTotalFluxo : isRes ? (total < 0 ? RED : total > 0 ? GREEN : MUT) : ESP,
+                        fontWeight: 700, color: corTotal,
                       }}>
                         {abrev(totalDisplay)}
                       </td>
@@ -363,7 +369,7 @@ export default function DREHorizontal() {
 
 // ── Modo Diário: grade dias × pessoa (cliente/fornecedor) de uma conta (#813) ──
 type DiarioPessoa = { pessoa_id: string | null; pessoa_nome: string; valores_dia: Record<string, number>; total: number }
-type DiarioResult = { ok: boolean; erro?: string; is_receita: boolean; ano: number; mes: number; regime: string; dias_no_mes: number; dre_mes: number; total: number; pessoas: DiarioPessoa[] }
+type DiarioResult = { ok: boolean; erro?: string; is_receita: boolean; ano: number; mes: number; regime: string; dias_no_mes: number; dre_mes: number | null; total: number; pessoas: DiarioPessoa[] }
 
 function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
   membros: string[]; codigo: string; nome: string; ano: number; mes: number; regime: string
@@ -396,15 +402,18 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
   const ymd = (dia: number) => `${ano}-${pad2(mes)}-${pad2(dia)}`
   const rotulo = d.is_receita ? 'Cliente' : 'Fornecedor'
   const subtotalDia = (dia: number) => d.pessoas.reduce((s, p) => s + (p.valores_dia[ymd(dia)] ?? 0), 0)
-  const diff = Math.round((d.total - d.dre_mes) * 100) / 100
+  const ehPrevisto = d.regime === 'previsto'
+  const diff = d.dre_mes == null ? 0 : Math.round((d.total - d.dre_mes) * 100) / 100
 
   return (
     <div style={{ padding: '8px 8px 12px' }}>
       <div style={{ fontSize: 11, color: MUT, marginBottom: 6 }}>
         {rotulo}s por dia · <b style={{ color: ESP }}>{nome}</b> · total <b style={{ color: ESP }}>{cheio(d.total)}</b>
-        {Math.abs(diff) < 0.01
+        {ehPrevisto
+          ? <span style={{ color: MUT, marginLeft: 6 }}>· a vencer (previsão de fluxo, por vencimento)</span>
+          : Math.abs(diff) < 0.01
           ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
-          : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_mes)}) em {cheio(diff)} — há título fora do de-para</span>}
+          : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_mes ?? 0)}) em {cheio(diff)} — há título fora do de-para</span>}
       </div>
       <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
         {/* Parte C · a régua de dias (1–31) fica SÓ no topo — o drill herda o alinhamento das colunas
