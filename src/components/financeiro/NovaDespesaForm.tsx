@@ -98,6 +98,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [dataCompetencia, setDataCompetencia] = useState('')
   const [parcelas, setParcelas] = useState(1)
   const [intervaloDias, setIntervaloDias] = useState(30)
+  // Dia fixo de vencimento (1–31) · só faz sentido mensal/bimestral. Vazio = comportamento antigo.
+  const [diaFixo, setDiaFixo] = useState('')
   // Prévia editável de parcelas (RD-41): o valor digitado pode ser o TOTAL da conta
   // (semeia total/N, última absorve o resto) ou o valor de CADA parcela (valor×N).
   // Ambos os campos por parcela são editáveis (valor/data variável).
@@ -221,9 +223,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   useEffect(() => {
     if (parcelas < 2) { setParcelasEdit([]); return }
     const total = parseFloat(valor) || 0
+    // Dia fixo só vale mensal (30) / bimestral (60); nos demais intervalos ignora e usa dias corridos.
+    const usaDiaFixo = diaFixo !== '' && (intervaloDias === 30 || intervaloDias === 60)
+    const passoMeses = intervaloDias === 60 ? 2 : 1
     const rows: { vencimento: string; valor: number }[] = []
     for (let i = 0; i < parcelas; i++) {
-      const venc = addDaysISO(dataVencimento, i * intervaloDias)
+      const venc = usaDiaFixo
+        ? vencDiaFixo(dataVencimento, i, passoMeses, Number(diaFixo))
+        : addDaysISO(dataVencimento, i * intervaloDias)
       const v = modoValor === 'total' ? round2(total / parcelas) : round2(total)
       rows.push({ vencimento: venc, valor: v })
     }
@@ -233,7 +240,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       rows[parcelas - 1].valor = round2(total - somaAntes)
     }
     setParcelasEdit(rows)
-  }, [parcelas, valor, dataVencimento, intervaloDias, modoValor])
+  }, [parcelas, valor, dataVencimento, intervaloDias, modoValor, diaFixo])
 
   const editParcela = (idx: number, campo: 'vencimento' | 'valor', valorNovo: string) => {
     setParcelasEdit((prev) => prev.map((p, i) => i === idx
@@ -628,6 +635,26 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
                 <option value="30">Mensal (30 dias)</option>
                 <option value="60">Bimestral (60 dias)</option>
               </select>
+            </Campo>
+          )}
+
+          {parcelas > 1 && (intervaloDias === 30 || intervaloDias === 60) && (
+            <Campo label="Dia do vencimento (opcional)">
+              <input
+                type="number" min="1" max="31" inputMode="numeric"
+                value={diaFixo}
+                onChange={(e) => {
+                  const n = e.target.value.replace(/\D/g, '')
+                  if (n === '') { setDiaFixo(''); return }
+                  const d = Math.min(31, Math.max(1, parseInt(n, 10)))
+                  setDiaFixo(String(d))
+                }}
+                placeholder="ex.: 10"
+                style={inputStyle}
+              />
+              <small style={helperStyle}>
+                Fixa o dia (ex.: todo dia 10). Vazio = espaça por {intervaloDias} dias corridos. Mês sem o dia (31 em fev) → último dia do mês.
+              </small>
             </Campo>
           )}
 
@@ -1126,6 +1153,19 @@ function addDaysISO(iso: string, days: number): string {
   const d = new Date(base + 'T00:00:00Z')
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
+}
+// Vencimento no DIA FIXO: i-ésima parcela no dia `dia` do mês, a cada `passoMeses` meses a partir do
+// mês da data base. 1ª parcela no mês corrente se `dia` >= dia da base; senão rola pro próximo mês.
+// RD-51: mês sem o dia (31 em fev/abr…) → ÚLTIMO dia do mês (nunca gera data inválida).
+function vencDiaFixo(iso: string, i: number, passoMeses: number, dia: number): string {
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : new Date().toISOString().slice(0, 10)
+  const [by, bm, bd] = base.split('-').map(Number)
+  let offset = i * passoMeses
+  if (dia < bd) offset += 1
+  const alvo = new Date(Date.UTC(by, (bm - 1) + offset, 1))          // 1º dia do mês alvo (normaliza ano)
+  const ultimoDia = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate()
+  const d = Math.min(Math.max(1, dia), ultimoDia)                    // clamp no último dia do mês
+  return new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth(), d)).toISOString().slice(0, 10)
 }
 const cellHead: React.CSSProperties = { padding: '7px 10px', fontSize: 11, fontWeight: 600, color: 'rgba(61,35,20,0.6)' }
 const cellBody: React.CSSProperties = { padding: '6px 10px', fontSize: 13, color: '#3D2314' }
