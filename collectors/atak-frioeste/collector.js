@@ -25,6 +25,9 @@ const {
   // fn_atak_mapa_coletor. Zero código novo por domínio depois — só ativar a linha no mapa.
   // (anon key é pública; a senha do SQL Server continua só nas vars ATAK_SQL_* — Pilar 2.)
   SUPABASE_URL, SUPABASE_ANON_KEY, ATAK_COMPANY_ID = '975365cc-9e5a-4251-9022-68c6bfde10d8',
+  // Piso de data pra 1ª carga (recorte, ex.: '2025-08-04'). Só vale no 1º ciclo de cada domínio
+  // COM coluna_watermark (transacionais/eventos); da 2ª em diante é incremental puro. Vazio = FULL.
+  ATAK_CARGA_DESDE = '',
 } = process.env
 
 if (!INGEST_URL || !INGEST_SECRET) {
@@ -135,9 +138,13 @@ async function coletarAbate(pool) {
 // Incremental quando há coluna_watermark real + watermark (WHERE > @ultimo); senão FULL.
 async function coletarDominioMapa(pool, dom) {
   const wmCol = dom.coluna_watermark
-  const incremental = wmCol && !String(wmCol).startsWith('REVISAR') && dom.watermark != null
-  // colchete o nome da coluna: watermark pode vir "sujo" (espaço/ponto/maiúsculas, ex.: [TITULO.DATA EMISSAO]).
-  const where = incremental ? ` WHERE [${wmCol}] > @ultimo` : ''
+  const hasWm = wmCol && !String(wmCol).startsWith('REVISAR')
+  // colchete o nome da coluna: watermark pode vir "sujo" (espaço/ponto/maiúsculas, ex.: [TITULO.DATA VENCTO]).
+  const incremental = hasWm && dom.watermark != null                 // 2ª carga+: já tem acumulado no landing
+  const piso = hasWm && dom.watermark == null && ATAK_CARGA_DESDE      // 1ª carga com recorte (ex.: 12 meses)
+  let where = ''
+  if (incremental) where = ` WHERE [${wmCol}] > @ultimo`
+  else if (piso) where = ` WHERE [${wmCol}] >= @desde`
   // HASH_ROW (ou chave vazia): evento/snapshot SEM chave natural → hash sha256 da linha (idempotente).
   // Senão: chave natural = EXPRESSÃO SQL computada no SQL Server (robusto a casing).
   const hashRow = !dom.chave_fato_sql || String(dom.chave_fato_sql).trim().toUpperCase() === 'HASH_ROW'
@@ -146,6 +153,7 @@ async function coletarDominioMapa(pool, dom) {
     : `SELECT *, (${dom.chave_fato_sql}) AS __chave_fato FROM ${dom.tabela_origem}${where}`
   const req = pool.request()
   if (incremental) req.input('ultimo', sql.NVarChar, String(dom.watermark))
+  else if (piso) req.input('desde', sql.NVarChar, String(ATAK_CARGA_DESDE))
   const rows = clean((await req.query(query)).recordset)
   const registros = []
   let semChave = 0
@@ -161,7 +169,8 @@ async function coletarDominioMapa(pool, dom) {
     if (chave == null || String(chave).trim() === '') { semChave++; continue }
     registros.push({ cod_filial: String(ATAK_FILIAL), chave_fato: String(chave).trim(), raw: row })
   }
-  console.log(`[ATAK][${dom.dominio}] ${registros.length} registros ${incremental ? '(incremental)' : '(FULL)'}${hashRow ? ' [hash]' : ''}${semChave ? ` · ${semChave} sem chave` : ''}.`)
+  const modo = incremental ? '(incremental)' : piso ? `(1ª carga · desde ${ATAK_CARGA_DESDE})` : '(FULL)'
+  console.log(`[ATAK][${dom.dominio}] ${registros.length} registros ${modo}${hashRow ? ' [hash]' : ''}${semChave ? ` · ${semChave} sem chave` : ''}.`)
   if (registros.length) await enviarLotes(registros, dom.dominio)
   return registros.length
 }
