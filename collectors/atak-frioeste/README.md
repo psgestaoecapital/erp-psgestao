@@ -4,10 +4,14 @@ Roda DENTRO da rede Frioeste. Le o SQL Server ATAK (read-only) e empurra pro
 Supabase via Edge Function `atak-ingest` (upsert idempotente).
 
 Dois caminhos, **na mesma conexao** (o `.env` do abate ja serve p/ todos):
-1. **Abate** (legado): `dbo.tbRomaneioAbate` -> `ind_abate_atak` (colunas tipadas).
-2. **Dominios novos** (embalagem, estoque, ...): -> `ind_atak_fato` (landing
-   UNIVERSAL do F1). Manda o `raw` INTEIRO da linha; os campos tipados saem das
-   VIEWS (`v_ind_embalagem` / `v_ind_estoque`), ajustaveis sem recarregar.
+1. **Abate** (legado, INTOCADO): `dbo.tbRomaneioAbate` -> `ind_abate_atak` (colunas tipadas).
+2. **Dominios genericos (CONFIG-DRIVEN, v3.0):** os dominios ATIVOS vem do MAPA na nuvem
+   PS (`atak_fonte_mapa`, lido por `fn_atak_mapa_coletor`) -> `ind_atak_fato` (landing
+   UNIVERSAL do F1). Manda o `raw` INTEIRO da linha; os campos tipados saem das VIEWS,
+   ajustaveis sem recarregar. **Zero codigo novo por dominio depois** — so `INSERT`/ativar
+   a linha no `atak_fonte_mapa` (a chave_fato e uma EXPRESSAO SQL computada no SQL Server;
+   watermark auto-recuperavel pelo proprio landing → incremental; `REVISAR*`/NULL → FULL).
+   Precisa de `SUPABASE_URL` + `SUPABASE_ANON_KEY` (publica) + `ATAK_COMPANY_ID` no `.env`.
 
 > Embalagem (`dbo.tbProduto`) e estoque (`dbo.tbProdutoSaldoDiario`) estao no
 > MESMO database ATAK do abate → **nenhuma credencial nova**: e so atualizar este

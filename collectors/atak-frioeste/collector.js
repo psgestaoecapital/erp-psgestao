@@ -12,24 +12,22 @@
 // ind_atak_fato dedup por (company,dominio,chave_fato). Re-rodar não duplica.
 const sql = require('mssql')
 const os = require('os')
+const crypto = require('crypto')
 
-const COLLECTOR_VERSION = 'atak-frioeste-2.0-multidominio'
+const COLLECTOR_VERSION = 'atak-frioeste-3.0-config-driven'
 
 const {
   ATAK_SQL_SERVER, ATAK_SQL_PORT, ATAK_SQL_DATABASE,
   ATAK_SQL_USER, ATAK_SQL_PASSWORD, ATAK_FILIAL = '100',
   ATAK_JANELA_DIAS = '5', INGEST_URL, INGEST_SECRET, BATCH_SIZE = '500',
-  // Quais domínios genéricos rodar (além do abate). Ex.: 'embalagem,estoque'.
-  ATAK_DOMINIOS = 'embalagem,estoque',
   ATAK_SKIP_ABATE = '',
-  // Queries/colunas parametrizáveis (confirmar as colunas reais com SELECT TOP 5).
-  ATAK_Q_EMBALAGEM = 'SELECT * FROM dbo.tbProduto',
-  ATAK_CHAVE_EMBALAGEM = 'cod_produto,Cod_produto,CodProduto,codigo,Codigo,CODIGO',
-  ATAK_Q_ESTOQUE = '',                 // se vazio, é montada abaixo (com/sem janela)
-  ATAK_CHAVE_ESTOQUE = 'cod_produto,Cod_produto,CodProduto,codigo,Codigo,CODIGO',
-  ATAK_DATA_ESTOQUE = 'data,Data,data_saldo,DataSaldo,dt_saldo,Dt_saldo',
-  ATAK_ESTOQUE_DATA_COL = '',          // coluna de data p/ janela do estoque (recomendado)
-  ATAK_ESTOQUE_JANELA_DIAS = '7',
+  // CONFIG-DRIVEN: os domínios genéricos vêm do MAPA na nuvem PS (atak_fonte_mapa), lido por
+  // fn_atak_mapa_coletor. Zero código novo por domínio depois — só ativar a linha no mapa.
+  // (anon key é pública; a senha do SQL Server continua só nas vars ATAK_SQL_* — Pilar 2.)
+  SUPABASE_URL, SUPABASE_ANON_KEY, ATAK_COMPANY_ID = '975365cc-9e5a-4251-9022-68c6bfde10d8',
+  // Piso de data pra 1ª carga (recorte, ex.: '2025-08-04'). Só vale no 1º ciclo de cada domínio
+  // COM coluna_watermark (transacionais/eventos); da 2ª em diante é incremental puro. Vazio = FULL.
+  ATAK_CARGA_DESDE = '',
 } = process.env
 
 if (!INGEST_URL || !INGEST_SECRET) {
@@ -69,17 +67,24 @@ WHERE Cod_filial = @filial
 ORDER BY Data_abate, Chave_fato, Seq_cabeca;
 `
 
-// Domínios genéricos → ind_atak_fato. `raw` = linha inteira; chave_fato robusta.
-function buildDominios() {
-  const q_estoque = ATAK_Q_ESTOQUE || (ATAK_ESTOQUE_DATA_COL
-    ? `SELECT * FROM dbo.tbProdutoSaldoDiario WHERE ${ATAK_ESTOQUE_DATA_COL} >= DATEADD(day, -${Number(ATAK_ESTOQUE_JANELA_DIAS)}, CAST(GETDATE() AS date))`
-    : 'SELECT * FROM dbo.tbProdutoSaldoDiario')
-  return {
-    embalagem: { query: ATAK_Q_EMBALAGEM, chaveCols: split(ATAK_CHAVE_EMBALAGEM), dataCols: null },
-    estoque:   { query: q_estoque,        chaveCols: split(ATAK_CHAVE_ESTOQUE),   dataCols: split(ATAK_DATA_ESTOQUE) },
+// Lê o MAPA de domínios ativos da nuvem PS (fn_atak_mapa_coletor) — template global + a empresa.
+// Cada item: { dominio, tabela_origem, chave_fato_sql, coluna_watermark, watermark }.
+// watermark = último ponto já coletado (null → carga FULL, ex.: 1ª irrigação).
+async function lerMapa() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !ATAK_COMPANY_ID) {
+    console.warn('[ATAK] sem SUPABASE_URL/SUPABASE_ANON_KEY/ATAK_COMPANY_ID no .env — pulo os domínios genéricos (só abate).')
+    return []
   }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_atak_mapa_coletor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    body: JSON.stringify({ p_company_id: ATAK_COMPANY_ID }),
+  })
+  const txt = await res.text()
+  if (!res.ok) throw new Error(`mapa ${res.status}: ${txt}`)
+  const cfg = txt ? JSON.parse(txt) : null
+  return Array.isArray(cfg && cfg.dominios) ? cfg.dominios : []
 }
-const split = (s) => String(s).split(',').map((x) => x.trim()).filter(Boolean)
 
 function clean(rows) {
   return rows.map((r) => {
@@ -91,19 +96,6 @@ function clean(rows) {
     }
     return o
   })
-}
-
-// Acha o 1º valor não-nulo entre colunas candidatas (robusto a casing do ATAK).
-function pick(row, cols) {
-  for (const c of cols) { if (row[c] != null && String(row[c]).trim() !== '') return row[c] }
-  return null
-}
-function toYMD(v) {
-  if (v == null) return null
-  if (v instanceof Date) return v.toISOString().slice(0, 10)
-  const s = String(v).trim()
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : s.slice(0, 10)
 }
 
 async function postBatch(registros, dominio, mode) {
@@ -141,20 +133,58 @@ async function coletarAbate(pool) {
   if (rows.length) await enviarLotes(rows, null) // sem dominio → ind_abate_atak
 }
 
-async function coletarDominio(pool, dominio, cfg) {
-  const rows = clean((await pool.request().query(cfg.query)).recordset)
+// Coleta 1 domínio do mapa → ind_atak_fato. A chave_fato_sql é uma EXPRESSÃO SQL: quem computa é o
+// próprio SQL Server (robusto a casing/estrutura), sem adivinhar colunas no JS. `raw` = linha inteira.
+// Incremental quando há coluna_watermark real + watermark (WHERE > @ultimo); senão FULL.
+async function coletarDominioMapa(pool, dom) {
+  const wmCol = dom.coluna_watermark
+  const hasWm = wmCol && !String(wmCol).startsWith('REVISAR')
+  // colchete o nome da coluna: watermark pode vir "sujo" (espaço/ponto/maiúsculas, ex.: [TITULO.DATA VENCTO]).
+  const incremental = hasWm && dom.watermark != null                 // 2ª carga+: já tem acumulado no landing
+  const piso = hasWm && dom.watermark == null && ATAK_CARGA_DESDE      // 1ª carga com recorte (ex.: 12 meses)
+  let where = ''
+  if (incremental) where = ` WHERE [${wmCol}] > @ultimo`
+  else if (piso) where = ` WHERE [${wmCol}] >= @desde`
+  // HASH_ROW (ou chave vazia): evento/snapshot SEM chave natural → hash sha256 da linha (idempotente).
+  // Senão: chave natural = EXPRESSÃO SQL computada no SQL Server (robusto a casing).
+  const hashRow = !dom.chave_fato_sql || String(dom.chave_fato_sql).trim().toUpperCase() === 'HASH_ROW'
+  const query = hashRow
+    ? `SELECT * FROM ${dom.tabela_origem}${where}`
+    : `SELECT *, (${dom.chave_fato_sql}) AS __chave_fato FROM ${dom.tabela_origem}${where}`
+  const req = pool.request()
+  if (incremental) req.input('ultimo', sql.NVarChar, String(dom.watermark))
+  else if (piso) req.input('desde', sql.NVarChar, String(ATAK_CARGA_DESDE))
+  const rows = clean((await req.query(query)).recordset)
   const registros = []
   let semChave = 0
   for (const row of rows) {
-    const cod = pick(row, cfg.chaveCols)
-    if (cod == null) { semChave++; continue }
-    const chave = cfg.dataCols
-      ? `${String(cod).trim()}|${toYMD(pick(row, cfg.dataCols))}`
-      : String(cod).trim()
-    registros.push({ cod_filial: String(ATAK_FILIAL), chave_fato: chave, raw: row })
+    let chave
+    if (hashRow) {
+      // ordem estável das colunas → mesmo hash pra mesma linha (zero colisão; upsert no-op se repetir).
+      chave = crypto.createHash('sha256').update(JSON.stringify(row, Object.keys(row).sort())).digest('hex')
+    } else {
+      chave = row.__chave_fato
+      delete row.__chave_fato
+    }
+    if (chave == null || String(chave).trim() === '') { semChave++; continue }
+    registros.push({ cod_filial: String(ATAK_FILIAL), chave_fato: String(chave).trim(), raw: row })
   }
-  console.log(`[ATAK][${dominio}] ${registros.length} registros${semChave ? ` (${semChave} sem chave, ignorados)` : ''}.`)
-  if (registros.length) await enviarLotes(registros, dominio)
+  const modo = incremental ? '(incremental)' : piso ? `(1ª carga · desde ${ATAK_CARGA_DESDE})` : '(FULL)'
+  console.log(`[ATAK][${dom.dominio}] ${registros.length} registros ${modo}${hashRow ? ' [hash]' : ''}${semChave ? ` · ${semChave} sem chave` : ''}.`)
+  if (registros.length) await enviarLotes(registros, dom.dominio)
+  return registros.length
+}
+
+// Puxa TODOS os domínios ativos do mapa (config-driven). Isolado do abate; cada domínio em try/catch.
+async function pullDominiosGenericos(pool) {
+  let dominios = []
+  try { dominios = await lerMapa() }
+  catch (e) { console.error('[ATAK] falha ao ler o mapa (sigo só com abate):', e.message); return }
+  if (!dominios.length) { console.log('[ATAK] nenhum domínio ativo no mapa — só abate.'); return }
+  for (const dom of dominios) {
+    try { await coletarDominioMapa(pool, dom) }
+    catch (e) { console.error(`[ATAK][${dom.dominio}] ERRO:`, e.message) } // um domínio não derruba os outros
+  }
 }
 
 async function main() {
@@ -162,17 +192,14 @@ async function main() {
   console.log(`[ATAK] Conectando ${ATAK_SQL_SERVER}:${ATAK_SQL_PORT}/${ATAK_SQL_DATABASE} ...`)
   const pool = await sql.connect(config)
 
+  // 1) ABATE primeiro — caminho intacto (RD-38, sagrado): → ind_abate_atak.
   if (!ATAK_SKIP_ABATE) {
     try { await coletarAbate(pool) } catch (e) { console.error('[ATAK][abate] ERRO:', e.message) }
   }
 
-  const DOMINIOS = buildDominios()
-  for (const dom of split(ATAK_DOMINIOS)) {
-    const cfg = DOMINIOS[dom]
-    if (!cfg) { console.warn(`[ATAK] domínio desconhecido: ${dom} (pulei)`); continue }
-    try { await coletarDominio(pool, dom, cfg) }
-    catch (e) { console.error(`[ATAK][${dom}] ERRO:`, e.message) } // um domínio não derruba os outros
-  }
+  // 2) domínios genéricos, config-driven pelo mapa (nuvem PS) → ind_atak_fato. Nada compartilhado
+  //    com o abate que possa quebrá-lo.
+  await pullDominiosGenericos(pool)
 
   await pool.close()
   console.log(`[ATAK] Concluido em ${((Date.now() - t0) / 1000).toFixed(1)}s.`)
