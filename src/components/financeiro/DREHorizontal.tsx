@@ -11,6 +11,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import Modal from '@/components/ui/Modal'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -26,7 +27,7 @@ const MESES_LBL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set'
 type Coluna = { key: string; label: string; projecao?: boolean }
 type Linha = {
   ordem: number
-  kind: 'grupo' | 'conta' | 'resultado'
+  kind: 'grupo' | 'conta' | 'resultado' | 'fluxo'
   codigo: string
   nome: string
   grupo_ref?: string
@@ -38,7 +39,7 @@ type Linha = {
   afeta_ebitda?: boolean
   valores: Record<string, number>
 }
-type Uni = { regime: string; empresas: number; modo: 'mes' | 'dia'; colunas: Coluna[]; linhas: Linha[] }
+type Uni = { regime: string; empresas: number; modo: 'mes' | 'dia'; colunas: Coluna[]; linhas: Linha[]; saldoInicial?: number; diaNegativo?: string | null }
 
 type RawLinha = Omit<Linha, 'valores'> & { valores_mes?: Record<string, number>; valores_dia?: Record<string, number> }
 type MesRaw = { ym: string; label: string; projecao: boolean }
@@ -58,7 +59,8 @@ export default function DREHorizontal() {
   const now = useMemo(() => new Date(), [])
   const anoAtual = now.getFullYear()
 
-  const [regime, setRegime] = useState<'competencia' | 'caixa'>('competencia')
+  const [regime, setRegime] = useState<'competencia' | 'caixa' | 'previsto'>('competencia')
+  const [diaDrill, setDiaDrill] = useState<string | null>(null) // previsto: ymd do dia clicado → títulos a vencer
   const [ano, setAno] = useState<number>(anoAtual)
   const [selIni, setSelIni] = useState<number>(1)                       // 1..12
   const [selFim, setSelFim] = useState<number>(now.getMonth() + 1)      // YTD por padrão
@@ -94,18 +96,20 @@ export default function DREHorizontal() {
   const carregar = useCallback(async () => {
     if (!membros.length) return
     setLoading(true); setErro(null)
-    if (selIni === selFim) {
+    // Previsto (fluxo por vencimento) é sempre por DIA — mesmo se um intervalo estiver selecionado, usa o 1º mês.
+    if (selIni === selFim || regime === 'previsto') {
       // 1 mês → DIAS no cabeçalho
       const { data: res, error } = await supabase.rpc('fn_psgc_dre_horizontal_dia', {
         p_company_ids: membros, p_ano: ano, p_mes: selIni, p_regime: regime,
       })
-      const r = res as { ok?: boolean; erro?: string; regime: string; empresas: number; dias: DiaRaw[]; linhas: RawLinha[] } | null
+      const r = res as { ok?: boolean; erro?: string; regime: string; empresas: number; dias: DiaRaw[]; linhas: RawLinha[]; saldo_inicial?: number; dia_negativo?: string | null } | null
       if (error) { setErro(error.message); setData(null) }
       else if (!r || r.ok === false) { setErro(r?.erro || 'Sem acesso'); setData(null) }
       else setData({
         regime: r.regime, empresas: r.empresas, modo: 'dia',
         colunas: (r.dias ?? []).map((x) => ({ key: x.ymd, label: String(x.d) })),
         linhas: (r.linhas ?? []).map((l) => ({ ...l, valores: l.valores_dia ?? {} })),
+        saldoInicial: r.saldo_inicial, diaNegativo: r.dia_negativo ?? null,
       })
     } else {
       // intervalo → MESES
@@ -173,6 +177,7 @@ export default function DREHorizontal() {
           <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
             <button type="button" onClick={() => setRegime('competencia')} style={regime === 'competencia' ? segOn : segOff}>Competência</button>
             <button type="button" onClick={() => setRegime('caixa')} style={regime === 'caixa' ? segOn : segOff}>Caixa</button>
+            <button type="button" onClick={() => { setRegime('previsto'); setSelFim(selIni) }} style={regime === 'previsto' ? segOn : segOff} title="Fluxo de caixa por vencimento (previsão)">Previsto</button>
           </div>
           <button type="button" onClick={() => setTudoAberto((v) => !v)} style={btnSec}>
             {tudoAberto ? '▾ Recolher tudo' : '▸ Expandir tudo'}
@@ -210,6 +215,22 @@ export default function DREHorizontal() {
 
         {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
+        {/* PREVISTO · fluxo de caixa: saldo inicial + alerta de dia negativo (mesma lógica da projeção) */}
+        {data && data.regime === 'previsto' && (
+          <div style={{ marginBottom: 12 }}>
+            {data.diaNegativo && (
+              <div style={{ background: '#FCEBEB', color: RED, padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                ⚠️ Caixa do grupo fica negativo em {data.diaNegativo.slice(8, 10)}/{data.diaNegativo.slice(5, 7)}.
+              </div>
+            )}
+            <div style={{ background: CREAM, color: ESP, padding: '8px 14px', borderRadius: 8, fontSize: 12 }}>
+              Previsão por <b>vencimento</b> (não é resultado — é fluxo de caixa). Saldo inicial ={' '}
+              <b>{cheio(data.saldoInicial ?? 0)}</b> (saldo atual dos bancos do grupo)
+              {(data.saldoInicial ?? 0) === 0 && <span style={{ color: MUT }}> · nenhum saldo bancário cadastrado — a projeção parte de zero</span>}. Clique num <b>dia</b> pra ver os títulos a vencer.
+            </div>
+          </div>
+        )}
+
         {loading || loadingSel ? (
           <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: MUT }}>Carregando DRE…</div>
         ) : !data || data.linhas.length === 0 ? (
@@ -225,12 +246,18 @@ export default function DREHorizontal() {
                   <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>
                     {data.modo === 'dia' ? `Conta · ${MESES_LBL[selIni - 1]}/${ano} (dias)` : 'Conta'}
                   </th>
-                  {colunas.map((c) => (
-                    <th key={c.key} style={{ ...thMes, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null) }}>
-                      {c.label}
-                      {c.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
-                    </th>
-                  ))}
+                  {colunas.map((c) => {
+                    const drillDia = data.regime === 'previsto'
+                    return (
+                      <th key={c.key}
+                        onClick={drillDia ? () => setDiaDrill(c.key) : undefined}
+                        title={drillDia ? 'Ver títulos a vencer neste dia' : undefined}
+                        style={{ ...thMes, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
+                        {c.label}
+                        {c.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
+                      </th>
+                    )
+                  })}
                   <th style={{ ...thMes, borderLeft: `2px solid ${LINE}`, background: CREAM }}>Total</th>
                 </tr>
               </thead>
@@ -239,8 +266,17 @@ export default function DREHorizontal() {
                   const isRes = l.kind === 'resultado'
                   const isGrp = l.kind === 'grupo'
                   const isConta = l.kind === 'conta'
-                  const bold = isRes || isGrp
+                  const isFluxo = l.kind === 'fluxo'
+                  const bold = isRes || isGrp || isFluxo
                   const total = totalLinha(l)
+                  // SALDO é acumulado → o "Total" do mês é o SALDO do ÚLTIMO dia (saldo final projetado),
+                  // não a soma dos saldos diários. Entradas/Saídas/Movimento: a soma faz sentido.
+                  const totalDisplay = isFluxo && l.codigo === 'SALDO'
+                    ? (colunas.length ? (l.valores[colunas[colunas.length - 1].key] ?? 0) : 0)
+                    : total
+                  const corTotalFluxo = l.codigo === 'ENTRADAS' ? (totalDisplay > 0 ? GREEN : MUT)
+                    : l.codigo === 'SAIDAS' ? (totalDisplay > 0 ? RED : MUT)
+                    : (totalDisplay < 0 ? RED : totalDisplay > 0 ? GREEN : MUT)
                   const contaDrillavel = isConta && umMes            // folha + 1 mês → drill por pessoa
                   const aberta = contaDrillavel && contaAberta === l.codigo
                   return (
@@ -263,22 +299,30 @@ export default function DREHorizontal() {
                       </td>
                       {colunas.map((c) => {
                         const v = l.valores[c.key]
+                        // Previsto (fluxo): entradas verdes, saídas vermelhas, movimento/saldo por sinal;
+                        // dia em que o SALDO acumulado fica negativo → célula com fundo vermelho (alerta visual).
+                        const corFluxo = v == null ? ESP
+                          : l.codigo === 'ENTRADAS' ? (v > 0 ? GREEN : MUT)
+                          : l.codigo === 'SAIDAS' ? (v > 0 ? RED : MUT)
+                          : (v < 0 ? RED : v > 0 ? GREEN : MUT)
+                        const saldoNeg = isFluxo && l.codigo === 'SALDO' && v != null && v < 0
                         return (
                           <td key={c.key} title={v != null ? cheio(v) : ''} style={{
                             ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
                             ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
+                            ...(saldoNeg ? { background: '#FCEBEB' } : null),
                             fontWeight: bold ? 700 : 400,
-                            color: isRes ? (v != null && v < 0 ? RED : v != null && v > 0 ? GREEN : MUT) : ESP,
+                            color: isFluxo ? corFluxo : isRes ? (v != null && v < 0 ? RED : v != null && v > 0 ? GREEN : MUT) : ESP,
                           }}>
                             {v != null ? abrev(v) : ''}
                           </td>
                         )
                       })}
-                      <td title={cheio(total)} style={{
+                      <td title={cheio(totalDisplay)} style={{
                         ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
-                        fontWeight: 700, color: isRes ? (total < 0 ? RED : total > 0 ? GREEN : MUT) : ESP,
+                        fontWeight: 700, color: isFluxo ? corTotalFluxo : isRes ? (total < 0 ? RED : total > 0 ? GREEN : MUT) : ESP,
                       }}>
-                        {abrev(total)}
+                        {abrev(totalDisplay)}
                       </td>
                     </tr>
                     {aberta && (
@@ -297,11 +341,21 @@ export default function DREHorizontal() {
         )}
 
         <p style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
-          Valores abreviados (toque/hover mostra o valor cheio). Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem.
-          {umMes
-            ? <> Mostrando <b>{MESES_LBL[selIni - 1]}/{ano} por dia</b> — clique numa conta pra ver <b>clientes/fornecedores × dia</b>. A soma dos dias = o total da conta no mês.</>
-            : <> Intervalo com <b>meses</b> no cabeçalho. Clique <b>1 mês só</b> (ou use “Mês atual”) pra ver o diário.</>}
+          Valores abreviados (toque/hover mostra o valor cheio).
+          {data?.regime === 'previsto'
+            ? <> <b>Previsto</b> = fluxo de caixa por <b>vencimento</b> (entradas − saídas → saldo acumulado). Não é DRE: previsão não tem lucro/EBITDA, tem <b>quanto vou ter em caixa</b>. Clique num <b>dia</b> (cabeçalho) pra ver os títulos a vencer.</>
+            : umMes
+            ? <> Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem. Mostrando <b>{MESES_LBL[selIni - 1]}/{ano} por dia</b> — clique numa conta pra ver <b>clientes/fornecedores × dia</b>. A soma dos dias = o total da conta no mês.</>
+            : <> Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem. Intervalo com <b>meses</b> no cabeçalho. Clique <b>1 mês só</b> (ou use “Mês atual”) pra ver o diário.</>}
         </p>
+
+        {/* PREVISTO · drill por dia: quem vou receber / quem vou pagar naquele vencimento (Parte B.3) */}
+        <Modal open={!!diaDrill} onClose={() => setDiaDrill(null)}
+          title="Títulos a vencer no dia"
+          subtitle={diaDrill ? `${diaDrill.slice(8, 10)}/${diaDrill.slice(5, 7)}/${diaDrill.slice(0, 4)} · ${grupoNome}` : ''}
+          maxWidth={620}>
+          {diaDrill && <DiaPrevistoDrill membros={membros} ymd={diaDrill} />}
+        </Modal>
       </div>
     </div>
   )
@@ -353,14 +407,9 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
           : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_mes)}) em {cheio(diff)} — há título fora do de-para</span>}
       </div>
       <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
+        {/* Parte C · a régua de dias (1–31) fica SÓ no topo — o drill herda o alinhamento das colunas
+            (mesmas larguras de dia) sem repetir o cabeçalho de dias (era o ponto do CEO). */}
         <table style={{ borderCollapse: 'collapse', fontSize: 11.5, width: '100%' }}>
-          <thead>
-            <tr>
-              <th style={thDiaPessoa}>{rotulo}</th>
-              {dias.map((dia) => <th key={dia} style={thDia}>{dia}</th>)}
-              <th style={{ ...thDia, borderLeft: `2px solid ${LINE}` }}>Total</th>
-            </tr>
-          </thead>
           <tbody>
             {d.pessoas.map((p, i) => (
               <tr key={p.pessoa_id ?? `x${i}`} style={{ borderTop: `0.5px solid ${LINE}` }}>
@@ -386,6 +435,80 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime }: {
   )
 }
 
+// ── Previsto · títulos a vencer num dia (receber/pagar) — lê pela RLS do usuário (empresas do grupo).
+// RD-26: sem RPC nova de fluxo; consulta direta às tabelas (mesmo padrão do "ver conta existente").
+type TituloDia = { id: string; nome: string; valor: number; descricao: string | null; doc: string | null }
+
+function DiaPrevistoDrill({ membros, ymd }: { membros: string[]; ymd: string }) {
+  const [receber, setReceber] = useState<TituloDia[]>([])
+  const [pagar, setPagar] = useState<TituloDia[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true)
+    const abertoR = (s: unknown) => !['pago', 'recebido', 'cancelado'].includes(String(s ?? '').toLowerCase())
+    const abertoP = (s: unknown) => !['pago', 'cancelado'].includes(String(s ?? '').toLowerCase())
+    const map = (arr: Array<Record<string, unknown>> | null, campoNome: string): TituloDia[] =>
+      (arr ?? []).map((x) => ({
+        id: String(x.id), nome: (x[campoNome] as string) || 'sem nome', valor: Number(x.valor) || 0,
+        descricao: (x.descricao as string) ?? null, doc: (x.numero_documento as string) ?? null,
+      }))
+    void Promise.all([
+      supabase.from('erp_receber').select('id, cliente_nome, valor, descricao, numero_documento, status').in('company_id', membros).eq('data_vencimento', ymd),
+      supabase.from('erp_pagar').select('id, fornecedor_nome, valor, descricao, numero_documento, status').in('company_id', membros).eq('data_vencimento', ymd),
+    ]).then(([r1, r2]) => {
+      if (!alive) return
+      setReceber(map((r1.data as Array<Record<string, unknown>>)?.filter((x) => abertoR(x.status)) ?? null, 'cliente_nome'))
+      setPagar(map((r2.data as Array<Record<string, unknown>>)?.filter((x) => abertoP(x.status)) ?? null, 'fornecedor_nome'))
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [membros, ymd])
+
+  if (loading) return <div style={{ fontSize: 12, color: MUT }}>Carregando…</div>
+  const totR = receber.reduce((s, x) => s + x.valor, 0)
+  const totP = pagar.reduce((s, x) => s + x.valor, 0)
+
+  return (
+    <div>
+      <SecaoDia titulo="A receber (entradas)" cor={GREEN} total={totR} itens={receber} vazio="Nenhum título a receber neste dia." />
+      <div style={{ height: 14 }} />
+      <SecaoDia titulo="A pagar (saídas)" cor={RED} total={totP} itens={pagar} vazio="Nenhum título a pagar neste dia." />
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${LINE}`, display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800, color: ESP }}>
+        <span>Movimento do dia</span>
+        <span style={{ color: totR - totP < 0 ? RED : GREEN }}>{cheio(totR - totP)}</span>
+      </div>
+    </div>
+  )
+}
+
+function SecaoDia({ titulo, cor, total, itens, vazio }: { titulo: string; cor: string; total: number; itens: TituloDia[]; vazio: string }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: cor }}>{titulo}</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: cor }}>{cheio(total)}</span>
+      </div>
+      {itens.length === 0 ? (
+        <div style={{ fontSize: 12, color: MUT }}>{vazio}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {itens.map((x) => (
+            <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, color: ESP, borderBottom: `0.5px solid ${LINE}`, paddingBottom: 4 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <b>{x.nome}</b>{x.descricao ? <span style={{ color: MUT }}> · {x.descricao}</span> : ''}{x.doc ? <span style={{ color: MUT }}> · {x.doc}</span> : ''}
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 600 }}>{cheio(x.valor)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const lbl: React.CSSProperties = { display: 'block', fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }
 const inp: React.CSSProperties = { padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: ESP, background: '#FFF', boxSizing: 'border-box' }
 const segOn: React.CSSProperties = { padding: '9px 14px', background: GOLD, color: '#fff', border: 'none', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }
@@ -404,7 +527,7 @@ const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap'
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
 const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
-const thDiaPessoa: React.CSSProperties = { position: 'sticky', left: 0, top: 0, zIndex: 2, background: CREAM, textAlign: 'left', padding: '6px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT, minWidth: 170 }
-const thDia: React.CSSProperties = { padding: '6px 8px', textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: ESP, background: CREAM, minWidth: 46, whiteSpace: 'nowrap' }
-const tdPessoa: React.CSSProperties = { position: 'sticky', left: 0, zIndex: 1, background: '#FFF', padding: '6px 10px', whiteSpace: 'nowrap', minWidth: 170, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', color: ESP, fontWeight: 500 }
-const tdDia: React.CSSProperties = { padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: ESP }
+// Parte C · sem cabeçalho de dias no drill (só o do topo). minWidth 240 + tdDia 46 = mesmas larguras
+// da tabela do topo → o drill alinha sob a régua única.
+const tdPessoa: React.CSSProperties = { position: 'sticky', left: 0, zIndex: 1, background: '#FFF', padding: '6px 10px', whiteSpace: 'nowrap', minWidth: 240, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', color: ESP, fontWeight: 500 }
+const tdDia: React.CSSProperties = { padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: ESP, minWidth: 46 }
