@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { codigoBarrasParaConsulta, reconhecerBoleto } from '@/lib/financeiro/boleto-parser'
 
 interface Resultado {
   score: number
@@ -43,8 +44,11 @@ export default function AnaliseBoletoIndividualCard() {
     }
     setLoading(true)
     setResultado(null)
+    // canônico: linha digitável (47) → os 44 do banco antes de analisar, pra bater com o histórico
+    // salvo (que está em 44). Guia de arrecadação segue com os dígitos crus (RD-26 · mesma conversão do salvar).
+    const cbAnalise = codigoBarrasParaConsulta(codigo) ?? codigo.replace(/\D/g, '')
     const { data, error } = await supabase.rpc('fn_anti_fraude_boleto_analisar', {
-      p_codigo_barras: codigo.replace(/\D/g, ''),
+      p_codigo_barras: cbAnalise,
       p_valor: Number(valor),
       p_fornecedor_id: null,
       p_data_vencimento: vencimento || null,
@@ -77,6 +81,28 @@ export default function AnaliseBoletoIndividualCard() {
             style={input}
             inputMode="numeric"
           />
+          {(() => {
+            // Pilar 3 · confirma o reconhecimento e mostra o código de barras canônico (44 díg) —
+            // o mesmo formato usado na análise e no histórico. Linha digitável (47) fica read-only.
+            const rb = reconhecerBoleto(codigo)
+            if (!rb.reconhecido) return null
+            const rotulo = rb.tipo === 'boleto' ? 'Boleto bancário reconhecido' : 'Guia de arrecadação reconhecida'
+            return (
+              <div style={{ marginTop: 6, background: '#F1F6EC', border: '0.5px solid rgba(59,109,17,0.25)', borderRadius: 6, padding: '8px 10px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3B6D11' }}>✓ {rotulo}</div>
+                {rb.linhaDigitavel && (
+                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.7)', marginTop: 4 }}>
+                    Linha digitável: <span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: 0.3 }}>{rb.linhaDigitavel}</span>
+                  </div>
+                )}
+                {rb.codigoBarras && (
+                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.7)', marginTop: 2 }}>
+                    Código de barras (44 díg): <span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: 0.3 }}>{rb.codigoBarras}</span>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
           <Field label="Valor R$">

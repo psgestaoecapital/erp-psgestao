@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
-import { parseBoletoBarras, normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
+import { parseBoletoBarras, normalizarCodigoBarras, codigoBarrasParaConsulta, reconhecerBoleto } from '@/lib/financeiro/boleto-parser'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 // RD-41 · padrão único de "erro de salvamento" (piloto)
 import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
@@ -133,10 +133,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const checarDup = React.useCallback(async (bruto: string) => {
     const dig = bruto.replace(/\D/g, '')
     if (dig.length < 44) { setDupContas([]); return }
+    // canônico: linha digitável (47) vira os 44 do banco ANTES de consultar — senão nunca bate
+    // com os 44 já salvos e a duplicidade passa batido (risco de pagar 2×). RD-26: mesma conversão do salvar.
+    const cbConsulta = codigoBarrasParaConsulta(bruto) ?? dig
     setChecandoDup(true)
     try {
       const { data } = await supabase.rpc('fn_pagar_checar_duplicidade', {
-        p_company_id: companyId, p_codigo_barras: bruto, p_excluir_id: null,
+        p_company_id: companyId, p_codigo_barras: cbConsulta, p_excluir_id: null,
       })
       setDupContas((data as DupConta[]) ?? [])
       setDupIgnorado(false)
@@ -204,7 +207,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     const t = setTimeout(async () => {
       const { data } = await supabase.rpc('fn_pagar_checar_duplicidade_logica', {
         p_company_id: companyId, p_fornecedor_id: fornecedorId, p_valor: v,
-        p_vencimento: dataVencimento, p_codigo_barras: codigoBarras || null, p_excluir_id: null,
+        p_vencimento: dataVencimento, p_codigo_barras: codigoBarrasParaConsulta(codigoBarras), p_excluir_id: null,
       })
       if (!alive) return
       setDupLogica((data as DupLogica[]) ?? []); setDupLogicaIgnorado(false)
@@ -738,6 +741,28 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               Opcional. Se preenchido, avisamos na hora se essa conta já foi lançada (não bloqueia){checandoDup ? ' · verificando…' : ''}.
             </small>
             {autoMsg && <small style={{ ...helperStyle, color: '#3B6D11' }}>⚡ {autoMsg} Tudo editável.</small>}
+            {(() => {
+              // Pilar 3 · transparência: confirma o que reconhecemos e mostra o formato CANÔNICO
+              // (o mesmo que gravamos e que a checagem de duplicidade usa). Não inventa nada.
+              const rb = reconhecerBoleto(codigoBarras)
+              if (!rb.reconhecido) return null
+              const rotulo = rb.tipo === 'boleto' ? 'Boleto bancário reconhecido' : 'Guia de arrecadação reconhecida'
+              return (
+                <div style={{ marginTop: 6, background: '#F1F6EC', border: '0.5px solid rgba(59,109,17,0.25)', borderRadius: 6, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#3B6D11' }}>✓ {rotulo}</div>
+                  {rb.linhaDigitavel && (
+                    <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.7)', marginTop: 4 }}>
+                      Linha digitável: <span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: 0.3 }}>{rb.linhaDigitavel}</span>
+                    </div>
+                  )}
+                  {rb.codigoBarras && (
+                    <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.7)', marginTop: 2 }}>
+                      Código de barras (44 díg): <span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: 0.3 }}>{rb.codigoBarras}</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </Campo>
 
           {dupContas.length > 0 && !dupIgnorado && (

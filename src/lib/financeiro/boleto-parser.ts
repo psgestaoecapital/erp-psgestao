@@ -69,6 +69,56 @@ export function normalizarCodigoBarras(entrada?: string | null): string | null {
   return null
 }
 
+// Valor CANÔNICO pra CONSULTA (anti-duplicidade / anti-fraude): tem que casar com o que a
+// GRAVAÇÃO persiste (44 díg do boleto bancário — ver normalizarCodigoBarras usado no salvar).
+// - boleto bancário (linha 47 / barras 44) → sempre os 44 canônicos (mesmo formato do banco).
+// - guia de arrecadação (começa com '8', 44/48 díg, DV próprio) → NÃO tem conversão bancária;
+//   segue com os dígitos crus (dedup entre guias, não fabrica um 44 inválido — RD-46).
+// Assim o mesmo boleto colado como linha (47) OU como barras (44) consulta no MESMO valor —
+// era o furo que deixava a duplicidade passar (linha 47 nunca batia com os 44 salvos).
+export function codigoBarrasParaConsulta(entrada?: string | null): string | null {
+  const dig = (entrada || '').replace(/\D/g, '')
+  if (!dig) return null
+  return normalizarCodigoBarras(dig) ?? dig
+}
+
+export interface BoletoReconhecido {
+  reconhecido: boolean
+  tipo: 'boleto' | 'arrecadacao' | null
+  linhaDigitavel: string | null // 47 díg — só quando a pessoa digitou/colou a linha digitável
+  codigoBarras: string | null // 44 díg canônico (boleto bancário)
+  valor?: number
+  vencimento?: string // YYYY-MM-DD
+}
+
+// Reconhece a entrada pra dar FEEDBACK ao usuário (Pilar 3): "boleto reconhecido", com a
+// linha digitável (read-only) e o código de barras canônico. NÃO inventa nada — se não bate
+// no formato/DV, reconhecido=false. Guia de arrecadação ('8') é sinalizada como tal (fora do
+// auto-preenchimento bancário, mas ainda de-duplica pelos dígitos crus via codigoBarrasParaConsulta).
+export function reconhecerBoleto(entrada?: string | null): BoletoReconhecido {
+  const vazio: BoletoReconhecido = { reconhecido: false, tipo: null, linhaDigitavel: null, codigoBarras: null }
+  const dig = (entrada || '').replace(/\D/g, '')
+  if (!dig) return vazio
+  if (dig[0] === '8') {
+    // arrecadação: 44 (barras) ou 48 (linha) — não convertemos, mas reconhecemos o tipo.
+    if (dig.length === 44 || dig.length === 48) {
+      return { reconhecido: true, tipo: 'arrecadacao', linhaDigitavel: dig.length === 48 ? dig : null, codigoBarras: dig.length === 44 ? dig : null }
+    }
+    return vazio
+  }
+  const cb = normalizarCodigoBarras(dig)
+  if (!cb) return vazio
+  const lido = parseBoletoBarras(cb)
+  return {
+    reconhecido: true,
+    tipo: 'boleto',
+    linhaDigitavel: dig.length === 47 ? dig : null,
+    codigoBarras: cb,
+    valor: lido?.valor,
+    vencimento: lido?.vencimento,
+  }
+}
+
 export function parseBoletoBarras(entrada: string): BoletoLido | null {
   const dig = (entrada || '').replace(/\D/g, '')
   let barras: string
