@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Search, Camera, Car, Package, ChevronLeft, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
+import Modal from '@/components/ui/Modal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
@@ -59,6 +60,14 @@ export default function RecepcaoPage() {
   const { config: ramo } = useOficinaRamo(companyId)
   const [placa, setPlaca] = useState(''); const [buscando, setBuscando] = useState(false); const [historico, setHistorico] = useState<string | null>(null)
   const [clienteNome, setClienteNome] = useState(''); const [clienteCnpj, setClienteCnpj] = useState(''); const [clienteId, setClienteId] = useState('')
+  // RD-41 · busca de cliente por documento (CPF/CNPJ) na base do tenant + cadastro inline (sem sair da recepção).
+  const [buscandoDoc, setBuscandoDoc] = useState(false)
+  type DocStatus = { tipo: 'cliente' | 'fornecedor' | 'nao_encontrado' | 'sem_plano' | 'erro'; razao?: string; fornecedorId?: string }
+  const [docStatus, setDocStatus] = useState<DocStatus | null>(null)
+  const [cadAberto, setCadAberto] = useState(false)
+  const [cadNome, setCadNome] = useState(''); const [cadTelefone, setCadTelefone] = useState('')
+  const [cadEndereco, setCadEndereco] = useState<Record<string, string> | null>(null) // enriquecimento CNPJ (persistido via RPC)
+  const [cadEnriq, setCadEnriq] = useState(false); const [cadSalvando, setCadSalvando] = useState(false); const [cadMsg, setCadMsg] = useState<string | null>(null)
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
   // não-automotiva: descrição da peça/trabalho + material + medidas/specs + quantidade (colunas nullable estruturadas).
@@ -83,6 +92,79 @@ export default function RecepcaoPage() {
     } else {
       setHistorico('Veículo novo — cadastrando na hora.')
     }
+  }
+
+  // Detecta CPF (11) x CNPJ (14) pela quantidade de dígitos. A busca só dispara com documento válido.
+  const docDigits = clienteCnpj.replace(/\D/g, '')
+  const isCnpj = docDigits.length === 14
+  const isCpf = docDigits.length === 11
+  const docValido = isCpf || isCnpj
+
+  // FIX 1 · busca interna por documento (reusa fn_pessoa_existe_por_cnpj — genérica p/ CPF e CNPJ, RD-26).
+  const buscarDocumento = async () => {
+    if (!companyId || !docValido) return
+    setBuscandoDoc(true); setDocStatus(null); setClienteId('')
+    const { data } = await supabase.rpc('fn_pessoa_existe_por_cnpj', { p_company_id: companyId, p_cnpj: docDigits })
+    setBuscandoDoc(false)
+    const r = data as { sem_plano?: boolean; existe_como_cliente?: boolean; cliente_id?: string; cliente_razao?: string; existe_como_fornecedor?: boolean; fornecedor_id?: string; fornecedor_razao?: string } | null
+    if (!r) { setDocStatus({ tipo: 'erro' }); return }
+    if (r.sem_plano) { setDocStatus({ tipo: 'sem_plano' }); return }
+    if (r.existe_como_cliente && r.cliente_id) {
+      setClienteId(r.cliente_id)
+      if (r.cliente_razao) setClienteNome(r.cliente_razao)
+      setDocStatus({ tipo: 'cliente', razao: r.cliente_razao ?? '' }); return
+    }
+    if (r.existe_como_fornecedor && r.fornecedor_id) {
+      setDocStatus({ tipo: 'fornecedor', razao: r.fornecedor_razao ?? '', fornecedorId: r.fornecedor_id }); return
+    }
+    setDocStatus({ tipo: 'nao_encontrado' })
+  }
+
+  // Existe só como fornecedor → cria o vínculo de cliente com a mesma razão/doc (fronteira GE via RPC).
+  const usarFornecedorComoCliente = async () => {
+    if (!companyId) return
+    const nome = (docStatus?.razao || clienteNome || '').trim()
+    setBuscandoDoc(true)
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome || 'Cliente', p_cpf_cnpj: docDigits })
+    setBuscandoDoc(false)
+    if (error) { setMsg('❌ ' + error.message); return }
+    setClienteId(data as string); if (nome) setClienteNome(nome)
+    setDocStatus({ tipo: 'cliente', razao: nome }); setMsg('✅ Cliente vinculado.')
+  }
+
+  const abrirCadastro = () => { setCadNome(clienteNome || ''); setCadTelefone(''); setCadEndereco(null); setCadMsg(null); setCadAberto(true) }
+
+  // FIX 2 · só CNPJ enriquece (BrasilAPI/ReceitaWS — mesma lupa da GE, RD-26). CPF: nome manual (LGPD).
+  const enriquecerCnpj = async () => {
+    if (!isCnpj) return
+    setCadEnriq(true); setCadMsg(null)
+    try {
+      const res = await fetch(`/api/cnpj-lookup?cnpj=${docDigits}`)
+      const d = await res.json()
+      if (!res.ok || d.error) { setCadMsg(d.error || 'Não encontrei dados públicos.'); return }
+      if (d.razao_social) setCadNome(d.razao_social)
+      if (d.telefone) setCadTelefone(d.telefone)
+      setCadEndereco({ logradouro: d.logradouro || '', numero: d.numero || '', bairro: d.bairro || '', cidade: d.cidade || '', uf: d.uf || '', cep: d.cep || '', ibge: d.ibge || '', email: d.email || '' })
+      setCadMsg('✓ Dados públicos preenchidos.')
+    } catch { setCadMsg('Falha ao consultar dados públicos.') }
+    finally { setCadEnriq(false) }
+  }
+
+  const salvarCadastro = async () => {
+    if (!companyId) return
+    if (!cadNome.trim()) { setCadMsg('Informe o nome / razão social.'); return }
+    setCadSalvando(true)
+    const extra: Record<string, string> = { ...(cadEndereco || {}) }
+    if (cadTelefone.trim()) extra.telefone = cadTelefone.trim()
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', {
+      p_company_id: companyId, p_nome: cadNome.trim(), p_cpf_cnpj: docDigits,
+      p_extra: Object.keys(extra).length ? extra : null,
+    })
+    setCadSalvando(false)
+    if (error) { setCadMsg('❌ ' + error.message); return }
+    setClienteId(data as string); setClienteNome(cadNome.trim())
+    setDocStatus({ tipo: 'cliente', razao: cadNome.trim() })
+    setCadAberto(false); setMsg('✅ Cliente cadastrado e vinculado.')
   }
 
   const onFotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,7 +269,36 @@ export default function RecepcaoPage() {
         {/* CLIENTE + OBJETO (veículo OU peça/trabalho) */}
         <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`}>
           <Campo l="Cliente"><input value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Nome do cliente (pode ser outra oficina)" style={inp} /></Campo>
-          <Campo l="CPF/CNPJ (opcional)"><input value={clienteCnpj} onChange={(e) => setClienteCnpj(e.target.value)} inputMode="numeric" style={inp} /></Campo>
+          <Campo l="CPF/CNPJ (opcional)">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={clienteCnpj}
+                onChange={(e) => { setClienteCnpj(e.target.value); setDocStatus(null); setClienteId('') }}
+                onBlur={() => { if (docValido) void buscarDocumento() }}
+                inputMode="numeric" placeholder="Só números · CPF ou CNPJ" style={inp} />
+              <button type="button" onClick={() => void buscarDocumento()} disabled={!docValido || buscandoDoc}
+                title="Buscar cliente pelo documento" style={{ ...btnGold, minWidth: 52, opacity: (!docValido || buscandoDoc) ? 0.5 : 1 }}>
+                <Search size={18} />
+              </button>
+            </div>
+            {buscandoDoc && <div style={selMut}>buscando…</div>}
+            {!buscandoDoc && docStatus?.tipo === 'cliente' && (
+              <div style={selOk}>✓ Cliente encontrado{docStatus.razao ? `: ${docStatus.razao}` : ''}</div>
+            )}
+            {!buscandoDoc && docStatus?.tipo === 'fornecedor' && (
+              <div style={selWarn}>
+                <span>Esse documento está cadastrado como fornecedor. Usar como cliente também?</span>
+                <button type="button" onClick={() => void usarFornecedorComoCliente()} style={miniBtn}>Usar como cliente</button>
+              </div>
+            )}
+            {!buscandoDoc && docStatus?.tipo === 'nao_encontrado' && (
+              <div style={selWarn}>
+                <span>Não encontrei cadastro com esse documento.</span>
+                <button type="button" onClick={abrirCadastro} style={miniBtn}>Cadastrar agora</button>
+              </div>
+            )}
+            {!buscandoDoc && docStatus?.tipo === 'sem_plano' && <div style={selMut}>Busca de cadastro indisponível para esta empresa.</div>}
+            {!buscandoDoc && docStatus?.tipo === 'erro' && <div style={selMut}>Não consegui buscar agora — pode digitar o nome manualmente.</div>}
+          </Campo>
           {ramo.automotivo ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -305,6 +416,34 @@ export default function RecepcaoPage() {
           onAssinado={() => setMsg('✅ Checklist assinado pelo cliente.')}
         />
       )}
+
+      {/* FIX 2 · cadastro inline do cliente — overlay, NÃO navega pra fora da recepção. */}
+      <Modal
+        open={cadAberto}
+        onClose={() => setCadAberto(false)}
+        title="Cadastrar cliente"
+        subtitle={`Documento ${clienteCnpj || docDigits} — sem sair da recepção`}
+        footer={<>
+          <button type="button" onClick={() => setCadAberto(false)} style={btnGhost}>Cancelar</button>
+          <button type="button" onClick={() => void salvarCadastro()} disabled={cadSalvando} style={{ ...btnGold, opacity: cadSalvando ? 0.6 : 1 }}>
+            {cadSalvando ? 'Salvando…' : 'Salvar e vincular'}
+          </button>
+        </>}
+      >
+        <Campo l="Nome / Razão social *"><input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} autoFocus /></Campo>
+        <Campo l="Documento"><input value={clienteCnpj} readOnly style={{ ...inp, background: '#F0EADE', color: ESP60 }} /></Campo>
+        <Campo l="Telefone (opcional)"><input value={cadTelefone} onChange={(e) => setCadTelefone(e.target.value)} inputMode="tel" style={inp} /></Campo>
+        {isCnpj && (
+          <button type="button" onClick={() => void enriquecerCnpj()} disabled={cadEnriq} style={{ ...btnGold, width: 'auto', opacity: cadEnriq ? 0.6 : 1 }}>
+            <Search size={16} /> {cadEnriq ? 'Buscando…' : 'Buscar dados públicos'}
+          </button>
+        )}
+        {isCpf && <div style={{ fontSize: 11, color: ESP60, marginTop: 4 }}>CPF: sem consulta pública (LGPD) — informe o nome manualmente.</div>}
+        {cadEndereco?.cidade && (
+          <div style={{ fontSize: 12, color: OK, marginTop: 8 }}>📍 {[cadEndereco.logradouro, cadEndereco.numero, cadEndereco.bairro, cadEndereco.cidade, cadEndereco.uf].filter(Boolean).join(', ')}</div>
+        )}
+        {cadMsg && <div style={{ fontSize: 12, color: /^(✓|📍)/.test(cadMsg) ? OK : RED, marginTop: 8 }}>{cadMsg}</div>}
+      </Modal>
     </div>
   )
 }
@@ -323,3 +462,8 @@ function Campo({ l, children }: { l: string; children: React.ReactNode }) {
 const inp: CSSProperties = { width: '100%', padding: '11px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
 const chip: CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+const selOk: CSSProperties = { fontSize: 12, color: OK, marginTop: 6, fontWeight: 600 }
+const selWarn: CSSProperties = { fontSize: 12, color: '#854F0B', marginTop: 6, fontWeight: 600, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }
+const selMut: CSSProperties = { fontSize: 12, color: ESP60, marginTop: 6 }
+const miniBtn: CSSProperties = { background: ESP, color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
+const btnGhost: CSSProperties = { background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }
