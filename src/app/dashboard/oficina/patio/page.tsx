@@ -147,6 +147,12 @@ export default function PatioKanbanPage() {
   const [assinaturasCard, setAssinaturasCard] = useState<string[]>([])
   const [assinarEntregaOs, setAssinarEntregaOs] = useState<OS | null>(null)
   const [entregueTotal, setEntregueTotal] = useState(0)   // total de entregues (p/ "ver histórico (N)")
+  // FIX 2 · remover veículo do pátio (soft-delete c/ salvaguarda RD-55)
+  const [removerOs, setRemoverOs] = useState<OS | null>(null)
+  const [removerBloqueio, setRemoverBloqueio] = useState<string | null>(null) // mensagem quando tem vínculo
+  const [removerMotivo, setRemoverMotivo] = useState('')
+  const [removendo, setRemovendo] = useState(false)
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -174,6 +180,26 @@ export default function PatioKanbanPage() {
   }, [companyId])
 
   useEffect(() => { void carregar() }, [carregar])
+  useEffect(() => { if (!toastMsg) return; const t = setTimeout(() => setToastMsg(null), 3500); return () => clearTimeout(t) }, [toastMsg])
+
+  // FIX 2 · remover do pátio. force=false: soft-delete se sem vínculo, ou volta bloqueada c/ mensagem.
+  // force=true: cancela a OS (soft, mantém histórico) — exige motivo. Nunca apaga fisicamente (RD-55).
+  async function removerDoPatio(force: boolean) {
+    if (!removerOs) return
+    setRemovendo(true)
+    const { data, error } = await supabase.rpc('fn_os_remover_do_patio', {
+      p_os_id: removerOs.id, p_motivo: removerMotivo.trim() || null, p_forcar_cancelar: force,
+    })
+    setRemovendo(false)
+    const r = data as { ok?: boolean; acao?: string; bloqueada?: boolean; mensagem?: string; precisa_motivo?: boolean; erro?: string } | null
+    if (error) { setToastMsg('❌ ' + error.message); return }
+    if (r?.bloqueada) { setRemoverBloqueio(r.mensagem ?? 'Esta OS tem vínculo lançado.'); return }
+    if (r?.precisa_motivo) { setToastMsg('Informe o motivo do cancelamento.'); return }
+    if (!r || r.ok === false) { setToastMsg('❌ ' + (r?.erro ?? 'Falha ao remover')); return }
+    setToastMsg(r.acao === 'cancelada' ? `OS ${removerOs.numero ?? ''} cancelada (histórico mantido).` : 'Veículo removido do pátio.')
+    setRemoverOs(null); setRemoverBloqueio(null); setRemoverMotivo(''); setCardAberto(null)
+    void carregar()
+  }
 
   // lista LIMPA do seletor (dedup identidade + Title Case + sem e-mail/TESTE/staff PS — via RPC)
   const carregarMecanicos = useCallback(async () => {
@@ -411,6 +437,11 @@ export default function PatioKanbanPage() {
               style={{ width: '100%', marginTop: 10, padding: '12px', fontSize: 13, fontWeight: 600, borderRadius: 10, border: `1px solid ${C.border}`, background: C.bg, color: C.espresso, cursor: 'pointer' }}>
               📋 Abrir a Ordem de Serviço
             </button>
+            {/* FIX 2 · remover veículo do pátio (com salvaguarda) */}
+            <button onClick={() => { setRemoverOs(cardAberto); setRemoverBloqueio(null); setRemoverMotivo('') }}
+              style={{ width: '100%', marginTop: 8, padding: '11px', fontSize: 13, fontWeight: 600, borderRadius: 10, border: `1px solid ${C.vermelho}`, background: C.white, color: C.vermelho, cursor: 'pointer' }}>
+              🗑️ Remover do pátio
+            </button>
             <button onClick={() => setCardAberto(null)}
               style={{ width: '100%', marginTop: 8, padding: '10px', fontSize: 13, color: C.espressoM, background: 'transparent', border: 'none', cursor: 'pointer' }}>Fechar</button>
           </div>
@@ -439,6 +470,54 @@ export default function PatioKanbanPage() {
           aberto
           onFechar={() => { setExecOs(null); void carregar() }}
         />
+      )}
+
+      {/* FIX 2 · confirmar remover do pátio (2 modos: sem vínculo → remove; com vínculo → cancelar OS) */}
+      {removerOs && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 400 }}
+          onClick={() => { if (!removendo) { setRemoverOs(null); setRemoverBloqueio(null) } }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 14, padding: 18, width: '100%', maxWidth: 440 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.espresso, marginBottom: 8 }}>
+              {removerBloqueio ? 'Esta OS tem lançamento' : 'Remover do pátio?'}
+            </div>
+            {removerBloqueio ? (
+              <>
+                <div style={{ fontSize: 13, color: C.espresso, background: '#FEF3C7', border: '1px solid #C8941A', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                  {removerBloqueio}
+                </div>
+                <div style={{ fontSize: 12, color: C.espressoM, marginBottom: 6 }}>Se quiser mesmo tirar do pátio, você pode <b>cancelar a OS</b> (mantém o histórico financeiro). Informe o motivo:</div>
+                <textarea value={removerMotivo} onChange={(e) => setRemoverMotivo(e.target.value)} rows={2}
+                  placeholder="Ex.: cliente desistiu do serviço" style={{ width: '100%', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: C.espresso, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <button onClick={() => { setRemoverOs(null); setRemoverBloqueio(null) }} disabled={removendo}
+                    style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer', fontWeight: 600 }}>Voltar</button>
+                  <button onClick={() => void removerDoPatio(true)} disabled={removendo || !removerMotivo.trim()}
+                    style={{ padding: '10px 14px', borderRadius: 10, border: 'none', background: C.vermelho, color: '#fff', cursor: removerMotivo.trim() ? 'pointer' : 'not-allowed', fontWeight: 700, opacity: removerMotivo.trim() ? 1 : 0.5 }}>
+                    {removendo ? 'Cancelando…' : 'Cancelar a OS'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, color: C.espresso, marginBottom: 14 }}>
+                  Remover <b>{removerOs.placa || removerOs.equipamento || removerOs.numero || 'este item'}</b> do pátio? Se a OS tiver serviço/pedido/peça lançado, avisaremos antes de qualquer coisa (nada é apagado sem rastro).
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <button onClick={() => setRemoverOs(null)} disabled={removendo}
+                    style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer', fontWeight: 600 }}>Cancelar</button>
+                  <button onClick={() => void removerDoPatio(false)} disabled={removendo}
+                    style={{ padding: '10px 14px', borderRadius: 10, border: 'none', background: C.vermelho, color: '#fff', cursor: 'pointer', fontWeight: 700 }}>
+                    {removendo ? 'Removendo…' : 'Remover do pátio'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {toastMsg && (
+        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: C.espresso, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 500, maxWidth: '92%', textAlign: 'center' }}>{toastMsg}</div>
       )}
     </div>
   )

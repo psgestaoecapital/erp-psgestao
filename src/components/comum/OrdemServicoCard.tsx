@@ -8,11 +8,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
+import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 
 interface OS {
   id: string
   numero: string | null
   status: string
+  company_id: string
+  pedido_id: string | null
+  cliente_id: string | null
+  cliente_nome: string | null
+  cliente_cnpj: string | null
   titulos_gerados: boolean | null
   lancamento_id: string | null
   equipamento: string | null
@@ -156,11 +162,18 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [horasPrevistas, setHorasPrevistas] = useState('')
   const [horasExecutadas, setHorasExecutadas] = useState('')
   const [valorHora, setValorHora] = useState('')
+  // FIX 1 · cliente editável/re-vinculável em qualquer status (KGF/Kleiton)
+  const [clienteId, setClienteId] = useState<string | null>(null)
+  const [clienteNome, setClienteNome] = useState('')
+  const [clienteCnpj, setClienteCnpj] = useState('')
+  const [trocarCli, setTrocarCli] = useState(false)          // abre a busca de re-vínculo
+  const [buscaCli, setBuscaCli] = useState('')
+  const [cliOpts, setCliOpts] = useState<Array<{ id: string; nome: string; doc: string | null }>>([])
 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -178,9 +191,39 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
       setHorasPrevistas(row.horas_previstas != null ? String(row.horas_previstas) : '')
       setHorasExecutadas(row.horas_executadas != null ? String(row.horas_executadas) : '')
       setValorHora(row.valor_hora != null ? String(row.valor_hora) : '')
+      setClienteId(row.cliente_id ?? null)
+      setClienteNome(row.cliente_nome ?? '')
+      setClienteCnpj(row.cliente_cnpj ?? '')
+      setTrocarCli(false); setBuscaCli(''); setCliOpts([])
     }
     setLoading(false)
   }, [pedidoId, osId])
+
+  // Busca de cliente pra RE-VINCULAR (reusa o filtro compartilhado — RD-26). Escopo da empresa da OS.
+  useEffect(() => {
+    const termo = buscaCli.trim()
+    const filtro = orFiltroClienteBusca(termo)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!trocarCli || !filtro || !os?.company_id) { setCliOpts([]); return }
+    const companyId = os.company_id
+    let alive = true
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_clientes')
+        .select('id, razao_social, nome_fantasia, cpf_cnpj')
+        .eq('company_id', companyId).eq('ativo', true)
+        .or(filtro).limit(8)
+      if (!alive) return
+      const list = (data ?? []) as Array<{ id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null }>
+      setCliOpts(list.map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || '—', doc: c.cpf_cnpj })))
+    }, 250)
+    return () => { alive = false; clearTimeout(t) }
+  }, [buscaCli, trocarCli, os?.company_id])
+
+  function escolherCliente(c: { id: string; nome: string; doc: string | null }) {
+    setClienteId(c.id); setClienteNome(c.nome); setClienteCnpj(c.doc ?? '')
+    setTrocarCli(false); setBuscaCli(''); setCliOpts([])
+  }
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -199,7 +242,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (resp?.os_id) {
       const { data: row } = await supabase
         .from('erp_os')
-        .select('id,numero,status,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .select('id,numero,status,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
         .eq('id', resp.os_id)
         .maybeSingle()
       if (row) {
@@ -214,6 +257,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         setHorasPrevistas(r.horas_previstas != null ? String(r.horas_previstas) : '')
         setHorasExecutadas(r.horas_executadas != null ? String(r.horas_executadas) : '')
         setValorHora(r.valor_hora != null ? String(r.valor_hora) : '')
+        setClienteId(r.cliente_id ?? null); setClienteNome(r.cliente_nome ?? ''); setClienteCnpj(r.cliente_cnpj ?? '')
       } else {
         await carregar() // fallback
       }
@@ -244,6 +288,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     const { data, error } = await supabase.rpc('fn_os_salvar', {
       p_os_id: os.id,
       p_dados: {
+        // FIX 1 · cliente (nome sempre; cliente_id só quando re-vinculado a um cadastro)
+        cliente_nome: clienteNome.trim() || null,
+        cliente_cnpj: clienteCnpj.trim() || null,
+        ...(clienteId ? { cliente_id: clienteId } : {}),
         equipamento: equipamento.trim() || null,
         defeito_relatado: defeito.trim() || null,
         descricao_servico: descricao.trim() || null,
@@ -325,6 +373,51 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           {STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </label>
+
+      {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
+      <div style={{ display: 'block' }}>
+        <span style={lbl}>Cliente</span>
+        <input
+          value={clienteNome}
+          onChange={(e) => setClienteNome(e.target.value)}
+          placeholder="Nome do cliente"
+          data-testid="os-cliente-nome"
+          style={inp}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+          {clienteCnpj && <span style={{ fontSize: 11, color: C.espressoM }}>Doc: {clienteCnpj}</span>}
+          <button type="button" onClick={() => { setTrocarCli((v) => !v); setBuscaCli('') }}
+            style={{ background: 'none', border: 'none', color: C.gold, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            {trocarCli ? '− cancelar' : '🔍 Trocar / re-vincular cliente'}
+          </button>
+        </div>
+        {trocarCli && (
+          <div style={{ marginTop: 6, position: 'relative' }}>
+            <input
+              value={buscaCli}
+              onChange={(e) => setBuscaCli(e.target.value)}
+              placeholder="Buscar por nome ou CNPJ/CPF…"
+              autoFocus
+              style={inp}
+            />
+            {cliOpts.length > 0 && (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 4, background: C.white, maxHeight: 220, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}>
+                {cliOpts.map((c) => (
+                  <button key={c.id} type="button" onClick={() => escolherCliente(c)}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none', padding: '8px 10px', fontSize: 13, cursor: 'pointer', color: C.espresso }}>
+                    {c.nome}{c.doc ? <span style={{ color: C.espressoM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {os.pedido_id && (
+          <div style={{ marginTop: 8, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: C.espresso }}>
+            ⚠️ Esta OS já gerou um pedido/faturamento. Alterar o cliente aqui atualiza a OS; o pedido mantém o cliente original.
+          </div>
+        )}
+      </div>
 
       <label style={{ display: 'block' }}>
         <span style={lbl}>Equipamento / Item</span>
