@@ -76,6 +76,13 @@ export type ArquivoInputSicredi = {
 // arquivo real da KGF (6YT63101): tpInsc(1) + inscrição(15, zero-pad) + nome(40) + sacador tpInsc(1='0')
 // + sacador inscr(15='0') + filler(93 espaços). CNPJ→'2', CPF (≤11 díg)→'1'. Provado byte a byte em
 // scripts/cnab-mapear-proof-sicredi.ts contra cada J52 do arquivo real.
+// Nome do arquivo de remessa no padrão exigido pelo Sicredi: EXATAMENTE 8 caracteres + ".REM" (maiúsculo),
+// sem underscore/prefixo. O banco rejeita qualquer outra nomenclatura ("Somente XXXXXXXX.TXT ou XXXXXXXX.REM").
+// Usamos o número da remessa (NSA) com zero-pad em 8 → 48 vira "00000048.REM" (nome = número, rastreável).
+export function nomeArquivoRemessaSicredi(seq: number): string {
+  return `${String(Math.trunc(seq)).padStart(8, '0').slice(-8)}.REM`
+}
+
 export function construirBenefBodySicredi(cnpjCpf: string, nome: string): string {
   const dig = (cnpjCpf || '').replace(/\D/g, '')
   const tpInsc = dig.length > 0 && dig.length <= 11 ? '1' : '2'
