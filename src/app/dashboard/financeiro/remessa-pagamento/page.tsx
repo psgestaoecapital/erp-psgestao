@@ -1,9 +1,10 @@
 'use client'
 
-// Tela do operador · Remessa de Pagamento CNAB 240 (Sicoob). Seleciona títulos a pagar, valida por forma
-// (RD-51: sem o dado exigido não entra), CONFIRMA ("confirma N pagamentos, R$ X?") e GERA o .rem.
-// 🔴 DINHEIRO SAINDO: só HOMOLOGAÇÃO por enquanto — o arquivo é rotulado de teste e sobe no ambiente de
-// homologação do Sicoob para validar DV da agência, "seu número" e PIX por tipo de chave antes de produção.
+// Tela do operador · Remessa de Pagamento CNAB 240 (Sicoob/Sicredi). Seleciona títulos a pagar, valida por
+// forma (RD-51: sem o dado exigido não entra), CONFIRMA ("confirma N pagamentos, R$ X?") e GERA o .rem.
+// 🔴 DINHEIRO SAINDO: o ambiente vem da config do banco (homologacao|producao). Em HOMOLOGAÇÃO o arquivo é
+// rotulado de teste; em PRODUÇÃO paga de verdade — a tarja, o nome do arquivo e a confirmação mudam conforme.
+// Cada remessa fica registrada em erp_remessa_pagamento (ambiente + quem gerou + quando · RD-55).
 // Anti-duplicação garantida pelo trigger no banco; a tela ainda pré-filtra títulos em remessa ativa.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -38,11 +39,12 @@ export default function RemessaPagamentoPage() {
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setMsg('')
-    // provider-aware: pega os bancos de pagamento (Sicoob/Sicredi) em homologação e escolhe o que tem
-    // cap_pagamento ligado; sem nenhum ligado, cai no Sicoob (retrocompat). Só boleto/segmento J por ora.
+    // provider-aware + ambiente-aware: pega os bancos de pagamento (Sicoob/Sicredi) da empresa — em QUALQUER
+    // ambiente (homologacao|producao) — e escolhe o que tem cap_pagamento ligado; sem nenhum ligado, cai no
+    // Sicoob (retrocompat). O ambiente escolhido rege a tarja/nome do arquivo. Só boleto/segmento J por ora.
     const [{ data: cs }, { data: e }] = await Promise.all([
       supabase.from('erp_banco_provider_config').select('id,provider,ambiente,cooperativa,agencia_dv,conta,convenio,cap_pagamento')
-        .eq('company_id', companyId).in('provider', ['sicoob', 'sicredi']).eq('ambiente', 'homologacao'),
+        .eq('company_id', companyId).in('provider', ['sicoob', 'sicredi']),
       supabase.from('companies').select('cnpj,razao_social,endereco,cidade_estado').eq('id', companyId).single(),
     ])
     const lista = (cs ?? []) as (Config & { provider: string; cap_pagamento: boolean })[]
@@ -128,11 +130,13 @@ export default function RemessaPagamentoPage() {
         : mapearRemessaSicoob({ ...cfg, ...emp } as never, selecionadas, opts)
       if (!res.input) throw new Error('Nada válido para gerar. ' + (res.erros[0]?.motivo ?? ''))
 
-      const nomeArq = `REM_HOMOLOG_${cfg.convenio}_${String(seq).padStart(6, '0')}.rem`
+      const isProd = cfg.ambiente === 'producao'
+      const { data: authUser } = await supabase.auth.getUser()   // RD-55: quem gerou fica no registro
+      const nomeArq = `REM_${isProd ? '' : 'HOMOLOG_'}${cfg.convenio}_${String(seq).padStart(6, '0')}.rem`
       const { data: rem, error: remErr } = await supabase.from('erp_remessa_pagamento').insert({
-        company_id: companyId, banco_provider_id: cfg.id, ambiente: 'homologacao', numero_sequencial: seq,
+        company_id: companyId, banco_provider_id: cfg.id, ambiente: cfg.ambiente, numero_sequencial: seq,
         status: 'gerado', arquivo_nome: nomeArq, total_titulos: res.incluidos.length,
-        valor_total: res.totalCentavos / 100, gerado_em: new Date().toISOString(),
+        valor_total: res.totalCentavos / 100, gerado_em: new Date().toISOString(), gerado_por: authUser?.user?.id ?? null,
       }).select('id').single()
       if (remErr) throw remErr
       const remessaId = (rem as { id: string }).id
@@ -155,7 +159,7 @@ export default function RemessaPagamentoPage() {
       const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }))
       const a = document.createElement('a'); a.href = url; a.download = nomeArq; a.click(); URL.revokeObjectURL(url)
 
-      setMsg(`Remessa ${seq} gerada (HOMOLOGAÇÃO): ${res.incluidos.length} pagamentos · ${brl(res.totalCentavos)}. Suba o arquivo no ambiente de teste do ${labelBanco}.`)
+      setMsg(`Remessa ${seq} gerada (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}): ${res.incluidos.length} pagamentos · ${brl(res.totalCentavos)}. Suba o arquivo no Internet Banking ${labelBanco}${isProd ? ' (produção — paga de verdade)' : ' (ambiente de teste)'}.`)
       void carregar()
     } catch (e) {
       setMsg('Erro ao gerar: ' + (e as Error).message)
@@ -167,30 +171,37 @@ export default function RemessaPagamentoPage() {
   if (!cfg) return (
     <div style={{ background: BG, minHeight: '100vh', padding: 32 }}>
       <div style={{ maxWidth: 560, margin: '40px auto', background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 24, color: MUT, fontSize: 14 }}>
-        Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado em <b>homologação</b>. Configure o banco antes de gerar remessa.
+        Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado. Configure o banco antes de gerar remessa.
       </div>
     </div>
   )
 
   const semDv = !cfg.agencia_dv
   const labelBanco = provider === 'sicredi' ? 'Sicredi' : 'Sicoob'
+  const isProd = cfg.ambiente === 'producao'
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '28px 20px' }}>
       <div style={{ maxWidth: 1040, margin: '0 auto' }}>
         <header style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>💸 Remessa de Pagamento · ${labelBanco}</div>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>💸 Remessa de Pagamento · {labelBanco}</div>
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>{selInfo.nome}</h1>
-          <div style={{ display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 700, color: VERM, background: '#FBEAEA', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '3px 8px' }}>
-            AMBIENTE DE HOMOLOGAÇÃO — arquivo de teste, não paga de verdade
-          </div>
+          {isProd ? (
+            <div style={{ display: 'inline-block', marginTop: 6, fontSize: 11.5, fontWeight: 800, color: '#FFF', background: VERM, borderRadius: 6, padding: '4px 10px', letterSpacing: 0.3 }}>
+              🔴 PRODUÇÃO — PAGA DE VERDADE. Confira valores e beneficiários antes de subir no banco.
+            </div>
+          ) : (
+            <div style={{ display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 700, color: VERM, background: '#FBEAEA', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '3px 8px' }}>
+              AMBIENTE DE HOMOLOGAÇÃO — arquivo de teste, não paga de verdade
+            </div>
+          )}
         </header>
 
         {msg && <div style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
 
         {semDv && (
           <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FBF4E4', border: `0.5px solid ${GOLD}`, fontSize: 12.5, color: ESP }}>
-            <b>Falta o DV da agência</b> (cooperativa {cfg.cooperativa}). Confirme com o ${labelBanco} e informe para gerar o arquivo:
+            <b>Falta o DV da agência</b> (cooperativa {cfg.cooperativa}). Confirme com o {labelBanco} e informe para gerar o arquivo:
             <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }}>
               <input value={dvInput} onChange={(e) => setDvInput(e.target.value)} placeholder="DV" maxLength={2} style={{ width: 60, ...inp }} />
               <button onClick={salvarDv} disabled={busy || !dvInput.trim()} style={btnGhost}>Salvar DV</button>
@@ -233,9 +244,9 @@ export default function RemessaPagamentoPage() {
           <button
             onClick={() => setConfirmar(true)}
             disabled={busy || semDv || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
-            style={{ ...btnPrimary, opacity: busy || semDv || !preview?.input ? 0.5 : 1 }}
+            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || !preview?.input ? 0.5 : 1 }}
           >
-            {busy ? 'Gerando…' : 'Gerar remessa (HOMOLOGAÇÃO)'}
+            {busy ? 'Gerando…' : `Gerar remessa (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'})`}
           </button>
         </div>
       </div>
@@ -245,11 +256,13 @@ export default function RemessaPagamentoPage() {
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 440, width: '90%', border: `0.5px solid ${LINE}` }}>
             <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 8px' }}>Confirmar geração</h3>
             <p style={{ fontSize: 14, color: ESP, lineHeight: 1.5 }}>
-              Você está gerando uma remessa de <b>{preview.incluidos.length} pagamentos</b>, total <b>{brl(preview.totalCentavos)}</b>, para <b>{selInfo.nome}</b> — <b>ambiente de HOMOLOGAÇÃO</b> (arquivo de teste). Confirmar?
+              Você está gerando uma remessa de <b>{preview.incluidos.length} pagamentos</b>, total <b>{brl(preview.totalCentavos)}</b>, para <b>{selInfo.nome}</b> — {isProd
+                ? <><b style={{ color: VERM }}>PRODUÇÃO — paga de verdade</b>. Ao subir no {labelBanco}, esses valores saem da conta.</>
+                : <><b>ambiente de HOMOLOGAÇÃO</b> (arquivo de teste).</>} Confirmar?
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setConfirmar(false)} style={btnGhost}>Cancelar</button>
-              <button onClick={gerar} style={btnPrimary}>Confirmar e gerar</button>
+              <button onClick={gerar} style={{ ...btnPrimary, background: isProd ? VERM : ESP }}>Confirmar e gerar</button>
             </div>
           </div>
         </div>
