@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, Plus, Trash2, Check } from 'lucide-react'
@@ -16,7 +16,9 @@ const RED = '#C44536'
 
 type Area = { id: string; nome: string; tipo: string }
 type Lote = { id: string; codigo: string; fase: string | null; modo: string }
-type Modo = 'folha' | 'avulso'
+type Modo = 'folha' | 'avulso' | 'lote'
+type LinhaLote = { identificacao: string; sisbov: string; peso: string }
+const LINHA_LOTE_VAZIA: LinhaLote = { identificacao: '', sisbov: '', peso: '' }
 
 const CATEGORIAS = [
   { v: 'matriz', l: 'Matriz', sexoDefault: 'F' },
@@ -77,6 +79,14 @@ export default function CadastrarRebanho() {
   })
   const [linha, setLinha] = useState<Linha>({ ...LINHA_VAZIA, sexo: sexoDefaultDeCategoria('matriz') })
   const [linhas, setLinhas] = useState<Linha[]>([])
+  // modo LOTE (cadastro em massa): quantidade + identificação individual OU coletiva + peso
+  const [loteQtd, setLoteQtd] = useState('')
+  const [loteSexo, setLoteSexo] = useState<'M' | 'F'>('M')
+  const [loteRaca, setLoteRaca] = useState('')
+  const [identificarInd, setIdentificarInd] = useState(false)
+  const [pesoModo, setPesoModo] = useState<'medio' | 'total'>('medio')
+  const [pesoLote, setPesoLote] = useState('')
+  const [gridLote, setGridLote] = useState<LinhaLote[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
   const idRef = useRef<HTMLInputElement>(null)
@@ -115,6 +125,19 @@ export default function CadastrarRebanho() {
     idRef.current?.focus()
   }
   const removerLinha = (ix: number) => setLinhas((arr) => arr.filter((_, i) => i !== ix))
+
+  // grade individual do lote: cresce/encolhe com a quantidade (preserva o que já foi digitado)
+  const loteQtdNum = Math.max(0, Math.min(5000, parseInt(loteQtd || '0', 10) || 0))
+  useEffect(() => {
+    if (!identificarInd) return
+    setGridLote((g) => {
+      if (g.length === loteQtdNum) return g
+      if (g.length < loteQtdNum) return [...g, ...Array.from({ length: loteQtdNum - g.length }, () => ({ ...LINHA_LOTE_VAZIA }))]
+      return g.slice(0, loteQtdNum)
+    })
+  }, [loteQtdNum, identificarInd])
+  const setGridCampo = (ix: number, campo: keyof LinhaLote, v: string) =>
+    setGridLote((g) => g.map((r, i) => (i === ix ? { ...r, [campo]: v } : r)))
 
   const cabecalhoValido = useMemo(
     () => !!(cab.area_atual_id && cab.categoria && cab.origem && cab.data_entrada),
@@ -180,6 +203,40 @@ export default function CadastrarRebanho() {
     }
   }
 
+  const podeSalvarLote = cabecalhoValido && loteQtdNum >= 1
+  const salvarLote = async () => {
+    if (!companyId || !propriedadeId) return
+    setBusy(true); setMsg(null)
+    try {
+      // peso do lote: coletivo → médio (se veio total, divide pela qtd); individual → cada linha
+      let pesoMedio: number | null = null
+      if (!identificarInd) {
+        const p = Number((pesoLote || '').replace(',', '.'))
+        if (p > 0) pesoMedio = pesoModo === 'total' ? Number((p / loteQtdNum).toFixed(2)) : p
+      }
+      const animais = identificarInd
+        ? gridLote.map((r) => ({ identificacao: r.identificacao.trim() || null, sisbov: r.sisbov.trim() || null, peso_kg: r.peso.trim() === '' ? null : Number(r.peso.replace(',', '.')) }))
+        : []
+      const { data, error } = await supabase.rpc('fn_pec_animal_cadastrar_lote', {
+        p_company_id: companyId, p_propriedade_id: propriedadeId, p_quantidade: loteQtdNum,
+        p_categoria: cab.categoria, p_sexo: loteSexo, p_raca: loteRaca.trim() || null, p_origem: cab.origem,
+        p_data_entrada: cab.data_entrada, p_lote_id: cab.lote_id || null, p_area_atual_id: cab.area_atual_id || null,
+        p_contraparte_nome: cab.origem === 'comprado' ? (cab.contraparte_nome.trim() || null) : null,
+        p_modo_identificacao: identificarInd ? 'individual' : 'coletivo',
+        p_animais: animais, p_peso_medio_kg: pesoMedio, p_observacao: null,
+      })
+      const r = data as { ok?: boolean; erro?: string; criados?: number } | null
+      if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error?.message || r?.erro || 'Falha ao cadastrar o lote' }); return }
+      const loteCodigo = lotes.find((l) => l.id === cab.lote_id)?.codigo
+      setMsg({ tipo: 'ok', texto: `${r.criados} animais cadastrados${loteCodigo ? ` no lote ${loteCodigo}` : ''}.` })
+      setLoteQtd(''); setPesoLote(''); setGridLote([]); setLoteRaca('')
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: (e as Error).message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!companyId) return (
     <div style={{ background: BG, color: ESP60, minHeight: '100%' }} className="p-6 text-sm">
       Selecione uma empresa específica para cadastrar rebanho.
@@ -209,13 +266,17 @@ export default function CadastrarRebanho() {
       </header>
 
       <div className="max-w-3xl mx-auto">
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-4 flex-wrap">
+          <button onClick={() => setModo('lote')} className="flex-1 rounded-xl py-2 text-sm font-semibold"
+            style={{ background: modo === 'lote' ? ESP : '#fff', color: modo === 'lote' ? '#fff' : ESP, border: `1px solid ${modo === 'lote' ? ESP : LINE}`, minWidth: 140 }}>
+            ⚖️ Cadastrar em lote
+          </button>
           <button onClick={() => setModo('folha')} className="flex-1 rounded-xl py-2 text-sm font-semibold"
-            style={{ background: modo === 'folha' ? ESP : '#fff', color: modo === 'folha' ? '#fff' : ESP, border: `1px solid ${modo === 'folha' ? ESP : LINE}` }}>
-            📋 Lançar folha (lote)
+            style={{ background: modo === 'folha' ? ESP : '#fff', color: modo === 'folha' ? '#fff' : ESP, border: `1px solid ${modo === 'folha' ? ESP : LINE}`, minWidth: 140 }}>
+            📋 Lançar folha
           </button>
           <button onClick={() => setModo('avulso')} className="flex-1 rounded-xl py-2 text-sm font-semibold"
-            style={{ background: modo === 'avulso' ? ESP : '#fff', color: modo === 'avulso' ? '#fff' : ESP, border: `1px solid ${modo === 'avulso' ? ESP : LINE}` }}>
+            style={{ background: modo === 'avulso' ? ESP : '#fff', color: modo === 'avulso' ? '#fff' : ESP, border: `1px solid ${modo === 'avulso' ? ESP : LINE}`, minWidth: 140 }}>
             🐮 Animal avulso
           </button>
         </div>
@@ -263,6 +324,81 @@ export default function CadastrarRebanho() {
           </div>
         </section>
 
+        {modo === 'lote' && (
+          <section className="rounded-2xl p-4 mb-4 space-y-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="text-sm font-semibold" style={{ color: ESP }}>Lote de animais</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div>
+                <label className={lbl} style={{ color: ESP60 }}>Quantidade *</label>
+                <input className={inp} inputMode="numeric" placeholder="ex.: 50" value={loteQtd}
+                  onChange={(e) => setLoteQtd(e.target.value.replace(/\D/g, ''))} />
+              </div>
+              <div>
+                <label className={lbl} style={{ color: ESP60 }}>Sexo</label>
+                <select className={inp} value={loteSexo} onChange={(e) => setLoteSexo(e.target.value as 'M' | 'F')}>
+                  <option value="M">Macho</option>
+                  <option value="F">Fêmea</option>
+                </select>
+              </div>
+              <div>
+                <label className={lbl} style={{ color: ESP60 }}>Raça</label>
+                <input className={inp} list="racas-sug-lote" placeholder="ex.: Nelore" value={loteRaca} onChange={(e) => setLoteRaca(e.target.value)} />
+                <datalist id="racas-sug-lote">{RACAS_SUGESTAO.map((r) => <option key={r} value={r} />)}</datalist>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm mt-1" style={{ color: ESP }}>
+              <input type="checkbox" checked={identificarInd} onChange={(e) => setIdentificarInd(e.target.checked)} />
+              Identificar individualmente? <span style={{ color: ESP60 }}>(brinco/sisbov e peso de cada um)</span>
+            </label>
+
+            {!identificarInd ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={lbl} style={{ color: ESP60 }}>Peso do lote (kg)</label>
+                  <input className={inp} inputMode="decimal" placeholder="opcional" value={pesoLote}
+                    onChange={(e) => setPesoLote(e.target.value.replace(/[^\d.,]/g, ''))} />
+                </div>
+                <div>
+                  <label className={lbl} style={{ color: ESP60 }}>Esse peso é…</label>
+                  <select className={inp} value={pesoModo} onChange={(e) => setPesoModo(e.target.value as 'medio' | 'total')}>
+                    <option value="medio">Médio (por animal)</option>
+                    <option value="total">Total (o sistema divide)</option>
+                  </select>
+                  {pesoModo === 'total' && loteQtdNum > 0 && Number((pesoLote || '').replace(',', '.')) > 0 && (
+                    <div className="text-[11px] mt-1" style={{ color: ESP60 }}>
+                      ≈ {(Number(pesoLote.replace(',', '.')) / loteQtdNum).toFixed(1)} kg por animal
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : loteQtdNum > 0 ? (
+              <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${LINE}` }}>
+                <div className="grid grid-cols-[auto_1fr_1fr_88px] gap-2 px-3 py-2 text-[11px] font-semibold" style={{ color: ESP60, background: '#FAF7F2' }}>
+                  <span>#</span><span>Brinco/ID</span><span>SISBOV</span><span>Peso kg</span>
+                </div>
+                <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                  {gridLote.map((r, ix) => (
+                    <div key={ix} className="grid grid-cols-[auto_1fr_1fr_88px] gap-2 px-3 py-1.5 items-center" style={{ borderTop: `1px solid ${LINE}` }}>
+                      <span className="text-xs" style={{ color: ESP60 }}>{ix + 1}</span>
+                      <input className="rounded-lg border border-[#E7DECF] bg-white px-2 py-1 text-sm" placeholder="opcional"
+                        value={r.identificacao} onChange={(e) => setGridCampo(ix, 'identificacao', e.target.value)} />
+                      <input className="rounded-lg border border-[#E7DECF] bg-white px-2 py-1 text-sm" placeholder="opcional"
+                        value={r.sisbov} onChange={(e) => setGridCampo(ix, 'sisbov', e.target.value)} />
+                      <input className="rounded-lg border border-[#E7DECF] bg-white px-2 py-1 text-sm" inputMode="decimal" placeholder="kg"
+                        value={r.peso} onChange={(e) => setGridCampo(ix, 'peso', e.target.value.replace(/[^\d.,]/g, ''))} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm" style={{ color: ESP60 }}>Informe a quantidade para abrir a lista de identificação.</div>
+            )}
+            <div className="text-[11px]" style={{ color: ESP60 }}>Preencha só os que têm brinco — os demais entram sem identificação. É tudo-ou-nada: se der erro, nenhum é criado.</div>
+          </section>
+        )}
+
+        {modo !== 'lote' && (<>
         <section className="rounded-2xl p-4 mb-4 space-y-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
           <div className="text-sm font-semibold" style={{ color: ESP }}>
             {modo === 'folha' ? `Linha (${linhas.length} adicionada${linhas.length === 1 ? '' : 's'})` : 'Animal'}
@@ -356,6 +492,7 @@ export default function CadastrarRebanho() {
             ))}
           </section>
         )}
+        </>)}
 
         {msg && (
           <div className="mb-3 rounded-xl p-3 text-sm" style={{
@@ -369,13 +506,13 @@ export default function CadastrarRebanho() {
 
         <div className="flex gap-2">
           <button
-            onClick={salvar}
-            disabled={busy || !(modo === 'folha' ? podeSalvarFolha : podeSalvarAvulso)}
+            onClick={modo === 'lote' ? salvarLote : salvar}
+            disabled={busy || !(modo === 'lote' ? podeSalvarLote : modo === 'folha' ? podeSalvarFolha : podeSalvarAvulso)}
             className="flex-1 rounded-xl py-3 text-sm font-semibold inline-flex items-center justify-center gap-2"
             style={{ background: ESP, color: '#fff', opacity: busy ? 0.6 : 1 }}
           >
             <Check size={16} />
-            {busy ? 'Salvando…' : modo === 'folha' ? `CRIAR ${linhas.length} registro${linhas.length === 1 ? '' : 's'}` : 'CRIAR registro'}
+            {busy ? 'Salvando…' : modo === 'lote' ? `CADASTRAR ${loteQtdNum || ''} ${loteQtdNum === 1 ? 'ANIMAL' : 'ANIMAIS'}`.trim() : modo === 'folha' ? `CRIAR ${linhas.length} registro${linhas.length === 1 ? '' : 's'}` : 'CRIAR registro'}
           </button>
           {msg?.tipo === 'ok' && (
             <button
