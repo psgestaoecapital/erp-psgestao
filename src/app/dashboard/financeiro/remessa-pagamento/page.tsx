@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, type TituloPag } from '@/lib/banco/cnab240'
+import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, parseRetornoSicredi, type TituloPag } from '@/lib/banco/cnab240'
+import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -20,6 +21,13 @@ const hhmmss = (d: Date) => `${String(d.getHours()).padStart(2, '0')}${String(d.
 type Config = { id: string; ambiente: string; cooperativa: string; agencia_dv: string | null; conta: string; convenio: string }
 type Empresa = { cnpj: string; razao_social: string; endereco: string | null; cidade_estado: string | null }
 type Row = TituloPag & { _sel: boolean }
+type RetItemPayload = { item_id: string; val_pago: number; dt_pagamento: string | null; ocorrencia: string; pago_hint: boolean }
+type RetDetalhe = { resultado: string; motivo?: string; val_pago?: number; val_titulo?: number; ocorrencia?: string }
+type RetornoResposta = {
+  sucesso: boolean; erro?: string; confirmado?: boolean; remessa_status?: string
+  resumo?: { total: number; pagos: number; rejeitados: number; divergentes: number; ja_pagos: number; erros: number }
+  detalhes?: RetDetalhe[]
+}
 
 export default function RemessaPagamentoPage() {
   const { selInfo, sel } = useCompanyIds()
@@ -37,6 +45,14 @@ export default function RemessaPagamentoPage() {
   const [dvInput, setDvInput] = useState('')
   const [numRemessa, setNumRemessa] = useState('')   // NSA da próxima remessa (editável pela Jordana)
   const [ultimoEnviado, setUltimoEnviado] = useState(0) // último NSA já enviado (para o aviso de sequência)
+  // Importar RETORNO (baixa automática): estado do fluxo upload → prévia → confirmar.
+  const [impOpen, setImpOpen] = useState(false)
+  const [impBusy, setImpBusy] = useState(false)
+  const [impArquivo, setImpArquivo] = useState('')
+  const [impResumo, setImpResumo] = useState<RetornoResposta | null>(null)
+  const [impNaoCasados, setImpNaoCasados] = useState(0)
+  const [impPayload, setImpPayload] = useState<{ remessaId: string; itens: RetItemPayload[] } | null>(null)
+  const [impConfirmado, setImpConfirmado] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -181,6 +197,82 @@ export default function RemessaPagamentoPage() {
     } finally { setBusy(false) }
   }
 
+  // ── Importar RETORNO (baixa automática) ──────────────────────────────────────────────────────────
+  function abrirImportar() {
+    setImpOpen(true); setImpResumo(null); setImpPayload(null); setImpNaoCasados(0); setImpArquivo(''); setImpConfirmado(false); setMsg('')
+  }
+
+  // Lê o .ret (latin-1), casa por código de barras com os itens da remessa (pelo NSA do header) e roda a
+  // PRÉVIA na RPC (não grava). O casamento é por título; a RPC revalida valor/idempotência (RD-38).
+  async function analisarRetorno(file: File) {
+    if (!companyId) return
+    setImpBusy(true); setImpResumo(null); setImpPayload(null); setImpConfirmado(false)
+    try {
+      // CNAB é latin-1 e posicional: decodifica byte a byte pra não deslocar posições (acentos em nomes).
+      const buf = new Uint8Array(await file.arrayBuffer())
+      let raw = ''
+      for (let i = 0; i < buf.length; i++) raw += String.fromCharCode(buf[i])
+      setImpArquivo(file.name)
+      const ret = parseRetornoSicredi(raw)
+      if (!ret.itens.length) throw new Error('Nenhum pagamento (segmento J) encontrado no arquivo.')
+
+      // acha a remessa que gerou este retorno pelo NSA do header
+      const { data: rem } = await supabase.from('erp_remessa_pagamento')
+        .select('id').eq('company_id', companyId).eq('numero_sequencial', ret.nsa).limit(1).maybeSingle()
+      if (!rem) throw new Error(`Não encontrei a remessa nº ${ret.nsa} desta empresa. Confira se é o retorno certo.`)
+      const remessaId = (rem as { id: string }).id
+
+      // itens da remessa + código de barras do título (pra casar)
+      const { data: its } = await supabase.from('erp_remessa_pagamento_item')
+        .select('id,erp_pagar_id,valor,status_item').eq('remessa_id', remessaId)
+      const items = (its ?? []) as { id: string; erp_pagar_id: string; valor: number; status_item: string }[]
+      const pagarIds = items.map((i) => i.erp_pagar_id)
+      const barraDoItem = new Map<string, string>()   // barra44 -> item_id
+      if (pagarIds.length) {
+        const { data: pgs } = await supabase.from('erp_pagar').select('id,codigo_barras').in('id', pagarIds)
+        const pagarBarra = new Map((pgs ?? []).map((p) => [(p as { id: string }).id, (p as { codigo_barras: string | null }).codigo_barras]))
+        for (const it of items) {
+          const b = normalizarCodigoBarras(pagarBarra.get(it.erp_pagar_id) ?? '')
+          if (b) barraDoItem.set(b, it.id)
+        }
+      }
+
+      const itens: RetItemPayload[] = []
+      let naoCasados = 0
+      for (const r of ret.itens) {
+        const itemId = barraDoItem.get(r.codBarras)
+        if (!itemId) { naoCasados++; continue }
+        itens.push({ item_id: itemId, val_pago: r.valPago, dt_pagamento: r.dtPagamento, ocorrencia: r.ocorrencia, pago_hint: r.pagoHint })
+      }
+      setImpNaoCasados(naoCasados)
+      setImpPayload({ remessaId, itens })
+
+      const { data, error } = await supabase.rpc('fn_remessa_retorno_processar', {
+        p_remessa_id: remessaId, p_company_id: companyId, p_itens: itens, p_conta_bancaria_id: null, p_confirmar: false,
+      })
+      if (error) throw error
+      setImpResumo(data as RetornoResposta)
+    } catch (e) {
+      setImpResumo({ sucesso: false, erro: (e as Error).message })
+    } finally { setImpBusy(false) }
+  }
+
+  // Confirma: roda a RPC gravando (baixa os pagos, reusa fn_pagar_baixar_pagamento). Idempotente.
+  async function confirmarImportar() {
+    if (!companyId || !impPayload) return
+    setImpBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_remessa_retorno_processar', {
+        p_remessa_id: impPayload.remessaId, p_company_id: companyId, p_itens: impPayload.itens, p_conta_bancaria_id: null, p_confirmar: true,
+      })
+      if (error) throw error
+      setImpResumo(data as RetornoResposta); setImpConfirmado(true)
+      void carregar()
+    } catch (e) {
+      setImpResumo({ sucesso: false, erro: (e as Error).message })
+    } finally { setImpBusy(false) }
+  }
+
   if (!companyId) return <div style={{ background: BG, minHeight: '100vh', padding: 32, color: MUT, fontSize: 14 }}>Selecione uma empresa específica para gerar remessa de pagamento.</div>
   if (loading) return <div style={{ background: BG, minHeight: '100vh', padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div>
   if (!cfg) return (
@@ -214,6 +306,12 @@ export default function RemessaPagamentoPage() {
             </div>
           )}
         </header>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <button onClick={abrirImportar} style={btnGhost} title="Importar o arquivo de retorno do banco e dar baixa nos títulos pagos">
+            📥 Importar retorno (baixa automática)
+          </button>
+        </div>
 
         {msg && <div style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
 
@@ -304,6 +402,67 @@ export default function RemessaPagamentoPage() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setConfirmar(false)} style={btnGhost}>Cancelar</button>
               <button onClick={gerar} style={{ ...btnPrimary, background: isProd ? VERM : ESP }}>Confirmar e gerar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {impOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => !impBusy && setImpOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 560, width: '92%', maxHeight: '86vh', overflowY: 'auto', border: `0.5px solid ${LINE}` }}>
+            <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 4px' }}>Importar retorno do banco</h3>
+            <p style={{ fontSize: 12.5, color: MUT, margin: '0 0 12px', lineHeight: 1.5 }}>
+              Suba o arquivo de retorno (<b>.ret</b>/.rem) que você baixou no Internet Banking. O sistema casa cada pagamento com o título, confere o valor e dá baixa nos que o banco confirmou. Reimportar o mesmo arquivo não baixa de novo.
+            </p>
+
+            <label style={{ display: 'block', border: `1px dashed ${LINE}`, borderRadius: 10, padding: 16, textAlign: 'center', cursor: impBusy ? 'default' : 'pointer', color: ESP, fontSize: 13, background: BG }}>
+              <input type="file" accept=".ret,.rem,.txt" style={{ display: 'none' }} disabled={impBusy}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void analisarRetorno(f) }} />
+              {impBusy ? 'Processando…' : impArquivo ? `📄 ${impArquivo} — escolher outro` : '📥 Escolher arquivo de retorno'}
+            </label>
+
+            {impResumo && !impResumo.sucesso && (
+              <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#FBEAEA', color: VERM, border: `0.5px solid ${LINE}` }}>{impResumo.erro}</div>
+            )}
+
+            {impResumo?.sucesso && impResumo.resumo && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>
+                  {impConfirmado ? '✅ Baixa concluída' : 'Prévia — confira antes de confirmar'}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+                  <span style={{ padding: '3px 8px', borderRadius: 6, background: '#EAF5EE', color: VERDE, fontWeight: 700 }}>{impResumo.resumo.pagos} {impConfirmado ? 'baixados' : 'a baixar'}</span>
+                  {impResumo.resumo.ja_pagos > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.ja_pagos} já baixados</span>}
+                  {impResumo.resumo.divergentes > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBF4E4', color: '#8a6d1a', fontWeight: 700 }}>{impResumo.resumo.divergentes} c/ valor divergente</span>}
+                  {impResumo.resumo.rejeitados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.rejeitados} rejeitados</span>}
+                  {impResumo.resumo.erros > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.erros} c/ erro</span>}
+                  {impNaoCasados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impNaoCasados} não casados</span>}
+                </div>
+
+                {(impResumo.detalhes ?? []).filter((d) => d.resultado !== 'pago' && d.resultado !== 'ja_pago').length > 0 && (
+                  <div style={{ marginTop: 10, border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+                    {(impResumo.detalhes ?? []).filter((d) => d.resultado !== 'pago' && d.resultado !== 'ja_pago').map((d, i) => (
+                      <div key={i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
+                        <b style={{ color: d.resultado === 'divergente' ? '#8a6d1a' : VERM }}>{d.resultado}</b>
+                        <span style={{ color: MUT }}> · {d.motivo}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {impNaoCasados > 0 && !impConfirmado && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: MUT }}>⚠ {impNaoCasados} pagamento(s) do arquivo não bateram com títulos desta remessa — verifique se é o retorno certo.</div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={() => setImpOpen(false)} disabled={impBusy} style={btnGhost}>{impConfirmado ? 'Fechar' : 'Cancelar'}</button>
+              {impResumo?.sucesso && !impConfirmado && (impResumo.resumo?.pagos ?? 0) > 0 && (
+                <button onClick={confirmarImportar} disabled={impBusy} style={btnPrimary}>
+                  {impBusy ? 'Baixando…' : `Confirmar baixa de ${impResumo.resumo?.pagos}`}
+                </button>
+              )}
             </div>
           </div>
         </div>
