@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, parseRetornoSicredi, type TituloPag } from '@/lib/banco/cnab240'
+import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, nomeArquivoRemessaSicredi, parseRetornoSicredi, type TituloPag } from '@/lib/banco/cnab240'
 import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
@@ -159,7 +159,10 @@ export default function RemessaPagamentoPage() {
 
       const isProd = cfg.ambiente === 'producao'
       const { data: authUser } = await supabase.auth.getUser()   // RD-55: quem gerou fica no registro
-      const nomeArq = `REM_${isProd ? '' : 'HOMOLOG_'}${cfg.convenio}_${String(seq).padStart(6, '0')}.rem`
+      // Sicredi exige nome XXXXXXXX.REM (8 díg do número, sem underscore/prefixo). Sicoob mantém o padrão antigo.
+      const nomeArq = provider === 'sicredi'
+        ? nomeArquivoRemessaSicredi(seq)
+        : `REM_${isProd ? '' : 'HOMOLOG_'}${cfg.convenio}_${String(seq).padStart(6, '0')}.rem`
       const { data: rem, error: remErr } = await supabase.from('erp_remessa_pagamento').insert({
         company_id: companyId, banco_provider_id: cfg.id, ambiente: cfg.ambiente, numero_sequencial: seq,
         status: 'gerado', arquivo_nome: nomeArq, total_titulos: res.incluidos.length,
