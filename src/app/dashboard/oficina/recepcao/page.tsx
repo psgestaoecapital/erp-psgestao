@@ -68,6 +68,12 @@ export default function RecepcaoPage() {
   const [cadNome, setCadNome] = useState(''); const [cadTelefone, setCadTelefone] = useState('')
   const [cadEndereco, setCadEndereco] = useState<Record<string, string> | null>(null) // enriquecimento CNPJ (persistido via RPC)
   const [cadEnriq, setCadEnriq] = useState(false); const [cadSalvando, setCadSalvando] = useState(false); const [cadMsg, setCadMsg] = useState<string | null>(null)
+  // KGF/Kleiton · busca de cliente por NOME (homônimos → lista pra escolher). Reusa fn_cliente_buscar (Pilar 2).
+  type CliOpt = { cliente_id: string; nome: string; cnpj_cpf: string | null; cidade: string | null }
+  const [cliNomeOpts, setCliNomeOpts] = useState<CliOpt[]>([])
+  const [buscandoNome, setBuscandoNome] = useState(false)
+  const [nomeBuscou, setNomeBuscou] = useState(false)
+  const nomeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
   // não-automotiva: descrição da peça/trabalho + material + medidas/specs + quantidade (colunas nullable estruturadas).
@@ -130,6 +136,27 @@ export default function RecepcaoPage() {
     if (error) { setMsg('❌ ' + error.message); return }
     setClienteId(data as string); if (nome) setClienteNome(nome)
     setDocStatus({ tipo: 'cliente', razao: nome }); setMsg('✅ Cliente vinculado.')
+  }
+
+  // Busca por NOME → lista (documento é único, nome não: homônimos aparecem, desambiguados por cidade/doc).
+  const buscarNome = async () => {
+    const termo = clienteNome.trim()
+    if (!companyId || termo.length < 2) { setCliNomeOpts([]); return }
+    setBuscandoNome(true); setNomeBuscou(false)
+    const { data } = await supabase.rpc('fn_cliente_buscar', { p_company_id: companyId, p_termo: termo, p_limit: 10 })
+    setBuscandoNome(false); setNomeBuscou(true)
+    const r = data as { ok?: boolean; resultados?: CliOpt[] } | null
+    setCliNomeOpts(r?.ok ? (r.resultados ?? []) : [])
+  }
+  const onClienteNomeChange = (v: string) => {
+    setClienteNome(v); setClienteId(''); setDocStatus(null); setNomeBuscou(false)
+    if (nomeTimer.current) clearTimeout(nomeTimer.current)
+    if (v.trim().length < 2) { setCliNomeOpts([]); return }
+    nomeTimer.current = setTimeout(() => { void buscarNome() }, 350)
+  }
+  const escolherClienteNome = (o: CliOpt) => {
+    setClienteId(o.cliente_id); setClienteNome(o.nome); setClienteCnpj(o.cnpj_cpf ?? '')
+    setCliNomeOpts([]); setNomeBuscou(false); setDocStatus({ tipo: 'cliente', razao: o.nome })
   }
 
   const abrirCadastro = () => { setCadNome(clienteNome || ''); setCadTelefone(''); setCadEndereco(null); setCadMsg(null); setCadAberto(true) }
@@ -268,7 +295,37 @@ export default function RecepcaoPage() {
 
         {/* CLIENTE + OBJETO (veículo OU peça/trabalho) */}
         <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`}>
-          <Campo l="Cliente"><input value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Nome do cliente (pode ser outra oficina)" style={inp} /></Campo>
+          <Campo l="Cliente">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={clienteNome} onChange={(e) => onClienteNomeChange(e.target.value)}
+                placeholder="Nome do cliente — digite pra buscar" style={inp} />
+              <button type="button" onClick={() => void buscarNome()} disabled={buscandoNome || clienteNome.trim().length < 2}
+                title="Buscar cliente pelo nome" style={{ ...btnGold, minWidth: 52, opacity: (buscandoNome || clienteNome.trim().length < 2) ? 0.5 : 1 }}>
+                <Search size={18} />
+              </button>
+            </div>
+            {buscandoNome && <div style={selMut}>buscando…</div>}
+            {cliNomeOpts.length > 0 && (
+              <div style={{ marginTop: 4, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                {cliNomeOpts.map((o) => (
+                  <button key={o.cliente_id} type="button" onClick={() => escolherClienteNome(o)}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', borderBottom: `1px solid ${LINE}`, background: '#fff', padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: ESP }}>{o.nome}</div>
+                    <div style={{ fontSize: 11, color: ESP60 }}>{[o.cnpj_cpf, o.cidade].filter(Boolean).join(' · ') || 'sem documento/cidade'}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {nomeBuscou && !buscandoNome && cliNomeOpts.length === 0 && clienteNome.trim().length >= 2 && docStatus?.tipo !== 'cliente' && (
+              <div style={selWarn}>
+                <span>Nenhum cliente com esse nome.</span>
+                <button type="button" onClick={abrirCadastro} style={miniBtn}>Cadastrar novo</button>
+              </div>
+            )}
+            {!buscandoNome && cliNomeOpts.length === 0 && clienteId && docStatus?.tipo === 'cliente' && (
+              <div style={selOk}>✓ Cliente selecionado: {clienteNome}</div>
+            )}
+          </Campo>
           <Campo l="CPF/CNPJ (opcional)">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={clienteCnpj}
