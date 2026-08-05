@@ -35,6 +35,8 @@ export default function RemessaPagamentoPage() {
   const [filtro, setFiltro] = useState('')
   const [confirmar, setConfirmar] = useState(false)
   const [dvInput, setDvInput] = useState('')
+  const [numRemessa, setNumRemessa] = useState('')   // NSA da próxima remessa (editável pela Jordana)
+  const [ultimoEnviado, setUltimoEnviado] = useState(0) // último NSA já enviado (para o aviso de sequência)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -51,6 +53,14 @@ export default function RemessaPagamentoPage() {
     const escolhida = lista.find((x) => x.cap_pagamento) ?? lista.find((x) => x.provider === 'sicoob') ?? lista[0] ?? null
     setProvider(escolhida?.provider === 'sicredi' ? 'sicredi' : 'sicoob')
     setCfg(escolhida ?? null); setEmp((e as Empresa) ?? null); setDvInput(escolhida?.agencia_dv ?? '')
+
+    // Número sequencial (NSA) da próxima remessa: GREATEST(nosso histórico, seed do provider)+1. A Jordana
+    // pode editar antes de gerar (ex.: banco pulou um número, ou migração do Omie). ultimoEnviado = próx-1.
+    if (escolhida) {
+      const { data: prox } = await supabase.rpc('fn_remessa_proxima_numeracao', { p_company: companyId, p_banco: escolhida.id })
+      const p = Number(prox ?? 1)
+      setNumRemessa(String(p)); setUltimoEnviado(Math.max(0, p - 1))
+    } else { setNumRemessa(''); setUltimoEnviado(0) }
 
     // títulos a pagar (aberto/vencido) + fornecedor
     const { data: tit } = await supabase.from('erp_pagar')
@@ -120,9 +130,10 @@ export default function RemessaPagamentoPage() {
     if (!companyId || !cfg || !emp) return
     setConfirmar(false); setBusy(true); setMsg('')
     try {
-      const { data: seqData, error: seqErr } = await supabase.rpc('fn_remessa_proxima_numeracao', { p_company: companyId, p_banco: cfg.id })
-      if (seqErr) throw seqErr
-      const seq = (seqData as number) ?? 1
+      // NSA da remessa: usa o número que a Jordana confirmou na tela (semeado/editado), NÃO um novo cálculo.
+      // É esse número que vai pro header do arquivo (pos 158-163) e pro registro — o Sicredi controla por ele.
+      const seq = Math.trunc(Number(numRemessa))
+      if (!Number.isFinite(seq) || seq < 1) throw new Error('Número da remessa inválido — informe um inteiro ≥ 1.')
       const d = hoje()
       const opts = { dtPagto: d.toISOString().slice(0, 10), dataGer: ddmmaaaa(d), horaGer: hhmmss(d), seqArq: seq }
       const res = provider === 'sicredi'
@@ -162,7 +173,11 @@ export default function RemessaPagamentoPage() {
       setMsg(`Remessa ${seq} gerada (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}): ${res.incluidos.length} pagamentos · ${brl(res.totalCentavos)}. Suba o arquivo no Internet Banking ${labelBanco}${isProd ? ' (produção — paga de verdade)' : ' (ambiente de teste)'}.`)
       void carregar()
     } catch (e) {
-      setMsg('Erro ao gerar: ' + (e as Error).message)
+      const m = (e as Error).message ?? ''
+      // uq_remessa_numeracao (company, banco, numero_sequencial): esse NSA já foi usado — não pode repetir.
+      setMsg(/uq_remessa_numeracao|duplicate key|23505/.test(m)
+        ? `Já existe uma remessa com o número ${Math.trunc(Number(numRemessa))} para este banco. Informe outro número.`
+        : 'Erro ao gerar: ' + m)
     } finally { setBusy(false) }
   }
 
@@ -179,6 +194,9 @@ export default function RemessaPagamentoPage() {
   const semDv = !cfg.agencia_dv
   const labelBanco = provider === 'sicredi' ? 'Sicredi' : 'Sicoob'
   const isProd = cfg.ambiente === 'producao'
+  const seqNum = Math.trunc(Number(numRemessa))
+  const seqValido = Number.isFinite(seqNum) && seqNum >= 1
+  const seqAbaixo = seqValido && seqNum <= ultimoEnviado   // ≤ último enviado: avisa, mas permite override
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '28px 20px' }}>
@@ -208,6 +226,28 @@ export default function RemessaPagamentoPage() {
             </div>
           </div>
         )}
+
+        <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FFF', border: `0.5px solid ${LINE}`, fontSize: 12.5, color: ESP }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700 }}>Nº da próxima remessa</span>
+            <input
+              value={numRemessa}
+              onChange={(e) => setNumRemessa(e.target.value.replace(/\D/g, ''))}
+              inputMode="numeric" placeholder="48"
+              style={{ width: 90, textAlign: 'center', fontWeight: 700, ...inp }}
+            />
+            <span style={{ color: MUT }}>última enviada: <b>{ultimoEnviado}</b> ({labelBanco})</span>
+          </div>
+          <div style={{ marginTop: 6, color: MUT }}>
+            É o número que vai no arquivo (o {labelBanco} controla a remessa por ele). Edite se o banco pulou um número ou na virada do sistema anterior.
+          </div>
+          {seqAbaixo && (
+            <div style={{ marginTop: 6, color: VERM, fontWeight: 600 }}>
+              ⚠ O número {seqNum} é ≤ ao último enviado ({ultimoEnviado}). O banco pode recusar por sequência. Confirme com a Jordana antes de gerar.
+            </div>
+          )}
+          {!seqValido && <div style={{ marginTop: 6, color: VERM, fontWeight: 600 }}>⚠ Informe um número inteiro ≥ 1.</div>}
+        </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Filtrar por fornecedor, descrição, forma…" style={{ ...inp, flex: 1, minWidth: 220 }} />
@@ -243,10 +283,10 @@ export default function RemessaPagamentoPage() {
           </div>
           <button
             onClick={() => setConfirmar(true)}
-            disabled={busy || semDv || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
-            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || !preview?.input ? 0.5 : 1 }}
+            disabled={busy || semDv || !seqValido || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
+            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || !seqValido || !preview?.input ? 0.5 : 1 }}
           >
-            {busy ? 'Gerando…' : `Gerar remessa (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'})`}
+            {busy ? 'Gerando…' : `Gerar remessa Nº ${seqValido ? seqNum : '—'} (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'})`}
           </button>
         </div>
       </div>
@@ -256,10 +296,11 @@ export default function RemessaPagamentoPage() {
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 440, width: '90%', border: `0.5px solid ${LINE}` }}>
             <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 8px' }}>Confirmar geração</h3>
             <p style={{ fontSize: 14, color: ESP, lineHeight: 1.5 }}>
-              Você está gerando uma remessa de <b>{preview.incluidos.length} pagamentos</b>, total <b>{brl(preview.totalCentavos)}</b>, para <b>{selInfo.nome}</b> — {isProd
+              Você está gerando a <b>remessa Nº {seqNum}</b> — <b>{preview.incluidos.length} pagamentos</b>, total <b>{brl(preview.totalCentavos)}</b>, para <b>{selInfo.nome}</b> — {isProd
                 ? <><b style={{ color: VERM }}>PRODUÇÃO — paga de verdade</b>. Ao subir no {labelBanco}, esses valores saem da conta.</>
                 : <><b>ambiente de HOMOLOGAÇÃO</b> (arquivo de teste).</>} Confirmar?
             </p>
+            {seqAbaixo && <p style={{ fontSize: 12.5, color: VERM, fontWeight: 600, margin: '0 0 8px' }}>⚠ O número {seqNum} é ≤ ao último enviado ({ultimoEnviado}) — o {labelBanco} pode recusar por sequência.</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setConfirmar(false)} style={btnGhost}>Cancelar</button>
               <button onClick={gerar} style={{ ...btnPrimary, background: isProd ? VERM : ESP }}>Confirmar e gerar</button>
