@@ -162,6 +162,9 @@ export default function RebanhoPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <BotaoInstalar />
+          <a href="/dashboard/agro/movimentacoes" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ border: `1px solid ${LINE}`, color: ESP }}>
+            Movimentações
+          </a>
           {online ? (
             <a href="/dashboard/agro/rebanho/cadastrar" className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: GOLD, color: '#fff' }}>
               + Cadastrar
