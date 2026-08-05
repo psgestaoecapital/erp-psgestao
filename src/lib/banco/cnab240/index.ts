@@ -3,5 +3,6 @@
 export * from './engine'
 export * from './sicoob'
 export * from './mapear'
-export { buildArquivoSicredi, reconstruirInputSicredi } from './sicredi'
+export { buildArquivoSicredi, reconstruirInputSicredi, construirBenefBodySicredi } from './sicredi'
+export { mapearRemessaSicredi, type ResultadoMapaSicredi } from './mapear-sicredi'
 export { TED_TRAVADO_PARA_PRODUCAO, SEG_A_INFERIDO } from './segmento-a'

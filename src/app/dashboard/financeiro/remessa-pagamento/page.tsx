@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { mapearRemessaSicoob, buildArquivoSicoob, type TituloPag } from '@/lib/banco/cnab240'
+import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, type TituloPag } from '@/lib/banco/cnab240'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -25,6 +25,7 @@ export default function RemessaPagamentoPage() {
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
 
   const [cfg, setCfg] = useState<Config | null>(null)
+  const [provider, setProvider] = useState<'sicoob' | 'sicredi'>('sicoob')
   const [emp, setEmp] = useState<Empresa | null>(null)
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -37,12 +38,17 @@ export default function RemessaPagamentoPage() {
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setMsg('')
-    const [{ data: c }, { data: e }] = await Promise.all([
-      supabase.from('erp_banco_provider_config').select('id,ambiente,cooperativa,agencia_dv,conta,convenio')
-        .eq('company_id', companyId).eq('provider', 'sicoob').eq('ambiente', 'homologacao').maybeSingle(),
+    // provider-aware: pega os bancos de pagamento (Sicoob/Sicredi) em homologação e escolhe o que tem
+    // cap_pagamento ligado; sem nenhum ligado, cai no Sicoob (retrocompat). Só boleto/segmento J por ora.
+    const [{ data: cs }, { data: e }] = await Promise.all([
+      supabase.from('erp_banco_provider_config').select('id,provider,ambiente,cooperativa,agencia_dv,conta,convenio,cap_pagamento')
+        .eq('company_id', companyId).in('provider', ['sicoob', 'sicredi']).eq('ambiente', 'homologacao'),
       supabase.from('companies').select('cnpj,razao_social,endereco,cidade_estado').eq('id', companyId).single(),
     ])
-    setCfg((c as Config) ?? null); setEmp((e as Empresa) ?? null); setDvInput((c as Config)?.agencia_dv ?? '')
+    const lista = (cs ?? []) as (Config & { provider: string; cap_pagamento: boolean })[]
+    const escolhida = lista.find((x) => x.cap_pagamento) ?? lista.find((x) => x.provider === 'sicoob') ?? lista[0] ?? null
+    setProvider(escolhida?.provider === 'sicredi' ? 'sicredi' : 'sicoob')
+    setCfg(escolhida ?? null); setEmp((e as Empresa) ?? null); setDvInput(escolhida?.agencia_dv ?? '')
 
     // títulos a pagar (aberto/vencido) + fornecedor
     const { data: tit } = await supabase.from('erp_pagar')
@@ -83,8 +89,11 @@ export default function RemessaPagamentoPage() {
   const selecionadas = useMemo(() => rows.filter((r) => r._sel), [rows])
   const preview = useMemo(() => {
     if (!cfg || !emp || !selecionadas.length) return null
-    return mapearRemessaSicoob({ ...cfg, ...emp } as never, selecionadas, { dtPagto: hoje().toISOString().slice(0, 10), dataGer: ddmmaaaa(hoje()), horaGer: hhmmss(hoje()), seqArq: 0 })
-  }, [cfg, emp, selecionadas])
+    const opts = { dtPagto: hoje().toISOString().slice(0, 10), dataGer: ddmmaaaa(hoje()), horaGer: hhmmss(hoje()), seqArq: 0 }
+    return provider === 'sicredi'
+      ? mapearRemessaSicredi({ ...cfg, ...emp } as never, selecionadas, opts)
+      : mapearRemessaSicoob({ ...cfg, ...emp } as never, selecionadas, opts)
+  }, [cfg, emp, selecionadas, provider])
 
   function toggle(id: string) { setRows((rs) => rs.map((r) => (r.id === id ? { ...r, _sel: !r._sel } : r))) }
   function toggleAll(v: boolean) { setRows((rs) => rs.map((r) => (filtradas.some((f) => f.id === r.id) ? { ...r, _sel: v } : r))) }
@@ -113,7 +122,10 @@ export default function RemessaPagamentoPage() {
       if (seqErr) throw seqErr
       const seq = (seqData as number) ?? 1
       const d = hoje()
-      const res = mapearRemessaSicoob({ ...cfg, ...emp } as never, selecionadas, { dtPagto: d.toISOString().slice(0, 10), dataGer: ddmmaaaa(d), horaGer: hhmmss(d), seqArq: seq })
+      const opts = { dtPagto: d.toISOString().slice(0, 10), dataGer: ddmmaaaa(d), horaGer: hhmmss(d), seqArq: seq }
+      const res = provider === 'sicredi'
+        ? mapearRemessaSicredi({ ...cfg, ...emp } as never, selecionadas, opts)
+        : mapearRemessaSicoob({ ...cfg, ...emp } as never, selecionadas, opts)
       if (!res.input) throw new Error('Nada válido para gerar. ' + (res.erros[0]?.motivo ?? ''))
 
       const nomeArq = `REM_HOMOLOG_${cfg.convenio}_${String(seq).padStart(6, '0')}.rem`
@@ -135,13 +147,15 @@ export default function RemessaPagamentoPage() {
       if (itErr) throw itErr
 
       // baixa o .rem em latin-1
-      const conteudo = buildArquivoSicoob(res.input)
+      const conteudo = provider === 'sicredi'
+        ? buildArquivoSicredi(res.input as Parameters<typeof buildArquivoSicredi>[0])
+        : buildArquivoSicoob(res.input as Parameters<typeof buildArquivoSicoob>[0])
       const bytes = new Uint8Array(conteudo.length)
       for (let i = 0; i < conteudo.length; i++) bytes[i] = conteudo.charCodeAt(i) & 0xff
       const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }))
       const a = document.createElement('a'); a.href = url; a.download = nomeArq; a.click(); URL.revokeObjectURL(url)
 
-      setMsg(`Remessa ${seq} gerada (HOMOLOGAÇÃO): ${res.incluidos.length} pagamentos · ${brl(res.totalCentavos)}. Suba o arquivo no ambiente de teste do Sicoob.`)
+      setMsg(`Remessa ${seq} gerada (HOMOLOGAÇÃO): ${res.incluidos.length} pagamentos · ${brl(res.totalCentavos)}. Suba o arquivo no ambiente de teste do ${labelBanco}.`)
       void carregar()
     } catch (e) {
       setMsg('Erro ao gerar: ' + (e as Error).message)
@@ -153,18 +167,19 @@ export default function RemessaPagamentoPage() {
   if (!cfg) return (
     <div style={{ background: BG, minHeight: '100vh', padding: 32 }}>
       <div style={{ maxWidth: 560, margin: '40px auto', background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 24, color: MUT, fontSize: 14 }}>
-        Esta empresa não tem Sicoob configurado em <b>homologação</b>. Configure o banco antes de gerar remessa.
+        Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado em <b>homologação</b>. Configure o banco antes de gerar remessa.
       </div>
     </div>
   )
 
   const semDv = !cfg.agencia_dv
+  const labelBanco = provider === 'sicredi' ? 'Sicredi' : 'Sicoob'
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '28px 20px' }}>
       <div style={{ maxWidth: 1040, margin: '0 auto' }}>
         <header style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>💸 Remessa de Pagamento · Sicoob</div>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>💸 Remessa de Pagamento · ${labelBanco}</div>
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>{selInfo.nome}</h1>
           <div style={{ display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 700, color: VERM, background: '#FBEAEA', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '3px 8px' }}>
             AMBIENTE DE HOMOLOGAÇÃO — arquivo de teste, não paga de verdade
@@ -175,7 +190,7 @@ export default function RemessaPagamentoPage() {
 
         {semDv && (
           <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FBF4E4', border: `0.5px solid ${GOLD}`, fontSize: 12.5, color: ESP }}>
-            <b>Falta o DV da agência</b> (cooperativa {cfg.cooperativa}). Confirme com o Sicoob e informe para gerar o arquivo:
+            <b>Falta o DV da agência</b> (cooperativa {cfg.cooperativa}). Confirme com o ${labelBanco} e informe para gerar o arquivo:
             <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }}>
               <input value={dvInput} onChange={(e) => setDvInput(e.target.value)} placeholder="DV" maxLength={2} style={{ width: 60, ...inp }} />
               <button onClick={salvarDv} disabled={busy || !dvInput.trim()} style={btnGhost}>Salvar DV</button>

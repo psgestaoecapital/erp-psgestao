@@ -72,6 +72,18 @@ export type ArquivoInputSicredi = {
   empresa: EmpresaSicredi; nomePagador: string; dataGer: string; horaGer: string; seqArq: number; lotes: LoteInputSicredi[]
 }
 
+// Constrói o corpo do beneficiário do J52 [76-240] a partir do doc/nome do fornecedor — MEDIDO do
+// arquivo real da KGF (6YT63101): tpInsc(1) + inscrição(15, zero-pad) + nome(40) + sacador tpInsc(1='0')
+// + sacador inscr(15='0') + filler(93 espaços). CNPJ→'2', CPF (≤11 díg)→'1'. Provado byte a byte em
+// scripts/cnab-mapear-proof-sicredi.ts contra cada J52 do arquivo real.
+export function construirBenefBodySicredi(cnpjCpf: string, nome: string): string {
+  const dig = (cnpjCpf || '').replace(/\D/g, '')
+  const tpInsc = dig.length > 0 && dig.length <= 11 ? '1' : '2'
+  const insc15 = dig.padStart(15, '0').slice(-15)
+  const body = tpInsc + insc15 + truncPad(nome || '', 40) + '0' + '0'.repeat(15) + ' '.repeat(93)
+  return body // 1 + 15 + 40 + 1 + 15 + 93 = 165
+}
+
 function enderecoBloco(e: EmpresaSicredi, formaPg: string): string {
   const ind = formaPg === '30' || formaPg === '31' ? SP(2) : '01'
   return (
