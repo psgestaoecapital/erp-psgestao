@@ -143,8 +143,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     if (parcelas < 2) { setParcelasEdit([]); return }
     const total = parseFloat(valor) || 0
     // Dia fixo só vale mensal (30) / bimestral (60); nos demais intervalos ignora e usa dias corridos.
-    const usaDiaFixo = diaFixo !== '' && (intervaloDias === 30 || intervaloDias === 60)
-    const passoMeses = intervaloDias === 60 ? 2 : 1
+    const usaDiaFixo = diaFixo !== '' && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90)
+    const passoMeses = intervaloDias === 90 ? 3 : intervaloDias === 60 ? 2 : 1
     const rows: { vencimento: string; valor: number }[] = []
     for (let i = 0; i < parcelas; i++) {
       const venc = usaDiaFixo
@@ -528,11 +528,12 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
                 <option value="15">Quinzenal (15 dias)</option>
                 <option value="30">Mensal (30 dias)</option>
                 <option value="60">Bimestral (60 dias)</option>
+                <option value="90">Trimestral (90 dias)</option>
               </select>
             </Campo>
           )}
 
-          {parcelas > 1 && (intervaloDias === 30 || intervaloDias === 60) && (
+          {parcelas > 1 && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
             <Campo label="Dia do vencimento (opcional)">
               <input
                 type="number" min="1" max="31" inputMode="numeric"
