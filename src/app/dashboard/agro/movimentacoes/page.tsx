@@ -21,13 +21,14 @@ const LABEL_TIPO: Record<string, string> = {
 const rotuloTipo = (t: string) => LABEL_TIPO[t] ?? t
 
 type Mov = {
-  grupo_id: string; tipo: string; data: string; qtd: number; contraparte_nome: string | null; valor: number
+  grupo_id: string; tipo: string; data: string; qtd: number; qtd_ativos?: number; qtd_estornada?: number; estado?: 'intacta' | 'parcial' | 'estornada'
+  contraparte_nome: string | null; valor: number
   lote_origem: string | null; lote_destino: string | null; area_origem: string | null; area_destino: string | null
   estornada: boolean; tem_financeiro: boolean; financeiro_status: string | null
 }
-type Animal = { animal_id: string; identificacao: string | null; status: string; ativo: boolean; valor: number | null }
+type Animal = { animal_id: string; identificacao: string | null; status: string; ativo: boolean; valor: number | null; linha_estornada?: boolean }
 type Detalhe = {
-  movimentacao: { tipo: string; data: string; qtd: number; contraparte_nome: string | null; valor: number; peso_kg: number | null; observacao: string | null; lote_origem: string | null; lote_destino: string | null; estornada: boolean; motivo_estorno: string | null; estornada_em: string | null }
+  movimentacao: { tipo: string; data: string; qtd: number; qtd_ativos?: number; qtd_estornada?: number; contraparte_nome: string | null; valor: number; peso_kg: number | null; observacao: string | null; lote_origem: string | null; lote_destino: string | null; estornada: boolean; motivo_estorno: string | null; estornada_em: string | null }
   animais: Animal[]
   financeiro: { receber_id: string; valor: number; status: string; descricao: string } | null
 }
@@ -114,7 +115,8 @@ export default function MovimentacoesPage() {
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: m.tipo === 'venda' ? GREEN : m.tipo === 'estorno' ? RED : GOLD, borderRadius: 6, padding: '2px 8px' }}>{rotuloTipo(m.tipo)}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{m.qtd} {m.qtd === 1 ? 'animal' : 'animais'}</span>
                 {origemDestino && <span style={{ fontSize: 12.5, color: MUT }}>{origemDestino}</span>}
-                {m.estornada && <span style={{ fontSize: 10.5, fontWeight: 700, color: RED, border: `1px solid ${RED}`, borderRadius: 5, padding: '1px 6px' }}>ESTORNADA</span>}
+                {m.estado === 'estornada' && <span style={{ fontSize: 10.5, fontWeight: 700, color: RED, border: `1px solid ${RED}`, borderRadius: 5, padding: '1px 6px' }}>ESTORNADA</span>}
+                {m.estado === 'parcial' && <span style={{ fontSize: 10.5, fontWeight: 700, color: GOLD, border: `1px solid ${GOLD}`, borderRadius: 5, padding: '1px 6px' }}>PARCIAL · {m.qtd_ativos}/{m.qtd} ativos</span>}
                 <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: ESP }}>{brl(m.valor)}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 12, color: MUT, flexWrap: 'wrap' }}>
@@ -153,6 +155,7 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
   const [motivo, setMotivo] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())   // estorno parcial: animais marcados
 
   useEffect(() => {
     if (!det) return
@@ -180,17 +183,33 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
     onDone('Movimentação atualizada.')
   }
 
+  // animais que ainda podem ser estornados (linha não estornada)
+  const elegiveis = (det?.animais ?? []).filter((a) => !a.linha_estornada)
+  const marcados = elegiveis.filter((a) => selecionados.has(a.animal_id))
+  const valorMarcado = marcados.reduce((s, a) => s + (a.valor ?? 0), 0)
+  const todosMarcados = elegiveis.length > 0 && marcados.length === elegiveis.length
+  const abrirEstorno = () => {
+    setSelecionados(new Set(elegiveis.map((a) => a.animal_id)))   // default: todos (= estornar tudo, como o #880)
+    setErro(null); setModo('estornar')
+  }
+  const toggleAnimal = (id: string) => setSelecionados((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const toggleTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(elegiveis.map((a) => a.animal_id)))
+
   const confirmarEstorno = async () => {
     if (!companyId) return
+    if (marcados.length === 0) { setErro('Marque ao menos um animal.'); return }
     if (motivo.trim().length < 3) { setErro('Descreva o motivo do estorno.'); return }
     setSalvando(true); setErro(null)
+    // se marcou TODOS os elegíveis → null (estorna o grupo); senão → só os marcados (parcial)
+    const ids = todosMarcados ? null : marcados.map((a) => a.animal_id)
     const { data } = await supabase.rpc('fn_pec_movimentacao_estornar', {
-      p_company_id: companyId, p_grupo_id: mov.grupo_id, p_motivo: motivo.trim(),
+      p_company_id: companyId, p_grupo_id: mov.grupo_id, p_motivo: motivo.trim(), p_animal_ids: ids,
     })
     setSalvando(false)
-    const r = data as { ok?: boolean; erro?: string; animais_revertidos?: number } | null
+    const r = data as { ok?: boolean; erro?: string; animais_revertidos?: number; restantes_ativos?: number } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Falha ao estornar'); return }
-    onDone(`Estornado — ${r.animais_revertidos ?? mov.qtd} animal(is) voltaram ao rebanho.`)
+    const rest = r.restantes_ativos ?? 0
+    onDone(`Estornado — ${r.animais_revertidos ?? marcados.length} animal(is) voltaram ao rebanho${rest > 0 ? ` · ${rest} seguem vendidos` : ''}.`)
   }
 
   const confirmarExclusao = async () => {
@@ -247,7 +266,7 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
             {podeMexer && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" onClick={() => setModo('editar')} style={btn(GOLD)}>Editar</button>
-                {mov.tipo !== 'estorno' && <button type="button" onClick={() => setModo('estornar')} style={btn(RED)}>Estornar</button>}
+                {mov.tipo !== 'estorno' && elegiveis.length > 0 && <button type="button" onClick={abrirEstorno} style={btn(RED)}>Estornar</button>}
                 <button type="button" onClick={() => setModo('excluir')} style={btnGhost}>Excluir</button>
               </div>
             )}
@@ -270,13 +289,37 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
 
         {det && modo === 'estornar' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ background: '#fbeaea', border: `1px solid ${RED}`, borderRadius: 10, padding: 12, fontSize: 13.5, color: ESP }}>
-              Estornar esta {rotuloTipo(mov.tipo).toLowerCase()}? Os <b>{mov.qtd} {mov.qtd === 1 ? 'animal' : 'animais'}</b> voltarão ao rebanho{fin ? <> e a receita de <b>{brl(fin.valor)}</b> será cancelada</> : ''}.
+            <div style={{ fontSize: 12.5, color: MUT }}>Marque os animais a estornar. Cada um marcado volta ao rebanho.</div>
+            {/* selecionar todos */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: ESP, padding: '4px 2px' }}>
+              <input type="checkbox" checked={todosMarcados} onChange={toggleTodos} style={{ width: 18, height: 18 }} />
+              Selecionar todos ({elegiveis.length})
+            </label>
+            <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', maxHeight: 260, overflowY: 'auto' }}>
+              {det.animais.map((a, i) => {
+                const jaEstornado = !!a.linha_estornada
+                return (
+                  <label key={a.animal_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderTop: i ? `1px solid ${LINE}` : 'none', fontSize: 13, opacity: jaEstornado ? 0.5 : 1, cursor: jaEstornado ? 'default' : 'pointer' }}>
+                    <input type="checkbox" disabled={jaEstornado} checked={selecionados.has(a.animal_id)}
+                      onChange={() => toggleAnimal(a.animal_id)} style={{ width: 18, height: 18 }} />
+                    <span style={{ fontWeight: 700, color: ESP }}>{a.identificacao || a.animal_id.slice(0, 8)}</span>
+                    {jaEstornado && <span style={{ fontSize: 10.5, fontWeight: 700, color: RED, border: `1px solid ${RED}`, borderRadius: 5, padding: '1px 6px' }}>já estornado</span>}
+                    <span style={{ marginLeft: 'auto', color: MUT }}>{brl(a.valor)}</span>
+                  </label>
+                )
+              })}
             </div>
-            <label style={lbl}>Motivo do estorno (obrigatório)<input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: venda lançada por engano" style={campo} /></label>
+            {/* resumo dinâmico */}
+            <div style={{ background: '#fbeaea', border: `1px solid ${RED}`, borderRadius: 10, padding: 12, fontSize: 13.5, color: ESP }}>
+              <b>{marcados.length} {marcados.length === 1 ? 'animal' : 'animais'}</b> {marcados.length === 1 ? 'voltará' : 'voltarão'} ao rebanho{fin && valorMarcado > 0 ? <> · <b>{brl(valorMarcado)}</b> será cancelado{marcados.length < elegiveis.length ? ' da receita' : ''}</> : ''}.
+            </div>
+            <label style={lbl}>Motivo do estorno (obrigatório)<input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: comprador devolveu parte" style={campo} /></label>
             {erro && <div style={{ fontSize: 12.5, color: RED }}>{erro}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" disabled={salvando} onClick={() => void confirmarEstorno()} style={btn(RED)}>{salvando ? 'Estornando…' : 'Confirmar estorno'}</button>
+              <button type="button" disabled={salvando || marcados.length === 0} onClick={() => void confirmarEstorno()}
+                style={{ ...btn(RED), opacity: salvando || marcados.length === 0 ? 0.5 : 1 }}>
+                {salvando ? 'Estornando…' : `Estornar selecionados (${marcados.length})`}
+              </button>
               <button type="button" onClick={() => { setModo('ver'); setErro(null) }} style={btnGhost}>Voltar</button>
             </div>
           </div>
