@@ -34,6 +34,10 @@ const CATEGORIAS = [
 ] as const
 
 const RACAS_SUGESTAO = ['Nelore', 'Angus', 'Red Angus', 'Cruzada', 'Brangus', 'Senepol']
+const FASES_LOTE = [{ v: '', l: '— fase —' }, { v: 'cria', l: 'Cria' }, { v: 'recria', l: 'Recria' }, { v: 'engorda', l: 'Engorda' }]
+const MODOS_LOTE = [{ v: 'pasto', l: 'Pasto' }, { v: 'semiconfinamento', l: 'Semiconfinamento' }, { v: 'confinamento', l: 'Confinamento' }]
+type LoteForm = { aberto: boolean; id: string | null; codigo: string; fase: string; modo: string; area_id: string; observacao: string }
+const LOTE_FORM_VAZIO: LoteForm = { aberto: false, id: null, codigo: '', fase: '', modo: 'pasto', area_id: '', observacao: '' }
 
 const sexoDefaultDeCategoria = (cat: string): 'M' | 'F' =>
   (CATEGORIAS.find((c) => c.v === cat)?.sexoDefault as 'M' | 'F') ?? 'F'
@@ -87,6 +91,10 @@ export default function CadastrarRebanho() {
   const [pesoModo, setPesoModo] = useState<'medio' | 'total'>('medio')
   const [pesoLote, setPesoLote] = useState('')
   const [gridLote, setGridLote] = useState<LinhaLote[]>([])
+  // criar/editar lote INLINE (sem sair da tela) — reusa fn_pec_lote_salvar (RD-26)
+  const [loteForm, setLoteForm] = useState<LoteForm>(LOTE_FORM_VAZIO)
+  const [salvandoLote, setSalvandoLote] = useState(false)
+  const [erroLote, setErroLote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
   const idRef = useRef<HTMLInputElement>(null)
@@ -138,6 +146,46 @@ export default function CadastrarRebanho() {
   }, [loteQtdNum, identificarInd])
   const setGridCampo = (ix: number, campo: keyof LinhaLote, v: string) =>
     setGridLote((g) => g.map((r, i) => (i === ix ? { ...r, [campo]: v } : r)))
+
+  // ── lote inline (criar/editar sem sair da tela · FIX 1/2) ──────────────────────────────────
+  const recarregarLotes = async () => {
+    if (!companyId || !propriedadeId) return
+    const { data } = await supabase.from('erp_pec_lote').select('id, codigo, fase, modo')
+      .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo')
+    setLotes((data as Lote[]) ?? [])
+  }
+  const abrirNovoLote = () => { setErroLote(null); setLoteForm({ ...LOTE_FORM_VAZIO, aberto: true, area_id: cab.area_atual_id || '' }) }
+  const abrirEditarLote = async () => {
+    if (!cab.lote_id || !companyId) return
+    setErroLote(null)
+    const { data } = await supabase.from('erp_pec_lote').select('id, codigo, fase, modo, area_atual_id, observacao')
+      .eq('id', cab.lote_id).eq('company_id', companyId).maybeSingle()
+    const l = data as { id: string; codigo: string; fase: string | null; modo: string | null; area_atual_id: string | null; observacao: string | null } | null
+    if (!l) { setErroLote('Lote não encontrado.'); return }
+    setLoteForm({ aberto: true, id: l.id, codigo: l.codigo, fase: l.fase ?? '', modo: l.modo ?? 'pasto', area_id: l.area_atual_id ?? '', observacao: l.observacao ?? '' })
+  }
+  const salvarLoteInline = async () => {
+    if (!companyId || !propriedadeId) return
+    const codigo = loteForm.codigo.trim()
+    if (!codigo) { setErroLote('Informe o código/nome do lote.'); return }
+    // não duplicar código na mesma propriedade (RPC não valida — guarda no cliente · RD-51)
+    if (lotes.some((l) => l.id !== loteForm.id && l.codigo.trim().toLowerCase() === codigo.toLowerCase())) {
+      setErroLote('Já existe um lote com esse código nesta propriedade.'); return
+    }
+    setSalvandoLote(true); setErroLote(null)
+    const { data, error } = await supabase.rpc('fn_pec_lote_salvar', {
+      p_company_id: companyId, p_propriedade_id: propriedadeId, p_codigo: codigo,
+      p_modo: loteForm.modo || 'pasto', p_fase: loteForm.fase || null,
+      p_area_atual_id: loteForm.area_id || null, p_observacao: loteForm.observacao.trim() || null,
+      p_id: loteForm.id,
+    })
+    setSalvandoLote(false)
+    if (error) { setErroLote(error.message); return }   // RPC valida código duplicado → exibe
+    const novoId = (data as string | null) ?? loteForm.id
+    await recarregarLotes()
+    if (novoId) setCab((c) => ({ ...c, lote_id: novoId }))   // já deixa selecionado, pronto pra usar
+    setLoteForm(LOTE_FORM_VAZIO)
+  }
 
   const cabecalhoValido = useMemo(
     () => !!(cab.area_atual_id && cab.categoria && cab.origem && cab.data_entrada),
@@ -293,10 +341,19 @@ export default function CadastrarRebanho() {
             </div>
             <div>
               <label className={lbl} style={{ color: ESP60 }}>Lote (opcional)</label>
-              <select className={inp} value={cab.lote_id} onChange={(e) => setCab({ ...cab, lote_id: e.target.value })} disabled={loadingSel}>
-                <option value="">— sem lote —</option>
-                {lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo}{l.fase ? ` · ${l.fase}` : ''}</option>)}
-              </select>
+              <div className="flex gap-1.5 items-stretch">
+                <select className={inp} value={cab.lote_id} onChange={(e) => setCab({ ...cab, lote_id: e.target.value })} disabled={loadingSel}>
+                  <option value="">— sem lote —</option>
+                  {lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo}{l.fase ? ` · ${l.fase}` : ''}</option>)}
+                </select>
+                {cab.lote_id && (
+                  <button type="button" onClick={() => void abrirEditarLote()} title="Editar lote"
+                    className="shrink-0 rounded-xl border px-2.5 text-xs font-semibold" style={{ borderColor: LINE, color: ESP }}>editar</button>
+                )}
+              </div>
+              <button type="button" onClick={abrirNovoLote} className="mt-1 text-xs font-semibold inline-flex items-center gap-1" style={{ color: GOLD }}>
+                <Plus size={13} /> Novo lote
+              </button>
             </div>
             <div>
               <label className={lbl} style={{ color: ESP60 }}>Categoria *</label>
@@ -322,6 +379,51 @@ export default function CadastrarRebanho() {
               </div>
             )}
           </div>
+
+          {loteForm.aberto && (
+            <div className="mt-3 rounded-xl p-3 space-y-2" style={{ background: '#FAF7F2', border: `1px solid ${GOLD}` }}>
+              <div className="text-sm font-semibold" style={{ color: ESP }}>{loteForm.id ? 'Editar lote' : 'Novo lote'}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2">
+                  <label className={lbl} style={{ color: ESP60 }}>Código / nome *</label>
+                  <input className={inp} autoFocus placeholder="ex.: Piquete 17 - Bezerros 2026" value={loteForm.codigo}
+                    onChange={(e) => setLoteForm((f) => ({ ...f, codigo: e.target.value }))} />
+                </div>
+                <div>
+                  <label className={lbl} style={{ color: ESP60 }}>Fase</label>
+                  <select className={inp} value={loteForm.fase} onChange={(e) => setLoteForm((f) => ({ ...f, fase: e.target.value }))}>
+                    {FASES_LOTE.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={lbl} style={{ color: ESP60 }}>Modo</label>
+                  <select className={inp} value={loteForm.modo} onChange={(e) => setLoteForm((f) => ({ ...f, modo: e.target.value }))}>
+                    {MODOS_LOTE.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={lbl} style={{ color: ESP60 }}>Área (opcional)</label>
+                  <select className={inp} value={loteForm.area_id} onChange={(e) => setLoteForm((f) => ({ ...f, area_id: e.target.value }))}>
+                    <option value="">— sem área —</option>
+                    {areas.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={lbl} style={{ color: ESP60 }}>Observação</label>
+                  <input className={inp} value={loteForm.observacao} onChange={(e) => setLoteForm((f) => ({ ...f, observacao: e.target.value }))} />
+                </div>
+              </div>
+              {erroLote && <div className="text-xs" style={{ color: RED }}>{erroLote}</div>}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => void salvarLoteInline()} disabled={salvandoLote}
+                  className="rounded-xl px-4 py-2 text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: salvandoLote ? 0.6 : 1 }}>
+                  {salvandoLote ? 'Salvando…' : loteForm.id ? 'Salvar alterações' : 'Criar lote'}
+                </button>
+                <button type="button" onClick={() => { setLoteForm(LOTE_FORM_VAZIO); setErroLote(null) }}
+                  className="rounded-xl px-4 py-2 text-sm font-semibold" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Cancelar</button>
+              </div>
+            </div>
+          )}
         </section>
 
         {modo === 'lote' && (
