@@ -36,6 +36,7 @@ const SEVERIDADES = [
 ]
 
 type ItemLaudo = {
+  id?: string | null    // RD-55 · id do item p/ UPSERT (preserva preco/aprovado no salvar)
   tipo: 'servico' | 'peca'; servico_id?: string | null; produto_id?: string | null; descricao: string
   quantidade?: string; tempo_estimado_h?: string; severidade: string; observacao?: string
   _estoque?: number | null; _codigo?: string | null    // só p/ exibição (peça do catálogo)
@@ -118,6 +119,7 @@ export default function DiagnosticoPage() {
     setKm(d?.os?.km ? String(d.os.km) : '')
     setResumo(d?.resumo ?? null)
     setItens((d?.itens ?? []).map((i) => ({
+      id: i.id ?? null,
       tipo: i.tipo === 'peca' ? 'peca' : 'servico', servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null,
       descricao: i.descricao ?? '', quantidade: i.quantidade != null ? String(i.quantidade) : '1',
       tempo_estimado_h: i.tempo_estimado_h != null ? String(i.tempo_estimado_h) : '',
@@ -193,6 +195,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_diagnostico_salvar', {
       p_company_id: companyId, p_os_id: osSel.id,
       p_dados: { diagnostico, km, itens: itens.filter((i) => i.descricao.trim().length > 0).map((i) => ({
+        id: i.id ?? null,    // RD-55 · item existente atualiza SÓ o laudo (preco/aprovado intocados); sem id = novo
         tipo: i.tipo, servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null,
         descricao: i.descricao, quantidade: i.quantidade, tempo_estimado_h: i.tempo_estimado_h,
         severidade: i.severidade, observacao: i.observacao ?? null,

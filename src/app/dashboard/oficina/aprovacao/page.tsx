@@ -79,6 +79,9 @@ export default function AprovacaoPage() {
   const toggle = (id: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i)))
   const setPreco = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i)))
   const precoNum = (l: Linha) => Number((l._preco || '0').replace(',', '.')) || 0
+  // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
+  // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
+  const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
   const totalAprov = itens.filter((i) => i.aprovado).reduce((s, i) => s + precoNum(i), 0)
 
   const salvar = async () => {
@@ -86,7 +89,7 @@ export default function AprovacaoPage() {
     setSalvando(true)
     const { data, error } = await supabase.rpc('fn_oficina_orcamento_registrar', {
       p_company_id: companyId, p_os_id: osSel.id,
-      p_dados: { aprovador_nome: aprovadorNome, canal, observacao, itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoNum(i) || null })) },
+      p_dados: { aprovador_nome: aprovadorNome, canal, observacao, itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoRaw(i) })) },
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; decisao?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
