@@ -4,6 +4,7 @@ import TopNav from '@/components/layout/TopNav'
 import AreaRedirectGuard from '@/components/layout/AreaRedirectGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
+import AjudaWidget from '@/components/ajuda/AjudaWidget'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -18,6 +19,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </DashboardMain>
         </div>
       </div>
+      {/* Central de Ajuda · widget "?" contextual (F0 Fatia 3) — presente em toda tela do dashboard */}
+      <AjudaWidget />
     </SelectedCompanyProvider>
   )
 }
