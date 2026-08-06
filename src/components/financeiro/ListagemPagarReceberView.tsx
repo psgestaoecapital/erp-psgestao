@@ -457,20 +457,33 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }
 
 
-  // Excluir despesa/receita — via RPC fn_pagar_excluir/fn_receber_excluir
-  // (guard-rail conciliado/pago no backend + auditoria em erp_lancamento_log).
+  // Excluir despesa/receita — via RPC fn_pagar_excluir/fn_receber_excluir. O backend só exige desconciliar se
+  // há conciliação REAL (vínculo no banco); se o título só está baixado (pago), oferece cancelar a baixa e
+  // excluir. Mensagem honesta do motivo real (RD-51). Auditoria em erp_lancamento_log.
   const excluir = async (r: Resultado) => {
-    if (!confirm(`EXCLUIR "${r.descricao}"?\nR$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nEsta ação fica registrada no histórico (imutável) e NÃO pode ser desfeita.`)) return
+    if (!confirm(`EXCLUIR "${r.descricao}"?\nR$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nEsta ação fica registrada no histórico (imutável).`)) return
     const rpc = tipo === 'pagar' ? 'fn_pagar_excluir' : 'fn_receber_excluir'
-    const { data, error } = await supabase.rpc(rpc, { p_id: r.id })
-    if (error) { alert('Erro ao excluir: ' + error.message); return }
-    const j = data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
+
+    const chamar = async (cancelarBaixa: boolean) => {
+      const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_cancelar_baixa: cancelarBaixa })
+      if (error) { alert('Erro ao excluir: ' + error.message); return null }
+      return data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
+    }
+
+    let j = await chamar(false)
+    if (j === null) return
+    // Só baixado (pago), sem conciliação: pergunta se cancela a baixa e exclui.
+    if (!j?.sucesso && j?.erro === 'requer_cancelar_baixa') {
+      if (!confirm(`${j.orientacao ?? 'Este lançamento está baixado (pago). Cancelar a baixa e excluir?'}\n\nA baixa será cancelada e o lançamento excluído (fica registrado no histórico).`)) return
+      j = await chamar(true)
+      if (j === null) return
+    }
     if (!j?.sucesso) {
-      if (j?.erro === 'bloqueado_conciliado_ou_pago') {
+      if (j?.erro === 'bloqueado_conciliado') {
         alert(
-          `Este lançamento está CONCILIADO ou PAGO.\n\n` +
-          `Excluir agora geraria um movimento bancário órfão.\n` +
-          `${j.orientacao ?? 'Desvincule no inbox de conciliação, depois volte aqui.'}`,
+          `Este lançamento está CONCILIADO com o banco.\n\n` +
+          `Excluir agora deixaria um movimento bancário órfão.\n` +
+          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}`,
         )
       } else if (j?.erro === 'bloqueado_boleto_ativo') {
         alert(

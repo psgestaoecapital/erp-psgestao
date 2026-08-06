@@ -38,6 +38,8 @@ export const MENSAGEM_ERRO: Record<string, string> = {
   sem_parcelas: 'Faltou informar ao menos uma parcela.',
   parcela_incompleta: 'Faltou preencher a data ou o valor de uma parcela.',
   bloqueado_conciliado_ou_pago: 'Não dá para excluir: título pago ou já conciliado. Desvincule antes.',
+  bloqueado_conciliado: 'Este lançamento está conciliado com o banco. Cancele a conciliação no inbox antes de excluir.',
+  requer_cancelar_baixa: 'Este lançamento está baixado (pago), mas não conciliado. Confirme cancelar a baixa e excluir.',
   bloqueado_boleto_ativo: 'Este título tem boleto ativo no banco. Cancele o boleto antes de excluir.',
   ja_conciliado: 'Movimento já conciliado. Desvincule antes de ignorar.',
   nao_ignorado: 'Este item não está ignorado.',
