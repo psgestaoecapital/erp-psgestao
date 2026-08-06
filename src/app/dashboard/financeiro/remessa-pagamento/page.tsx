@@ -14,6 +14,7 @@ import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const escHtml = (s: string) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
 const hoje = () => new Date()
 const ddmmaaaa = (d: Date) => `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`
 const hhmmss = (d: Date) => `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`
@@ -21,6 +22,9 @@ const hhmmss = (d: Date) => `${String(d.getHours()).padStart(2, '0')}${String(d.
 type Config = { id: string; ambiente: string; cooperativa: string; agencia_dv: string | null; conta: string; convenio: string }
 type Empresa = { cnpj: string; razao_social: string; endereco: string | null; cidade_estado: string | null }
 type Row = TituloPag & { _sel: boolean }
+type RemessaLista = { id: string; numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; total_titulos: number; valor_total: number; gerado_em: string | null; retorno_importado_em: string | null; pode_cancelar: boolean }
+type ExtratoItem = { item_id: string; beneficiario: string; descricao: string | null; data_vencimento: string | null; valor: number; forma: string; status_item: string }
+type ExtratoResp = { sucesso: boolean; erro?: string; remessa?: { numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; gerado_em: string | null; retorno_importado_em: string | null }; itens?: ExtratoItem[]; total?: number; qtd?: number }
 type RetItemPayload = { item_id: string; val_pago: number; dt_pagamento: string | null; ocorrencia: string; pago_hint: boolean }
 type RetDetalhe = { resultado: string; motivo?: string; val_pago?: number; val_titulo?: number; ocorrencia?: string }
 type RetornoResposta = {
@@ -53,6 +57,11 @@ export default function RemessaPagamentoPage() {
   const [impNaoCasados, setImpNaoCasados] = useState(0)
   const [impPayload, setImpPayload] = useState<{ remessaId: string; itens: RetItemPayload[] } | null>(null)
   const [impConfirmado, setImpConfirmado] = useState(false)
+  // Gestão da remessa: lista + extrato (ver/imprimir/cancelar/remover item)
+  const [remessas, setRemessas] = useState<RemessaLista[]>([])
+  const [extrato, setExtrato] = useState<ExtratoResp | null>(null)
+  const [extratoRem, setExtratoRem] = useState<RemessaLista | null>(null)
+  const [gestBusy, setGestBusy] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -93,16 +102,20 @@ export default function RemessaPagamentoPage() {
         fmap.set(f.id, { pix: f.pix, cnpj_cpf: f.cnpj_cpf, nome: f.razao_social || f.nome_fantasia || '' })
     }
 
-    // exclui títulos já em remessa ativa (pré-filtro de UX; o trigger é a trava dura)
+    // exclui títulos já em remessa ATIVA (cancelada libera; item removido libera). Pré-filtro de UX.
     const { data: ativas } = await supabase.from('erp_remessa_pagamento').select('id').eq('company_id', companyId).in('status', ['gerado', 'enviado', 'retorno_parcial'])
     const rids = (ativas ?? []).map((r) => (r as { id: string }).id)
     const jaEm = new Set<string>()
     if (rids.length) {
-      const { data: itens } = await supabase.from('erp_remessa_pagamento_item').select('erp_pagar_id').in('remessa_id', rids)
+      const { data: itens } = await supabase.from('erp_remessa_pagamento_item').select('erp_pagar_id').in('remessa_id', rids).is('removido_em', null)
       for (const i of (itens ?? []) as { erp_pagar_id: string }[]) jaEm.add(i.erp_pagar_id)
     }
 
     setRows(titulos.filter((t) => !jaEm.has(t.id)).map((t) => ({ ...t, fornecedor: t.fornecedor_id ? fmap.get(t.fornecedor_id) ?? null : null, _sel: false })))
+
+    // lista das remessas geradas (gestão: extrato / cancelar / remover item)
+    const { data: rems } = await supabase.rpc('fn_remessa_listar', { p_company_id: companyId, p_limit: 40 })
+    setRemessas((rems as RemessaLista[] | null) ?? [])
     setLoading(false)
   }, [companyId])
 
@@ -276,6 +289,64 @@ export default function RemessaPagamentoPage() {
     } finally { setImpBusy(false) }
   }
 
+  // ── Gestão da remessa: extrato / cancelar / remover item ─────────────────────────────────────────
+  async function abrirExtrato(rem: RemessaLista) {
+    if (!companyId) return
+    setExtratoRem(rem); setExtrato(null); setGestBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_remessa_extrato', { p_remessa_id: rem.id, p_company_id: companyId })
+      if (error) throw error
+      setExtrato(data as ExtratoResp)
+    } catch (e) {
+      setExtrato({ sucesso: false, erro: (e as Error).message })
+    } finally { setGestBusy(false) }
+  }
+
+  async function cancelarRemessa(rem: RemessaLista) {
+    if (!companyId) return
+    const motivo = prompt(`Cancelar a remessa Nº ${rem.numero_sequencial}?\nOs ${rem.total_titulos} título(s) voltam a ficar disponíveis para uma nova remessa. Nada é apagado.\n\nMotivo (opcional):`)
+    if (motivo === null) return
+    setGestBusy(true); setMsg('')
+    try {
+      const { data, error } = await supabase.rpc('fn_remessa_cancelar', { p_remessa_id: rem.id, p_company_id: companyId, p_motivo: motivo || null })
+      if (error) throw error
+      const j = data as { sucesso?: boolean; erro?: string; orientacao?: string; titulos_liberados?: number } | null
+      if (!j?.sucesso) { setMsg('Erro: ' + (j?.orientacao ?? j?.erro ?? 'não foi possível cancelar')); return }
+      setMsg(`Remessa ${rem.numero_sequencial} cancelada · ${j.titulos_liberados ?? 0} título(s) liberado(s).`)
+      setExtrato(null); setExtratoRem(null); void carregar()
+    } catch (e) { setMsg('Erro ao cancelar: ' + (e as Error).message) } finally { setGestBusy(false) }
+  }
+
+  async function removerItem(it: ExtratoItem) {
+    if (!companyId || !extratoRem) return
+    if (!confirm(`Remover "${it.beneficiario}" (${brl(Math.round((it.valor ?? 0) * 100))}) desta remessa?\nO título volta a ficar disponível. Nada é apagado.`)) return
+    setGestBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_remessa_remover_item', { p_item_id: it.item_id, p_company_id: companyId, p_motivo: 'boleto indevido' })
+      if (error) throw error
+      const j = data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
+      if (!j?.sucesso) { setMsg('Erro: ' + (j?.orientacao ?? j?.erro ?? 'não foi possível remover')); return }
+      await abrirExtrato(extratoRem); void carregar()   // recarrega extrato + lista
+    } catch (e) { setMsg('Erro ao remover: ' + (e as Error).message) } finally { setGestBusy(false) }
+  }
+
+  function imprimirExtrato() {
+    if (!extrato?.remessa || !extrato.itens) return
+    const r = extrato.remessa
+    const linhas = extrato.itens.map((i) => `<tr><td>${escHtml(i.beneficiario)}</td><td>${i.data_vencimento ? i.data_vencimento.slice(0, 10).split('-').reverse().join('/') : '—'}</td><td style="text-align:right">${brl(Math.round((i.valor ?? 0) * 100))}</td></tr>`).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Extrato remessa ${r.numero_sequencial}</title>
+      <style>body{font-family:Arial,sans-serif;color:#222;margin:24px}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+      th,td{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f4f0e8}tfoot td{font-weight:bold;border-top:2px solid #333}</style></head>
+      <body><h1>Extrato da remessa de pagamento Nº ${r.numero_sequencial}</h1>
+      <div style="font-size:12px;color:#555">${escHtml(selInfo.nome)} · ${r.ambiente === 'producao' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'} · gerada em ${r.gerado_em ? new Date(r.gerado_em).toLocaleString('pt-BR') : '—'}${r.arquivo_nome ? ' · ' + escHtml(r.arquivo_nome) : ''}</div>
+      <table><thead><tr><th>Beneficiário</th><th>Vencimento</th><th style="text-align:right">Valor</th></tr></thead>
+      <tbody>${linhas}</tbody>
+      <tfoot><tr><td colspan="2">Total · ${extrato.qtd ?? extrato.itens.length} pagamento(s)</td><td style="text-align:right">${brl(Math.round((extrato.total ?? 0) * 100))}</td></tr></tfoot></table>
+      <script>window.onload=function(){window.print()}</script></body></html>`
+    const w = window.open('', '_blank')
+    if (w) { w.document.write(html); w.document.close() }
+  }
+
   if (!companyId) return <div style={{ background: BG, minHeight: '100vh', padding: 32, color: MUT, fontSize: 14 }}>Selecione uma empresa específica para gerar remessa de pagamento.</div>
   if (loading) return <div style={{ background: BG, minHeight: '100vh', padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div>
   if (!cfg) return (
@@ -390,7 +461,78 @@ export default function RemessaPagamentoPage() {
             {busy ? 'Gerando…' : `Gerar remessa Nº ${seqValido ? seqNum : '—'} (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'})`}
           </button>
         </div>
+
+        {remessas.length > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Remessas geradas</div>
+            <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }}>
+              {remessas.map((rm) => {
+                const cancelada = rm.status === 'cancelado'
+                return (
+                  <div key={rm.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center', gap: 10, padding: '10px 14px', borderTop: `0.5px solid ${BG}`, opacity: cancelada ? 0.55 : 1 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600 }}>
+                        Nº {rm.numero_sequencial} · {brl(Math.round((rm.valor_total ?? 0) * 100))} · {rm.total_titulos} tít.
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: cancelada ? VERM : rm.retorno_importado_em ? VERDE : MUT }}>
+                          {cancelada ? 'CANCELADA' : rm.retorno_importado_em ? 'RETORNO PROCESSADO' : rm.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {rm.arquivo_nome ?? '—'} · {rm.gerado_em ? new Date(rm.gerado_em).toLocaleDateString('pt-BR') : '—'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => abrirExtrato(rm)} disabled={gestBusy} style={btnGhost}>Ver extrato</button>
+                      {rm.pode_cancelar && <button onClick={() => cancelarRemessa(rm)} disabled={gestBusy} style={{ ...btnGhost, color: VERM }}>Cancelar</button>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
+
+      {extratoRem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => !gestBusy && setExtratoRem(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 620, width: '94%', maxHeight: '88vh', overflowY: 'auto', border: `0.5px solid ${LINE}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: 0 }}>Extrato · remessa Nº {extratoRem.numero_sequencial}</h3>
+              <button onClick={() => setExtratoRem(null)} style={{ ...btnGhost, padding: '4px 10px' }}>Fechar</button>
+            </div>
+            {gestBusy && !extrato && <div style={{ padding: 16, color: MUT, fontSize: 13 }}>Carregando…</div>}
+            {extrato && !extrato.sucesso && <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 12.5 }}>{extrato.erro}</div>}
+            {extrato?.sucesso && (
+              <>
+                <div style={{ fontSize: 12, color: MUT, margin: '4px 0 10px' }}>
+                  {extratoRem.arquivo_nome ?? '—'} · {extratoRem.ambiente === 'producao' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'} · gerada {extratoRem.gerado_em ? new Date(extratoRem.gerado_em).toLocaleString('pt-BR') : '—'}
+                </div>
+                <div style={{ border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+                  {(extrato.itens ?? []).map((it, i) => (
+                    <div key={it.item_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto', gap: 10, alignItems: 'center', padding: '8px 12px', borderTop: i ? `0.5px solid ${BG}` : 'none' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.beneficiario}</div>
+                        <div style={{ fontSize: 11, color: MUT }}>venc {it.data_vencimento ? it.data_vencimento.slice(0, 10).split('-').reverse().join('/') : '—'}</div>
+                      </div>
+                      <div style={{ fontSize: 13, color: ESP, fontWeight: 600, whiteSpace: 'nowrap' }}>{brl(Math.round((it.valor ?? 0) * 100))}</div>
+                      {extratoRem.pode_cancelar
+                        ? <button onClick={() => removerItem(it)} disabled={gestBusy} title="Remover este boleto da remessa" style={{ ...btnGhost, padding: '3px 8px', color: VERM }}>Remover</button>
+                        : <span />}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 14, color: ESP }}>Total · <b>{brl(Math.round((extrato.total ?? 0) * 100))}</b> ({extrato.qtd ?? 0} pagamento{(extrato.qtd ?? 0) === 1 ? '' : 's'})</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={imprimirExtrato} style={btnGhost}>Imprimir</button>
+                    {extratoRem.pode_cancelar && <button onClick={() => cancelarRemessa(extratoRem)} disabled={gestBusy} style={{ ...btnPrimary, background: VERM }}>Cancelar remessa</button>}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {confirmar && preview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => setConfirmar(false)}>
