@@ -99,8 +99,49 @@ export default function ConectoresIndustrialPage() {
   const toggleDom = (d: string) => setDoms((prev) => { const n = new Set(prev); if (n.has(d)) n.delete(d); else n.add(d); return n })
   const copiarToken = () => { if (dados?.conexao?.agente_token) { void navigator.clipboard?.writeText(dados.conexao.agente_token); setMsg({ t: 'Token copiado — cole na instalação do Agente PS.', ok: true }) } }
 
+  // FIX3 · gera o .env desta empresa (config preenchida; a SENHA do SQL fica VAZIA — o TI preenche local).
+  const baixarEnv = () => {
+    const cx = dados?.conexao
+    if (!cx || !empresaUnica) { setMsg({ t: 'Salve a conexão primeiro (gera o token).', ok: false }); return }
+    const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+    const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+    const env = [
+      '# Agente PS — configuração desta empresa. Gerado no painel. Salve este arquivo como .env em ANSI.',
+      `# ${dados?.nome ?? ''}`,
+      '',
+      '# Nuvem PS (a anon key é PÚBLICA, não é segredo)',
+      `SUPABASE_URL=${SB_URL}`,
+      `SUPABASE_ANON_KEY=${SB_ANON}`,
+      `AGENTE_TOKEN=${cx.agente_token ?? ''}`,
+      `ATAK_COMPANY_ID=${empresaUnica}`,
+      `INGEST_URL=${SB_URL}/functions/v1/atak-ingest`,
+      '',
+      '# SQL Server do frigorífico (na rede do cliente)',
+      `ATAK_HOST=${cx.host ?? ''}`,
+      `ATAK_PORTA=${cx.porta ?? 1433}`,
+      `ATAK_BANCO=${cx.banco ?? ''}`,
+      `ATAK_COD_FILIAL=${cx.cod_filial ?? '100'}`,
+      `ATAK_USUARIO=${cx.usuario ?? ''}`,
+      'ATAK_SENHA=          # <-- O TI PREENCHE a senha do SQL Server aqui (fica só nesta máquina · Pilar 2)',
+      '',
+      '# Domínios a coletar (marcados na tela) e cadência informativa',
+      `DOMINIOS=${(cx.dominios ?? []).join(',')}`,
+      `SYNC_MINUTOS=${cx.sync_minuto ?? 15}`,
+      '',
+    ].join('\r\n')
+    baixarTexto(env, '.env')
+    setMsg({ t: 'Configuração (.env) baixada — preencha a senha do SQL e salve em ANSI.', ok: true })
+  }
+
+  const baixarTexto = (conteudo: string, nome: string) => {
+    const url = URL.createObjectURL(new Blob([conteudo], { type: 'text/plain;charset=utf-8' }))
+    const a = document.createElement('a'); a.href = url; a.download = nome; a.click(); URL.revokeObjectURL(url)
+  }
+
   const inp: React.CSSProperties = { width: '100%', background: C.bg, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { fontSize: 10, color: C.txd, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }
+  const dlBtn: React.CSSProperties = { padding: '9px 14px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'none', display: 'inline-block' }
+  const dlGhost: React.CSSProperties = { padding: '9px 12px', borderRadius: 6, border: '1px solid ' + C.bd, background: 'transparent', color: C.txm, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-block' }
 
   if (!compLoading && !empresaUnica) return (
     <div style={{ padding: 16, minHeight: '100vh', background: C.bg, color: C.tx }}>
@@ -152,8 +193,8 @@ export default function ConectoresIndustrialPage() {
             <div><div style={lbl}>Banco</div><input style={inp} value={f.banco} onChange={(e) => setF({ ...f, banco: e.target.value })} placeholder="SATKFRIOESTE" /></div>
             <div><div style={lbl}>Cód. filial</div><input style={inp} value={f.cod_filial} onChange={(e) => setF({ ...f, cod_filial: e.target.value })} /></div>
             <div><div style={lbl}>Usuário</div><input style={inp} value={f.usuario} onChange={(e) => setF({ ...f, usuario: e.target.value })} placeholder="usuario_leitura" /></div>
-            <div><div style={lbl}>Senha {dados?.conexao?.tem_senha ? '(no Vault — digite p/ trocar)' : '(vai pro Vault)'}</div>
-              <input style={inp} type="password" value={f.senha} onChange={(e) => setF({ ...f, senha: e.target.value })} placeholder={dados?.conexao?.tem_senha ? '••••••••' : 'senha do SQL Server'} autoComplete="new-password" /></div>
+            <div><div style={lbl}>Senha (opcional — o TI preenche no .env local)</div>
+              <input style={inp} type="password" value={f.senha} onChange={(e) => setF({ ...f, senha: e.target.value })} placeholder="fica na máquina do cliente" autoComplete="new-password" /></div>
             <div><div style={lbl}>Coletar a cada (min)</div><input style={inp} type="number" value={f.sync_minuto} onChange={(e) => setF({ ...f, sync_minuto: Number(e.target.value) })} /></div>
           </div>
 
@@ -207,10 +248,30 @@ export default function ConectoresIndustrialPage() {
         </div>
       )}
 
+      {/* FIX2/3/4 · downloads do Agente PS (self-service) */}
+      {empresaUnica && (
+        <div style={{ background: C.card, border: '1px solid ' + C.bd, borderRadius: 10, padding: 16, marginTop: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Instalar o Agente PS (self-service)</div>
+          <div style={{ fontSize: 11, color: C.txm, marginBottom: 12, lineHeight: 1.5 }}>
+            Baixe os 3 itens e mande pro TI da empresa. O conector é o mesmo pra todos; a configuração é desta empresa
+            (com o token). A <b>senha do SQL Server</b> o TI preenche na máquina — nunca sai da rede do cliente (Pilar 2).
+          </div>
+          {!dados?.conexao?.agente_token && <div style={{ fontSize: 11.5, color: C.y, marginBottom: 10 }}>⚠ Salve a conexão primeiro — o token e a configuração são gerados no salvar.</div>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <a href="/downloads/atak/collector.js" download style={dlBtn}>⬇️ Baixar conector (collector.js)</a>
+            <a href="/downloads/atak/package.json" download style={dlGhost}>package.json</a>
+            <a href="/downloads/atak/README.md" download style={dlGhost}>README</a>
+            <button onClick={baixarEnv} disabled={!dados?.conexao?.agente_token} style={{ ...dlBtn, opacity: dados?.conexao?.agente_token ? 1 : 0.5, cursor: dados?.conexao?.agente_token ? 'pointer' : 'not-allowed' }}>⬇️ Baixar configuração (.env)</button>
+            <a href="/downloads/atak/INSTALACAO.md" download style={dlBtn}>📄 Baixar passo-a-passo</a>
+          </div>
+          <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>Ao salvar o <code>.env</code>, use codificação <b>ANSI</b> (evita erro de acento). Se o navegador salvar como <code>.env.txt</code>, renomeie para <code>.env</code>.</div>
+        </div>
+      )}
+
       <div style={{ fontSize: 10.5, color: C.txm, marginTop: 12, lineHeight: 1.5 }}>
-        🔒 A senha nunca é guardada nesta tela — vai direto pro <b>Vault</b> (Pilar 2). O monitor (semáforo) reflete o
-        heartbeat real do coletor no <code>erp_sync_log</code> (RD-58). O <b>Agente PS</b> (serviço Windows) roda dentro
-        da rede do cliente e reporta a cada ciclo — instalação e auto-atualização no próximo passo do F3.
+        🔒 <b>Modelo self-service:</b> a <b>senha do SQL Server</b> fica na máquina do cliente (o TI preenche no <code>.env</code>) e
+        <b> nunca trafega</b> pro nosso backend — só o <b>token do agente</b> identifica a empresa (Pilar 2). O monitor (semáforo)
+        reflete o heartbeat real do coletor no <code>erp_sync_log</code> (RD-58).
       </div>
     </div>
   )
