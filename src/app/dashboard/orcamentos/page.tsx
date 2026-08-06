@@ -21,9 +21,17 @@ type ItemOrc = {
   servico_id?:string; servico_codigo?:string; servico_descricao?:string;
   unidade:string; quantidade:number; preco_unitario:number; preco_custo?:number;
   desconto_percentual:number; desconto_valor:number;
-  subtotal:number; margem_percentual?:number;
+  subtotal:number; margem_percentual?:number; bdi_percentual?:number;
   observacoes?:string;
   _srv_eng?:boolean; // linha = serviço do catálogo de ENGENHARIA (projetos_servicos), precificado com BDI
+};
+
+// Semáforo de margem (diferencial "Saúde"): negativa (prejuízo) → apertada → saudável.
+const statusMargem=(m?:number|null):{cor:string;label:string}=>{
+  if(m==null||!Number.isFinite(m)) return {cor:TXD,label:'—'};
+  if(m<0) return {cor:R,label:'negativa'};
+  if(m<15) return {cor:Y,label:'apertada'};
+  return {cor:G,label:'saudável'};
 };
 
 type Orcamento = {
@@ -242,6 +250,8 @@ export default function OrcamentosPage(){
       quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
       desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),
       subtotal:Number(i.subtotal),
+      bdi_percentual:i.bdi_percentual!=null?Number(i.bdi_percentual):undefined,
+      margem_percentual:i.margem_percentual!=null?Number(i.margem_percentual):undefined,
     })));
     setBuscaCliente(o.cliente_nome||'');
     setShowForm(true);
@@ -263,19 +273,41 @@ export default function OrcamentosPage(){
   const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
   const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
   const addItemServicoEng=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO_ENG,ordem:itens.length+1}]);
-  // Serviço de ENGENHARIA: preço de venda = custo × (1 + BDI/100). Mostra a margem resultante.
-  const selecionarServicoEng=(idx:number,s:ServicoEngSelecionado)=>{
-    const custo=Number(s.custo_unitario_total)||0;
-    const preco=Math.round(custo*(1+bdiPct/100)*100)/100;
+  // Serviço de ENGENHARIA (RD-26): consome a v_projetos_bdi_impacto — custo do BOM, BDI do catálogo e
+  // preço de venda (= custo × (1+BDI)) já calculados pelo "cérebro" do BDI. Não recalcula BDI aqui; só
+  // usa. Fallback: se o serviço não estiver na view (BOM incompleto), usa o BDI padrão da empresa.
+  const selecionarServicoEng=async(idx:number,s:ServicoEngSelecionado)=>{
+    const cid=companyIdParaCadastro;
+    let custo=Number(s.custo_unitario_total)||0;
+    let bdi=bdiPct;
+    let preco=Math.round(custo*(1+bdi/100)*100)/100;
+    if(cid){
+      const{data:v}=await supabase.from('v_projetos_bdi_impacto')
+        .select('custo,bdi_total_pct,preco_venda,margem_aparente_pct')
+        .eq('company_id',cid).eq('servico_id',s.id).maybeSingle();
+      if(v){
+        custo=Number(v.custo)||custo;
+        bdi=Number(v.bdi_total_pct)||bdi;
+        preco=Number(v.preco_venda)||Math.round(custo*(1+bdi/100)*100)/100;
+      }
+    }
     const novosItens=[...itens];
     novosItens[idx]={
       ...novosItens[idx],
       tipo_item:'servico', _srv_eng:true,
       servico_id:s.id, servico_codigo:s.codigo ?? '', servico_descricao:s.nome,
       produto_nome:s.nome, unidade:s.unidade || 'UN',
-      preco_custo:custo, preco_unitario:preco,
+      preco_custo:custo, preco_unitario:preco, bdi_percentual:Math.round(bdi*100)/100,
     };
-    recalcularItem(idx,novosItens);
+    recalcularItem(idx,novosItens); // recalcularItem deriva margem_percentual de (preço-custo)/preço
+  };
+  // FIX4 · editar o BDI% de um item recalcula o preço de venda na hora: preco = custo × (1 + BDI/100).
+  const alterarBdiItem=(idx:number,bdiNovo:number)=>{
+    const novos=[...itens]; const it=novos[idx];
+    const custo=Number(it.preco_custo)||0;
+    it.bdi_percentual=bdiNovo;
+    it.preco_unitario=Math.round(custo*(1+bdiNovo/100)*100)/100;
+    recalcularItem(idx,novos);
   };
   const limparServicoEng=(idx:number)=>{
     const novosItens=[...itens];
@@ -385,6 +417,7 @@ export default function OrcamentosPage(){
           servico_descricao:i.tipo_item==='servico'?(i.servico_descricao || i.produto_nome):null,
           unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,observacoes:i.observacoes,
+          margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,
         }));
         const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
         if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
@@ -404,7 +437,7 @@ export default function OrcamentosPage(){
           servico_descricao:i.tipo_item==='servico'?(i.servico_descricao || i.produto_nome):null,
           unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
-          margem_percentual:i.margem_percentual,observacoes:i.observacoes,
+          margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,observacoes:i.observacoes,
         }));
         if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
       }
@@ -610,7 +643,7 @@ export default function OrcamentosPage(){
                     <ServicoEngenhariaAutocomplete
                       companyId={companyIdParaCadastro || ''}
                       selecionado={it.servico_id ? { id: it.servico_id, codigo: it.servico_codigo ?? null, nome: it.servico_descricao || it.produto_nome, unidade: it.unidade, custo_unitario_total: it.preco_custo ?? 0 } : null}
-                      onSelect={s=>selecionarServicoEng(idx,s)}
+                      onSelect={s=>{void selecionarServicoEng(idx,s)}}
                       onClear={()=>limparServicoEng(idx)}
                       testId={`orc-servico-eng-${idx}`}
                     />
@@ -644,10 +677,18 @@ export default function OrcamentosPage(){
                     title={(it._srv_eng && !podeAlterarPreco) ? "Preço definido pelo catálogo (custo + BDI). Ajuste requer engenheiro/master." : undefined}
                     onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)}
                     style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right",background:(it._srv_eng && !podeAlterarPreco)?BG3:'#fff',cursor:(it._srv_eng && !podeAlterarPreco)?'not-allowed':'auto'}}/>
-                  {it._srv_eng && (
-                    <div style={{fontSize:8,textAlign:"right",marginTop:1,color:(it.margem_percentual!=null && it.margem_percentual<0)?R:TXD}}>
-                      {(it.preco_custo??0)>0 ? `custo ${fmtR(it.preco_custo||0)} · mrg ${it.margem_percentual!=null?it.margem_percentual+'%':'—'}` : ''}
-                      {!podeAlterarPreco ? ' 🔒 eng.' : ''}
+                  {it._srv_eng && (it.preco_custo??0)>0 && (
+                    <div style={{fontSize:8,textAlign:"right",marginTop:1,color:TXD,display:"flex",gap:4,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+                      <span>custo {fmtR(it.preco_custo||0)}</span>
+                      <span>· BDI {podeAlterarPreco ? (
+                        <input type="number" step="0.1" value={it.bdi_percentual??''} onChange={e=>alterarBdiItem(idx,parseFloat(e.target.value)||0)}
+                          title="BDI % — recalcula o preço de venda na hora"
+                          style={{width:36,fontSize:8,padding:'0 2px',textAlign:'right',border:`1px solid ${BD}`,borderRadius:3}}/>
+                      ) : <b>{it.bdi_percentual!=null?it.bdi_percentual:'—'}</b>}%</span>
+                      <span style={{color:statusMargem(it.margem_percentual).cor,fontWeight:700}}>
+                        · mrg {it.margem_percentual!=null?it.margem_percentual+'%':'—'} ({statusMargem(it.margem_percentual).label})
+                      </span>
+                      {!podeAlterarPreco ? <span>🔒 eng.</span> : null}
                     </div>
                   )}
                 </div>
