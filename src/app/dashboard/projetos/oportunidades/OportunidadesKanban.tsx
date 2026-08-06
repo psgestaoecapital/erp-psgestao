@@ -88,6 +88,18 @@ export default function OportunidadesKanban({
   // resumo lateral ganho/perdido (a RPC nao traz; consultamos direto)
   const [ganhos, setGanhos] = useState<{ qtd: number; total: number }>({ qtd: 0, total: 0 })
   const [perdidos, setPerdidos] = useState<{ qtd: number; total: number }>({ qtd: 0, total: 0 })
+  // FIX B · modal de motivo da perda (obrigatório)
+  const [perda, setPerda] = useState<{ cardId: string; etapaAtual: string | null } | null>(null)
+  const [perdaMotivo, setPerdaMotivo] = useState('')
+  const [perdaObs, setPerdaObs] = useState('')
+
+  async function confirmarPerda() {
+    if (!perda || !perdaMotivo) return
+    const motivo = perdaObs.trim() ? `${perdaMotivo} — ${perdaObs.trim()}` : perdaMotivo
+    const p = perda
+    setPerda(null)
+    await aplicarMove(p.cardId, 'perdido', p.etapaAtual, motivo)
+  }
 
   async function carregar() {
     setLoading(true)
@@ -136,13 +148,12 @@ export default function OportunidadesKanban({
 
   async function moverPara(cardId: string, novaEtapa: string, etapaAtual: string | null) {
     if (etapaAtual === novaEtapa) return
-    let motivo: string | null = null
-    if (novaEtapa === 'perdido') {
-      const m = prompt('Motivo da perda (opcional):', '')
-      if (m === null) return
-      motivo = m || null
-    }
+    // Perdido EXIGE motivo (FIX B) — abre o modal com a lista; a baixa só ocorre ao confirmar.
+    if (novaEtapa === 'perdido') { setPerda({ cardId, etapaAtual }); setPerdaMotivo(''); setPerdaObs(''); return }
+    await aplicarMove(cardId, novaEtapa, etapaAtual, null)
+  }
 
+  async function aplicarMove(cardId: string, novaEtapa: string, etapaAtual: string | null, motivo: string | null) {
     // Otimista: tira o card da etapa antiga e poe na nova.
     setMovendoId(cardId)
     setPipe((prev) => {
@@ -326,6 +337,29 @@ export default function OportunidadesKanban({
           })}
         </div>
       </div>
+
+      {perda && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onClick={() => setPerda(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, width: '92%', maxWidth: 400, border: `1px solid ${BORDA}` }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: ESPRESSO, marginBottom: 4 }}>Por que perdeu?</div>
+            <div style={{ fontSize: 12, color: TEXTM, marginBottom: 12 }}>Escolha o motivo — obrigatório para marcar como Perdido.</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+              {['preço', 'prazo', 'concorrente', 'desistência', 'sem retorno', 'outro'].map((m) => (
+                <button key={m} onClick={() => setPerdaMotivo(m)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', border: `1px solid ${perdaMotivo === m ? '#7A1F1F' : BORDA}`, background: perdaMotivo === m ? '#F4D6D6' : '#fff', color: perdaMotivo === m ? '#7A1F1F' : TEXTM }}>{m}</button>
+              ))}
+            </div>
+            <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Observação (opcional)" rows={2}
+              style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button onClick={() => setPerda(null)} style={{ ...cardActBtn, padding: '7px 14px' }}>Cancelar</button>
+              <button onClick={() => { void confirmarPerda() }} disabled={!perdaMotivo}
+                style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: perdaMotivo ? '#7A1F1F' : '#ccc', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: perdaMotivo ? 'pointer' : 'not-allowed' }}>
+                Marcar como Perdido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
