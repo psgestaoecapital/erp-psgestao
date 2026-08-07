@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
-import { parseBoletoBarras, normalizarCodigoBarras, codigoBarrasParaConsulta, reconhecerBoleto } from '@/lib/financeiro/boleto-parser'
+import { parseBoletoBarras, codigoBarrasParaConsulta, reconhecerBoleto, validarCodigoBarrasEntrada } from '@/lib/financeiro/boleto-parser'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 // RD-41 · padrão único de "erro de salvamento" (piloto)
 import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
@@ -343,6 +343,20 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     const faltou = validarCampos()
     if (faltou) { setErroCampo(faltou.campo); setFeedback({ tipo: 'erro', texto: faltou.banner }); return }
 
+    // SAFEGUARD do código de barras (RD-57 · RD-55): antes de criar, confere o DV do boleto informado
+    // e, p/ boleto bancário de parcela única, se o valor embutido bate com o informado. Barras torto =
+    // pagar errado (dinheiro de terceiro), então BLOQUEIA aqui — vira aviso imediato, não erro silencioso.
+    const cbInput = codigoBarras.trim()
+    if (cbInput) {
+      const vb = validarCodigoBarrasEntrada(cbInput)
+      if (!vb.ok) { setErroCampo('codigoBarras'); setFeedback({ tipo: 'erro', texto: vb.motivo! }); return }
+      if (vb.tipo === 'boleto' && vb.valorBoleto != null && parcelas === 1 && Math.abs(vb.valorBoleto - (parseFloat(valor) || 0)) > 0.005) {
+        setErroCampo('codigoBarras')
+        setFeedback({ tipo: 'erro', texto: `O valor do boleto (${fmtBRL(vb.valorBoleto)}) diverge do valor informado (${fmtBRL(parseFloat(valor) || 0)}). Confira o código de barras.` })
+        return
+      }
+    }
+
     // se a pessoa digitou, respeita; se não, gera de fornecedor + categoria
     const descricaoFinal = descricao.trim() || montarDescricao()
     const hoje = new Date().toISOString().split('T')[0]
@@ -393,12 +407,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
     }
 
-    // ANTI-DUPLICIDADE + REMESSA: grava o código de barras já NORMALIZADO p/ 44 dígitos na 1ª parcela.
-    // Aceita linha digitável (47) ou código de barras (44) colado — sempre persiste os 44 (RD-52), pra
-    // remessa de pagamento e a checagem anti-dup baterem no mesmo formato canônico.
-    const cb44 = normalizarCodigoBarras(codigoBarras)
-    if (ids.length > 0 && cb44) {
-      await supabase.from('erp_pagar').update({ codigo_barras: cb44 }).eq('id', ids[0])
+    // VERBATIM (RD-57 · RD-55): grava o código de barras EXATAMENTE como o usuário informou, na 1ª
+    // parcela — paridade total com o Editar. NUNCA converte/normaliza o campo gravado: fazer isso
+    // reescrevia os dígitos digitados ("não mantinha o que a Jordana digita"). A forma canônica (44) é
+    // derivada on-the-fly na GERAÇÃO da remessa (mapearRemessa*) e na CONSULTA anti-dup — sem tocar aqui.
+    if (ids.length > 0 && cbInput) {
+      await supabase.from('erp_pagar').update({ codigo_barras: cbInput }).eq('id', ids[0])
     }
 
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo

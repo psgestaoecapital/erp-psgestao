@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Modal from '@/components/ui/Modal'
+import { validarCodigoBarrasEntrada } from '@/lib/financeiro/boleto-parser'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -143,6 +144,23 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
     const v = parseFloat((form.valor ?? '').replace(',', '.'))
     if (!v || v <= 0) { setErro('Valor deve ser maior que zero.'); return }
     if (!(form.data_vencimento ?? '')) { setErro('Data de vencimento é obrigatória.'); return }
+
+    // SAFEGUARD do código de barras (RD-57 · RD-55): só quando o usuário ALTEROU o barras nesta edição
+    // (não bloqueia editar outros campos de uma linha com barras legado). Confere o DV e, p/ boleto
+    // bancário, se o valor embutido bate com o informado. O valor é gravado verbatim pela RPC.
+    if (tipo === 'pagar') {
+      const cbNovo = (form.codigo_barras ?? '').trim()
+      const cbMudou = cbNovo !== (orig.codigo_barras ?? '').trim()
+      if (cbMudou && cbNovo) {
+        const vb = validarCodigoBarrasEntrada(cbNovo)
+        if (!vb.ok) { setErro(vb.motivo!); return }
+        const vNum = parseFloat((form.valor ?? '').replace(',', '.'))
+        if (vb.tipo === 'boleto' && vb.valorBoleto != null && vNum && Math.abs(vb.valorBoleto - vNum) > 0.005) {
+          setErro(`O valor do boleto (R$ ${vb.valorBoleto.toFixed(2)}) diverge do valor informado (R$ ${vNum.toFixed(2)}). Confira o código de barras.`)
+          return
+        }
+      }
+    }
     setSalvando(true); setErro(null)
     try {
       const payload: Record<string, string | null> = {}
