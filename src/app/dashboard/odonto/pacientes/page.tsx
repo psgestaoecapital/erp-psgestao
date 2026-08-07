@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, X, UploadCloud, User, Pencil, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { SaldoBadge } from '@/components/odonto/ui'
 
 // idade a partir da data de nascimento (RD-51: sem data → null)
 function calcIdade(nasc: string | null | undefined): number | null {
@@ -29,6 +30,8 @@ type Paciente = {
   id: string
   nome: string
   cpf: string | null
+  rg: string | null
+  numero_paciente: string | null
   data_nascimento: string | null
   sexo: 'F' | 'M' | 'O' | null
   telefone: string | null
@@ -51,7 +54,7 @@ type Paciente = {
 }
 
 const EMPTY: Paciente = {
-  id: '', nome: '', cpf: null, data_nascimento: null, sexo: null,
+  id: '', nome: '', cpf: null, rg: null, numero_paciente: null, data_nascimento: null, sexo: null,
   telefone: null, celular: null, email: null,
   cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null,
   responsavel_nome: null, responsavel_cpf: null, responsavel_parentesco: null,
@@ -84,6 +87,7 @@ export default function PacientesPage() {
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<Paciente | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const [ultConsulta, setUltConsulta] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -96,6 +100,28 @@ export default function PacientesPage() {
       .order('nome')
     setRows((data as Paciente[]) ?? [])
     setLoading(false)
+    // última consulta por paciente = agendamento mais recente (limite defensivo; clínicas não são gigantes)
+    const { data: ags } = await supabase
+      .from('erp_odonto_agendamento')
+      .select('paciente_id, data')
+      .eq('company_id', companyId)
+      .not('paciente_id', 'is', null)
+      .order('data', { ascending: false })
+      .limit(3000)
+    const ult: Record<string, string> = {}
+    for (const a of ((ags as { paciente_id: string | null; data: string }[] | null) ?? [])) {
+      if (a.paciente_id && !ult[a.paciente_id]) ult[a.paciente_id] = a.data
+    }
+    setUltConsulta(ult)
+    // deep-link ?edit=<id> vindo da Ficha (botão Editar do header) → abre o cadastro direto (1x).
+    if (typeof window !== 'undefined') {
+      const editId = new URLSearchParams(window.location.search).get('edit')
+      if (editId) {
+        const alvo = ((data as Paciente[] | null) ?? []).find((r) => r.id === editId)
+        if (alvo) setEdit(alvo)
+        window.history.replaceState(null, '', '/dashboard/odonto/pacientes')
+      }
+    }
   }, [companyId])
   useEffect(() => { load() }, [load])
 
@@ -105,7 +131,8 @@ export default function PacientesPage() {
     return rows.filter((r) =>
       r.nome.toLowerCase().includes(q) ||
       (r.cpf ?? '').includes(q.replace(/\D/g, '')) ||
-      (r.celular ?? '').includes(q),
+      (r.celular ?? '').includes(q) ||
+      (r.numero_paciente ?? '').includes(q),
     )
   }, [rows, busca])
 
@@ -118,7 +145,7 @@ export default function PacientesPage() {
       p_company_id: companyId,
       p_id: p.id || null,
       p_dados: {
-        nome: p.nome.trim(), cpf: (p.cpf ?? '').replace(/\D/g, ''), data_nascimento: p.data_nascimento ?? '',
+        nome: p.nome.trim(), cpf: (p.cpf ?? '').replace(/\D/g, ''), rg: (p.rg ?? '').trim(), data_nascimento: p.data_nascimento ?? '',
         sexo: p.sexo ?? '', telefone: p.telefone ?? '', celular: p.celular ?? '', email: p.email ?? '',
         cep: (p.cep ?? '').replace(/\D/g, ''), logradouro: p.logradouro ?? '', numero: p.numero ?? '', complemento: p.complemento ?? '',
         bairro: p.bairro ?? '', cidade: p.cidade ?? '', uf: p.uf ?? '',
@@ -196,13 +223,18 @@ export default function PacientesPage() {
                       {p.nome.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold truncate">{p.nome}{(() => { const a = calcIdade(p.data_nascimento); return a != null ? <span className="font-normal" style={{ color: ESP60 }}> · {a}a</span> : null })()}</div>
+                      <div className="text-sm font-semibold truncate">
+                        {p.numero_paciente ? <span className="font-normal" style={{ color: GOLD }}>#{p.numero_paciente} </span> : null}
+                        {p.nome}{(() => { const a = calcIdade(p.data_nascimento); return a != null ? <span className="font-normal" style={{ color: ESP60 }}> · {a}a</span> : null })()}
+                      </div>
                       <div className="text-xs truncate" style={{ color: ESP60 }}>
                         {p.celular || p.telefone || 'sem telefone'}
                         {p.convenio_nome ? ` · ${p.convenio_nome}` : ''}
                         {p.cpf ? ` · ${formatCpf(p.cpf)}` : ''}
+                        {ultConsulta[p.id] ? ` · última consulta ${new Date(ultConsulta[p.id] + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}
                       </div>
                     </div>
+                    <span className="flex-shrink-0 hidden sm:inline-flex" onClick={(e) => e.preventDefault()}><SaldoBadge pacienteId={p.id} compact /></span>
                   </Link>
                   {waLink(p.celular || p.telefone) && (
                     <a href={waLink(p.celular || p.telefone) as string} target="_blank" rel="noreferrer" title="WhatsApp" onClick={(e) => e.stopPropagation()} className="p-2 rounded-lg flex-shrink-0" style={{ color: '#166534' }}><MessageCircle size={17} /></a>
@@ -251,10 +283,17 @@ function FormPaciente({ initial, onCancel, onSave, onInativar }: { initial: Paci
       </div>
 
       <Sec t="Identificação" />
+      {initial.id && p.numero_paciente && (
+        <div className="mb-2 text-xs" style={{ color: ESP60 }}>Código / Prontuário: <span className="font-semibold" style={{ color: GOLD }}>#{p.numero_paciente}</span> <span style={{ color: ESP60 }}>(automático)</span></div>
+      )}
       <Field label="Nome *"><Inp value={p.nome} onChange={(v) => set('nome', v)} placeholder="Nome completo" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="CPF"><Inp value={p.cpf ?? ''} onChange={(v) => set('cpf', v || null)} placeholder="000.000.000-00" /></Field>
+        <Field label="RG"><Inp value={p.rg ?? ''} onChange={(v) => set('rg', v || null)} placeholder="00.000.000-0" /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
         <Field label="Nascimento"><Inp type="date" value={p.data_nascimento ?? ''} onChange={(v) => set('data_nascimento', v || null)} /></Field>
+        <div />
       </div>
       <Field label="Sexo">
         <select value={p.sexo ?? ''} onChange={(e) => set('sexo', (e.target.value || null) as Paciente['sexo'])} className="w-full rounded-xl px-3 py-2 text-sm outline-none bg-white" style={{ border: `1px solid ${LINE}`, color: ESP }}>
