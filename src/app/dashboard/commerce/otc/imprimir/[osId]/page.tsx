@@ -17,6 +17,7 @@ const BUCKET = 'oficina-recepcao'
 interface Empresa { nome?: string | null; razao_social?: string | null; cnpj?: string | null; endereco?: string | null; cidade_estado?: string | null; ie?: string | null; im?: string | null; logo?: string | null }
 interface Cabecalho {
   numero?: string | null; status?: string | null; data_abertura?: string | null; data_conclusao?: string | null
+  data_execucao?: string | null; entregue_em?: string | null
   placa?: string | null; km?: number | null; veiculo?: string | null; marca?: string | null; modelo?: string | null; ano?: number | null
   cliente_nome?: string | null; cliente_cnpj?: string | null; defeito_relatado?: string | null; diagnostico?: string | null; tecnico_nome?: string | null
 }
@@ -134,10 +135,14 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
     <>
       <style>{`
         @media print { .no-print { display: none !important; } @page { size: A4; margin: 14mm 14mm; } body { background: #fff !important; } }
+        /* garante que cores/fundos do cabeçalho saiam no papel (não some no PDF) */
+        .print-root, .print-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .print-root { background: #FAF7F2; min-height: 100vh; }
         .print-page { max-width: 760px; margin: 24px auto; padding: 32px; background: #fff; color: #3D2314; font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
-        @media print { .print-page { box-shadow: none; margin: 0; max-width: none; padding: 0; } .print-root { background: #fff; } }
+        @media print { .print-page { box-shadow: none; margin: 0; max-width: none; padding: 0; } .print-root { background: #fff; } .pp-header { break-inside: avoid; page-break-inside: avoid; } }
         .pp-header { border-bottom: 2px solid #3D2314; padding-bottom: 12px; margin-bottom: 16px; }
+        .pp-datas { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 4px; font-size: 11px; }
+        .pp-datas .pp-lbl { text-transform: none; letter-spacing: 0; }
         .pp-title { font-size: 18px; font-weight: 700; color: #3D2314; margin: 12px 0 2px; letter-spacing: 0.5px; }
         .pp-section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #6B5D4F; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #E0D8CC; }
         .pp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
@@ -176,7 +181,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
         </div>
 
         <div className="print-page">
-          {/* 1. Cabeçalho · empresa + título por status */}
+          {/* 1. Cabeçalho · empresa + título por status + datas (abertura sempre; conclusão/entrega quando houver) */}
           <header className="pp-header">
             <OSHeaderEmpresa empresa={empresa} />
 
@@ -184,8 +189,16 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
               {docTitulo} Nº {cab.numero ?? '—'}
               {cab.status && <span className="pp-status">{STATUS_LABEL[cab.status] ?? cab.status}</span>}
             </h1>
-            <div style={{ fontSize: 10, color: '#6B5D4F' }}>
-              {docSub} · Aberta em {fmtData(cab.data_abertura)}{cab.data_conclusao && <> · Concluída em {fmtData(cab.data_conclusao)}</>}
+            <div style={{ fontSize: 10, color: '#6B5D4F', marginBottom: 2 }}>{docSub}</div>
+            <div className="pp-datas">
+              <span><span className="pp-lbl">Aberta em</span> <strong className="pp-val">{fmtData(cab.data_abertura)}</strong></span>
+              {(() => {
+                // conclusão/entrega: a OS marca em entregue_em/data_execucao (data_conclusao costuma ficar nula)
+                const fim = cab.data_conclusao ?? cab.entregue_em ?? cab.data_execucao
+                if (!fim) return null
+                const rotulo = cab.status === 'entregue' ? 'Entregue em' : 'Concluída em'
+                return <span><span className="pp-lbl">{rotulo}</span> <strong className="pp-val">{fmtData(fim)}</strong></span>
+              })()}
             </div>
           </header>
 
