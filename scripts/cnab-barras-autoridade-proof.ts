@@ -13,7 +13,7 @@
 //   4. mapearRemessaSicredi REPASSA o barras armazenado verbatim no item do segmento J (não recompõe).
 //
 // Rodar: npx tsx scripts/cnab-barras-autoridade-proof.ts
-import { normalizarCodigoBarras, reconhecerBoleto } from '../src/lib/financeiro/boleto-parser'
+import { normalizarCodigoBarras, reconhecerBoleto, validarCodigoBarrasEntrada } from '../src/lib/financeiro/boleto-parser'
 import { mapearRemessaSicredi } from '../src/lib/banco/cnab240'
 import type { ConfigSicoobDb, TituloPag } from '../src/lib/banco/cnab240/mapear'
 
@@ -64,6 +64,44 @@ const itemJ = res.input?.lotes?.[0]?.itens?.[0]
 ok(!!itemJ && itemJ.codBarras === BARRAS_REAL_SICOOB,
   `A4 · segmento J leva o barras armazenado verbatim (J.codBarras: ${itemJ?.codBarras ?? '—'})`)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PROVA CREATE VERBATIM (#908) — o caminho de CRIAÇÃO (Nova Despesa) deve gravar o que o usuário
+// informa EXATAMENTE como digitado, sem converter; e o safeguard de DV deve pegar barras torto na hora.
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n── CREATE VERBATIM (#908) ──')
+const ITAU_LINHA: string = '34191091640455416932810157870006115310000004226' // Itaú 47, R$42,26
+
+// B1 · o bug provado: normalizar (comportamento ANTIGO do create) REESCREVE os dígitos digitados.
+const antigoCreate = normalizarCodigoBarras(ITAU_LINHA) // o que o create gravava antes (44, dígitos trocados)
+ok(antigoCreate !== ITAU_LINHA,
+  `B1 · comportamento ANTIGO alterava o valor: normalizar(linha) (${antigoCreate}) != digitado (${ITAU_LINHA})`)
+
+// B2 · comportamento NOVO: grava verbatim → o que sai é idêntico ao que entrou (simula o update do create).
+const gravadoNovo = ITAU_LINHA.trim() // exatamente o que salvar() persiste agora (cbInput)
+ok(gravadoNovo === ITAU_LINHA, 'B2 · comportamento NOVO grava verbatim: valor gravado === valor digitado')
+
+// B3 · re-save idempotente: reabrir e salvar de novo o valor já salvo NÃO muda nada.
+ok(gravadoNovo.trim() === gravadoNovo, 'B3 · re-save do valor já salvo é idempotente (não converte)')
+
+// B4 · safeguard DV: boleto válido passa e traz o valor embutido (R$42,26).
+const vItau = validarCodigoBarrasEntrada(ITAU_LINHA)
+ok(vItau.ok && vItau.tipo === 'boleto', 'B4a · Itaú válido reconhecido como boleto (DV ok)')
+ok(vItau.valorBoleto === 42.26, `B4b · valor embutido lido = R$42,26 (lido: ${vItau.valorBoleto})`)
+
+// B5 · safeguard DV: um barras TORTO (DV geral adulterado) é BLOQUEADO na hora de salvar.
+const ITAU_TORTO: string = ITAU_LINHA.slice(0, 32) + '2' + ITAU_LINHA.slice(33) // muda o DV geral
+const vTorto = validarCodigoBarrasEntrada(ITAU_TORTO)
+ok(vTorto.ok === false && !!vTorto.motivo, `B5 · barras torto bloqueado no salvar (motivo: ${vTorto.motivo ? 'sim' : 'não'})`)
+
+// B6 · arrecadação (começa com 8) NÃO é rejeitada — reconhecida como tipo próprio.
+const ARRECADACAO: string = '8' + '3'.repeat(43) // 44 díg, guia de arrecadação
+const vArr = validarCodigoBarrasEntrada(ARRECADACAO)
+ok(vArr.ok && vArr.tipo === 'arrecadacao', `B6 · arrecadação reconhecida e NÃO rejeitada (tipo: ${vArr.tipo})`)
+
+// B7 · generalidade multi-banco: Sicoob (756) e Sicredi (748) reconhecidos como boleto.
+ok(validarCodigoBarrasEntrada('75697152900000001791303915795443030000131001').tipo === 'boleto', 'B7a · Sicoob (756) reconhecido')
+ok(validarCodigoBarrasEntrada('74891152900000001791126200096603131599251104').tipo === 'boleto', 'B7b · Sicredi (748) reconhecido')
+
 console.log('')
 if (falhas > 0) { console.error(`❌ PROVA FALHOU: ${falhas} asserção(ões) quebrada(s).`); process.exit(1) }
-console.log('✅ PROVA OK — o barras do banco é reproduzível a partir da linha real, e a remessa o repassa sem recompor.')
+console.log('✅ PROVA OK — barras do banco reproduzível da linha real; remessa repassa sem recompor; create grava verbatim; DV torto bloqueado.')

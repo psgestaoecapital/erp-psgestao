@@ -87,6 +87,34 @@ export function codigoBarrasParaConsulta(entrada?: string | null): string | null
   return normalizarCodigoBarras(dig) ?? dig
 }
 
+// SAFEGUARD de gravação (RD-57 · RD-55): validação única usada em TODOS os caminhos que salvam um
+// boleto (criar/editar/importar/API). NÃO transforma o valor a gravar — só CONFERE. A regra do task:
+// "o que o usuário informa é gravado verbatim; se o DV não confere OU o valor diverge, avisa/bloqueia".
+// - vazio → ok (não é boleto, não bloqueia o lançamento).
+// - boleto bancário (linha 47 / barras 44) → exige DV geral (mód 11) válido; devolve o valor embutido.
+// - arrecadação (começa com '8', 44/48 díg, DV próprio) → reconhecida como tipo 'arrecadacao' e NÃO
+//   rejeitada (estrutura própria; pagamento vai por Segmento O). valorBoleto fica indefinido.
+// canonico = forma canônica (44) só p/ CONSULTA anti-duplicidade — nunca sobrescreve o campo gravado.
+export type ValidacaoBoleto = {
+  ok: boolean
+  tipo: 'boleto' | 'arrecadacao' | null
+  motivo: string | null
+  canonico: string | null
+  valorBoleto?: number // valor embutido no boleto bancário (quando houver — 0/aberto fica indefinido)
+}
+export function validarCodigoBarrasEntrada(entrada?: string | null): ValidacaoBoleto {
+  const dig = (entrada || '').replace(/\D/g, '')
+  if (!dig) return { ok: true, tipo: null, motivo: null, canonico: null }
+  const rec = reconhecerBoleto(dig)
+  if (!rec.reconhecido) {
+    return {
+      ok: false, tipo: null, canonico: null,
+      motivo: 'Código de barras não confere — verifique a digitação (dígito verificador inválido ou tamanho incorreto).',
+    }
+  }
+  return { ok: true, tipo: rec.tipo, motivo: null, canonico: codigoBarrasParaConsulta(dig), valorBoleto: rec.valor }
+}
+
 export interface BoletoReconhecido {
   reconhecido: boolean
   tipo: 'boleto' | 'arrecadacao' | null
