@@ -74,6 +74,7 @@ export default function CatalogoEpiPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [showNovo, setShowNovo] = useState(false)
+  const [showImportarEstoque, setShowImportarEstoque] = useState(false)
   const [importarGlobal, setImportarGlobal] = useState<EpiItem | null>(null)
 
   const carregar = useCallback(async () => {
@@ -141,7 +142,10 @@ export default function CatalogoEpiPage() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link href="/dashboard/compliance/epi" style={btnSec}>← EPI</Link>
             {aba === 'meus' && (
-              <button onClick={() => setShowNovo(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Novo EPI</button>
+              <>
+                <button onClick={() => setShowImportarEstoque(true)} disabled={!companyAlvo} title="Puxar EPIs que a empresa já tem no estoque (GE / Indústria)" style={{ ...btnSec, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>⬇️ Importar do estoque</button>
+                <button onClick={() => setShowNovo(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Novo EPI</button>
+              </>
             )}
           </div>
         </header>
@@ -229,6 +233,9 @@ export default function CatalogoEpiPage() {
 
       {showNovo && companyAlvo && (
         <ModalNovoEPI companyId={companyAlvo} categorias={categorias} onClose={() => setShowNovo(false)} onSaved={() => { setShowNovo(false); carregar() }} />
+      )}
+      {showImportarEstoque && companyAlvo && (
+        <ModalImportarEstoque companyId={companyAlvo} onClose={() => setShowImportarEstoque(false)} onImported={() => { setShowImportarEstoque(false); carregar() }} />
       )}
       {importarGlobal && companyAlvo && (
         <ModalNovoEPI companyId={companyAlvo} categorias={categorias} clonarDe={importarGlobal} onClose={() => setImportarGlobal(null)} onSaved={() => { setImportarGlobal(null); carregar() }} />
@@ -364,6 +371,189 @@ function ModalNovoEPI({
   )
 }
 
+// Importar EPIs do estoque existente (GE / Indústria-ATAK) para "Meus EPIs".
+// Puxa código + nome (+ saldo + CA sugerido) de fn_epi_candidatos_estoque, o usuário seleciona (há falsos
+// positivos, ex. "MÁSCARA SUÍNA" já é barrada no backend) e importa via fn_epi_importar_estoque (idempotente).
+interface Candidato {
+  fonte: 'ge' | 'atak'
+  codigo: string
+  nome: string
+  saldo: number | null
+  ca_sugerido: string | null
+  categoria_slug: string | null
+  provavel_epi: boolean
+  ja_importado: boolean
+}
+
+function ModalImportarEstoque({ companyId, onClose, onImported }: { companyId: string; onClose: () => void; onImported: () => void }) {
+  const [candidatos, setCandidatos] = useState<Candidato[]>([])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
+  const [fonte, setFonte] = useState<'todas' | 'ge' | 'atak'>('todas')
+  const [somenteProvaveis, setSomenteProvaveis] = useState(true)
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [caEdits, setCaEdits] = useState<Record<string, string>>({})
+  const [importando, setImportando] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const chave = (c: Candidato) => `${c.fonte}|${c.codigo}`
+
+  const carregar = useCallback(async () => {
+    setLoading(true); setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_epi_candidatos_estoque', {
+        p_company_ids: [companyId],
+        p_busca: busca.trim() || null,
+        p_somente_provaveis: somenteProvaveis,
+        p_limite: 500,
+      })
+      if (error) throw error
+      setCandidatos((data || []) as Candidato[])
+    } catch (e) {
+      setErro((e as Error)?.message || 'Falha ao buscar candidatos')
+    } finally {
+      setLoading(false)
+    }
+  }, [companyId, busca, somenteProvaveis])
+
+  useEffect(() => {
+    const t = setTimeout(() => { void carregar() }, 300)
+    return () => clearTimeout(t)
+  }, [carregar])
+
+  const lista = useMemo(
+    () => candidatos.filter((c) => fonte === 'todas' || c.fonte === fonte),
+    [candidatos, fonte],
+  )
+
+  function toggle(c: Candidato) {
+    if (c.ja_importado) return
+    const k = chave(c)
+    setSel((prev) => {
+      const n = new Set(prev)
+      if (n.has(k)) n.delete(k); else n.add(k)
+      return n
+    })
+  }
+
+  async function importar() {
+    const escolhidos = candidatos.filter((c) => sel.has(chave(c)) && !c.ja_importado)
+    if (escolhidos.length === 0) { setMsg('Selecione ao menos 1 item.'); return }
+    setImportando(true); setMsg('')
+    try {
+      const itens = escolhidos.map((c) => ({
+        fonte: c.fonte,
+        codigo: c.codigo,
+        nome: c.nome,
+        ca: (caEdits[chave(c)] ?? c.ca_sugerido ?? '').trim(),
+        saldo: c.saldo,
+      }))
+      const { data, error } = await supabase.rpc('fn_epi_importar_estoque', { p_company_id: companyId, p_itens: itens })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string; importados?: number } | null
+      if (!j?.ok) { setMsg('Erro: ' + (j?.erro ?? 'não importou')); setImportando(false); return }
+      onImported()
+    } catch (e) {
+      setMsg('Erro ao importar: ' + (e as Error).message)
+      setImportando(false)
+    }
+  }
+
+  const nSel = candidatos.filter((c) => sel.has(chave(c)) && !c.ja_importado).length
+  const fonteLabel = (f: string) => (f === 'ge' ? 'GE' : 'Indústria')
+
+  return (
+    <div onClick={onClose} style={overlayStyle}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...modalStyle, width: 'min(820px, 96vw)' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, color: C.gold, margin: 0, textTransform: 'uppercase' }}>EPI · Meus EPIs</p>
+        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 6px' }}>Importar do estoque</h2>
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 14px' }}>
+          Puxa os EPIs que a empresa já tem no estoque (GE / Indústria) para o cadastro bater com os EPIs reais. Você escolhe o que importar.
+        </p>
+
+        {msg && <div style={{ background: msg.startsWith('Erro') ? '#fce8e8' : '#EAF5EE', color: msg.startsWith('Erro') ? C.red : C.green, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{msg}</div>}
+        {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+          <input type="text" placeholder="Buscar por nome / código…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: '1 1 220px' }} />
+          <select value={fonte} onChange={(e) => setFonte(e.target.value as 'todas' | 'ge' | 'atak')} style={{ ...inputStyle, minWidth: 150 }}>
+            <option value="todas">Todas as fontes</option>
+            <option value="ge">GE</option>
+            <option value="atak">Indústria/ATAK</option>
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.espressoLt, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={!somenteProvaveis} onChange={(e) => setSomenteProvaveis(!e.target.checked)} />
+            Mostrar todos os produtos
+          </label>
+        </div>
+
+        <div style={{ border: `1px solid ${C.borderLt}`, borderRadius: 10, overflow: 'hidden', maxHeight: '48vh', overflowY: 'auto' }}>
+          {loading ? (
+            <p style={{ textAlign: 'center', color: C.muted, padding: 28, fontSize: 13 }}>Carregando…</p>
+          ) : lista.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 28, color: C.muted, fontSize: 13 }}>
+              Nenhum EPI encontrado no seu estoque.{somenteProvaveis ? ' Tente “Mostrar todos os produtos”.' : ''} Você pode cadastrar manualmente em <strong>+ Novo EPI</strong>.
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: C.beigeLt, color: C.espressoLt, textAlign: 'left' }}>
+                  <th style={thTd}></th>
+                  <th style={thTd}>Produto</th>
+                  <th style={thTd}>Fonte</th>
+                  <th style={{ ...thTd, textAlign: 'right' }}>Saldo</th>
+                  <th style={thTd}>CA sugerido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((c) => {
+                  const k = chave(c)
+                  const marcado = sel.has(k)
+                  return (
+                    <tr key={k} style={{ borderTop: `1px solid ${C.borderLt}`, opacity: c.ja_importado ? 0.5 : 1, background: marcado ? '#FBF6EA' : 'transparent' }}>
+                      <td style={thTd}>
+                        <input type="checkbox" checked={marcado} disabled={c.ja_importado} onChange={() => toggle(c)} />
+                      </td>
+                      <td style={thTd}>
+                        <div style={{ fontWeight: 600, color: C.espresso }}>{c.nome}</div>
+                        <div style={{ fontSize: 11, color: C.muted }}>cód {c.codigo}{c.ja_importado && ' · já importado'}</div>
+                      </td>
+                      <td style={thTd}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: c.fonte === 'ge' ? '#e6f0ff' : '#fdeede', color: c.fonte === 'ge' ? '#1d4ed8' : '#b45309' }}>{fonteLabel(c.fonte)}</span>
+                      </td>
+                      <td style={{ ...thTd, textAlign: 'right', color: c.saldo != null && c.saldo < 0 ? C.red : C.espressoLt }}>{c.saldo != null ? c.saldo : '—'}</td>
+                      <td style={thTd}>
+                        <input
+                          value={caEdits[k] ?? c.ca_sugerido ?? ''}
+                          onChange={(e) => setCaEdits((prev) => ({ ...prev, [k]: e.target.value }))}
+                          disabled={c.ja_importado}
+                          placeholder="—"
+                          style={{ ...inputStyle, padding: '5px 8px', width: 110 }}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, color: C.muted }}>{nSel > 0 ? `${nSel} selecionado(s)` : 'Selecione os EPIs que quer importar'}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} disabled={importando} style={btnSec}>Cancelar</button>
+            <button onClick={importar} disabled={importando || nSel === 0} style={{ ...btnPrim, opacity: !importando && nSel > 0 ? 1 : 0.6, cursor: !importando && nSel > 0 ? 'pointer' : 'not-allowed' }}>
+              {importando ? 'Importando…' : `Importar selecionados${nSel > 0 ? ` (${nSel})` : ''}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TabBtn({ ativa, onClick, children }: { ativa: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick} style={{ padding: '10px 16px', background: 'transparent', border: 'none', borderBottom: ativa ? `2px solid ${C.gold}` : '2px solid transparent', color: ativa ? C.espresso : C.muted, fontSize: 13, fontWeight: ativa ? 700 : 500, cursor: 'pointer' }}>{children}</button>
@@ -394,3 +584,4 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#FAF7F2', border: '1px solid #ece3d2', borderRadius: 8, fontSize: 13, color: '#1a1a1a', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }
 const btnSec: React.CSSProperties = { padding: '10px 14px', borderRadius: 8, border: '1px solid #ece3d2', background: '#FFFFFF', color: '#3D2314', fontSize: 13, fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }
 const btnPrim: React.CSSProperties = { padding: '10px 14px', borderRadius: 8, border: 'none', background: '#3D2314', color: '#FFFFFF', fontSize: 13, fontWeight: 600, cursor: 'pointer' }
+const thTd: React.CSSProperties = { padding: '8px 10px', verticalAlign: 'middle' }
