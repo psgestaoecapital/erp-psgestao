@@ -48,10 +48,21 @@ export default function ComissaoPage() {
     if (!empresa) return
     const prevs = comissoes.filter((c) => c.status === 'prevista')
     if (prevs.length === 0) { setToast('Nenhuma comissão prevista pra fechar.'); return }
-    if (!confirm(`Fechar ${prevs.length} comissão(ões) prevista(s) → A PAGAR?`)) return
+    if (!confirm(`Fechar ${prevs.length} comissão(ões) prevista(s)? Cada uma vira conta a pagar (erp_pagar).`)) return
     setBusy(true)
-    await supabase.from('agency_comissao').update({ status: 'a_pagar' }).eq('company_id', empresa).eq('status', 'prevista')
-    setBusy(false); setToast('Comissões fechadas → A PAGAR. (lançamento no erp_pagar após régua RD-53)'); void carregar()
+    // aprova cada prevista pela RPC (gera erp_pagar, idempotente)
+    for (const c of prevs) { await supabase.rpc('fn_agency_comissao_aprovar', { p_comissao_id: c.id }) }
+    setBusy(false); setToast(`${prevs.length} comissão(ões) → A PAGAR (lançadas no financeiro).`); void carregar()
+  }
+  async function aprovar(c: Comissao) {
+    if (!confirm('Aprovar esta comissão? Ela vira uma conta a pagar no financeiro (erp_pagar).')) return
+    setBusy(true)
+    // fn_agency_comissao_aprovar: gera erp_pagar (idempotente) e move a comissão para "a pagar".
+    const { data, error } = await supabase.rpc('fn_agency_comissao_aprovar', { p_comissao_id: c.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setToast('Comissão APROVADA → a pagar (lançada no financeiro).'); void carregar()
   }
   async function marcarPaga(c: Comissao) {
     await supabase.from('agency_comissao').update({ status: 'paga' }).eq('id', c.id)
@@ -67,7 +78,7 @@ export default function ComissaoPage() {
           <div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Financeiro</div>
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Comissão</h1>
-            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Por vendedor/competência. Fechar leva pra "a pagar" (vira erp_pagar após régua).</p>
+            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Por vendedor/competência. Aprovar lança no contas a pagar (erp_pagar).</p>
           </div>
           <button disabled={busy} onClick={fechar} style={btnPri}>Fechar previstas</button>
         </header>
@@ -95,7 +106,10 @@ export default function ComissaoPage() {
                         <Td>{Number(c.percentual ?? 0)}%</Td>
                         <Td style={{ fontWeight: 700 }}>{brl(Number(c.valor_comissao ?? 0))}</Td>
                         <Td><span style={{ fontSize: 11, fontWeight: 700, background: cfg.cor, padding: '2px 8px', borderRadius: 999 }}>{cfg.l}</span></Td>
-                        <Td>{c.status === 'a_pagar' && <button onClick={() => marcarPaga(c)} style={btnOk}>Marcar paga</button>}</Td>
+                        <Td>
+                          {c.status === 'prevista' && <button disabled={busy} onClick={() => aprovar(c)} style={btnOk}>Aprovar → a pagar</button>}
+                          {c.status === 'a_pagar' && <button onClick={() => marcarPaga(c)} style={btnOk}>Marcar paga</button>}
+                        </Td>
                       </tr>
                     )
                   })}
@@ -104,7 +118,7 @@ export default function ComissaoPage() {
             </div>
           )}
         <p style={{ fontSize: 11, color: TEXTM, marginTop: 14, fontStyle: 'italic' }}>
-          O lançamento da comissão no contas a pagar da GE (erp_pagar) é ligado após a régua de não-regressão financeira (RD-53).
+          Aprovar uma comissão a lança direto no <strong>contas a pagar</strong> da empresa (erp_pagar). Depois é só pagar no financeiro.
         </p>
       </div>
       {toast && <div style={toastStyle}>{toast}</div>}

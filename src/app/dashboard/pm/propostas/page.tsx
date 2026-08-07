@@ -43,6 +43,9 @@ export default function PropostasPage() {
   const [form, setForm] = useState({ cliente_id: '', titulo: '', valor: '', condicao: 'Mensal' })
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  // modal de aprovação: irriga a GE (contrato recorrente) + comissão do comercial
+  const [apr, setApr] = useState<Proposta | null>(null)
+  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -88,18 +91,30 @@ export default function PropostasPage() {
     setToast(`Proposta ALTERADA para ${stCfg(status).l}.`); void carregar()
   }
 
-  async function aprovar(p: Proposta) {
-    if (!empresa) return
-    if (!confirm(`Aprovar "${p.titulo}"?\nIsto marca a proposta como APROVADA e GERA um contrato recorrente na agência.`)) return
+  function abrirAprovar(p: Proposta) {
+    setAprForm({ fee: String(p.valor_final ?? p.valor_total ?? ''), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+    setApr(p)
+  }
+
+  async function confirmarAprovar() {
+    if (!apr) return
     setBusy(true)
-    await supabase.from('agency_propostas').update({ status: 'aprovada', data_aprovacao: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() }).eq('id', p.id)
-    // gera contrato P&M (lado agência; post financeiro na GE = etapa separada com régua RD-53)
-    const { error } = await supabase.from('agency_contratos').insert({
-      company_id: empresa, cliente_id: p.cliente_id, proposta_id: p.id, tipo: 'recorrente',
-      fee_mensal: p.valor_final, dia_vencimento: 10, data_inicio: new Date().toISOString().slice(0, 10), status: 'ativo',
+    // fn_agency_proposta_aprovar: cria contrato recorrente na GE (erp_contratos) + comissão do comercial.
+    const { data, error } = await supabase.rpc('fn_agency_proposta_aprovar', {
+      p_proposta_id: apr.id,
+      p_fee_mensal: aprForm.fee ? Number(aprForm.fee) : null,
+      p_dia_vencimento: Number(aprForm.dia) || 10,
+      p_periodicidade: aprForm.periodicidade,
+      p_data_inicio: new Date().toISOString().slice(0, 10),
+      p_comissao_percentual: aprForm.comPct ? Number(aprForm.comPct) : 0,
+      p_comissao_tipo: aprForm.comTipo,
+      p_comissao_base: aprForm.comBase,
     })
     setBusy(false)
-    setToast(error ? `Aprovada (contrato: ${error.message})` : 'Proposta APROVADA · contrato CRIADO.')
+    const j = data as { ok?: boolean; erro?: string; contrato_numero?: string; valor_comissao?: number } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setApr(null)
+    setToast(j.contrato_numero ? `APROVADA · contrato ${j.contrato_numero} criado na GE` : 'Proposta APROVADA.')
     void carregar()
   }
 
@@ -142,7 +157,7 @@ export default function PropostasPage() {
                     <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: cfg.cor, padding: '3px 10px', borderRadius: 999 }}>{cfg.l}</span>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {p.status === 'rascunho' && <button onClick={() => mudarStatus(p, 'enviada')} style={btnSec}>📨 Enviar</button>}
-                      {['rascunho', 'enviada'].includes(p.status) && <button disabled={busy} onClick={() => aprovar(p)} style={btnGanhar}>✓ Aprovar</button>}
+                      {['rascunho', 'enviada'].includes(p.status) && <button disabled={busy} onClick={() => abrirAprovar(p)} style={btnGanhar}>✓ Aprovar</button>}
                       {['rascunho', 'enviada'].includes(p.status) && <button onClick={() => mudarStatus(p, 'recusada')} style={btnPerder}>✕ Recusar</button>}
                       {p.status === 'aprovada' && <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>→ contrato gerado</span>}
                     </div>
@@ -175,6 +190,47 @@ export default function PropostasPage() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <button onClick={() => setNovo(false)} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={criar} style={btnPri}>{busy ? 'Salvando…' : 'CRIAR'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {apr && (
+        <div style={overlay} onClick={() => setApr(null)}>
+          <div style={modal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 4px' }}>Aprovar proposta</h2>
+            <p style={{ fontSize: 12.5, color: TEXTM, margin: '0 0 12px' }}>{apr.titulo} · {nomeCliente(apr.cliente_id)}</p>
+            <div style={{ background: '#FBF6EA', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: ESPRESSO, marginBottom: 10 }}>
+              Ao aprovar: nasce um <strong>contrato recorrente na GE</strong> (o faturamento passa a ser automático) e a <strong>comissão do comercial</strong>.
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0' }}>Contrato (fee recorrente)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <label style={lbl}>Fee mensal (R$)<input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
+              <label style={lbl}>Dia venc.<input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
+              <label style={lbl}>Periodicidade
+                <select style={inp} value={aprForm.periodicidade} onChange={(e) => setAprForm({ ...aprForm, periodicidade: e.target.value })}>
+                  <option value="mensal">Mensal</option><option value="trimestral">Trimestral</option><option value="anual">Anual</option>
+                </select>
+              </label>
+            </div>
+            <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <label style={lbl}>Percentual (%)<input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
+              <label style={lbl}>Base
+                <select style={inp} value={aprForm.comBase} onChange={(e) => setAprForm({ ...aprForm, comBase: e.target.value })}>
+                  <option value="fee">Fee mensal</option><option value="contrato">Valor da proposta</option>
+                </select>
+              </label>
+              <label style={lbl}>Tipo
+                <select style={inp} value={aprForm.comTipo} onChange={(e) => setAprForm({ ...aprForm, comTipo: e.target.value })}>
+                  <option value="unica">Única</option><option value="recorrente">Recorrente</option>
+                </select>
+              </label>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button onClick={() => setApr(null)} style={btnGhost}>Cancelar</button>
+              <button disabled={busy} onClick={confirmarAprovar} style={btnPri}>{busy ? 'Aprovando…' : 'Aprovar e gerar contrato'}</button>
             </div>
           </div>
         </div>

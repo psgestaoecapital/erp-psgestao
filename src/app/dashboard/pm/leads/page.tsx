@@ -2,6 +2,7 @@
 // LEADS · CRM de entrada da agência (P&M). Funil sobre agency_leads, escopado por company_id (RD-45).
 // Reusa o padrão do Workspace (producao): empresa do localStorage, tema Espresso claro.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -43,6 +44,7 @@ type Lead = {
 }
 
 export default function LeadsPage() {
+  const router = useRouter()
   const { selInfo, companyIds } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
 
@@ -96,24 +98,22 @@ export default function LeadsPage() {
 
   async function ganhar(l: Lead) {
     if (!empresa) return
-    if (!confirm(`Marcar "${l.nome}" como GANHO?\nIsto CRIA um cliente na agência a partir do lead.`)) return
+    if (!confirm(`Marcar "${l.nome}" como GANHO?\nIsto cria o cliente na agência e GERA uma proposta a partir do lead.`)) return
     setBusy(true)
-    let clienteId = l.cliente_id
-    if (!clienteId) {
-      const { data: c, error: e1 } = await supabase.from('agency_clientes')
-        .insert({ company_id: empresa, nome: l.empresa || l.nome, nome_fantasia: l.empresa || l.nome, status: 'ativo', tipo_contrato: 'recorrente' })
-        .select('id').single()
-      if (e1) { setBusy(false); setToast(`Erro: ${e1.message}`); return }
-      clienteId = (c as { id: string }).id
-    }
-    await supabase.from('agency_leads').update({ etapa: 'ganho', cliente_id: clienteId, atualizado_em: new Date().toISOString() }).eq('id', l.id)
-    setBusy(false); setToast('Lead GANHO · cliente CRIADO.'); void carregar()
+    // fn_agency_lead_ganhar: ganho + cliente (se não houver) + proposta rascunho a partir do lead
+    const { data, error } = await supabase.rpc('fn_agency_lead_ganhar', { p_lead_id: l.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string; proposta_id?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setToast('GANHOU o lead → proposta gerada.'); void carregar()
+    setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
   }
 
   async function perder(l: Lead) {
-    const motivo = prompt('Motivo da perda (opcional):', '')
+    const motivo = prompt('Motivo da perda (obrigatório):', '')
     if (motivo === null) return
-    await supabase.from('agency_leads').update({ etapa: 'perdido', motivo_perda: motivo || null, atualizado_em: new Date().toISOString() }).eq('id', l.id)
+    if (!motivo.trim()) { setToast('Informe o motivo da perda.'); return }
+    await supabase.from('agency_leads').update({ etapa: 'perdido', motivo_perda: motivo.trim(), atualizado_em: new Date().toISOString() }).eq('id', l.id)
     setToast('Lead marcado como PERDIDO.'); void carregar()
   }
 
