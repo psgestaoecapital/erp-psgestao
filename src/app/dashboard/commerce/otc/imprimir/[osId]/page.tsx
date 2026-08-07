@@ -9,11 +9,12 @@
 
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import OSHeaderEmpresa from '@/components/os/OSHeaderEmpresa'
 
 export const dynamic = 'force-dynamic'
 const BUCKET = 'oficina-recepcao'
 
-interface Empresa { nome?: string | null; razao_social?: string | null; cnpj?: string | null; endereco?: string | null; cidade_estado?: string | null; ie?: string | null; im?: string | null }
+interface Empresa { nome?: string | null; razao_social?: string | null; cnpj?: string | null; endereco?: string | null; cidade_estado?: string | null; ie?: string | null; im?: string | null; logo?: string | null }
 interface Cabecalho {
   numero?: string | null; status?: string | null; data_abertura?: string | null; data_conclusao?: string | null
   placa?: string | null; km?: number | null; veiculo?: string | null; marca?: string | null; modelo?: string | null; ano?: number | null
@@ -177,14 +178,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
         <div className="print-page">
           {/* 1. Cabeçalho · empresa + título por status */}
           <header className="pp-header">
-            <div style={{ fontSize: 15, fontWeight: 700 }}>{empresa.nome ?? '—'}</div>
-            {empresa.razao_social && empresa.razao_social !== empresa.nome && <div style={{ fontSize: 11, color: '#6B5D4F' }}>{empresa.razao_social}</div>}
-            <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 12px' }}>
-              {empresa.cnpj && <span>CNPJ: {empresa.cnpj}</span>}
-              {empresa.ie && <span>IE: {empresa.ie}</span>}
-              {empresa.im && <span>IM: {empresa.im}</span>}
-            </div>
-            {(empresa.endereco || empresa.cidade_estado) && <div style={{ fontSize: 10, color: '#6B5D4F', marginTop: 2 }}>{[empresa.endereco, empresa.cidade_estado].filter(Boolean).join(' · ')}</div>}
+            <OSHeaderEmpresa empresa={empresa} />
 
             <h1 className="pp-title">
               {docTitulo} Nº {cab.numero ?? '—'}
