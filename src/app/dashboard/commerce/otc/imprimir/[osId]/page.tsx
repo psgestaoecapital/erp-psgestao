@@ -280,17 +280,27 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
               ) : fotos.length === 0 ? (
                 <div style={{ fontSize: 11, color: '#9C8E80' }}>Sem fotos registradas nesta OS.</div>
               ) : (
-                <div className="pp-fotos">
-                  {fotos.map((f, i) => (
-                    <div className="pp-foto" key={i}>
-                      {f._url
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        ? <img src={f._url} alt={f.descricao ?? 'foto'} />
-                        : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#9C8E80' }}>indisponível</div>}
-                      {(f.descricao || f.autor || f.etapa) && <div className="cap">{[f.etapa ? (ETAPA_LABEL[f.etapa] ?? f.etapa) : null, f.descricao, f.autor].filter(Boolean).join(' · ')}</div>}
+                // Agrupa por etapa (Recepção · Diagnóstico · …); seção vazia é omitida (F2).
+                ['recepcao', 'diagnostico', 'servico', 'outros'].map((et) => {
+                  const doGrupo = fotos.filter((f) => (et === 'outros' ? !['recepcao', 'diagnostico', 'servico'].includes(f.etapa ?? '') : f.etapa === et))
+                  if (doGrupo.length === 0) return null
+                  return (
+                    <div key={et} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6B5D4F', margin: '4px 0' }}>{ETAPA_LABEL[et] ?? 'Outras'}</div>
+                      <div className="pp-fotos">
+                        {doGrupo.map((f, i) => (
+                          <div className="pp-foto" key={i}>
+                            {f._url
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              ? <img src={f._url} alt={f.descricao ?? 'foto'} />
+                              : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#9C8E80' }}>indisponível</div>}
+                            {(f.descricao || f.autor) && <div className="cap">{[f.descricao, f.autor].filter(Boolean).join(' · ')}</div>}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                })
               )}
             </section>
           )}
