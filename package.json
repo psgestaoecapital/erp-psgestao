@@ -9,6 +9,7 @@
     "lint": "eslint",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
     "check:menu": "tsx scripts/check-menu-rotas.ts",
+    "proof:barras": "tsx scripts/cnab-barras-autoridade-proof.ts",
     "postinstall": "node scripts/copy-pdfjs-worker.mjs"
   },
   "dependencies": {

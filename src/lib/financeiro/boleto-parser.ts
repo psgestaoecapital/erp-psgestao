@@ -13,6 +13,11 @@ export interface BoletoLido {
 }
 
 // Linha digitável (47 díg) → código de barras (44 díg).
+// 🔒 INVARIANTE (RD-38): o código de barras é AUTORIDADE do banco emissor — a PS armazena e repassa,
+// nunca "recompõe" campo livre por conta própria (isso desloca dígitos e gera rejeição CA no Sicredi).
+// Esta conversão só REORGANIZA os dígitos que já vêm na linha digitável (nenhum é fabricado) e é
+// provada byte a byte contra a linha/barras real do Sicoob em scripts/cnab-barras-autoridade-proof.ts
+// (npm run proof:barras). Se for mexer aqui, rode a prova.
 function linhaParaBarras(l: string): string {
   const bancoMoeda = l.slice(0, 4) // banco(3) + moeda(1)
   const dvGeral = l.slice(32, 33) // DV geral do código de barras
