@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
+import NovoFuncionarioModal from '../_components/NovoFuncionarioModal'
 
 const C = {
   espresso: '#3D2314',
@@ -33,6 +34,9 @@ type Funcionario = {
   empresa_tomadora_nome: string | null
   obra_nome: string | null
   ativo: boolean
+  vinculo_tipo: 'direto' | 'terceirizado' | null
+  prestador_id: string | null
+  prestador_nome: string | null
   compliance_resumo: { total: number; em_dia: number; pct: number }
 }
 
@@ -45,6 +49,7 @@ export default function FuncionariosPage() {
   const [fCargo, setFCargo] = useState('')
   const [fSetor, setFSetor] = useState('')
   const [fEmp, setFEmp] = useState('')
+  const [fVinculo, setFVinculo] = useState<'' | 'direto' | 'terceirizado'>('')
   const [fStatus, setFStatus] = useState<'' | 'ok' | 'pendente' | 'critico'>('')
   const [modalAberto, setModalAberto] = useState(false)
   const [importando, setImportando] = useState(false)
@@ -81,6 +86,7 @@ export default function FuncionariosPage() {
       if (fCargo) params.set('cargo', fCargo)
       if (fSetor) params.set('setor', fSetor)
       if (fEmp) params.set('empresa_tomadora', fEmp)
+      if (fVinculo) params.set('vinculo_tipo', fVinculo)
       const res = await authFetch(`/api/compliance/funcionarios?${params.toString()}`)
       const j = await res.json()
       if (!j.ok) throw new Error(j.error || 'falha')
@@ -90,7 +96,7 @@ export default function FuncionariosPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyIdsKey, busca, fCargo, fSetor, fEmp])
+  }, [companyIdsKey, busca, fCargo, fSetor, fEmp, fVinculo])
 
   useEffect(() => {
     carregar()
@@ -184,6 +190,11 @@ export default function FuncionariosPage() {
             <option value="">Todas as tomadoras</option>
             {empresas.map((s: string) => (<option key={s} value={s}>{s}</option>))}
           </select>
+          <select value={fVinculo} onChange={(e: any) => setFVinculo(e.target.value as any)} style={selectStyle()}>
+            <option value="">Todos os vínculos</option>
+            <option value="direto">Diretos</option>
+            <option value="terceirizado">Terceirizados</option>
+          </select>
           <select value={fCargo} onChange={(e: any) => setFCargo(e.target.value)} style={selectStyle()}>
             <option value="">Todos os cargos</option>
             {cargos.map((s: string) => (<option key={s} value={s}>{s}</option>))}
@@ -207,6 +218,7 @@ export default function FuncionariosPage() {
                 <tr style={{ backgroundColor: C.beigeLt }}>
                   <Th>Nome</Th>
                   <Th>CPF</Th>
+                  <Th>Vínculo</Th>
                   <Th>Cargo / Setor</Th>
                   {multiEmpresa && <Th>Empresa</Th>}
                   <Th>Tomadora</Th>
@@ -215,8 +227,8 @@ export default function FuncionariosPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading && (<tr><td colSpan={multiEmpresa ? 7 : 6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
-                {!loading && funcsFiltrados.length === 0 && (<tr><td colSpan={multiEmpresa ? 7 : 6} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum funcionário</td></tr>)}
+                {loading && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
+                {!loading && funcsFiltrados.length === 0 && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum funcionário</td></tr>)}
                 {funcsFiltrados.map((f: Funcionario, i: number) => {
                   const pct = f.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
@@ -226,6 +238,9 @@ export default function FuncionariosPage() {
                         <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ color: C.espresso, textDecoration: 'none', fontWeight: 600 }}>{f.nome_completo}</Link>
                       </Td>
                       <Td mono>{f.cpf || '—'}</Td>
+                      <Td>
+                        <VinculoBadge vinculo={f.vinculo_tipo} prestadorNome={f.prestador_nome} />
+                      </Td>
                       <Td>
                         <div>{f.cargo || '—'}</div>
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.setor || '—'}</div>
@@ -277,381 +292,22 @@ export default function FuncionariosPage() {
   )
 }
 
-type Setor = {
-  id: string
-  nome: string
-  slug: string
-  descricao: string | null
-  is_global: boolean
-  ordem_exibicao: number | null
-  ativo: boolean
-}
-
-type Prestador = {
-  id: string
-  razao_social: string
-  cnpj: string | null
-}
-
-function NovoFuncionarioModal({
-  empresas, companyIdInicial, onClose, onCreated,
-}: {
-  empresas: { id: string; nome: string }[]
-  companyIdInicial: string
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [companyId, setCompanyId] = useState(companyIdInicial)
-  const [nome, setNome] = useState('')
-  const [cpf, setCpf] = useState('')
-  const [cargo, setCargo] = useState('')
-  // Setor agora aponta pra uma linha de compliance_setores OU permanece string livre (legado)
-  const [setorId, setSetorId] = useState<string>('')
-  const [empresaTomadora, setEmpresaTomadora] = useState('')
-  const [obra, setObra] = useState('')
-  // PR A1 — vinculo direto vs terceirizado
-  const [vinculoTipo, setVinculoTipo] = useState<'direto' | 'terceirizado'>('direto')
-  const [prestadorId, setPrestadorId] = useState<string>('')
-  const [salvando, setSalvando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-
-  // Setores carregados (globais + da empresa selecionada)
-  const [setores, setSetores] = useState<Setor[]>([])
-  const [carregandoSetores, setCarregandoSetores] = useState(false)
-  const [showNovoSetor, setShowNovoSetor] = useState(false)
-
-  // Prestadores carregados quando vinculo=terceirizado
-  const [prestadores, setPrestadores] = useState<Prestador[]>([])
-  const [carregandoPrestadores, setCarregandoPrestadores] = useState(false)
-
-  const exigeEscolha = empresas.length > 1
-
-  // Carrega setores (globais + da empresa)
-  const carregarSetores = useCallback(async () => {
-    setCarregandoSetores(true)
-    try {
-      const { data, error } = await supabase
-        .from('compliance_setores')
-        .select('id, nome, slug, descricao, is_global, ordem_exibicao, ativo, company_id')
-        .or(`is_global.eq.true,company_id.eq.${companyId}`)
-        .eq('ativo', true)
-        .order('is_global', { ascending: false })
-        .order('ordem_exibicao', { ascending: true, nullsFirst: false })
-        .order('nome', { ascending: true })
-      if (error) throw error
-      setSetores((data || []) as Setor[])
-    } catch (e: any) {
-      console.error('[setores]', e?.message)
-      setSetores([])
-    } finally {
-      setCarregandoSetores(false)
-    }
-  }, [companyId])
-
-  // Carrega prestadores da empresa quando vinculo=terceirizado
-  const carregarPrestadores = useCallback(async () => {
-    if (!companyId) return
-    setCarregandoPrestadores(true)
-    try {
-      const res = await authFetch(`/api/compliance/prestadores?company_ids=${companyId}&ativo=true`)
-      const j = await res.json()
-      if (j.ok && Array.isArray(j.prestadores)) {
-        setPrestadores(j.prestadores)
-      } else {
-        setPrestadores([])
-      }
-    } catch {
-      setPrestadores([])
-    } finally {
-      setCarregandoPrestadores(false)
-    }
-  }, [companyId])
-
-  useEffect(() => { carregarSetores() }, [carregarSetores])
-  useEffect(() => {
-    if (vinculoTipo === 'terceirizado') carregarPrestadores()
-  }, [vinculoTipo, carregarPrestadores])
-
-  // Reset prestador quando volta para direto
-  useEffect(() => {
-    if (vinculoTipo === 'direto') setPrestadorId('')
-  }, [vinculoTipo])
-
-  // Reset setor quando troca empresa (setores próprios mudam)
-  useEffect(() => {
-    setSetorId('')
-  }, [companyId])
-
-  function setorEscolhido(): Setor | null {
-    return setores.find((s) => s.id === setorId) || null
-  }
-
-  async function salvar() {
-    if (!nome.trim()) { setErro('Nome é obrigatório'); return }
-    if (vinculoTipo === 'terceirizado' && !prestadorId) {
-      setErro('Selecione o prestador para vínculo terceirizado')
-      return
-    }
-    setSalvando(true)
-    setErro(null)
-    try {
-      const setor = setorEscolhido()
-      const res = await authFetch('/api/compliance/funcionarios', {
-        method: 'POST',
-        body: JSON.stringify({
-          company_id: companyId,
-          nome_completo: nome,
-          cpf: cpf || null,
-          cargo: cargo || null,
-          // Mantem string em `setor` (compatibilidade) + envia setor_id quando ha
-          setor: setor?.nome || null,
-          setor_id: setor?.id || null,
-          empresa_tomadora_nome: empresaTomadora || null,
-          obra_nome: obra || null,
-          vinculo_tipo: vinculoTipo,
-          prestador_id: vinculoTipo === 'terceirizado' ? prestadorId : null,
-          ativo: true,
-        }),
-      })
-      const j = await res.json()
-      if (!j.ok) throw new Error(j.error || 'falha')
-      onCreated()
-    } catch (e: any) {
-      setErro(e.message)
-      setSalvando(false)
-    }
-  }
-
-  // Setor recém-criado: já vem selecionado no dropdown
-  function setorCriado(novo: Setor) {
-    setSetores((prev) => [...prev, novo])
-    setSetorId(novo.id)
-    setShowNovoSetor(false)
-  }
-
+function VinculoBadge({ vinculo, prestadorNome }: { vinculo: 'direto' | 'terceirizado' | null; prestadorNome: string | null }) {
+  const terceiro = vinculo === 'terceirizado'
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(560px, 92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '0 0 16px' }}>Novo funcionário</h2>
-        {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{erro}</div>)}
-
-        {exigeEscolha ? (
-          <Field label="Empresa *">
-            <select value={companyId} onChange={(e: any) => setCompanyId(e.target.value)} style={inputStyle()}>
-              {empresas.map((e) => (<option key={e.id} value={e.id}>{e.nome}</option>))}
-            </select>
-          </Field>
-        ) : (
-          <Field label="Empresa">
-            <input
-              readOnly
-              value={empresas.find((e) => e.id === companyId)?.nome || ''}
-              style={{ ...inputStyle(), opacity: 0.7, cursor: 'default' }}
-            />
-          </Field>
-        )}
-
-        {/* Vinculo tipo (radios) */}
-        <Field label="Tipo de vínculo *">
-          <div style={{ display: 'flex', gap: 16, paddingTop: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: C.ink }}>
-              <input
-                type="radio"
-                name="vinculo"
-                value="direto"
-                checked={vinculoTipo === 'direto'}
-                onChange={() => setVinculoTipo('direto')}
-              />
-              Direto (CLT da empresa)
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: C.ink }}>
-              <input
-                type="radio"
-                name="vinculo"
-                value="terceirizado"
-                checked={vinculoTipo === 'terceirizado'}
-                onChange={() => setVinculoTipo('terceirizado')}
-              />
-              Terceirizado (via prestador)
-            </label>
-          </div>
-        </Field>
-
-        {/* Dropdown prestador (so quando terceirizado) */}
-        {vinculoTipo === 'terceirizado' && (
-          <Field label="Prestador *">
-            <select
-              value={prestadorId}
-              onChange={(e: any) => setPrestadorId(e.target.value)}
-              disabled={carregandoPrestadores}
-              style={inputStyle()}
-            >
-              <option value="">{carregandoPrestadores ? 'Carregando…' : 'Selecione um prestador'}</option>
-              {prestadores.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.razao_social}{p.cnpj ? ` · ${p.cnpj}` : ''}
-                </option>
-              ))}
-            </select>
-            {!carregandoPrestadores && prestadores.length === 0 && (
-              <p style={{ marginTop: 6, fontSize: 11, color: C.muted }}>
-                Nenhum prestador cadastrado.{' '}
-                <Link href="/dashboard/compliance/prestadores" style={{ color: C.gold, textDecoration: 'underline' }}>
-                  Cadastrar prestador
-                </Link>
-              </p>
-            )}
-          </Field>
-        )}
-
-        <Field label="Nome completo *"><input value={nome} onChange={(e: any) => setNome(e.target.value)} style={inputStyle()} /></Field>
-        <Field label="CPF"><input value={cpf} onChange={(e: any) => setCpf(e.target.value)} style={inputStyle()} placeholder="000.000.000-00" /></Field>
-        <Field label="Cargo"><input value={cargo} onChange={(e: any) => setCargo(e.target.value)} style={inputStyle()} /></Field>
-
-        {/* Setor: dropdown global+propios + botao + Novo Setor */}
-        <Field label="Setor">
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select
-              value={setorId}
-              onChange={(e: any) => setSetorId(e.target.value)}
-              disabled={carregandoSetores}
-              style={{ ...inputStyle(), flex: 1 }}
-            >
-              <option value="">{carregandoSetores ? 'Carregando…' : 'Selecione um setor'}</option>
-              {setores.filter((s) => s.is_global).length > 0 && (
-                <optgroup label="Padrão PS Gestão">
-                  {setores.filter((s) => s.is_global).map((s) => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-                </optgroup>
-              )}
-              {setores.filter((s) => !s.is_global).length > 0 && (
-                <optgroup label="Meus setores">
-                  {setores.filter((s) => !s.is_global).map((s) => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            <button
-              type="button"
-              onClick={() => setShowNovoSetor(true)}
-              style={{
-                padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`,
-                backgroundColor: C.offwhite, color: C.espresso, fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', whiteSpace: 'nowrap',
-              }}
-              title="Criar novo setor para esta empresa"
-            >
-              + Novo
-            </button>
-          </div>
-        </Field>
-
-        <Field label="Empresa tomadora"><input value={empresaTomadora} onChange={(e: any) => setEmpresaTomadora(e.target.value)} style={inputStyle()} /></Field>
-        <Field label="Obra"><input value={obra} onChange={(e: any) => setObra(e.target.value)} style={inputStyle()} /></Field>
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-          <button onClick={onClose} disabled={salvando} style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={salvar} disabled={salvando || !nome.trim()} style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: !salvando && nome.trim() ? 'pointer' : 'not-allowed', opacity: !salvando && nome.trim() ? 1 : 0.6 }}>
-            {salvando ? 'Salvando…' : 'Criar'}
-          </button>
-        </div>
-
-        {showNovoSetor && (
-          <NovoSetorModal
-            companyId={companyId}
-            onClose={() => setShowNovoSetor(false)}
-            onCreated={setorCriado}
-          />
-        )}
-      </div>
+    <div>
+      <span style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+        color: terceiro ? C.amber : C.green, background: terceiro ? C.amberBg : C.greenBg,
+        border: `1px solid ${terceiro ? C.amber : C.green}22`,
+      }}>
+        {terceiro ? 'Terceirizado' : 'Direto'}
+      </span>
+      {terceiro && prestadorNome && (
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{prestadorNome}</div>
+      )}
     </div>
   )
-}
-
-function NovoSetorModal({
-  companyId, onClose, onCreated,
-}: {
-  companyId: string
-  onClose: () => void
-  onCreated: (setor: Setor) => void
-}) {
-  const [nome, setNome] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [salvando, setSalvando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-
-  function gerarSlug(s: string): string {
-    return s.toLowerCase()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 50)
-  }
-
-  async function salvar() {
-    if (!nome.trim()) { setErro('Nome obrigatório'); return }
-    setSalvando(true)
-    setErro(null)
-    try {
-      const slug = gerarSlug(nome)
-      const { data, error } = await supabase
-        .from('compliance_setores')
-        .insert({
-          company_id: companyId,
-          nome: nome.trim(),
-          slug,
-          descricao: descricao.trim() || null,
-          is_global: false,
-          ativo: true,
-        })
-        .select('id, nome, slug, descricao, is_global, ordem_exibicao, ativo')
-        .single()
-      if (error) throw error
-      onCreated(data as Setor)
-    } catch (e: any) {
-      setErro(e?.message || 'Falha ao criar setor')
-      setSalvando(false)
-    }
-  }
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110 }}
-    >
-      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 22, width: 'min(420px, 92vw)' }}>
-        <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 400, margin: '0 0 12px' }}>Novo setor</h3>
-        {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '8px 10px', borderRadius: 6, marginBottom: 10, fontSize: 12 }}>{erro}</div>)}
-        <Field label="Nome *">
-          <input value={nome} onChange={(e: any) => setNome(e.target.value)} style={inputStyle()} placeholder="Ex: Almoxarifado" autoFocus />
-        </Field>
-        <Field label="Descrição (opcional)">
-          <textarea value={descricao} onChange={(e: any) => setDescricao(e.target.value)} style={{ ...inputStyle(), minHeight: 60 }} />
-        </Field>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-          <button onClick={onClose} disabled={salvando} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={salvar} disabled={salvando || !nome.trim()} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 12, fontWeight: 600, cursor: !salvando && nome.trim() ? 'pointer' : 'not-allowed', opacity: !salvando && nome.trim() ? 1 : 0.6 }}>
-            {salvando ? 'Salvando…' : 'Criar setor'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: any }) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</label>
-      {children}
-    </div>
-  )
-}
-
-function inputStyle() {
-  return { width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 14, background: C.offwhite, color: C.ink, boxSizing: 'border-box' } as any
 }
 
 function selectStyle() {

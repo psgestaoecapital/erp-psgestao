@@ -27,6 +27,9 @@ export const GET = withAuth(async (req: NextRequest) => {
   const setor = url.searchParams.get('setor')
   const empresaTomadora = url.searchParams.get('empresa_tomadora')
   const ativo = url.searchParams.get('ativo')
+  // Terceirização: filtra pelo prestador (aba Funcionários do prestador) e/ou pelo vínculo.
+  const prestadorId = url.searchParams.get('prestador_id')
+  const vinculoTipo = url.searchParams.get('vinculo_tipo')
 
   const sb = admin()
   let query = sb.from('compliance_funcionarios').select('*').order('nome_completo')
@@ -38,6 +41,8 @@ export const GET = withAuth(async (req: NextRequest) => {
   if (cargo) query = query.eq('cargo', cargo)
   if (setor) query = query.eq('setor', setor)
   if (empresaTomadora) query = query.eq('empresa_tomadora_nome', empresaTomadora)
+  if (prestadorId) query = query.eq('prestador_id', prestadorId)
+  if (vinculoTipo === 'direto' || vinculoTipo === 'terceirizado') query = query.eq('vinculo_tipo', vinculoTipo)
   if (ativo === 'true') query = query.eq('ativo', true)
   if (ativo === 'false') query = query.eq('ativo', false)
   if (q) {
@@ -68,8 +73,22 @@ export const GET = withAuth(async (req: NextRequest) => {
     }
   }
 
+  // Nome do prestador (razão social) para o badge de vínculo terceirizado.
+  const prestadorIds = Array.from(
+    new Set((data || []).map((f: any) => f.prestador_id).filter(Boolean))
+  ) as string[]
+  const prestadorNomes: Record<string, string> = {}
+  if (prestadorIds.length > 0) {
+    const { data: pres } = await sb
+      .from('compliance_prestadores')
+      .select('id, razao_social')
+      .in('id', prestadorIds)
+    for (const p of (pres as any[]) || []) prestadorNomes[p.id] = p.razao_social
+  }
+
   const funcionarios = (data || []).map((f: any) => ({
     ...f,
+    prestador_nome: f.prestador_id ? (prestadorNomes[f.prestador_id] ?? null) : null,
     compliance_resumo: resumo[f.id] ?? { total: 0, em_dia: 0, pct: 0 },
   }))
   return NextResponse.json({ ok: true, funcionarios })

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { fmtData, fmtDataHora, fmtR } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
+import NovoFuncionarioModal from '../../_components/NovoFuncionarioModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 
 type Prestador = {
@@ -63,7 +64,17 @@ type Documento = {
   ativo: boolean
 }
 
-type Aba = 'dados' | 'documentos' | 'historico'
+type FuncionarioTerceiro = {
+  id: string
+  nome_completo: string
+  cpf: string | null
+  cargo: string | null
+  funcao: string | null
+  ativo: boolean
+  compliance_resumo: { total: number; em_dia: number; pct: number }
+}
+
+type Aba = 'dados' | 'documentos' | 'historico' | 'funcionarios'
 
 export default function PrestadorDetalhePage() {
   const params = useParams()
@@ -77,6 +88,10 @@ export default function PrestadorDetalhePage() {
   const [erro, setErro] = useState<string | null>(null)
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  // Funcionários terceirizados deste prestador (aba Funcionários)
+  const [funcs, setFuncs] = useState<FuncionarioTerceiro[]>([])
+  const [funcsLoading, setFuncsLoading] = useState(false)
+  const [novoFunc, setNovoFunc] = useState(false)
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
@@ -101,6 +116,26 @@ export default function PrestadorDetalhePage() {
   }, [id])
 
   useEffect(() => { carregar() }, [carregar])
+
+  const carregarFuncs = useCallback(async () => {
+    if (!prestador) return
+    setFuncsLoading(true)
+    try {
+      const res = await authFetch(`/api/compliance/funcionarios?company_ids=${prestador.company_id}&prestador_id=${id}&ativo=true`)
+      const j = await res.json()
+      if (j.ok && Array.isArray(j.funcionarios)) setFuncs(j.funcionarios)
+      else setFuncs([])
+    } catch {
+      setFuncs([])
+    } finally {
+      setFuncsLoading(false)
+    }
+  }, [prestador, id])
+
+  // Carrega funcionários ao entrar na aba (evita fetch desnecessário nas outras).
+  useEffect(() => {
+    if (aba === 'funcionarios' && prestador) carregarFuncs()
+  }, [aba, prestador, carregarFuncs])
 
   async function dispensar(linha: MatrizLinha, motivo: string) {
     if (!prestador) return
@@ -176,7 +211,7 @@ export default function PrestadorDetalhePage() {
         </header>
 
         <nav style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${C.borderLt}`, marginBottom: 20 }}>
-          {(['dados', 'documentos', 'historico'] as Aba[]).map((a) => (
+          {(['dados', 'documentos', 'funcionarios', 'historico'] as Aba[]).map((a) => (
             <button
               key={a}
               onClick={() => setAba(a)}
@@ -189,7 +224,7 @@ export default function PrestadorDetalhePage() {
                 fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              {a === 'dados' ? 'Dados' : a === 'documentos' ? 'Documentos' : 'Histórico'}
+              {a === 'dados' ? 'Dados' : a === 'documentos' ? 'Documentos' : a === 'funcionarios' ? 'Funcionários' : 'Histórico'}
             </button>
           ))}
         </nav>
@@ -212,10 +247,28 @@ export default function PrestadorDetalhePage() {
             onReativar={reativar}
           />
         )}
+        {aba === 'funcionarios' && (
+          <AbaFuncionarios
+            prestador={prestador}
+            funcs={funcs}
+            loading={funcsLoading}
+            onNovo={() => setNovoFunc(true)}
+          />
+        )}
         {aba === 'historico' && (
           <AbaHistorico historico={historico} onBaixar={(docId) => baixarDocumento(docId)} />
         )}
       </div>
+
+      {novoFunc && (
+        <NovoFuncionarioModal
+          empresas={[{ id: prestador.company_id, nome: prestador.razao_social }]}
+          companyIdInicial={prestador.company_id}
+          prestadorFixo={{ id: prestador.id, razao_social: prestador.razao_social, company_id: prestador.company_id }}
+          onClose={() => setNovoFunc(false)}
+          onCreated={() => { setNovoFunc(false); showToast('✓ Funcionário terceirizado cadastrado'); carregarFuncs() }}
+        />
+      )}
 
       {uploadCtx && (
         <UploadDocumentoModal
@@ -433,6 +486,86 @@ function AbaDocumentos({
               <button onClick={() => { onDispensar(linhaMotivo!, motivo); setLinhaMotivo(null) }} style={btnPrimSm()}>Confirmar</button>
             </div>
           </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AbaFuncionarios({
+  prestador, funcs, loading, onNovo,
+}: {
+  prestador: Prestador
+  funcs: FuncionarioTerceiro[]
+  loading: boolean
+  onNovo: () => void
+}) {
+  return (
+    <section style={{ background: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '16px 16px 12px' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Funcionários do terceiro</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+            Trabalhadores da {prestador.razao_social} que atuam aqui — a documentação deles (ASO, NRs, etc.) é responsabilidade da tomadora.
+          </div>
+        </div>
+        <button onClick={onNovo} style={{ padding: '9px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          + Novo funcionário
+        </button>
+      </div>
+
+      {loading && funcs.length === 0 ? (
+        <div style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</div>
+      ) : funcs.length === 0 ? (
+        <div style={{ padding: '28px 24px', textAlign: 'center', color: C.muted, fontSize: 13, lineHeight: 1.5 }}>
+          Nenhum funcionário terceirizado cadastrado para este prestador.<br />
+          Cadastre os trabalhadores da <strong>{prestador.razao_social}</strong> que atuam aqui para acompanhar a documentação deles (ASO, NRs, etc.).
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ backgroundColor: C.beigeLt }}>
+                <Th>Nome</Th>
+                <Th>CPF</Th>
+                <Th>Cargo / Função</Th>
+                <Th>Compliance</Th>
+                <Th>Status</Th>
+                <Th>Ações</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {funcs.map((f, i) => {
+                const pct = f.compliance_resumo?.pct ?? 0
+                const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
+                return (
+                  <tr key={f.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
+                    <Td>
+                      <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ color: C.espresso, textDecoration: 'none', fontWeight: 600 }}>{f.nome_completo}</Link>
+                    </Td>
+                    <Td mono>{f.cpf || '—'}</Td>
+                    <Td>
+                      <div>{f.cargo || '—'}</div>
+                      {f.funcao && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.funcao}</div>}
+                    </Td>
+                    <Td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 80, height: 6, background: C.beigeLt, borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: barColor }} />
+                        </div>
+                        <span style={{ fontWeight: 600, color: barColor, minWidth: 36 }}>{pct}%</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.compliance_resumo?.em_dia ?? 0} / {f.compliance_resumo?.total ?? 0} em dia</div>
+                    </Td>
+                    <Td>{f.ativo ? 'Ativo' : 'Inativo'}</Td>
+                    <Td>
+                      <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>Abrir</Link>
+                    </Td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </section>
