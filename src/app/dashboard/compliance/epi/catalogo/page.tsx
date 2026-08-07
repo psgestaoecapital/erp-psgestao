@@ -76,20 +76,25 @@ export default function CatalogoEpiPage() {
   const [showNovo, setShowNovo] = useState(false)
   const [showImportarEstoque, setShowImportarEstoque] = useState(false)
   const [importarGlobal, setImportarGlobal] = useState<EpiItem | null>(null)
+  const [editarEpi, setEditarEpi] = useState<EpiItem | null>(null)
+  const [editarCaEpi, setEditarCaEpi] = useState<EpiItem | null>(null)
+  const [mostrarInativos, setMostrarInativos] = useState(false)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
     setErro(null)
     try {
       const ids = companyIdsKey ? companyIdsKey.split(',').filter(Boolean) : []
+      let epiQuery = supabase
+        .from('epi_catalogo')
+        .select('id, company_id, categoria_id, nome, modelo, descricao, ca_numero, ca_validade, fabricante_nome, fabricante_cnpj, lote, vida_util_meses, descartavel, riscos_protege, is_global, ativo, epi_categoria(nome)')
+        .or(`is_global.eq.true${ids.length > 0 ? `,company_id.in.(${ids.join(',')})` : ''}`)
+        .order('nome')
+      if (!mostrarInativos) epiQuery = epiQuery.eq('ativo', true)
       const [catR, epiR] = await Promise.all([
         supabase.from('epi_categoria').select('id, nome').eq('ativo', true).order('nome'),
-        supabase
-          .from('epi_catalogo')
-          .select('id, company_id, categoria_id, nome, modelo, descricao, ca_numero, ca_validade, fabricante_nome, fabricante_cnpj, lote, vida_util_meses, descartavel, riscos_protege, is_global, ativo, epi_categoria(nome)')
-          .or(`is_global.eq.true${ids.length > 0 ? `,company_id.in.(${ids.join(',')})` : ''}`)
-          .eq('ativo', true)
-          .order('nome'),
+        epiQuery,
       ])
       if (catR.error) throw catR.error
       if (epiR.error) throw epiR.error
@@ -103,7 +108,29 @@ export default function CatalogoEpiPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyIdsKey])
+  }, [companyIdsKey, mostrarInativos])
+
+  async function excluirEpi(e: EpiItem) {
+    if (e.is_global) return
+    if (!confirm(`Excluir o EPI "${e.nome}"? Ele sai da sua lista (o histórico é preservado).`)) return
+    setErro(null); setAviso(null)
+    const { data, error } = await supabase.rpc('fn_epi_excluir', { p_id: e.id })
+    if (error) { setErro(error.message); return }
+    const j = data as { ok?: boolean; erro?: string; tinha_historico?: boolean } | null
+    if (!j?.ok) { setErro(j?.erro ?? 'Não excluiu'); return }
+    setAviso(j.tinha_historico
+      ? `"${e.nome}" tem estoque/entregas registradas — foi INATIVADO (some da lista), mas o histórico é preservado.`
+      : `EXCLUIU o EPI "${e.nome}".`)
+    carregar()
+  }
+
+  async function reativarEpi(e: EpiItem) {
+    setErro(null); setAviso(null)
+    const { error } = await supabase.from('epi_catalogo').update({ ativo: true }).eq('id', e.id)
+    if (error) { setErro(error.message); return }
+    setAviso(`REATIVOU o EPI "${e.nome}".`)
+    carregar()
+  }
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -122,8 +149,10 @@ export default function CatalogoEpiPage() {
   }, [epis, aba, busca, filtroCategoria])
 
   function statusCa(ca_validade: string): { cor: string; label: string } {
-    const hoje = new Date()
+    if (!ca_validade) return { cor: C.muted, label: 'CA a definir' }
     const valid = new Date(ca_validade)
+    if (isNaN(valid.getTime())) return { cor: C.muted, label: 'CA a definir' }
+    const hoje = new Date()
     const diasFalt = Math.floor((valid.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
     if (diasFalt < 0) return { cor: C.red, label: 'CA vencido' }
     if (diasFalt < 90) return { cor: C.yellow, label: `vence em ${diasFalt}d` }
@@ -151,6 +180,7 @@ export default function CatalogoEpiPage() {
         </header>
 
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{erro}</div>}
+        {aviso && <div style={{ background: '#EAF5EE', color: C.green, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>{aviso}</span><button onClick={() => setAviso(null)} style={{ background: 'transparent', border: 'none', color: C.green, cursor: 'pointer', fontWeight: 700 }}>×</button></div>}
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}` }}>
@@ -180,6 +210,12 @@ export default function CatalogoEpiPage() {
             <option value="">Todas as categorias</option>
             {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>
+          {aba === 'meus' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.espressoLt, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
+              Mostrar inativos
+            </label>
+          )}
         </section>
 
         {/* Grid de cards */}
@@ -194,15 +230,17 @@ export default function CatalogoEpiPage() {
             {episFiltrados.map((e) => {
               const ca = statusCa(e.ca_validade)
               return (
-                <div key={e.id} style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderTop: `3px solid ${ca.cor}` }}>
+                <div key={e.id} style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderTop: `3px solid ${ca.cor}`, opacity: e.ativo === false ? 0.6 : 1 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h3 style={{ fontSize: 15, fontWeight: 600, color: C.espresso, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.nome}</h3>
                       {e.modelo && <p style={{ fontSize: 12, color: C.muted, margin: '2px 0 0' }}>{e.modelo}</p>}
                     </div>
-                    {e.is_global && (
+                    {e.is_global ? (
                       <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: C.gold + '22', color: C.gold }}>GLOBAL</span>
-                    )}
+                    ) : e.ativo === false ? (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: '#eee', color: C.muted }}>INATIVO</span>
+                    ) : null}
                   </div>
                   {e.categoria_nome && (
                     <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: C.beigeLt, color: C.espressoLt, fontWeight: 600 }}>
@@ -224,6 +262,19 @@ export default function CatalogoEpiPage() {
                       📋 Importar para minha empresa
                     </button>
                   )}
+                  {aba === 'meus' && !e.is_global && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                      {e.ativo === false ? (
+                        <button onClick={() => reativarEpi(e)} style={{ ...btnSec, fontSize: 12, flex: 1 }}>↩ Reativar</button>
+                      ) : (
+                        <>
+                          <button onClick={() => setEditarEpi(e)} style={{ ...btnSec, fontSize: 12, flex: 1 }}>✏️ Editar</button>
+                          <button onClick={() => setEditarCaEpi(e)} title="Editar só o CA (número + validade)" style={{ ...btnSec, fontSize: 12, padding: '10px 10px' }}>CA</button>
+                          <button onClick={() => excluirEpi(e)} title="Excluir (inativa)" style={{ ...btnSec, fontSize: 12, padding: '10px 10px', color: C.red, borderColor: '#f0d0d0' }}>🗑</button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -237,6 +288,12 @@ export default function CatalogoEpiPage() {
       {showImportarEstoque && companyAlvo && (
         <ModalImportarEstoque companyId={companyAlvo} onClose={() => setShowImportarEstoque(false)} onImported={() => { setShowImportarEstoque(false); carregar() }} />
       )}
+      {editarEpi && (
+        <ModalNovoEPI companyId={editarEpi.company_id || companyAlvo} categorias={categorias} editar={editarEpi} onClose={() => setEditarEpi(null)} onSaved={() => { setEditarEpi(null); setAviso('ALTEROU o EPI.'); carregar() }} />
+      )}
+      {editarCaEpi && (
+        <ModalEditarCA epi={editarCaEpi} onClose={() => setEditarCaEpi(null)} onSaved={() => { setEditarCaEpi(null); setAviso('ALTEROU o CA do EPI.'); carregar() }} />
+      )}
       {importarGlobal && companyAlvo && (
         <ModalNovoEPI companyId={companyAlvo} categorias={categorias} clonarDe={importarGlobal} onClose={() => setImportarGlobal(null)} onSaved={() => { setImportarGlobal(null); carregar() }} />
       )}
@@ -245,26 +302,29 @@ export default function CatalogoEpiPage() {
 }
 
 function ModalNovoEPI({
-  companyId, categorias, clonarDe, onClose, onSaved,
+  companyId, categorias, clonarDe, editar, onClose, onSaved,
 }: {
   companyId: string
   categorias: Categoria[]
   clonarDe?: EpiItem
+  editar?: EpiItem
   onClose: () => void
   onSaved: () => void
 }) {
-  const [categoriaId, setCategoriaId] = useState(clonarDe?.categoria_id || '')
-  const [nome, setNome] = useState(clonarDe?.nome || '')
-  const [modelo, setModelo] = useState(clonarDe?.modelo || '')
-  const [descricao, setDescricao] = useState(clonarDe?.descricao || '')
-  const [caNumero, setCaNumero] = useState(clonarDe?.ca_numero || '')
-  const [caValidade, setCaValidade] = useState(clonarDe?.ca_validade?.split('T')[0] || '')
-  const [fabricante, setFabricante] = useState(clonarDe?.fabricante_nome || '')
-  const [fabricanteCnpj, setFabricanteCnpj] = useState(clonarDe?.fabricante_cnpj || '')
-  const [lote, setLote] = useState(clonarDe?.lote || '')
-  const [vidaUtilMeses, setVidaUtilMeses] = useState<number | ''>(clonarDe?.vida_util_meses || '')
-  const [descartavel, setDescartavel] = useState(clonarDe?.descartavel || false)
-  const [riscos, setRiscos] = useState<string[]>(clonarDe?.riscos_protege || [])
+  const base = editar ?? clonarDe
+  const [categoriaId, setCategoriaId] = useState(base?.categoria_id || '')
+  const [nome, setNome] = useState(base?.nome || '')
+  const [modelo, setModelo] = useState(base?.modelo || '')
+  const [descricao, setDescricao] = useState(base?.descricao || '')
+  // no editar, CA "A DEFINIR" (dos importados) começa vazio pra forçar o número real
+  const [caNumero, setCaNumero] = useState((base?.ca_numero && base.ca_numero !== 'A DEFINIR') ? base.ca_numero : '')
+  const [caValidade, setCaValidade] = useState(base?.ca_validade?.split('T')[0] || '')
+  const [fabricante, setFabricante] = useState(base?.fabricante_nome || '')
+  const [fabricanteCnpj, setFabricanteCnpj] = useState(base?.fabricante_cnpj || '')
+  const [lote, setLote] = useState(base?.lote || '')
+  const [vidaUtilMeses, setVidaUtilMeses] = useState<number | ''>(base?.vida_util_meses || '')
+  const [descartavel, setDescartavel] = useState(base?.descartavel || false)
+  const [riscos, setRiscos] = useState<string[]>(base?.riscos_protege || [])
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -280,8 +340,7 @@ function ModalNovoEPI({
     setSalvando(true)
     setErro(null)
     try {
-      const { error } = await supabase.from('epi_catalogo').insert({
-        company_id: companyId,
+      const payload = {
         categoria_id: categoriaId || null,
         nome: nome.trim(),
         modelo: modelo.trim() || null,
@@ -294,9 +353,10 @@ function ModalNovoEPI({
         vida_util_meses: vidaUtilMeses === '' ? null : Number(vidaUtilMeses),
         descartavel,
         riscos_protege: riscos.length > 0 ? riscos : null,
-        is_global: false,
-        ativo: true,
-      })
+      }
+      const { error } = editar
+        ? await supabase.from('epi_catalogo').update(payload).eq('id', editar.id)
+        : await supabase.from('epi_catalogo').insert({ ...payload, company_id: companyId, is_global: false, ativo: true })
       if (error) throw error
       onSaved()
     } catch (e: any) {
@@ -310,7 +370,7 @@ function ModalNovoEPI({
       <div onClick={(e) => e.stopPropagation()} style={modalStyle}>
         <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, color: C.gold, margin: 0, textTransform: 'uppercase' }}>EPI · Catálogo</p>
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 16px' }}>
-          {clonarDe ? 'Importar do Catálogo Global' : 'Novo EPI'}
+          {editar ? 'Editar EPI' : clonarDe ? 'Importar do Catálogo Global' : 'Novo EPI'}
         </h2>
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
@@ -363,8 +423,42 @@ function ModalNovoEPI({
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
           <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
           <button onClick={salvar} disabled={salvando || !nome.trim()} style={{ ...btnPrim, opacity: !salvando && nome.trim() ? 1 : 0.6, cursor: !salvando && nome.trim() ? 'pointer' : 'not-allowed' }}>
-            {salvando ? 'Salvando…' : (clonarDe ? 'Importar para empresa' : 'Criar EPI')}
+            {salvando ? 'Salvando…' : (editar ? 'Salvar alterações' : clonarDe ? 'Importar para empresa' : 'Criar EPI')}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Atalho "Editar CA" — mini-modal só com número + validade do CA (os importados vêm com CA a definir).
+function ModalEditarCA({ epi, onClose, onSaved }: { epi: EpiItem; onClose: () => void; onSaved: () => void }) {
+  const [caNumero, setCaNumero] = useState(epi.ca_numero && epi.ca_numero !== 'A DEFINIR' ? epi.ca_numero : '')
+  const [caValidade, setCaValidade] = useState(epi.ca_validade?.split('T')[0] || '')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function salvar() {
+    if (!caNumero.trim()) { setErro('Informe o número do CA'); return }
+    setSalvando(true); setErro(null)
+    const { error } = await supabase.from('epi_catalogo')
+      .update({ ca_numero: caNumero.trim(), ca_validade: caValidade || null }).eq('id', epi.id)
+    if (error) { setErro(error.message); setSalvando(false); return }
+    onSaved()
+  }
+
+  return (
+    <div onClick={onClose} style={overlayStyle}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...modalStyle, width: 'min(420px, 95vw)' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, color: C.gold, margin: 0, textTransform: 'uppercase' }}>EPI · CA</p>
+        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: '4px 0 4px' }}>Editar CA</h2>
+        <p style={{ fontSize: 12.5, color: C.muted, margin: '0 0 14px' }}>{epi.nome}</p>
+        {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+        <Field label="CA Número *"><input value={caNumero} onChange={(e) => setCaNumero(e.target.value)} style={inputStyle} placeholder="Ex: 39872" /></Field>
+        <Field label="CA Validade"><input type="date" value={caValidade} onChange={(e) => setCaValidade(e.target.value)} style={inputStyle} /></Field>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+          <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando || !caNumero.trim()} style={{ ...btnPrim, opacity: !salvando && caNumero.trim() ? 1 : 0.6, cursor: !salvando && caNumero.trim() ? 'pointer' : 'not-allowed' }}>{salvando ? 'Salvando…' : 'Salvar CA'}</button>
         </div>
       </div>
     </div>
