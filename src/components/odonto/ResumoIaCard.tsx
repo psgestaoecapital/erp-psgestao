@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { CardOdonto, TOK } from './ui'
 import { Sparkles, RefreshCw } from 'lucide-react'
 
-type Resposta = { ok?: boolean; vazio?: boolean; cache?: boolean; aviso?: string; error?: string
+type Resposta = { ok?: boolean; vazio?: boolean; cache?: boolean; aviso?: string; error?: string; budget_pausado?: boolean
   resumo?: string; risco?: string | null; motivo?: string; sugestao?: string; gerado_em?: string }
 
 const RISCO: Record<string, { l: string; cor: string; bg: string }> = {
@@ -58,8 +58,9 @@ export function ResumoIaCard({ companyId, pacienteId }: { companyId: string; pac
         </div>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           {data?.gerado_em && <span style={{ fontSize: 11, color: TOK.mut }}>{data.cache ? 'cacheado ' : ''}{haQuanto(data.gerado_em)}</span>}
-          <button onClick={() => void buscar(true)} disabled={carregando} title="Atualizar resumo"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: `0.5px solid ${TOK.line}`, borderRadius: 999, padding: '4px 10px', fontSize: 11.5, fontWeight: 600, color: TOK.esp, cursor: carregando ? 'wait' : 'pointer' }}>
+          <button onClick={() => void buscar(true)} disabled={carregando || !!data?.budget_pausado}
+            title={data?.budget_pausado ? 'Resumo pausado hoje por limite de custo' : 'Atualizar resumo'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: `0.5px solid ${TOK.line}`, borderRadius: 999, padding: '4px 10px', fontSize: 11.5, fontWeight: 600, color: TOK.esp, cursor: (carregando || data?.budget_pausado) ? 'not-allowed' : 'pointer', opacity: data?.budget_pausado ? 0.5 : 1 }}>
             <RefreshCw size={12} style={carregando ? { animation: 'spin 1s linear infinite' } : undefined} /> Atualizar
           </button>
         </div>
