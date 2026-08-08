@@ -48,6 +48,7 @@ ${JSON.stringify(ctx)}`
   try {
     guarded = await aiGuardedCall<string>(sb, {
       origem: 'odonto_consultor', custoEstimado: 0.02,
+      companyId, feature: 'consultor_clinica',
       run: async () => {
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -66,6 +67,10 @@ ${JSON.stringify(ctx)}`
     return NextResponse.json({ error: 'falha ao consultar' }, { status: 502 })
   }
 
+  // clínica DESLIGOU o Consultor (toggle) → degradação honesta (RD-51): NÃO chamou a IA, nenhum gasto.
+  if (guarded.desativado) {
+    return NextResponse.json({ ok: true, ia_desativada: true, resposta: 'O Consultor IA está desativado para esta clínica. Ligue em Configurações de IA para voltar a usar.' })
+  }
   if (guarded.pausado) {
     return NextResponse.json({ ok: true, budget_pausado: true, resposta: 'Consultor pausado hoje por limite de custo. Tente novamente amanhã.' })
   }

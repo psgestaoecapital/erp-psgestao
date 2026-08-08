@@ -78,6 +78,7 @@ Responda SOMENTE com um JSON válido (sem markdown, sem texto fora do JSON) com 
   try {
     guarded = await aiGuardedCall<Resumo>(sb, {
       origem: 'odonto_resumo', custoEstimado: CUSTO_ESTIMADO,
+      companyId, feature: 'resumo_paciente',
       run: async () => {
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -99,6 +100,12 @@ Responda SOMENTE com um JSON válido (sem markdown, sem texto fora do JSON) com 
   } catch {
     if (cache) return NextResponse.json({ ok: true, cache: true, aviso: 'IA indisponível — último resumo', ...cache })
     return NextResponse.json({ error: 'falha ao gerar o resumo' }, { status: 502 })
+  }
+
+  // clínica DESLIGOU o Resumo (toggle) → degradação honesta (RD-51): NÃO chamou a IA. Mostra o cache se houver.
+  if (guarded.desativado) {
+    if (cache) return NextResponse.json({ ok: true, cache: true, ia_desativada: true, aviso: 'Resumo inteligente desativado para esta clínica. Mostrando a última versão.', ...cache })
+    return NextResponse.json({ ok: true, ia_desativada: true, resumo: '', risco: null, aviso: 'IA desativada para esta clínica.' })
   }
 
   // budget estourado → degradação honesta (RD-51): NÃO chamou a IA, nenhum gasto novo. Mostra o cache.
