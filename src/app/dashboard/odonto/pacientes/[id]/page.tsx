@@ -13,6 +13,7 @@ import { ImagensFicha } from '@/components/odonto/ImagensFicha'
 import { DocumentosFicha } from '@/components/odonto/DocumentosFicha'
 import { abrirPdfSimples } from '@/lib/odonto/documentoPdf'
 import { TrajetoriaFicha } from '@/components/odonto/TrajetoriaFicha'
+import { ResumoIaCard } from '@/components/odonto/ResumoIaCard'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X, Milestone } from 'lucide-react'
 
 type Paciente = {
@@ -174,6 +175,7 @@ function AbaSobre({ pac, idade, menor, companyId, pacienteId }: { pac: Paciente;
   }, [companyId, pacienteId])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <ResumoIaCard companyId={companyId} pacienteId={pacienteId} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
         <CardOdonto style={{ padding: 14 }}>
           <SecTit>Pessoais</SecTit>
