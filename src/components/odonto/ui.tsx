@@ -121,7 +121,8 @@ const stFin = (s: string) => s === "pago" || s === "recebido" ? { l: "Pago", cor
   : s === "vencido" ? { l: "Vencido", cor: TOK.red, bg: "#FBEBEB" }
   : { l: "Aberto", cor: "#8A6A1E", bg: "#FBF3DE" };
 
-type Titulo = { id: string; descricao: string; valor: number; data_vencimento: string; data_competencia: string; status: string; parcela: string; do_plano: boolean; nfse_status: string | null; nfse_numero: string | null };
+export type TituloDebito = { id: string; descricao: string; valor: number; data_vencimento: string; data_competencia: string; status: string; parcela: string; do_plano: boolean; nfse_status: string | null; nfse_numero: string | null };
+type Titulo = TituloDebito;
 // estado honesto da NFS-e (RD-58) — a ficha só EXIBE.
 const stNfse = (s: string | null) => s === "autorizada" ? { l: "NFS-e emitida", cor: TOK.green, bg: "#E7F3EA" }
   : s === "processando" ? { l: "NFS-e processando", cor: "#B45309", bg: "#FBF0DF" }
@@ -143,8 +144,10 @@ export function SaldoBadge({ pacienteId, compact }: { pacienteId: string; compac
     {deve ? `A receber ${brl(d.aberto)}` : d.recebido > 0 ? "Em dia" : "Sem débitos"}</span>;
 }
 
-// Aba Débitos premium — a ficha só EXIBE (fronteira: financeiro é da GE).
-export function DebitosPaciente({ pacienteId }: { pacienteId: string }) {
+// Aba Débitos premium. A ficha EXIBE (fronteira: financeiro é da GE) e — a partir do OD-1 — permite
+// RECEBER via `acaoTitulo` (render prop opcional): a ação/baixa é injetada pela ficha e reusa a RPC
+// canônica fn_receber_baixar_pagamento. Sem `acaoTitulo`, o componente segue idêntico (só exibe).
+export function DebitosPaciente({ pacienteId, acaoTitulo, refreshKey }: { pacienteId: string; acaoTitulo?: (t: Titulo) => React.ReactNode; refreshKey?: number }) {
   const [d, setD] = useState<Debitos | null>(null);
   const [incRec, setIncRec] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -153,7 +156,7 @@ export function DebitosPaciente({ pacienteId }: { pacienteId: string }) {
     void supabase.rpc("fn_odonto_debitos_paciente", { p_paciente_id: pacienteId, p_incluir_recebidos: incRec })
       .then(({ data }) => { if (!alive) return; setD(data as Debitos | null); setLoading(false); });
     return () => { alive = false; };
-  }, [pacienteId, incRec]);
+  }, [pacienteId, incRec, refreshKey]);
 
   return (
     <CardOdonto>
@@ -181,6 +184,7 @@ export function DebitosPaciente({ pacienteId }: { pacienteId: string }) {
                     </div>
                     <span style={{ fontSize: 10.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: S.bg, color: S.cor, flexShrink: 0 }}>{S.l}</span>
                     <div style={{ fontSize: 13.5, fontWeight: 500, color: TOK.esp, fontVariantNumeric: "tabular-nums", minWidth: 82, textAlign: "right" }}>{brl(t.valor)}</div>
+                    {acaoTitulo && <span className="flex-shrink-0">{acaoTitulo(t)}</span>}
                   </div>); })}
               </div>}
           <div style={{ fontSize: 11, color: TOK.mut30, marginTop: 8 }}>O financeiro vive na Gestão Empresarial · a ficha só exibe. NFS-e emite pelo plano; régua de cobrança chega na Onda 3.</div>
