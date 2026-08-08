@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { CalendarDays, ClipboardList, FileText, ShieldCheck, Package, ArrowRight } from 'lucide-react';
+import { CalendarDays, ClipboardList, FileText, ShieldCheck, Package, ArrowRight, Bell } from 'lucide-react';
 
 const mods = [
+  { href: '/dashboard/odonto/alertas', t: 'Alertas pró-ativos', d: 'A clínica avisada antes: orçamentos parados, pacientes sumindo, agenda vazia.', Icon: Bell },
   { href: '/dashboard/odonto/agenda', t: 'Agenda de Pacientes', d: 'Agenda inteligente por cadeira, com previsão de faltas.', Icon: CalendarDays },
   { href: '/dashboard/odonto/prontuario', t: 'Prontuário + Odontograma', d: 'Ficha clínica com odontograma e registro por voz.', Icon: ClipboardList },
   { href: '/dashboard/odonto/tratamento', t: 'Plano & Orçamento', d: 'Planos, orçamentos e fechamento assistido.', Icon: FileText },
