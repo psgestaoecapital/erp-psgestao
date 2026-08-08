@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { EmptyStateOdonto, TOK } from './ui'
 import { RaioxAnalise } from './RaioxAnalise'
-import { Camera, FileText, Trash2, X, UploadCloud, Search, Sparkles } from 'lucide-react'
+import { SmileAnalise } from './SmileAnalise'
+import { Camera, FileText, Trash2, X, UploadCloud, Search, Sparkles, Smile } from 'lucide-react'
 
 export const BUCKET_ODONTO_IMG = 'odonto-imagens'
 export type ImagemOdonto = { id: string; arquivo_path: string; arquivo_nome: string; mime: string | null; tipo: string | null; dente_fdi: string | null; data_imagem: string; tags: string[] | null; observacao: string | null; created_at: string | null }
@@ -31,18 +32,20 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
   const [upOpen, setUpOpen] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [analisar, setAnalisar] = useState<ImagemOdonto | null>(null)   // IA-2.1 · raio-x em análise
-  const [iaRaioxOn, setIaRaioxOn] = useState(false)                     // feature ia_raiox ligada? (default ON)
+  const [analisarSmile, setAnalisarSmile] = useState<ImagemOdonto | null>(null)  // IA-2.2 · foto/sorriso em análise
+  const [iaRaioxOn, setIaRaioxOn] = useState(false)                     // feature ia_raiox ligada? (visão · opt-in)
+  const [iaSmileOn, setIaSmileOn] = useState(false)                     // feature ia_smile ligada? (visão · opt-in)
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(null), 3500) }
 
-  // IA-2.1 + Addendum · a feature ia_raiox está ligada? Visão é OPT-IN (default OFF) — fonte única
-  // fn_ia_empresa_features (habilitado efetivo = config ?? default do catálogo). RD-52.
+  // IA-2.x + #924 · features de visão são OPT-IN (default OFF). Fonte única fn_ia_empresa_features
+  // (habilitado efetivo = config ?? default do catálogo). RD-52.
   useEffect(() => {
     let alive = true
     void supabase.rpc('fn_ia_empresa_features', { p_company_id: companyId }).then(({ data }) => {
       if (!alive) return
       const rows = (data as { feature: string; habilitado: boolean }[] | null) ?? []
-      const row = rows.find((r) => r.feature === 'ia_raiox')
-      setIaRaioxOn(!!row?.habilitado)   // sem catálogo/linha → desligado (opt-in)
+      setIaRaioxOn(!!rows.find((r) => r.feature === 'ia_raiox')?.habilitado)
+      setIaSmileOn(!!rows.find((r) => r.feature === 'ia_smile')?.habilitado)
     })
     return () => { alive = false }
   }, [companyId])
@@ -132,6 +135,11 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
                         <Sparkles size={12} /> Analisar com IA
                       </button>
                     )}
+                    {iaSmileOn && i.tipo === 'foto' && isImg(i.mime) && (
+                      <button onClick={() => setAnalisarSmile(i)} style={{ marginTop: 6, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, background: 'linear-gradient(180deg,#FFFDF8,#fff)', border: `0.5px solid ${TOK.gold}`, borderRadius: 8, padding: '5px 8px', fontSize: 11, fontWeight: 700, color: TOK.gold, cursor: 'pointer' }}>
+                        <Smile size={12} /> Analisar sorriso (IA)
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -142,6 +150,7 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
 
       {upOpen && <UploadModal companyId={companyId} pacienteId={pacienteId} onClose={() => setUpOpen(false)} onOk={() => { setUpOpen(false); flash('Imagem enviada.'); void carregar() }} />}
       {analisar && <RaioxAnalise companyId={companyId} pacienteId={pacienteId} imagem={analisar} imagemUrl={urls[analisar.arquivo_path]} onClose={() => setAnalisar(null)} onMarcado={() => flash('Odontograma atualizado com o que você confirmou.')} />}
+      {analisarSmile && <SmileAnalise companyId={companyId} pacienteId={pacienteId} imagem={analisarSmile} imagemUrl={urls[analisarSmile.arquivo_path]} onClose={() => setAnalisarSmile(null)} onEnviado={() => flash('Itens enviados para um orçamento (Plano & Orçamento).')} />}
     </div>
   )
 }
