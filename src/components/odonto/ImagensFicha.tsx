@@ -34,14 +34,15 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
   const [iaRaioxOn, setIaRaioxOn] = useState(false)                     // feature ia_raiox ligada? (default ON)
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(null), 3500) }
 
-  // IA-2.1 · a feature ia_raiox está ligada nesta clínica? (DEFAULT ON: ausência = ligada)
+  // IA-2.1 + Addendum · a feature ia_raiox está ligada? Visão é OPT-IN (default OFF) — fonte única
+  // fn_ia_empresa_features (habilitado efetivo = config ?? default do catálogo). RD-52.
   useEffect(() => {
     let alive = true
-    void supabase.rpc('fn_ia_empresa_config', { p_company_id: companyId }).then(({ data }) => {
+    void supabase.rpc('fn_ia_empresa_features', { p_company_id: companyId }).then(({ data }) => {
       if (!alive) return
       const rows = (data as { feature: string; habilitado: boolean }[] | null) ?? []
       const row = rows.find((r) => r.feature === 'ia_raiox')
-      setIaRaioxOn(row ? row.habilitado : true)
+      setIaRaioxOn(!!row?.habilitado)   // sem catálogo/linha → desligado (opt-in)
     })
     return () => { alive = false }
   }, [companyId])
