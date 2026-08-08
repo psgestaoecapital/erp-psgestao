@@ -6,7 +6,7 @@ import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, BrandIcon, TOK, DebitosPaciente, type TituloDebito } from '@/components/odonto/ui'
-import { Odontograma, type Face } from '@/components/odonto/Odontograma'
+import { OdontogramaClinica } from '@/components/odonto/OdontogramaClinica'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X } from 'lucide-react'
 
 type Paciente = {
@@ -18,12 +18,11 @@ type Paciente = {
 }
 type Plano = { id: string; titulo: string | null; status: string; valor_total: number | null; criado_em: string | null }
 type Pront = { id: string; tipo: string; texto: string; data_atendimento: string | null; origem: string; assinado: boolean; profissional_nome: string | null; created_at: string | null }
-type Cond = { dente: string; face: string | null; condicao: string }
 
 const ABAS = [
   { k: 'sobre', l: 'Sobre', icon: FileText },
   { k: 'orcamentos', l: 'Orçamentos', icon: TrendingUp },
-  { k: 'odontograma', l: 'Odontograma', icon: Stethoscope },
+  { k: 'tratamentos', l: 'Tratamentos', icon: Stethoscope },
   { k: 'debitos', l: 'Débitos', icon: Wallet },
   { k: 'prontuario', l: 'Prontuário', icon: ClipboardList },
   { k: 'anamnese', l: 'Anamnese', icon: HeartPulse },
@@ -40,8 +39,6 @@ const EM_CONSTRUCAO: Record<string, { titulo: string; linha: string }> = {
   documentos: { titulo: 'Documentos — em construção', linha: 'Termos, atestados e modelos assináveis chegam no OD-6.' },
 }
 
-// cor da condição do odontograma (tinta suave; semáforo é reservado a status do plano)
-const COND_COR: Record<string, string> = { carie: '#F3C7C0', fratura: '#F3C7C0', restauracao: '#CFE0F0', coroa: '#CFE0F0', canal: '#CFE0F0', implante: '#CFE0F0' }
 const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' } }
 function calcIdade(nasc: string | null | undefined): number | null {
@@ -73,6 +70,13 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
   const [pac, setPac] = useState<Paciente | null>(null)
   const [loading, setLoading] = useState(true)
   const [aba, setAba] = useState<Aba>('sobre')
+
+  // abre direto na aba certa quando vem por deep-link (?aba=tratamentos), ex.: redirect de /clinica.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const a = new URLSearchParams(window.location.search).get('aba')
+    if (a && ABAS.some((x) => x.k === a)) setAba(a as Aba) // eslint-disable-line react-hooks/set-state-in-effect
+  }, [])
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -122,8 +126,8 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
       </div>
 
       {aba === 'sobre' && <AbaSobre pac={pac} idade={idade} menor={menor} companyId={companyId} pacienteId={id} />}
-      {aba === 'orcamentos' && <AbaOrcamentos companyId={companyId} pacienteId={id} />}
-      {aba === 'odontograma' && <AbaOdontograma companyId={companyId} pacienteId={id} />}
+      {aba === 'orcamentos' && <AbaOrcamentos companyId={companyId} pacienteId={id} onNovoOrcamento={() => setAba('tratamentos')} />}
+      {aba === 'tratamentos' && <AbaTratamentos companyId={companyId} pacienteId={id} />}
       {aba === 'debitos' && <AbaDebitos companyId={companyId} pacienteId={id} />}
       {aba === 'prontuario' && <AbaProntuario companyId={companyId} pacienteId={id} />}
       {EM_CONSTRUCAO[aba] && <EmptyStateOdonto titulo={EM_CONSTRUCAO[aba].titulo} linha={EM_CONSTRUCAO[aba].linha} />}
@@ -226,7 +230,7 @@ function AbaSobre({ pac, idade, menor, companyId, pacienteId }: { pac: Paciente;
 
 const APROVADO = new Set(['aprovado', 'em_andamento', 'concluido', 'cancelado'])
 
-function AbaOrcamentos({ companyId, pacienteId }: { companyId: string; pacienteId: string }) {
+function AbaOrcamentos({ companyId, pacienteId, onNovoOrcamento }: { companyId: string; pacienteId: string; onNovoOrcamento: () => void }) {
   const [planos, setPlanos] = useState<Plano[]>([])
   const [loading, setLoading] = useState(true)
   const [aprovar, setAprovar] = useState<Plano | null>(null)
@@ -241,11 +245,11 @@ function AbaOrcamentos({ companyId, pacienteId }: { companyId: string; pacienteI
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Link href="/dashboard/odonto/clinica" style={btnGold}>+ Orçar na Clínica</Link>
+        <button onClick={onNovoOrcamento} style={{ ...btnGold, border: 'none', cursor: 'pointer' }}><TrendingUp size={15} /> Novo orçamento (odontograma)</button>
       </div>
       {msg && <div style={{ fontSize: 12.5, color: TOK.green, fontWeight: 600 }}>{msg}</div>}
       {planos.length === 0 ? (
-        <EmptyStateOdonto titulo="Sem orçamentos" linha="Crie um plano de tratamento na tela Clínica (odontograma + valores + aprovação → financeiro)." />
+        <EmptyStateOdonto titulo="Sem orçamentos" linha="Toque em Novo orçamento para abrir o odontograma, montar o plano com valores e aprovar → financeiro." acao={<button onClick={onNovoOrcamento} style={{ ...btnGold, border: 'none', cursor: 'pointer' }}>Novo orçamento</button>} />
       ) : planos.map((p) => { const aprovado = APROVADO.has((p.status || '').toLowerCase()); return (
         <CardOdonto key={p.id} style={{ padding: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
           <div>
@@ -395,34 +399,30 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 }
 const inpFicha: React.CSSProperties = { width: '100%', padding: '8px 10px', border: `0.5px solid ${TOK.line}`, borderRadius: 8, fontSize: 13, color: TOK.esp, background: '#fff', boxSizing: 'border-box' }
 
-function AbaOdontograma({ companyId, pacienteId }: { companyId: string; pacienteId: string }) {
-  const [conds, setConds] = useState<Cond[]>([])
-  const [deciduos, setDeciduos] = useState(false)
+// Aba TRATAMENTOS (OD-2): o odontograma interativo VIVE na Ficha (fim do "Selecione um paciente").
+// Reusa o builder OdontogramaClinica (montar plano + concluir + aprovar) + lista de evoluções read-only
+// (a escrita assinada · SOAP imutável chega no OD-3).
+function AbaTratamentos({ companyId, pacienteId }: { companyId: string; pacienteId: string }) {
+  const [evos, setEvos] = useState<Pront[]>([])
   useEffect(() => {
     let alive = true
-    void (async () => {
-      const { data } = await supabase.rpc('fn_odonto_odontograma_estado', { p_company_id: companyId, p_paciente_id: pacienteId })
-      if (alive) setConds((data as Cond[]) ?? [])
-    })()
+    void supabase.rpc('fn_odonto_prontuario_paciente', { p_company_id: companyId, p_paciente_id: pacienteId })
+      .then(({ data }) => { if (alive) setEvos(((data as Pront[] | null) ?? []).slice(0, 5)) })
     return () => { alive = false }
   }, [companyId, pacienteId])
-  const cor = useCallback((dente: string, face: Face): string | null => {
-    const c = conds.find((x) => x.dente === dente && (x.face === face || x.face == null))
-    return c ? (COND_COR[c.condicao] ?? null) : null
-  }, [conds])
-  const corDente = useCallback((dente: string): { fill: string | null; ausente: boolean } => {
-    const cs = conds.filter((x) => x.dente === dente).map((x) => x.condicao)
-    if (cs.includes('ausente')) return { fill: TOK.gray, ausente: true }
-    const c = cs.find((cc) => COND_COR[cc]); return { fill: c ? COND_COR[c] : null, ausente: false }
-  }, [conds])
-  const noop = () => {}
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontSize: 12, color: TOK.mut }}>Visão do estado clínico. Para marcar/editar condições e tratamentos, use a <strong>Clínica</strong>.</div>
-        <Link href="/dashboard/odonto/clinica" style={btnLine}>Editar na Clínica</Link>
-      </div>
-      <Odontograma deciduos={deciduos} onToggleDecidua={setDeciduos} cor={cor} corDente={corDente} selecionados={new Set()} onFace={noop} onNum={noop} onDente={noop} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <OdontogramaClinica companyId={companyId} pacienteId={pacienteId} />
+      <CardOdonto style={{ padding: 14 }}>
+        <SecTit>Evoluções recentes (somente leitura)</SecTit>
+        {evos.length === 0
+          ? <div style={{ fontSize: 13, color: TOK.mut }}>Sem evoluções. A escrita assinada (SOAP imutável) chega no OD-3 — por ora, registre na aba <strong>Prontuário</strong>.</div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{evos.map((r) => (
+              <div key={r.id} style={{ borderTop: `0.5px solid ${TOK.line}`, paddingTop: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TOK.esp }}>{fmtData(r.data_atendimento)} · {r.tipo}{r.profissional_nome ? ` · ${r.profissional_nome}` : ''}{r.assinado ? ' · ✓ assinado' : ''}</div>
+                <div style={{ fontSize: 13, color: TOK.esp, whiteSpace: 'pre-wrap' }}>{r.texto}</div>
+              </div>))}</div>}
+      </CardOdonto>
     </div>
   )
 }
