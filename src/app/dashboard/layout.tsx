@@ -5,6 +5,7 @@ import AreaRedirectGuard from '@/components/layout/AreaRedirectGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
+import ChatWidget from '@/components/chat/ChatWidget'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,6 +22,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
       {/* Central de Ajuda · widget "?" contextual (F0 Fatia 3) — presente em toda tela do dashboard */}
       <AjudaWidget />
+      {/* Comunicador Interno da Equipe · widget flutuante (tempo real) — presente em toda tela */}
+      <ChatWidget />
     </SelectedCompanyProvider>
   )
 }
