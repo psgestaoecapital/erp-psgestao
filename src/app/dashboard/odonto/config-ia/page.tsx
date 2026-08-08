@@ -12,7 +12,7 @@ import { Settings2, Sparkles } from 'lucide-react'
 const CATALOGO: { feature: string; nome: string; desc: string; ativa: boolean }[] = [
   { feature: 'resumo_paciente', nome: 'Resumo do Paciente', desc: 'Resumo inteligente no topo da ficha (risco de evasão + sugestão).', ativa: true },
   { feature: 'consultor_clinica', nome: 'Consultor da Clínica', desc: 'O dono pergunta em linguagem natural e recebe os números reais.', ativa: true },
-  { feature: 'voz_soap', nome: 'Voz → Prontuário', desc: 'Ditar a evolução e transcrever em SOAP.', ativa: false },
+  { feature: 'voz_soap', nome: 'Voz → Prontuário', desc: 'Ditar a evolução e estruturar em SOAP (mãos livres na cadeira).', ativa: true },
   { feature: 'alertas_proativos', nome: 'Alertas Pró-ativos', desc: 'A IA avisa quem está sumindo antes de você perguntar.', ativa: false },
   { feature: 'orcamento_ia', nome: 'Orçamento IA', desc: 'Sugestão de plano a partir do diagnóstico.', ativa: false },
 ]

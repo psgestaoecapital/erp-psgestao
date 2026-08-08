@@ -14,6 +14,7 @@ import { DocumentosFicha } from '@/components/odonto/DocumentosFicha'
 import { abrirPdfSimples } from '@/lib/odonto/documentoPdf'
 import { TrajetoriaFicha } from '@/components/odonto/TrajetoriaFicha'
 import { ResumoIaCard } from '@/components/odonto/ResumoIaCard'
+import { VozSoap } from '@/components/odonto/VozSoap'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X, Milestone } from 'lucide-react'
 
 type Paciente = {
@@ -458,6 +459,7 @@ function AbaProntuario({ companyId, pacienteId }: { companyId: string; pacienteI
   const [profSel, setProfSel] = useState('')
   const [corrige, setCorrige] = useState<Pront | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [viaVoz, setViaVoz] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
@@ -492,11 +494,11 @@ function AbaProntuario({ companyId, pacienteId }: { companyId: string; pacienteI
     setSalvando(true)
     const { data, error } = await supabase.rpc('fn_odonto_prontuario_salvar', {
       p_company_id: companyId, p_paciente_id: pacienteId, p_texto: texto, p_tipo: tipo,
-      p_profissional_id: profSel || null, p_assinar: false, p_corrige_id: corrige?.id ?? null,
+      p_profissional_id: profSel || null, p_origem: viaVoz ? 'voz' : 'manual', p_assinar: false, p_corrige_id: corrige?.id ?? null,
     })
     setSalvando(false)
     if (error || (data as { ok?: boolean })?.ok === false) { flash('Falha ao salvar a evolução.'); return }
-    setSoap({ s: '', o: '', a: '', p: '' }); setLivre(''); setCorrige(null)
+    setSoap({ s: '', o: '', a: '', p: '' }); setLivre(''); setCorrige(null); setViaVoz(false)
     flash('Evolução salva (sem assinatura). Assine no histórico abaixo.'); void carregar()
   }
 
@@ -532,6 +534,19 @@ function AbaProntuario({ companyId, pacienteId }: { companyId: string; pacienteI
           <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={inpFicha}>{TIPOS_PRONT.map((t) => <option key={t.id} value={t.id}>{t.l}</option>)}</select>
           <select value={profSel} onChange={(e) => setProfSel(e.target.value)} style={inpFicha}><option value="">Profissional (opcional)…</option>{profs.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>
         </div>
+        {/* Voz → SOAP (IA-1.3): ditar → estruturar → preenche os campos SOAP (revisáveis). Some se a clínica desligar. */}
+        {!corrige && (
+          <VozSoap companyId={companyId} onEstruturado={(sp, dentes) => {
+            setModo('soap')
+            setSoap((prev) => ({
+              s: [prev.s, sp.s].filter(Boolean).join('\n').trim(),
+              o: [prev.o, sp.o, dentes.length ? `Dentes citados: ${dentes.join(', ')}` : ''].filter(Boolean).join('\n').trim(),
+              a: [prev.a, sp.a].filter(Boolean).join('\n').trim(),
+              p: [prev.p, sp.p].filter(Boolean).join('\n').trim(),
+            }))
+            setViaVoz(true)
+          }} />
+        )}
         {modo === 'soap' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {([['s', 'Subjetivo — queixa/relato do paciente'], ['o', 'Objetivo — exame/achados'], ['a', 'Avaliação — diagnóstico/hipótese'], ['p', 'Plano — conduta/próximos passos']] as const).map(([k, ph]) => (
@@ -558,7 +573,7 @@ function AbaProntuario({ companyId, pacienteId }: { companyId: string; pacienteI
         <CardOdonto key={r.id} style={{ padding: 14, borderColor: corrigidos.has(r.id) ? TOK.amber : undefined }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: TOK.esp }}>
-              {fmtData(r.data_atendimento)} · {TIPOS_PRONT.find((t) => t.id === r.tipo)?.l ?? r.tipo}{r.origem === 'scribe_ia' ? ' · IA' : ''}
+              {fmtData(r.data_atendimento)} · {TIPOS_PRONT.find((t) => t.id === r.tipo)?.l ?? r.tipo}{r.origem === 'voz' ? ' · 🎙️ voz' : r.origem === 'scribe_ia' ? ' · IA' : ''}
               {r.corrige_id ? ' · correção' : ''}{corrigidos.has(r.id) ? ' · corrigida' : ''}
             </span>
             {r.assinado
