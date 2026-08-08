@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, BrandIcon, TOK, DebitosPaciente, type TituloDebito } from '@/components/odonto/ui'
 import { OdontogramaClinica } from '@/components/odonto/OdontogramaClinica'
+import { OdontogramaDiagnostico } from '@/components/odonto/OdontogramaDiagnostico'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X } from 'lucide-react'
 
 type Paciente = {
@@ -17,7 +18,7 @@ type Paciente = {
   convenio_nome: string | null; convenio_carteirinha: string | null; alergias: string | null; observacao: string | null
 }
 type Plano = { id: string; titulo: string | null; status: string; valor_total: number | null; criado_em: string | null }
-type Pront = { id: string; tipo: string; texto: string; data_atendimento: string | null; origem: string; assinado: boolean; profissional_nome: string | null; created_at: string | null }
+type Pront = { id: string; tipo: string; texto: string; data_atendimento: string | null; origem: string; assinado: boolean; assinado_em: string | null; profissional_nome: string | null; corrige_id: string | null; created_at: string | null }
 
 const ABAS = [
   { k: 'sobre', l: 'Sobre', icon: FileText },
@@ -427,46 +428,133 @@ function AbaTratamentos({ companyId, pacienteId }: { companyId: string; paciente
   )
 }
 
+const TIPOS_PRONT = [{ id: 'evolucao', l: 'Evolução' }, { id: 'anamnese', l: 'Anamnese' }, { id: 'observacao', l: 'Observação' }, { id: 'atestado', l: 'Atestado' }]
+
+// Aba PRONTUÁRIO (OD-3): (1) odontograma modo Diagnóstico (condições) + (2) evoluções SOAP imutáveis
+// com assinatura. Cria NÃO-assinada (p_assinar=false) → "Assinar" grava hash+assinado_por (imutável
+// via trigger CFO). Correção = nova evolução com corrige_id (RD-55: nunca edita/apaga registro clínico).
 function AbaProntuario({ companyId, pacienteId }: { companyId: string; pacienteId: string }) {
   const [regs, setRegs] = useState<Pront[]>([])
-  const [texto, setTexto] = useState('')
+  const [profs, setProfs] = useState<{ id: string; nome: string }[]>([])
+  const [modo, setModo] = useState<'soap' | 'livre'>('soap')
+  const [soap, setSoap] = useState({ s: '', o: '', a: '', p: '' })
+  const [livre, setLivre] = useState('')
+  const [tipo, setTipo] = useState('evolucao')
+  const [profSel, setProfSel] = useState('')
+  const [corrige, setCorrige] = useState<Pront | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+
   const carregar = useCallback(async () => {
     const { data } = await supabase.rpc('fn_odonto_prontuario_paciente', { p_company_id: companyId, p_paciente_id: pacienteId })
     setRegs((data as Pront[]) ?? [])
   }, [companyId, pacienteId])
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void carregar() }, [carregar])
-  const registrar = async () => {
-    if (!texto.trim()) return
-    setSalvando(true)
-    const { data, error } = await supabase.rpc('fn_odonto_prontuario_salvar', { p_company_id: companyId, p_paciente_id: pacienteId, p_texto: texto.trim(), p_tipo: 'evolucao', p_assinar: true })
-    setSalvando(false)
-    if (error || (data as { ok?: boolean })?.ok === false) { setMsg('Falha ao registrar.'); return }
-    setTexto(''); setMsg('Registro assinado e salvo (imutável).'); setTimeout(() => setMsg(null), 3000); void carregar()
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void carregar()
+    void supabase.from('erp_odonto_profissional').select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (alive) setProfs((data as { id: string; nome: string }[] | null) ?? []) })
+    return () => { alive = false }
+  }, [carregar, companyId])
+
+  const corrigidos = new Set(regs.map((r) => r.corrige_id).filter(Boolean) as string[])
+  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(null), 3500) }
+
+  const compor = (): string => {
+    if (modo === 'livre') return livre.trim()
+    const partes: string[] = []
+    if (soap.s.trim()) partes.push(`S (Subjetivo): ${soap.s.trim()}`)
+    if (soap.o.trim()) partes.push(`O (Objetivo): ${soap.o.trim()}`)
+    if (soap.a.trim()) partes.push(`A (Avaliação): ${soap.a.trim()}`)
+    if (soap.p.trim()) partes.push(`P (Plano): ${soap.p.trim()}`)
+    return partes.join('\n')
   }
+
+  const salvar = async () => {
+    const texto = compor()
+    if (texto.length < 3) { flash('Escreva a evolução.'); return }
+    setSalvando(true)
+    const { data, error } = await supabase.rpc('fn_odonto_prontuario_salvar', {
+      p_company_id: companyId, p_paciente_id: pacienteId, p_texto: texto, p_tipo: tipo,
+      p_profissional_id: profSel || null, p_assinar: false, p_corrige_id: corrige?.id ?? null,
+    })
+    setSalvando(false)
+    if (error || (data as { ok?: boolean })?.ok === false) { flash('Falha ao salvar a evolução.'); return }
+    setSoap({ s: '', o: '', a: '', p: '' }); setLivre(''); setCorrige(null)
+    flash('Evolução salva (sem assinatura). Assine no histórico abaixo.'); void carregar()
+  }
+
+  const assinar = async (r: Pront) => {
+    if (!confirm('Assinar esta evolução? Você (profissional logado) confirma a autoria. Depois de assinada, ela fica IMUTÁVEL (CFO) — a correção é uma nova evolução.')) return
+    const { data, error } = await supabase.rpc('fn_odonto_prontuario_assinar', { p_company_id: companyId, p_prontuario_id: r.id, p_metodo: 'senha_app' })
+    if (error || (data as { ok?: boolean })?.ok === false) { flash('Falha ao assinar.'); return }
+    flash('Evolução assinada.'); void carregar()
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* 1 · Odontograma modo Diagnóstico (condições clínicas) */}
       <CardOdonto style={{ padding: 14 }}>
-        <SecTit>Novo registro de evolução</SecTit>
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Evolução clínica do atendimento…" rows={3}
-          style={{ width: '100%', border: `0.5px solid ${TOK.line}`, borderRadius: 8, padding: 10, fontSize: 13, color: TOK.esp, resize: 'vertical' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8 }}>
-          <span style={{ fontSize: 11, color: TOK.mut }}>Ao salvar, o registro é assinado e fica <strong>imutável</strong>.</span>
-          <button onClick={() => void registrar()} disabled={salvando || !texto.trim()} style={{ ...btnGold, opacity: (salvando || !texto.trim()) ? 0.6 : 1 }}>{salvando ? 'Salvando…' : 'Registrar'}</button>
+        <SecTit>Diagnóstico (odontograma)</SecTit>
+        <OdontogramaDiagnostico companyId={companyId} pacienteId={pacienteId} />
+      </CardOdonto>
+
+      {/* 2 · Nova evolução (SOAP ou livre) — nasce sem assinatura */}
+      <CardOdonto style={{ padding: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <SecTit>{corrige ? 'Correção de evolução' : 'Nova evolução'}</SecTit>
+          <div style={{ display: 'inline-flex', gap: 4, background: TOK.bg, borderRadius: 999, padding: 2 }}>
+            {(['soap', 'livre'] as const).map((m) => (
+              <button key={m} onClick={() => setModo(m)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 999, cursor: 'pointer', border: 'none', background: modo === m ? TOK.gold : 'transparent', color: modo === m ? '#fff' : TOK.mut }}>{m === 'soap' ? 'SOAP' : 'Texto livre'}</button>
+            ))}
+          </div>
+        </div>
+        {corrige && (
+          <div style={{ fontSize: 11.5, color: TOK.amber, marginBottom: 6 }}>Corrigindo a evolução de {fmtData(corrige.data_atendimento)} · <button onClick={() => setCorrige(null)} style={{ background: 'none', border: 'none', color: TOK.red, cursor: 'pointer', fontWeight: 700 }}>cancelar correção</button></div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={inpFicha}>{TIPOS_PRONT.map((t) => <option key={t.id} value={t.id}>{t.l}</option>)}</select>
+          <select value={profSel} onChange={(e) => setProfSel(e.target.value)} style={inpFicha}><option value="">Profissional (opcional)…</option>{profs.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>
+        </div>
+        {modo === 'soap' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {([['s', 'Subjetivo — queixa/relato do paciente'], ['o', 'Objetivo — exame/achados'], ['a', 'Avaliação — diagnóstico/hipótese'], ['p', 'Plano — conduta/próximos passos']] as const).map(([k, ph]) => (
+              <textarea key={k} value={soap[k]} onChange={(e) => setSoap((s) => ({ ...s, [k]: e.target.value }))} placeholder={ph} rows={2}
+                style={{ width: '100%', border: `0.5px solid ${TOK.line}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: TOK.esp, resize: 'vertical', boxSizing: 'border-box' }} />
+            ))}
+          </div>
+        ) : (
+          <textarea value={livre} onChange={(e) => setLivre(e.target.value)} placeholder="Evolução clínica do atendimento…" rows={4}
+            style={{ width: '100%', border: `0.5px solid ${TOK.line}`, borderRadius: 8, padding: 10, fontSize: 13, color: TOK.esp, resize: 'vertical', boxSizing: 'border-box' }} />
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: TOK.mut }}>Salva <strong>sem assinatura</strong>; assine no histórico (aí fica imutável · CFO).</span>
+          <button onClick={() => void salvar()} disabled={salvando} style={{ ...btnGold, opacity: salvando ? 0.6 : 1 }}>{salvando ? 'Salvando…' : (corrige ? 'Salvar correção' : 'Salvar evolução')}</button>
         </div>
         {msg && <div style={{ fontSize: 12, color: TOK.green, marginTop: 6, fontWeight: 600 }}>{msg}</div>}
       </CardOdonto>
+
+      {/* 3 · Histórico clínico (timeline imutável) */}
+      <SecTit>Histórico clínico</SecTit>
       {regs.length === 0 ? (
         <EmptyStateOdonto titulo="Sem registros" linha="O histórico clínico aparece aqui conforme os atendimentos." />
       ) : regs.map((r) => (
-        <CardOdonto key={r.id} style={{ padding: 14 }}>
+        <CardOdonto key={r.id} style={{ padding: 14, borderColor: corrigidos.has(r.id) ? TOK.amber : undefined }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: TOK.esp }}>{fmtData(r.data_atendimento)} · {r.tipo}{r.origem === 'scribe_ia' ? ' · IA' : ''}</span>
-            <span style={{ fontSize: 11, color: r.assinado ? TOK.green : TOK.mut, fontWeight: 700 }}>{r.assinado ? '✓ assinado' : 'rascunho'}{r.profissional_nome ? ` · ${r.profissional_nome}` : ''}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: TOK.esp }}>
+              {fmtData(r.data_atendimento)} · {TIPOS_PRONT.find((t) => t.id === r.tipo)?.l ?? r.tipo}{r.origem === 'scribe_ia' ? ' · IA' : ''}
+              {r.corrige_id ? ' · correção' : ''}{corrigidos.has(r.id) ? ' · corrigida' : ''}
+            </span>
+            {r.assinado
+              ? <span style={{ fontSize: 11, color: TOK.green, fontWeight: 700 }}>✓ Assinada{r.assinado_em ? ` · ${fmtData(r.assinado_em)}` : ''}{r.profissional_nome ? ` · ${r.profissional_nome}` : ''}</span>
+              : <span style={{ fontSize: 11, color: TOK.mut, fontWeight: 700 }}>Sem assinatura{r.profissional_nome ? ` · ${r.profissional_nome}` : ''}</span>}
           </div>
           <div style={{ fontSize: 13, color: TOK.esp, whiteSpace: 'pre-wrap' }}>{r.texto}</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            {!r.assinado && <button onClick={() => void assinar(r)} style={{ ...btnGold, padding: '5px 12px', fontSize: 12 }}>Assinar</button>}
+            {r.assinado && <button onClick={() => { setCorrige(r); setModo('livre'); setLivre(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }} style={{ ...btnLine, padding: '5px 12px', fontSize: 12 }}>Corrigir</button>}
+          </div>
         </CardOdonto>
       ))}
     </div>
