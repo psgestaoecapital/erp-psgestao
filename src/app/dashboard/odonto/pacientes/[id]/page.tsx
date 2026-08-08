@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, BrandIcon, TOK, DebitosPaciente, type TituloDebito } from '@/components/odonto/ui'
 import { OdontogramaClinica } from '@/components/odonto/OdontogramaClinica'
 import { OdontogramaDiagnostico } from '@/components/odonto/OdontogramaDiagnostico'
+import { AnamneseFicha, carregarAlertasAnamnese } from '@/components/odonto/AnamneseFicha'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X } from 'lucide-react'
 
 type Paciente = {
@@ -35,7 +36,6 @@ type Aba = typeof ABAS[number]['k']
 // Abas do roadmap O2+ que ainda não acenderam (OD-4 Anamnese, OD-5 Imagens, OD-6 Documentos).
 // Empty state HONESTO (RD-51): nada finge dado. Odontograma e Prontuário seguem funcionais (não regride).
 const EM_CONSTRUCAO: Record<string, { titulo: string; linha: string }> = {
-  anamnese: { titulo: 'Anamnese — em construção', linha: 'O questionário de saúde estruturado chega no OD-4. Por ora, registre no Prontuário.' },
   imagens: { titulo: 'Imagens — em construção', linha: 'Raio-X, fotos intraorais e documentação de imagem chegam no OD-5.' },
   documentos: { titulo: 'Documentos — em construção', linha: 'Termos, atestados e modelos assináveis chegam no OD-6.' },
 }
@@ -71,6 +71,15 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
   const [pac, setPac] = useState<Paciente | null>(null)
   const [loading, setLoading] = useState(true)
   const [aba, setAba] = useState<Aba>('sobre')
+  const [alertas, setAlertas] = useState<string[]>([])   // alertas críticos da anamnese (OD-4) — topo da ficha
+  const [alertasTick, setAlertasTick] = useState(0)
+
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    void carregarAlertasAnamnese(companyId, id).then((a) => { if (alive) setAlertas(a) })
+    return () => { alive = false }
+  }, [companyId, id, alertasTick])
 
   // abre direto na aba certa quando vem por deep-link (?aba=tratamentos), ex.: redirect de /clinica.
   useEffect(() => {
@@ -110,10 +119,12 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
         }
       />
 
-      {/* alergias em destaque (segurança clínica) */}
-      {pac.alergias && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FBEBEB', border: `1px solid ${TOK.red}55`, color: TOK.red, borderRadius: 10, padding: '9px 12px', margin: '4px 0 10px', fontSize: 13, fontWeight: 700 }}>
-          <AlertTriangle size={16} /> Alergias: {pac.alergias}
+      {/* alertas clínicos (segurança) — alergias do cadastro + alertas críticos da anamnese (OD-4) */}
+      {(pac.alergias || alertas.length > 0) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FBEBEB', border: `1px solid ${TOK.red}55`, color: TOK.red, borderRadius: 10, padding: '9px 12px', margin: '4px 0 10px', fontSize: 13, fontWeight: 700, flexWrap: 'wrap' }}>
+          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          {pac.alergias && <span style={{ background: '#fff', borderRadius: 999, padding: '2px 10px' }}>Alergias: {pac.alergias}</span>}
+          {alertas.map((a) => <span key={a} style={{ background: '#fff', borderRadius: 999, padding: '2px 10px' }}>{a}</span>)}
         </div>
       )}
 
@@ -131,6 +142,7 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
       {aba === 'tratamentos' && <AbaTratamentos companyId={companyId} pacienteId={id} />}
       {aba === 'debitos' && <AbaDebitos companyId={companyId} pacienteId={id} />}
       {aba === 'prontuario' && <AbaProntuario companyId={companyId} pacienteId={id} />}
+      {aba === 'anamnese' && <AnamneseFicha companyId={companyId} pacienteId={id} onAlertasMudou={() => setAlertasTick((t) => t + 1)} />}
       {EM_CONSTRUCAO[aba] && <EmptyStateOdonto titulo={EM_CONSTRUCAO[aba].titulo} linha={EM_CONSTRUCAO[aba].linha} />}
     </ShellOdonto>
   )
