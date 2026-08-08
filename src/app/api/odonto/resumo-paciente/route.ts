@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { aiGuardedCall, type GuardaResultado } from '@/lib/ai/aiGuardedCall'
 
 // IA-1.1 · Resumo Inteligente do Paciente. Fluxo (RD-42/RD-51/LGPD):
 // 1) CACHE: se há resumo fresco (<24h) e sem force → devolve cacheado (custo zero, não chama o modelo).
@@ -71,31 +72,41 @@ Responda SOMENTE com um JSON válido (sem markdown, sem texto fora do JSON) com 
 - "motivo": frase curta justificando o risco.
 - "sugestao": uma ação concreta e curta (ex.: "WhatsApp de reativação + oferecer reagendamento").`
 
-  let modelText = ''
+  // chamada SOB GUARDA DE BUDGET (RD-42): pergunta se pode gastar → chama Haiku → registra o gasto real.
+  const CUSTO_ESTIMADO = 0.008   // Haiku: ~1,5k tok in + ~0,3k tok out
+  let guarded: GuardaResultado<Resumo>
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODELO, max_tokens: 500, messages: [{ role: 'user', content: prompt }] }),
+    guarded = await aiGuardedCall<Resumo>(sb, {
+      origem: 'odonto_resumo', custoEstimado: CUSTO_ESTIMADO,
+      run: async () => {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: MODELO, max_tokens: 500, messages: [{ role: 'user', content: prompt }] }),
+        })
+        if (!res.ok) throw new Error(`Claude ${res.status}`)
+        const data = await res.json()
+        const modelText: string = data?.content?.[0]?.text ?? ''
+        const u = data?.usage ?? {}
+        const custoReal = ((u.input_tokens ?? 0) * 1 + (u.output_tokens ?? 0) * 5) / 1_000_000  // Haiku 4.5 $/Mtok
+        const jsonStr = modelText.replace(/```json|```/g, '').trim()
+        const parsed = JSON.parse(jsonStr) as Partial<Resumo>
+        const out: Resumo = { resumo: String(parsed.resumo ?? '').trim(), risco: String(parsed.risco ?? 'baixo').toLowerCase(), motivo: String(parsed.motivo ?? '').trim(), sugestao: String(parsed.sugestao ?? '').trim() }
+        if (!['baixo', 'medio', 'alto'].includes(out.risco)) out.risco = 'baixo'
+        return { result: out, custoReal }
+      },
     })
-    if (!res.ok) throw new Error(`Claude ${res.status}`)
-    const data = await res.json()
-    modelText = data?.content?.[0]?.text ?? ''
   } catch {
     if (cache) return NextResponse.json({ ok: true, cache: true, aviso: 'IA indisponível — último resumo', ...cache })
     return NextResponse.json({ error: 'falha ao gerar o resumo' }, { status: 502 })
   }
 
-  let out: Resumo
-  try {
-    const jsonStr = modelText.replace(/```json|```/g, '').trim()
-    const parsed = JSON.parse(jsonStr) as Partial<Resumo>
-    out = { resumo: String(parsed.resumo ?? '').trim(), risco: String(parsed.risco ?? 'baixo').toLowerCase(), motivo: String(parsed.motivo ?? '').trim(), sugestao: String(parsed.sugestao ?? '').trim() }
-  } catch {
-    if (cache) return NextResponse.json({ ok: true, cache: true, aviso: 'resposta inesperada — último resumo', ...cache })
-    return NextResponse.json({ error: 'resposta da IA em formato inesperado' }, { status: 502 })
+  // budget estourado → degradação honesta (RD-51): NÃO chamou a IA, nenhum gasto novo. Mostra o cache.
+  if (guarded.pausado) {
+    if (cache) return NextResponse.json({ ok: true, cache: true, budget_pausado: true, aviso: 'Resumo pausado hoje (limite de custo). Mostrando a última versão.', ...cache })
+    return NextResponse.json({ ok: true, budget_pausado: true, resumo: '', risco: null, aviso: 'Resumo indisponível hoje por limite de custo.' })
   }
-  if (!['baixo', 'medio', 'alto'].includes(out.risco)) out.risco = 'baixo'
+  const out = guarded.result as Resumo
 
   // 4) salvar cache (só o resumo derivado — LGPD)
   await sb.rpc('fn_odonto_resumo_ia_salvar', { p_company_id: companyId, p_paciente_id: pacienteId, p_dados: { ...out, modelo: MODELO } })
