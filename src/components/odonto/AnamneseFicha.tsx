@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { CardOdonto, EmptyStateOdonto, TOK } from './ui'
+import { abrirPdfSimples } from '@/lib/odonto/documentoPdf'
 
 export type Pergunta = { id: string; texto: string; tipo: 'sim_nao' | 'texto' | 'multipla'; alerta_se?: string; alerta_label?: string; opcoes?: string[] }
 type Modelo = { id: string; nome: string; perguntas: Pergunta[]; ativo?: boolean }
@@ -80,9 +81,12 @@ export function AnamneseFicha({ companyId, pacienteId, onAlertasMudou }: { compa
           <CardOdonto key={a.id} style={{ padding: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: TOK.esp }}>{fmtData(a.created_at)} · {a.modelo_nome || 'Anamnese'}{a.preenchida_por === 'paciente' ? ' · preenchida pelo paciente' : ''}</span>
-              {a.assinado
-                ? <span style={{ fontSize: 11, color: TOK.green, fontWeight: 700 }}>✓ Assinada{a.assinado_em ? ` · ${fmtData(a.assinado_em)}` : ''}</span>
-                : <button onClick={() => void assinar(a)} style={{ ...btnGold, padding: '5px 12px', fontSize: 12 }}>Assinar</button>}
+              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => { const modelo = modelos.find((m) => m.id === a.modelo_id); const corpo = (modelo?.perguntas ?? []).map((p) => `${p.texto}: ${a.respostas?.[p.id] ?? '—'}`).join('\n') || Object.entries(a.respostas ?? {}).map(([k, v]) => `${k}: ${v}`).join('\n'); void abrirPdfSimples(companyId, a.modelo_nome || 'Anamnese', corpo, a.assinado ? { data: fmtData(a.assinado_em) } : null) }} style={{ background: 'none', border: 'none', color: TOK.gold, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Imprimir</button>
+                {a.assinado
+                  ? <span style={{ fontSize: 11, color: TOK.green, fontWeight: 700 }}>✓ Assinada{a.assinado_em ? ` · ${fmtData(a.assinado_em)}` : ''}</span>
+                  : <button onClick={() => void assinar(a)} style={{ ...btnGold, padding: '5px 12px', fontSize: 12 }}>Assinar</button>}
+              </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {(modelo?.perguntas ?? []).map((p) => {
