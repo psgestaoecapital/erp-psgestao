@@ -12,7 +12,8 @@ import { AnamneseFicha, carregarAlertasAnamnese } from '@/components/odonto/Anam
 import { ImagensFicha } from '@/components/odonto/ImagensFicha'
 import { DocumentosFicha } from '@/components/odonto/DocumentosFicha'
 import { abrirPdfSimples } from '@/lib/odonto/documentoPdf'
-import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X } from 'lucide-react'
+import { TrajetoriaFicha } from '@/components/odonto/TrajetoriaFicha'
+import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X, Milestone } from 'lucide-react'
 
 type Paciente = {
   id: string; nome: string; cpf: string | null; rg: string | null; numero_paciente: string | null; data_nascimento: string | null; sexo: string | null
@@ -33,6 +34,7 @@ const ABAS = [
   { k: 'anamnese', l: 'Anamnese', icon: HeartPulse },
   { k: 'imagens', l: 'Imagens', icon: Camera },
   { k: 'documentos', l: 'Documentos', icon: FolderOpen },
+  { k: 'trajetoria', l: 'Trajetória', icon: Milestone },
 ] as const
 type Aba = typeof ABAS[number]['k']
 
@@ -142,6 +144,7 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
       {aba === 'anamnese' && <AnamneseFicha companyId={companyId} pacienteId={id} onAlertasMudou={() => setAlertasTick((t) => t + 1)} />}
       {aba === 'imagens' && <ImagensFicha companyId={companyId} pacienteId={id} />}
       {aba === 'documentos' && <DocumentosFicha companyId={companyId} pacienteId={id} />}
+      {aba === 'trajetoria' && <TrajetoriaFicha companyId={companyId} pacienteId={id} />}
     </ShellOdonto>
   )
 }
