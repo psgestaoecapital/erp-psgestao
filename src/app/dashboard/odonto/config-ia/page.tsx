@@ -15,6 +15,7 @@ const CATALOGO: { feature: string; nome: string; desc: string; ativa: boolean }[
   { feature: 'voz_soap', nome: 'Voz → Prontuário', desc: 'Ditar a evolução e estruturar em SOAP (mãos livres na cadeira).', ativa: true },
   { feature: 'alertas_proativos', nome: 'Alertas Pró-ativos', desc: 'Prioriza e resume os alertas da clínica (os alertas em si rodam de graça, sempre).', ativa: true },
   { feature: 'orcamento_ia', nome: 'Orçamento IA', desc: 'Estima a chance de aceitação e sugere o melhor formato de pagamento.', ativa: true },
+  { feature: 'ia_raiox', nome: 'Raio-X assistido (visão)', desc: 'Aponta regiões de atenção no raio-x para o dentista revisar. Custo maior (visão) — desligue se preferir.', ativa: true },
 ]
 
 type ConfigRow = { feature: string; habilitado: boolean; limite_diario_usd: number | null }

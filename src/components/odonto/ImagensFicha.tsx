@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { EmptyStateOdonto, TOK } from './ui'
-import { Camera, FileText, Trash2, X, UploadCloud, Search } from 'lucide-react'
+import { RaioxAnalise } from './RaioxAnalise'
+import { Camera, FileText, Trash2, X, UploadCloud, Search, Sparkles } from 'lucide-react'
 
 export const BUCKET_ODONTO_IMG = 'odonto-imagens'
 export type ImagemOdonto = { id: string; arquivo_path: string; arquivo_nome: string; mime: string | null; tipo: string | null; dente_fdi: string | null; data_imagem: string; tags: string[] | null; observacao: string | null; created_at: string | null }
@@ -29,7 +30,21 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [upOpen, setUpOpen] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [analisar, setAnalisar] = useState<ImagemOdonto | null>(null)   // IA-2.1 · raio-x em análise
+  const [iaRaioxOn, setIaRaioxOn] = useState(false)                     // feature ia_raiox ligada? (default ON)
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(null), 3500) }
+
+  // IA-2.1 · a feature ia_raiox está ligada nesta clínica? (DEFAULT ON: ausência = ligada)
+  useEffect(() => {
+    let alive = true
+    void supabase.rpc('fn_ia_empresa_config', { p_company_id: companyId }).then(({ data }) => {
+      if (!alive) return
+      const rows = (data as { feature: string; habilitado: boolean }[] | null) ?? []
+      const row = rows.find((r) => r.feature === 'ia_raiox')
+      setIaRaioxOn(row ? row.habilitado : true)
+    })
+    return () => { alive = false }
+  }, [companyId])
 
   const carregar = useCallback(async () => {
     const { data } = await supabase.rpc('fn_odonto_imagem_paciente', { p_company_id: companyId, p_paciente_id: pacienteId })
@@ -111,6 +126,11 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
                   <div style={{ padding: '6px 8px' }}>
                     <div style={{ fontSize: 11.5, color: TOK.esp, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.arquivo_nome}>{i.arquivo_nome}</div>
                     <div style={{ fontSize: 10.5, color: TOK.mut }}>{tipoLabel(i.tipo)}{(i.tags ?? []).length ? ` · ${(i.tags ?? []).join(', ')}` : ''}</div>
+                    {iaRaioxOn && i.tipo === 'raio_x' && isImg(i.mime) && (
+                      <button onClick={() => setAnalisar(i)} style={{ marginTop: 6, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, background: 'linear-gradient(180deg,#FFFDF8,#fff)', border: `0.5px solid ${TOK.gold}`, borderRadius: 8, padding: '5px 8px', fontSize: 11, fontWeight: 700, color: TOK.gold, cursor: 'pointer' }}>
+                        <Sparkles size={12} /> Analisar com IA
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -120,6 +140,7 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
       ))}
 
       {upOpen && <UploadModal companyId={companyId} pacienteId={pacienteId} onClose={() => setUpOpen(false)} onOk={() => { setUpOpen(false); flash('Imagem enviada.'); void carregar() }} />}
+      {analisar && <RaioxAnalise companyId={companyId} pacienteId={pacienteId} imagem={analisar} imagemUrl={urls[analisar.arquivo_path]} onClose={() => setAnalisar(null)} onMarcado={() => flash('Odontograma atualizado com o que você confirmou.')} />}
     </div>
   )
 }
