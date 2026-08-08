@@ -10,6 +10,8 @@ import { OdontogramaClinica } from '@/components/odonto/OdontogramaClinica'
 import { OdontogramaDiagnostico } from '@/components/odonto/OdontogramaDiagnostico'
 import { AnamneseFicha, carregarAlertasAnamnese } from '@/components/odonto/AnamneseFicha'
 import { ImagensFicha } from '@/components/odonto/ImagensFicha'
+import { DocumentosFicha } from '@/components/odonto/DocumentosFicha'
+import { abrirPdfSimples } from '@/lib/odonto/documentoPdf'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X } from 'lucide-react'
 
 type Paciente = {
@@ -34,11 +36,6 @@ const ABAS = [
 ] as const
 type Aba = typeof ABAS[number]['k']
 
-// Abas do roadmap O2+ que ainda não acenderam (OD-4 Anamnese, OD-5 Imagens, OD-6 Documentos).
-// Empty state HONESTO (RD-51): nada finge dado. Odontograma e Prontuário seguem funcionais (não regride).
-const EM_CONSTRUCAO: Record<string, { titulo: string; linha: string }> = {
-  documentos: { titulo: 'Documentos — em construção', linha: 'Termos, atestados e modelos assináveis chegam no OD-6.' },
-}
 
 const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' } }
@@ -144,7 +141,7 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
       {aba === 'prontuario' && <AbaProntuario companyId={companyId} pacienteId={id} />}
       {aba === 'anamnese' && <AnamneseFicha companyId={companyId} pacienteId={id} onAlertasMudou={() => setAlertasTick((t) => t + 1)} />}
       {aba === 'imagens' && <ImagensFicha companyId={companyId} pacienteId={id} />}
-      {EM_CONSTRUCAO[aba] && <EmptyStateOdonto titulo={EM_CONSTRUCAO[aba].titulo} linha={EM_CONSTRUCAO[aba].linha} />}
+      {aba === 'documentos' && <DocumentosFicha companyId={companyId} pacienteId={id} />}
     </ShellOdonto>
   )
 }
@@ -567,6 +564,7 @@ function AbaProntuario({ companyId, pacienteId }: { companyId: string; pacienteI
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {!r.assinado && <button onClick={() => void assinar(r)} style={{ ...btnGold, padding: '5px 12px', fontSize: 12 }}>Assinar</button>}
             {r.assinado && <button onClick={() => { setCorrige(r); setModo('livre'); setLivre(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }} style={{ ...btnLine, padding: '5px 12px', fontSize: 12 }}>Corrigir</button>}
+            <button onClick={() => void abrirPdfSimples(companyId, `Evolução — ${fmtData(r.data_atendimento)}`, r.texto, r.assinado ? { data: fmtData(r.assinado_em), profissional: r.profissional_nome } : null)} style={{ ...btnLine, padding: '5px 12px', fontSize: 12 }}>Imprimir</button>
           </div>
         </CardOdonto>
       ))}
