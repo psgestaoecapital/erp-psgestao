@@ -1,6 +1,6 @@
 'use client'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock } from 'lucide-react'
+import { Search, Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock, MessageCircle, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { SaldoBadge } from '@/components/odonto/ui'
@@ -30,6 +30,7 @@ function useCompanyId(): string | null {
       if (!v || v === 'consolidado' || v.startsWith('group_')) return null
       return v
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setId(read())
     const t = setInterval(() => {
       const v = read()
@@ -87,6 +88,13 @@ export default function TratamentoPage() {
   const [primeiraVenc, setPrimeiraVenc] = useState(hoje)
   const [forma, setForma] = useState('boleto')
 
+  // IA-1.5 · envio por WhatsApp + status do aceite + estimativa de aceitação (feature orcamento_ia)
+  const [waBusy, setWaBusy] = useState(false)
+  const [propostaStatus, setPropostaStatus] = useState<{ status: string; visto_em: string | null; respondido_em: string | null } | null>(null)
+  const [iaBusy, setIaBusy] = useState(false)
+  const [iaPred, setIaPred] = useState<{ chance: string; motivo: string; formato_sugerido: string; dica: string } | null>(null)
+  const [iaMsg, setIaMsg] = useState<string | null>(null)
+
   // execução
   const [fin, setFin] = useState<Financeiro | null>(null)
   const [servicos, setServicos] = useState<Servico[]>([])
@@ -143,6 +151,7 @@ export default function TratamentoPage() {
   const novoPlano = () => {
     setPlanoId(null); setItens([]); setDesconto(0); setSel(new Set())
     setParcelas(1); setEntrada(0); setPrimeiraVenc(hoje); setForma('boleto')
+    setPropostaStatus(null); setIaPred(null); setIaMsg(null)
     setModo('edit')
   }
 
@@ -228,6 +237,58 @@ export default function TratamentoPage() {
     await Promise.all([carregarExec(id), carregarServicos()])
     setModo('exec')
     if (pac) carregarPlanos(pac)
+  }
+
+  // IA-1.5 · carrega o status do último link de proposta do plano (selo no funil)
+  const carregarProposta = useCallback(async (id: string) => {
+    const { data } = await supabase.from('erp_odonto_proposta_link')
+      .select('status, visto_em, respondido_em').eq('plano_id', id).order('created_at', { ascending: false }).limit(1)
+    const r = (data as { status: string; visto_em: string | null; respondido_em: string | null }[] | null)?.[0] ?? null
+    setPropostaStatus(r)
+  }, [])
+
+  useEffect(() => { if (planoId) void carregarProposta(planoId) }, [planoId, carregarProposta])
+
+  // IA-1.5 · gera o link público (token) + abre o WhatsApp da clínica com a mensagem + link
+  const enviarWhatsApp = async () => {
+    if (!companyId || !pac) return
+    let id = planoId
+    if (!id) id = await salvar('orcamento')
+    if (!id) return
+    setWaBusy(true)
+    const { data, error } = await supabase.rpc('fn_odonto_proposta_criar', {
+      p_company_id: companyId, p_plano_id: id, p_parcelas: Math.max(1, parcelas), p_entrada: Math.max(0, entrada), p_forma: forma,
+    })
+    const r = data as { ok?: boolean; token?: string; erro?: string } | null
+    if (error || !r?.ok || !r.token) { setWaBusy(false); alert(r?.erro || error?.message || 'Falha ao gerar o link.'); return }
+    const link = `${window.location.origin}/p/orcamento/${r.token}`
+    const { data: pd } = await supabase.from('erp_odonto_paciente').select('celular, telefone').eq('id', pac.id).maybeSingle()
+    const pf = pd as { celular?: string | null; telefone?: string | null } | null
+    const fone = String(pf?.celular || pf?.telefone || '').replace(/\D/g, '')
+    const msg = `Olá! Segue o seu orçamento de tratamento odontológico: ${link}\n\nÉ rápido de ver pelo celular e você pode aceitar por aí. Qualquer dúvida, estou à disposição! 🦷`
+    const base = fone ? `https://wa.me/${fone.length <= 11 ? '55' + fone : fone}?text=` : 'https://wa.me/?text='
+    window.open(base + encodeURIComponent(msg), '_blank')
+    setWaBusy(false)
+    await carregarProposta(id)
+  }
+
+  // IA-1.5 · estimativa de aceitação (togglável). Degrada honesto se desligada/budget.
+  const preverAceitacao = async () => {
+    if (!companyId) return
+    setIaBusy(true); setIaMsg(null); setIaPred(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) { setIaBusy(false); return }
+      const saldo = fin?.total_aberto ?? undefined
+      const res = await fetch('/api/odonto/orcamento-ia', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ company_id: companyId, contexto: { valor: total, parcelas, entrada, forma, itens: itens.length, saldo_aberto: saldo } }),
+      })
+      const j = await res.json() as { ok?: boolean; chance?: string; motivo?: string; formato_sugerido?: string; dica?: string; aviso?: string }
+      if (j.ok && j.chance) setIaPred({ chance: j.chance, motivo: j.motivo ?? '', formato_sugerido: j.formato_sugerido ?? '', dica: j.dica ?? '' })
+      else setIaMsg(j.aviso || 'Estimativa indisponível agora.')
+    } catch { setIaMsg('Falha ao estimar.') } finally { setIaBusy(false) }
   }
 
   const concluirItem = async (item: Item) => {
@@ -420,8 +481,52 @@ export default function TratamentoPage() {
             </div>
           </div>
 
+          {/* IA-1.5 · estimativa de aceitação (togglável orcamento_ia) — assiste, não substitui o clínico */}
+          <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg,#FFFDF8,#fff)', border: `1px solid ${GOLD}` }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: GOLD }}>
+                <Sparkles size={14} /> Chance de aceitação
+              </div>
+              <button onClick={preverAceitacao} disabled={iaBusy || total <= 0} className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-50" style={{ border: `1px solid ${GOLD}`, background: '#fff', color: GOLD }}>
+                {iaBusy ? 'Estimando…' : (iaPred ? 'Reestimar' : 'Estimar com IA')}
+              </button>
+            </div>
+            {iaPred ? (
+              <div className="mt-2 flex flex-col gap-1.5">
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: iaPred.chance === 'alta' ? '#E7F3EA' : iaPred.chance === 'baixa' ? '#FBEBEB' : '#FBF3DE', color: iaPred.chance === 'alta' ? GREEN : iaPred.chance === 'baixa' ? RED : '#8A6A1E' }}>Chance {iaPred.chance}</span>
+                  {iaPred.motivo && <span className="text-xs" style={{ color: ESP60 }}>{iaPred.motivo}</span>}
+                </div>
+                {iaPred.formato_sugerido && <div className="text-xs" style={{ color: ESP }}><strong style={{ color: GOLD }}>Formato:</strong> {iaPred.formato_sugerido}</div>}
+                {iaPred.dica && <div className="text-xs" style={{ color: ESP }}><strong style={{ color: GOLD }}>Dica:</strong> {iaPred.dica}</div>}
+              </div>
+            ) : iaMsg ? <div className="mt-2 text-xs" style={{ color: ESP60 }}>{iaMsg}</div>
+              : <div className="mt-2 text-xs" style={{ color: ESP60 }}>Estimativa opcional (assiste o fechamento). Ligue/desligue em Configurações de IA.</div>}
+          </div>
+
+          {/* IA-1.5 · status do aceite por WhatsApp (funil) */}
+          {propostaStatus && (() => {
+            const S: Record<string, { l: string; cor: string; bg: string }> = {
+              enviada: { l: 'Enviada — aguardando o paciente', cor: '#1D4ED8', bg: '#EAF0FE' },
+              vista: { l: 'Vista pelo paciente', cor: '#8A6A1E', bg: '#FBF3DE' },
+              aceita: { l: 'Aceita pelo paciente ✓', cor: GREEN, bg: '#E7F3EA' },
+              recusada: { l: 'Recusada', cor: RED, bg: '#FBEBEB' },
+              expirada: { l: 'Link expirado', cor: '#6B7280', bg: '#F1F1F0' },
+            }
+            const s = S[propostaStatus.status] ?? S.enviada
+            const quando = propostaStatus.respondido_em || propostaStatus.visto_em
+            return (
+              <div className="rounded-xl px-3 py-2 text-xs font-semibold inline-flex items-center gap-2" style={{ background: s.bg, color: s.cor }}>
+                <MessageCircle size={14} /> {s.l}{quando ? ` · ${new Date(quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
+              </div>
+            )
+          })()}
+
           <div className="flex flex-wrap gap-2">
             <button onClick={() => salvar('orcamento')} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Salvar orçamento</button>
+            <button onClick={() => void enviarWhatsApp()} disabled={waBusy || total <= 0} className="flex-1 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: '#25D366', color: '#fff' }}>
+              <MessageCircle size={16} /> {waBusy ? 'Gerando link…' : 'Enviar por WhatsApp'}
+            </button>
             <button onClick={aprovar} disabled={busy === 'aprovar'} className="flex-1 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: GOLD, color: '#fff' }}>
               <Check size={16} /> {busy === 'aprovar' ? 'Aprovando…' : 'Aprovar e gerar cobrança'}
             </button>

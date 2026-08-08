@@ -14,7 +14,7 @@ const CATALOGO: { feature: string; nome: string; desc: string; ativa: boolean }[
   { feature: 'consultor_clinica', nome: 'Consultor da Clínica', desc: 'O dono pergunta em linguagem natural e recebe os números reais.', ativa: true },
   { feature: 'voz_soap', nome: 'Voz → Prontuário', desc: 'Ditar a evolução e estruturar em SOAP (mãos livres na cadeira).', ativa: true },
   { feature: 'alertas_proativos', nome: 'Alertas Pró-ativos', desc: 'Prioriza e resume os alertas da clínica (os alertas em si rodam de graça, sempre).', ativa: true },
-  { feature: 'orcamento_ia', nome: 'Orçamento IA', desc: 'Sugestão de plano a partir do diagnóstico.', ativa: false },
+  { feature: 'orcamento_ia', nome: 'Orçamento IA', desc: 'Estima a chance de aceitação e sugere o melhor formato de pagamento.', ativa: true },
 ]
 
 type ConfigRow = { feature: string; habilitado: boolean; limite_diario_usd: number | null }
