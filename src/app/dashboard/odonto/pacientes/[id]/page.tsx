@@ -9,6 +9,7 @@ import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, BrandIcon,
 import { OdontogramaClinica } from '@/components/odonto/OdontogramaClinica'
 import { OdontogramaDiagnostico } from '@/components/odonto/OdontogramaDiagnostico'
 import { AnamneseFicha, carregarAlertasAnamnese } from '@/components/odonto/AnamneseFicha'
+import { ImagensFicha } from '@/components/odonto/ImagensFicha'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X } from 'lucide-react'
 
 type Paciente = {
@@ -36,7 +37,6 @@ type Aba = typeof ABAS[number]['k']
 // Abas do roadmap O2+ que ainda não acenderam (OD-4 Anamnese, OD-5 Imagens, OD-6 Documentos).
 // Empty state HONESTO (RD-51): nada finge dado. Odontograma e Prontuário seguem funcionais (não regride).
 const EM_CONSTRUCAO: Record<string, { titulo: string; linha: string }> = {
-  imagens: { titulo: 'Imagens — em construção', linha: 'Raio-X, fotos intraorais e documentação de imagem chegam no OD-5.' },
   documentos: { titulo: 'Documentos — em construção', linha: 'Termos, atestados e modelos assináveis chegam no OD-6.' },
 }
 
@@ -143,6 +143,7 @@ export default function FichaPacientePage({ params }: { params: Promise<{ id: st
       {aba === 'debitos' && <AbaDebitos companyId={companyId} pacienteId={id} />}
       {aba === 'prontuario' && <AbaProntuario companyId={companyId} pacienteId={id} />}
       {aba === 'anamnese' && <AnamneseFicha companyId={companyId} pacienteId={id} onAlertasMudou={() => setAlertasTick((t) => t + 1)} />}
+      {aba === 'imagens' && <ImagensFicha companyId={companyId} pacienteId={id} />}
       {EM_CONSTRUCAO[aba] && <EmptyStateOdonto titulo={EM_CONSTRUCAO[aba].titulo} linha={EM_CONSTRUCAO[aba].linha} />}
     </ShellOdonto>
   )
