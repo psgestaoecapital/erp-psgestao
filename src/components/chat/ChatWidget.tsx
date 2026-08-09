@@ -5,12 +5,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { MessageSquare, X, ChevronLeft, Send, Users, Minus } from 'lucide-react'
+import { MessageSquare, X, ChevronLeft, Send, Users, Minus, Bot } from 'lucide-react'
 
 const ESP = '#3D2314', MUT = 'rgba(61,35,20,0.6)', BG = '#FAF7F2', LINE = '#E7DECF', GOLD = '#C8941A', GREEN = '#16A34A'
 
 type Canal = { canal_id: string; tipo: string; nome: string; outro_user_id: string | null; ultima_msg: string | null; ultima_em: string | null; nao_lidas: number }
-type Msg = { id: string; user_id: string; autor: string; texto: string; created_at: string; editado_em: string | null }
+type Msg = { id: string; user_id: string | null; autor: string; texto: string; created_at: string; editado_em: string | null; is_ia?: boolean }
 type Membro = { user_id: string; nome: string; email: string | null; role: string }
 
 function horaCurta(iso?: string | null): string {
@@ -32,6 +32,7 @@ export default function ChatWidget() {
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [online, setOnline] = useState<Set<string>>(new Set())
   const [texto, setTexto] = useState('')
+  const [claudeTyping, setClaudeTyping] = useState(false)
   const [geralId, setGeralId] = useState<string | null>(null)
   const fimRef = useRef<HTMLDivElement>(null)
   const canalAtivoRef = useRef<string | null>(null)
@@ -84,7 +85,7 @@ export default function ChatWidget() {
     return () => { alive = false; void supabase.removeChannel(msgCh); void supabase.removeChannel(presCh) }
   }, [activeCompany, meId, carregarCanais, carregarMsgs])
 
-  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
+  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, claudeTyping])
 
   const abrirCanal = async (id: string, nome: string) => {
     setCanalAtivo({ id, nome }); setView('conversa'); setMsgs([])
@@ -98,6 +99,22 @@ export default function ChatWidget() {
     const r = data as { ok?: boolean; canal_id?: string } | null
     if (r?.ok && r.canal_id) await abrirCanal(r.canal_id, m.nome)
   }
+  // @Claude no chat: só o remetente dispara (anti-loop natural — a IA nunca responde a is_ia).
+  const perguntarClaude = useCallback(async (canalId: string, pergunta: string) => {
+    if (!activeCompany) return
+    setClaudeTyping(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) return
+      await fetch('/api/chat/ia', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ company_id: activeCompany, canal_id: canalId, pergunta }),
+      })
+      await carregarMsgs(canalId); void carregarCanais()
+    } catch { /* silencioso: não quebra o chat */ } finally { setClaudeTyping(false) }
+  }, [activeCompany, carregarMsgs, carregarCanais])
+
   const enviar = async () => {
     const t = texto.trim()
     if (!t || !canalAtivo) return
@@ -105,6 +122,7 @@ export default function ChatWidget() {
     await supabase.rpc('fn_chat_enviar', { p_canal_id: canalAtivo.id, p_texto: t })
     await carregarMsgs(canalAtivo.id)
     void carregarCanais()
+    if (/@claude\b/i.test(t)) void perguntarClaude(canalAtivo.id, t)
   }
 
   const totalNaoLidas = useMemo(() => canais.reduce((s, c) => s + (c.nao_lidas || 0), 0), [canais])
@@ -165,7 +183,19 @@ export default function ChatWidget() {
                 {msgs.length === 0 ? (
                   <div style={{ margin: 'auto', fontSize: 12.5, color: MUT, textAlign: 'center' }}>Nenhuma mensagem ainda. Diga um oi 👋</div>
                 ) : msgs.map((m) => {
-                  const meu = m.user_id === meId
+                  const meu = !m.is_ia && m.user_id === meId
+                  if (m.is_ia) return (
+                    <div key={m.id} style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                      <div style={{ maxWidth: '88%', padding: '8px 11px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        background: 'linear-gradient(180deg,#FFFDF8,#fff)', color: ESP, border: `1px solid ${GOLD}` }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: GOLD, marginBottom: 3 }}>
+                          <Bot size={12} /> Claude <span style={{ fontWeight: 600, color: MUT, fontSize: 9.5 }}>· gerado por IA</span>
+                        </div>
+                        {m.texto}
+                        <div style={{ fontSize: 9.5, opacity: 0.65, marginTop: 2, textAlign: 'right' }}>{horaCurta(m.created_at)}</div>
+                      </div>
+                    </div>
+                  )
                   return (
                     <div key={m.id} style={{ display: 'flex', justifyContent: meu ? 'flex-end' : 'flex-start' }}>
                       <div style={{ maxWidth: '82%', padding: '7px 11px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -177,11 +207,19 @@ export default function ChatWidget() {
                     </div>
                   )
                 })}
+                {claudeTyping && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: GOLD, fontWeight: 600, background: 'linear-gradient(180deg,#FFFDF8,#fff)', border: `1px solid ${GOLD}`, borderRadius: 12, padding: '6px 11px' }}>
+                      <Bot size={13} /> Claude está digitando…
+                    </div>
+                  </div>
+                )}
                 <div ref={fimRef} />
               </div>
+              <div style={{ fontSize: 10.5, color: MUT, padding: '4px 12px 0', background: '#fff', flexShrink: 0 }}>Dica: comece com <strong style={{ color: GOLD }}>@Claude</strong> para perguntar à IA (ela responde no canal, pra todos).</div>
               <div style={{ display: 'flex', gap: 6, padding: 10, borderTop: `1px solid ${LINE}`, background: '#fff', flexShrink: 0 }}>
                 <input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void enviar() } }}
-                  placeholder="Mensagem…" style={{ flex: 1, border: `1px solid ${LINE}`, borderRadius: 999, padding: '9px 14px', fontSize: 14, color: ESP, outline: 'none' }} />
+                  placeholder="Mensagem…  (ou @Claude …)" style={{ flex: 1, border: `1px solid ${LINE}`, borderRadius: 999, padding: '9px 14px', fontSize: 14, color: ESP, outline: 'none' }} />
                 <button onClick={() => void enviar()} disabled={!texto.trim()} aria-label="Enviar"
                   style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: texto.trim() ? GOLD : LINE, color: '#fff', cursor: texto.trim() ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Send size={17} /></button>
               </div>
