@@ -27,9 +27,21 @@ type Props = {
   descricao: string
   previsao: string
   atalhos?: AtalhoModulo[]
+  // Props opcionais (retrocompativeis — 13 usos existentes nao precisam mexer):
+  // recursos: lista "O que vem ai". ctaPriorizacao: link p/ /admin/projeto.
+  recursos?: string[]
+  ctaPriorizacao?: boolean
 }
 
-export default function ModuloEmConstrucao({ area, titulo, descricao, previsao, atalhos = [] }: Props) {
+export default function ModuloEmConstrucao({
+  area,
+  titulo,
+  descricao,
+  previsao,
+  atalhos = [],
+  recursos = [],
+  ctaPriorizacao = false,
+}: Props) {
   return (
     <div style={{ padding: 'clamp(16px, 4vw, 32px)', maxWidth: 820, margin: '0 auto', color: C.espresso }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -76,6 +88,22 @@ export default function ModuloEmConstrucao({ area, titulo, descricao, previsao, 
         <strong>Previsao de entrega:</strong> {previsao}
       </div>
 
+      {recursos.length > 0 && (
+        <div style={{ marginBottom: 24, maxWidth: 640 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: C.espressoL, margin: '0 0 10px' }}>
+            O que vem aí
+          </h2>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {recursos.map((r, i) => (
+              <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 14, color: C.espressoM, lineHeight: 1.5 }}>
+                <span style={{ marginTop: 7, width: 6, height: 6, borderRadius: 999, background: C.gold, flexShrink: 0 }} />
+                <span>{r}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {atalhos.length > 0 && (
         <>
           <h2 style={{ fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: C.espressoL, margin: '0 0 10px' }}>
@@ -102,6 +130,15 @@ export default function ModuloEmConstrucao({ area, titulo, descricao, previsao, 
             ))}
           </div>
         </>
+      )}
+
+      {ctaPriorizacao && (
+        <p style={{ fontSize: 12, color: C.espressoL, marginTop: 24 }}>
+          Esta feature está no roadmap. Quer prioridade?{' '}
+          <Link href="/admin/projeto" style={{ color: C.gold, fontWeight: 600, textDecoration: 'underline' }}>
+            Solicite priorização
+          </Link>
+        </p>
       )}
     </div>
   )

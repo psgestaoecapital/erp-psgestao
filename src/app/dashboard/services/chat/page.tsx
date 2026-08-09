@@ -5,11 +5,17 @@ export default function ServicesChatPage() {
     <ModuloEmConstrucao
       area="Servicos Recorrentes"
       titulo="Atendimento Chat IA"
-      descricao="Chat com IA treinada nos dados do cliente + handoff humano quando necessario. Reduz volume no SAC mantendo qualidade."
-      previsao="Q4 2026"
-      atalhos={[
-        { label: 'Contratos Recorrentes', href: '/dashboard/contratos' },
+      descricao="Atendimento automatizado via WhatsApp e chat in-app, com IA respondendo duvidas sobre faturas, contratos, segunda via de boleto e suporte de primeiro nivel."
+      previsao="Q1 2027"
+      recursos={[
+        'Bot WhatsApp 24/7 integrado ao Pluggy + sua base de FAQ',
+        'Resolucao automatica de 60-80% dos tickets (segunda via, status pagamento, contratos)',
+        'Escalacao humana com contexto preservado',
+        'Dashboard de volume de atendimento e satisfacao',
+        'Historico de conversas por cliente com busca semantica',
       ]}
+      atalhos={[{ label: 'Contratos Recorrentes', href: '/dashboard/contratos' }]}
+      ctaPriorizacao
     />
   )
 }
