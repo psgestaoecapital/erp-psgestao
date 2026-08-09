@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { CalendarDays, ClipboardList, FileText, ShieldCheck, Package, ArrowRight, Bell, Calculator } from 'lucide-react';
+import { CalendarDays, ClipboardList, FileText, ShieldCheck, Package, ArrowRight, Bell, Calculator, TrendingUp } from 'lucide-react';
 
 const mods = [
   { href: '/dashboard/odonto/alertas', t: 'Alertas pró-ativos', d: 'A clínica avisada antes: orçamentos parados, pacientes sumindo, agenda vazia.', Icon: Bell },
-  { href: '/dashboard/odonto/custeio', t: 'Custeio de procedimentos', d: 'Quanto cada procedimento gasta de material e a margem sobre o preço.', Icon: Calculator },
+  { href: '/dashboard/odonto/rentabilidade', t: 'Rentabilidade', d: 'Lucro por dentista e por cadeira — onde a clínica ganha e onde perde.', Icon: TrendingUp },
+  { href: '/dashboard/odonto/custeio', t: 'Custeio de procedimentos', d: 'Custo real (material + MO + fixo) e a margem por procedimento.', Icon: Calculator },
   { href: '/dashboard/odonto/agenda', t: 'Agenda de Pacientes', d: 'Agenda inteligente por cadeira, com previsão de faltas.', Icon: CalendarDays },
   { href: '/dashboard/odonto/prontuario', t: 'Prontuário + Odontograma', d: 'Ficha clínica com odontograma e registro por voz.', Icon: ClipboardList },
   { href: '/dashboard/odonto/tratamento', t: 'Plano & Orçamento', d: 'Planos, orçamentos e fechamento assistido.', Icon: FileText },
