@@ -1,9 +1,10 @@
 'use client'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock, MessageCircle, Sparkles } from 'lucide-react'
+import { Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock, MessageCircle, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { SaldoBadge } from '@/components/odonto/ui'
+import { PainelPlanos } from '@/components/odonto/PainelPlanos'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -337,23 +338,9 @@ export default function TratamentoPage() {
     </div>
   )
 
-  if (!pac) return (
-    <div style={{ background: BG, color: ESP, minHeight: '100%' }} className="p-4 sm:p-6 max-w-2xl mx-auto">
-      <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: GOLD }}>Plano de tratamento</div>
-      <h1 className="text-2xl sm:text-3xl mt-1 mb-4" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Selecione o paciente</h1>
-      <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
-        <Search size={16} style={{ color: ESP60 }} />
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome…" className="flex-1 outline-none text-sm" style={{ color: ESP }} />
-      </div>
-      <div className="mt-2">
-        {pacs.map((p) => (
-          <button key={p.id} onClick={() => escolherPac(p)} className="w-full text-left px-3 py-2.5 rounded-xl mb-1" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
-            {p.nome}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
+  // Painel de Planos & Orçamentos (funil da clínica). A criação/edição do plano continua abaixo, na
+  // Ficha/builder (RD-55: fluxo preservado) — abrir um paciente aqui entra no construtor existente.
+  if (!pac) return <PainelPlanos companyId={companyId} pacs={pacs} busca={busca} setBusca={setBusca} onEscolher={escolherPac} />
 
   return (
     <div style={{ background: BG, color: ESP, minHeight: '100%' }} className="p-4 sm:p-6 max-w-3xl mx-auto">
