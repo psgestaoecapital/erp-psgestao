@@ -14,6 +14,7 @@ const LABELS: Record<string, { nome: string; desc: string }> = {
   voz_soap: { nome: 'Voz → Prontuário', desc: 'Ditar a evolução e estruturar em SOAP (mãos livres na cadeira).' },
   alertas_proativos: { nome: 'Alertas Pró-ativos', desc: 'Prioriza e resume os alertas da clínica (os alertas em si rodam de graça, sempre).' },
   orcamento_ia: { nome: 'Orçamento IA', desc: 'Estima a chance de aceitação e sugere o melhor formato de pagamento.' },
+  chat_ia: { nome: '@Claude no chat da equipe', desc: 'No comunicador interno, digite @Claude e a IA responde no canal com os números reais.' },
   ia_raiox: { nome: 'Raio-X assistido (visão)', desc: 'Aponta regiões de atenção no raio-x para o dentista revisar e confirmar.' },
   ia_smile: { nome: 'Análise de sorriso (visão)', desc: 'Analisa a estética a partir de uma foto e sugere um plano para você validar e apresentar.' },
 }
