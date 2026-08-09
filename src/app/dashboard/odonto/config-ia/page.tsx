@@ -17,6 +17,7 @@ const LABELS: Record<string, { nome: string; desc: string }> = {
   chat_ia: { nome: '@Claude no chat da equipe', desc: 'No comunicador interno, digite @Claude e a IA responde no canal com os números reais.' },
   ia_raiox: { nome: 'Raio-X assistido (visão)', desc: 'Aponta regiões de atenção no raio-x para o dentista revisar e confirmar.' },
   ia_smile: { nome: 'Análise de sorriso (visão)', desc: 'Analisa a estética a partir de uma foto e sugere um plano para você validar e apresentar.' },
+  ia_smile_preview: { nome: 'Prévia ilustrativa do sorriso (visão · experimental)', desc: 'Gera uma simulação ilustrativa do "depois" a partir da foto (com marca d\'água). Experimental, custo maior — não é o resultado real; o dentista revisa e decide se mostra.' },
 }
 
 type Feature = { feature: string; tipo: string; custo_nivel: string; default_habilitado: boolean; habilitado: boolean; configurado: boolean; limite_diario_usd: number | null }
