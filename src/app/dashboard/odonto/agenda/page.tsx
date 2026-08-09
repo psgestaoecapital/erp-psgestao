@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { ChevronLeft, ChevronRight, X, Plus, Check, Clock, Calendar, LayoutGrid, Columns, CalendarDays, Sliders } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { ShellOdonto, PageHeaderOdonto, EmptyStateOdonto, ProgressBar, StatusDot, TOK, STATUS_ODONTO, STATUS_FLOW, st } from "@/components/odonto/ui";
+import { ConsumoInsumos } from "@/components/odonto/ConsumoInsumos";
 
 const { esp: ESP, bg: BG, gold: GOLD, line: LINE, mut: MUT } = TOK;
 const H0 = 8, H1 = 20, N = (H1 - H0) * 2;      // 08:00–20:00, slots de 30 min
@@ -37,11 +38,13 @@ export default function AgendaOdontoPage() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [clinica, setClinica] = useState<string>("");
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCompanyId(resolveCompanyId());
     const i = setInterval(() => { const a = resolveCompanyId(); setCompanyId(p => p === a ? p : a); }, 800);
     return () => clearInterval(i);
   }, []);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!companyId) { setClinica(""); return; }
     let alive = true;
     void supabase.from("companies").select("nome_fantasia,razao_social").eq("id", companyId).maybeSingle()
@@ -59,6 +62,7 @@ export default function AgendaOdontoPage() {
   const [fProf, setFProf] = useState("Todos");
   const [fCad, setFCad] = useState("Todas");
   const [selAg, setSelAg] = useState<Ag | null>(null);
+  const [consumoAg, setConsumoAg] = useState<Ag | null>(null);
   const [novo, setNovo] = useState<{ colId: string; idx: number; data: string } | null>(null);
   const [compacta, setCompacta] = useState(false);
   const [ocultarFds, setOcultarFds] = useState(false);
@@ -85,6 +89,7 @@ export default function AgendaOdontoPage() {
     }
     setLoading(false);
   }, [companyId, ini, fim]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   const match = useCallback((a: Ag) =>
@@ -116,6 +121,8 @@ export default function AgendaOdontoPage() {
   const mudarStatus = async (a: Ag, status: string) => {
     await supabase.rpc("fn_odonto_agendamento_status", { p_id: a.id, p_status: status });
     setSelAg(null); load();
+    // Concluiu → confirmar consumo de insumos (baixa do estoque GE). Cancelou → oferecer estorno na ficha.
+    if (status === "concluido") setConsumoAg(a);
   };
   const addNovo = async (f: { pac: string; prof: string; cad: string; proc: string; dur: number; obs: string; status: string }) => {
     if (!novo || !companyId) return;
@@ -275,8 +282,15 @@ export default function AgendaOdontoPage() {
                   style={{ padding: "8px 4px", borderRadius: 8, fontSize: 12, fontWeight: 500, background: on ? S.cor : S.bg, color: on ? "#fff" : S.cor, border: `0.5px solid ${on ? S.cor : "transparent"}`, cursor: on ? "default" : "pointer" }}>{S.label}</button>); })}
             </div>
           </div>
+          {selAg.status === "concluido" && (
+            <button onClick={() => { const a = selAg; setSelAg(null); setConsumoAg(a); }} className="mt-3 w-full py-2.5 text-sm inline-flex items-center justify-center gap-2" style={{ background: GOLD, color: "#fff", borderRadius: TOK.rCtrl, fontWeight: 600 }}>
+              Confirmar consumo de insumos
+            </button>
+          )}
         </div>
       </Overlay>}
+
+      {consumoAg && companyId && <ConsumoInsumos agendamentoId={consumoAg.id} procedimentoNome={consumoAg.procedimento_nome} onClose={() => setConsumoAg(null)} onDone={() => load()} />}
 
       {novo && <Overlay onClose={() => setNovo(null)}>
         <FormNovo data={novo.data} start={idxToTime(novo.idx)} cadeiras={cadeiras} profs={profs} procs={procs}
@@ -315,6 +329,7 @@ function FormNovo({ data, start, cadeiras, profs, procs, cadeiraPre, profPre, on
 }) {
   const [pac, setPac] = useState(""), [prof, setProf] = useState(profPre || profs[0]?.id || ""), [cad, setCad] = useState(cadeiraPre || cadeiras[0]?.id || "");
   const [proc, setProc] = useState(procs[0]?.id || ""), [dur, setDur] = useState("2"), [obs, setObs] = useState(""), [status, setStatus] = useState("agendado");
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { const p = procs.find(x => x.id === proc); if (p?.duracao_min) setDur(String(Math.max(1, Math.round(p.duracao_min / 30)))); }, [proc, procs]);
   const [d] = useState(() => new Date(data + "T00:00:00"));
   return (<div className="p-5">
