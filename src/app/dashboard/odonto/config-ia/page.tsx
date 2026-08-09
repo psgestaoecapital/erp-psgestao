@@ -15,6 +15,7 @@ const LABELS: Record<string, { nome: string; desc: string }> = {
   alertas_proativos: { nome: 'Alertas Pró-ativos', desc: 'Prioriza e resume os alertas da clínica (os alertas em si rodam de graça, sempre).' },
   orcamento_ia: { nome: 'Orçamento IA', desc: 'Estima a chance de aceitação e sugere o melhor formato de pagamento.' },
   ia_raiox: { nome: 'Raio-X assistido (visão)', desc: 'Aponta regiões de atenção no raio-x para o dentista revisar e confirmar.' },
+  ia_smile: { nome: 'Análise de sorriso (visão)', desc: 'Analisa a estética a partir de uma foto e sugere um plano para você validar e apresentar.' },
 }
 
 type Feature = { feature: string; tipo: string; custo_nivel: string; default_habilitado: boolean; habilitado: boolean; configurado: boolean; limite_diario_usd: number | null }
