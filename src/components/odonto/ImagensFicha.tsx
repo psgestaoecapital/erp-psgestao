@@ -7,12 +7,13 @@ import { supabase } from '@/lib/supabase'
 import { EmptyStateOdonto, TOK } from './ui'
 import { RaioxAnalise } from './RaioxAnalise'
 import { SmileAnalise } from './SmileAnalise'
-import { Camera, FileText, Trash2, X, UploadCloud, Search, Sparkles, Smile } from 'lucide-react'
+import { SmilePreview } from './SmilePreview'
+import { Camera, FileText, Trash2, X, UploadCloud, Search, Sparkles, Smile, Wand2 } from 'lucide-react'
 
 export const BUCKET_ODONTO_IMG = 'odonto-imagens'
 export type ImagemOdonto = { id: string; arquivo_path: string; arquivo_nome: string; mime: string | null; tipo: string | null; dente_fdi: string | null; data_imagem: string; tags: string[] | null; observacao: string | null; created_at: string | null }
 
-const TIPOS = [{ id: 'raio_x', l: 'Raio-X' }, { id: 'foto', l: 'Foto' }, { id: 'exame', l: 'Exame' }, { id: 'pdf', l: 'PDF/Doc' }, { id: 'outro', l: 'Outro' }]
+const TIPOS = [{ id: 'raio_x', l: 'Raio-X' }, { id: 'foto', l: 'Foto' }, { id: 'exame', l: 'Exame' }, { id: 'pdf', l: 'PDF/Doc' }, { id: 'smile_preview', l: 'Prévia IA (ilustrativa)' }, { id: 'outro', l: 'Outro' }]
 const tipoLabel = (t: string | null) => TIPOS.find((x) => x.id === t)?.l ?? (t || '—')
 const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(String(s).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') } catch { return '—' } }
 const isImg = (m: string | null) => !!m && m.startsWith('image/')
@@ -33,8 +34,10 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
   const [msg, setMsg] = useState<string | null>(null)
   const [analisar, setAnalisar] = useState<ImagemOdonto | null>(null)   // IA-2.1 · raio-x em análise
   const [analisarSmile, setAnalisarSmile] = useState<ImagemOdonto | null>(null)  // IA-2.2 · foto/sorriso em análise
+  const [previewSmile, setPreviewSmile] = useState<ImagemOdonto | null>(null)    // IA-2.2 F2 · prévia ilustrativa
   const [iaRaioxOn, setIaRaioxOn] = useState(false)                     // feature ia_raiox ligada? (visão · opt-in)
   const [iaSmileOn, setIaSmileOn] = useState(false)                     // feature ia_smile ligada? (visão · opt-in)
+  const [iaSmilePrevOn, setIaSmilePrevOn] = useState(false)             // feature ia_smile_preview ligada? (visão · opt-in · custo alto)
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(null), 3500) }
 
   // IA-2.x + #924 · features de visão são OPT-IN (default OFF). Fonte única fn_ia_empresa_features
@@ -46,6 +49,7 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
       const rows = (data as { feature: string; habilitado: boolean }[] | null) ?? []
       setIaRaioxOn(!!rows.find((r) => r.feature === 'ia_raiox')?.habilitado)
       setIaSmileOn(!!rows.find((r) => r.feature === 'ia_smile')?.habilitado)
+      setIaSmilePrevOn(!!rows.find((r) => r.feature === 'ia_smile_preview')?.habilitado)
     })
     return () => { alive = false }
   }, [companyId])
@@ -140,6 +144,11 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
                         <Smile size={12} /> Analisar sorriso (IA)
                       </button>
                     )}
+                    {iaSmilePrevOn && i.tipo === 'foto' && isImg(i.mime) && (
+                      <button onClick={() => setPreviewSmile(i)} style={{ marginTop: 6, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, background: 'linear-gradient(180deg,#FFF8F8,#fff)', border: `0.5px solid ${TOK.red}`, borderRadius: 8, padding: '5px 8px', fontSize: 11, fontWeight: 700, color: TOK.red, cursor: 'pointer' }} title="Simulação ilustrativa (experimental, custo maior)">
+                        <Wand2 size={12} /> Prévia ilustrativa (IA)
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -151,6 +160,7 @@ export function ImagensFicha({ companyId, pacienteId }: { companyId: string; pac
       {upOpen && <UploadModal companyId={companyId} pacienteId={pacienteId} onClose={() => setUpOpen(false)} onOk={() => { setUpOpen(false); flash('Imagem enviada.'); void carregar() }} />}
       {analisar && <RaioxAnalise companyId={companyId} pacienteId={pacienteId} imagem={analisar} imagemUrl={urls[analisar.arquivo_path]} onClose={() => setAnalisar(null)} onMarcado={() => flash('Odontograma atualizado com o que você confirmou.')} />}
       {analisarSmile && <SmileAnalise companyId={companyId} pacienteId={pacienteId} imagem={analisarSmile} imagemUrl={urls[analisarSmile.arquivo_path]} onClose={() => setAnalisarSmile(null)} onEnviado={() => flash('Itens enviados para um orçamento (Plano & Orçamento).')} />}
+      {previewSmile && <SmilePreview companyId={companyId} pacienteId={pacienteId} imagem={previewSmile} imagemUrl={urls[previewSmile.arquivo_path]} onClose={() => setPreviewSmile(null)} onSalvo={() => { flash('Prévia ilustrativa salva na galeria (marcada).'); void carregar() }} />}
     </div>
   )
 }
