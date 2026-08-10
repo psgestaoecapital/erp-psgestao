@@ -37,7 +37,8 @@ const CAMPOS_FINANCEIROS = ['valor', 'data_pagamento', 'conta_bancaria', 'conta_
 
 type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro'
 type Campo = { col: string; label: string; tipo: CampoTipo; opcoes?: string[]; largo?: boolean }
-const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito']
+const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito', 'cheque', 'permuta', 'debito_automatico']
+const TIPOS_CHAVE_PIX_OPCOES = ['', 'cpf_cnpj', 'telefone', 'email', 'aleatoria', 'copia_cola']
 
 function campos(tipo: Tipo): Campo[] {
   const contraparte: Campo = tipo === 'pagar'
@@ -57,6 +58,8 @@ function campos(tipo: Tipo): Campo[] {
     { col: 'linha_negocio', label: 'Linha de negócio', tipo: 'text' },
     { col: 'valor', label: 'Valor (R$) *', tipo: 'num' },
     { col: 'forma_pagamento', label: 'Forma de pagamento', tipo: 'select', opcoes: FORMAS },
+    { col: 'tipo_chave_pix', label: 'Tipo de chave PIX', tipo: 'select', opcoes: TIPOS_CHAVE_PIX_OPCOES },
+    { col: 'chave_pix', label: 'Chave PIX (p/ remessa)', tipo: 'text', largo: true },
     { col: 'data_emissao', label: 'Emissão', tipo: 'date' },
     { col: 'data_vencimento', label: 'Vencimento *', tipo: 'date' },
     { col: 'data_pagamento', label: 'Pagamento', tipo: 'date' },

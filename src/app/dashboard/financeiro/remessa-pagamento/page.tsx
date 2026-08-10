@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, nomeArquivoRemessaSicredi, parseRetornoSicredi, type TituloPag } from '@/lib/banco/cnab240'
 import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
+import { ehPix } from '@/lib/financeiro/formasPagamento'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -21,7 +22,7 @@ const hhmmss = (d: Date) => `${String(d.getHours()).padStart(2, '0')}${String(d.
 
 type Config = { id: string; ambiente: string; cooperativa: string; agencia_dv: string | null; conta: string; convenio: string }
 type Empresa = { cnpj: string; razao_social: string; endereco: string | null; cidade_estado: string | null }
-type Row = TituloPag & { _sel: boolean }
+type Row = TituloPag & { _sel: boolean; tipo_chave_pix?: string | null; chave_pix?: string | null }
 type RemessaLista = { id: string; numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; total_titulos: number; valor_total: number; gerado_em: string | null; retorno_importado_em: string | null; pode_cancelar: boolean }
 type ExtratoItem = { item_id: string; beneficiario: string; descricao: string | null; data_vencimento: string | null; valor: number; forma: string; status_item: string }
 type ExtratoResp = { sucesso: boolean; erro?: string; remessa?: { numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; gerado_em: string | null; retorno_importado_em: string | null }; itens?: ExtratoItem[]; total?: number; qtd?: number }
@@ -89,9 +90,9 @@ export default function RemessaPagamentoPage() {
 
     // títulos a pagar (aberto/vencido) + fornecedor
     const { data: tit } = await supabase.from('erp_pagar')
-      .select('id,forma_pagamento,codigo_barras,valor,data_vencimento,numero_documento,descricao,fornecedor_id')
+      .select('id,forma_pagamento,codigo_barras,valor,data_vencimento,numero_documento,descricao,fornecedor_id,tipo_chave_pix,chave_pix')
       .eq('company_id', companyId).in('status', ['aberto', 'vencido']).order('data_vencimento').limit(500)
-    const titulos = (tit ?? []) as (TituloPag & { fornecedor_id: string | null })[]
+    const titulos = (tit ?? []) as (TituloPag & { fornecedor_id: string | null; tipo_chave_pix: string | null; chave_pix: string | null })[]
 
     // fornecedores dos títulos
     const fids = [...new Set(titulos.map((t) => t.fornecedor_id).filter(Boolean))] as string[]
@@ -128,6 +129,11 @@ export default function RemessaPagamentoPage() {
   }, [rows, filtro])
 
   const selecionadas = useMemo(() => rows.filter((r) => r._sel), [rows])
+  // Guarda (RD-51): título PIX sem chave (nem no título, nem no cadastro do fornecedor) → o banco rejeita.
+  const pixSemChave = useMemo(
+    () => selecionadas.filter((t) => ehPix(t.forma_pagamento) && !(t.chave_pix?.trim()) && !(t.fornecedor?.pix?.trim())),
+    [selecionadas],
+  )
   const preview = useMemo(() => {
     if (!cfg || !emp || !selecionadas.length) return null
     const opts = { dtPagto: hoje().toISOString().slice(0, 10), dataGer: ddmmaaaa(hoje()), horaGer: hhmmss(hoje()), seqArq: 0 }
@@ -185,11 +191,18 @@ export default function RemessaPagamentoPage() {
       const remessaId = (rem as { id: string }).id
 
       const incl = new Set(res.incluidos)
-      const itens = selecionadas.filter((t) => incl.has(t.id)).map((t) => ({
-        remessa_id: remessaId, erp_pagar_id: t.id,
-        forma: (t.forma_pagamento ?? '').toLowerCase() === 'pix' ? 'pix' : (String(t.codigo_barras ?? '').replace(/\D/g, '')[0] === '8' ? 'tributo' : 'boleto'),
-        valor: t.valor,
-      }))
+      const itens = selecionadas.filter((t) => incl.has(t.id)).map((t) => {
+        const pix = ehPix(t.forma_pagamento)
+        // a chave do título tem prioridade; cai pro PIX do cadastro do fornecedor (comportamento atual).
+        const chave = (t.chave_pix?.trim() || t.fornecedor?.pix?.trim() || null)
+        return {
+          remessa_id: remessaId, erp_pagar_id: t.id,
+          forma: pix ? 'pix' : (String(t.codigo_barras ?? '').replace(/\D/g, '')[0] === '8' ? 'tributo' : 'boleto'),
+          valor: t.valor,
+          tipo_chave_pix: pix ? (t.tipo_chave_pix ?? null) : null,
+          chave_pix: pix ? chave : null,
+        }
+      })
       const { error: itErr } = await supabase.from('erp_remessa_pagamento_item').insert(itens)
       if (itErr) throw itErr
 
@@ -544,6 +557,11 @@ export default function RemessaPagamentoPage() {
                 : <><b>ambiente de HOMOLOGAÇÃO</b> (arquivo de teste).</>} Confirmar?
             </p>
             {seqAbaixo && <p style={{ fontSize: 12.5, color: VERM, fontWeight: 600, margin: '0 0 8px' }}>⚠ O número {seqNum} é ≤ ao último enviado ({ultimoEnviado}) — o {labelBanco} pode recusar por sequência.</p>}
+            {pixSemChave.length > 0 && (
+              <p style={{ fontSize: 12.5, color: VERM, fontWeight: 600, margin: '0 0 8px' }}>
+                ⚠ {pixSemChave.length} título(s) PIX sem chave (nem no título, nem no cadastro do fornecedor): {pixSemChave.slice(0, 3).map((t) => t.descricao).filter(Boolean).join(', ')}{pixSemChave.length > 3 ? '…' : ''}. Preencha a chave PIX (no título ou no fornecedor) antes de enviar — o banco rejeita PIX sem chave.
+              </p>
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setConfirmar(false)} style={btnGhost}>Cancelar</button>
               <button onClick={gerar} style={{ ...btnPrimary, background: isProd ? VERM : ESP }}>Confirmar e gerar</button>
