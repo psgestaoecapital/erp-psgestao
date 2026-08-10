@@ -2,6 +2,7 @@
 // SPEC · Painel GENÉRICO de âmbito do BI — serve todos os boxes (comercial, abate, …) com um só código.
 // Lê fn_ind_ambito_painel (KPIs + série + pivot, sobre a fonte canônica do âmbito, respeitando escopo) +
 // fn_ind_ambito_metas (semáforo). Tiers "aguardando dados" honestos (RD-51). Design #819, mobile.
+// FIX #933: presets de período (default "Mês atual"), layout full-width, indicadores fiéis ao Excel.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -34,6 +35,21 @@ export type TierAguardando = { titulo: string; motivo: string }
 const GRANS = [{ v: 'dia', l: 'Dia' }, { v: 'semana', l: 'Semana' }, { v: 'mes', l: 'Mês' }, { v: 'ano', l: 'Ano' }]
 const semCor: Record<string, string> = { verde: GREEN, amarelo: AMBER, vermelho: RED, neutro: MUT, sem_meta: MUT }
 
+// Presets de período (FIX ponto 1): default "Mês atual", granularidade coerente a cada atalho.
+const addD = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+const som = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
+const sow = (d: Date) => addD(d, -((d.getDay() + 6) % 7)) // segunda-feira
+type Preset = { v: string; l: string; range: () => { de: string; ate: string; gran: string } }
+const PRESETS: Preset[] = [
+  { v: 'mes', l: 'Mês atual', range: () => { const h = new Date(); return { de: iso(som(h)), ate: iso(h), gran: 'dia' } } },
+  { v: 'hoje', l: 'Hoje', range: () => { const h = new Date(); return { de: iso(h), ate: iso(h), gran: 'dia' } } },
+  { v: 'semana', l: 'Semana atual', range: () => { const h = new Date(); return { de: iso(sow(h)), ate: iso(h), gran: 'dia' } } },
+  { v: 'd7', l: 'Últimos 7 dias', range: () => { const h = new Date(); return { de: iso(addD(h, -6)), ate: iso(h), gran: 'dia' } } },
+  { v: 'd30', l: 'Últimos 30 dias', range: () => { const h = new Date(); return { de: iso(addD(h, -29)), ate: iso(h), gran: 'dia' } } },
+  { v: 'd90', l: 'Últimos 90 dias', range: () => { const h = new Date(); return { de: iso(addD(h, -89)), ate: iso(h), gran: 'semana' } } },
+  { v: 'ano', l: 'Ano atual', range: () => { const h = new Date(); return { de: iso(new Date(h.getFullYear(), 0, 1)), ate: iso(h), gran: 'mes' } } },
+]
+
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
   useEffect(() => {
@@ -53,16 +69,22 @@ function Inner({ ambito, titulo, subtitulo, icone, tiers = [], podeSync }: { amb
   const sp = useSearchParams()
   const area = sp.get('area') === 'agro' ? 'agro' : 'industrial'
   const companyId = useCompanyId()
-  const hoje = new Date()
-  const [de, setDe] = useState(iso(new Date(hoje.getFullYear() - 1, hoje.getMonth(), 1)))
-  const [ate, setAte] = useState(iso(hoje))
-  const [gran, setGran] = useState('mes')
+  const [de, setDe] = useState(() => PRESETS[0].range().de)
+  const [ate, setAte] = useState(() => PRESETS[0].range().ate)
+  const [gran, setGran] = useState(() => PRESETS[0].range().gran)
+  const [preset, setPreset] = useState('mes')
   const [dim, setDim] = useState<string | null>(null)
   const [indicador, setIndicador] = useState<string | null>(null)
   const [d, setD] = useState<Painel | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'painel' | 'metas'>('painel')
   const [sinc, setSinc] = useState(false)
+
+  const aplicarPreset = (p: string) => {
+    const found = PRESETS.find(x => x.v === p)
+    if (!found) { setPreset('custom'); return }
+    const r = found.range(); setDe(r.de); setAte(r.ate); setGran(r.gran); setPreset(p)
+  }
 
   const carregar = useCallback(async (cid: string) => {
     setLoading(true)
@@ -84,14 +106,21 @@ function Inner({ ambito, titulo, subtitulo, icone, tiers = [], podeSync }: { amb
 
   return (
     <Shell {...{ area, router, titulo, subtitulo, icone }}>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+      {/* presets de período (FIX ponto 1) */}
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+        {PRESETS.map(p => <button key={p.v} onClick={() => aplicarPreset(p.v)} style={chip(preset === p.v)}>{p.l}</button>)}
+        <button onClick={() => setPreset('custom')} style={chip(preset === 'custom')}>Personalizado</button>
+      </div>
+
+      {/* granularidade + intervalo + ações */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ display: 'inline-flex', gap: 3, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: 3 }}>
-          {GRANS.map(g => <button key={g.v} onClick={() => setGran(g.v)} style={pill(gran === g.v)}>{g.l}</button>)}
+          {GRANS.map(g => <button key={g.v} onClick={() => { setGran(g.v); setPreset('custom') }} style={pill(gran === g.v)}>{g.l}</button>)}
         </div>
         <span style={{ flex: 1 }} />
-        <input type="date" value={de} onChange={e => setDe(e.target.value)} style={inpData} />
+        <input type="date" value={de} onChange={e => { setDe(e.target.value); setPreset('custom') }} style={inpData} />
         <span style={{ color: MUT, fontSize: 12 }}>até</span>
-        <input type="date" value={ate} onChange={e => setAte(e.target.value)} style={inpData} />
+        <input type="date" value={ate} onChange={e => { setAte(e.target.value); setPreset('custom') }} style={inpData} />
         {podeSync && <button onClick={() => void sincronizar()} disabled={sinc} title="Reprocessar o canônico a partir do conector" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: ESP, cursor: 'pointer' }}><RefreshCw size={13} style={sinc ? { animation: 'spin 1s linear infinite' } : undefined} /> Atualizar</button>}
       </div>
 
@@ -104,54 +133,58 @@ function Inner({ ambito, titulo, subtitulo, icone, tiers = [], podeSync }: { amb
       : semDados ? <Vazio t="Sem dados no período" l="Ajuste o período ou verifique o conector." />
       : tab === 'painel' ? (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 8, marginBottom: 14 }}>
+          {/* KPIs — grade que preenche a largura (FIX ponto 2) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
             {(d?.kpis ?? []).map(k => (
-              <button key={k.codigo} onClick={() => setIndicador(k.codigo)} style={{ all: 'unset', cursor: 'pointer', background: '#fff', border: `0.5px solid ${d?.indicador_serie === k.codigo ? GOLD : LINE}`, borderRadius: 12, padding: '11px 13px' }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: ESP, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{fmt(k.valor, k.unidade)}</div>
-                <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{k.nome}</div>
+              <button key={k.codigo} onClick={() => setIndicador(k.codigo)} style={{ all: 'unset', cursor: 'pointer', background: '#fff', border: `0.5px solid ${d?.indicador_serie === k.codigo ? GOLD : LINE}`, borderRadius: 12, padding: '13px 15px' }}>
+                <div style={{ fontSize: 19, fontWeight: 700, color: ESP, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{fmt(k.valor, k.unidade)}</div>
+                <div style={{ fontSize: 11.5, color: MUT, marginTop: 3 }}>{k.nome}</div>
               </button>
             ))}
           </div>
 
-          <Card>
-            <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 10 }}>Série · {serieKpi?.nome ?? d?.indicador_serie} ({GRANS.find(g => g.v === gran)?.l})</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 130, overflowX: 'auto' }}>
-              {(d?.serie ?? []).map((s, i) => { const v = s.valor ?? 0; return (
-                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 34 }}>
-                  <div style={{ fontSize: 8.5, color: MUT, whiteSpace: 'nowrap' }}>{v >= 1000 ? `${Math.round(v / 1000)}k` : Math.round(v)}</div>
-                  <div title={`${perLabel(s.periodo, gran)}: ${fmt(v, d?.unidade_serie ?? null)}`} style={{ width: 22, height: `${Math.max(3, (v / maxSerie) * 96)}px`, background: GOLD, borderRadius: '4px 4px 0 0' }} />
-                  <div style={{ fontSize: 8.5, color: MUT, whiteSpace: 'nowrap' }}>{perLabel(s.periodo, gran)}</div>
-                </div>) })}
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Concentração por {(d?.dims ?? []).find(x => x.v === d?.dim)?.l ?? d?.dim}</span>
-              <div style={{ display: 'inline-flex', gap: 3, background: BG, borderRadius: 999, padding: 2 }}>
-                {(d?.dims ?? []).map(x => <button key={x.v} onClick={() => setDim(x.v)} style={pill(d?.dim === x.v)}>{x.l}</button>)}
+          {/* Série + Concentração lado a lado quando couber (FIX ponto 2) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(340px,1fr))', gap: 10 }}>
+            <Card>
+              <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 10 }}>Série · {serieKpi?.nome ?? d?.indicador_serie} ({GRANS.find(g => g.v === gran)?.l})</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 150, overflowX: 'auto' }}>
+                {(d?.serie ?? []).map((s, i) => { const v = s.valor ?? 0; return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 34 }}>
+                    <div style={{ fontSize: 8.5, color: MUT, whiteSpace: 'nowrap' }}>{v >= 1000 ? `${Math.round(v / 1000)}k` : Math.round(v)}</div>
+                    <div title={`${perLabel(s.periodo, gran)}: ${fmt(v, d?.unidade_serie ?? null)}`} style={{ width: 22, height: `${Math.max(3, (v / maxSerie) * 112)}px`, background: GOLD, borderRadius: '4px 4px 0 0' }} />
+                    <div style={{ fontSize: 8.5, color: MUT, whiteSpace: 'nowrap' }}>{perLabel(s.periodo, gran)}</div>
+                  </div>) })}
               </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {(d?.pivot ?? []).map((p, i) => (
-                <div key={p.chave + i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 18, fontSize: 11, color: MUT, textAlign: 'right' }}>{i + 1}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }} className="truncate">{p.nome}</span>
-                      <span style={{ fontSize: 12.5, color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmt(p.valor, serieKpi?.unidade ?? d?.unidade_serie ?? null)} <span style={{ color: MUT, fontWeight: 500 }}>· {p.pct}%</span></span>
-                    </div>
-                    <div style={{ height: 6, borderRadius: 999, background: LINE, marginTop: 3, overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(100, p.pct)}%`, height: '100%', background: GOLD }} />
+            </Card>
+
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Concentração por {(d?.dims ?? []).find(x => x.v === d?.dim)?.l ?? d?.dim}</span>
+                <div style={{ display: 'inline-flex', gap: 3, background: BG, borderRadius: 999, padding: 2 }}>
+                  {(d?.dims ?? []).map(x => <button key={x.v} onClick={() => setDim(x.v)} style={pill(d?.dim === x.v)}>{x.l}</button>)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(d?.pivot ?? []).map((p, i) => (
+                  <div key={p.chave + i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 18, fontSize: 11, color: MUT, textAlign: 'right' }}>{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontSize: 12.5, color: ESP, fontWeight: 600 }} className="truncate">{p.nome}</span>
+                        <span style={{ fontSize: 12.5, color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmt(p.valor, serieKpi?.unidade ?? d?.unidade_serie ?? null)} <span style={{ color: MUT, fontWeight: 500 }}>· {p.pct}%</span></span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 999, background: LINE, marginTop: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(100, p.pct)}%`, height: '100%', background: GOLD }} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+                ))}
+              </div>
+            </Card>
+          </div>
 
           {tiers.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8, marginTop: 10 }}>
               {tiers.map((t, i) => (
                 <div key={i} style={{ background: '#FBF3DE', border: `0.5px dashed ${GOLD}`, borderRadius: 12, padding: 13 }}>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, color: '#8A6A1E', textTransform: 'uppercase', letterSpacing: 0.4 }}><Clock size={12} /> aguardando dados</div>
@@ -195,7 +228,7 @@ function MetasTab({ companyId, ambito }: { companyId: string; ambito: string }) 
         <select value={ano} onChange={e => setAno(Number(e.target.value))} style={inpData}>{[now.getFullYear(), now.getFullYear() - 1].map(a => <option key={a} value={a}>{a}</option>)}</select>
       </div>
       {loading ? <div style={{ color: MUT, fontSize: 13 }}>Carregando…</div> : metas.length === 0 ? <Vazio t="Sem indicadores com dado" l="Os indicadores com fonte de dado aparecem aqui para cadastrar meta." /> : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 8 }}>
           {metas.map(m => (
             <Card key={m.codigo}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
@@ -219,8 +252,8 @@ function MetasTab({ companyId, ambito }: { companyId: string; ambito: string }) 
 
 function Shell({ children, area, router, titulo, subtitulo, icone }: { children: React.ReactNode; area: string; router: ReturnType<typeof useRouter>; titulo: string; subtitulo: string; icone: React.ReactNode }) {
   return (
-    <div style={{ background: BG, minHeight: '100vh', padding: '24px 18px' }}>
-      <div style={{ maxWidth: 880, margin: '0 auto' }}>
+    <div style={{ background: BG, minHeight: '100vh', padding: '24px clamp(14px, 4vw, 40px)' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto' }}>
         <button onClick={() => router.push(`/dashboard/inteligencia?area=${area}`)} style={{ background: 'transparent', border: 'none', color: MUT, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 12 }}>← Análise de dados</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <span style={{ width: 40, height: 40, borderRadius: 12, background: '#F3E6C9', color: GOLD, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icone}</span>
@@ -237,5 +270,6 @@ function Shell({ children, area, router, titulo, subtitulo, icone }: { children:
 function Card({ children }: { children: React.ReactNode }) { return <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 10 }}>{children}</div> }
 function Vazio({ t, l }: { t: string; l: string }) { return <div style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 14, padding: '30px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: ESP }}>{t}</div><div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>{l}</div></div> }
 const pill = (on: boolean): React.CSSProperties => ({ fontSize: 11.5, fontWeight: 700, padding: '5px 11px', borderRadius: 999, cursor: 'pointer', border: 'none', background: on ? GOLD : 'transparent', color: on ? '#fff' : MUT })
+const chip = (on: boolean): React.CSSProperties => ({ fontSize: 11.5, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', border: `0.5px solid ${on ? GOLD : LINE}`, background: on ? GOLD : '#fff', color: on ? '#fff' : ESP })
 const aba = (on: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 700, padding: '7px 14px', borderRadius: 999, cursor: 'pointer', border: `0.5px solid ${on ? GOLD : LINE}`, background: on ? GOLD : '#fff', color: on ? '#fff' : ESP })
 const inpData: React.CSSProperties = { border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: ESP, background: '#fff' }

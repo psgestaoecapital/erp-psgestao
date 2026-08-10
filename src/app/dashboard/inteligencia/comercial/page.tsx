@@ -14,7 +14,8 @@ export default function ComercialBIPage() {
       icone={<TrendingUp size={20} />}
       podeSync
       tiers={[
-        { titulo: 'Por cidade / cliente (apelido)', motivo: 'Aguardando o cadastro de clientes no conector (Tier 2).' },
+        { titulo: 'Cidades atendidas', motivo: 'Aguardando cidade/UF do cliente no conector (Tier 2).' },
+        { titulo: 'Concentração por cliente / cidade', motivo: 'Aguardando o cadastro de clientes no conector (Tier 2).' },
         { titulo: 'KG e R$/kg por produto', motivo: 'Aguardando o faturamento linha-a-linha (Tier 3).' },
       ]}
     />
