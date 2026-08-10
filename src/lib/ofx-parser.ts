@@ -10,7 +10,7 @@ export interface MovimentoOFX {
   natureza: 'credito' | 'debito';
   descricao: string;            // texto original ate 300 chars
   descricao_limpa: string;      // upper, sem acento/pontuacao, ate 300
-  id_externo: string;           // FITID (ou gerado se ausente)
+  id_externo: string;           // FITID > CHECKNUM > REFNUM; '' se nenhum (NÃO gerar aleatório — quebra dedup)
   documento: string | null;     // CHECKNUM
   tipo_ofx: string;             // TRNTYPE original (CREDIT/DEBIT/etc)
 }
@@ -94,6 +94,7 @@ export function parseOFX(texto: string): ResultadoParseOFX {
       const valorStr = getTag('TRNAMT');
       const idExterno = getTag('FITID');
       const checkNum = getTag('CHECKNUM');
+      const refNum = getTag('REFNUM');
       const memo = getTag('MEMO') || getTag('NAME') || '';
 
       // Skip silencioso se faltam campos obrigatorios
@@ -142,15 +143,17 @@ export function parseOFX(texto: string): ResultadoParseOFX {
         natureza,
         descricao,
         descricao_limpa: descricaoLimpa,
-        id_externo: idExterno || `${dataISO}-${valorRaw}-${Math.random().toString(36).substring(2, 8)}`,
+        // FITID > CHECKNUM > REFNUM; '' se nenhum. NUNCA gerar aleatório: id volátil impede a dedup
+        // por transação (cada import viraria "novo"). Sem id → dedup por chave natural na RPC (FIX #8).
+        id_externo: idExterno || checkNum || refNum || '',
         documento: checkNum || null,
         tipo_ofx: tipoOfx || (valorRaw >= 0 ? 'CREDIT' : 'DEBIT'),
       });
     }
-  } catch (e: any) {
+  } catch (e) {
     return {
       movimentos: [],
-      erro: 'Erro ao processar OFX: ' + (e?.message || String(e)),
+      erro: 'Erro ao processar OFX: ' + (e instanceof Error ? e.message : String(e)),
       total_brutos: totalBrutos,
     };
   }
