@@ -56,7 +56,15 @@ export function mapearRemessaSicredi(cfg: ConfigSicoobDb, titulos: TituloPag[], 
     return { input: null, erros, incluidos: [], totalCentavos: 0 }
   }
 
-  const lotes: LoteInputSicredi[] = [{ tpServ: '03', formaPg: '30', itens: boletos }]
+  // Forma de Lançamento por banco do boleto (RD-38, byte a byte c/ o arquivo real da KGF/Omie):
+  // 748 (Sicredi) = 30 (título do próprio banco); qualquer outro banco = 31 (títulos de outros bancos).
+  // Mistura → lotes SEPARADOS por forma (o real sai com 1 lote 30 + 1 lote 31). Com '30' fixo, o Sicredi
+  // rejeitava boletos de Itaú/BB com CA. Barcode verbatim mantido (#941).
+  const doSicredi = boletos.filter((b) => b.codBarras.slice(0, 3) === '748')
+  const deOutros = boletos.filter((b) => b.codBarras.slice(0, 3) !== '748')
+  const lotes: LoteInputSicredi[] = []
+  if (doSicredi.length) lotes.push({ tpServ: '03', formaPg: '30', itens: doSicredi })
+  if (deOutros.length) lotes.push({ tpServ: '03', formaPg: '31', itens: deOutros })
   return {
     input: { empresa, nomePagador: cfg.razao_social, dataGer: opts.dataGer, horaGer: opts.horaGer, seqArq: opts.seqArq, lotes },
     erros, incluidos, totalCentavos,
