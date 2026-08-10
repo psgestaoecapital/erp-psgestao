@@ -9,7 +9,6 @@
 
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import OSHeaderEmpresa from '@/components/os/OSHeaderEmpresa'
 
 export const dynamic = 'force-dynamic'
 const BUCKET = 'oficina-recepcao'
@@ -34,6 +33,7 @@ interface Dados {
   empresa?: Empresa; cabecalho?: Cabecalho; itens?: Item[]; resumo?: Resumo; fotos?: Foto[] | null; os?: OSExtra
 }
 
+const fmtCNPJ = (c: string | null | undefined) => { const d = (c ?? '').replace(/\D/g, ''); return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : (c ?? '') }
 const fmtBRL = (v: number | null | undefined) => v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' } }
 const fmtDataHora = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' } }
@@ -198,7 +198,26 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
         <div className="print-page">
           {/* 1. Cabeçalho · empresa + título por status + datas (abertura sempre; conclusão/entrega quando houver) */}
           <header className="pp-header">
-            <OSHeaderEmpresa empresa={empresa} />
+            {/* Cabeçalho da empresa INLINE (não depende de componente externo) — razão social + CNPJ SEMPRE;
+                logo/endereço opcionais por linha (RD-38: nunca esconde o bloco todo). */}
+            <div data-testid="os-print-empresa" style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              {empresa.logo && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={empresa.logo} alt="Logomarca" style={{ maxHeight: 56, maxWidth: 140, objectFit: 'contain' }} />
+              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#3D2314' }}>{empresa.razao_social || empresa.nome || '—'}</div>
+                {empresa.nome && empresa.nome !== empresa.razao_social && <div style={{ fontSize: 11, color: '#6B5D4F' }}>{empresa.nome}</div>}
+                <div style={{ fontSize: 10.5, color: '#6B5D4F', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 12px' }}>
+                  {empresa.cnpj && <span>CNPJ: {fmtCNPJ(empresa.cnpj)}</span>}
+                  {empresa.ie && <span>IE: {empresa.ie}</span>}
+                  {empresa.im && <span>IM: {empresa.im}</span>}
+                </div>
+                {[empresa.endereco, empresa.cidade_estado].filter(Boolean).length > 0 && (
+                  <div style={{ fontSize: 10.5, color: '#6B5D4F', marginTop: 2 }}>{[empresa.endereco, empresa.cidade_estado].filter(Boolean).join(' · ')}</div>
+                )}
+              </div>
+            </div>
 
             <h1 className="pp-title">
               {docTitulo} Nº {cab.numero ?? '—'}
