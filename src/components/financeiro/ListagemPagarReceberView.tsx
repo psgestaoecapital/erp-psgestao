@@ -15,6 +15,7 @@ import ConciliarTituloModal from './ConciliarTituloModal'
 import EditarLancamentoModal from './EditarLancamentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
+import ExportarListaButton from './ExportarListaButton'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -366,6 +367,28 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
     [resultadosFiltrados],
   )
+
+  // Export (Pendência Jordana #3): descrição dos filtros ativos + KPIs do topo (ASCII-safe p/ PDF).
+  const filtrosDesc = useMemo(() => {
+    const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel }
+    const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusMap[statusFiltro] ?? statusFiltro}`]
+    if (categoria) partes.push(`Categoria: ${categoria}`)
+    if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
+    if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
+    if (fForma) partes.push(`Forma: ${fForma}`)
+    if (fValorMin.trim()) partes.push(`Valor >= R$ ${fValorMin.trim()}`)
+    if (fValorMax.trim()) partes.push(`Valor <= R$ ${fValorMax.trim()}`)
+    if (contasSel.size > 0) partes.push(`Conta: ${Array.from(contasSel).join(', ')}`)
+    return partes.join(' · ')
+  }, [dataInicio, dataFim, statusFiltro, categoria, busca, fPessoa, fForma, fValorMin, fValorMax, contasSel, labels, tipo])
+
+  const kpisExport = useMemo(() => data ? [
+    { label: labels.vencidosLabel, valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
+    { label: labels.hojeLabel, valor: data.kpis.hoje.valor, qtd: data.kpis.hoje.qtd },
+    { label: 'A vencer', valor: data.kpis.avencer.valor, qtd: data.kpis.avencer.qtd },
+    { label: labels.pagosLabel, valor: data.kpis.pagos.valor, qtd: data.kpis.pagos.qtd },
+    { label: 'Total', valor: data.kpis.total, qtd: (data.resultados ?? []).length },
+  ] : [], [data, labels])
   // Dois somatórios (Jordana/CEO): Total = Σ valor cheio ("quanto tem nas contas");
   // Pendente = Σ (valor − valor_pago) ("quanto ainda falta"), nunca negativo (clamp em 0).
   const { valorTotalSelecionados, valorPendenteSelecionados } = useMemo(() => {
@@ -581,7 +604,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   return (
     <Wrapper>
-      <Header labels={labels} onHistorico={() => setHistoricoGlobalAberto(true)} />
+      <Header
+        labels={labels}
+        onHistorico={() => setHistoricoGlobalAberto(true)}
+        acaoExtra={
+          <ExportarListaButton
+            companyId={companyId}
+            tipo={tipo}
+            titulo={labels.titulo}
+            filtros={filtrosDesc}
+            kpis={kpisExport}
+            linhas={resultadosFiltrados}
+          />
+        }
+      />
 
       {tipo === 'receber' && provider === 'sicoob' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
@@ -1309,9 +1345,10 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Header({ labels, onHistorico }: {
+function Header({ labels, onHistorico, acaoExtra }: {
   labels: ReturnType<typeof labelsPorTipo>
   onHistorico?: () => void
+  acaoExtra?: React.ReactNode
 }) {
   return (
     <div
@@ -1340,6 +1377,7 @@ function Header({ labels, onHistorico }: {
         <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.65)', marginTop: 4 }}>{labels.subtitulo}</div>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {acaoExtra}
         {onHistorico && (
           <button
             type="button"
