@@ -22,13 +22,16 @@ const ddmmaaaa = (d: Date) => `${String(d.getDate()).padStart(2, '0')}${String(d
 const isoLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const addDias = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const PRESETS_VENC = [
-  { v: 'semana', l: 'Esta semana' }, { v: 'd7', l: 'Próximos 7 dias' }, { v: 'vencidos', l: 'Vencidos' },
-  { v: 'mes', l: 'Este mês' }, { v: 'todos', l: 'Todos' }, { v: 'custom', l: 'Personalizado' },
+  { v: 'a_pagar', l: 'A pagar (até domingo)' }, { v: 'semana', l: 'Esta semana' }, { v: 'd7', l: 'Próximos 7 dias' },
+  { v: 'vencidos', l: 'Vencidos' }, { v: 'mes', l: 'Este mês' }, { v: 'todos', l: 'Todos' }, { v: 'custom', l: 'Personalizado' },
 ]
 function rangeVenc(preset: string, de: string, ate: string): { de: string | null; ate: string | null } {
   const h = hoje()
+  const domingo = isoLocal(addDias(addDias(h, -((h.getDay() + 6) % 7)), 6)) // domingo desta semana
   if (preset === 'custom') return { de: de || null, ate: ate || null }
   if (preset === 'todos') return { de: null, ate: null }
+  // A pagar (default): TUDO que vence até o próximo domingo — inclui os já vencidos (nada atrasado escondido).
+  if (preset === 'a_pagar') return { de: null, ate: domingo }
   if (preset === 'd7') return { de: isoLocal(h), ate: isoLocal(addDias(h, 6)) }
   if (preset === 'vencidos') return { de: null, ate: isoLocal(addDias(h, -1)) }
   if (preset === 'mes') return { de: isoLocal(new Date(h.getFullYear(), h.getMonth(), 1)), ate: isoLocal(new Date(h.getFullYear(), h.getMonth() + 1, 0)) }
@@ -63,7 +66,7 @@ export default function RemessaPagamentoPage() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [filtro, setFiltro] = useState('')
-  const [vencPreset, setVencPreset] = useState('semana')
+  const [vencPreset, setVencPreset] = useState('a_pagar')
   const [vencDe, setVencDe] = useState('')
   const [vencAte, setVencAte] = useState('')
   const [confirmar, setConfirmar] = useState(false)
