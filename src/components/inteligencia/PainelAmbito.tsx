@@ -49,6 +49,14 @@ const PRESETS: Preset[] = [
   { v: 'd90', l: 'Últimos 90 dias', range: () => { const h = new Date(); return { de: iso(addD(h, -89)), ate: iso(h), gran: 'semana' } } },
   { v: 'ano', l: 'Ano atual', range: () => { const h = new Date(); return { de: iso(new Date(h.getFullYear(), 0, 1)), ate: iso(h), gran: 'mes' } } },
 ]
+// Rótulo compacto do intervalo aplicado (FIX v2): "01–10/08/2026" · sem timezone (lê o ISO direto).
+function rangeLabel(de: string, ate: string): string {
+  const [ay, am, ad] = de.split('-'), [by, bm, bd] = ate.split('-')
+  if (de === ate) return `${ad}/${am}/${ay}`
+  if (ay === by && am === bm) return `${ad}–${bd}/${bm}/${by}`
+  if (ay === by) return `${ad}/${am}–${bd}/${bm}/${by}`
+  return `${ad}/${am}/${ay}–${bd}/${bm}/${by}`
+}
 
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
@@ -106,27 +114,35 @@ function Inner({ ambito, titulo, subtitulo, icone, tiers = [], podeSync }: { amb
 
   return (
     <Shell {...{ area, router, titulo, subtitulo, icone }}>
-      {/* presets de período (FIX ponto 1) */}
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-        {PRESETS.map(p => <button key={p.v} onClick={() => aplicarPreset(p.v)} style={chip(preset === p.v)}>{p.l}</button>)}
-        <button onClick={() => setPreset('custom')} style={chip(preset === 'custom')}>Personalizado</button>
+      {/* Linha 1 · presets (chips) — scrolláveis no mobile, cabem no desktop (FIX v2) */}
+      <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 8, overflowX: 'auto', paddingBottom: 2, WebkitOverflowScrolling: 'touch' }}>
+        {PRESETS.map(p => <button key={p.v} onClick={() => aplicarPreset(p.v)} style={{ ...chip(preset === p.v), flex: '0 0 auto' }}>{p.l}</button>)}
+        <button onClick={() => aplicarPreset('custom')} style={{ ...chip(preset === 'custom'), flex: '0 0 auto' }}>Personalizado</button>
       </div>
 
-      {/* granularidade + intervalo + ações */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+      {/* Linha 2 · granularidade + (só em Personalizado) datas compactas / senão rótulo do range + Atualizar */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ display: 'inline-flex', gap: 3, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: 3 }}>
           {GRANS.map(g => <button key={g.v} onClick={() => { setGran(g.v); setPreset('custom') }} style={pill(gran === g.v)}>{g.l}</button>)}
         </div>
         <span style={{ flex: 1 }} />
-        <input type="date" value={de} onChange={e => { setDe(e.target.value); setPreset('custom') }} style={inpData} />
-        <span style={{ color: MUT, fontSize: 12 }}>até</span>
-        <input type="date" value={ate} onChange={e => { setAte(e.target.value); setPreset('custom') }} style={inpData} />
-        {podeSync && <button onClick={() => void sincronizar()} disabled={sinc} title="Reprocessar o canônico a partir do conector" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: ESP, cursor: 'pointer' }}><RefreshCw size={13} style={sinc ? { animation: 'spin 1s linear infinite' } : undefined} /> Atualizar</button>}
+        {preset === 'custom' ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: MUT, fontSize: 12 }}>De</span>
+            <input type="date" value={de} onChange={e => setDe(e.target.value)} style={inpDataSm} />
+            <span style={{ color: MUT, fontSize: 12 }}>até</span>
+            <input type="date" value={ate} onChange={e => setAte(e.target.value)} style={inpDataSm} />
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, fontWeight: 600, color: ESP, whiteSpace: 'nowrap' }}>{rangeLabel(de, ate)}</span>
+        )}
+        {podeSync && <button onClick={() => void sincronizar()} disabled={sinc} title="Reprocessar o canônico a partir do conector" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '6px 11px', fontSize: 12, fontWeight: 600, color: ESP, cursor: 'pointer' }}><RefreshCw size={13} style={sinc ? { animation: 'spin 1s linear infinite' } : undefined} /> Atualizar</button>}
       </div>
 
-      <div style={{ display: 'inline-flex', gap: 4, marginBottom: 14 }}>
-        <button onClick={() => setTab('painel')} style={aba(tab === 'painel')}><BarChart3 size={14} /> Painel</button>
-        <button onClick={() => setTab('metas')} style={aba(tab === 'metas')}><Target size={14} /> Metas</button>
+      {/* abas Painel/Metas — segmentadas, compactas */}
+      <div style={{ display: 'inline-flex', gap: 3, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: 3, marginBottom: 12 }}>
+        <button onClick={() => setTab('painel')} style={seg(tab === 'painel')}><BarChart3 size={13} /> Painel</button>
+        <button onClick={() => setTab('metas')} style={seg(tab === 'metas')}><Target size={13} /> Metas</button>
       </div>
 
       {loading && !d ? <div style={{ color: MUT, fontSize: 13 }}>Carregando os números…</div>
@@ -271,5 +287,6 @@ function Card({ children }: { children: React.ReactNode }) { return <div style={
 function Vazio({ t, l }: { t: string; l: string }) { return <div style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 14, padding: '30px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: ESP }}>{t}</div><div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>{l}</div></div> }
 const pill = (on: boolean): React.CSSProperties => ({ fontSize: 11.5, fontWeight: 700, padding: '5px 11px', borderRadius: 999, cursor: 'pointer', border: 'none', background: on ? GOLD : 'transparent', color: on ? '#fff' : MUT })
 const chip = (on: boolean): React.CSSProperties => ({ fontSize: 11.5, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', border: `0.5px solid ${on ? GOLD : LINE}`, background: on ? GOLD : '#fff', color: on ? '#fff' : ESP })
-const aba = (on: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 700, padding: '7px 14px', borderRadius: 999, cursor: 'pointer', border: `0.5px solid ${on ? GOLD : LINE}`, background: on ? GOLD : '#fff', color: on ? '#fff' : ESP })
+const seg = (on: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 700, padding: '6px 14px', borderRadius: 999, cursor: 'pointer', border: 'none', background: on ? GOLD : 'transparent', color: on ? '#fff' : MUT })
 const inpData: React.CSSProperties = { border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: ESP, background: '#fff' }
+const inpDataSm: React.CSSProperties = { border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '5px 8px', fontSize: 12.5, color: ESP, background: '#fff', width: 140, maxWidth: '40vw' }
