@@ -138,6 +138,7 @@ export const DASHBOARD_MENU_GROUPS: MenuGroup[] = [
     label: 'Configurações',
     icon: Settings,
     items: [
+      { label: 'Dados da Empresa', href: '/dashboard/configuracoes/empresa', icon: Briefcase, status: 'pronto' },
       { label: 'Fiscal · A1 + Focus NFe', href: '/dashboard/configuracoes/fiscal', icon: FileCheck, status: 'pronto', badge: 'NFe' },
     ],
   },
