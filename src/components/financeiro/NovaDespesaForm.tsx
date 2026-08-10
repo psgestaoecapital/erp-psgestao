@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
+import { CamposPix } from './CamposPix'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
@@ -108,6 +110,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('pix')
+  const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
+  const [chavePix, setChavePix] = useState('')
   const [contaBancaria, setContaBancaria] = useState('')
   const [observacao, setObservacao] = useState('')
   const [jaPago, setJaPago] = useState(false)
@@ -357,6 +361,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       }
     }
 
+    // PIX: se informou a chave, ela precisa ser válida (senão a remessa é rejeitada pelo banco).
+    if (ehPix(formaPagamento) && chavePix.trim()) {
+      const eChave = validarChavePix(tipoChavePix, chavePix)
+      if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
+    }
+
     // se a pessoa digitou, respeita; se não, gera de fornecedor + categoria
     const descricaoFinal = descricao.trim() || montarDescricao()
     const hoje = new Date().toISOString().split('T')[0]
@@ -405,6 +415,15 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     const dataCompFinal = dataCompetencia || dataVencimento
     if (ids.length > 0 && dataCompFinal) {
       await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
+    }
+
+    // PIX: grava tipo+chave (normalizada) no título → flui pro item da remessa. Outras formas limpam o lixo.
+    if (ids.length > 0) {
+      const pix = ehPix(formaPagamento) && chavePix.trim()
+      await supabase.from('erp_pagar').update({
+        tipo_chave_pix: pix ? tipoChavePix : null,
+        chave_pix: pix ? normalizarChavePix(tipoChavePix, chavePix) : null,
+      }).in('id', ids)
     }
 
     // VERBATIM (RD-57 · RD-55): grava o código de barras EXATAMENTE como o usuário informou, na 1ª
@@ -725,14 +744,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               onChange={(e) => setFormaPagamento(e.target.value)}
               style={inputStyle}
             >
-              <option value="pix">Pix</option>
-              <option value="boleto">Boleto</option>
-              <option value="transferencia">Transferência (TED/DOC)</option>
-              <option value="cartao_credito">Cartão de crédito</option>
-              <option value="cartao_debito">Cartão de débito</option>
-              <option value="dinheiro">Dinheiro</option>
+              {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
             </select>
           </Campo>
+
+          {ehPix(formaPagamento) && (
+            <CamposPix tipoChave={tipoChavePix} chave={chavePix} setTipoChave={setTipoChavePix} setChave={setChavePix} inputStyle={inputStyle} />
+          )}
 
           <Campo label="Em qual conta sai o dinheiro?">
             <select

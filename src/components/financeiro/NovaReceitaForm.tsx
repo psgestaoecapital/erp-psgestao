@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
+import { CamposPix } from './CamposPix'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
 import Modal from '@/components/ui/Modal'
@@ -76,6 +78,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaRecebimento, setFormaRecebimento] = useState('pix')
+  const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
+  const [chavePix, setChavePix] = useState('')
   const [contaBancaria, setContaBancaria] = useState('') // agora guarda o ID da conta (erp_banco_contas.id)
   const [centroCustoId, setCentroCustoId] = useState('')
   const [observacao, setObservacao] = useState('')
@@ -242,6 +246,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     const faltou = validarCampos()
     if (faltou) { setErroCampo(faltou.campo); setFeedback({ tipo: 'erro', texto: faltou.banner }); return }
 
+    if (ehPix(formaRecebimento) && chavePix.trim()) {
+      const eChave = validarChavePix(tipoChavePix, chavePix)
+      if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
+    }
+
     setLoading(true)
     setDupWarn(false)
 
@@ -318,6 +327,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       if (dataCompFinal) patch.data_competencia = dataCompFinal
       if (contaBancaria) patch.conta_bancaria_id = contaBancaria
       if (centroCustoId) patch.centro_custo_id = centroCustoId
+      // PIX: grava tipo+chave (normalizada); outras formas limpam o lixo.
+      const pixR = ehPix(formaRecebimento) && chavePix.trim()
+      patch.tipo_chave_pix = pixR ? tipoChavePix : null
+      patch.chave_pix = pixR ? normalizarChavePix(tipoChavePix, chavePix) : null
       if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
     }
 
@@ -605,15 +618,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
               onChange={(e) => setFormaRecebimento(e.target.value)}
               style={inputStyle}
             >
-              <option value="pix">Pix</option>
-              <option value="boleto">Boleto</option>
-              <option value="transferencia">Transferência (TED/DOC)</option>
-              <option value="cartao_credito">Cartão de crédito</option>
-              <option value="cartao_debito">Cartão de débito</option>
-              <option value="dinheiro">Dinheiro</option>
-              <option value="cheque">Cheque</option>
+              {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
             </select>
           </Campo>
+
+          {ehPix(formaRecebimento) && (
+            <CamposPix tipoChave={tipoChavePix} chave={chavePix} setTipoChave={setTipoChavePix} setChave={setChavePix} inputStyle={inputStyle} />
+          )}
 
           <Campo label="Em qual conta entra o dinheiro?">
             <select
