@@ -102,6 +102,17 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
     return () => { alive = false }
   }, [osId])
 
+  // Voltar (tablet): a impressão abre em nova aba (window.open). Tenta fechar a aba; se o navegador não
+  // deixar fechar, cai pro histórico e, em último caso, volta pra oficina. Nunca deixa o usuário preso.
+  function voltar() {
+    try { window.close() } catch { /* alguns navegadores bloqueiam close() */ }
+    setTimeout(() => {
+      if (typeof window === 'undefined' || window.closed) return
+      if (window.history.length > 1) window.history.back()
+      else window.location.assign('/dashboard/oficina')
+    }, 150)
+  }
+
   // toggle "incluir histórico fotográfico": busca as fotos (RPC com p_incluir_fotos) e assina as URLs.
   async function alternarFotos(ligar: boolean) {
     setIncluirFotos(ligar)
@@ -168,16 +179,20 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
       `}</style>
 
       <div className="print-root">
-        <div className="no-print" style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'flex-end', maxWidth: 760, margin: '16px auto 0', padding: '0 16px', flexWrap: 'wrap' }}>
-          <label className="pp-toggle">
-            <input type="checkbox" checked={incluirFotos} onChange={(e) => void alternarFotos(e.target.checked)} />
-            Incluir histórico fotográfico
-          </label>
-          <label className="pp-toggle">
-            <input type="checkbox" checked={incluirPromissoria} onChange={(e) => setIncluirPromissoria(e.target.checked)} />
-            Incluir nota promissória
-          </label>
-          <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">🖨️ Imprimir</button>
+        <div className="no-print" style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', maxWidth: 760, margin: '16px auto 0', padding: '0 16px', flexWrap: 'wrap' }}>
+          {/* Voltar/Fechar — tira o beco sem saída no tablet (a impressão abre em nova aba) */}
+          <button type="button" onClick={voltar} className="pp-btn" style={{ background: '#fff', color: '#3D2314', border: '1px solid #E0D8CC' }} data-testid="os-print-voltar">← Voltar</button>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label className="pp-toggle">
+              <input type="checkbox" checked={incluirFotos} onChange={(e) => void alternarFotos(e.target.checked)} />
+              Incluir histórico fotográfico
+            </label>
+            <label className="pp-toggle">
+              <input type="checkbox" checked={incluirPromissoria} onChange={(e) => setIncluirPromissoria(e.target.checked)} />
+              Incluir nota promissória
+            </label>
+            <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">🖨️ Imprimir</button>
+          </div>
         </div>
 
         <div className="print-page">
@@ -191,6 +206,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
             </h1>
             <div style={{ fontSize: 10, color: '#6B5D4F', marginBottom: 2 }}>{docSub}</div>
             <div className="pp-datas">
+              <span><span className="pp-lbl">Emitido em</span> <strong className="pp-val">{new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</strong></span>
               <span><span className="pp-lbl">Aberta em</span> <strong className="pp-val">{fmtData(cab.data_abertura)}</strong></span>
               {(() => {
                 // conclusão/entrega: a OS marca em entregue_em/data_execucao (data_conclusao costuma ficar nula)
