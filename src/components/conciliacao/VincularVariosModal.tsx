@@ -74,8 +74,23 @@ export default function VincularVariosModal({
   const [acao, setAcao] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [fechando, setFechando] = useState(false)
+  // Ajuste (acréscimo/desconto) — fecha a diferença banco × título (todas as opções).
+  const [acrescimo, setAcrescimo] = useState('')
+  const [desconto, setDesconto] = useState('')
+  const [obsAjuste, setObsAjuste] = useState('')
+  const [ajusteTouched, setAjusteTouched] = useState(false)
 
   const naturezaBusca: 'debito' | 'credito' = natureza === 'credito' ? 'credito' : 'debito'
+  const parseNum = (s: string) => Number((s || '0').replace(/\s/g, '').replace(',', '.')) || 0
+
+  // pré-preenche o ajuste com a diferença (positiva→acréscimo, negativa→desconto), até o operador editar.
+  useEffect(() => {
+    if (!resumo || ajusteTouched) return
+    const diff = Math.round((Math.abs(valorMovimento) - (resumo.soma_vinculada ?? 0)) * 100) / 100
+    const nextAcr = diff > 0.05 ? diff.toFixed(2) : ''
+    const nextDesc = diff < -0.05 ? Math.abs(diff).toFixed(2) : ''
+    setAcrescimo(nextAcr); setDesconto(nextDesc)
+  }, [resumo, valorMovimento, ajusteTouched])
 
   useEffect(() => {
     function onEsc(e: KeyboardEvent) {
@@ -148,8 +163,15 @@ export default function VincularVariosModal({
   }
 
   async function fecharFatura() {
-    if (!resumo?.fecha) return
-    if (!window.confirm(`CONCILIAR a fatura?\n\n${resumo.qtd_vinculos ?? resumo.itens?.length ?? 0} conta(s) baixadas como pagas pelo total da fatura.`)) return
+    const acrNum = parseNum(acrescimo)
+    const descNum = parseNum(desconto)
+    const somaVinc = resumo?.soma_vinculada ?? 0
+    const saldoAjustado = Math.round((Math.abs(valorMovimento) - (somaVinc + acrNum - descNum)) * 100) / 100
+    if (!(somaVinc > 0 && Math.abs(saldoAjustado) <= 0.05)) return
+    const nQtd = resumo?.qtd_vinculos ?? resumo?.itens?.length ?? 0
+    const linhaAjuste = acrNum > 0 ? `\nAcréscimo (juros/multa) de R$ ${fmt(acrNum)} registrado no título.`
+      : descNum > 0 ? `\nDesconto de R$ ${fmt(descNum)} registrado no título.` : ''
+    if (!window.confirm(`CONCILIAR a fatura?\n\n${nQtd} conta(s) baixadas pelo total da fatura.${linhaAjuste}`)) return
     setFechando(true)
     setErro(null)
     const { data: { user } } = await supabase.auth.getUser()
@@ -157,6 +179,11 @@ export default function VincularVariosModal({
       p_movimento_id: movimentoId,
       p_operador_id: user?.id ?? null,
       p_tolerancia: 0.05,
+      p_juros: acrNum,
+      p_multa: 0,
+      p_desconto: descNum,
+      p_ajuste_lancamento_id: null,
+      p_observacao: obsAjuste.trim() || null,
     })
     setFechando(false)
     if (error) { setErro(error.message); return }
@@ -167,8 +194,15 @@ export default function VincularVariosModal({
   }
 
   const valorAbs = Math.abs(valorMovimento)
-  const pct = resumo ? Math.min(100, (resumo.soma_vinculada / valorAbs) * 100) : 0
-  const corBarra = resumo?.fecha ? '#3B6D11' : '#C8941A'
+  const somaVinc = resumo?.soma_vinculada ?? 0
+  const acrNum = parseNum(acrescimo)
+  const descNum = parseNum(desconto)
+  const diffRaw = Math.round((valorAbs - somaVinc) * 100) / 100
+  const saldoAjustado = Math.round((valorAbs - (somaVinc + acrNum - descNum)) * 100) / 100
+  const fechaAjuste = somaVinc > 0 && Math.abs(saldoAjustado) <= 0.05
+  const mostrarAjuste = somaVinc > 0 && (Math.abs(diffRaw) > 0.05 || acrNum > 0 || descNum > 0)
+  const pct = fechaAjuste ? 100 : (resumo ? Math.min(100, (somaVinc / valorAbs) * 100) : 0)
+  const corBarra = fechaAjuste ? '#3B6D11' : '#C8941A'
 
   return (
     <div
@@ -218,14 +252,40 @@ export default function VincularVariosModal({
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, fontSize: 12, color: '#3D2314', marginBottom: 8 }}>
               <span><strong>Fatura:</strong> R$ {fmt(valorAbs)}</span>
               <span><strong>Vinculado:</strong> R$ {fmt(resumo?.soma_vinculada ?? 0)}</span>
-              <span style={{ color: resumo?.fecha ? '#3B6D11' : '#BA7517' }}>
-                {resumo?.fecha ? '✅ Fatura fechada' : `Faltam R$ ${fmt(Math.max(0, resumo?.saldo ?? valorAbs))} pra fechar`}
+              <span style={{ color: fechaAjuste ? '#3B6D11' : '#BA7517' }}>
+                {fechaAjuste ? '✅ Fatura fechada' : `Faltam R$ ${fmt(Math.max(0, saldoAjustado))} pra fechar`}
               </span>
             </div>
             <div style={{ height: 10, background: 'rgba(61,35,20,0.08)', borderRadius: 6, overflow: 'hidden' }}>
               <div style={{ width: `${pct}%`, height: '100%', background: corBarra, transition: 'width 0.2s' }} />
             </div>
           </div>
+
+          {/* Ajuste — acréscimo/desconto para fechar a diferença banco × título */}
+          {mostrarAjuste && (
+            <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(200,148,26,0.55)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#3D2314', marginBottom: 2 }}>Ajuste · fechar a diferença</div>
+              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)', marginBottom: 10 }}>
+                {diffRaw >= 0
+                  ? 'O banco recebeu a mais que os títulos — registre como acréscimo (juros/multa recebido).'
+                  : 'O banco recebeu a menos que os títulos — registre como desconto concedido.'}
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                  Acréscimo (juros/multa recebido)
+                  <input value={acrescimo} onChange={(e) => { setAjusteTouched(true); setAcrescimo(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
+                </label>
+                <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                  Desconto concedido
+                  <input value={desconto} onChange={(e) => { setAjusteTouched(true); setDesconto(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
+                </label>
+              </div>
+              <input value={obsAjuste} onChange={(e) => setObsAjuste(e.target.value)} placeholder="Observação (opcional)" style={{ ...inputStyle, marginTop: 10, width: '100%' }} />
+              <div style={{ fontSize: 11, marginTop: 8, color: fechaAjuste ? '#3B6D11' : '#BA7517' }}>
+                {fechaAjuste ? '✅ Com o ajuste, a conciliação fecha — pode conciliar.' : `Ainda faltam R$ ${fmt(Math.max(0, saldoAjustado))} — ajuste os valores.`}
+              </div>
+            </div>
+          )}
 
           {erro && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
@@ -344,7 +404,7 @@ export default function VincularVariosModal({
             <button onClick={onClose} style={ghostBtn}>Fechar</button>
             <button
               onClick={() => void fecharFatura()}
-              disabled={!resumo?.fecha || fechando}
+              disabled={!fechaAjuste || fechando}
               style={primaryBtn(fechando)}
             >
               {fechando ? 'Conciliando…' : '✅ Conciliar fatura'}
