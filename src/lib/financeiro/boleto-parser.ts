@@ -60,6 +60,14 @@ function fatorParaData(fator: number): string {
 // - 44 → devolve como está (preserva o comportamento antigo; guia de arrecadação começa com '8' e
 //   tem DV próprio mód 10/11, então NÃO reaplicamos o DV bancário aqui).
 // - qualquer outro tamanho → null. Não fabrica dado (RD-46/51).
+// REMESSA · código de barras VERBATIM: exige EXATAMENTE 44 dígitos (só remove separadores visuais).
+// NUNCA converte linha digitável (47) nem recalcula DV/fator/valor — é o que o banco espera byte a byte.
+// Título sem 44 dígitos válidos NÃO entra na remessa (o chamador avisa — RD-51). Bug ativo Jordana (remessa).
+export function barcodeRemessa44(entrada?: string | null): string | null {
+  const dig = (entrada || '').replace(/\D/g, '')
+  return dig.length === 44 ? dig : null
+}
+
 export function normalizarCodigoBarras(entrada?: string | null): string | null {
   const dig = (entrada || '').replace(/\D/g, '')
   if (!dig) return null
