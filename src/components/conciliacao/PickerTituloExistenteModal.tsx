@@ -74,8 +74,11 @@ export default function PickerTituloExistenteModal({
     const ate = new Date(d); ate.setUTCDate(ate.getUTCDate() + dias)
     const iso = (x: Date) => x.toISOString().slice(0, 10)
 
+    // erp_receber tem cliente_nome; erp_pagar tem fornecedor_nome — nenhum tem "nome_pessoa".
+    // Aliasa a coluna certa por tabela (senão: column erp_receber.nome_pessoa does not exist).
+    const colNome = tabela === 'erp_receber' ? 'cliente_nome' : 'fornecedor_nome'
     supabase.from(tabela)
-      .select('id, descricao, nome_pessoa, numero_documento, valor, valor_pago, data_vencimento, status')
+      .select(`id, descricao, nome_pessoa:${colNome}, numero_documento, valor, valor_pago, data_vencimento, status`)
       .eq('company_id', companyId)
       .in('status', ['aberto', 'vencido', 'parcial'])
       .gte('data_vencimento', iso(de))

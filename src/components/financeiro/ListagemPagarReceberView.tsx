@@ -16,6 +16,17 @@ import EditarLancamentoModal from './EditarLancamentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
 import ExportarListaButton from './ExportarListaButton'
+import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
+
+// Campos liberados na edição em massa (Jordana #6) — todos na whitelist do fn_*_editar_completo.
+const CAMPOS_MASSA = [
+  { v: 'valor', l: 'Valor (R$)', tipo: 'num' as const },
+  { v: 'data_vencimento', l: 'Vencimento', tipo: 'date' as const },
+  { v: 'categoria', l: 'Categoria / Conta DRE', tipo: 'text' as const },
+  { v: 'linha_negocio', l: 'Linha de negócio', tipo: 'text' as const },
+  { v: 'data_competencia', l: 'Competência', tipo: 'date' as const },
+  { v: 'forma_pagamento', l: 'Forma de pagamento', tipo: 'select' as const },
+]
 
 type Tipo = 'pagar' | 'receber'
 
@@ -115,6 +126,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [massaValorAberto, setMassaValorAberto] = useState(false)
   const [massaExcluirAberto, setMassaExcluirAberto] = useState(false)
   const [massaNovoValor, setMassaNovoValor] = useState('')
+  const [massaCampo, setMassaCampo] = useState('valor')
   const [massaBusy, setMassaBusy] = useState(false)
   const [massaMsg, setMassaMsg] = useState<string | null>(null)
   const [loteAberto, setLoteAberto] = useState(false)
@@ -522,23 +534,33 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setReloadKey((k) => k + 1)
   }
 
-  // Edição em massa · aplica o mesmo valor a N selecionados. Reusa a RPC do domínio
-  // (pagar/receber) → herda RLS + log (RD-57).
+  // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
+  // do domínio (whitelist + pula pagos p/ valor/vencimento + RLS + log — RD-55/RD-57).
+  const campoMassaDef = CAMPOS_MASSA.find((c) => c.v === massaCampo) ?? CAMPOS_MASSA[0]
+  const massaValorValido = campoMassaDef.tipo === 'num'
+    ? parseFloat((massaNovoValor || '').replace(',', '.')) > 0
+    : (massaNovoValor || '').trim() !== ''
   const aplicarAlterarValorMassa = async () => {
-    const v = parseFloat(massaNovoValor)
-    if (!(v > 0)) { alert('Informe um valor maior que zero.'); return }
+    if (!massaValorValido) { alert('Informe o novo valor.'); return }
+    const raw = (massaNovoValor || '').trim()
+    const val = campoMassaDef.tipo === 'num' ? String(parseFloat(raw.replace(',', '.'))) : raw
     setMassaBusy(true)
     const rpc = tipo === 'pagar' ? 'fn_pagar_editar_massa' : 'fn_receber_editar_massa'
     const { data, error } = await supabase.rpc(rpc, {
-      p_ids: Array.from(selecionados), p_campos: { valor: v },
+      p_ids: Array.from(selecionados), p_campos: { [massaCampo]: val },
     })
     setMassaBusy(false)
     if (error) { alert('Erro ao alterar: ' + error.message); return }
-    const j = data as { alterados?: number; falhas?: number } | null
-    setMassaMsg(`ALTEROU ${j?.alterados ?? 0}${j?.falhas ? ` · ${j.falhas} não alteradas` : ''}`)
+    const j = data as { sucesso?: boolean; erro?: string; alterados?: number; pulados_pago?: number; falhas?: number } | null
+    if (j?.sucesso === false) { alert('Não foi possível: ' + (j?.erro ?? 'campo não permitido')); return }
+    const extra = [
+      j?.pulados_pago ? `${j.pulados_pago} paga(s) puladas` : '',
+      j?.falhas ? `${j.falhas} falha(s)` : '',
+    ].filter(Boolean)
+    setMassaMsg(`ALTEROU ${j?.alterados ?? 0} · ${campoMassaDef.l}${extra.length ? ' · ' + extra.join(' · ') : ''}`)
     setMassaValorAberto(false); setMassaNovoValor('')
     limparSelecao(); setReloadKey((k) => k + 1)
-    setTimeout(() => setMassaMsg(null), 5000)
+    setTimeout(() => setMassaMsg(null), 6000)
   }
 
   // Exclusão em massa · soft-delete. Reusa a RPC do domínio → bloqueia pago/conciliado
@@ -888,10 +910,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                     <>
                       <button
                         type="button"
-                        onClick={() => { setMassaNovoValor(''); setMassaValorAberto(true) }}
+                        onClick={() => { setMassaNovoValor(''); setMassaCampo('valor'); setMassaValorAberto(true) }}
                         style={{ background: '#FAF7F2', color: '#3D2314', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                       >
-                        Alterar valor
+                        Alterar em massa
                       </button>
                       <button
                         type="button"
@@ -1233,25 +1255,47 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         valorTotal={valorPendenteSelecionados}
       />
 
-      {/* RD-41 · Alterar valor em massa */}
+      {/* Jordana #6 · Alterar em massa (campo + valor) */}
       {massaValorAberto && (
         <ModalMassa
-          titulo="Alterar valor"
+          titulo="Alterar em massa"
           onClose={() => setMassaValorAberto(false)}
           confirmar={aplicarAlterarValorMassa}
-          confirmarLabel={massaBusy ? 'Aplicando…' : 'Aplicar valor'}
-          confirmarDisabled={massaBusy || !(parseFloat(massaNovoValor) > 0)}
+          confirmarLabel={massaBusy ? 'Aplicando…' : 'Aplicar'}
+          confirmarDisabled={massaBusy || !massaValorValido}
         >
-          <div style={{ fontSize: 12, marginBottom: 6 }}>Novo valor (R$)</div>
-          <input
-            type="number" step="0.01" min="0" autoFocus
-            value={massaNovoValor}
-            onChange={(e) => setMassaNovoValor(e.target.value)}
-            placeholder="0,00"
-            style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}
-          />
+          <div style={{ fontSize: 12, marginBottom: 6 }}>Campo a alterar</div>
+          <select
+            value={massaCampo}
+            onChange={(e) => { setMassaCampo(e.target.value); setMassaNovoValor('') }}
+            style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box', marginBottom: 12 }}
+          >
+            {CAMPOS_MASSA.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
+          </select>
+
+          <div style={{ fontSize: 12, marginBottom: 6 }}>Novo valor · {campoMassaDef.l}</div>
+          {campoMassaDef.tipo === 'select' ? (
+            <select value={massaNovoValor} onChange={(e) => setMassaNovoValor(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}>
+              <option value="">— escolher —</option>
+              {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
+            </select>
+          ) : (
+            <input
+              type={campoMassaDef.tipo === 'date' ? 'date' : campoMassaDef.tipo === 'num' ? 'number' : 'text'}
+              step={campoMassaDef.tipo === 'num' ? '0.01' : undefined}
+              min={campoMassaDef.tipo === 'num' ? '0' : undefined}
+              autoFocus
+              value={massaNovoValor}
+              onChange={(e) => setMassaNovoValor(e.target.value)}
+              placeholder={campoMassaDef.tipo === 'num' ? '0,00' : ''}
+              style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}
+            />
+          )}
+
           <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginTop: 8 }}>
-            Será aplicado às <b>{selecionados.size}</b> conta{selecionados.size !== 1 ? 's' : ''} selecionada{selecionados.size !== 1 ? 's' : ''}.
+            {selecionados.size} lançamento{selecionados.size !== 1 ? 's' : ''} → <b>{campoMassaDef.l}</b>{massaNovoValor ? <> = <b>{massaNovoValor}</b></> : ''}.
+            {(massaCampo === 'valor' || massaCampo === 'data_vencimento') && <> Contas <b>pagas/conciliadas</b> são puladas.</>}
           </div>
         </ModalMassa>
       )}

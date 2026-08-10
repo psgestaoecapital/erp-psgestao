@@ -35,6 +35,10 @@ const hintErr: React.CSSProperties = { fontSize: 10.5, color: '#854F0B', display
 // Campos financeiros que disparam o aviso quando pago/conciliado.
 const CAMPOS_FINANCEIROS = ['valor', 'data_pagamento', 'conta_bancaria', 'conta_bancaria_id']
 
+// Réplica pras demais parcelas (Jordana #5): campos que NUNCA replicam (são por-parcela).
+const NAO_REPLICA = new Set(['data_vencimento', 'data_pagamento', 'data_competencia', 'parcela', 'codigo_barras'])
+type Irma = { id: string; parcela: string | null; parcela_num: number | null; status: string; valor: number; data_vencimento: string; pago: boolean; atual: boolean }
+
 type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro'
 type Campo = { col: string; label: string; tipo: CampoTipo; opcoes?: string[]; largo?: boolean }
 const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito', 'cheque', 'permuta', 'debito_automatico']
@@ -97,6 +101,8 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
   const [centros, setCentros] = useState<{ id: string; nome: string }[]>([])
   const [legadoConta, setLegadoConta] = useState('')     // conta_bancaria (texto) p/ hint quando _id nulo
   const [legadoCentro, setLegadoCentro] = useState('')
+  const [replica, setReplica] = useState<{ campos: Record<string, string | null>; outras: Irma[]; currentNum: number | null } | null>(null)
+  const [replicando, setReplicando] = useState(false)
 
   // dropdowns só no receber
   useEffect(() => {
@@ -178,6 +184,21 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
       if (error) throw error
       const j = data as { sucesso?: boolean; erro?: string } | null
       if (!j?.sucesso) throw new Error(j?.erro ?? 'falha ao salvar')
+
+      // Réplica pras demais parcelas (Jordana #5): grupo com outras parcelas NÃO pagas + campos replicáveis.
+      const campos: Record<string, string | null> = {}
+      for (const k of Object.keys(payload)) if (!NAO_REPLICA.has(k)) campos[k] = payload[k]
+      if (Object.keys(campos).length > 0) {
+        const { data: irmasData } = await supabase.rpc('fn_parcela_grupo_irmas', { p_tipo: tipo, p_id: itemId })
+        const rows = (irmasData as Irma[] | null) ?? []
+        const outras = rows.filter((r) => !r.pago && !r.atual)
+        if (outras.length > 0) {
+          const atual = rows.find((r) => r.atual)
+          setReplica({ campos, outras, currentNum: atual?.parcela_num ?? null })
+          setSalvando(false)
+          return // não fecha — abre o prompt "aplicar às demais?"
+        }
+      }
       onSucesso()
     } catch (e) {
       setErro((e as Error).message)
@@ -186,9 +207,31 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
     }
   }
 
+  async function aplicarReplica(escopo: 'proximas' | 'todas') {
+    if (!replica) return
+    setReplicando(true); setErro(null)
+    const ids = (escopo === 'proximas'
+      ? replica.outras.filter((r) => r.parcela_num != null && replica.currentNum != null && r.parcela_num > (replica.currentNum as number))
+      : replica.outras).map((r) => r.id)
+    try {
+      if (ids.length > 0) {
+        const rpc = tipo === 'pagar' ? 'fn_pagar_editar_massa' : 'fn_receber_editar_massa'
+        const { data, error } = await supabase.rpc(rpc, { p_ids: ids, p_campos: replica.campos })
+        if (error) throw error
+        const r = data as { sucesso?: boolean; erro?: string } | null
+        if (r?.sucesso === false) throw new Error(r?.erro ?? 'falha ao replicar')
+      }
+      setReplica(null); setReplicando(false); onSucesso()
+    } catch (e) { setErro((e as Error).message); setReplicando(false) }
+  }
+
   if (!open) return null
 
+  const totalGrupo = replica ? replica.outras.length + 1 : 0
+  const qtdProximas = replica ? replica.outras.filter((r) => r.parcela_num != null && replica.currentNum != null && r.parcela_num > (replica.currentNum as number)).length : 0
+
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -257,5 +300,41 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
         </div>
       )}
     </Modal>
+
+    {replica && (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ background: '#fff', borderRadius: 14, maxWidth: 460, width: '100%', padding: 20, border: `0.5px solid ${LINE}` }}>
+          <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 4 }}>Essa conta tem {totalGrupo} parcelas</div>
+          <div style={{ fontSize: 13, color: ESP, marginBottom: 12 }}>Aplicar a alteração também às demais parcelas <b>não pagas</b>? (as já pagas ficam intactas)</div>
+          <div style={{ background: '#FAF7F2', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+            {Object.keys(replica.campos).map((k) => {
+              const label = defs.find((c) => c.col === k)?.label ?? k
+              return (
+                <div key={k} style={{ fontSize: 12.5, color: ESP, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ color: ESP60 }}>{label}</span>
+                  <b>{orig[k] ? `${orig[k]} → ` : ''}{replica.campos[k] || '—'}</b>
+                </div>
+              )
+            })}
+          </div>
+          {erro && <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 10px', borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{erro}</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button type="button" disabled={replicando} onClick={() => void aplicarReplica('proximas')}
+              style={{ background: GOLD, color: '#3D2314', border: 'none', padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: replicando ? 'wait' : 'pointer', textAlign: 'left' }}>
+              Esta e as próximas <span style={{ opacity: 0.75 }}>({qtdProximas} parcela{qtdProximas === 1 ? '' : 's'} futura{qtdProximas === 1 ? '' : 's'})</span>
+            </button>
+            <button type="button" disabled={replicando} onClick={() => void aplicarReplica('todas')}
+              style={{ background: '#fff', color: ESP, border: `0.5px solid ${GOLD}`, padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: replicando ? 'wait' : 'pointer', textAlign: 'left' }}>
+              Todas as parcelas não pagas <span style={{ opacity: 0.6 }}>({replica.outras.length})</span>
+            </button>
+            <button type="button" disabled={replicando} onClick={() => { setReplica(null); onSucesso() }}
+              style={{ background: 'transparent', color: ESP60, border: `0.5px solid ${LINE}`, padding: '9px 14px', borderRadius: 8, fontSize: 13, cursor: replicando ? 'wait' : 'pointer' }}>
+              Só esta
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
