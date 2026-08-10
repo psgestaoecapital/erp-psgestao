@@ -18,6 +18,23 @@ const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency'
 const escHtml = (s: string) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
 const hoje = () => new Date()
 const ddmmaaaa = (d: Date) => `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`
+// Filtro por vencimento na tela de remessa (Jordana: pagamento por período/semana).
+const isoLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const addDias = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+const PRESETS_VENC = [
+  { v: 'semana', l: 'Esta semana' }, { v: 'd7', l: 'Próximos 7 dias' }, { v: 'vencidos', l: 'Vencidos' },
+  { v: 'mes', l: 'Este mês' }, { v: 'todos', l: 'Todos' }, { v: 'custom', l: 'Personalizado' },
+]
+function rangeVenc(preset: string, de: string, ate: string): { de: string | null; ate: string | null } {
+  const h = hoje()
+  if (preset === 'custom') return { de: de || null, ate: ate || null }
+  if (preset === 'todos') return { de: null, ate: null }
+  if (preset === 'd7') return { de: isoLocal(h), ate: isoLocal(addDias(h, 6)) }
+  if (preset === 'vencidos') return { de: null, ate: isoLocal(addDias(h, -1)) }
+  if (preset === 'mes') return { de: isoLocal(new Date(h.getFullYear(), h.getMonth(), 1)), ate: isoLocal(new Date(h.getFullYear(), h.getMonth() + 1, 0)) }
+  const seg = addDias(h, -((h.getDay() + 6) % 7)) // segunda desta semana
+  return { de: isoLocal(seg), ate: isoLocal(addDias(seg, 6)) }
+}
 const hhmmss = (d: Date) => `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`
 
 type Config = { id: string; ambiente: string; cooperativa: string; agencia_dv: string | null; conta: string; convenio: string }
@@ -46,6 +63,9 @@ export default function RemessaPagamentoPage() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [filtro, setFiltro] = useState('')
+  const [vencPreset, setVencPreset] = useState('semana')
+  const [vencDe, setVencDe] = useState('')
+  const [vencAte, setVencAte] = useState('')
   const [confirmar, setConfirmar] = useState(false)
   const [dvInput, setDvInput] = useState('')
   const [numRemessa, setNumRemessa] = useState('')   // NSA da próxima remessa (editável pela Jordana)
@@ -124,9 +144,15 @@ export default function RemessaPagamentoPage() {
 
   const filtradas = useMemo(() => {
     const q = filtro.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => (r.descricao ?? '').toLowerCase().includes(q) || (r.fornecedor?.nome ?? '').toLowerCase().includes(q) || (r.forma_pagamento ?? '').toLowerCase().includes(q))
-  }, [rows, filtro])
+    const { de: vDe, ate: vAte } = rangeVenc(vencPreset, vencDe, vencAte)
+    return rows.filter((r) => {
+      if (q && !((r.descricao ?? '').toLowerCase().includes(q) || (r.fornecedor?.nome ?? '').toLowerCase().includes(q) || (r.forma_pagamento ?? '').toLowerCase().includes(q))) return false
+      const dv = (r.data_vencimento ?? '').slice(0, 10)
+      if (vDe && dv && dv < vDe) return false
+      if (vAte && dv && dv > vAte) return false
+      return true
+    })
+  }, [rows, filtro, vencPreset, vencDe, vencAte])
 
   const selecionadas = useMemo(() => rows.filter((r) => r._sel), [rows])
   // Guarda (RD-51): título PIX sem chave (nem no título, nem no cadastro do fornecedor) → o banco rejeita.
@@ -432,6 +458,27 @@ export default function RemessaPagamentoPage() {
             </div>
           )}
           {!seqValido && <div style={{ marginTop: 6, color: VERM, fontWeight: 600 }}>⚠ Informe um número inteiro ≥ 1.</div>}
+        </div>
+
+        {/* Filtro por vencimento (Jordana: pagamento por período) */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: MUT, marginRight: 2 }}>Vencimento:</span>
+          {PRESETS_VENC.map((p) => {
+            const on = vencPreset === p.v
+            return (
+              <button key={p.v} onClick={() => setVencPreset(p.v)}
+                style={{ background: on ? ESP : '#FFF', color: on ? '#FFF' : ESP, border: `0.5px solid ${on ? ESP : LINE}`, padding: '5px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                {p.l}
+              </button>
+            )
+          })}
+          {vencPreset === 'custom' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <input type="date" value={vencDe} onChange={(e) => setVencDe(e.target.value)} style={{ ...inp, padding: '5px 8px', fontSize: 12 }} />
+              <span style={{ fontSize: 12, color: MUT }}>até</span>
+              <input type="date" value={vencAte} onChange={(e) => setVencAte(e.target.value)} style={{ ...inp, padding: '5px 8px', fontSize: 12 }} />
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
