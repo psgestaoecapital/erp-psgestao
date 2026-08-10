@@ -5,7 +5,7 @@
 // PROVADO byte a byte contra o arquivo real (scripts/cnab-mapear-proof-sicredi.ts).
 import type { ArquivoInputSicredi, EmpresaSicredi, ItemJSicredi, LoteInputSicredi } from './sicredi'
 import { construirBenefBodySicredi } from './sicredi'
-import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
+import { barcodeRemessa44 } from '@/lib/financeiro/boleto-parser'
 import type { TituloPag, ConfigSicoobDb, OpcoesRemessa, ErroTitulo } from './mapear'
 
 export type ResultadoMapaSicredi = { input: ArquivoInputSicredi | null; erros: ErroTitulo[]; incluidos: string[]; totalCentavos: number }
@@ -34,8 +34,8 @@ export function mapearRemessaSicredi(cfg: ConfigSicoobDb, titulos: TituloPag[], 
     const valor = Math.round((t.valor ?? 0) * 100)
     if (valor <= 0) { erros.push({ id: t.id, motivo: 'valor inválido (zero ou negativo)' }); continue }
     if (forma !== 'boleto') { erros.push({ id: t.id, motivo: `forma "${forma || '—'}" não suportada na remessa Sicredi (apenas boleto · segmento J)` }); continue }
-    const cb = normalizarCodigoBarras(t.codigo_barras)   // aceita linha digitável (47) ou cód. barras (44) → 44
-    if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras válido (44 díg) nem linha digitável (47 díg)' }); continue }
+    const cb = barcodeRemessa44(t.codigo_barras)   // VERBATIM: só os 44 dígitos, como no banco (nunca a linha digitável 47)
+    if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras de 44 dígitos (linha digitável de 47 não entra — recadastre o código de barras)' }); continue }
     if (cb[0] === '8') { erros.push({ id: t.id, motivo: 'tributo/arrecadação não suportado na remessa Sicredi (segmento O não configurado)' }); continue }
 
     const nome = up(t.fornecedor?.nome || t.descricao)
