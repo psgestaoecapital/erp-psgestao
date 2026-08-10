@@ -70,7 +70,8 @@ function extrairMovimentos(parsed: { OFX: Record<string, unknown> }): {
       valor: Math.abs(valorRaw),
       natureza: valorRaw >= 0 ? 'credito' : 'debito',
       descricao: (t.MEMO ?? t.NAME ?? '(sem descrição)').trim(),
-      id_externo: t.FITID ?? null,
+      // FITID é a chave forte de dedup; sem ele (ex.: Cresol) cai pra CHECKNUM/REFNUM (FIX #8).
+      id_externo: t.FITID ?? t.CHECKNUM ?? t.REFNUM ?? null,
       documento: t.CHECKNUM ?? null,
     }
   })
@@ -128,12 +129,18 @@ export default function UploadOfxArea({ companyId }: { companyId: string }) {
 
       if (error) throw error
 
-      const loteId = typeof ret === 'object' && ret !== null
-        ? (ret as Record<string, unknown>).lote_id ?? (ret as Record<string, unknown>).id
-        : ret
+      const r = (ret ?? {}) as { sucesso?: boolean; erro?: string; lote_id?: string | null; mensagem?: string; importados_novos?: number; ignorados_duplicados?: number; total_recebidos?: number }
+      if (r.sucesso === false) {
+        throw new Error(r.erro === 'arquivo_duplicado' ? 'Esse arquivo já foi importado antes.' : (r.erro ?? 'Falha ao criar lote'))
+      }
+      const loteId = r.lote_id ?? null
+      const novos = r.importados_novos ?? 0, ign = r.ignorados_duplicados ?? 0
 
       setEstado('sucesso')
-      setProgresso(`✓ Lote criado · ${movimentos.length} movimentos importados`)
+      // Resumo honesto (importados / ignorados / já existiam) — dedup por transação (FIX #8).
+      setProgresso(r.mensagem ?? (novos === 0
+        ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já existiam`
+        : ign > 0 ? `✓ ${novos} novos importados · ${ign} já existiam (ignorados)` : `✓ ${novos} lançamentos importados`))
 
       setTimeout(() => {
         if (loteId) {
@@ -141,7 +148,7 @@ export default function UploadOfxArea({ companyId }: { companyId: string }) {
         } else {
           router.refresh()
         }
-      }, 800)
+      }, 1200)
     } catch (e) {
       console.error('Erro upload OFX:', e)
       setEstado('erro')

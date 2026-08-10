@@ -196,7 +196,9 @@ function parseOFX(text: string): MovimentoOFX[] {
       valor: Math.abs(amt),
       natureza: amt < 0 ? 'debito' : 'credito',
       descricao: (get('MEMO') || get('NAME') || 'Movimento').slice(0, 200),
-      id_externo: get('FITID') || null,
+      // FITID é a chave forte de dedup; muitos bancos (ex.: Cresol) não mandam FITID → cai pra
+      // CHECKNUM/REFNUM. Sem nenhum → null (a RPC deduplica por data+valor+descrição normalizada).
+      id_externo: get('FITID') || get('CHECKNUM') || get('REFNUM') || null,
     })
   }
   return movimentos
@@ -419,13 +421,22 @@ export default function InboxPage() {
         p_conta_bancaria_id: contaImportId,
       })
       if (error) throw error
-      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; total_movimentos?: number; lote_id?: string }
-      if (r.sucesso === false) throw new Error(r.erro ?? 'Falha ao criar lote')
-      alert(`IMPORTOU ${r.total_movimentos ?? movimentos.length} movimento(s) do extrato. Já estão na conciliação.`)
+      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; lote_id?: string | null; mensagem?: string; importados_novos?: number; ignorados_duplicados?: number; total_recebidos?: number }
+      if (r.sucesso === false) {
+        if (r.erro === 'arquivo_duplicado') { alert('Esse arquivo já foi importado antes.'); return }
+        throw new Error(r.erro ?? 'Falha ao criar lote')
+      }
+      // Resumo honesto (importados / ignorados / já existiam) — dedup por transação (FIX #8).
+      const novos = r.importados_novos ?? 0, ign = r.ignorados_duplicados ?? 0
+      alert(r.mensagem ?? (novos === 0
+        ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já estavam no sistema.`
+        : ign > 0
+          ? `✅ ${novos} novos importados. ${ign} já existiam e foram ignorados (sem duplicar).`
+          : `✅ ${novos} lançamentos importados.`))
       setShowImport(false)
       setArquivoOFX(null)
       setContaImportId('')
-      // re-carrega lotes e seleciona o novo
+      // re-carrega lotes e seleciona o novo (lote_id é null quando 0 novos)
       await carregarLotes((lst) =>
         r.lote_id ? lst.find((l) => l.id === r.lote_id) : lst[0],
       )
