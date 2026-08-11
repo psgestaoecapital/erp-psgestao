@@ -145,12 +145,19 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
   return (
     <>
       <style>{`
-        @media print { .no-print { display: none !important; } @page { size: A4; margin: 14mm 14mm; } body { background: #fff !important; } }
+        @media print { .no-print { display: none !important; } @page { size: A4; margin: 14mm 14mm; } html, body { background: #fff !important; } }
         /* garante que cores/fundos do cabeçalho saiam no papel (não some no PDF) */
         .print-root, .print-page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .print-root { background: #FAF7F2; min-height: 100vh; }
         .print-page { max-width: 760px; margin: 24px auto; padding: 32px; background: #fff; color: #3D2314; font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
-        @media print { .print-page { box-shadow: none; margin: 0; max-width: none; padding: 0; } .print-root { background: #fff; } .pp-header { break-inside: avoid; page-break-inside: avoid; } }
+        /* IMPRESSÃO: o print-root NÃO pode forçar 100vh (estoura a área útil por causa da margem @page →
+           2ª página em branco e desloca a 1ª). min-height:0 + sem margin/padding extra. O topo (pp-header:
+           empresa + nº da OS + datas) fica no print-page e SEMPRE imprime na página 1 (só os controles somem). */
+        @media print {
+          .print-root { background: #fff !important; min-height: 0 !important; height: auto !important; margin: 0 !important; padding: 0 !important; }
+          .print-page { box-shadow: none !important; margin: 0 !important; max-width: none !important; padding: 0 !important; }
+          .pp-header { break-inside: avoid; page-break-inside: avoid; break-after: avoid; }
+        }
         .pp-header { border-bottom: 2px solid #3D2314; padding-bottom: 12px; margin-bottom: 16px; }
         .pp-datas { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 4px; font-size: 11px; }
         .pp-datas .pp-lbl { text-transform: none; letter-spacing: 0; }
