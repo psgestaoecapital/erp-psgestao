@@ -8,6 +8,9 @@ export type FornecedorPag = { pix?: string | null; cnpj_cpf?: string | null; nom
 export type TituloPag = {
   id: string; forma_pagamento?: string | null; codigo_barras?: string | null; valor: number
   data_vencimento: string; numero_documento?: string | null; descricao?: string | null; fornecedor?: FornecedorPag | null
+  // Data do Pagamento (segmento J/A) = vencimento no próximo dia útil, nunca no passado. Vem da RPC
+  // fn_remessa_datas_pagamento (fonte única da regra de feriado). Fallback: opts.dtPagto (retrocompat/scripts).
+  data_pagamento_prevista?: string | null
 }
 export type ConfigSicoobDb = {
   cnpj: string; cooperativa: string; agencia_dv?: string | null; conta: string; convenio: string
@@ -42,7 +45,8 @@ export function mapearRemessaSicoob(cfg: ConfigSicoobDb, titulos: TituloPag[], o
     const valor = Math.round((t.valor ?? 0) * 100)
     const nome = up(t.fornecedor?.nome || t.descricao)
     const seuNum = (t.numero_documento ?? '').trim() || t.id.replace(/-/g, '').slice(0, 20)
-    const dtVenc = dataBR(t.data_vencimento), dtPagto = dataBR(opts.dtPagto)
+    // Data do Pagamento: a data prevista do título (venc → próximo dia útil); só cai no opts.dtPagto legado se faltar.
+    const dtVenc = dataBR(t.data_vencimento), dtPagto = dataBR(t.data_pagamento_prevista ?? opts.dtPagto)
     if (valor <= 0) { erros.push({ id: t.id, motivo: 'valor inválido (zero ou negativo)' }); continue }
 
     if (forma === 'boleto') {

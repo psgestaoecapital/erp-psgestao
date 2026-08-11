@@ -135,7 +135,20 @@ export default function RemessaPagamentoPage() {
       for (const i of (itens ?? []) as { erp_pagar_id: string }[]) jaEm.add(i.erp_pagar_id)
     }
 
-    setRows(titulos.filter((t) => !jaEm.has(t.id)).map((t) => ({ ...t, fornecedor: t.fornecedor_id ? fmap.get(t.fornecedor_id) ?? null : null, _sel: false })))
+    // Data do Pagamento por título = vencimento no próximo dia útil, nunca no passado (evita crítica AP).
+    // Fonte única da regra de feriado: RPC fn_remessa_datas_pagamento (não reimplementa feriado no front).
+    const disponiveis = titulos.filter((t) => !jaEm.has(t.id))
+    const dtPagMap = new Map<string, string>()
+    if (disponiveis.length) {
+      const { data: dps } = await supabase.rpc('fn_remessa_datas_pagamento', { p_ids: disponiveis.map((t) => t.id) })
+      for (const r of (dps ?? []) as { id: string; data_pagamento: string }[]) dtPagMap.set(r.id, r.data_pagamento)
+    }
+    setRows(disponiveis.map((t) => ({
+      ...t,
+      fornecedor: t.fornecedor_id ? fmap.get(t.fornecedor_id) ?? null : null,
+      data_pagamento_prevista: dtPagMap.get(t.id) ?? null,
+      _sel: false,
+    })))
 
     // lista das remessas geradas (gestão: extrato / cancelar / remover item)
     const { data: rems } = await supabase.rpc('fn_remessa_listar', { p_company_id: companyId, p_limit: 40 })
@@ -501,7 +514,9 @@ export default function RemessaPagamentoPage() {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.fornecedor?.nome || r.descricao || '—'}</div>
                   <div style={{ fontSize: 11.5, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {(r.forma_pagamento ?? '—')} · venc {r.data_vencimento?.slice(0, 10).split('-').reverse().join('/')}{r.numero_documento ? ` · doc ${r.numero_documento}` : ''}
+                    {(r.forma_pagamento ?? '—')} · venc {r.data_vencimento?.slice(0, 10).split('-').reverse().join('/')}
+                    {r.data_pagamento_prevista && <span style={{ color: VERDE }}> · paga {r.data_pagamento_prevista.slice(0, 10).split('-').reverse().join('/')}</span>}
+                    {r.numero_documento ? ` · doc ${r.numero_documento}` : ''}
                     {r._sel && erro && <span style={{ color: VERM, fontWeight: 700 }}> · ⚠ {erro.motivo}</span>}
                   </div>
                 </div>
