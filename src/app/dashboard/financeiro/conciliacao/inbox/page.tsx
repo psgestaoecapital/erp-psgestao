@@ -12,6 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
+import TransferenciaContaModal from '@/components/conciliacao/TransferenciaContaModal'
 import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
 import EditarLancamentoModal from '@/components/financeiro/EditarLancamentoModal'
 
@@ -235,6 +236,7 @@ export default function InboxPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [arquivando, setArquivando] = useState<Item | null>(null)
   const [vinculandoVarios, setVinculandoVarios] = useState<Item | null>(null)
+  const [transferindo, setTransferindo] = useState<Item | null>(null)
   const [pesquisandoConta, setPesquisandoConta] = useState<Item | null>(null)
   // conciliacao-ajuste-diferenca-no-conciliar-v1
   const [ajuste, setAjuste] = useState<null | {
@@ -1200,6 +1202,9 @@ export default function InboxPage() {
                               <button onClick={() => setVinculandoVarios(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-vincular-varios">
                                 🔗 Vincular vários (fatura)
                               </button>
+                              <button onClick={() => setTransferindo(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-transferencia">
+                                🔄 Transferência entre contas
+                              </button>
                             </div>
                           </>
                         )}
@@ -1370,6 +1375,19 @@ export default function InboxPage() {
           companyId={empresaUnica}
           onClose={() => setEditando(null)}
           onSucesso={() => { setEditando(null); void carregarPendenciasSistema() }}
+        />
+      )}
+
+      {transferindo && empresaUnica && (
+        <TransferenciaContaModal
+          open
+          onClose={() => setTransferindo(null)}
+          onConciliado={() => { setTransferindo(null); setAvisoOk('Transferência registrada · movimento conciliado'); void carregar(); void carregarConciliados(); setTimeout(() => setAvisoOk(null), 4000) }}
+          companyId={empresaUnica}
+          movimentoId={transferindo.movimento_id}
+          descricao={transferindo.descricao}
+          valor={Number(transferindo.valor) || 0}
+          natureza={transferindo.natureza === 'credito' ? 'credito' : 'debito'}
         />
       )}
 
