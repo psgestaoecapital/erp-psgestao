@@ -27,6 +27,8 @@ interface ResumoRPC {
   fecha: boolean
   qtd_vinculos?: number
   itens?: Vinculo[]
+  // fn_conciliacao_vincular sinaliza quando o vínculo 1:1 já conciliou + deu baixa canônica.
+  conciliado_1x1?: boolean
 }
 
 interface Sugestao {
@@ -146,6 +148,8 @@ export default function VincularVariosModal({
     if (error) { setErro(error.message); return }
     const r = data as ResumoRPC
     if (!r.ok) { setErro(r.erro ?? 'Erro ao vincular'); return }
+    // 1:1 fechou sozinho: já conciliou + deu baixa canônica — reflete na lista e fecha.
+    if (r.conciliado_1x1) { onConciliado?.(); onClose(); return }
     await carregarResumo()
   }
 

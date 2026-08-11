@@ -1237,6 +1237,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         onClose={() => setHistoricoItem(null)}
         itemId={historicoItem?.id ?? ''}
         itemDescricao={historicoItem?.descricao ?? ''}
+        tipo={tipo}
       />
 
       <HistoricoGlobalModal
