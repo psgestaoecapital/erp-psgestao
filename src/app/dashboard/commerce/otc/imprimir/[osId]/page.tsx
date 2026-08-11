@@ -203,8 +203,10 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
         </div>
 
         <div className="print-page">
-          {/* 1. Cabeçalho · empresa + título por status + datas (abertura sempre; conclusão/entrega quando houver) */}
-          <header className="pp-header">
+          {/* 1. Cabeçalho · empresa + título por status + datas. NÃO usar <header> aqui: o globals.css tem
+              um `@media print { header { display:none } }` (esconde a topnav do app) que apagava este bloco
+              no PDF — a causa real do "topo some na impressão". Um <div> não é atingido. (RD-38, provado.) */}
+          <div className="pp-header">
             {/* Cabeçalho da empresa INLINE (não depende de componente externo) — razão social + CNPJ SEMPRE;
                 logo/endereço opcionais por linha (RD-38: nunca esconde o bloco todo). */}
             <div data-testid="os-print-empresa" style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -242,7 +244,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                 return <span><span className="pp-lbl">{rotulo}</span> <strong className="pp-val">{fmtData(fim)}</strong></span>
               })()}
             </div>
-          </header>
+          </div>
 
           {/* 2. Cliente + objeto (veículo/placa/KM só na automotiva) */}
           <section>
