@@ -9,6 +9,7 @@
 
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAcesso } from '@/hooks/useAcesso'
 
 export const dynamic = 'force-dynamic'
 const BUCKET = 'oficina-recepcao'
@@ -29,7 +30,7 @@ interface Foto { foto_path?: string | null; descricao?: string | null; autor?: s
 const ETAPA_LABEL: Record<string, string> = { recepcao: 'Recepção', diagnostico: 'Diagnóstico', servico: 'Serviço' }
 interface OSExtra { assinatura_cliente?: string | null; assinatura_data?: string | null; descricao_servico?: string | null; solucao?: string | null }
 interface Dados {
-  ok: boolean; erro?: string; ramo?: string
+  ok: boolean; erro?: string; ramo?: string; company_id?: string | null
   empresa?: Empresa; cabecalho?: Cabecalho; itens?: Item[]; resumo?: Resumo; fotos?: Foto[] | null; os?: OSExtra
 }
 
@@ -88,6 +89,8 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
   const [incluirPromissoria, setIncluirPromissoria] = useState(true)   // default ligado (pedido KGF)
   const [fotos, setFotos] = useState<(Foto & { _url?: string | null })[]>([])
   const [carregandoFotos, setCarregandoFotos] = useState(false)
+  // "Via operacional — sem valores" (KGF/Jordana): toggle manual do usuário gerencial.
+  const [ocultarManual, setOcultarManual] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -127,6 +130,12 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
     setFotos(comUrl); setCarregandoFotos(false)
   }
 
+  // Papel do usuário na empresa da OS (hook canônico · tenant_user_roles via fn_acesso_efetivo).
+  // Mecânico = CLIENT_OPERATOR: força o modo sem valores (toggle travado). Owner/Manager/Viewer veem
+  // valores e podem marcar manualmente pra imprimir a via do mecânico.
+  const { isOperator: ehOperador } = useAcesso(dados?.company_id ?? null)
+  const ocultarValores = ehOperador || ocultarManual
+
   if (loading) return <div style={{ padding: 40, fontSize: 14, color: '#3D2314', fontFamily: 'system-ui, sans-serif' }}>Carregando…</div>
   if (erro || !dados) return <div style={{ padding: 40, fontSize: 14, color: '#791F1F', fontFamily: 'system-ui, sans-serif' }}>❌ {erro ?? 'Sem dados'}</div>
 
@@ -138,7 +147,10 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
   const auto = (dados.ramo ?? 'automotiva') === 'automotiva'
   const executada = EXECUTADA.has(cab.status ?? '')
   const docTitulo = executada ? 'ORDEM DE SERVIÇO' : 'ORÇAMENTO'
-  const docSub = executada ? 'Comprovante do serviço executado' : 'Orçamento para aprovação'
+  // Deixa claro que a ausência de preço é proposital (não bug) quando em modo operacional.
+  const docSub = ocultarValores
+    ? 'Via operacional — sem valores'
+    : (executada ? 'Comprovante do serviço executado' : 'Orçamento para aprovação')
   const aprovadosEPend = itens.filter((i) => i.status_item !== 'recusado')
   const recusados = itens.filter((i) => i.status_item === 'recusado')
 
@@ -190,12 +202,24 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
           {/* Voltar/Fechar — tira o beco sem saída no tablet (a impressão abre em nova aba) */}
           <button type="button" onClick={voltar} className="pp-btn" style={{ background: '#fff', color: '#3D2314', border: '1px solid #E0D8CC' }} data-testid="os-print-voltar">← Voltar</button>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Via operacional — sem valores. Operador (mecânico): travado ligado. Gerencial: livre. */}
+            <label className="pp-toggle" title={ehOperador ? 'Seu acesso é de operação — a via sai sem valores.' : 'Imprime só quantidade + produto/serviço, sem preços (via do mecânico).'} style={ehOperador ? { opacity: 0.75, cursor: 'not-allowed' } : undefined}>
+              <input
+                type="checkbox"
+                checked={ocultarValores}
+                disabled={ehOperador}
+                onChange={(e) => setOcultarManual(e.target.checked)}
+                data-testid="os-print-ocultar-valores"
+              />
+              Ocultar valores (via operacional){ehOperador ? ' 🔒' : ''}
+            </label>
             <label className="pp-toggle">
               <input type="checkbox" checked={incluirFotos} onChange={(e) => void alternarFotos(e.target.checked)} />
               Incluir histórico fotográfico
             </label>
-            <label className="pp-toggle">
-              <input type="checkbox" checked={incluirPromissoria} onChange={(e) => setIncluirPromissoria(e.target.checked)} />
+            {/* Nota promissória é documento financeiro — indisponível no modo sem valores. */}
+            <label className="pp-toggle" style={ocultarValores ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>
+              <input type="checkbox" checked={incluirPromissoria && !ocultarValores} disabled={ocultarValores} onChange={(e) => setIncluirPromissoria(e.target.checked)} />
               Incluir nota promissória
             </label>
             <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">🖨️ Imprimir</button>
@@ -273,8 +297,9 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                     <th style={{ textAlign: 'right', width: 40 }}>Qt</th>
                     <th>Produto / serviço</th>
                     <th>Detalhe</th>
-                    <th style={{ textAlign: 'right' }}>Vlr unit</th>
-                    <th style={{ textAlign: 'right' }}>Subtotal</th>
+                    {/* colunas de valor colapsam de verdade no modo operacional (sem cabeçalho órfão) */}
+                    {!ocultarValores && <th style={{ textAlign: 'right' }}>Vlr unit</th>}
+                    {!ocultarValores && <th style={{ textAlign: 'right' }}>Subtotal</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -287,8 +312,8 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                         {it.status_item === 'pendente' && <span style={{ marginLeft: 4, fontSize: 9, color: '#C8941A' }}>(aguardando aprovação)</span>}
                       </td>
                       <td style={{ color: '#6B5D4F' }}>{it.detalhe ?? '—'}</td>
-                      <td style={{ textAlign: 'right' }}>{fmtBRL(it.preco_unit)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtBRL(it.subtotal)}</td>
+                      {!ocultarValores && <td style={{ textAlign: 'right' }}>{fmtBRL(it.preco_unit)}</td>}
+                      {!ocultarValores && <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtBRL(it.subtotal)}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -296,16 +321,18 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
             </section>
           )}
 
-          {/* 4. Totais (aprovado) */}
-          <section>
-            <div className="pp-section-title">Totais</div>
-            <div style={{ maxWidth: 320, marginLeft: 'auto' }}>
-              {Number(resumo.total_orcamento ?? 0) !== Number(resumo.total_aprovado ?? 0) && (
-                <div className="pp-tot-row"><span>Total do orçamento</span><span>{fmtBRL(resumo.total_orcamento)}</span></div>
-              )}
-              <div className="pp-tot-row big"><span>Total aprovado</span><span>{fmtBRL(resumo.total_aprovado)}</span></div>
-            </div>
-          </section>
+          {/* 4. Totais (aprovado) — oculto inteiro no modo operacional */}
+          {!ocultarValores && (
+            <section>
+              <div className="pp-section-title">Totais</div>
+              <div style={{ maxWidth: 320, marginLeft: 'auto' }}>
+                {Number(resumo.total_orcamento ?? 0) !== Number(resumo.total_aprovado ?? 0) && (
+                  <div className="pp-tot-row"><span>Total do orçamento</span><span>{fmtBRL(resumo.total_orcamento)}</span></div>
+                )}
+                <div className="pp-tot-row big"><span>Total aprovado</span><span>{fmtBRL(resumo.total_aprovado)}</span></div>
+              </div>
+            </section>
+          )}
 
           {/* 5. Itens indicados não autorizados (SEM valor — só indicação) */}
           {recusados.length > 0 && (
@@ -376,8 +403,8 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
             )}
           </section>
 
-          {/* 7b. Nota Promissória (opcional) — pré-preenchida com o total aprovado da OS [→GE] */}
-          {incluirPromissoria && (
+          {/* 7b. Nota Promissória (opcional) — documento financeiro: nunca no modo sem valores [→GE] */}
+          {incluirPromissoria && !ocultarValores && (
             <section style={{ marginTop: 24, pageBreakInside: 'avoid' }}>
               <div className="pp-section-title">Nota Promissória</div>
               <div style={{ border: '1.5px solid #3D2314', borderRadius: 8, padding: 16, fontSize: 12, lineHeight: 1.7 }}>
