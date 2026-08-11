@@ -405,7 +405,7 @@ export default function ConfiguracoesPage() {
           <DollarSign size={13} className="mr-1 inline" /> Precificação
         </TabBtn>
         <TabBtn active={aba === "produtividade"} onClick={() => setAba("produtividade")}>
-          <Gauge size={13} className="mr-1 inline" /> Produtividade
+          <Gauge size={13} className="mr-1 inline" /> Produtos &amp; Produtividade
         </TabBtn>
       </div>
 
