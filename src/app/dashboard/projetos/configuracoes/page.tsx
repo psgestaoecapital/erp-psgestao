@@ -14,10 +14,12 @@ import {
   Repeat,
   Loader2,
   CheckCircle2,
+  DollarSign,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
+import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
 import {
   BdiPreview,
   type BdiComponentes,
@@ -108,6 +110,7 @@ export default function ConfiguracoesPage() {
     sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
 
+  const [aba, setAba] = useState<"projetos" | "precificacao">("projetos");
   const [config, setConfig] = useState<Config | null>(null);
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
   const [loading, setLoading] = useState(true);
@@ -364,18 +367,9 @@ export default function ConfiguracoesPage() {
     );
   }
 
-  if (loading || !config) {
-    return (
-      <main className="mx-auto max-w-7xl px-6 py-20 text-center">
-        <Loader2 className="mx-auto animate-spin text-[#C8941A]" size={28} />
-        <p className="mt-3 text-sm text-[#3D2314]/60">Carregando configurações…</p>
-      </main>
-    );
-  }
-
   const empresaNome = empresa?.nome_fantasia || empresa?.razao_social || "—";
 
-  const exemploNumero = `${config.prefixo_orcamento || "ORC"}-${new Date().getFullYear()}-0001`;
+  const exemploNumero = `${config?.prefixo_orcamento || "ORC"}-${new Date().getFullYear()}-0001`;
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-6">
@@ -399,9 +393,26 @@ export default function ConfiguracoesPage() {
             <p className="mt-0.5 text-sm text-[#3D2314]/60">{empresaNome}</p>
           </div>
         </div>
-        <SaveIndicator state={savingState} savedAt={savedAt} />
+        {aba === "projetos" && <SaveIndicator state={savingState} savedAt={savedAt} />}
       </header>
 
+      {/* Abas */}
+      <div className="mb-6 flex gap-1 border-b border-[#3D2314]/10">
+        <TabBtn active={aba === "projetos"} onClick={() => setAba("projetos")}>Módulo Projetos</TabBtn>
+        <TabBtn active={aba === "precificacao"} onClick={() => setAba("precificacao")}>
+          <DollarSign size={13} className="mr-1 inline" /> Precificação
+        </TabBtn>
+      </div>
+
+      {aba === "precificacao" ? (
+        <PrecificacaoConfigPanel companyId={companyId} />
+      ) : loading || !config ? (
+        <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-16 text-center shadow-sm">
+          <Loader2 className="mx-auto animate-spin text-[#C8941A]" size={28} />
+          <p className="mt-3 text-sm text-[#3D2314]/60">Carregando configurações…</p>
+        </div>
+      ) : (
+        <>
       {erro && (
         <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>
       )}
@@ -694,7 +705,22 @@ export default function ConfiguracoesPage() {
           </div>
         </div>
       )}
+        </>
+      )}
     </main>
+  );
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+        active ? "border-[#C8941A] text-[#3D2314]" : "border-transparent text-[#3D2314]/50 hover:text-[#3D2314]/80"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
