@@ -15,7 +15,7 @@ type Obter = { ok: boolean; erro?: string; linhas?: Linha[]; config?: Cfg[] };
 const CAMPO_KEYS = [
   "creditos_pct", "icms_pct", "pis_cofins_pct", "margem_material_pct",
   "custo_folha_hora", "tempo_m2_min", "imposto_mo_pct", "margem_mo_pct",
-  "comissao_pct", "meta_producao_m2",
+  "comissao_pct", "meta_producao_m2", "custo_fixo_mensal", "realizado_producao_m2",
 ] as const;
 
 const GRUPOS: { grupo: string; campos: { k: string; l: string; suf: string }[] }[] = [
@@ -36,6 +36,10 @@ const GRUPOS: { grupo: string; campos: { k: string; l: string; suf: string }[] }
   { grupo: "Comercial", campos: [
     { k: "comissao_pct", l: "Comissão", suf: "%" },
     { k: "meta_producao_m2", l: "Meta Produção", suf: "m²/mês" },
+  ] },
+  { grupo: "Custo fixo", campos: [
+    { k: "custo_fixo_mensal", l: "Custo Fixo Mensal", suf: "R$" },
+    { k: "realizado_producao_m2", l: "Produção realizada", suf: "m²/mês" },
   ] },
 ];
 
@@ -86,10 +90,19 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
   const setCampo = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v.replace(/[^\d.,-]/g, "") }));
   const numOrNull = (s: string): number | null => { const t = (s ?? "").trim().replace(",", "."); if (t === "") return null; const v = parseFloat(t); return Number.isFinite(v) ? v : null; };
 
+  // Custo Fixo R$/m² DERIVADO = custo_fixo_mensal ÷ produção (meta ou realizado). Não é campo (RD-52).
+  const cfMensal = numOrNull(form.custo_fixo_mensal ?? "");
+  const producao = base === "realizado" ? numOrNull(form.realizado_producao_m2 ?? "") : numOrNull(form.meta_producao_m2 ?? "");
+  const custoFixoM2 = cfMensal != null && producao ? cfMensal / producao : null;
+  const origem = (cfgAtual?.custo_fixo_origem as string) ?? "manual";
+
   async function salvar() {
     setSalvando(true); setErro(null);
     const premissas: Record<string, unknown> = { base_custo_fixo: base };
     for (const k of CAMPO_KEYS) premissas[k] = numOrNull(form[k] ?? "");
+    // origem='manual' só quando o usuário mexeu no custo fixo mensal (o rateio do S0.2 marca 'rateio').
+    const loadedMensal = cfgAtual?.custo_fixo_mensal != null ? String(cfgAtual.custo_fixo_mensal) : "";
+    if ((form.custo_fixo_mensal ?? "") !== loadedMensal) premissas.custo_fixo_origem = "manual";
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_precificacao_config_salvar", {
       p_company_id: companyId, p_business_line_id: escopoBlId, p_premissas: premissas,
@@ -184,12 +197,22 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
           </div>
         ))}
 
-        {/* Derivado read-only */}
+        {/* Derivado read-only: custo_fixo_mensal ÷ produção */}
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#3D2314]/60">Derivado</h3>
           <div className="max-w-xs rounded-lg border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] px-3 py-2">
-            <span className="block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Custo Fixo (R$/m²)</span>
-            <span className="font-mono text-sm text-[#3D2314]/50">— calculado pelo rateio (vem do GE)</span>
+            <span className="mb-0.5 flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#3D2314]/55">
+              Custo Fixo (R$/m²)
+              <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${origem === "rateio" ? "bg-emerald-100 text-emerald-700" : "bg-[#3D2314]/10 text-[#3D2314]/60"}`}>
+                {origem === "rateio" ? "rateio" : "manual"}
+              </span>
+            </span>
+            <span className="font-mono text-sm text-[#3D2314]">
+              {custoFixoM2 != null ? custoFixoM2.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—"}
+            </span>
+            <span className="mt-0.5 block text-[10px] text-[#3D2314]/45">
+              = mensal ÷ produção ({base === "realizado" ? "realizado" : "meta"}). Preenchido pelo rateio quando ativo; editável até lá.
+            </span>
           </div>
         </div>
       </div>
