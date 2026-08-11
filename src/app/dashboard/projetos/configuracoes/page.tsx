@@ -15,11 +15,13 @@ import {
   Loader2,
   CheckCircle2,
   DollarSign,
+  Gauge,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
 import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
+import ProdutividadePanel from "@/components/projetos/ProdutividadePanel";
 import {
   BdiPreview,
   type BdiComponentes,
@@ -110,7 +112,7 @@ export default function ConfiguracoesPage() {
     sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
 
-  const [aba, setAba] = useState<"projetos" | "precificacao">("projetos");
+  const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
   const [config, setConfig] = useState<Config | null>(null);
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
   const [loading, setLoading] = useState(true);
@@ -402,10 +404,15 @@ export default function ConfiguracoesPage() {
         <TabBtn active={aba === "precificacao"} onClick={() => setAba("precificacao")}>
           <DollarSign size={13} className="mr-1 inline" /> Precificação
         </TabBtn>
+        <TabBtn active={aba === "produtividade"} onClick={() => setAba("produtividade")}>
+          <Gauge size={13} className="mr-1 inline" /> Produtividade
+        </TabBtn>
       </div>
 
       {aba === "precificacao" ? (
         <PrecificacaoConfigPanel companyId={companyId} />
+      ) : aba === "produtividade" ? (
+        <ProdutividadePanel companyId={companyId} />
       ) : loading || !config ? (
         <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-16 text-center shadow-sm">
           <Loader2 className="mx-auto animate-spin text-[#C8941A]" size={28} />
