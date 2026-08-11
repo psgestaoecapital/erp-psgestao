@@ -15,6 +15,10 @@ interface Props {
   open: boolean
   onClose: () => void
   onSucesso: () => void
+  // Chamado quando o ajuste já CONCILIOU o movimento (via p_movimento_id) — a tela só recarrega,
+  // não roda o aplicar_match de novo (evita "movimento já processado"). Fallback: onSucesso.
+  onConciliado?: () => void
+  movimentoId?: string | null
   lancamentoId: string
   tipo: 'pagar' | 'receber'
   valorOriginal: number
@@ -29,7 +33,7 @@ function fmtBRL(v: number): string {
 type Modo = 'parcial' | 'desconto'
 
 export default function AjustarValoresModal({
-  open, onClose, onSucesso, lancamentoId, tipo, valorOriginal, valorBanco, descricao,
+  open, onClose, onSucesso, onConciliado, movimentoId, lancamentoId, tipo, valorOriginal, valorBanco, descricao,
 }: Props) {
   const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
   const [valorConta, setValorConta] = useState(String(valorOriginal ?? ''))
@@ -118,16 +122,21 @@ export default function AjustarValoresModal({
     }
 
     // caminho QUITA: corrige valor (se mudou) + aplica juros/desconto por cima; recompute fecha o status.
+    // Passa o p_movimento_id: a própria RPC concilia pela máquina canônica (aplicar_match + motivo →
+    // baixa), tirando o movimento de "pendente" (item 1 Jordana). Sem isso, o título quitava mas o
+    // movimento seguia pendente, travando o fechamento diário.
     const { data, error } = await supabase.rpc('fn_conciliacao_ajustar_valores', {
       p_lancamento_id: lancamentoId, p_tipo: tipo,
       p_valor_juros: Number(juros) || 0, p_valor_desconto: Number(desconto) || 0,
       p_observacao: obs.trim() || null, p_valor_novo: valorMudou ? valorContaNum : null,
+      p_movimento_id: movimentoId ?? null,
     })
     setLoading(false)
     if (error) { setErro(error.message); return }
-    if ((data as { sucesso?: boolean; erro?: string } | null)?.sucesso === false) {
-      setErro((data as { erro?: string }).erro ?? 'Falha ao ajustar'); return
-    }
+    const j = data as { sucesso?: boolean; erro?: string; conciliado?: boolean } | null
+    if (j?.sucesso === false) { setErro(j?.erro ?? 'Falha ao ajustar'); return }
+    // Se a RPC já conciliou o movimento, a tela só recarrega (não roda aplicar_match de novo).
+    if (j?.conciliado && onConciliado) { onConciliado(); onClose(); return }
     onSucesso(); onClose()
   }
 
