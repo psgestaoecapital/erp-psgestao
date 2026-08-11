@@ -30,9 +30,19 @@ const soDigitos = (s: string) => (s ?? '').replace(/\D/g, '')
 // Máscara amigável por tipo (o valor salvo é o cru/normalizado — ver normalizarChavePix).
 export function mascararChavePix(tipo: string, valor: string): string {
   if (tipo === 'cpf_cnpj') {
+    // Máscara por CONTAGEM de dígitos (slice — o encadeamento de regex anterior produzia
+    // "52.498.45900/0160" no CNPJ, Jordana item 2). ≤11 → CPF 000.000.000-00 · >11 → CNPJ 00.000.000/0000-00.
     const d = soDigitos(valor).slice(0, 14)
-    if (d.length <= 11) return d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2')
-    return d.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2}\.\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,4})$/, '$1/$2').replace(/(\d{4})(\d{1,2})$/, '$1-$2')
+    if (d.length <= 11) {
+      let out = d.slice(0, 3)
+      if (d.length > 3) out += '.' + d.slice(3, 6)
+      if (d.length > 6) out += '.' + d.slice(6, 9)
+      if (d.length > 9) out += '-' + d.slice(9, 11)
+      return out
+    }
+    let out = d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8) + '/' + d.slice(8, 12)
+    if (d.length > 12) out += '-' + d.slice(12, 14)
+    return out
   }
   if (tipo === 'telefone') {
     const d = soDigitos(valor).slice(0, 11)

@@ -238,6 +238,7 @@ export default function InboxPage() {
   const [pesquisandoConta, setPesquisandoConta] = useState<Item | null>(null)
   // conciliacao-ajuste-diferenca-no-conciliar-v1
   const [ajuste, setAjuste] = useState<null | {
+    movimentoId: string
     lancamentoId: string
     tipo: 'pagar' | 'receber'
     valorOriginal: number
@@ -507,6 +508,7 @@ export default function InboxPage() {
   // conciliacao-ajuste-diferenca-no-conciliar-v1: tolerancia 1 centavo
   const TOL_DIF = 0.01
   function conciliarComAjuste(p: {
+    movimentoId: string
     valorBanco: number
     valorLancamento: number
     lancamentoId: string
@@ -519,6 +521,7 @@ export default function InboxPage() {
       return
     }
     setAjuste({
+      movimentoId: p.movimentoId,
       lancamentoId: p.lancamentoId,
       tipo: p.lancamentoTabela === 'erp_receber' ? 'receber' : 'pagar',
       valorOriginal: p.valorLancamento,
@@ -537,6 +540,7 @@ export default function InboxPage() {
     const lancId = it.sugestao_lancamento_id
 
     conciliarComAjuste({
+      movimentoId: it.movimento_id,
       valorBanco: Math.abs(Number(it.valor) || 0),
       valorLancamento: Number(it.sugestao_valor ?? 0),
       lancamentoId: lancId,
@@ -611,6 +615,7 @@ export default function InboxPage() {
     const movId = it.movimento_id
 
     conciliarComAjuste({
+      movimentoId: movId,
       valorBanco: Math.abs(Number(it.valor) || 0),
       valorLancamento: Number(sug.valor_lancamento ?? 0),
       lancamentoId: sug.lancamento_id,
@@ -1385,6 +1390,8 @@ export default function InboxPage() {
           open
           onClose={() => setAjuste(null)}
           onSucesso={() => { const a = ajuste; setAjuste(null); void a.aplicar() }}
+          onConciliado={() => { setAjuste(null); void carregar(); void carregarConciliados() }}
+          movimentoId={ajuste.movimentoId}
           lancamentoId={ajuste.lancamentoId}
           tipo={ajuste.tipo}
           valorOriginal={ajuste.valorOriginal}
