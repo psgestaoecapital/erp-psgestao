@@ -43,7 +43,8 @@ export function mapearRemessaSicredi(cfg: ConfigSicoobDb, titulos: TituloPag[], 
     boletos.push({
       codBarras: cb, nomeBenef: nome, dtVenc: dataBR(t.data_vencimento),
       valTitulo: valor, valPagto: valor, desconto: 0, acrescimo: 0, qtdMoeda: 0,
-      dtPagto: dataBR(opts.dtPagto), seuNum,
+      // Data do Pagamento = data prevista do título (venc → próximo dia útil); fallback legado opts.dtPagto.
+      dtPagto: dataBR(t.data_pagamento_prevista ?? opts.dtPagto), seuNum,
       benefBody: construirBenefBodySicredi(soDigitos(t.fornecedor?.cnpj_cpf), nome),
     })
     incluidos.push(t.id)

@@ -66,6 +66,7 @@ function campos(tipo: Tipo): Campo[] {
     { col: 'chave_pix', label: 'Chave PIX (p/ remessa)', tipo: 'text', largo: true },
     { col: 'data_emissao', label: 'Emissão', tipo: 'date' },
     { col: 'data_vencimento', label: 'Vencimento *', tipo: 'date' },
+    ...(tipo === 'pagar' ? [{ col: 'data_previsao', label: 'Previsão de pagamento', tipo: 'date' as const }] : []),
     { col: 'data_pagamento', label: 'Pagamento', tipo: 'date' },
     { col: 'data_competencia', label: 'Competência', tipo: 'date' },
     { col: 'numero_documento', label: 'Nº documento', tipo: 'text' },
