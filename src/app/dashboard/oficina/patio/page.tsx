@@ -163,6 +163,7 @@ export default function PatioKanbanPage() {
       .from('erp_os')
       .select(SELECT_OS)
       .eq('company_id', companyId)
+      .eq('excluida', false)                             // OS excluída (soft-delete) não fica na tela (mesmo guard da fn_oficina_os_fila)
       .not('status', 'in', '("entregue","cancelada")')  // pátio = carros ativos; entregues recentes entram via coluna própria abaixo
       .order('updated_at', { ascending: true })
       .limit(400)
@@ -171,12 +172,12 @@ export default function PatioKanbanPage() {
     const { data: entregues } = await supabase
       .from('erp_os')
       .select(SELECT_OS)
-      .eq('company_id', companyId).eq('status', 'entregue')
+      .eq('company_id', companyId).eq('excluida', false).eq('status', 'entregue')
       .order('entregue_em', { ascending: false, nullsFirst: false }).limit(60)
     setOss([...(data ?? []), ...(entregues ?? [])] as OS[])
     // total de entregues (pro contador do histórico)
     const { count } = await supabase.from('erp_os').select('id', { count: 'exact', head: true })
-      .eq('company_id', companyId).eq('status', 'entregue')
+      .eq('company_id', companyId).eq('excluida', false).eq('status', 'entregue')
     setEntregueTotal(count ?? 0)
     setLoading(false)
   }, [companyId])
