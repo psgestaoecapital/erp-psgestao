@@ -21,7 +21,30 @@ type Bem = {
 type BL = { id: string; name: string }
 type NatPadrao = { natureza: string; vida_util_meses: number | null; deprecia: boolean }
 
+type IndNat = { natureza: string; qtd: number; valor_aquisicao: number; deprec_acumulada: number; valor_contabil: number; pct_depreciado: number; taxa_aa_media: number | null; deprecia: boolean }
+type IndLinha = { linha: string; valor_aquisicao: number; valor_contabil: number }
+type IndConsol = { qtd: number; valor_aquisicao: number; deprec_acumulada: number; valor_contabil: number; pct_depreciado: number }
+type Indicadores = {
+  ok: boolean
+  consolidado: IndConsol
+  por_natureza: IndNat[] | null
+  por_linha: IndLinha[] | null
+  terras: { valor: number; qtd: number; nao_deprecia_ok: boolean }
+  deprec_exercicio: number
+  deprec_acelerada_potencial: number
+  conformidade: { bem: string; alerta: string }[] | null
+}
+
+// cores por natureza p/ a barra de composição (fallback cinza p/ naturezas fora da lista)
+const NAT_COR: Record<string, string> = {
+  terreno: '#8C6A3F', benfeitoria: '#C8941A', edificacao: '#B07A12', maquina: '#5C8D3F', equipamento: '#7BA85B',
+  veiculo: '#2E6E8E', instalacao: '#9A6A00', movel_utensilio: '#A88', computador: '#667', software: '#957DAd',
+  semovente: '#C44536', cultura_permanente: '#4F7942',
+}
+const corNat = (n: string) => NAT_COR[n] ?? '#B7A78F'
+
 function fmt(n: number | null | undefined): string { return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function fmtc(n: number | null | undefined): string { return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
 function mesAtual(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
 
 export default function BensPage() {
@@ -30,6 +53,7 @@ export default function BensPage() {
 
   const [bens, setBens] = useState<Bem[]>([])
   const [bls, setBls] = useState<BL[]>([])
+  const [ind, setInd] = useState<Indicadores | null>(null)
   const [padroes, setPadroes] = useState<Record<string, NatPadrao>>({})
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -44,18 +68,22 @@ export default function BensPage() {
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
-    const [bn, bl, np] = await Promise.all([
+    const [bn, bl, np, ic] = await Promise.all([
       supabase.rpc('fn_bem_listar', { p_company_id: empresaUnica }),
       supabase.from('business_lines').select('id,name').eq('company_id', empresaUnica).order('ln_number'),
       supabase.from('erp_bem_natureza_padrao').select('natureza,vida_util_meses,deprecia').is('company_id', null),
+      supabase.rpc('fn_bem_indicadores', { p_company_id: empresaUnica }),
     ])
     setBens((bn.data ?? []) as Bem[])
     setBls((bl.data ?? []) as BL[])
+    const ind0 = ic.data as Indicadores | null
+    setInd(ind0 && ind0.ok ? ind0 : null)
     const p: Record<string, NatPadrao> = {}
     for (const r of (np.data ?? []) as NatPadrao[]) p[r.natureza] = r
     setPadroes(p)
   }, [empresaUnica])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
   // ao trocar a natureza no form, sugere vida útil + deprecia (editável)
@@ -136,6 +164,21 @@ export default function BensPage() {
   const lista = useMemo(() => bens.filter((b) => (!fNat || b.natureza === fNat) && (!fStatus || b.status === fStatus)), [bens, fNat, fStatus])
   const faltando = useMemo(() => bens.filter((b) => b.falta_parametro && b.status === 'ativo'), [bens])
 
+  // Filtro de natureza recalcula os cards de topo a partir do próprio por_natureza do indicador
+  // (fonte única). Sem filtro → consolidado geral. O painel sempre reflete o imobilizado ATIVO.
+  const natRows = useMemo<IndNat[]>(() => {
+    const arr = ind?.por_natureza ?? []
+    return fNat ? arr.filter((x) => x.natureza === fNat) : arr
+  }, [ind, fNat])
+  const consol = useMemo<IndConsol | null>(() => {
+    if (!ind?.ok) return null
+    if (!fNat) return ind.consolidado
+    const n = (ind.por_natureza ?? []).find((x) => x.natureza === fNat)
+    return n ? { qtd: n.qtd, valor_aquisicao: n.valor_aquisicao, deprec_acumulada: n.deprec_acumulada, valor_contabil: n.valor_contabil, pct_depreciado: n.pct_depreciado }
+             : { qtd: 0, valor_aquisicao: 0, deprec_acumulada: 0, valor_contabil: 0, pct_depreciado: 0 }
+  }, [ind, fNat])
+  const totalComposicao = ind?.consolidado?.valor_aquisicao || 0
+
   if (!empresaUnica) return <div style={{ padding: 24, color: ESP60 }}>Selecione UMA empresa específica.</div>
 
   return (
@@ -146,6 +189,129 @@ export default function BensPage() {
       {faltando.length > 0 && (
         <div style={{ marginBottom: 12, fontSize: 13, color: '#9A6A00', background: '#FBF3E0', padding: 8, borderRadius: 6 }}>
           ⚠️ {faltando.length} bem(ns) sem vida útil — não serão depreciados até informar o parâmetro: {faltando.map((b) => b.descricao).join(', ')}
+        </div>
+      )}
+
+      {/* ── INDICADORES (imobilizado ativo) ─────────────────────────────────────────── */}
+      {consol && ind && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>Indicadores</div>
+            <div style={{ fontSize: 11.5, color: ESP60 }}>imobilizado ativo{fNat ? ` · filtrado: ${fNat}` : ''}</div>
+          </div>
+
+          {/* 1) Cards consolidados */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10 }}>
+            <Tile titulo="Valor de aquisição" valor={`R$ ${fmt(consol.valor_aquisicao)}`} sub={`${consol.qtd} bem(ns)`} />
+            <Tile titulo="Depreciação acumulada" valor={`R$ ${fmt(consol.deprec_acumulada)}`} />
+            <Tile titulo="Valor contábil líquido" valor={`R$ ${fmt(consol.valor_contabil)}`} destaque />
+            <Tile titulo="% depreciado" valor={`${fmt(consol.pct_depreciado)}%`} />
+            <Tile titulo="Depreciação do exercício" valor={`R$ ${fmt(ind.deprec_exercicio)}`} sub={`${new Date().getFullYear()}`} />
+          </div>
+
+          {/* 2) Barra de composição por natureza (terras dominam — item 3) */}
+          {totalComposicao > 0 && (ind.por_natureza?.length ?? 0) > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', border: `1px solid ${LINE}` }}>
+                {(ind.por_natureza ?? []).map((n) => {
+                  const pct = totalComposicao > 0 ? (n.valor_aquisicao / totalComposicao) * 100 : 0
+                  return <div key={n.natureza} title={`${n.natureza}: ${pct.toFixed(1)}% (R$ ${fmtc(n.valor_aquisicao)})`}
+                    style={{ width: `${pct}%`, background: corNat(n.natureza), opacity: fNat && fNat !== n.natureza ? 0.3 : 1 }} />
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
+                {(ind.por_natureza ?? []).map((n) => (
+                  <span key={n.natureza} style={{ fontSize: 10.5, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 2, background: corNat(n.natureza), display: 'inline-block' }} />
+                    {n.natureza} {totalComposicao > 0 ? ((n.valor_aquisicao / totalComposicao) * 100).toFixed(1) : '0'}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 3) Terras em destaque */}
+          {ind.terras && ind.terras.qtd > 0 && (
+            <div style={{ ...card, marginTop: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderLeft: `4px solid ${corNat('terreno')}` }}>
+              <span style={{ fontSize: 22 }}>🌱</span>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 12, color: ESP60 }}>Terras (terreno) · {ind.terras.qtd} imóvel(is)</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>R$ {fmt(ind.terras.valor)}</div>
+                <div style={{ fontSize: 11, color: ESP60 }}>
+                  {totalComposicao > 0 ? ((ind.terras.valor / totalComposicao) * 100).toFixed(1) : '0'}% do imobilizado — não deprecia, por isso o “% depreciado” do total é baixo.
+                </div>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999,
+                background: (ind.terras.nao_deprecia_ok ? GREEN : RED) + '18', color: ind.terras.nao_deprecia_ok ? GREEN : RED }}>
+                {ind.terras.nao_deprecia_ok ? '✓ não deprecia' : '⚠ terra marcada como depreciável'}
+              </span>
+            </div>
+          )}
+
+          {/* 4) Por natureza (tabela) */}
+          {natRows.length > 0 && (
+            <div style={{ ...card, marginTop: 12, overflowX: 'auto', padding: 0 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
+                  <th style={th}>Natureza</th><th style={{ ...th, textAlign: 'right' }}>Qtd</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Aquisição</th><th style={{ ...th, textAlign: 'right' }}>Deprec. acum.</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Líquido</th><th style={{ ...th, textAlign: 'right' }}>% deprec.</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Taxa a.a. média</th>
+                </tr></thead>
+                <tbody>
+                  {natRows.map((n) => (
+                    <tr key={n.natureza} style={{ borderTop: `1px solid ${LINE}` }}>
+                      <td style={{ ...td, fontWeight: 600 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: 2, background: corNat(n.natureza), display: 'inline-block', marginRight: 6 }} />
+                        {n.natureza}{!n.deprecia && <span style={{ color: ESP60, fontWeight: 400 }}> · não deprecia</span>}
+                      </td>
+                      <td style={{ ...td, textAlign: 'right' }}>{n.qtd}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{fmt(n.valor_aquisicao)}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{fmt(n.deprec_acumulada)}</td>
+                      <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(n.valor_contabil)}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{fmt(n.pct_depreciado)}%</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{n.taxa_aa_media != null ? `${fmt(n.taxa_aa_media)}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 5) Por linha de negócio + Conformidade (agro) lado a lado */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 12, marginTop: 12 }}>
+            {(ind.por_linha?.length ?? 0) > 0 && (
+              <div style={{ ...card, padding: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Por linha de negócio</div>
+                {(ind.por_linha ?? []).map((l) => (
+                  <div key={l.linha} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, padding: '3px 0' }}>
+                    <span>{l.linha}</span>
+                    <span style={{ color: ESP60 }}>aquis. R$ {fmtc(l.valor_aquisicao)} · líq. <b style={{ color: ESP }}>R$ {fmtc(l.valor_contabil)}</b></span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ ...card, padding: 12, borderLeft: `4px solid ${(ind.conformidade?.length ?? 0) > 0 ? RED : GREEN}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Conformidade (agro)</div>
+              {(ind.conformidade?.length ?? 0) === 0
+                ? <div style={{ fontSize: 12.5, color: GREEN, fontWeight: 600 }}>✓ Nenhum alerta — taxas, vida útil e terras coerentes.</div>
+                : <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    {(ind.conformidade ?? []).map((c, i) => (
+                      <li key={i} style={{ fontSize: 12, color: '#9A6A00', marginBottom: 4 }}><b style={{ color: ESP }}>{c.bem}</b>: {c.alerta}</li>
+                    ))}
+                  </ul>}
+              {ind.deprec_acelerada_potencial > 0 && (
+                <div style={{ fontSize: 11, color: ESP60, marginTop: 8, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
+                  Potencial de dedução acelerada rural no exercício: <b style={{ color: ESP }}>R$ {fmt(ind.deprec_acelerada_potencial)}</b> (benefício fiscal/LALUR — não altera a escrituração contábil).
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 6) Nota fixa — ativo biológico */}
+          <div style={{ fontSize: 11, color: ESP60, marginTop: 10, lineHeight: 1.5 }}>
+            🐂 O rebanho é <b>ativo biológico</b> (CPC 29 / NBC TG 29), mensurado a valor justo no módulo Pecuária — <b>não</b> integra este imobilizado.
+          </div>
         </div>
       )}
 
@@ -212,6 +378,16 @@ export default function BensPage() {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+function Tile({ titulo, valor, sub, destaque }: { titulo: string; valor: string; sub?: string; destaque?: boolean }) {
+  return (
+    <div style={{ background: destaque ? '#FBF3E0' : '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 10, padding: '10px 12px' }}>
+      <div style={{ fontSize: 11, color: ESP60 }}>{titulo}</div>
+      <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2, color: ESP }}>{valor}</div>
+      {sub && <div style={{ fontSize: 10.5, color: ESP60, marginTop: 1 }}>{sub}</div>}
     </div>
   )
 }
