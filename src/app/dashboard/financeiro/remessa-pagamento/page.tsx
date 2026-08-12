@@ -261,9 +261,9 @@ export default function RemessaPagamentoPage() {
       void carregar()
     } catch (e) {
       const m = (e as Error).message ?? ''
-      // uq_remessa_numeracao (company, banco, numero_sequencial): esse NSA já foi usado — não pode repetir.
+      // uq_remessa_numeracao_ativa: só ATIVAS colidem (cancelada libera o número). NSA já em uso por remessa ativa.
       setMsg(/uq_remessa_numeracao|duplicate key|23505/.test(m)
-        ? `Já existe uma remessa com o número ${Math.trunc(Number(numRemessa))} para este banco. Informe outro número.`
+        ? `Já existe uma remessa ATIVA com o número ${Math.trunc(Number(numRemessa))} para este banco. Informe outro número.`
         : 'Erro ao gerar: ' + m)
     } finally { setBusy(false) }
   }
@@ -418,6 +418,9 @@ export default function RemessaPagamentoPage() {
   const seqNum = Math.trunc(Number(numRemessa))
   const seqValido = Number.isFinite(seqNum) && seqNum >= 1
   const seqAbaixo = seqValido && seqNum <= ultimoEnviado   // ≤ último enviado: avisa, mas permite override
+  // Duplicidade REAL só entre ATIVAS (não canceladas). Cancelada libera o número (índice parcial no banco).
+  const remessaAtivaMesmoNum = seqValido ? remessas.find((r) => r.numero_sequencial === seqNum && r.status !== 'cancelado') : undefined
+  const remessaCanceladaMesmoNum = seqValido && !remessaAtivaMesmoNum ? remessas.find((r) => r.numero_sequencial === seqNum && r.status === 'cancelado') : undefined
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '28px 20px' }}>
@@ -471,6 +474,17 @@ export default function RemessaPagamentoPage() {
           {seqAbaixo && (
             <div style={{ marginTop: 6, color: VERM, fontWeight: 600 }}>
               ⚠ O número {seqNum} é ≤ ao último enviado ({ultimoEnviado}). O banco pode recusar por sequência. Confirme com a Jordana antes de gerar.
+            </div>
+          )}
+          {/* duplicidade REAL (ativa) → trava; só cancelada → informa e permite (avisar, não impedir) */}
+          {remessaAtivaMesmoNum && (
+            <div style={{ marginTop: 6, color: VERM, fontWeight: 700 }}>
+              ⛔ Já existe uma remessa <b>ATIVA</b> nº {seqNum}. Escolha outro número.
+            </div>
+          )}
+          {remessaCanceladaMesmoNum && (
+            <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 6, background: '#FBF4E4', border: `0.5px solid ${GOLD}`, color: ESP, fontWeight: 600 }}>
+              ℹ A remessa nº {seqNum} anterior foi <b>cancelada</b>. Esta será a <b>nova remessa nº {seqNum}</b> — pode gerar.
             </div>
           )}
           {!seqValido && <div style={{ marginTop: 6, color: VERM, fontWeight: 600 }}>⚠ Informe um número inteiro ≥ 1.</div>}
@@ -533,8 +547,9 @@ export default function RemessaPagamentoPage() {
           </div>
           <button
             onClick={() => setConfirmar(true)}
-            disabled={busy || semDv || !seqValido || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
-            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || !seqValido || !preview?.input ? 0.5 : 1 }}
+            disabled={busy || semDv || !seqValido || !!remessaAtivaMesmoNum || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
+            title={remessaAtivaMesmoNum ? `Já existe uma remessa ATIVA nº ${seqNum}` : undefined}
+            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || !seqValido || !!remessaAtivaMesmoNum || !preview?.input ? 0.5 : 1 }}
           >
             {busy ? 'Gerando…' : `Gerar remessa Nº ${seqValido ? seqNum : '—'} (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'})`}
           </button>
