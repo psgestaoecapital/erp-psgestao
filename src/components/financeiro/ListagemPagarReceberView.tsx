@@ -684,30 +684,40 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             qtd={data?.kpis.vencidos.qtd ?? 0}
             cor="#DC2626"
             destaque={(data?.kpis.vencidos.qtd ?? 0) > 0}
+            ativo={statusFiltro === 'vencidos'}
+            onClick={() => setStatusFiltro((s) => (s === 'vencidos' ? 'todos' : 'vencidos'))}
           />
           <KpiCard
             titulo={labels.hojeLabel}
             valor={data?.kpis.hoje.valor ?? 0}
             qtd={data?.kpis.hoje.qtd ?? 0}
             cor="#C8941A"
+            ativo={statusFiltro === 'hoje'}
+            onClick={() => setStatusFiltro((s) => (s === 'hoje' ? 'todos' : 'hoje'))}
           />
           <KpiCard
             titulo="A vencer"
             valor={data?.kpis.avencer.valor ?? 0}
             qtd={data?.kpis.avencer.qtd ?? 0}
             cor="#3D2314"
+            ativo={statusFiltro === 'avencer'}
+            onClick={() => setStatusFiltro((s) => (s === 'avencer' ? 'todos' : 'avencer'))}
           />
           <KpiCard
             titulo={labels.pagosLabel}
             valor={data?.kpis.pagos.valor ?? 0}
             qtd={data?.kpis.pagos.qtd ?? 0}
             cor="#16A34A"
+            ativo={statusFiltro === 'pagos'}
+            onClick={() => setStatusFiltro((s) => (s === 'pagos' ? 'todos' : 'pagos'))}
           />
           <KpiCard
             titulo="Total"
             valor={data?.kpis.total ?? 0}
             qtd={(data?.resultados ?? []).length}
             cor="#3D2314"
+            ativo={statusFiltro === 'todos'}
+            onClick={() => setStatusFiltro('todos')}
           />
         </div>
       </div>
@@ -941,6 +951,24 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 </div>
               </div>
             )}
+
+            {statusFiltro !== 'todos' && data && (() => {
+              const info: Record<string, { label: string; cor: string; valor: number; qtd: number }> = {
+                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
+                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: data.kpis.hoje.valor, qtd: data.kpis.hoje.qtd },
+                avencer: { label: 'A vencer', cor: '#3D2314', valor: data.kpis.avencer.valor, qtd: data.kpis.avencer.qtd },
+                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: data.kpis.pagos.valor, qtd: data.kpis.pagos.qtd },
+              }
+              const c = info[statusFiltro]
+              if (!c) return null
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: `${c.cor}12`, border: `0.5px solid ${c.cor}44` }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: c.cor }}>{c.label}</span>
+                  <span style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.75)' }}>{c.qtd} {c.qtd === 1 ? 'lançamento' : 'lançamentos'} · {fmtBRL(c.valor)}</span>
+                  <button onClick={() => setStatusFiltro('todos')} style={{ marginLeft: 'auto', background: 'transparent', border: `0.5px solid ${c.cor}55`, color: c.cor, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>ver todos ✕</button>
+                </div>
+              )
+            })()}
 
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -1457,31 +1485,40 @@ function Header({ labels, onHistorico, acaoExtra }: {
   )
 }
 
-function KpiCard({ titulo, valor, qtd, cor, destaque = false }: {
-  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean
+function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false }: {
+  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean
 }) {
+  const clicavel = !!onClick
   return (
     <div
+      onClick={onClick}
+      role={clicavel ? 'button' : undefined}
+      tabIndex={clicavel ? 0 : undefined}
+      onKeyDown={clicavel ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick!() } } : undefined}
+      title={clicavel ? (ativo ? 'Clique para ver todos' : `Ver os ${qtd} lançamento(s) de ${titulo}`) : undefined}
       style={{
-        background: destaque ? '#FCEBEB' : '#FFFFFF',
-        border: `0.5px solid ${destaque ? cor : 'rgba(61,35,20,0.12)'}`,
+        background: ativo ? cor : destaque ? '#FCEBEB' : '#FFFFFF',
+        border: `${ativo ? '1.5px' : '0.5px'} solid ${ativo || destaque ? cor : 'rgba(61,35,20,0.12)'}`,
+        boxShadow: ativo ? `0 0 0 3px ${cor}22` : undefined,
         borderRadius: 12,
         padding: '16px 18px',
+        cursor: clicavel ? 'pointer' : undefined,
+        transition: 'box-shadow .12s, transform .12s',
       }}
     >
       <div
         style={{
           fontSize: 11,
-          color: 'rgba(61,35,20,0.55)',
+          color: ativo ? 'rgba(255,255,255,0.85)' : 'rgba(61,35,20,0.55)',
           textTransform: 'uppercase',
           letterSpacing: 1,
           marginBottom: 8,
         }}
       >
-        {titulo}
+        {titulo}{ativo ? ' · filtrando' : ''}
       </div>
-      <div style={{ fontSize: 20, color: cor, fontWeight: 600 }}>{fmtBRL(valor)}</div>
-      <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 4 }}>
+      <div style={{ fontSize: 20, color: ativo ? '#FFFFFF' : cor, fontWeight: 600 }}>{fmtBRL(valor)}</div>
+      <div style={{ fontSize: 11, color: ativo ? 'rgba(255,255,255,0.85)' : 'rgba(61,35,20,0.55)', marginTop: 4 }}>
         {qtd} {qtd === 1 ? 'lançamento' : 'lançamentos'}
       </div>
     </div>
