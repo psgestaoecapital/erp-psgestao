@@ -16,6 +16,7 @@ type Conta = { id: string; nome: string; banco: string | null }
 type Adquirente = { id: string; nome: string; conta_bancaria_id: string | null; documento: string | null; observacao: string | null }
 type Taxa = { id: string; adquirente_id: string; bandeira: string; modalidade: string; parcelas_de: number; parcelas_ate: number; taxa_percentual: number; prazo_repasse_dias: number }
 type CalcRes = { ok: boolean; erro?: string; taxa_percentual?: number; valor_taxa?: number; valor_liquido?: number; prazo_repasse_dias?: number; data_repasse?: string }
+type RepasseGrupo = { adquirente: string; adquirente_id: string; data_repasse: string; qtd: number; total_liquido: number; recebiveis: { id: string; descricao: string; valor_liquido: number }[] }
 
 const brl = (n: number) => Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -38,17 +39,21 @@ export default function CartoesPage() {
   // simulador
   const [sim, setSim] = useState({ bandeira: 'Visa', modalidade: 'debito', parcelas: '1', valor: '' })
   const [simRes, setSimRes] = useState<CalcRes | null>(null)
+  // F3 · repasses a conciliar (grupos por adquirente × data)
+  const [repGrupos, setRepGrupos] = useState<RepasseGrupo[]>([])
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
-    const [ct, aq] = await Promise.all([
+    const [ct, aq, rp] = await Promise.all([
       supabase.from('erp_banco_contas').select('id,nome,banco').eq('company_id', empresaUnica).eq('ativo', true).order('nome'),
       supabase.rpc('fn_cartao_adquirente_listar', { p_company_id: empresaUnica }),
+      supabase.rpc('fn_cartao_recebiveis_abertos', { p_company_id: empresaUnica }),
     ])
     setContas((ct.data ?? []) as Conta[])
     const adqs = ((aq.data as { adquirentes?: Adquirente[] } | null)?.adquirentes) ?? []
     setAdquirentes(adqs)
     setSel((s) => s || adqs[0]?.id || '')
+    setRepGrupos((((rp.data as { grupos?: RepasseGrupo[] } | null)?.grupos) ?? []))
   }, [empresaUnica])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -101,6 +106,21 @@ export default function CartoesPage() {
     setBusy(false)
     if (error) { setSimRes({ ok: false, erro: error.message }); return }
     setSimRes(data as CalcRes)
+  }
+
+  async function conciliarRepasse(g: RepasseGrupo) {
+    if (!empresaUnica) return
+    const dataStr = window.prompt(`Conciliar repasse ${g.adquirente} de ${new Date(g.data_repasse + 'T00:00:00').toLocaleDateString('pt-BR')}\n${g.qtd} venda(s) · R$ ${brl(g.total_liquido)} líquido.\n\nData do crédito no extrato (AAAA-MM-DD):`, g.data_repasse)
+    if (!dataStr) return
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_cartao_conciliar_repasse', {
+      p_company_id: empresaUnica, p_recebivel_ids: g.recebiveis.map((x) => x.id), p_data_recebimento: dataStr,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; recebiveis_baixados?: number; taxas_quitadas?: number; total_liquido?: number } | null
+    if (error || r?.ok === false) { setMsg({ t: 'Erro: ' + (error?.message || r?.erro), ok: false }); return }
+    setMsg({ t: `Repasse CONCILIADO — ${g.adquirente}: ${r?.recebiveis_baixados ?? 0} recebido(s) · R$ ${brl(r?.total_liquido ?? 0)} líquido · ${r?.taxas_quitadas ?? 0} taxa(s) quitada(s).`, ok: true })
+    await carregar()
   }
 
   if (!empresaUnica) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione UMA empresa específica para gerir cartões/adquirentes.</div>
@@ -238,10 +258,43 @@ export default function CartoesPage() {
         </div>
       </div>
 
+      {/* F3 · REPASSES A CONCILIAR ─────────────────────────────────────────── */}
+      <div style={{ ...card, marginTop: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>Repasses de cartão a conciliar</div>
+        <div style={{ fontSize: 11.5, color: ESP60, marginBottom: 12 }}>O que as adquirentes devem repassar (líquido), agrupado por adquirente × data. Quando o crédito cair no extrato, concilie o grupo cuja soma bate.</div>
+        {repGrupos.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: ESP60, background: BG, borderRadius: 8, padding: 12 }}>Nenhum repasse pendente. Recebíveis de cartão surgem aqui quando você registra vendas no cartão (💳 na tela de Contas a Receber).</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {repGrupos.map((g) => (
+              <div key={`${g.adquirente_id}-${g.data_repasse}`} style={{ border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Repasse {g.adquirente} · {new Date(g.data_repasse + 'T00:00:00').toLocaleDateString('pt-BR')}</div>
+                    <div style={{ fontSize: 12, color: ESP60 }}>{g.qtd} venda(s) · <b style={{ color: ESP }}>R$ {brl(g.total_liquido)}</b> líquido</div>
+                  </div>
+                  <button onClick={() => void conciliarRepasse(g)} disabled={busy} style={btnPri}>Conciliar repasse</button>
+                </div>
+                <details style={{ marginTop: 6 }}>
+                  <summary style={{ fontSize: 11, color: GOLD, cursor: 'pointer' }}>ver {g.recebiveis.length} recebível(is)</summary>
+                  <div style={{ marginTop: 6 }}>
+                    {g.recebiveis.map((rc) => (
+                      <div key={rc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, color: ESP60, padding: '2px 0' }}>
+                        <span>{rc.descricao}</span><span>R$ {brl(rc.valor_liquido)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <datalist id="bandeiras">{BANDEIRAS.map((b) => <option key={b} value={b} />)}</datalist>
 
       <div style={{ fontSize: 11, color: ESP60, marginTop: 16, lineHeight: 1.5 }}>
-        🧭 <b>F1 (base).</b> Próximas fases: F2 gera o recebível líquido da adquirente na venda; F3 concilia o repasse (extrato); F4 leva venda (competência) × repasse (caixa) + taxa (despesa financeira) pro DRE.
+        🧭 <b>F1 + F2 + F3.</b> Falta a F4: DRE competência (venda, excluindo repasse) × caixa (repasse) + taxa como despesa financeira.
       </div>
     </div>
   )
