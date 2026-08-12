@@ -17,7 +17,7 @@ const DRIVERS = ['area','ua','receita','headcount','manual'] as const
 type Area = {
   id: string; nome: string; uso: string; area_ha: number; business_line_id: string | null
   entra_rateio: boolean; capacidade_ua: number | null; posse: string; contraparte: string | null
-  contrato_ref: string | null; ativo: boolean
+  contrato_ref: string | null; observacao: string | null; ativo: boolean
 }
 type BL = { id: string; name: string }
 type BaseRow = { business_line_id: string; nome: string; base: number; percentual: number }
@@ -41,8 +41,8 @@ export default function AreasPropriedadePage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // form
-  const vazio = { nome: '', uso: 'pastagem', area_ha: '', business_line_id: '', entra_rateio: true, capacidade_ua: '', posse: 'propria', contraparte: '', contrato_ref: '' }
+  // form (capacidade saiu daqui — fonte única é a aba Piquetes/Pecuária · RD-52)
+  const vazio = { nome: '', uso: 'pastagem', area_ha: '', business_line_id: '', entra_rateio: true, posse: 'propria', contraparte: '', contrato_ref: '', observacao: '' }
   const [f, setF] = useState<typeof vazio>({ ...vazio })
   const [editId, setEditId] = useState<string | null>(null)
 
@@ -84,7 +84,7 @@ export default function AreasPropriedadePage() {
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     const [ar, bl, cf] = await Promise.all([
-      supabase.from('erp_propriedade_area').select('id,nome,uso,area_ha,business_line_id,entra_rateio,capacidade_ua,posse,contraparte,contrato_ref,ativo').eq('company_id', empresaUnica).order('ativo', { ascending: false }).order('uso').order('nome'),
+      supabase.from('erp_propriedade_area').select('id,nome,uso,area_ha,business_line_id,entra_rateio,capacidade_ua,posse,contraparte,contrato_ref,observacao,ativo').eq('company_id', empresaUnica).order('ativo', { ascending: false }).order('uso').order('nome'),
       supabase.from('business_lines').select('id,name').eq('company_id', empresaUnica).order('ln_number'),
       supabase.from('rateio_config_empresa').select('id,driver,incluir_area_improdutiva').eq('company_id', empresaUnica).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
     ])
@@ -102,6 +102,7 @@ export default function AreasPropriedadePage() {
     else setBase((data ?? []) as BaseRow[])
   }, [empresaUnica])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void calcularBase() }, [calcularBase, areas, driver, incluirImprod])
 
   async function salvarConfig(novoDriver: string, novoIncluir: boolean) {
@@ -121,23 +122,22 @@ export default function AreasPropriedadePage() {
     const ha = Number(String(f.area_ha).replace(',', '.'))
     if (!f.nome || !ha || ha <= 0) { setMsg('Nome e hectares (>0) são obrigatórios.'); return }
     setBusy(true); setMsg(null)
-    const payload = {
-      company_id: empresaUnica, propriedade_id: propriedade.id, nome: f.nome, uso: f.uso, area_ha: ha,
-      business_line_id: f.business_line_id || null, entra_rateio: f.entra_rateio,
-      capacidade_ua: f.uso === 'pastagem' && f.capacidade_ua ? Number(String(f.capacidade_ua).replace(',', '.')) : null,
-      posse: f.posse, contraparte: f.contraparte || null, contrato_ref: f.contrato_ref || null,
+    // Salva pelo RPC (SECURITY DEFINER · RD-52). NÃO envia capacidade_ua — fonte é a pecuária.
+    const dados = {
+      id: editId, propriedade_id: propriedade.id, nome: f.nome, uso: f.uso, area_ha: ha,
+      business_line_id: f.business_line_id || '', entra_rateio: f.entra_rateio,
+      posse: f.posse, contraparte: f.contraparte || '', contrato_ref: f.contrato_ref || '', observacao: f.observacao || '',
     }
-    const { error } = editId
-      ? await supabase.from('erp_propriedade_area').update(payload).eq('id', editId)
-      : await supabase.from('erp_propriedade_area').insert(payload)
-    if (error) setMsg('Erro: ' + error.message)
-    else { setMsg('Área salva.'); setF({ ...vazio }); setEditId(null); await carregar() }
+    const { data, error } = await supabase.rpc('fn_propriedade_area_salvar', { p_company_id: empresaUnica, p_dados: dados })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) setMsg('Erro: ' + (error?.message || r?.erro || 'falha ao salvar'))
+    else { setMsg(editId ? 'Área ALTERADA.' : 'Área criada.'); setF({ ...vazio }); setEditId(null); await carregar() }
     setBusy(false)
   }
 
   function editar(a: Area) {
     setEditId(a.id)
-    setF({ nome: a.nome, uso: a.uso, area_ha: String(a.area_ha), business_line_id: a.business_line_id ?? '', entra_rateio: a.entra_rateio, capacidade_ua: a.capacidade_ua != null ? String(a.capacidade_ua) : '', posse: a.posse, contraparte: a.contraparte ?? '', contrato_ref: a.contrato_ref ?? '' })
+    setF({ nome: a.nome, uso: a.uso, area_ha: String(a.area_ha), business_line_id: a.business_line_id ?? '', entra_rateio: a.entra_rateio, posse: a.posse, contraparte: a.contraparte ?? '', contrato_ref: a.contrato_ref ?? '', observacao: a.observacao ?? '' })
   }
 
   async function toggleRateio(a: Area) {
@@ -200,9 +200,14 @@ export default function AreasPropriedadePage() {
               <label style={lbl}>Posse<select style={inp} value={f.posse} onChange={(e) => setF({ ...f, posse: e.target.value })}>{POSSES.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
               {f.posse !== 'propria' && <label style={lbl}>Contraparte<input style={inp} value={f.contraparte} onChange={(e) => setF({ ...f, contraparte: e.target.value })} /></label>}
               {f.posse !== 'propria' && <label style={lbl}>Contrato ref<input style={inp} value={f.contrato_ref} onChange={(e) => setF({ ...f, contrato_ref: e.target.value })} /></label>}
-              {f.uso === 'pastagem' && <label style={lbl}>Capacidade UA<input style={inp} value={f.capacidade_ua} onChange={(e) => setF({ ...f, capacidade_ua: e.target.value })} /></label>}
+              <label style={{ ...lbl, gridColumn: '1 / -1' }}>Observação<input style={inp} value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} placeholder="opcional" /></label>
               <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}><input type="checkbox" checked={f.entra_rateio} onChange={(e) => setF({ ...f, entra_rateio: e.target.checked })} /> Entra no rateio</label>
             </div>
+            {f.uso === 'pastagem' && (
+              <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8, background: '#FBF7EF', border: `1px solid ${LINE}`, borderRadius: 6, padding: '6px 10px' }}>
+                🐂 A <b>capacidade (UA/ha)</b> do pasto é definida na aba <b>Piquetes (Pecuária)</b> — fonte única da lotação. Aqui é só o rateio.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button onClick={() => void salvarArea()} disabled={busy} style={btnPri}>{editId ? 'Salvar' : 'Adicionar área'}</button>
               {editId && <button onClick={() => { setEditId(null); setF({ ...vazio }) }} style={btnSec}>Cancelar</button>}
@@ -297,7 +302,7 @@ export default function AreasPropriedadePage() {
             <div style={{ fontSize: 11, color: ESP60, marginBottom: 10 }}>% é sempre calculado do driver. Read-only.</div>
             {base.length === 0 && (
               <div style={{ fontSize: 12, color: '#9A6A00', background: '#FBF3E0', padding: 8, borderRadius: 6 }}>
-                Nenhuma base elegível para o driver "{driver}". Aloque áreas a linhas de negócio (ou cadastre receita/headcount) — nada é assumido (RD-51).
+                Nenhuma base elegível para o driver &quot;{driver}&quot;. Aloque áreas a linhas de negócio (ou cadastre receita/headcount) — nada é assumido (RD-51).
               </div>
             )}
             {base.map((b) => (
