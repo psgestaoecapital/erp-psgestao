@@ -104,6 +104,7 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
   const [legadoCentro, setLegadoCentro] = useState('')
   const [replica, setReplica] = useState<{ campos: Record<string, string | null>; outras: Irma[]; currentNum: number | null } | null>(null)
   const [replicando, setReplicando] = useState(false)
+  const [valorPago, setValorPago] = useState(0)   // p/ o saldo efetivo ao vivo (não editável aqui)
 
   // dropdowns só no receber
   useEffect(() => {
@@ -141,10 +142,17 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
         setStatusOrig(String(d.status ?? 'aberto'))
         setConciliadoOrig(!!d.conciliado)
         setMovimentoBanco(d.movimento_banco_id != null)
+        setValorPago(Number(d.valor_pago ?? 0))
       })
   }, [open, itemId, tabela, companyId, defs])
 
   const set = (col: string, v: string) => setForm((f) => ({ ...f, [col]: v }))
+  // Saldo efetivo ao vivo = (valor + juros + multa − desconto) − valor_pago. Fonte da quitação (RD-52).
+  const numF = (s?: string) => parseFloat((s ?? '').replace(',', '.')) || 0
+  const saldoEfetivo = useMemo(() => {
+    const devido = numF(form.valor) + numF(form.juros) + numF(form.multa) - numF(form.desconto)
+    return Math.round((devido - valorPago) * 100) / 100
+  }, [form.valor, form.juros, form.multa, form.desconto, valorPago])
   const pagoOuConciliado = statusOrig === 'pago' || conciliadoOrig || movimentoBanco
   const financeiroAlterado = CAMPOS_FINANCEIROS.some((c) => (form[c] ?? '') !== (orig[c] ?? ''))
   const mostrarAviso = pagoOuConciliado && financeiroAlterado
@@ -297,6 +305,19 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
               </div>
             )
           })}
+          {(valorPago > 0 || numF(form.desconto) > 0 || numF(form.multa) > 0 || numF(form.juros) > 0) && (() => {
+            const quitada = saldoEfetivo <= 0.01
+            const money = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            return (
+              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: quitada ? '#DCFCE7' : '#FEF3C7', border: `0.5px solid ${quitada ? '#16A34A' : 'rgba(200,148,26,0.4)'}`, color: quitada ? '#15803D' : '#7A5A0F', padding: '8px 10px', borderRadius: 6, fontSize: 12.5 }}>
+                <b>Saldo efetivo: R$ {money(saldoEfetivo)}</b>
+                <span style={{ opacity: 0.85 }}>(valor + juros + multa − desconto) − pago R$ {money(valorPago)}</span>
+                {quitada
+                  ? <span style={{ fontWeight: 700 }}>→ conta será quitada ao salvar ✓</span>
+                  : <span>→ segue {valorPago > 0 ? 'parcial' : 'em aberto'}</span>}
+              </div>
+            )
+          })()}
           {erro && <div style={{ gridColumn: '1 / -1', background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
         </div>
       )}
