@@ -52,8 +52,10 @@ export default function SimuladorPage() {
     return () => { alive = false; };
   }, [companyId]);
 
+  // Linha = filtro opcional. Com uma linha escolhida, mostra os produtos DAQUELA linha + os
+  // SEM linha (business_line_id null) — pra nunca ficar vazio enquanto a atribuição não foi feita.
   const montagens = useMemo(
-    () => produtos.filter((p) => !fLinha || p.business_line_id === fLinha),
+    () => produtos.filter((p) => !fLinha || p.business_line_id === fLinha || p.business_line_id == null),
     [produtos, fLinha]
   );
   const montagemSel = useMemo(() => produtos.find((p) => p.servico_id === montagemId) ?? null, [produtos, montagemId]);
