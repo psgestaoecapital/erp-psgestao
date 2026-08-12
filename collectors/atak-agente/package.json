@@ -13,12 +13,11 @@
     "build": "pkg . --output dist/agente-atak.exe"
   },
   "dependencies": {
-    "mssql": "^11.0.1",
-    "win-dpapi": "^1.1.0"
+    "mssql": "^11.0.1"
   },
   "pkg": {
     "targets": ["node18-win-x64"],
-    "assets": ["node_modules/win-dpapi/**"],
+    "scripts": ["cripto.js"],
     "outputPath": "dist"
   },
   "engines": {

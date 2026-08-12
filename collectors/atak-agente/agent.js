@@ -67,17 +67,20 @@ function exigir(C) {
 }
 
 // ── Senha LOCAL criptografada (Windows DPAPI · atrelada ao usuário/máquina) — Pilar 2 ─────────────
-// win-dpapi só existe no Windows; require lazy pra o arquivo carregar em dev/CI (Linux) nas rotas
-// que não mexem em senha.
-function dpapi() { return require('win-dpapi') }
+// DPAPI via PowerShell (cripto.js) — sem módulo nativo, sem compilação. cred.dat guarda o base64
+// do blob DPAPI (texto). require lazy pra o arquivo carregar em dev/CI (Linux) nas rotas que não
+// mexem em senha (o PowerShell só existe/roda no Windows do cliente).
+function cripto() { return require('./cripto') }
 function salvarSenha(s) {
-  const cipher = dpapi().protectData(Buffer.from(String(s), 'utf8'), null, 'CurrentUser')
-  fs.writeFileSync(CRED_FILE, cipher)
+  const b64 = cripto().protegerSenha(String(s))
+  fs.writeFileSync(CRED_FILE, b64, 'utf8')
 }
 function lerSenhaLocal() {
   try {
     if (!fs.existsSync(CRED_FILE)) return null
-    return dpapi().unprotectData(fs.readFileSync(CRED_FILE), null, 'CurrentUser').toString('utf8')
+    const b64 = fs.readFileSync(CRED_FILE, 'utf8').trim()
+    if (!b64) return null
+    return cripto().lerSenha(b64)
   } catch (e) { logErr('não consegui ler a senha local (cred.dat):', e.message); return null }
 }
 function perguntarSenha(msg) {
