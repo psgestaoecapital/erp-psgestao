@@ -205,7 +205,7 @@ export default function AreasPropriedadePage() {
             </div>
             {f.uso === 'pastagem' && (
               <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8, background: '#FBF7EF', border: `1px solid ${LINE}`, borderRadius: 6, padding: '6px 10px' }}>
-                🐂 A <b>capacidade (UA/ha)</b> do pasto é definida na aba <b>Piquetes (Pecuária)</b> — fonte única da lotação. Aqui é só o rateio.
+                🐂 A <b>capacidade (UA/ha)</b> do pasto é definida na <b>Pecuária</b> — aba <b>Piquetes</b> ou tela <b>Pasto &amp; Lotação</b> (fonte única da lotação). Aqui é só o rateio.
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
