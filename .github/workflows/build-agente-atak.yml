@@ -1,0 +1,44 @@
+name: Build Agente ATAK (.exe)
+
+# Builda o coletor ATAK como .exe de 2 cliques sem precisar de maquina Windows.
+# Roda no runner windows-latest do GitHub Actions. O artefato fica disponivel
+# pra download por 30 dias (aba Actions -> run -> Artifacts).
+on:
+  workflow_dispatch: {}          # botao "Run workflow" na aba Actions
+  push:
+    tags:
+      - 'agente-v*'              # ex.: git tag agente-v2.0.0 && git push --tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: collectors/atak-agente
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # Sem package-lock.json no repo -> npm install (npm ci exigiria lockfile).
+      - name: Instalar dependencias
+        run: npm install
+
+      # pkg nao esta nas dependencias (so o bloco de config "pkg") -> instala global.
+      - name: Instalar pkg
+        run: npm i -g pkg
+
+      - name: Buildar .exe
+        run: npm run build
+
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: agente-atak-exe
+          path: collectors/atak-agente/dist/agente-atak.exe
+          retention-days: 30
+          if-no-files-found: error
