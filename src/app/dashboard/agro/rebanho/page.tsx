@@ -932,11 +932,42 @@ function Lotes({
 }
 
 // ───────── Piquetes ─────────
+type PiqAnimal = { brinco: string | null; sisbov: string | null; sexo: string | null; categoria: string | null; raca: string | null; idade_meses: number | null; peso_kg: number | null; status: string | null }
+type PiqLote = { codigo: string; modo: string | null; fase: string | null; qtd: number; peso_medio_kg: number | null; animais: PiqAnimal[] }
+type PiqCat = { categoria: string; qtd: number }
+type PiqDet = { ok: boolean; erro?: string; piquete?: { nome: string; tipo: string; area_ha: number | null; capacidade_ua: number | null; arrendada_para: string | null } | null; total_cabecas?: number; por_categoria?: PiqCat[] | null; lotes?: PiqLote[] | null }
+
+function fmtIdade(m: number | null | undefined): string {
+  if (m == null) return '—'
+  if (m < 12) return `${m}m`
+  const a = Math.floor(m / 12), r = m % 12
+  return r ? `${a}a ${r}m` : `${a}a`
+}
+
 function Piquetes({
   companyId, propriedadeId, piquetes, contagem, onReload,
 }: {
   companyId: string; propriedadeId: string; piquetes: Piquete[]; contagem: Record<string, number>; onReload: () => void
 }) {
+  // Drill-down: clicar no card abre o drawer com os lotes/animais do piquete (fn_pec_piquete_animais).
+  const [drawer, setDrawer] = useState<{ id: string; nome: string } | null>(null)
+  const [det, setDet] = useState<PiqDet | null>(null)
+  const [detLoading, setDetLoading] = useState(false)
+  const [abertos, setAbertos] = useState<Set<string>>(new Set())
+  const abrirDrawer = async (p: Piquete) => {
+    setDrawer({ id: p.id, nome: p.nome }); setDet(null); setDetLoading(true); setAbertos(new Set())
+    const { data, error } = await supabase.rpc('fn_pec_piquete_animais', { p_company_id: companyId, p_area_id: p.id })
+    if (error) setDet({ ok: false, erro: error.message })
+    else {
+      const d = (data ?? null) as PiqDet | null
+      setDet(d)
+      // abre o 1º lote por padrão (conveniência)
+      const cod = d?.lotes?.[0]?.codigo
+      if (cod) setAbertos(new Set([cod]))
+    }
+    setDetLoading(false)
+  }
+  const toggleLote = (cod: string) => setAbertos((prev) => { const n = new Set(prev); if (n.has(cod)) n.delete(cod); else n.add(cod); return n })
   const [novo, setNovo] = useState<{ nome: string; area_ha: string; capacidade_ua: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const salvar = async () => {
@@ -969,8 +1000,13 @@ function Piquetes({
           const cab = contagem[p.id] ?? 0
           const cor = ocupacaoCor(cab, p.capacidade_ua)
           return (
-            <div key={p.id} className="rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
-              <div className="font-semibold" style={{ color: ESP }}>{p.nome}</div>
+            <div key={p.id} onClick={() => void abrirDrawer(p)} role="button" tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void abrirDrawer(p) } }}
+              className="rounded-2xl p-4 cursor-pointer transition hover:shadow-md" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+              <div className="font-semibold flex items-center justify-between gap-2" style={{ color: ESP }}>
+                <span>{p.nome}</span>
+                <span className="text-xs font-normal" style={{ color: GOLD }}>ver animais →</span>
+              </div>
               <div className="text-xs mt-1" style={{ color: ESP60 }}>
                 {p.area_ha ? `${p.area_ha} ha` : 'sem área'}{p.capacidade_ua ? ` · ${p.capacidade_ua} UA` : ''}
               </div>
@@ -1002,6 +1038,90 @@ function Piquetes({
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setNovo(null)} className="px-4 py-2 rounded-xl text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Cancelar</button>
               <button onClick={salvar} disabled={busy || !novo.nome} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>Criar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DRAWER: animais do piquete por lote ── */}
+      {drawer && (
+        <div onClick={() => setDrawer(null)} className="fixed inset-0 flex justify-end" style={{ background: 'rgba(61,35,20,0.45)', zIndex: 60 }}>
+          <div onClick={(e) => e.stopPropagation()} className="h-full w-full max-w-lg overflow-y-auto" style={{ background: BG }}>
+            {/* cabeçalho */}
+            <div className="sticky top-0 p-4 flex items-start justify-between gap-3" style={{ background: '#fff', borderBottom: `1px solid ${LINE}` }}>
+              <div>
+                <div className="text-lg font-semibold" style={{ color: ESP }}>{det?.piquete?.nome ?? drawer.nome}</div>
+                <div className="text-xs mt-0.5" style={{ color: ESP60 }}>
+                  {det?.piquete?.area_ha ? `${det.piquete.area_ha} ha` : 'sem área'}
+                  {det?.piquete?.capacidade_ua ? ` · ${det.piquete.capacidade_ua} UA` : ''}
+                  {det?.total_cabecas != null ? ` · ${det.total_cabecas} cabeças${det?.piquete?.capacidade_ua ? ` / ${det.piquete.capacidade_ua}` : ''}` : ''}
+                </div>
+                {det?.piquete?.arrendada_para && <div className="text-xs mt-0.5" style={{ color: GOLD }}>arrendada para {det.piquete.arrendada_para}</div>}
+              </div>
+              <button onClick={() => setDrawer(null)} className="text-sm px-2 py-1 rounded-lg" style={{ color: ESP60, border: `1px solid ${LINE}`, background: '#fff' }}>✕</button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {/* resumo por categoria */}
+              {(det?.por_categoria?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {(det?.por_categoria ?? []).map((c) => (
+                    <span key={c.categoria} className="text-xs px-2 py-1 rounded-full" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>
+                      <b>{c.qtd}</b> {c.categoria}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* 3 estados */}
+              {detLoading && <div className="text-sm" style={{ color: ESP60 }}>Carregando animais…</div>}
+              {!detLoading && det?.ok === false && <div className="text-sm rounded-xl p-3" style={{ background: '#FEECEC', color: RED }}>Erro ao carregar: {det.erro}</div>}
+              {!detLoading && det?.ok !== false && (det?.lotes?.length ?? 0) === 0 && (
+                <div className="text-sm rounded-xl p-4 text-center" style={{ background: '#fff', border: `1px dashed ${LINE}`, color: ESP60 }}>Nenhum animal neste piquete.</div>
+              )}
+
+              {/* lotes (accordion) */}
+              {!detLoading && (det?.lotes ?? []).map((lo) => {
+                const aberto = abertos.has(lo.codigo)
+                return (
+                  <div key={lo.codigo} className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+                    <button onClick={() => toggleLote(lo.codigo)} className="w-full flex items-center justify-between gap-2 p-3 text-left">
+                      <div>
+                        <div className="text-sm font-semibold" style={{ color: ESP }}>{lo.codigo}</div>
+                        <div className="text-xs" style={{ color: ESP60 }}>
+                          {[lo.modo, lo.fase].filter(Boolean).join(' · ') || 'sem modo/fase'} · {lo.qtd} cab
+                          {lo.peso_medio_kg != null ? ` · ${lo.peso_medio_kg} kg médio` : ''}
+                        </div>
+                      </div>
+                      <span className="text-xs" style={{ color: ESP60 }}>{aberto ? '▲' : '▼'}</span>
+                    </button>
+                    {aberto && (
+                      <div className="overflow-x-auto" style={{ borderTop: `1px solid ${LINE}` }}>
+                        <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+                          <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
+                            {['Brinco', 'SISBOV', 'Sexo', 'Categoria', 'Raça', 'Idade', 'Peso'].map((h) => (
+                              <th key={h} className="px-2 py-1.5 whitespace-nowrap" style={{ fontWeight: 600 }}>{h}</th>
+                            ))}
+                          </tr></thead>
+                          <tbody>
+                            {lo.animais.map((an, i) => (
+                              <tr key={`${an.brinco}-${i}`} style={{ borderTop: `1px solid ${LINE}` }}>
+                                <td className="px-2 py-1.5 font-semibold whitespace-nowrap" style={{ color: ESP }}>{an.brinco ?? '—'}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap" style={{ color: ESP60 }}>{an.sisbov ?? '—'}</td>
+                                <td className="px-2 py-1.5">{an.sexo ?? '—'}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">{an.categoria ?? '—'}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">{an.raca ?? '—'}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">{fmtIdade(an.idade_meses)}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">{an.peso_kg != null ? `${an.peso_kg} kg` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
