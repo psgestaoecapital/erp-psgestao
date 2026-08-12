@@ -34,6 +34,9 @@ interface ProviderConfig {
   codigo_beneficiario: string | null
   posto: string | null
   convenio: string | null
+  agencia: string | null
+  agencia_dv: string | null
+  carteira: string | null
   cap_boleto: boolean | null
   cap_extrato: boolean | null
   cap_pagamento: boolean | null
@@ -106,13 +109,14 @@ export default function ConexoesBancariasPage() {
   const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
   // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
   const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
+  const [cnabEdit, setCnabEdit] = useState<ProviderConfig | null>(null)   // editor de identidade CNAB (sem credenciais)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     setLoading(true); setErro(null)
     const [cfgRes, contasRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -316,6 +320,17 @@ export default function ConexoesBancariasPage() {
                             ✏️ Editar/Reconfigurar
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setCnabEdit(cfg)}
+                          title="Editar identidade CNAB (convênio, cooperativa, conta…) sem tocar em credenciais"
+                          style={{
+                            background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          🧾 Dados CNAB
+                        </button>
                         {bancoInfo && PING_PROVIDERS.has(bancoInfo.sigla) && cfg.ativo && (
                           <button
                             type="button"
@@ -394,7 +409,7 @@ export default function ConexoesBancariasPage() {
                         <div style={{ fontSize: 11, color: ESP60, marginTop: 4 }}>
                           {contaVinculada && <><b>{contaVinculada.nome}</b> · </>}
                           {cfg.cooperativa && `coop ${cfg.cooperativa} · `}
-                          {cfg.conta && `conta ${cfg.conta}`}
+                          {cfg.conta && `conta ${cfg.conta}`}{cfg.convenio ? ` · conv ${cfg.convenio}` : ''}
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -410,6 +425,17 @@ export default function ConexoesBancariasPage() {
                             ✏️ Editar/Reconfigurar
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setCnabEdit(cfg)}
+                          title="Editar identidade CNAB (convênio, cooperativa, conta…) sem tocar em credenciais"
+                          style={{
+                            background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          🧾 Dados CNAB
+                        </button>
                         <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
                           background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
                           padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
@@ -492,6 +518,16 @@ export default function ConexoesBancariasPage() {
         />
       )}
 
+      {cnabEdit && empresaUnica && (
+        <CnabModal
+          companyId={empresaUnica}
+          cfg={cnabEdit}
+          bancoNome={BANCOS.find((b) => cnabEdit.provider.includes(b.sigla))?.nome ?? cnabEdit.provider}
+          onClose={() => setCnabEdit(null)}
+          onSucesso={() => { setCnabEdit(null); setMsg('Dados CNAB ALTERADOS.'); void carregar() }}
+        />
+      )}
+
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
   )
@@ -506,6 +542,73 @@ function Badge({ children, cor }: { children: React.ReactNode; cor: string }) {
     }}>
       {children}
     </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Modal "Dados CNAB" — identidade do arquivo (convênio, cooperativa, conta, agência/DV,
+// código beneficiário, carteira, posto). NÃO toca credenciais/Vault (Pilar 2). Salva via
+// fn_banco_config_salvar_cnab — a fonte única que o gerador de remessa lê (RD-52).
+function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
+  companyId: string
+  cfg: ProviderConfig
+  bancoNome: string
+  onClose: () => void
+  onSucesso: () => void
+}) {
+  const [f, setF] = useState({
+    cooperativa: cfg.cooperativa ?? '', agencia: cfg.agencia ?? '', agencia_dv: cfg.agencia_dv ?? '',
+    posto: cfg.posto ?? '', conta: cfg.conta ?? '', codigo_beneficiario: cfg.codigo_beneficiario ?? '',
+    convenio: cfg.convenio ?? '', carteira: cfg.carteira ?? '',
+  })
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }))
+
+  async function salvar() {
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_banco_config_salvar_cnab', {
+      p_company_id: companyId, p_config_id: cfg.id, p_dados: f,
+    })
+    setSalvando(false)
+    if (error || (data as { ok?: boolean })?.ok === false) { setErro(error?.message || (data as { erro?: string })?.erro || 'falha ao salvar'); return }
+    onSucesso()
+  }
+
+  const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 13, background: '#fff', color: ESP }
+  const lbl: React.CSSProperties = { fontSize: 11, color: ESP60, display: 'block', marginBottom: 3 }
+  const campo = (k: keyof typeof f, label: string, dica?: string, largo?: boolean) => (
+    <div style={largo ? { gridColumn: '1 / -1' } : undefined}>
+      <label style={lbl}>{label}</label>
+      <input style={inp} value={f[k]} onChange={(e) => set(k, e.target.value)} />
+      {dica && <span style={{ fontSize: 10, color: ESP60 }}>{dica}</span>}
+    </div>
+  )
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1200 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520, padding: 20, border: `0.5px solid ${LINE}`, maxHeight: '92vh', overflowY: 'auto' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: ESP }}>Dados CNAB — {bancoNome}</div>
+        <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 14px' }}>
+          Ambiente <b style={{ textTransform: 'uppercase' }}>{cfg.ambiente}</b> · identidade do arquivo de remessa. As credenciais (Vault) não são tocadas aqui.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {campo('cooperativa', 'Cooperativa')}
+          {campo('posto', 'Posto')}
+          {campo('agencia', 'Agência')}
+          {campo('agencia_dv', 'DV agência')}
+          {campo('conta', 'Conta')}
+          {campo('codigo_beneficiario', 'Código do beneficiário')}
+          {campo('convenio', 'Convênio', 'O código que o banco exige no arquivo CNAB (confira no internet banking do banco).', true)}
+          {campo('carteira', 'Carteira')}
+        </div>
+        {erro && <div style={{ marginTop: 10, fontSize: 12.5, color: '#B91C1C' }}>❌ {erro}</div>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ background: 'transparent', color: ESP60, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={() => void salvar()} disabled={salvando} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Salvando…' : 'Salvar dados CNAB'}</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
