@@ -5,6 +5,11 @@ import { supabase } from '@/lib/supabase'
 import { labelUsuario } from '@/lib/usuarioLabel'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
+type Fechada = {
+  id: string; titulo: string; cliente_id: string | null; valor: number
+  data_fechamento: string | null; motivo_perda: string | null; orcamento_id: string | null
+  responsavel: string | null; obra: string | null
+}
 
 // Etapas operacionais (V1): mostradas como colunas do Kanban.
 // 'ganho'/'perdido' nao entram aqui — sao resumo lateral (ja vem em fn_crm_pipeline.resumo).
@@ -88,6 +93,25 @@ export default function OportunidadesKanban({
   // resumo lateral ganho/perdido (a RPC nao traz; consultamos direto)
   const [ganhos, setGanhos] = useState<{ qtd: number; total: number }>({ qtd: 0, total: 0 })
   const [perdidos, setPerdidos] = useState<{ qtd: number; total: number }>({ qtd: 0, total: 0 })
+  // FIX (Angélica): clicar em Ganhas/Perdidas → lista das fechadas (cliente + orçamento).
+  const [fechadas, setFechadas] = useState<null | { etapa: 'ganho' | 'perdido'; loading: boolean; itens: Fechada[] }>(null)
+  const [nomesCliente, setNomesCliente] = useState<Record<string, string>>({})
+
+  async function abrirFechadas(etapa: 'ganho' | 'perdido') {
+    setFechadas({ etapa, loading: true, itens: [] })
+    const { data } = await supabase.rpc('fn_crm_oportunidades_fechadas', { p_company_id: companyId, p_etapa: etapa })
+    const j = data as { ok?: boolean; itens?: Fechada[] } | null
+    const itens = j?.ok ? (j.itens ?? []) : []
+    setFechadas({ etapa, loading: false, itens })
+    const ids = [...new Set(itens.map((i) => i.cliente_id).filter(Boolean))] as string[]
+    if (ids.length) {
+      const { data: cs } = await supabase.from('erp_clientes').select('id, razao_social, nome_fantasia').in('id', ids)
+      const map: Record<string, string> = {}
+      for (const c of (cs ?? []) as { id: string; razao_social: string | null; nome_fantasia: string | null }[])
+        map[c.id] = c.razao_social || c.nome_fantasia || ''
+      setNomesCliente((prev) => ({ ...prev, ...map }))
+    }
+  }
   // FIX B · modal de motivo da perda (obrigatório)
   const [perda, setPerda] = useState<{ cardId: string; etapaAtual: string | null } | null>(null)
   const [perdaMotivo, setPerdaMotivo] = useState('')
@@ -120,7 +144,7 @@ export default function OportunidadesKanban({
     setLoading(false)
   }
 
-  useEffect(() => { carregar() }, [companyId, refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { carregar() }, [companyId, refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
 
   const termo = busca.trim().toLowerCase()
   const cardVisivel = (c: Card): boolean => {
@@ -238,8 +262,8 @@ export default function OportunidadesKanban({
     <div>
       {/* Resumo lateral ganho/perdido (V1 — colunas terminais como tiles) */}
       <div className="flex gap-2 mb-3 flex-wrap">
-        <ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" />
-        <ResumoTile titulo="Perdidas" qtd={perdidos.qtd} valor={perdidos.total} variante="perdido" />
+        <ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" onClick={() => void abrirFechadas('ganho')} />
+        <ResumoTile titulo="Perdidas" qtd={perdidos.qtd} valor={perdidos.total} variante="perdido" onClick={() => void abrirFechadas('perdido')} />
         {loading && <span className="text-xs opacity-60 self-center">Carregando…</span>}
       </div>
 
@@ -360,21 +384,78 @@ export default function OportunidadesKanban({
           </div>
         </div>
       )}
+
+      {/* FIX (Angélica): lista de Ganhas/Perdidas — cliente + valor + orçamento */}
+      {fechadas && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }} onClick={() => setFechadas(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '86vh', display: 'flex', flexDirection: 'column', border: `1px solid ${BORDA}` }}>
+            <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDA}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <h3 style={{ margin: 0, fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESPRESSO }}>
+                Oportunidades {fechadas.etapa === 'ganho' ? 'Ganhas' : 'Perdidas'} ({fechadas.itens.length})
+              </h3>
+              <button onClick={() => setFechadas(null)} style={{ ...cardActBtn, padding: '4px 10px' }}>Fechar</button>
+            </div>
+            <div style={{ padding: 14, overflowY: 'auto' }}>
+              {fechadas.loading ? (
+                <div style={{ padding: 20, textAlign: 'center', color: TEXTM, fontSize: 13 }}>Carregando…</div>
+              ) : fechadas.itens.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', color: TEXTM, fontSize: 13 }}>
+                  Nenhuma oportunidade {fechadas.etapa === 'ganho' ? 'ganha' : 'perdida'} ainda.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {fechadas.itens.map((it) => {
+                    const nome = (it.cliente_id && nomesCliente[it.cliente_id]) || null
+                    return (
+                      <div key={it.id} style={{ border: `1px solid ${BORDA}`, borderRadius: 10, padding: 12, background: OFFWHITE }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, color: ESPRESSO, fontSize: 13.5 }}>{nome ?? it.titulo}</div>
+                            {nome && it.titulo && <div style={{ fontSize: 12, color: TEXTM }}>{it.titulo}</div>}
+                            {it.obra && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>{it.obra}</div>}
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: DOURADO }}>{brl(it.valor)}</div>
+                            {it.data_fechamento && <div style={{ fontSize: 11, color: TEXTM }}>{it.data_fechamento.slice(0, 10).split('-').reverse().join('/')}</div>}
+                          </div>
+                        </div>
+                        {fechadas.etapa === 'perdido' && it.motivo_perda && (
+                          <div style={{ marginTop: 6, fontSize: 12, color: '#7A1F1F' }}>Motivo: <b>{it.motivo_perda}</b></div>
+                        )}
+                        <div style={{ marginTop: 8 }}>
+                          {it.orcamento_id ? (
+                            <button onClick={() => router.push(`/dashboard/orcamentos?id=${it.orcamento_id}`)}
+                              style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12 }}>Ver orçamento →</button>
+                          ) : (
+                            <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem orçamento vinculado</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function ResumoTile({
-  titulo, qtd, valor, variante,
-}: { titulo: string; qtd: number; valor: number; variante: 'ganho' | 'perdido' }) {
+  titulo, qtd, valor, variante, onClick,
+}: { titulo: string; qtd: number; valor: number; variante: 'ganho' | 'perdido'; onClick?: () => void }) {
   const bg = variante === 'ganho' ? '#DCEFD7' : '#F4D6D6'
   const fg = variante === 'ganho' ? '#1F5A1F' : '#7A1F1F'
   return (
-    <div style={{ ...tileSt, background: bg, color: fg }}>
+    <button type="button" onClick={onClick} title={`Ver ${titulo.toLowerCase()}`}
+      style={{ ...tileSt, background: bg, color: fg, cursor: onClick ? 'pointer' : 'default' }}>
       <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{titulo}</span>
       <span style={{ fontSize: 13, fontWeight: 700 }}>{qtd}</span>
       <span style={{ fontSize: 11, opacity: 0.85 }}>{brl(valor)}</span>
-    </div>
+      {onClick && qtd > 0 && <span style={{ fontSize: 11, opacity: 0.7 }}>›</span>}
+    </button>
   )
 }
 
