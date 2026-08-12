@@ -1,15 +1,25 @@
 {
   "name": "ps-atak-agente",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Agente PS config-driven — coletor ATAK/Frigosoft. Uma config local (token); tudo o mais vem da nuvem PS.",
+  "description": "Agente PS config-driven — coletor ATAK/Frigosoft empacotável como .exe de 2 cliques. Senha do SQL só local (DPAPI · Pilar 2); token embutido no config.json; auto-instala como Serviço do Windows com loop interno.",
+  "bin": "agent.js",
   "main": "agent.js",
   "scripts": {
     "start": "node agent.js",
-    "once": "node agent.js"
+    "once": "node agent.js --once",
+    "testar": "node agent.js --testar",
+    "instalar": "node agent.js --instalar-servico",
+    "build": "pkg . --output dist/agente-atak.exe"
   },
   "dependencies": {
-    "mssql": "^11.0.1"
+    "mssql": "^11.0.1",
+    "win-dpapi": "^1.1.0"
+  },
+  "pkg": {
+    "targets": ["node18-win-x64"],
+    "assets": ["node_modules/win-dpapi/**"],
+    "outputPath": "dist"
   },
   "engines": {
     "node": ">=18"
