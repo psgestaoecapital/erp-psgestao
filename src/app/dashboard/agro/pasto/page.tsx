@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/hooks/useEmpresaSelecionada'
+import CapacidadeIdealModal from '@/components/agro/CapacidadeIdealModal'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)'
 const SEM: Record<string, { cor: string; bg: string }> = {
@@ -53,11 +54,8 @@ export default function ManejoPastoPage() {
   const [editCfg, setEditCfg] = useState(false)
   const [cfgDraft, setCfgDraft] = useState<{ lotacao_pct: string; dias_min: string; altura_cm_min: string }>({ lotacao_pct: '', dias_min: '', altura_cm_min: '' })
   const [busy, setBusy] = useState(false)
-  // Capacidade ideal do piquete (fonte única · erp_pec_area). UA/ha e UA total ligados.
+  // Capacidade ideal do piquete (fonte única · erp_pec_area) — modal compartilhado.
   const [capEdit, setCapEdit] = useState<Piquete | null>(null)
-  const [capUaHa, setCapUaHa] = useState('')
-  const [capUaTotal, setCapUaTotal] = useState('')
-  const [capForr, setCapForr] = useState('') // forrageira_id escolhida no modal
   // Forrageiras: lista + mapa areaId→forrageira_id + cadastro
   const [forrageiras, setForrageiras] = useState<Forrageira[]>([])
   const [forrDeArea, setForrDeArea] = useState<Record<string, string | null>>({})
@@ -128,52 +126,8 @@ export default function ManejoPastoPage() {
 
   const piquetesOrd = useMemo(() => p?.piquetes ?? [], [p])
 
-  // — Capacidade ideal: UA/ha ↔ UA total ligados pela área do piquete —
+  // — Capacidade ideal: modal compartilhado (CapacidadeIdealModal). r2 usado no card. —
   const r2 = (n: number) => Math.round(n * 100) / 100
-  const abrirCap = (pq: Piquete) => {
-    setCapEdit(pq)
-    const ua = Number(pq.capacidade_ua) || 0
-    const ha = Number(pq.area_ha) || 0
-    setCapUaTotal(ua ? String(ua) : '')
-    setCapUaHa(ua && ha > 0 ? String(r2(ua / ha)) : '')
-    setCapForr(forrDeArea[pq.id] ?? '')
-  }
-  // Escolher a forrageira pré-preenche o UA/ha com a sugestão (ponto de partida — não trava).
-  const onForrageira = (fid: string) => {
-    setCapForr(fid)
-    const f = forrageiras.find((x) => x.id === fid)
-    const ha = Number(capEdit?.area_ha) || 0
-    if (f?.ua_ha_sugerido != null) {
-      setCapUaHa(String(f.ua_ha_sugerido))
-      setCapUaTotal(ha > 0 ? String(r2(Number(f.ua_ha_sugerido) * ha)) : '')
-    }
-  }
-  const onCapUaHa = (v: string) => {
-    setCapUaHa(v)
-    const ha = Number(capEdit?.area_ha) || 0
-    const n = parseFloat(v.replace(',', '.'))
-    setCapUaTotal(!isNaN(n) && ha > 0 ? String(r2(n * ha)) : '')
-  }
-  const onCapUaTotal = (v: string) => {
-    setCapUaTotal(v)
-    const ha = Number(capEdit?.area_ha) || 0
-    const n = parseFloat(v.replace(',', '.'))
-    setCapUaHa(!isNaN(n) && ha > 0 ? String(r2(n / ha)) : '')
-  }
-  const salvarCap = async () => {
-    if (!companyId || !capEdit) return
-    const ua = parseFloat(String(capUaTotal).replace(',', '.'))
-    if (isNaN(ua) || ua < 0) { setMsg('Informe a capacidade (UA/ha ou UA total).'); return }
-    setBusy(true); setMsg(null)
-    try {
-      const { data } = await supabase.rpc('fn_pec_area_capacidade_salvar', { p_company_id: companyId, p_area_id: capEdit.id, p_capacidade_ua: ua, p_forrageira_id: capForr || null })
-      const r = data as { ok?: boolean; erro?: string; ua_ha?: number }
-      if (r?.ok === false) throw new Error(r.erro || 'falha')
-      setMsg(`Capacidade ALTERADA — ${capEdit.nome}: ${ua} UA${r?.ua_ha != null ? ` (${r.ua_ha} UA/ha)` : ''}.`)
-      setCapEdit(null)
-      await carregar()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
-  }
   // — Cadastro de forrageiras (referência UA/ha) —
   const salvarForr = async () => {
     if (!companyId || !forrEdit?.nome?.trim()) { setMsg('Informe o nome da forrageira.'); return }
@@ -321,7 +275,7 @@ export default function ManejoPastoPage() {
                           {' · '}
                           {av ? (av.metodo === 'visual' ? `pasto ${av.valor_txt}` : `${av.valor_num}${av.metodo === 'altura_cm' ? 'cm' : ' kg/ha'}`) : 'sem avaliação'}
                         </span>
-                        <button onClick={() => abrirCap(pq)} title="Editar capacidade ideal (UA/ha)" style={{ background: 'transparent', border: 'none', color: GOLD, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', padding: 0 }}>✎ capacidade</button>
+                        <button onClick={() => setCapEdit(pq)} title="Editar capacidade ideal (UA/ha)" style={{ background: 'transparent', border: 'none', color: GOLD, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', padding: 0 }}>✎ capacidade</button>
                       </div>
                     </div>
                   )
@@ -329,35 +283,15 @@ export default function ManejoPastoPage() {
               </div>
             </section>
 
-            {/* ── MODAL: Capacidade ideal do piquete (UA/ha ↔ UA total) ── */}
+            {/* ── MODAL: Capacidade ideal do piquete (componente compartilhado) ── */}
             {capEdit && (
-              <div onClick={() => setCapEdit(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 50 }}>
-                <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18, width: '100%', maxWidth: 380 }}>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: ESP }}>Capacidade ideal — {capEdit.nome}</div>
-                  <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 12px' }}>Área {capEdit.area_ha} ha · fonte da lotação (muda aqui, muda em todo lugar).</div>
-                  <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 10 }}>Forrageira (define o UA/ha de referência)
-                    <select value={capForr} onChange={(e) => onForrageira(e.target.value)}
-                      style={{ width: '100%', boxSizing: 'border-box', marginTop: 3, padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 14, color: ESP, background: '#fff' }}>
-                      <option value="">— não informada —</option>
-                      {forrageiras.map((f) => <option key={f.id} value={f.id}>{f.nome}{f.ua_ha_sugerido != null ? ` (${f.ua_ha_sugerido} UA/ha)` : ''}</option>)}
-                    </select>
-                    {forrageiras.length === 0 && <span style={{ fontSize: 10, color: ESP60 }}>Nenhuma forrageira cadastrada — cadastre em “Forrageiras” abaixo.</span>}
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <label style={{ fontSize: 11, color: ESP60 }}>UA/ha
-                      <input type="number" step="0.1" value={capUaHa} onChange={(e) => onCapUaHa(e.target.value)} placeholder="ex.: 2,0"
-                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 3, padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 14, color: ESP }} /></label>
-                    <label style={{ fontSize: 11, color: ESP60 }}>UA total
-                      <input type="number" step="0.1" value={capUaTotal} onChange={(e) => onCapUaTotal(e.target.value)} placeholder="ex.: 10"
-                        style={{ width: '100%', boxSizing: 'border-box', marginTop: 3, padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 14, color: ESP }} /></label>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: ESP60, marginTop: 8 }}>Digite um — o outro é calculado pela área. A forrageira sugere o UA/ha; você pode ajustar (a sugestão não trava).</div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setCapEdit(null)} style={{ background: 'transparent', color: ESP60, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
-                    <button onClick={salvarCap} disabled={busy} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar'}</button>
-                  </div>
-                </div>
-              </div>
+              <CapacidadeIdealModal
+                companyId={companyId}
+                area={{ id: capEdit.id, nome: capEdit.nome, area_ha: capEdit.area_ha, capacidade_ua: capEdit.capacidade_ua, forrageira_id: forrDeArea[capEdit.id] ?? null }}
+                forrageiras={forrageiras}
+                onClose={() => setCapEdit(null)}
+                onSaved={(m) => { setMsg(m); setCapEdit(null); void carregar() }}
+              />
             )}
 
             {/* ── FORRAGEIRAS (referência UA/ha, editável) ── */}

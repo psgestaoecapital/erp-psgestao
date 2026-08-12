@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada, usePropriedade, usePainelRebanho } from '@/lib/agro/usePecuaria'
 import { exportToExcel } from '@/lib/export-utils'
 import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
+import CapacidadeIdealModal, { type Forrageira } from '@/components/agro/CapacidadeIdealModal'
 
 // slug pra compor nome de arquivo com o filtro ativo (piquete/lote/categoria)
 const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -968,6 +969,24 @@ function Piquetes({
     setDetLoading(false)
   }
   const toggleLote = (cod: string) => setAbertos((prev) => { const n = new Set(prev); if (n.has(cod)) n.delete(cod); else n.add(cod); return n })
+  // Capacidade ideal: mesmo modal compartilhado da Pasto & Lotação (RD-26). Forrageira + UA/ha no card.
+  const [forrageiras, setForrageiras] = useState<Forrageira[]>([])
+  const [forrDeArea, setForrDeArea] = useState<Record<string, string | null>>({})
+  const [capModal, setCapModal] = useState<Piquete | null>(null)
+  const [capMsg, setCapMsg] = useState<string | null>(null)
+  const carregarForr = useCallback(async () => {
+    const [fr, af] = await Promise.all([
+      supabase.rpc('fn_pec_forrageira_listar', { p_company_id: companyId }),
+      supabase.from('erp_pec_area').select('id,forrageira_id').eq('company_id', companyId).eq('tipo', 'piquete'),
+    ])
+    setForrageiras(((fr.data as { forrageiras?: Forrageira[] } | null)?.forrageiras) ?? [])
+    const map: Record<string, string | null> = {}
+    for (const a of (af.data ?? []) as Array<{ id: string; forrageira_id: string | null }>) map[a.id] = a.forrageira_id
+    setForrDeArea(map)
+  }, [companyId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarForr() }, [carregarForr])
+  const r2 = (n: number) => Math.round(n * 100) / 100
   const [novo, setNovo] = useState<{ nome: string; area_ha: string; capacidade_ua: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const salvar = async () => {
@@ -999,14 +1018,17 @@ function Piquetes({
         {piquetes.map((p) => {
           const cab = contagem[p.id] ?? 0
           const cor = ocupacaoCor(cab, p.capacidade_ua)
+          const uaha = Number(p.area_ha) > 0 && Number(p.capacidade_ua) ? r2(Number(p.capacidade_ua) / Number(p.area_ha)) : null
+          const forrNome = forrageiras.find((x) => x.id === forrDeArea[p.id])?.nome ?? null
           return (
             <div key={p.id} onClick={() => void abrirDrawer(p)} role="button" tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void abrirDrawer(p) } }}
               className="rounded-2xl p-4 cursor-pointer transition hover:shadow-md" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
               <div className="font-semibold flex items-center justify-between gap-2" style={{ color: ESP }}>
-                <span>{p.nome}</span>
+                <span>{p.nome}{uaha != null && <span className="text-xs font-normal" style={{ color: ESP60 }}> · {uaha} UA/ha</span>}</span>
                 <span className="text-xs font-normal" style={{ color: GOLD }}>ver animais →</span>
               </div>
+              {forrNome && <div className="text-xs" style={{ color: GOLD, marginTop: 2 }}>🌱 {forrNome}</div>}
               <div className="text-xs mt-1" style={{ color: ESP60 }}>
                 {p.area_ha ? `${p.area_ha} ha` : 'sem área'}{p.capacidade_ua ? ` · ${p.capacidade_ua} UA` : ''}
               </div>
@@ -1019,10 +1041,24 @@ function Piquetes({
                   <div style={{ width: `${Math.min(100, (cab / p.capacidade_ua) * 100)}%`, background: cor, height: '100%' }} />
                 </div>
               )}
+              <div className="mt-2 flex justify-end">
+                <button onClick={(e) => { e.stopPropagation(); setCapModal(p) }} className="text-xs font-semibold" style={{ color: GOLD, background: 'transparent', border: 'none', cursor: 'pointer' }}>⚙️ capacidade</button>
+              </div>
             </div>
           )
         })}
       </div>
+
+      {capMsg && <div className="text-sm rounded-xl p-3" style={{ background: '#EEF6EE', border: `1px solid ${LINE}`, color: ESP }}>{capMsg}</div>}
+      {capModal && (
+        <CapacidadeIdealModal
+          companyId={companyId}
+          area={{ id: capModal.id, nome: capModal.nome, area_ha: capModal.area_ha, capacidade_ua: capModal.capacidade_ua, forrageira_id: forrDeArea[capModal.id] ?? null }}
+          forrageiras={forrageiras}
+          onClose={() => setCapModal(null)}
+          onSaved={(m) => { setCapMsg(m); setCapModal(null); void carregarForr(); onReload() }}
+        />
+      )}
 
       {novo && (
         <div onClick={() => setNovo(null)} className="fixed inset-0 flex items-center justify-center p-4" style={{ background: 'rgba(61,35,20,0.45)', zIndex: 50 }}>
