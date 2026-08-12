@@ -13,6 +13,7 @@ import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoA
 const SEM_CONTA = '— sem conta informada —' // 3b: chip de filtro p/ lançamentos sem conta bancária
 import ConciliarTituloModal from './ConciliarTituloModal'
 import EditarLancamentoModal from './EditarLancamentoModal'
+import CartaoRecebimentoModal from './CartaoRecebimentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
 import ExportarListaButton from './ExportarListaButton'
@@ -155,6 +156,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
   const [capExtrato, setCapExtrato] = useState(false)
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
+  const [cartaoItem, setCartaoItem] = useState<Resultado | null>(null)   // F2 · registrar recebimento em cartão
   const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
   const [historicoItem, setHistoricoItem] = useState<Resultado | null>(null)
   const [historicoGlobalAberto, setHistoricoGlobalAberto] = useState(false)
@@ -1118,6 +1120,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                   onSucesso={() => setReloadKey((k) => k + 1)}
                                 />
                               )}
+                              {!pago && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCartaoItem(r)}
+                                  title="Cliente pagou no cartão: baixa o cliente + cria o recebível da adquirente + lança a taxa"
+                                  style={{ background: '#FFFFFF', color: '#3D2314', border: '0.5px solid #C8941A', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                  💳 Cartão
+                                </button>
+                              )}
                             </div>
                           </Td>
                         )}
@@ -1259,6 +1271,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         itemId={editandoItem?.id ?? ''}
         companyId={companyId}
       />
+
+      {cartaoItem && (
+        <CartaoRecebimentoModal
+          companyId={companyId}
+          receber={{ id: cartaoItem.id, descricao: cartaoItem.descricao, valor: cartaoItem.valor_documento, cliente: cartaoItem.nome_pessoa }}
+          onClose={() => setCartaoItem(null)}
+          onSucesso={(m) => { setCartaoItem(null); alert(m); setReloadKey((k) => k + 1) }}
+        />
+      )}
 
       <HistoricoLancamentoModal
         open={!!historicoItem}
