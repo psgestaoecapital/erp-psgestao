@@ -17,6 +17,44 @@ const SEMAFORO: Record<string, { cor: string; label: string }> = {
   sem_dados: { cor: C.txd, label: 'Sem dados ainda' },
 }
 
+// slug pro nome do arquivo (instalador-frioeste.zip) — sem acento/espaço.
+const slug = (s: string) =>
+  (s || 'empresa').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'empresa'
+
+// Guia de 1 página que vai dentro do .zip (o mesmo do #966 · collectors/atak-agente/LEIA-ME.md).
+const LEIA_ME_TEXTO = `# PS Agente ATAK — instalação em 3 passos
+
+> Guia de 1 página para o TI do cliente. **A senha do SQL fica só nesta máquina — nunca vai pra PS.**
+
+## O que você recebeu (no .zip)
+- **agente-atak.exe** — o coletor (não precisa instalar Node).
+- **config.json** — já vem com o endereço da PS e o **token desta empresa** (não mexa).
+- **instalar.bat** — instala o serviço com 1 duplo-clique.
+- **LEIA-ME.md** — este guia.
+
+## Passo a passo
+1. **Copie a pasta** do instalador para o **servidor** (o mesmo que enxerga o SQL Server).
+2. **Duplo-clique em instalar.bat.** (Se o Windows pedir, confirme "Executar como administrador".)
+3. Quando aparecer **"Digite a senha do usuário de LEITURA do SQL Server"**, digite a senha e **Enter**.
+   - A senha é **gravada criptografada** aqui na máquina (cred.dat, DPAPI do Windows) e **não é enviada pra PS**.
+
+Pronto. Em ~1 minuto a tela da PS acende **verde** (conectou). Se acender **vermelho**, a mensagem diz o porquê
+em português: **rede** (não alcança o host), **senha** (credencial inválida) ou **banco** (sem acesso).
+
+## Depois (não precisa mexer)
+- O serviço **"PS Agente ATAK"** roda sozinho, reinicia com a máquina e **coleta a cada ~15 min**.
+- **Trocou de servidor/host?** A PS ajusta na tela — **você não toca na máquina**. O agente pega no próximo ciclo.
+
+## Comandos úteis (opcional, prompt na pasta do .exe)
+- \`agente-atak.exe --testar\` — testa a conexão agora (SELECT 1) e mostra o resultado.
+- \`agente-atak.exe --set-senha\` — troca a senha local (se o usuário de leitura mudar).
+- \`agente-atak.exe --desinstalar-servico\` — remove o serviço.
+
+## Log
+- \`agente.log\` (ao lado do .exe) registra cada ciclo e qualquer erro, em português.
+`
+
 type Conexao = {
   host: string; porta: number; banco: string; cod_filial: string; usuario: string
   dominios: string[] | null; sync_minuto: number; ativo: boolean; tem_senha: boolean; agente_token: string | null
@@ -137,6 +175,45 @@ export default function ConectoresIndustrialPage() {
     const url = URL.createObjectURL(new Blob([conteudo], { type: 'text/plain;charset=utf-8' }))
     const a = document.createElement('a'); a.href = url; a.download = nome; a.click(); URL.revokeObjectURL(url)
   }
+  const baixarBlob = (blob: Blob, nome: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = nome; a.click(); URL.revokeObjectURL(url)
+  }
+
+  // "Gerar instalador": monta o .zip (agente-atak.exe + config.json c/ token + instalar.bat + LEIA-ME)
+  // no navegador (JSZip). O .exe vem de /agente/agente-atak.exe (public/agente · Parte A.1). Pilar 2:
+  // o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
+  const gerarInstalador = async () => {
+    const cx = dados?.conexao
+    if (!cx?.agente_token || !empresaUnica) { setMsg({ t: 'Salve a conexão primeiro — o token é gerado no salvar.', ok: false }); return }
+    const SB_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '')
+    const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+    if (!SB_URL || !SB_ANON) { setMsg({ t: 'Configuração da nuvem PS ausente (URL/chave pública). Avise o suporte.', ok: false }); return }
+    setBusy('zip'); setMsg(null)
+    try {
+      const resp = await fetch('/agente/agente-atak.exe', { cache: 'no-store' })
+      if (!resp.ok) throw new Error('O instalador (agente-atak.exe) ainda não foi publicado no painel — o build do agente precisa ser publicado em /agente/. Avise o suporte PS.')
+      const exe = await resp.arrayBuffer()
+      const mz = new Uint8Array(exe.slice(0, 2)) // um .exe real começa com "MZ" — não zipa um HTML de 404 por engano
+      if (exe.byteLength < 100000 || mz[0] !== 0x4D || mz[1] !== 0x5A) {
+        throw new Error('O arquivo em /agente/agente-atak.exe não é um executável válido (publicação pendente).')
+      }
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      zip.file('agente-atak.exe', exe)
+      // config.json: PS_ANON_KEY é obrigatório pelo agente (#966 exige PS_URL+PS_TOKEN+PS_ANON_KEY) e é PÚBLICO.
+      zip.file('config.json', JSON.stringify({ PS_URL: SB_URL, PS_TOKEN: cx.agente_token, PS_ANON_KEY: SB_ANON }, null, 2) + '\n')
+      zip.file('instalar.bat', '@echo off\r\nagente-atak.exe --instalar-servico\r\npause\r\n')
+      zip.file('LEIA-ME.md', LEIA_ME_TEXTO)
+      const blob = await zip.generateAsync({ type: 'blob' })
+      baixarBlob(blob, `instalador-${slug(dados?.nome ?? 'empresa')}.zip`)
+      setMsg({ t: `Instalador da ${dados?.nome ?? 'empresa'} gerado — envie o .zip pro TI. A senha do SQL o TI digita 1× na máquina (Pilar 2).`, ok: true })
+    } catch (e) {
+      setMsg({ t: (e as Error).message, ok: false })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const inp: React.CSSProperties = { width: '100%', background: C.bg, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { fontSize: 10, color: C.txd, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }
@@ -248,23 +325,37 @@ export default function ConectoresIndustrialPage() {
         </div>
       )}
 
-      {/* FIX2/3/4 · downloads do Agente PS (self-service) */}
+      {/* Instalar o Agente PS — 1 clique gera o .zip completo (RD-41) */}
       {empresaUnica && (
         <div style={{ background: C.card, border: '1px solid ' + C.bd, borderRadius: 10, padding: 16, marginTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Instalar o Agente PS (self-service)</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Instalar o Agente PS</div>
           <div style={{ fontSize: 11, color: C.txm, marginBottom: 12, lineHeight: 1.5 }}>
-            Baixe os 3 itens e mande pro TI da empresa. O conector é o mesmo pra todos; a configuração é desta empresa
-            (com o token). A <b>senha do SQL Server</b> o TI preenche na máquina — nunca sai da rede do cliente (Pilar 2).
+            Gere o instalador desta empresa (1 clique), baixe o <b>.zip</b> e mande pro TI. Dentro vão o executável,
+            a configuração com o <b>token desta empresa</b> e o guia. A <b>senha do SQL Server</b> o TI digita 1× na
+            máquina — nunca sai da rede do cliente (Pilar 2).
           </div>
           {!dados?.conexao?.agente_token && <div style={{ fontSize: 11.5, color: C.y, marginBottom: 10 }}>⚠ Salve a conexão primeiro — o token e a configuração são gerados no salvar.</div>}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <a href="/downloads/atak/collector.js" download style={dlBtn}>⬇️ Baixar conector (collector.js)</a>
-            <a href="/downloads/atak/package.json" download style={dlGhost}>package.json</a>
-            <a href="/downloads/atak/README.md" download style={dlGhost}>README</a>
-            <button onClick={baixarEnv} disabled={!dados?.conexao?.agente_token} style={{ ...dlBtn, opacity: dados?.conexao?.agente_token ? 1 : 0.5, cursor: dados?.conexao?.agente_token ? 'pointer' : 'not-allowed' }}>⬇️ Baixar configuração (.env)</button>
-            <a href="/downloads/atak/INSTALACAO.md" download style={dlBtn}>📄 Baixar passo-a-passo</a>
+          <button onClick={gerarInstalador} disabled={!dados?.conexao?.agente_token || busy === 'zip'}
+            style={{ ...dlBtn, fontSize: 13, padding: '11px 18px', opacity: (dados?.conexao?.agente_token && busy !== 'zip') ? 1 : 0.5, cursor: (dados?.conexao?.agente_token && busy !== 'zip') ? 'pointer' : 'not-allowed' }}>
+            {busy === 'zip' ? 'Gerando…' : '📦 Gerar instalador (.zip)'}
+          </button>
+          <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>
+            Baixa <code>instalador-{slug(dados?.nome ?? 'empresa')}.zip</code> com <b>agente-atak.exe</b>, <b>config.json</b> (token embutido),
+            {' '}<b>instalar.bat</b> e <b>LEIA-ME.md</b>. O TI extrai e dá duplo-clique no <code>instalar.bat</code>.
           </div>
-          <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>Ao salvar o <code>.env</code>, use codificação <b>ANSI</b> (evita erro de acento). Se o navegador salvar como <code>.env.txt</code>, renomeie para <code>.env</code>.</div>
+
+          {/* Avançado — arquivos separados (modelo antigo Node/.env; mantido por compatibilidade) */}
+          <details style={{ marginTop: 14 }}>
+            <summary style={{ fontSize: 11.5, color: C.txm, cursor: 'pointer' }}>Avançado — arquivos separados (Node/.env)</summary>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              <a href="/downloads/atak/collector.js" download style={dlGhost}>collector.js</a>
+              <a href="/downloads/atak/package.json" download style={dlGhost}>package.json</a>
+              <a href="/downloads/atak/README.md" download style={dlGhost}>README</a>
+              <button onClick={baixarEnv} disabled={!dados?.conexao?.agente_token} style={{ ...dlGhost, opacity: dados?.conexao?.agente_token ? 1 : 0.5, cursor: dados?.conexao?.agente_token ? 'pointer' : 'not-allowed' }}>configuração (.env)</button>
+              <a href="/downloads/atak/INSTALACAO.md" download style={dlGhost}>passo-a-passo</a>
+            </div>
+            <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>Modelo antigo (Node + <code>.env</code> em <b>ANSI</b>). Use só se precisar rodar sem o <code>.exe</code>.</div>
+          </details>
         </div>
       )}
 
