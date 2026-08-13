@@ -62,6 +62,32 @@ type Visita = {
 
 type UserOpt = { id: string; email: string | null; full_name?: string | null }
 
+type HistItem = {
+  id: string
+  acao: string
+  de_etapa: string | null
+  para_etapa: string | null
+  valor_antes: number | null
+  valor_depois: number | null
+  campo: string | null
+  detalhe: string | null
+  autor_id: string | null
+  autor_nome: string | null
+  criado_em: string
+}
+
+// Rótulo humano de cada ação do histórico (linguagem clara — Pilar 3).
+const ACAO_LABEL: Record<string, { l: string; bg: string; fg: string }> = {
+  criada:         { l: 'CRIADA',           bg: '#F0E9DE', fg: '#6b5444' },
+  editada:        { l: 'EDITOU',           bg: '#FCE9C2', fg: '#7A5A0F' },
+  etapa_mudou:    { l: 'MUDOU ETAPA',      bg: '#E7DED3', fg: '#3D2314' },
+  ganha:          { l: 'GANHOU',           bg: '#DCEFD7', fg: '#1F5A1F' },
+  perdida:        { l: 'PERDEU',           bg: '#F4D6D6', fg: '#7A1F1F' },
+  retornou_funil: { l: 'RETORNOU AO FUNIL', bg: '#FAD18A', fg: '#5A3D08' },
+  excluida:       { l: 'EXCLUIU',          bg: '#F4D6D6', fg: '#7A1F1F' },
+  restaurada:     { l: 'RESTAUROU',        bg: '#DCEFD7', fg: '#1F5A1F' },
+}
+
 const ETAPAS: { v: string; l: string; bg: string; fg: string }[] = [
   { v: 'prospeccao',       l: 'Prospecção',       bg: '#F0E9DE', fg: '#6b5444' },
   { v: 'visita_agendada',  l: 'Visita agendada',  bg: '#FFF3D6', fg: '#7A5A0F' },
@@ -96,7 +122,9 @@ export default function OportunidadeFichaPage() {
   const [op, setOp] = useState<Oport | null>(null)
   const [interacoes, setInteracoes] = useState<Interacao[]>([])
   const [visitas, setVisitas] = useState<Visita[]>([])
+  const [historico, setHistorico] = useState<HistItem[]>([])
   const [users, setUsers] = useState<UserOpt[]>([])
+  const [retornoEtapa, setRetornoEtapa] = useState('negociacao')
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -108,7 +136,7 @@ export default function OportunidadeFichaPage() {
   const reload = useCallback(async () => {
     if (!id) return
     setLoading(true)
-    const [o, i, v] = await Promise.all([
+    const [o, i, v, h] = await Promise.all([
       supabase
         .from('erp_crm_oportunidade')
         .select('*, erp_clientes(id, nome_fantasia, razao_social, cpf_cnpj, telefone, email)')
@@ -116,10 +144,12 @@ export default function OportunidadeFichaPage() {
         .maybeSingle(),
       supabase.from('erp_crm_interacao').select('*').eq('oportunidade_id', id).order('data_interacao', { ascending: false }),
       supabase.from('erp_crm_visita').select('*').eq('oportunidade_id', id).order('created_at', { ascending: false }),
+      supabase.from('erp_crm_oportunidade_historico').select('*').eq('oportunidade_id', id).order('criado_em', { ascending: false }),
     ])
     setOp((o.data ?? null) as unknown as Oport | null)
     setInteracoes((i.data ?? []) as Interacao[])
     setVisitas((v.data ?? []) as unknown as Visita[])
+    setHistorico((h.data ?? []) as unknown as HistItem[])
     setLoading(false)
   }, [id])
 
@@ -159,12 +189,31 @@ export default function OportunidadeFichaPage() {
     reload()
   }
 
+  // EXCLUIR = soft-delete (RD-55): a oportunidade some do funil mas nada é apagado; fica no histórico.
   async function excluir() {
     if (!op) return
-    if (!confirm(`EXCLUIR oportunidade "${op.titulo}"?\n\nIsso remove também todas as interações e visitas vinculadas. Não pode ser desfeito.`)) return
-    const { error } = await supabase.from('erp_crm_oportunidade').delete().eq('id', op.id)
+    if (!confirm(`EXCLUIR oportunidade "${op.titulo}"?\n\nEla sai do funil, mas o registro e o histórico são preservados (pode ser auditada depois).`)) return
+    const motivo = prompt('Motivo da exclusão (opcional):', '') ?? undefined
+    const { data, error } = await supabase.rpc('fn_crm_oportunidade_excluir', {
+      p_company_id: op.company_id, p_id: op.id, p_motivo: motivo || null,
+    })
     if (error) { setToast(`Erro: ${error.message}`); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
     router.push('/dashboard/projetos/oportunidades')
+  }
+
+  // RETORNAR AO FUNIL: tira de ganho/perdido e volta pra uma etapa aberta (valor preservado).
+  async function retornarFunil() {
+    if (!op) return
+    const { data, error } = await supabase.rpc('fn_crm_oportunidade_retornar_funil', {
+      p_company_id: op.company_id, p_id: op.id, p_etapa_destino: retornoEtapa,
+    })
+    if (error) { setToast(`Erro: ${error.message}`); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
+    setToast(`RETORNOU AO FUNIL na etapa ${etapaCfg(retornoEtapa).l}.`)
+    reload()
   }
 
   async function criarOrcamentoBase(): Promise<{ id: string; numero: string } | null> {
@@ -303,6 +352,19 @@ export default function OportunidadeFichaPage() {
         {op.motivo_perda && (
           <p className="text-sm mt-2" style={{ color: '#7A1F1F' }}><strong>Motivo da perda:</strong> {op.motivo_perda}</p>
         )}
+        {/* Retornar ao funil — só faz sentido quando a oportunidade está fechada (ganho/perdido). */}
+        {(op.etapa === 'ganho' || op.etapa === 'perdido') && (
+          <div className="flex items-center gap-2 flex-wrap mt-3 pt-3" style={{ borderTop: `1px solid ${BORDA}` }}>
+            <span className="text-sm" style={{ color: TEXTM }}>↩️ Retornar ao funil:</span>
+            <select value={retornoEtapa} onChange={(e) => setRetornoEtapa(e.target.value)} style={selSt}>
+              {ETAPAS.filter((e) => e.v !== 'ganho' && e.v !== 'perdido').map((e) => (
+                <option key={e.v} value={e.v}>{e.l}</option>
+              ))}
+            </select>
+            <button onClick={retornarFunil} style={btnSec}>Retornar</button>
+            <span className="text-xs" style={{ color: TEXTM }}>o valor é preservado; só reabre a negociação.</span>
+          </div>
+        )}
       </div>
 
       {/* Dados da obra */}
@@ -424,6 +486,38 @@ export default function OportunidadeFichaPage() {
                 <p className="text-sm whitespace-pre-wrap">{i.descricao}</p>
               </li>
             ))}
+          </ul>
+        )}
+      </Sec>
+
+      {/* Histórico — auditoria: ação · de→para · valor antes→depois · autor · data (mais recente primeiro) */}
+      <Sec titulo="Histórico">
+        {historico.length === 0 ? (
+          <p style={{ color: TEXTM, fontSize: 13 }}>Sem histórico ainda. Edições, mudanças de etapa e exclusão aparecem aqui.</p>
+        ) : (
+          <ul className="space-y-2">
+            {historico.map((h) => {
+              const a = ACAO_LABEL[h.acao] ?? { l: h.acao.toUpperCase(), bg: '#FAF7F2', fg: '#3D2314' }
+              const autorU = users.find((u) => u.id === h.autor_id)
+              const autor = h.autor_nome || (autorU ? labelUsuario(autorU, users) : null)
+              return (
+                <li key={h.id} className="rounded-lg border p-3" style={{ borderColor: BORDA, background: '#fff' }}>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: a.bg, color: a.fg }}>{a.l}</span>
+                    <span className="text-xs" style={{ color: TEXTM }}>{fmtDate(h.criado_em)}</span>
+                    {autor && <span className="text-xs" style={{ color: TEXTM }}>· por {autor}</span>}
+                  </div>
+                  <p className="text-sm">
+                    {h.detalhe
+                      ?? (h.de_etapa || h.para_etapa
+                        ? `Etapa: ${etapaCfg(h.de_etapa ?? '—').l} → ${etapaCfg(h.para_etapa ?? '—').l}`
+                        : (h.valor_antes != null || h.valor_depois != null)
+                          ? `${h.campo ?? 'Valor'}: ${brl(h.valor_antes)} → ${brl(h.valor_depois)}`
+                          : '—')}
+                  </p>
+                </li>
+              )
+            })}
           </ul>
         )}
       </Sec>
