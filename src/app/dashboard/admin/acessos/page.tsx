@@ -2,13 +2,15 @@
 // Usuários & Acessos · Fase 1 — tela em cascata (Empresa → Áreas contratadas (teto) → Master → Pessoas).
 // Backend (RPCs SECURITY DEFINER com travas): fn_acessos_empresa_contexto / fn_acessos_salvar_pessoa.
 // Horário = SÓ configuração nesta fase (trava de login é Fase 2). Coexiste com as 9 abas antigas.
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
 import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2 } from "lucide-react";
 
 const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
   BD = "var(--ps-border,#E0D8CC)", TX = "var(--ps-text,#3D2314)", TXM = "var(--ps-text-m,#6B5D4F)", TXD = "var(--ps-text-d,#9C8E80)",
   G = "#22C55E", R = "#EF4444", BL = "#3B82F6";
+const cadInp: CSSProperties = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320, width: "100%", boxSizing: "border-box" };
 
 // Papéis liberáveis pelo Master (NUNCA admin/acesso_total/PS_ADMIN — travado também no backend).
 const PAPEIS: { role: string; nome: string }[] = [
@@ -35,12 +37,15 @@ type Horario = { dias_semana: number[] | null; hora_inicio: string | null; hora_
 type Pessoa = {
   user_id: string; email: string; nome: string | null; role: string; nivel: string; is_master: boolean;
   papel_gestao: string | null;
+  cargo: string | null; telefone: string | null; cpf: string | null; observacao: string | null; is_active: boolean | null;
   restricted: boolean; areas: string[] | null; plantas: string[] | null; horario: Horario | null;
   ultimo_login: string | null; situacao: string;
 };
 type Contexto = { empresa: Empresa; areas_contratadas: Area[]; plantas: Planta[]; master: Master[]; pessoas: Pessoa[] };
 
 export default function AcessosCascataPage() {
+  // Empresa do seletor global do topo (RD-52: Acessos sempre na empresa do contexto, nunca uma stale).
+  const { sel } = useCompanyIds();
   const [empresasGeriveis, setEmpresasGeriveis] = useState<Empresa[]>([]);
   const [companyId, setCompanyId] = useState<string>("");
   const [ctx, setCtx] = useState<Contexto | null>(null);
@@ -67,10 +72,20 @@ export default function AcessosCascataPage() {
         empresas = ((data as any[]) || []).map((r) => r.companies).filter(Boolean);
       }
       setEmpresasGeriveis(empresas);
-      if (empresas.length > 0) setCompanyId((prev) => prev || empresas[0].id);
+      // Default = empresa do seletor global do topo (localStorage), se for gerível; senão a 1ª.
+      const selTopo = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : null;
+      const inicial = empresas.some((e) => e.id === selTopo) ? (selTopo as string) : empresas[0]?.id;
+      if (empresas.length > 0) setCompanyId((prev) => prev || inicial);
       setLoading(false);
     })();
   }, []);
+
+  // Re-scope: se a empresa do topo mudar (e for gerível), a tela acompanha — nunca mostra outra empresa.
+  useEffect(() => {
+    if (!sel || empresasGeriveis.length === 0) return;
+    if (sel !== companyId && empresasGeriveis.some((e) => e.id === sel)) setCompanyId(sel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel, empresasGeriveis]);
 
   const carregar = useCallback(async (cid: string) => {
     if (!cid) return;
@@ -167,6 +182,11 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
   p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[]; companyId: string; onSaved: () => void;
 }) {
   const [nome, setNome] = useState(p.nome ?? "");
+  const [cargo, setCargo] = useState(p.cargo ?? "");
+  const [telefone, setTelefone] = useState(p.telefone ?? "");
+  const [cpf, setCpf] = useState(p.cpf ?? "");
+  const [observacao, setObservacao] = useState(p.observacao ?? "");
+  const [ativo, setAtivo] = useState(p.is_active ?? true);
   const [role, setRole] = useState(p.role);
   const [areas, setAreas] = useState<Set<string>>(new Set(p.restricted && p.areas ? p.areas : areasContratadas.map((a) => a.slug)));
   const [plantasSel, setPlantasSel] = useState<Set<string>>(new Set(p.plantas || []));
@@ -181,15 +201,21 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
     const horario = { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true };
     const nomeTrim = nome.trim();
     const nomeMudou = !!nomeTrim && nomeTrim !== (p.nome ?? "");
+    const ativoMudou = ativo !== (p.is_active ?? true);
     const { data, error } = await supabase.rpc("fn_acessos_salvar_pessoa", {
       p_company_id: companyId, p_user_id: p.user_id, p_areas: Array.from(areas),
       p_role: role, p_plantas: Array.from(plantasSel), p_horario: horario,
-      p_nome: nomeTrim || null,   // grava em users.full_name; vazio não apaga (guarda no backend)
+      p_nome: nomeTrim || null,           // grava em users.full_name; vazio não apaga (guarda no backend)
+      p_cargo: cargo.trim() || null,      // vazio não apaga
+      p_telefone: telefone.trim() || null,
+      p_cpf: cpf.trim() || null,          // backend guarda só os dígitos
+      p_observacao: observacao,           // aceita limpar (string vazia)
+      p_ativo: ativo,                     // status = users.is_active (acesso ao sistema)
     });
     setSalvando(false);
     const res = data as { ok?: boolean; erro?: string } | null;
     if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao salvar" }); return; }
-    setMsg({ ok: true, t: nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo." });
+    setMsg({ ok: true, t: ativoMudou ? `Acesso ${ativo ? "ATIVADO" : "INATIVADO"}.` : nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo." });
     onSaved();
   }
   const [acaoBusy, setAcaoBusy] = useState(false);
@@ -242,14 +268,39 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
               <Lock size={13} color={GO} /> Este é o Master da empresa.
             </div>
           )}
-          {/* Nome (users.full_name) — editável; vazio não apaga o existente */}
+          {/* Cadastro da pessoa — Nome / Cargo / Telefone / CPF / Observação / Status (vazio não apaga) */}
           <Field icon={<Users size={14} color={GO} />} label="Nome">
             <input
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               placeholder="Nome completo"
-              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320, width: "100%" }}
+              style={cadInp}
             />
+          </Field>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Field icon={<Users size={14} color={GO} />} label="Cargo / Função">
+              <input value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Ex.: Analista fiscal" style={cadInp} />
+            </Field>
+            <Field icon={<Users size={14} color={GO} />} label="Telefone">
+              <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 00000-0000" style={cadInp} />
+            </Field>
+            <Field icon={<Users size={14} color={GO} />} label="CPF">
+              <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" style={cadInp} />
+            </Field>
+          </div>
+          <Field icon={<Users size={14} color={GO} />} label="Observação">
+            <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2}
+              placeholder="Anotações sobre a pessoa (opcional)"
+              style={{ ...cadInp, maxWidth: "none", fontWeight: 400, resize: "vertical" }} />
+          </Field>
+          <Field icon={<Lock size={14} color={GO} />} label="Status (acesso ao sistema)">
+            <button type="button" onClick={() => setAtivo((v) => !v)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 14px", borderRadius: 999,
+                border: `1px solid ${ativo ? G : R}`, background: ativo ? "#F0FDF4" : "#FEF2F2", color: ativo ? "#15803D" : "#B91C1C",
+                fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: ativo ? G : R }} />
+              {ativo ? "Ativo" : "Inativo"}
+            </button>
           </Field>
           {/* Áreas (limitado ao teto) */}
           <Field icon={<Shield size={14} color={GO} />} label="Áreas liberadas (dentro do que a empresa contratou)">
