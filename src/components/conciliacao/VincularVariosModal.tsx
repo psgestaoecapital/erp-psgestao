@@ -21,6 +21,7 @@ interface Vinculo {
 interface ResumoRPC {
   ok: boolean
   erro?: string
+  msg?: string   // mensagem amigável (ex.: trava anti-duplicação "titulo_ja_conciliado")
   valor_movimento: number
   soma_vinculada: number
   saldo: number
@@ -147,7 +148,7 @@ export default function VincularVariosModal({
     setAcao(null)
     if (error) { setErro(error.message); return }
     const r = data as ResumoRPC
-    if (!r.ok) { setErro(r.erro ?? 'Erro ao vincular'); return }
+    if (!r.ok) { setErro(r.msg ?? r.erro ?? 'Erro ao vincular'); return }
     // 1:1 fechou sozinho: já conciliou + deu baixa canônica — reflete na lista e fecha.
     if (r.conciliado_1x1) { onConciliado?.(); onClose(); return }
     await carregarResumo()
