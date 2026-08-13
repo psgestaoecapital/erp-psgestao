@@ -37,24 +37,48 @@ jobs:
 
       # Gera o versao.json COM o sha256 calculado (zero erro de sha manual · auto-update).
       # A versao vem da tag agente-vX.Y.Z (ou do package.json no dispatch manual).
-      - name: Gerar versao.json (sha256)
+      - name: Gerar versao.json (sha256 + url do Storage)
         shell: pwsh
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
         run: |
           $sha = (Get-FileHash -Algorithm SHA256 dist/agente-atak.exe).Hash.ToLower()
           $ref = "${{ github.ref_name }}"
           if ($ref -match '^agente-v(.+)$') { $versao = $Matches[1] } else { $versao = (Get-Content package.json | ConvertFrom-Json).version }
+          $base = if ($env:SB_URL) { $env:SB_URL.TrimEnd('/') } else { '' }
           $manifesto = [ordered]@{
             versao = $versao
-            url = "/agente/agente-atak.exe"
+            url = "$base/storage/v1/object/public/agente/agente-atak.exe"   # URL absoluto do Storage
             sha256 = $sha
             obrigatorio = $false
             notas = "Build $ref"
           }
           $manifesto | ConvertTo-Json | Set-Content -Encoding utf8 dist/versao.json
-          Write-Host "versao.json -> versao=$versao sha256=$sha"
+          Write-Host "versao.json -> versao=$versao sha256=$sha url=$($manifesto.url)"
           Get-Content dist/versao.json
 
-      # Publica o .exe + o versao.json (pronto pra colocar em public/agente/). Sha já calculado.
+      # Publica no Supabase Storage (bucket público 'agente') — sem passo manual de git.
+      # Requer os secrets SUPABASE_URL e SUPABASE_STORAGE_KEY (o CEO cadastra · Pilar 2).
+      - name: Publicar no Supabase Storage
+        shell: bash
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_KEY: ${{ secrets.SUPABASE_STORAGE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SB_URL:-}" ] || [ -z "${SB_KEY:-}" ]; then
+            echo "::error::Faltam os secrets SUPABASE_URL e/ou SUPABASE_STORAGE_KEY no repo — cadastre para publicar."
+            exit 1
+          fi
+          curl -fsS -X POST "$SB_URL/storage/v1/object/agente/agente-atak.exe?upsert=true" \
+            -H "Authorization: Bearer $SB_KEY" -H "Content-Type: application/octet-stream" \
+            --data-binary @dist/agente-atak.exe
+          curl -fsS -X POST "$SB_URL/storage/v1/object/agente/versao.json?upsert=true" \
+            -H "Authorization: Bearer $SB_KEY" -H "Content-Type: application/json" \
+            --data-binary @dist/versao.json
+          echo "Publicado no Storage: agente-atak.exe + versao.json (bucket agente)"
+
+      # Backup: tambem sobe como artefato (download 30 dias) — util para conferencia/rollback.
       - name: Publicar artefato
         uses: actions/upload-artifact@v4
         with:

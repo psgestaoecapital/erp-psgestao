@@ -185,8 +185,8 @@ export default function ConectoresIndustrialPage() {
   }
 
   // "Gerar instalador": monta o .zip (agente-atak.exe + config.json c/ token + instalar.bat + LEIA-ME)
-  // no navegador (JSZip). O .exe vem de /agente/agente-atak.exe (public/agente · Parte A.1). Pilar 2:
-  // o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
+  // no navegador (JSZip). O .exe vem do Supabase Storage (bucket público 'agente', publicado pelo CI).
+  // Pilar 2: o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
   const gerarInstalador = async () => {
     const cx = dados?.conexao
     if (!cx?.agente_token || !empresaUnica) { setMsg({ t: 'Salve a conexão primeiro — o token é gerado no salvar.', ok: false }); return }
@@ -194,13 +194,14 @@ export default function ConectoresIndustrialPage() {
     const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
     if (!SB_URL || !SB_ANON) { setMsg({ t: 'Configuração da nuvem PS ausente (URL/chave pública). Avise o suporte.', ok: false }); return }
     setBusy('zip'); setMsg(null)
+    const exeUrl = `${SB_URL}/storage/v1/object/public/agente/agente-atak.exe`
     try {
-      const resp = await fetch('/agente/agente-atak.exe', { cache: 'no-store' })
-      if (!resp.ok) throw new Error('O instalador (agente-atak.exe) ainda não foi publicado no painel — o build do agente precisa ser publicado em /agente/. Avise o suporte PS.')
+      const resp = await fetch(exeUrl, { cache: 'no-store' })
+      if (!resp.ok) throw new Error('O instalador (agente-atak.exe) ainda não foi publicado no Storage — rode o build do agente (tag agente-v*). Avise o suporte PS.')
       const exe = await resp.arrayBuffer()
       const mz = new Uint8Array(exe.slice(0, 2)) // um .exe real começa com "MZ" — não zipa um HTML de 404 por engano
       if (exe.byteLength < 100000 || mz[0] !== 0x4D || mz[1] !== 0x5A) {
-        throw new Error('O arquivo em /agente/agente-atak.exe não é um executável válido (publicação pendente).')
+        throw new Error('O arquivo do instalador no Storage não é um executável válido (publicação pendente).')
       }
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()

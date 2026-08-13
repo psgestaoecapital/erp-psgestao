@@ -1,10 +1,30 @@
-# public/agente — executável do Agente PS ATAK
+# Agente PS ATAK — hosting no Supabase Storage (bucket público `agente`)
 
-O botão **"Gerar instalador"** (tela Conectores · Industrial) busca o executável em
-`/agente/agente-atak.exe` (ou seja, o arquivo **`public/agente/agente-atak.exe`** deste repo) e o
-empacota, no navegador, num `.zip` junto com o `config.json` (token da empresa), o `instalar.bat` e o
-`LEIA-ME.md`. Enquanto o `.exe` não estiver aqui, o botão avisa em português que a publicação está
-pendente (ele valida o cabeçalho `MZ` do executável — não zipa um HTML de 404 por engano).
+> **Atualização:** o hosting do `.exe` + `versao.json` mudou de `public/agente/` (no git) para o
+> **Supabase Storage** (bucket público `agente`). O **CI publica sozinho** na tag `agente-v*` — zero
+> binário no git, zero passo manual. Os arquivos abaixo (`versao.json` deste dir) ficam só como
+> referência/template; a fonte viva é o Storage.
+
+URLs públicas (baixadas por qualquer máquina de cliente, HTTPS):
+- `.../storage/v1/object/public/agente/agente-atak.exe`
+- `.../storage/v1/object/public/agente/versao.json`
+
+O botão **"Gerar instalador"** (Conectores · Industrial) e o **auto-update do agente** buscam desses
+URLs do Storage. Enquanto o `.exe` não estiver publicado, o botão avisa em PT-BR (valida o cabeçalho
+`MZ` — não zipa um HTML de 404).
+
+## Fluxo de release (automático)
+1. `git tag agente-v2.1.0 && git push --tags` → o workflow "Build Agente ATAK" builda o `.exe`,
+   gera o `versao.json` (com o sha256 e o `url` absoluto do Storage) e **publica os dois no bucket**.
+2. Pronto — todos os agentes se atualizam no próximo ciclo; a tela Conectores gera o instalador
+   com o `.exe` do Storage.
+
+Requer (1×, pelo CEO) os secrets `SUPABASE_URL` e `SUPABASE_STORAGE_KEY` no repo (Pilar 2 — a chave
+só serve pro Storage, vive nos Secrets do GitHub, nunca no código; vault intocado).
+
+---
+
+## (Legado) Como publicar o `.exe` manualmente em `public/agente/`
 
 ## Como publicar o `.exe` (Parte A.1 — manual, hoje)
 

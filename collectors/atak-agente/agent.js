@@ -271,18 +271,23 @@ function semverGt(a, b) {
 }
 let _ultimaChecagemUpdate = 0
 async function verificarAtualizacao(C) {
-  if (!C.updateBase) return                                   // auto-update desligado (sem base configurada)
   if (!process.pkg) return                                     // só faz sentido no .exe instalado (Windows)
+  if (!C.supabaseUrl && !C.updateBase) return                  // sem hosting configurado → auto-update off
   const agora = Date.now()
   if (agora - _ultimaChecagemUpdate < Math.max(1, C.updateHoras) * 3600 * 1000) return
   _ultimaChecagemUpdate = agora
+  // Hosting: Supabase Storage (bucket público 'agente'). PS_UPDATE_BASE sobrepõe (compat/dev).
+  const storageBase = `${C.supabaseUrl}/storage/v1/object/public/agente`
+  const manifestoUrl = C.updateBase ? `${C.updateBase}/agente/versao.json` : `${storageBase}/versao.json`
   try {
-    const res = await fetch(`${C.updateBase}/agente/versao.json`, { cache: 'no-store' })
+    const res = await fetch(manifestoUrl, { cache: 'no-store' })
     if (!res.ok) return
     const man = await res.json()
     if (!man || !man.versao || !semverGt(man.versao, VERSAO_AGENTE)) return
     log(`nova versão ${man.versao} disponível (rodando ${VERSAO_AGENTE})${man.obrigatorio ? ' [OBRIGATÓRIA]' : ''} — baixando…`)
-    const exeUrl = String(man.url || '/agente/agente-atak.exe').startsWith('http') ? man.url : `${C.updateBase}${man.url}`
+    // o versao.json do CI leva o url ABSOLUTO do Storage; fallback resolve contra a base do manifesto.
+    const relBase = C.updateBase || storageBase.replace(/\/agente$/, '')
+    const exeUrl = String(man.url || '/agente/agente-atak.exe').startsWith('http') ? man.url : `${relBase}${man.url}`
     const dl = await fetch(exeUrl)
     if (!dl.ok) { logErr(`download do .exe falhou (${dl.status}) — segue na versão atual.`); return }
     const buf = Buffer.from(await dl.arrayBuffer())
@@ -324,7 +329,7 @@ async function rodarLoop(C) {
     await enviarHeartbeat(C, res)
     setTimeout(tick, Math.max(1, minutos) * 60 * 1000)
   }
-  log(`serviço ${VERSAO_AGENTE} iniciado — coleta a cada ~${minutos} min; auto-update ${C.updateBase ? 'ligado' : 'desligado'}.`)
+  log(`serviço ${VERSAO_AGENTE} iniciado — coleta a cada ~${minutos} min; auto-update ${(C.supabaseUrl || C.updateBase) ? 'ligado (Storage)' : 'desligado'}.`)
   tick()
 }
 
