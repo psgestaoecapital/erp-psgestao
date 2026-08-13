@@ -166,6 +166,7 @@ export default function AcessosCascataPage() {
 function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, onSaved }: {
   p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[]; companyId: string; onSaved: () => void;
 }) {
+  const [nome, setNome] = useState(p.nome ?? "");
   const [role, setRole] = useState(p.role);
   const [areas, setAreas] = useState<Set<string>>(new Set(p.restricted && p.areas ? p.areas : areasContratadas.map((a) => a.slug)));
   const [plantasSel, setPlantasSel] = useState<Set<string>>(new Set(p.plantas || []));
@@ -178,14 +179,17 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
   async function salvar() {
     setSalvando(true); setMsg(null);
     const horario = { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true };
+    const nomeTrim = nome.trim();
+    const nomeMudou = !!nomeTrim && nomeTrim !== (p.nome ?? "");
     const { data, error } = await supabase.rpc("fn_acessos_salvar_pessoa", {
       p_company_id: companyId, p_user_id: p.user_id, p_areas: Array.from(areas),
       p_role: role, p_plantas: Array.from(plantasSel), p_horario: horario,
+      p_nome: nomeTrim || null,   // grava em users.full_name; vazio não apaga (guarda no backend)
     });
     setSalvando(false);
     const res = data as { ok?: boolean; erro?: string } | null;
     if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao salvar" }); return; }
-    setMsg({ ok: true, t: "Salvo." });
+    setMsg({ ok: true, t: nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo." });
     onSaved();
   }
   const [acaoBusy, setAcaoBusy] = useState(false);
@@ -238,6 +242,15 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
               <Lock size={13} color={GO} /> Este é o Master da empresa.
             </div>
           )}
+          {/* Nome (users.full_name) — editável; vazio não apaga o existente */}
+          <Field icon={<Users size={14} color={GO} />} label="Nome">
+            <input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Nome completo"
+              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320, width: "100%" }}
+            />
+          </Field>
           {/* Áreas (limitado ao teto) */}
           <Field icon={<Shield size={14} color={GO} />} label="Áreas liberadas (dentro do que a empresa contratou)">
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
