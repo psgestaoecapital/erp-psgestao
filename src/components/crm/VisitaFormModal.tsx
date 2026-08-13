@@ -244,7 +244,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
               onChange={setResponsavelId}
               placeholder="Digite pra buscar o vendedor…"
               vazioTexto="Nenhum usuário nesta empresa. Cadastre em Acessos."
-              options={users.map((u) => ({ id: u.id, label: labelUsuario(u, users), sub: u.full_name ? u.email : null }))}
+              options={users.map((u) => ({ id: u.id, label: labelUsuario(u, users), sub: null }))}
             />
           </label>
           <label style={lbl}>
