@@ -1,0 +1,7 @@
+{
+  "versao": "2.1.0",
+  "url": "/agente/agente-atak.exe",
+  "sha256": "",
+  "obrigatorio": false,
+  "notas": "Auto-update + heartbeat de versão (PowerShell DPAPI · Pilar 2)."
+}
