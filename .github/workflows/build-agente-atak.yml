@@ -70,12 +70,21 @@ jobs:
             echo "::error::Faltam os secrets SUPABASE_URL e/ou SUPABASE_STORAGE_KEY no repo — cadastre para publicar."
             exit 1
           fi
-          curl -fsS -X POST "$SB_URL/storage/v1/object/agente/agente-atak.exe?upsert=true" \
-            -H "Authorization: Bearer $SB_KEY" -H "Content-Type: application/octet-stream" \
-            --data-binary @dist/agente-atak.exe
-          curl -fsS -X POST "$SB_URL/storage/v1/object/agente/versao.json?upsert=true" \
-            -H "Authorization: Bearer $SB_KEY" -H "Content-Type: application/json" \
-            --data-binary @dist/versao.json
+          # FIX 400: Storage exige apikey + Authorization; upsert via header x-upsert; sem -f pra ver o corpo do erro.
+          up() {  # $1 = arquivo local · $2 = path no bucket · $3 = content-type
+            echo "Enviando $2 ..."
+            code=$(curl -sS -w "%{http_code}" -o /tmp/resp.txt -X POST \
+              "$SB_URL/storage/v1/object/agente/$2" \
+              -H "apikey: $SB_KEY" \
+              -H "Authorization: Bearer $SB_KEY" \
+              -H "x-upsert: true" \
+              -H "Content-Type: $3" \
+              --data-binary "@$1")
+            echo "HTTP $code"; cat /tmp/resp.txt; echo
+            [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Upload de $2 falhou (HTTP $code)"; exit 1; }
+          }
+          up dist/agente-atak.exe agente-atak.exe application/octet-stream
+          up dist/versao.json     versao.json     application/json
           echo "Publicado no Storage: agente-atak.exe + versao.json (bucket agente)"
 
       # Backup: tambem sobe como artefato (download 30 dias) — util para conferencia/rollback.
