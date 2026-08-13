@@ -76,6 +76,7 @@ export default function OportunidadesPage() {
         .from('erp_crm_oportunidade')
         .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, origem, obra_endereco, obra_cidade, obra_bairro, probabilidade, responsavel_id, responsavel_nome, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
         .eq('company_id', empresaUnica)
+        .is('deleted_at', null)   // excluídas (soft-delete) somem do funil
         .order('created_at', { ascending: false }),
       supabase.rpc('fn_crm_pipeline', { p_company_id: empresaUnica }),
     ])
@@ -111,10 +112,14 @@ export default function OportunidadesPage() {
     }
   }
 
+  // EXCLUIR = soft-delete (RD-55): sai do funil, mas o registro e o histórico ficam preservados.
   async function excluir(r: Row) {
-    if (!confirm(`Tem certeza que deseja EXCLUIR a oportunidade "${r.titulo}"?\n\nIsso remove tambem todas as interacoes e visitas vinculadas. Nao pode ser desfeito.`)) return
+    if (!confirm(`EXCLUIR a oportunidade "${r.titulo}"?\n\nEla sai do funil, mas o registro e o histórico são preservados (pode ser auditada depois).`)) return
+    const motivo = prompt('Motivo da exclusão (opcional):', '') ?? undefined
     setExcluindoId(r.id)
-    const { error } = await supabase.from('erp_crm_oportunidade').delete().eq('id', r.id)
+    const { data, error } = await supabase.rpc('fn_crm_oportunidade_excluir', {
+      p_company_id: r.company_id, p_id: r.id, p_motivo: motivo || null,
+    })
     setExcluindoId(null)
     if (error) {
       const msg = /permission|rls|policy/i.test(error.message)
@@ -123,6 +128,8 @@ export default function OportunidadesPage() {
       setToast(msg)
       return
     }
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (j && j.ok === false) { setToast(`Erro ao excluir: ${j.erro ?? 'falha'}`); return }
     setToast(`Oportunidade EXCLUIDA: "${r.titulo}".`)
     reload()
   }
