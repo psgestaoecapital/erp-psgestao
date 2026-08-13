@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
+import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 
 interface Servico {
   id: string;
@@ -130,6 +131,8 @@ export default function ServicoEditorPage({
   const [recalculando, setRecalculando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Sinal p/ a tabela CPU recarregar quando o BOM muda (a CPU lê de fn_servico_composicao_detalhe).
+  const [cpuReload, setCpuReload] = useState(0);
 
   // Edição inline metadados (commit no blur)
   const [edits, setEdits] = useState<Partial<Servico>>({});
@@ -445,7 +448,7 @@ export default function ServicoEditorPage({
               servicoId={servico.id}
               companyId={servico.company_id}
               bom={bom}
-              onChange={() => carregar({ soft: true })}
+              onChange={() => { carregar({ soft: true }); setCpuReload((n) => n + 1); }}
             />
           </div>
         </div>
@@ -545,6 +548,9 @@ export default function ServicoEditorPage({
           </div>
         </aside>
       </div>
+
+      {/* Composição de Preço Unitário (CPU) completa — padrão de mercado, genérica */}
+      <ComposicaoCpu servicoId={servico.id} companyId={servico.company_id} reloadKey={cpuReload} />
     </main>
   );
 }
