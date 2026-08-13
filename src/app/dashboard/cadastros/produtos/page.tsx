@@ -66,6 +66,9 @@ export default function ProdutosPage() {
   const [editando, setEditando] = useState<Produto | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
   const [importarFiscalAberto, setImportarFiscalAberto] = useState(false)
+  // Pendências fiscais (SPED 0200): produtos sem tipo do item ou sem NCM — pro contador completar.
+  const [pendencias, setPendencias] = useState<{ id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[]>([])
+  const [pendVerLista, setPendVerLista] = useState(false)
   const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
 
   const offsetRef = useRef(0)
@@ -94,6 +97,19 @@ export default function ProdutosPage() {
       .then(({ data, error }) => {
         if (!alive || error) return
         setUnidades((data ?? []) as UnidadeOption[])
+      })
+    return () => { alive = false }
+  }, [companyId])
+
+  // Carrega as pendências fiscais (SPED 0200) da empresa
+  useEffect(() => {
+    if (!companyId) { setPendencias([]); return }
+    let alive = true
+    supabase
+      .rpc('fn_produtos_pendencia_legal', { p_company_id: companyId })
+      .then(({ data, error }) => {
+        if (!alive || error) return
+        setPendencias((data ?? []) as { id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[])
       })
     return () => { alive = false }
   }, [companyId])
@@ -275,6 +291,38 @@ export default function ProdutosPage() {
             </button>
           </div>
         </header>
+
+        {/* Pendências fiscais (SPED 0200) — pro contador completar (tipo do item / NCM) */}
+        {pendencias.length > 0 && (
+          <div className="mb-4 rounded-xl border border-[#C8941A]/40 bg-[#FBF4E4] p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-[13px] text-[#3D2314]">
+                <b>⚠ {pendencias.length} produto(s) com pendência fiscal</b> (SPED 0200) — falta tipo do item ou NCM. O contador completa antes da apuração.
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendVerLista((v) => !v)}
+                className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7]"
+              >
+                {pendVerLista ? 'Ocultar' : 'Ver lista'}
+              </button>
+            </div>
+            {pendVerLista && (
+              <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-[#3D2314]/10 bg-white">
+                {pendencias.slice(0, 500).map((p) => (
+                  <div key={p.id} className="grid grid-cols-[auto_1fr_auto] gap-2 items-center px-3 py-1.5 border-b border-[#3D2314]/5 text-[12px]">
+                    <span className="font-mono text-[#3D2314]/70">{p.codigo}</span>
+                    <span className="text-[#3D2314] truncate">{p.nome}</span>
+                    <span className="text-[#A32D2D] whitespace-nowrap">{p.motivo}</span>
+                  </div>
+                ))}
+                {pendencias.length > 500 && (
+                  <div className="px-3 py-1.5 text-[11px] text-[#3D2314]/50">…e mais {pendencias.length - 500}. Use o relatório completo (fn_produtos_pendencia_legal).</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-[#3D2314]/10 overflow-hidden">
           {/* Barra de busca + toggle filtros */}
