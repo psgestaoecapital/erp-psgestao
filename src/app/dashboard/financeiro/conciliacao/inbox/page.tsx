@@ -550,7 +550,7 @@ export default function InboxPage() {
       descricao: it.descricao ?? undefined,
       aplicar: async () => {
         setAplicandoIds(new Set([...aplicandoIds, it.movimento_id]))
-        const { error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
+        const { data, error } = await supabase.rpc('fn_conciliacao_aplicar_match', {
           p_movimento_id: it.movimento_id,
           p_lancamento_tabela: lancTabela,
           p_lancamento_id: lancId,
@@ -558,6 +558,12 @@ export default function InboxPage() {
           p_origem: 'manual',
         })
         if (error) setErro(error.message)
+        else {
+          // aplicar_match sinaliza recusa por LINHA (status_resultado='erro'), não por exceção — ex.: a
+          // trava anti-duplicação "Este título já foi conciliado" (FIX B) ou match de baixa confiança.
+          const row = Array.isArray(data) ? data[0] : (data as { status_resultado?: string; mensagem?: string } | null)
+          if (row?.status_resultado === 'erro') setErro(row.mensagem ?? 'Não foi possível aplicar o match.')
+        }
         await carregar()
         const ns = new Set(aplicandoIds); ns.delete(it.movimento_id); setAplicandoIds(ns)
       },
