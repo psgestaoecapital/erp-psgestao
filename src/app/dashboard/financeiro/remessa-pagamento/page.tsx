@@ -46,12 +46,15 @@ type Row = TituloPag & { _sel: boolean; tipo_chave_pix?: string | null; chave_pi
 type RemessaLista = { id: string; numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; total_titulos: number; valor_total: number; gerado_em: string | null; retorno_importado_em: string | null; pode_cancelar: boolean }
 type ExtratoItem = { item_id: string; beneficiario: string; descricao: string | null; data_vencimento: string | null; valor: number; forma: string; status_item: string }
 type ExtratoResp = { sucesso: boolean; erro?: string; remessa?: { numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; gerado_em: string | null; retorno_importado_em: string | null }; itens?: ExtratoItem[]; total?: number; qtd?: number }
-type RetItemPayload = { item_id: string; val_pago: number; dt_pagamento: string | null; ocorrencia: string; pago_hint: boolean }
-type RetDetalhe = { resultado: string; motivo?: string; val_pago?: number; val_titulo?: number; ocorrencia?: string }
-type RetornoResposta = {
-  sucesso: boolean; erro?: string; confirmado?: boolean; remessa_status?: string
-  resumo?: { total: number; pagos: number; rejeitados: number; divergentes: number; ja_pagos: number; erros: number }
-  detalhes?: RetDetalhe[]
+// Payload por pagamento do .RET enviado à RPC de auto-conciliação (casa por identificador, sem escolher remessa).
+type RetAutoItem = { codigo_barras: string; valor: number; valor_pago: number; data_pagamento: string | null; ocorrencia: string; pago_hint: boolean }
+type RetCasado = { item_id: string; remessa: number; pagar_id: string; descricao: string | null; valor: number; valor_pago: number; resultado: string; ocorrencia: string; motivo: string }
+type RetSimples = { item_id?: string; remessa?: number; descricao?: string | null; valor: number; valor_pago?: number; codigo_barras?: string | null; ocorrencia?: string; motivo?: string }
+type RetAutoResp = {
+  ok: boolean; erro?: string; confirmado?: boolean
+  casados?: RetCasado[]; nao_casados?: RetSimples[]; rejeitados?: RetSimples[]; ja_pagos?: RetSimples[]
+  qtd_casados?: number; qtd_nao_casados?: number
+  resumo?: { total: number; pagos: number; rejeitados: number; ja_pagos: number; erros: number; nao_casados: number }
 }
 
 export default function RemessaPagamentoPage() {
@@ -73,17 +76,14 @@ export default function RemessaPagamentoPage() {
   const [dvInput, setDvInput] = useState('')
   const [numRemessa, setNumRemessa] = useState('')   // NSA da próxima remessa (editável pela Jordana)
   const [ultimoEnviado, setUltimoEnviado] = useState(0) // último NSA já enviado (para o aviso de sequência)
-  // Importar RETORNO (baixa automática): estado do fluxo upload → escolher remessa → prévia → confirmar.
-  // O retorno NUNCA casa pelo número do arquivo (.RET) — esse é só o contador sequencial de arquivos do
-  // banco (NSA), independente da remessa. O operador ESCOLHE a remessa; o casamento é por título (RD-52).
+  // Importar RETORNO (baixa automática): upload → auto-conciliação → confirmar. O sistema casa cada
+  // pagamento do .RET direto com o título (por código de barras / chave / valor), ATRAVESSANDO todas as
+  // remessas — sem escolher remessa e nunca pelo número do arquivo (NSA). RD-52: casamento título↔pagamento.
   const [impOpen, setImpOpen] = useState(false)
   const [impBusy, setImpBusy] = useState(false)
   const [impArquivo, setImpArquivo] = useState('')
   const [impRet, setImpRet] = useState<{ nsa: number; itens: ItemRetornoSicredi[] } | null>(null) // arquivo parseado
-  const [impRemessaSel, setImpRemessaSel] = useState('')  // remessa que o operador escolheu (id)
-  const [impResumo, setImpResumo] = useState<RetornoResposta | null>(null)
-  const [impNaoCasados, setImpNaoCasados] = useState(0)
-  const [impPayload, setImpPayload] = useState<{ remessaId: string; itens: RetItemPayload[] } | null>(null)
+  const [impResumo, setImpResumo] = useState<RetAutoResp | null>(null)
   const [impConfirmado, setImpConfirmado] = useState(false)
   // Gestão da remessa: lista + extrato (ver/imprimir/cancelar/remover item)
   const [remessas, setRemessas] = useState<RemessaLista[]>([])
@@ -175,8 +175,6 @@ export default function RemessaPagamentoPage() {
   }, [rows, filtro, vencPreset, vencDe, vencAte])
 
   const selecionadas = useMemo(() => rows.filter((r) => r._sel), [rows])
-  // Remessas que podem receber um retorno (todas menos as canceladas). O operador escolhe a que enviou.
-  const remessasImportaveis = useMemo(() => remessas.filter((r) => r.status !== 'cancelado'), [remessas])
   // Guarda (RD-51): título PIX sem chave (nem no título, nem no cadastro do fornecedor) → o banco rejeita.
   const pixSemChave = useMemo(
     () => selecionadas.filter((t) => ehPix(t.forma_pagamento) && !(t.chave_pix?.trim()) && !(t.fornecedor?.pix?.trim())),
@@ -274,16 +272,26 @@ export default function RemessaPagamentoPage() {
     } finally { setBusy(false) }
   }
 
-  // ── Importar RETORNO (baixa automática) ──────────────────────────────────────────────────────────
+  // ── Importar RETORNO (baixa automática · auto-match por título) ───────────────────────────────────
   function abrirImportar() {
-    setImpOpen(true); setImpResumo(null); setImpPayload(null); setImpNaoCasados(0); setImpArquivo(''); setImpRet(null); setImpRemessaSel(''); setImpConfirmado(false); setMsg('')
+    setImpOpen(true); setImpResumo(null); setImpArquivo(''); setImpRet(null); setImpConfirmado(false); setMsg('')
   }
 
-  // Passo 1 — só LÊ o .ret (latin-1) e guarda os pagamentos parseados. NÃO procura remessa pelo número do
-  // arquivo (o NSA do header é o contador de arquivos do banco, não a remessa). O operador escolhe a remessa
-  // no passo 2; só então casamos por título e rodamos a prévia.
+  // Cada pagamento do .RET vira o payload da RPC: casa por código de barras (título único), com o valor de
+  // face p/ casar pix/documento, e a data/valor pagos p/ o banco confirmar (linha sem data = rejeição).
+  function itensDoRet(ret: { itens: ItemRetornoSicredi[] }): RetAutoItem[] {
+    return ret.itens.map((r) => ({
+      codigo_barras: normalizarCodigoBarras(r.codBarras) || r.codBarras,
+      valor: r.valTitulo, valor_pago: r.valPago, data_pagamento: r.dtPagamento,
+      ocorrencia: r.ocorrencia, pago_hint: r.pagoHint,
+    }))
+  }
+
+  // Sobe o .RET (latin-1), extrai os pagamentos e roda a AUTO-CONCILIAÇÃO (prévia, não grava): casa cada
+  // pagamento direto com o título, atravessando TODAS as remessas — sem escolher remessa, nunca pelo NSA.
   async function lerRetorno(file: File) {
-    setImpBusy(true); setImpResumo(null); setImpPayload(null); setImpNaoCasados(0); setImpConfirmado(false); setImpRemessaSel(''); setImpRet(null)
+    if (!companyId) return
+    setImpBusy(true); setImpResumo(null); setImpConfirmado(false); setImpRet(null)
     try {
       // CNAB é latin-1 e posicional: decodifica byte a byte pra não deslocar posições (acentos em nomes).
       const buf = new Uint8Array(await file.arrayBuffer())
@@ -293,67 +301,31 @@ export default function RemessaPagamentoPage() {
       const ret = parseRetornoSicredi(raw)
       if (!ret.itens.length) throw new Error('Nenhum pagamento (segmento J) encontrado no arquivo.')
       setImpRet({ nsa: ret.nsa, itens: ret.itens })
+      const { data, error } = await supabase.rpc('fn_remessa_retorno_conciliar_auto', {
+        p_company_id: companyId, p_itens: itensDoRet(ret), p_confirmar: false,
+      })
+      if (error) throw error
+      setImpResumo(data as RetAutoResp)
     } catch (e) {
       setImpArquivo(file.name)
-      setImpResumo({ sucesso: false, erro: (e as Error).message })
+      setImpResumo({ ok: false, erro: (e as Error).message })
     } finally { setImpBusy(false) }
   }
 
-  // Passo 2 — com a remessa que o operador ESCOLHEU, casa cada pagamento do .ret com os títulos dessa remessa
-  // POR CÓDIGO DE BARRAS (título ↔ pagamento, RD-52) e roda a PRÉVIA na RPC (não grava). O número do arquivo
-  // não entra no casamento. A RPC revalida valor/idempotência (RD-38).
-  async function analisarComRemessa(remessaId: string) {
-    if (!companyId || !impRet || !remessaId) return
-    setImpBusy(true); setImpResumo(null); setImpPayload(null); setImpNaoCasados(0); setImpConfirmado(false)
-    try {
-      // itens da remessa escolhida + código de barras do título (pra casar)
-      const { data: its } = await supabase.from('erp_remessa_pagamento_item')
-        .select('id,erp_pagar_id,valor,status_item').eq('remessa_id', remessaId)
-      const items = (its ?? []) as { id: string; erp_pagar_id: string; valor: number; status_item: string }[]
-      const pagarIds = items.map((i) => i.erp_pagar_id)
-      const barraDoItem = new Map<string, string>()   // barra44 -> item_id
-      if (pagarIds.length) {
-        const { data: pgs } = await supabase.from('erp_pagar').select('id,codigo_barras').in('id', pagarIds)
-        const pagarBarra = new Map((pgs ?? []).map((p) => [(p as { id: string }).id, (p as { codigo_barras: string | null }).codigo_barras]))
-        for (const it of items) {
-          const b = normalizarCodigoBarras(pagarBarra.get(it.erp_pagar_id) ?? '')
-          if (b) barraDoItem.set(b, it.id)
-        }
-      }
-
-      const itens: RetItemPayload[] = []
-      let naoCasados = 0
-      for (const r of impRet.itens) {
-        const itemId = barraDoItem.get(r.codBarras)
-        if (!itemId) { naoCasados++; continue }
-        itens.push({ item_id: itemId, val_pago: r.valPago, dt_pagamento: r.dtPagamento, ocorrencia: r.ocorrencia, pago_hint: r.pagoHint })
-      }
-      setImpNaoCasados(naoCasados)
-      setImpPayload({ remessaId, itens })
-
-      const { data, error } = await supabase.rpc('fn_remessa_retorno_processar', {
-        p_remessa_id: remessaId, p_company_id: companyId, p_itens: itens, p_conta_bancaria_id: null, p_confirmar: false,
-      })
-      if (error) throw error
-      setImpResumo(data as RetornoResposta)
-    } catch (e) {
-      setImpResumo({ sucesso: false, erro: (e as Error).message })
-    } finally { setImpBusy(false) }
-  }
-
-  // Confirma: roda a RPC gravando (baixa os pagos, reusa fn_pagar_baixar_pagamento). Idempotente.
+  // Confirma: roda a RPC gravando (baixa os casados via fn_pagar_baixar_pagamento). Idempotente:
+  // reimportar não baixa de novo (título/item já pago vira "já baixado").
   async function confirmarImportar() {
-    if (!companyId || !impPayload) return
+    if (!companyId || !impRet) return
     setImpBusy(true)
     try {
-      const { data, error } = await supabase.rpc('fn_remessa_retorno_processar', {
-        p_remessa_id: impPayload.remessaId, p_company_id: companyId, p_itens: impPayload.itens, p_conta_bancaria_id: null, p_confirmar: true,
+      const { data, error } = await supabase.rpc('fn_remessa_retorno_conciliar_auto', {
+        p_company_id: companyId, p_itens: itensDoRet(impRet), p_confirmar: true,
       })
       if (error) throw error
-      setImpResumo(data as RetornoResposta); setImpConfirmado(true)
+      setImpResumo(data as RetAutoResp); setImpConfirmado(true)
       void carregar()
     } catch (e) {
-      setImpResumo({ sucesso: false, erro: (e as Error).message })
+      setImpResumo({ ok: false, erro: (e as Error).message })
     } finally { setImpBusy(false) }
   }
 
@@ -668,7 +640,7 @@ export default function RemessaPagamentoPage() {
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 560, width: '92%', maxHeight: '86vh', overflowY: 'auto', border: `0.5px solid ${LINE}` }}>
             <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 4px' }}>Importar retorno do banco</h3>
             <p style={{ fontSize: 12.5, color: MUT, margin: '0 0 12px', lineHeight: 1.5 }}>
-              1) Suba o arquivo de retorno (<b>.ret</b>/.rem) que você baixou no Internet Banking. 2) Escolha a <b>remessa</b> que você enviou. O sistema casa cada pagamento com o título (pelo código de barras), confere o valor e dá baixa nos que o banco confirmou. Reimportar o mesmo arquivo não baixa de novo.
+              Suba o arquivo de retorno (<b>.ret</b>/.rem) que você baixou no Internet Banking. O sistema acha sozinho os títulos e dá baixa nos que o banco confirmou — <b>não precisa escolher a remessa</b> (um arquivo pode ter pagamentos de várias). Reimportar o mesmo arquivo não baixa de novo.
             </p>
 
             <label style={{ display: 'block', border: `1px dashed ${LINE}`, borderRadius: 10, padding: 16, textAlign: 'center', cursor: impBusy ? 'default' : 'pointer', color: ESP, fontSize: 13, background: BG }}>
@@ -678,33 +650,19 @@ export default function RemessaPagamentoPage() {
             </label>
 
             {impRet && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11.5, color: MUT, marginBottom: 6, lineHeight: 1.45 }}>
-                  Arquivo nº <b>{impRet.nsa}</b> · {impRet.itens.length} pagamento{impRet.itens.length === 1 ? '' : 's'} lido{impRet.itens.length === 1 ? '' : 's'}.
-                  <span style={{ color: MUT }}> Esse número é o contador de arquivos do banco — <b>não</b> é o número da remessa. Escolha abaixo a remessa que este retorno corresponde.</span>
-                </div>
-                <label style={{ fontSize: 12.5, fontWeight: 700, color: ESP, display: 'block', marginBottom: 4 }}>Remessa correspondente</label>
-                <select value={impRemessaSel} disabled={impBusy}
-                  onChange={(e) => { const id = e.target.value; setImpRemessaSel(id); setImpResumo(null); setImpPayload(null); setImpNaoCasados(0); setImpConfirmado(false); if (id) void analisarComRemessa(id) }}
-                  style={{ ...inp, width: '100%' }}>
-                  <option value="">Escolha a remessa que você enviou…</option>
-                  {remessasImportaveis.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      Nº {r.numero_sequencial} · {brl(Math.round((r.valor_total ?? 0) * 100))} · {r.gerado_em ? new Date(r.gerado_em).toLocaleDateString('pt-BR') : '—'} · {r.total_titulos} tít.{r.retorno_importado_em ? ' · retorno já importado' : ''}
-                    </option>
-                  ))}
-                </select>
-                {remessasImportaveis.length === 0 && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: VERM }}>Nenhuma remessa disponível para casar este retorno (gere/registre a remessa antes).</div>
-                )}
+              <div style={{ marginTop: 10, fontSize: 11.5, color: MUT, lineHeight: 1.45 }}>
+                Arquivo nº <b>{impRet.nsa}</b> · {impRet.itens.length} pagamento{impRet.itens.length === 1 ? '' : 's'} lido{impRet.itens.length === 1 ? '' : 's'}
+                <span> — o número do arquivo é só referência (contador do banco), não entra no casamento.</span>
               </div>
             )}
 
-            {impResumo && !impResumo.sucesso && (
-              <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#FBEAEA', color: VERM, border: `0.5px solid ${LINE}` }}>{impResumo.erro}</div>
+            {impResumo && !impResumo.ok && (
+              <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#FBEAEA', color: VERM, border: `0.5px solid ${LINE}` }}>
+                {impResumo.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : impResumo.erro}
+              </div>
             )}
 
-            {impResumo?.sucesso && impResumo.resumo && (
+            {impResumo?.ok && impResumo.resumo && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>
                   {impConfirmado ? '✅ Baixa concluída' : 'Prévia — confira antes de confirmar'}
@@ -712,32 +670,57 @@ export default function RemessaPagamentoPage() {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
                   <span style={{ padding: '3px 8px', borderRadius: 6, background: '#EAF5EE', color: VERDE, fontWeight: 700 }}>{impResumo.resumo.pagos} {impConfirmado ? 'baixados' : 'a baixar'}</span>
                   {impResumo.resumo.ja_pagos > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.ja_pagos} já baixados</span>}
-                  {impResumo.resumo.divergentes > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBF4E4', color: '#8a6d1a', fontWeight: 700 }}>{impResumo.resumo.divergentes} c/ valor divergente</span>}
                   {impResumo.resumo.rejeitados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.rejeitados} rejeitados</span>}
                   {impResumo.resumo.erros > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.erros} c/ erro</span>}
-                  {impNaoCasados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impNaoCasados} não casados</span>}
+                  {impResumo.resumo.nao_casados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.nao_casados} não casados</span>}
                 </div>
 
-                {(impResumo.detalhes ?? []).filter((d) => d.resultado !== 'pago' && d.resultado !== 'ja_pago').length > 0 && (
+                {/* casados: título · remessa · valor · ocorrência */}
+                {(impResumo.casados ?? []).length > 0 && (
                   <div style={{ marginTop: 10, border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
-                    {(impResumo.detalhes ?? []).filter((d) => d.resultado !== 'pago' && d.resultado !== 'ja_pago').map((d, i) => (
-                      <div key={i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
-                        <b style={{ color: d.resultado === 'divergente' ? '#8a6d1a' : VERM }}>{d.resultado}</b>
-                        <span style={{ color: MUT }}> · {d.motivo}</span>
+                    {(impResumo.casados ?? []).map((c, i) => (
+                      <div key={c.item_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, alignItems: 'center', padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
+                        <div style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ color: ESP, fontWeight: 600 }}>{c.descricao || '—'}</span>
+                          <span style={{ color: MUT }}> · remessa Nº {c.remessa}{c.ocorrencia ? ` · oc ${c.ocorrencia}` : ''}</span>
+                        </div>
+                        <span style={{ color: c.resultado === 'erro_baixa' ? VERM : VERDE, fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(Math.round((c.valor ?? 0) * 100))}</span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {impNaoCasados > 0 && !impConfirmado && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: MUT }}>⚠ {impNaoCasados} pagamento(s) do arquivo não bateram com títulos desta remessa — verifique se é o retorno certo.</div>
+                {/* rejeitados pelo banco (casaram título, mas sem confirmação de pagamento) */}
+                {(impResumo.rejeitados ?? []).length > 0 && (
+                  <div style={{ marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+                    {(impResumo.rejeitados ?? []).map((d, i) => (
+                      <div key={i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
+                        <b style={{ color: VERM }}>rejeitado</b>
+                        <span style={{ color: MUT }}> · {d.descricao || brl(Math.round((d.valor ?? 0) * 100))} — {d.motivo}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* não casados: pagamento do arquivo sem título correspondente (tratar manual) */}
+                {(impResumo.nao_casados ?? []).length > 0 && !impConfirmado && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12, color: MUT, marginBottom: 4 }}>⚠ {(impResumo.nao_casados ?? []).length} pagamento(s) do arquivo sem título correspondente (podem ser pagamentos de fora do sistema — trate manual):</div>
+                    <div style={{ border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+                      {(impResumo.nao_casados ?? []).map((d, i) => (
+                        <div key={i} style={{ padding: '6px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12, color: MUT }}>
+                          {brl(Math.round((d.valor ?? 0) * 100))}{d.codigo_barras ? ` · barra …${String(d.codigo_barras).slice(-8)}` : ''} — não encontrei título correspondente
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               <button onClick={() => setImpOpen(false)} disabled={impBusy} style={btnGhost}>{impConfirmado ? 'Fechar' : 'Cancelar'}</button>
-              {impResumo?.sucesso && !impConfirmado && (impResumo.resumo?.pagos ?? 0) > 0 && (
+              {impResumo?.ok && !impConfirmado && (impResumo.resumo?.pagos ?? 0) > 0 && (
                 <button onClick={confirmarImportar} disabled={impBusy} style={btnPrimary}>
                   {impBusy ? 'Baixando…' : `Confirmar baixa de ${impResumo.resumo?.pagos}`}
                 </button>
