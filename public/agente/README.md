@@ -1,10 +1,30 @@
-# public/agente — executável do Agente PS ATAK
+# Agente PS ATAK — hosting no Supabase Storage (bucket público `agente`)
 
-O botão **"Gerar instalador"** (tela Conectores · Industrial) busca o executável em
-`/agente/agente-atak.exe` (ou seja, o arquivo **`public/agente/agente-atak.exe`** deste repo) e o
-empacota, no navegador, num `.zip` junto com o `config.json` (token da empresa), o `instalar.bat` e o
-`LEIA-ME.md`. Enquanto o `.exe` não estiver aqui, o botão avisa em português que a publicação está
-pendente (ele valida o cabeçalho `MZ` do executável — não zipa um HTML de 404 por engano).
+> **Atualização:** o hosting do `.exe` + `versao.json` mudou de `public/agente/` (no git) para o
+> **Supabase Storage** (bucket público `agente`). O **CI publica sozinho** na tag `agente-v*` — zero
+> binário no git, zero passo manual. Os arquivos abaixo (`versao.json` deste dir) ficam só como
+> referência/template; a fonte viva é o Storage.
+
+URLs públicas (baixadas por qualquer máquina de cliente, HTTPS):
+- `.../storage/v1/object/public/agente/agente-atak.exe`
+- `.../storage/v1/object/public/agente/versao.json`
+
+O botão **"Gerar instalador"** (Conectores · Industrial) e o **auto-update do agente** buscam desses
+URLs do Storage. Enquanto o `.exe` não estiver publicado, o botão avisa em PT-BR (valida o cabeçalho
+`MZ` — não zipa um HTML de 404).
+
+## Fluxo de release (automático)
+1. `git tag agente-v2.1.0 && git push --tags` → o workflow "Build Agente ATAK" builda o `.exe`,
+   gera o `versao.json` (com o sha256 e o `url` absoluto do Storage) e **publica os dois no bucket**.
+2. Pronto — todos os agentes se atualizam no próximo ciclo; a tela Conectores gera o instalador
+   com o `.exe` do Storage.
+
+Requer (1×, pelo CEO) os secrets `SUPABASE_URL` e `SUPABASE_STORAGE_KEY` no repo (Pilar 2 — a chave
+só serve pro Storage, vive nos Secrets do GitHub, nunca no código; vault intocado).
+
+---
+
+## (Legado) Como publicar o `.exe` manualmente em `public/agente/`
 
 ## Como publicar o `.exe` (Parte A.1 — manual, hoje)
 
@@ -18,6 +38,23 @@ pendente (ele valida o cabeçalho `MZ` do executável — não zipa um HTML de 4
 > `sha256:dd4d2ee0d2df70b96e4746354ec5ea06a4e39cf341cef2e10cb504b46f88e961` (~25,5 MB).
 > Confira o digest do arquivo baixado com `certutil -hashfile agente-atak.exe SHA256` (Windows) ou
 > `sha256sum agente-atak.exe` (Linux/Mac) antes de commitar.
+
+## Auto-update (o que faz o agente escalar)
+
+Ao lado do `.exe` vai o **`versao.json`** (manifesto). O agente instalado consulta
+`/agente/versao.json` de tempos em tempos (HTTPS de saída): se a `versao` do manifesto for maior
+que a dele, baixa o novo `.exe`, **confere o sha256** (nunca instala arquivo errado), faz backup e
+troca via updater (com rollback automático). Assim **1 publicação atualiza todos os agentes**.
+
+Publicar uma versão nova:
+1. Rode o build (tag `agente-v2.1.0`) → o CI gera `agente-atak.exe` **e** `versao.json` (com o sha256
+   já calculado — sem erro de sha manual).
+2. Baixe os dois do artefato e coloque em `public/agente/` (substituindo os atuais).
+3. Commit + deploy. Em ~1 ciclo os agentes se atualizam sozinhos.
+
+> O `versao.json` deste repo é o manifesto servido. Mantenha `versao` = a versão do `.exe` publicado
+> e `sha256` = o hash real do `.exe` (o CI preenche). Enquanto o `.exe` não estiver publicado, o
+> `sha256` fica vazio e os agentes não atualizam (download 404 → seguem coletando).
 
 ## Evolução (Parte A.2 — automático, depois)
 

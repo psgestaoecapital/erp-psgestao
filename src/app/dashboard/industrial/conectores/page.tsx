@@ -66,12 +66,14 @@ type Monitor = {
 }
 type Teste = { status: string; resultado: string | null; solicitado_em: string | null; respondido_em: string | null }
 type Listar = { company_id: string; nome: string | null; conexao: Conexao | null; monitor?: Monitor; teste?: Teste | null }
+type AgenteStatus = { versao_agente: string | null; hostname: string | null; ultima_carga: string | null; status: string | null; ultimo_heartbeat: string | null }
 
 export default function ConectoresIndustrialPage() {
   const { companyIds, selInfo, loading: compLoading, sel } = useCompanyIds()
   const empresaUnica = selInfo?.tipo === 'empresa' && sel && companyIds.length === 1 ? sel : null
 
   const [dados, setDados] = useState<Listar | null>(null)
+  const [agente, setAgente] = useState<AgenteStatus | null>(null)
   const [dominiosDisp, setDominiosDisp] = useState<string[]>([])
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -82,12 +84,14 @@ export default function ConectoresIndustrialPage() {
   const [doms, setDoms] = useState<Set<string>>(new Set())
 
   const carregar = useCallback(async (companyId: string) => {
-    const [{ data }, dm] = await Promise.all([
+    const [{ data }, dm, ag] = await Promise.all([
       supabase.rpc('fn_atak_conexao_listar', { p_company_id: companyId }),
       supabase.from('atak_fonte_mapa').select('dominio').eq('ativo', true),
+      supabase.from('erp_agente_status').select('versao_agente,hostname,ultima_carga,status,ultimo_heartbeat').eq('company_id', companyId).maybeSingle(),
     ])
     const d = data as Listar | null
     setDados(d)
+    setAgente((ag.data as AgenteStatus | null) ?? null)
     const domsList = Array.from(new Set(((dm.data as { dominio: string }[]) ?? []).map((x) => x.dominio)))
     setDominiosDisp(domsList)
     const cx = d?.conexao
@@ -181,8 +185,8 @@ export default function ConectoresIndustrialPage() {
   }
 
   // "Gerar instalador": monta o .zip (agente-atak.exe + config.json c/ token + instalar.bat + LEIA-ME)
-  // no navegador (JSZip). O .exe vem de /agente/agente-atak.exe (public/agente · Parte A.1). Pilar 2:
-  // o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
+  // no navegador (JSZip). O .exe vem do Supabase Storage (bucket público 'agente', publicado pelo CI).
+  // Pilar 2: o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
   const gerarInstalador = async () => {
     const cx = dados?.conexao
     if (!cx?.agente_token || !empresaUnica) { setMsg({ t: 'Salve a conexão primeiro — o token é gerado no salvar.', ok: false }); return }
@@ -190,13 +194,14 @@ export default function ConectoresIndustrialPage() {
     const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
     if (!SB_URL || !SB_ANON) { setMsg({ t: 'Configuração da nuvem PS ausente (URL/chave pública). Avise o suporte.', ok: false }); return }
     setBusy('zip'); setMsg(null)
+    const exeUrl = `${SB_URL}/storage/v1/object/public/agente/agente-atak.exe`
     try {
-      const resp = await fetch('/agente/agente-atak.exe', { cache: 'no-store' })
-      if (!resp.ok) throw new Error('O instalador (agente-atak.exe) ainda não foi publicado no painel — o build do agente precisa ser publicado em /agente/. Avise o suporte PS.')
+      const resp = await fetch(exeUrl, { cache: 'no-store' })
+      if (!resp.ok) throw new Error('O instalador (agente-atak.exe) ainda não foi publicado no Storage — rode o build do agente (tag agente-v*). Avise o suporte PS.')
       const exe = await resp.arrayBuffer()
       const mz = new Uint8Array(exe.slice(0, 2)) // um .exe real começa com "MZ" — não zipa um HTML de 404 por engano
       if (exe.byteLength < 100000 || mz[0] !== 0x4D || mz[1] !== 0x5A) {
-        throw new Error('O arquivo em /agente/agente-atak.exe não é um executável válido (publicação pendente).')
+        throw new Error('O arquivo do instalador no Storage não é um executável válido (publicação pendente).')
       }
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()
@@ -258,6 +263,22 @@ export default function ConectoresIndustrialPage() {
           {mon?.ultima_versao ? ` · agente ${mon.ultima_versao}` : ''}
           {mon?.ultima_fase === 'falha' && mon?.ultimo_erro ? ` · último ciclo com erro: ${mon.ultimo_erro}` : ''}
         </div>
+        {/* Heartbeat do AGENTE (auto-reporta versão/status mesmo sem carga) — a PS vê quem está parado/desatualizado */}
+        {(() => {
+          const hb = agente?.ultimo_heartbeat ? new Date(agente.ultimo_heartbeat) : null
+          const min = hb ? Math.floor((Date.now() - hb.getTime()) / 60000) : null
+          const online = min != null && min < 30   // 2 ciclos de ~15min
+          if (!agente) return null
+          return (
+            <div style={{ fontSize: 11, color: C.txm, marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid ' + C.bd, paddingTop: 6 }}>
+              <span style={{ fontWeight: 700, color: online ? C.g : C.r }}>{online ? '● online' : '○ offline'}</span>
+              <span>Agente <b>{agente.versao_agente ?? '—'}</b></span>
+              {agente.hostname && <span>· {agente.hostname}</span>}
+              {min != null && <span>· heartbeat há {min < 1 ? 'menos de 1 min' : `${min} min`}</span>}
+              {agente.status && agente.status !== 'ok' && <span style={{ color: C.y }}>· {agente.status}</span>}
+            </div>
+          )
+        })()}
       </div>
 
       {/* FORMULÁRIO */}
