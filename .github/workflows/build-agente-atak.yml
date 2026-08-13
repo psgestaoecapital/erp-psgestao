@@ -35,10 +35,32 @@ jobs:
       - name: Buildar .exe
         run: npm run build
 
+      # Gera o versao.json COM o sha256 calculado (zero erro de sha manual · auto-update).
+      # A versao vem da tag agente-vX.Y.Z (ou do package.json no dispatch manual).
+      - name: Gerar versao.json (sha256)
+        shell: pwsh
+        run: |
+          $sha = (Get-FileHash -Algorithm SHA256 dist/agente-atak.exe).Hash.ToLower()
+          $ref = "${{ github.ref_name }}"
+          if ($ref -match '^agente-v(.+)$') { $versao = $Matches[1] } else { $versao = (Get-Content package.json | ConvertFrom-Json).version }
+          $manifesto = [ordered]@{
+            versao = $versao
+            url = "/agente/agente-atak.exe"
+            sha256 = $sha
+            obrigatorio = $false
+            notas = "Build $ref"
+          }
+          $manifesto | ConvertTo-Json | Set-Content -Encoding utf8 dist/versao.json
+          Write-Host "versao.json -> versao=$versao sha256=$sha"
+          Get-Content dist/versao.json
+
+      # Publica o .exe + o versao.json (pronto pra colocar em public/agente/). Sha já calculado.
       - name: Publicar artefato
         uses: actions/upload-artifact@v4
         with:
           name: agente-atak-exe
-          path: collectors/atak-agente/dist/agente-atak.exe
+          path: |
+            collectors/atak-agente/dist/agente-atak.exe
+            collectors/atak-agente/dist/versao.json
           retention-days: 30
           if-no-files-found: error

@@ -21,7 +21,8 @@ const fs = require('fs')
 const path = require('path')
 const readline = require('readline')
 
-const AGENT_VERSION = 'atak-agente-2.0'
+const VERSAO_AGENTE = '2.1.0'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
 const SERVICE_NAME = 'PS Agente ATAK'
 
 // Diretório do binário (pkg) ou do script — cred.dat/config.json/agente.log ficam ao lado do .exe.
@@ -55,6 +56,10 @@ function carregarConfig() {
     janelaDias: Number(C.PS_JANELA_DIAS || 7),
     batchSize: Number(C.PS_BATCH_SIZE || 500),
     syncMinutoPadrao: Number(C.PS_SYNC_MINUTO || 15),
+    // Auto-update: base HTTPS onde ficam /agente/versao.json e o .exe (o app PS). Sem isso, o
+    // auto-update fica desligado (o agente segue coletando normalmente). O instalador embute PS_UPDATE_BASE.
+    updateBase: (C.PS_UPDATE_BASE || C.PS_APP_URL || '').replace(/\/+$/, ''),
+    updateHoras: Number(C.PS_UPDATE_HORAS || 6),   // throttle da checagem de versão
   }
 }
 function exigir(C) {
@@ -241,7 +246,71 @@ async function cicloColeta(C) {
     catch (e) { logErr('falha no heartbeat:', e.message) }
   }
   log(`ciclo em ${((Date.now() - t0) / 1000).toFixed(1)}s — ${enviados} enviado(s), ${erros} domínio(s) com erro.`)
-  return cfg.sync_minuto || C.syncMinutoPadrao
+  return { minutos: cfg.sync_minuto || C.syncMinutoPadrao, status: erros > 0 ? 'erro' : 'ok', enviados, erros }
+}
+
+// ── Heartbeat de versão (observabilidade · RD-58) — a tela Conectores lê disso ────────────────────
+async function enviarHeartbeat(C, res) {
+  try {
+    await rpc(C, 'fn_agente_heartbeat', {
+      p_token: C.token, p_versao: VERSAO_AGENTE, p_hostname: HOSTNAME,
+      p_ultima_carga: (res && res.enviados > 0) ? new Date().toISOString() : null,
+      p_status: res ? res.status : 'sem_config',
+    })
+  } catch (e) { logErr('heartbeat não enviado:', e.message) }
+}
+
+// ── Auto-update (o que faz o connector ESCALAR): 1 publicação → todos os agentes ──────────────────
+// Outbound-only (HTTPS de saída). Nunca instala arquivo com sha256 errado. Falha graciosa: erro de
+// rede/verificação só pula o update dessa vez — a coleta segue. cred.dat/config.json não são tocados.
+function semverGt(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false }
+  return false
+}
+let _ultimaChecagemUpdate = 0
+async function verificarAtualizacao(C) {
+  if (!C.updateBase) return                                   // auto-update desligado (sem base configurada)
+  if (!process.pkg) return                                     // só faz sentido no .exe instalado (Windows)
+  const agora = Date.now()
+  if (agora - _ultimaChecagemUpdate < Math.max(1, C.updateHoras) * 3600 * 1000) return
+  _ultimaChecagemUpdate = agora
+  try {
+    const res = await fetch(`${C.updateBase}/agente/versao.json`, { cache: 'no-store' })
+    if (!res.ok) return
+    const man = await res.json()
+    if (!man || !man.versao || !semverGt(man.versao, VERSAO_AGENTE)) return
+    log(`nova versão ${man.versao} disponível (rodando ${VERSAO_AGENTE})${man.obrigatorio ? ' [OBRIGATÓRIA]' : ''} — baixando…`)
+    const exeUrl = String(man.url || '/agente/agente-atak.exe').startsWith('http') ? man.url : `${C.updateBase}${man.url}`
+    const dl = await fetch(exeUrl)
+    if (!dl.ok) { logErr(`download do .exe falhou (${dl.status}) — segue na versão atual.`); return }
+    const buf = Buffer.from(await dl.arrayBuffer())
+    const sha = require('crypto').createHash('sha256').update(buf).digest('hex')
+    if (man.sha256 && sha.toLowerCase() !== String(man.sha256).toLowerCase()) {
+      logErr('sha256 NÃO confere — abortando update (arquivo corrompido/errado). Segue na versão atual.'); return
+    }
+    const mz = buf.subarray(0, 2)
+    if (buf.length < 100000 || mz[0] !== 0x4D || mz[1] !== 0x5A) { logErr('arquivo baixado não é um .exe válido — abortando.'); return }
+    fs.writeFileSync(path.join(BASE_DIR, 'agente-atak.new.exe'), buf)
+    try { fs.copyFileSync(process.execPath, path.join(BASE_DIR, 'agente-atak.bak.exe')) } catch (e) { logErr('backup do .exe falhou:', e.message) }
+    // Updater destacado (um .exe em execução não se sobrescreve) — nssm para/troca/sobe, com rollback.
+    const bat = [
+      '@echo off',
+      `"%~dp0nssm.exe" stop "${SERVICE_NAME}"`,
+      'timeout /t 3 /nobreak >nul',
+      'move /Y "%~dp0agente-atak.new.exe" "%~dp0agente-atak.exe"',
+      `"%~dp0nssm.exe" start "${SERVICE_NAME}"`,
+      'timeout /t 15 /nobreak >nul',
+      `"%~dp0nssm.exe" status "${SERVICE_NAME}" | find "SERVICE_RUNNING" >nul || (move /Y "%~dp0agente-atak.bak.exe" "%~dp0agente-atak.exe" & "%~dp0nssm.exe" start "${SERVICE_NAME}")`,
+      '',
+    ].join('\r\n')
+    fs.writeFileSync(path.join(BASE_DIR, 'atualizar.bat'), bat)
+    const { spawn } = require('child_process')
+    spawn('cmd.exe', ['/c', 'atualizar.bat'], { cwd: BASE_DIR, detached: true, stdio: 'ignore' }).unref()
+    log(`updater disparado — o serviço reinicia na ${man.versao} (rollback automático se não subir em 15s).`)
+    process.exit(0)                                            // encerra: o serviço volta com o novo .exe
+  } catch (e) { logErr('auto-update: falha (segue na versão atual):', e.message) }
 }
 
 // ── Loop do serviço: o próprio agente agenda (sem Task Scheduler) ──────────────────────────────────
@@ -249,10 +318,13 @@ async function rodarLoop(C) {
   exigir(C)
   let minutos = C.syncMinutoPadrao
   const tick = async () => {
-    try { const m = await cicloColeta(C); if (m) minutos = m } catch (e) { logErr('ciclo:', e.message) }
+    await verificarAtualizacao(C).catch((e) => logErr('auto-update:', e.message))   // pode encerrar o processo p/ atualizar
+    let res
+    try { res = await cicloColeta(C); if (res && res.minutos) minutos = res.minutos } catch (e) { logErr('ciclo:', e.message) }
+    await enviarHeartbeat(C, res)
     setTimeout(tick, Math.max(1, minutos) * 60 * 1000)
   }
-  log(`serviço iniciado — coleta a cada ~${minutos} min.`)
+  log(`serviço ${VERSAO_AGENTE} iniciado — coleta a cada ~${minutos} min; auto-update ${C.updateBase ? 'ligado' : 'desligado'}.`)
   tick()
 }
 

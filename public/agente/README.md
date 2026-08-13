@@ -19,6 +19,23 @@ pendente (ele valida o cabeçalho `MZ` do executável — não zipa um HTML de 4
 > Confira o digest do arquivo baixado com `certutil -hashfile agente-atak.exe SHA256` (Windows) ou
 > `sha256sum agente-atak.exe` (Linux/Mac) antes de commitar.
 
+## Auto-update (o que faz o agente escalar)
+
+Ao lado do `.exe` vai o **`versao.json`** (manifesto). O agente instalado consulta
+`/agente/versao.json` de tempos em tempos (HTTPS de saída): se a `versao` do manifesto for maior
+que a dele, baixa o novo `.exe`, **confere o sha256** (nunca instala arquivo errado), faz backup e
+troca via updater (com rollback automático). Assim **1 publicação atualiza todos os agentes**.
+
+Publicar uma versão nova:
+1. Rode o build (tag `agente-v2.1.0`) → o CI gera `agente-atak.exe` **e** `versao.json` (com o sha256
+   já calculado — sem erro de sha manual).
+2. Baixe os dois do artefato e coloque em `public/agente/` (substituindo os atuais).
+3. Commit + deploy. Em ~1 ciclo os agentes se atualizam sozinhos.
+
+> O `versao.json` deste repo é o manifesto servido. Mantenha `versao` = a versão do `.exe` publicado
+> e `sha256` = o hash real do `.exe` (o CI preenche). Enquanto o `.exe` não estiver publicado, o
+> `sha256` fica vazio e os agentes não atualizam (download 404 → seguem coletando).
+
 ## Evolução (Parte A.2 — automático, depois)
 
 Um passo no workflow publica o `.exe` no Supabase Storage (bucket público `agente`) a cada build, e o
