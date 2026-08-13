@@ -1,10 +1,10 @@
 'use client'
 // Seletor de USUÁRIO do tenant (RD-26: fonte fn_usuarios_da_empresa, já filtrada por company_id — Pilar 2).
-// Busca-como-digita, mostra full_name + email (desambiguação). Ao escolher devolve (id, full_name) —
-// grava responsavel_id + responsavel_nome. RD-51: mostra o full_name que EXISTE no cadastro (se estiver
-// ruim, a correção do nome é ação de cadastro separada, não deste seletor).
+// Busca-como-digita (por nome OU e-mail), mas EXIBE só o nome — nunca o e-mail (decisão do CEO). Ao escolher
+// devolve (id, nome) — grava responsavel_id + responsavel_nome. RD-51: sem full_name, embeleza o prefixo do
+// e-mail (nomeUsuario), nunca mostra o e-mail inteiro.
 import { useState, type CSSProperties } from 'react'
-import { labelUsuario } from '@/lib/usuarioLabel'
+import { nomeUsuario } from '@/lib/usuarioLabel'
 
 export type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 
@@ -24,7 +24,7 @@ export default function SeletorUsuario({
   const filtradas = termo
     ? users.filter((u) => `${u.full_name ?? ''} ${u.email ?? ''}`.toLowerCase().includes(termo))
     : users
-  const nomeDe = (u: UsuarioOpt) => (u.full_name?.trim() || u.email || '—')
+  const nomeDe = (u: UsuarioOpt) => nomeUsuario(u)
 
   return (
     <div style={{ position: 'relative' }}>
@@ -32,7 +32,7 @@ export default function SeletorUsuario({
         style={{ ...inp, width: '100%', boxSizing: 'border-box' }}
         disabled={disabled}
         placeholder={placeholder}
-        value={open ? q : (sel ? labelUsuario(sel, users) : '')}
+        value={open ? q : (sel ? nomeUsuario(sel) : '')}
         onFocus={() => { if (!disabled) { setOpen(true); setQ('') } }}
         onChange={(e) => setQ(e.target.value)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
@@ -58,9 +58,6 @@ export default function SeletorUsuario({
               style={{ ...dropItem, background: u.id === value ? '#FAF7F2' : '#fff' }}
             >
               <span style={{ fontWeight: 600, color: '#3D2314' }}>{nomeDe(u)}</span>
-              {u.full_name?.trim() && u.email && (
-                <span style={{ color: '#6b5444', marginLeft: 6, fontSize: 11 }}>· {u.email}</span>
-              )}
             </button>
           ))}
         </div>
