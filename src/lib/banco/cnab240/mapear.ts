@@ -50,10 +50,11 @@ export function mapearRemessaSicoob(cfg: ConfigSicoobDb, titulos: TituloPag[], o
     if (valor <= 0) { erros.push({ id: t.id, motivo: 'valor inválido (zero ou negativo)' }); continue }
 
     if (forma === 'boleto') {
-      // VERBATIM: só o código de barras de 44 dígitos, exatamente como no banco. Linha digitável (47) NÃO
-      // é aceita (o banco rejeita barcode reformatado) — recadastre o código de barras de 44 (RD-51).
+      // VERBATIM: só o código de barras de 44 dígitos, exatamente como no banco (o banco rejeita barcode
+      // reformatado). A linha digitável (47) já é normalizada p/ 44 no salvar (trigger erp_pagar), então
+      // aqui só falha quando o título realmente não tem um 44 válido (RD-51).
       const cb = barcodeRemessa44(t.codigo_barras)
-      if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras de 44 dígitos (linha digitável de 47 não entra — recadastre o código de barras)' }); continue }
+      if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras válido (44 dígitos) — cadastre/confira o código de barras deste título' }); continue }
       if (cb[0] === '8') { // arrecadação/tributo -> segmento O
         tributos.push({ seg: 'O', codBarras: cb, nomeConc: nome, dtVenc, dtPagto, valPagto: valor, controle: seuNum })
       } else {
