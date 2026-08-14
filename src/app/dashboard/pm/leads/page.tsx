@@ -1,7 +1,8 @@
 'use client'
 // LEADS · CRM de entrada da agência (P&M). Funil sobre agency_leads, escopado por company_id (RD-45).
-// Cadastro rápido com autocomplete de clientes da GE (fn_cliente_buscar) + criar cliente inline
-// (fn_cliente_criar_inline) + kanban por etapa (arrasta) + ações Ganhar/Perder/Converter/Agendar.
+// Etapas do kanban vêm de funil_etapa (fn_funil_etapas_listar) — configuráveis (add/editar/reordenar/excluir).
+// Cadastro rápido com autocomplete de clientes GE (fn_cliente_buscar) → grava erp_cliente_id (não cliente_id,
+// que tem FK p/ agency_clientes). Kanban arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -14,6 +15,7 @@ const BORDA = '#E7DED3'
 const TEXTM = '#6b5444'
 const GREEN = '#1F5A1F'
 const RED = '#7A1F1F'
+const TIPO_FUNIL = 'leads'
 
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -23,19 +25,15 @@ const ORIGENS: { v: string; l: string }[] = [
   { v: 'trafego_pago', l: 'Tráfego pago' },
   { v: 'relacionamento', l: 'Relacionamento' },
 ]
-const ETAPAS: { v: string; l: string; cor: string }[] = [
-  { v: 'novo', l: 'Novo', cor: '#F0E9DE' },
-  { v: 'atendimento', l: 'Atendimento', cor: '#FFF3D6' },
-  { v: 'reuniao_agendada', l: 'Reunião', cor: '#FCE9C2' },
-  { v: 'entendimento', l: 'Entendimento', cor: '#FAD18A' },
-  { v: 'proposta', l: 'Proposta', cor: '#F4B860' },
-  { v: 'negociacao', l: 'Negociação', cor: '#E8A93A' },
-  { v: 'ganho', l: 'Ganho', cor: '#DCEFD7' },
-  { v: 'perdido', l: 'Perdido', cor: '#F4D6D6' },
-]
-const etapaCfg = (v: string) => ETAPAS.find((e) => e.v === v) ?? { v, l: v, cor: OFFWHITE }
 const origemL = (v: string) => ORIGENS.find((o) => o.v === v)?.l ?? v
 
+const TIPOS_ETAPA: { v: string; l: string }[] = [
+  { v: 'normal', l: 'Normal' },
+  { v: 'ganho', l: 'Ganho (fecha)' },
+  { v: 'perda', l: 'Perda (fecha)' },
+]
+
+type Etapa = { id: string; chave: string; rotulo: string; ordem: number; cor: string | null; tipo_etapa: string; ativo: boolean }
 type Lead = {
   id: string; company_id: string; nome: string; empresa: string | null
   origem: string; canal_contato: string | null; etapa: string
@@ -57,6 +55,7 @@ export default function LeadsPage() {
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
 
   const [leads, setLeads] = useState<Lead[]>([])
+  const [etapas, setEtapas] = useState<Etapa[]>([])
   const [loading, setLoading] = useState(true)
   const [respMap, setRespMap] = useState<Record<string, string>>({})
   const [uid, setUid] = useState<string | null>(null)
@@ -75,6 +74,13 @@ export default function LeadsPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
+  const [cfgOpen, setCfgOpen] = useState(false)
+
+  const carregarEtapas = useCallback(async () => {
+    if (!empresa) { setEtapas([]); return }
+    const { data } = await supabase.rpc('fn_funil_etapas_listar', { p_company_id: empresa, p_tipo_funil: TIPO_FUNIL })
+    setEtapas(((data ?? []) as Etapa[]).slice().sort((a, b) => a.ordem - b.ordem))
+  }, [empresa])
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLeads([]); setLoading(false); return }
@@ -91,9 +97,16 @@ export default function LeadsPage() {
     } else setRespMap({})
     setLoading(false)
   }, [empresa])
+
   useEffect(() => { void carregar() }, [carregar])
+  useEffect(() => { void carregarEtapas() }, [carregarEtapas])
   useEffect(() => { void supabase.auth.getUser().then(({ data }) => setUid(data.user?.id ?? null)) }, [])
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
+
+  const etapaCfg = useCallback((chave: string) => etapas.find((e) => e.chave === chave) ?? { id: chave, chave, rotulo: chave, ordem: 999, cor: OFFWHITE, tipo_etapa: 'normal', ativo: true }, [etapas])
+  const fechadas = useMemo(() => new Set(etapas.filter((e) => e.tipo_etapa !== 'normal').map((e) => e.chave)), [etapas])
+  const ganhoChaves = useMemo(() => new Set(etapas.filter((e) => e.tipo_etapa === 'ganho').map((e) => e.chave)), [etapas])
+  const perdaChave = useMemo(() => etapas.find((e) => e.tipo_etapa === 'perda')?.chave ?? 'perdido', [etapas])
 
   const canais = useMemo(() => Array.from(new Set(leads.map((l) => l.canal_contato).filter(Boolean))) as string[], [leads])
   const responsaveis = useMemo(() => Array.from(new Set(leads.map((l) => l.responsavel_id).filter(Boolean))) as string[], [leads])
@@ -107,10 +120,10 @@ export default function LeadsPage() {
   }, [leads, fOrigem, fCanal, fResp, busca])
   const kpis = useMemo(() => ({
     total: leads.length,
-    emAberto: leads.filter((l) => !['ganho', 'perdido'].includes(l.etapa)).length,
-    ganhos: leads.filter((l) => l.etapa === 'ganho').length,
-    pipeline: leads.filter((l) => !['ganho', 'perdido'].includes(l.etapa)).reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
-  }), [leads])
+    emAberto: leads.filter((l) => !fechadas.has(l.etapa)).length,
+    ganhos: leads.filter((l) => ganhoChaves.has(l.etapa)).length,
+    pipeline: leads.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
+  }), [leads, fechadas, ganhoChaves])
 
   // ── autocomplete de cliente (GE) ────────────────────────────────────────────
   const buscarClientes = useCallback(async (t: string) => {
@@ -131,7 +144,6 @@ export default function LeadsPage() {
   }
   async function escolherCliente(c: { id: string; nome: string }) {
     setCliSug([]); setCliTermo(c.nome)
-    // prefill contato do cadastro GE
     const { data } = await supabase.from('erp_clientes').select('email, telefone, celular, whatsapp').eq('id', c.id).maybeSingle()
     const d = (data ?? {}) as { email?: string | null; telefone?: string | null; celular?: string | null; whatsapp?: string | null }
     setForm((f) => ({ ...f, empresa: c.nome, erp_cliente_id: c.id, contato_email: d.email ?? f.contato_email, contato_telefone: d.telefone || d.celular || d.whatsapp || f.contato_telefone }))
@@ -174,7 +186,7 @@ export default function LeadsPage() {
     if (l.etapa === etapa) return
     await supabase.from('agency_leads').update({ etapa, atualizado_em: new Date().toISOString() }).eq('id', l.id)
     setLeads((arr) => arr.map((x) => (x.id === l.id ? { ...x, etapa } : x)))   // otimista
-    setToast(`Movido para ${etapaCfg(etapa).l}.`)
+    setToast(`Movido para ${etapaCfg(etapa).rotulo}.`)
   }
   async function ganhar(l: Lead) {
     if (!confirm(`Marcar "${l.nome}" como GANHO?\nCria o cliente na agência e GERA uma proposta.`)) return
@@ -190,16 +202,14 @@ export default function LeadsPage() {
     const motivo = prompt('Motivo da perda (obrigatório):', '')
     if (motivo === null) return
     if (!motivo.trim()) { setToast('Informe o motivo da perda.'); return }
-    await supabase.from('agency_leads').update({ etapa: 'perdido', motivo_perda: motivo.trim(), atualizado_em: new Date().toISOString() }).eq('id', l.id)
+    await supabase.from('agency_leads').update({ etapa: perdaChave, motivo_perda: motivo.trim(), atualizado_em: new Date().toISOString() }).eq('id', l.id)
     setToast('Marcado como PERDIDO.'); void carregar()
   }
-  // Converter em cliente: liga (ou cria) um erp_cliente ao lead e leva pra Propostas.
-  // Obs.: fn_crm_converter_lead opera em erp_crm_lead (outra tabela) — aqui o vínculo é nativo do agency_leads.
+  // Converter: liga/cria um cadastro GE (erp_clientes) → erp_cliente_id (não cliente_id/FK agency) e vai às Propostas.
   async function converter(l: Lead) {
     if (!empresa) return
     setBusy(true)
     try {
-      // Converter liga/cria um cadastro GE (erp_clientes) → guardar em erp_cliente_id (não cliente_id/FK agency).
       let cid = l.erp_cliente_id
       if (!cid) {
         const nome = (l.empresa || l.nome || '').trim()
@@ -219,7 +229,8 @@ export default function LeadsPage() {
     if (val === null) return
     const iso = val.trim() ? new Date(val.trim()).toISOString() : null
     if (val.trim() && iso && isNaN(new Date(val.trim()).getTime())) { setToast('Data inválida.'); return }
-    await supabase.from('agency_leads').update({ reuniao_agendada_em: iso, etapa: iso ? 'reuniao_agendada' : l.etapa, atualizado_em: new Date().toISOString() }).eq('id', l.id)
+    const reuniaoChave = etapas.find((e) => e.chave === 'reuniao_agendada')?.chave
+    await supabase.from('agency_leads').update({ reuniao_agendada_em: iso, etapa: iso && reuniaoChave ? reuniaoChave : l.etapa, atualizado_em: new Date().toISOString() }).eq('id', l.id)
     setToast(iso ? 'Reunião AGENDADA.' : 'Agendamento removido.'); void carregar()
   }
 
@@ -234,7 +245,10 @@ export default function LeadsPage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Leads · CRM de entrada</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Funil da agência: da prospecção ao ganho. Arraste o card entre as etapas.</p>
           </div>
-          <button onClick={() => { setForm(FORM0); setCliTermo(''); setCliSug([]); setNovo(true) }} style={btnPri} data-testid="lead-novo">+ Novo lead</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setCfgOpen(true)} style={btnGhost} data-testid="funil-config" title="Configurar etapas do funil">⚙️ Configurar funil</button>
+            <button onClick={() => { setForm(FORM0); setCliTermo(''); setCliSug([]); setNovo(true) }} style={btnPri} data-testid="lead-novo">+ Novo lead</button>
+          </div>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
@@ -260,24 +274,30 @@ export default function LeadsPage() {
           </select>
         </div>
 
-        {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div> : (
+        {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
+          : etapas.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>
+              Nenhuma etapa configurada. <button onClick={() => setCfgOpen(true)} style={{ ...btnSec, display: 'inline-block', marginLeft: 6 }}>Configurar funil</button>
+            </div>
+          ) : (
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
-            {ETAPAS.map((col) => {
-              const items = filtrados.filter((l) => l.etapa === col.v)
+            {etapas.map((col) => {
+              const items = filtrados.filter((l) => l.etapa === col.chave)
               const soma = items.reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0)
               return (
-                <div key={col.v}
+                <div key={col.id}
                   onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => { const l = leads.find((x) => x.id === dragId); if (l) void moverEtapa(l, col.v); setDragId(null) }}
+                  onDrop={() => { const l = leads.find((x) => x.id === dragId); if (l) void moverEtapa(l, col.chave); setDragId(null) }}
                   style={{ minWidth: 250, width: 250, flex: '0 0 auto', background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px 8px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: col.cor, border: `1px solid ${BORDA}` }} />
-                    <strong style={{ fontSize: 13 }}>{col.l}</strong>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: col.cor ?? OFFWHITE, border: `1px solid ${BORDA}` }} />
+                    <strong style={{ fontSize: 13 }}>{col.rotulo}</strong>
+                    {col.tipo_etapa !== 'normal' && <span style={{ fontSize: 9, fontWeight: 700, color: col.tipo_etapa === 'ganho' ? GREEN : RED }}>{col.tipo_etapa === 'ganho' ? '✓' : '✕'}</span>}
                     <span style={{ fontSize: 11, color: TEXTM, marginLeft: 'auto' }}>{items.length}{soma > 0 ? ` · ${brl(soma)}` : ''}</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
                     {items.map((l) => {
-                      const fim = ['ganho', 'perdido'].includes(l.etapa)
+                      const fim = fechadas.has(l.etapa)
                       return (
                         <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onDragEnd={() => setDragId(null)}
                           data-testid="lead-card"
@@ -293,7 +313,7 @@ export default function LeadsPage() {
                           {(l.contato_email || l.contato_telefone) && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>{[l.contato_telefone, l.contato_email].filter(Boolean).join(' · ')}</div>}
                           {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
                           {l.reuniao_agendada_em && <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2 }}>📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>}
-                          {l.etapa === 'perdido' && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
+                          {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
                           {!fim && (
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7 }}>
                               <button disabled={busy} onClick={() => ganhar(l)} style={chip(GREEN)}>✓ Ganhar</button>
@@ -368,7 +388,135 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {cfgOpen && (
+        <ConfigFunil empresa={empresa} etapas={etapas} leads={leads}
+          onClose={() => setCfgOpen(false)}
+          onChange={async () => { await carregarEtapas() }}
+          setToast={setToast} />
+      )}
+
       {toast && <div style={toastStyle}>{toast}</div>}
+    </div>
+  )
+}
+
+// ── Configurar funil: add / editar / reordenar (arrastar) / excluir ─────────────
+function ConfigFunil({ empresa, etapas, leads, onClose, onChange, setToast }: {
+  empresa: string; etapas: Etapa[]; leads: Lead[]
+  onClose: () => void; onChange: () => Promise<void>; setToast: (s: string) => void
+}) {
+  const [rows, setRows] = useState<Etapa[]>(etapas)
+  const [novoRot, setNovoRot] = useState('')
+  const [novoCor, setNovoCor] = useState('#F0E9DE')
+  const [novoTipo, setNovoTipo] = useState('normal')
+  const [busy, setBusy] = useState(false)
+  const [drag, setDrag] = useState<string | null>(null)
+  useEffect(() => { setRows(etapas) }, [etapas])
+
+  const contagem = useCallback((chave: string) => leads.filter((l) => l.etapa === chave).length, [leads])
+
+  async function salvar(e: Etapa) {
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_funil_etapa_salvar', {
+      p_campos: { id: e.id, rotulo: e.rotulo, ordem: e.ordem, cor: e.cor, tipo_etapa: e.tipo_etapa },
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setToast('Etapa SALVA.'); await onChange()
+  }
+  async function adicionar() {
+    if (!novoRot.trim()) { setToast('Informe o rótulo da etapa.'); return }
+    setBusy(true)
+    const maxOrdem = rows.reduce((m, r) => Math.max(m, r.ordem), 0)
+    const { data, error } = await supabase.rpc('fn_funil_etapa_salvar', {
+      p_campos: { company_id: empresa, tipo_funil: TIPO_FUNIL, rotulo: novoRot.trim(), cor: novoCor, tipo_etapa: novoTipo, ordem: maxOrdem + 10 },
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setNovoRot(''); setNovoCor('#F0E9DE'); setNovoTipo('normal')
+    setToast('Etapa ADICIONADA.'); await onChange()
+  }
+  async function excluir(e: Etapa) {
+    const n = contagem(e.chave)
+    if (n > 0) { setToast(`Mova os ${n} lead(s) antes de excluir "${e.rotulo}".`); return }
+    if (!confirm(`Excluir a etapa "${e.rotulo}"?`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_funil_etapa_excluir', { p_id: e.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string; qtd?: number } | null
+    if (error || !j?.ok) {
+      if (j?.erro === 'etapa_com_registros') setToast(`Mova os ${j.qtd} lead(s) antes de excluir "${e.rotulo}".`)
+      else setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`)
+      return
+    }
+    setToast('Etapa EXCLUÍDA.'); await onChange()
+  }
+  // reordenar por arrasto → reescreve ordem (índice*10) e persiste as que mudaram
+  async function soltarSobre(alvo: Etapa) {
+    if (!drag || drag === alvo.id) { setDrag(null); return }
+    const arr = rows.slice()
+    const from = arr.findIndex((r) => r.id === drag)
+    const to = arr.findIndex((r) => r.id === alvo.id)
+    if (from < 0 || to < 0) { setDrag(null); return }
+    const [moved] = arr.splice(from, 1)
+    arr.splice(to, 0, moved)
+    const renum = arr.map((r, i) => ({ ...r, ordem: (i + 1) * 10 }))
+    setRows(renum); setDrag(null); setBusy(true)
+    try {
+      for (const r of renum) {
+        const orig = rows.find((x) => x.id === r.id)
+        if (orig && orig.ordem !== r.ordem) {
+          await supabase.rpc('fn_funil_etapa_salvar', { p_campos: { id: r.id, rotulo: r.rotulo, ordem: r.ordem, cor: r.cor, tipo_etapa: r.tipo_etapa } })
+        }
+      }
+      setToast('Ordem ATUALIZADA.'); await onChange()
+    } finally { setBusy(false) }
+  }
+
+  function patch(id: string, p: Partial<Etapa>) { setRows((arr) => arr.map((r) => (r.id === id ? { ...r, ...p } : r))) }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Configurar funil</h2>
+          <button onClick={onClose} style={btnSec}>Fechar</button>
+        </div>
+        <p style={{ fontSize: 12, color: TEXTM, margin: '0 0 12px' }}>Arraste para reordenar. Etapas “Ganho”/“Perda” fecham o lead. Não dá para excluir etapa com leads.</p>
+
+        <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+          {rows.map((e) => {
+            const n = contagem(e.chave)
+            return (
+              <div key={e.id} draggable onDragStart={() => setDrag(e.id)} onDragEnd={() => setDrag(null)}
+                onDragOver={(ev) => ev.preventDefault()} onDrop={() => void soltarSobre(e)}
+                style={{ display: 'grid', gridTemplateColumns: '18px 30px 1fr 120px auto auto', gap: 6, alignItems: 'center', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 8px', background: drag === e.id ? '#FBF6EA' : '#fff' }}>
+                <span title="Arraste para reordenar" style={{ cursor: 'grab', color: TEXTM, fontSize: 14 }}>⋮⋮</span>
+                <input type="color" value={e.cor ?? '#F0E9DE'} onChange={(ev) => patch(e.id, { cor: ev.target.value })} onBlur={() => void salvar(e)} style={{ width: 30, height: 30, border: `1px solid ${BORDA}`, borderRadius: 6, background: '#fff', padding: 0, cursor: 'pointer' }} title="Cor" />
+                <input value={e.rotulo} onChange={(ev) => patch(e.id, { rotulo: ev.target.value })} onBlur={() => void salvar(e)} style={{ ...inp, minHeight: 34 }} />
+                <select value={e.tipo_etapa} onChange={(ev) => { patch(e.id, { tipo_etapa: ev.target.value }); }} onBlur={() => void salvar(e)} style={{ ...inp, minHeight: 34 }}>
+                  {TIPOS_ETAPA.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+                </select>
+                <span style={{ fontSize: 11, color: TEXTM, textAlign: 'right', minWidth: 44 }}>{n} lead{n === 1 ? '' : 's'}</span>
+                <button disabled={busy} onClick={() => void excluir(e)} title={n > 0 ? `Mova os ${n} leads antes` : 'Excluir'} style={{ ...btnSec, borderColor: RED, color: RED, minHeight: 34, opacity: n > 0 ? 0.5 : 1 }}>✕</button>
+              </div>
+            )
+          })}
+          {rows.length === 0 && <div style={{ fontSize: 12, color: TEXTM, padding: 8 }}>Sem etapas — adicione a primeira abaixo.</div>}
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Adicionar etapa</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr 120px auto', gap: 6, alignItems: 'center' }}>
+          <input type="color" value={novoCor} onChange={(e) => setNovoCor(e.target.value)} style={{ width: 30, height: 34, border: `1px solid ${BORDA}`, borderRadius: 6, background: '#fff', padding: 0, cursor: 'pointer' }} title="Cor" />
+          <input value={novoRot} onChange={(e) => setNovoRot(e.target.value)} placeholder="Rótulo da etapa (ex.: Qualificação)" style={{ ...inp, minHeight: 34 }} />
+          <select value={novoTipo} onChange={(e) => setNovoTipo(e.target.value)} style={{ ...inp, minHeight: 34 }}>
+            {TIPOS_ETAPA.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+          </select>
+          <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnPri, minHeight: 34, padding: '6px 12px' }}>+ Add</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -386,6 +534,7 @@ const inp: CSSProperties = { border: `1px solid ${BORDA}`, borderRadius: 8, padd
 const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: TEXTM, marginTop: 8 }
 const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnGhost: CSSProperties = { border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', minHeight: 42 }
+const btnSec: CSSProperties = { border: `1px solid ${BORDA}`, color: ESPRESSO, background: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', minHeight: 36 }
 const chip = (cor: string): CSSProperties => ({ border: `1px solid ${cor}`, color: cor, background: '#fff', borderRadius: 7, padding: '4px 7px', fontSize: 11, cursor: 'pointer', fontWeight: 600 })
 const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, zIndex: 50, overflow: 'auto' }
 const modal: CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 480, marginTop: 40 }
