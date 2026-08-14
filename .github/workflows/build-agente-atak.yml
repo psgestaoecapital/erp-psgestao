@@ -35,6 +35,27 @@ jobs:
       - name: Buildar .exe
         run: npm run build
 
+      # nssm.exe (RD-41): envelopa o coletor como serviço do Windows (sc.exe nativo não roda um .exe
+      # comum como serviço). Vem via chocolatey (o choco verifica o checksum do pacote) e é publicado
+      # no Storage a cada release, para que o instalador (Part A) sempre o inclua — sem upload manual.
+      - name: Obter nssm.exe (win64) via chocolatey
+        shell: pwsh
+        run: |
+          choco install nssm -y --no-progress | Out-Host
+          $nssm = Get-ChildItem -Path "$env:ChocolateyInstall\lib\nssm" -Recurse -Filter nssm.exe |
+                    Where-Object { $_.FullName -match '\\win64\\' } | Select-Object -First 1
+          if (-not $nssm) {
+            $nssm = Get-ChildItem -Path "$env:ChocolateyInstall\lib\nssm" -Recurse -Filter nssm.exe | Select-Object -First 1
+          }
+          if (-not $nssm) { Write-Error "nssm.exe nao encontrado apos 'choco install nssm'"; exit 1 }
+          Copy-Item $nssm.FullName dist\nssm.exe -Force
+          $bytes = [System.IO.File]::ReadAllBytes("$PWD\dist\nssm.exe")
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { Write-Error "nssm.exe nao e PE (MZ) valido"; exit 1 }
+          $len = (Get-Item dist\nssm.exe).Length
+          if ($len -lt 100000) { Write-Error "nssm.exe pequeno demais ($len bytes) — download suspeito"; exit 1 }
+          $sha = (Get-FileHash -Algorithm SHA256 dist\nssm.exe).Hash.ToLower()
+          Write-Host "nssm.exe -> origem=$($nssm.FullName) len=$len sha256=$sha"
+
       # Gera o versao.json COM o sha256 calculado (zero erro de sha manual · auto-update).
       # A versao vem da tag agente-vX.Y.Z (ou do package.json no dispatch manual).
       - name: Gerar versao.json (sha256 + url do Storage)
@@ -84,8 +105,9 @@ jobs:
             [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Upload de $2 falhou (HTTP $code)"; exit 1; }
           }
           up dist/agente-atak.exe agente-atak.exe application/octet-stream
+          up dist/nssm.exe        nssm.exe        application/octet-stream
           up dist/versao.json     versao.json     application/json
-          echo "Publicado no Storage: agente-atak.exe + versao.json (bucket agente)"
+          echo "Publicado no Storage: agente-atak.exe + nssm.exe + versao.json (bucket agente)"
 
       # Backup: tambem sobe como artefato (download 30 dias) — util para conferencia/rollback.
       - name: Publicar artefato
@@ -94,6 +116,7 @@ jobs:
           name: agente-atak-exe
           path: |
             collectors/atak-agente/dist/agente-atak.exe
+            collectors/atak-agente/dist/nssm.exe
             collectors/atak-agente/dist/versao.json
           retention-days: 30
           if-no-files-found: error
