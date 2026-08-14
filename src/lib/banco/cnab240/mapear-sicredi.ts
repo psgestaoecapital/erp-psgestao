@@ -35,7 +35,7 @@ export function mapearRemessaSicredi(cfg: ConfigSicoobDb, titulos: TituloPag[], 
     if (valor <= 0) { erros.push({ id: t.id, motivo: 'valor inválido (zero ou negativo)' }); continue }
     if (forma !== 'boleto') { erros.push({ id: t.id, motivo: `forma "${forma || '—'}" não suportada na remessa Sicredi (apenas boleto · segmento J)` }); continue }
     const cb = barcodeRemessa44(t.codigo_barras)   // VERBATIM: só os 44 dígitos, como no banco (nunca a linha digitável 47)
-    if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras de 44 dígitos (linha digitável de 47 não entra — recadastre o código de barras)' }); continue }
+    if (!cb) { erros.push({ id: t.id, motivo: 'boleto sem código de barras válido (44 dígitos) — cadastre/confira o código de barras deste título' }); continue }
     if (cb[0] === '8') { erros.push({ id: t.id, motivo: 'tributo/arrecadação não suportado na remessa Sicredi (segmento O não configurado)' }); continue }
 
     const nome = up(t.fornecedor?.nome || t.descricao)
