@@ -53,6 +53,7 @@ export default function AcessosCascataPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function AcessosCascataPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setErro("Sessão expirada. Entre novamente."); setLoading(false); return; }
       const { data: me } = await supabase.from("users").select("system_role").eq("id", user.id).maybeSingle();
+      setIsAdmin(me?.system_role === "PS_ADMIN");
       let empresas: Empresa[] = [];
       if (me?.system_role === "PS_ADMIN") {
         const { data } = await supabase.from("companies").select("id,nome_fantasia,razao_social").order("nome_fantasia");
@@ -138,6 +140,9 @@ export default function AcessosCascataPage() {
             ))}
           </div>
 
+          {/* 2b · Gerenciar áreas contratadas (planos) — só PS_ADMIN (RD-25) */}
+          {isAdmin && <GerenciarAreas companyId={companyId} onChanged={() => carregar(companyId)} />}
+
           {/* 3 · Master(s) */}
           <Secao icon={<Crown size={15} color={GO} />} titulo="Master da empresa" />
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
@@ -175,6 +180,104 @@ export default function AcessosCascataPage() {
         </>
       )}
     </Shell>
+  );
+}
+
+type AreaPlano = { plan_id: string; nome: string; vertical: string | null; tier_internal: string | null; grupo: string | null; preco_min: number | null; ativa: boolean; sub_status: string | null; observacao: string | null };
+const brlN = (v: number | null | undefined) => (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const bloqueado = (a: AreaPlano) => /bloquead/i.test(a.observacao ?? "") || a.sub_status === "pending_setup";
+
+// Painel admin: incluir/excluir áreas contratadas (planos) da empresa. Só PS_ADMIN (gate também no backend).
+function GerenciarAreas({ companyId, onChanged }: { companyId: string; onChanged: () => void }) {
+  const [areas, setAreas] = useState<AreaPlano[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [incluirOpen, setIncluirOpen] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+
+  const carregar = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    const { data, error } = await supabase.rpc("fn_admin_areas_empresa", { p_company_id: companyId });
+    if (error) setMsg({ ok: false, t: error.message });
+    else setAreas((data as AreaPlano[]) || []);
+    setLoading(false);
+  }, [companyId]);
+  useEffect(() => { const t = setTimeout(() => { void carregar(); }, 0); return () => clearTimeout(t); }, [carregar]);
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 3500); return () => clearTimeout(t); }, [msg]);
+
+  const ativas = areas.filter((a) => a.ativa);
+  const inativas = areas.filter((a) => !a.ativa);
+
+  async function incluir(a: AreaPlano) {
+    setBusy(a.plan_id);
+    const { data, error } = await supabase.rpc("fn_admin_area_incluir", { p_company_id: companyId, p_plan_id: a.plan_id });
+    setBusy(null);
+    const j = data as { ok?: boolean; erro?: string; modulos_ativados?: number } | null;
+    if (error || !j?.ok) { setMsg({ ok: false, t: error?.message || j?.erro || "Falha ao incluir." }); return; }
+    setIncluirOpen(false); setMsg({ ok: true, t: `CRIOU área ${a.nome}${j.modulos_ativados ? ` · ${j.modulos_ativados} módulos ativados` : ""}.` });
+    await carregar(); onChanged();
+  }
+  async function excluir(a: AreaPlano) {
+    if (!confirm(`Excluir a área ${a.nome}?\n\nOs dados são preservados, o acesso é desligado. Reincluir restaura.`)) return;
+    setBusy(a.plan_id);
+    const { data, error } = await supabase.rpc("fn_admin_area_excluir", { p_company_id: companyId, p_plan_id: a.plan_id });
+    setBusy(null);
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (error || !j?.ok) { setMsg({ ok: false, t: error?.message || j?.erro || "Falha ao excluir." }); return; }
+    setMsg({ ok: true, t: `EXCLUIU área ${a.nome}.` });
+    await carregar(); onChanged();
+  }
+
+  return (
+    <div style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: TXM, fontWeight: 800 }}>🔐 Gerenciar áreas contratadas (planos)</span>
+        <button onClick={() => setIncluirOpen((v) => !v)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, background: incluirOpen ? BG3 : GO, color: incluirOpen ? TX : "#fff", border: `1px solid ${incluirOpen ? BD : GO}`, borderRadius: 8, padding: "6px 12px", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>
+          {incluirOpen ? "Fechar" : "+ Incluir área"}
+        </button>
+      </div>
+
+      {msg && <div style={{ background: msg.ok ? "#F0FDF4" : "#FEF2F2", border: `1px solid ${msg.ok ? G : R}`, color: msg.ok ? "#166534" : R, padding: "7px 10px", borderRadius: 8, marginBottom: 8, fontSize: 12.5 }}>{msg.t}</div>}
+
+      {loading ? <div style={{ color: TXD, fontSize: 12 }}>Carregando planos…</div> : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {ativas.length === 0 && <span style={{ color: TXD, fontSize: 13 }}>Nenhum plano contratado.</span>}
+            {ativas.map((a) => (
+              <span key={a.plan_id} title={a.observacao ?? undefined} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 8px 6px 12px", borderRadius: 999, background: BG3, border: `1px solid ${bloqueado(a) ? GO : BD}`, color: TX, fontSize: 13, fontWeight: 700 }}>
+                {bloqueado(a) && <span title="Uso interno/piloto (bloqueado comercialmente)">⚠️</span>}
+                {a.nome}
+                <button disabled={busy === a.plan_id} onClick={() => excluir(a)} title={`Excluir área ${a.nome}`}
+                  style={{ border: "none", background: "transparent", color: R, cursor: "pointer", fontWeight: 800, fontSize: 15, lineHeight: 1, padding: "0 2px" }}>×</button>
+              </span>
+            ))}
+          </div>
+
+          {incluirOpen && (
+            <div style={{ marginTop: 10, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, background: BG }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: TXM, marginBottom: 6 }}>Adicionar uma área não contratada:</div>
+              {inativas.length === 0 ? <div style={{ color: TXD, fontSize: 12 }}>Todas as áreas já estão contratadas.</div> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+                  {inativas.map((a) => (
+                    <button key={a.plan_id} disabled={busy === a.plan_id} onClick={() => incluir(a)}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, textAlign: "left", border: `1px solid ${BD}`, background: BG2, borderRadius: 8, padding: "8px 10px", cursor: "pointer" }}>
+                      <span>
+                        <span style={{ fontWeight: 700, color: TX, fontSize: 13 }}>{bloqueado(a) ? "⚠️ " : ""}{a.nome}</span>
+                        <span style={{ color: TXD, fontSize: 11, marginLeft: 6 }}>{[a.vertical, a.grupo].filter(Boolean).join(" · ")}</span>
+                        {bloqueado(a) && <span style={{ color: GO, fontSize: 10.5, display: "block", marginTop: 1 }}>uso interno/piloto — inclui mesmo assim (decisão do CEO)</span>}
+                      </span>
+                      <span style={{ color: TXM, fontSize: 12, whiteSpace: "nowrap" }}>{a.preco_min ? `a partir de ${brlN(a.preco_min)}` : "—"}{busy === a.plan_id ? " · …" : ""}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
