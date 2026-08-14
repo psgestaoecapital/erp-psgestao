@@ -40,15 +40,16 @@ type Lead = {
   id: string; company_id: string; nome: string; empresa: string | null
   origem: string; canal_contato: string | null; etapa: string
   reuniao_agendada_em: string | null; valor_estimado: number | null
-  responsavel_id: string | null; cliente_id: string | null
+  responsavel_id: string | null; cliente_id: string | null; erp_cliente_id: string | null
   contato_email: string | null; contato_telefone: string | null
   motivo_perda: string | null; observacoes: string | null; criado_em: string
 }
 type FormLead = {
   empresa: string; nome: string; contato_email: string; contato_telefone: string
-  canal_contato: string; origem: string; valor_estimado: string; cliente_id: string | null
+  canal_contato: string; origem: string; valor_estimado: string; erp_cliente_id: string | null
 }
-const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: 'whatsapp', origem: 'trafego_pago', valor_estimado: '', cliente_id: null }
+// erp_cliente_id: vínculo ao cadastro GE (erp_clientes) — NÃO agency_clientes. Corrige a FK do #1007.
+const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: 'whatsapp', origem: 'trafego_pago', valor_estimado: '', erp_cliente_id: null }
 
 export default function LeadsPage() {
   const router = useRouter()
@@ -124,7 +125,7 @@ export default function LeadsPage() {
     } finally { setCliBuscando(false) }
   }, [empresa])
   const onCliTermo = (v: string) => {
-    setCliTermo(v); setForm((f) => ({ ...f, empresa: v, cliente_id: null }))
+    setCliTermo(v); setForm((f) => ({ ...f, empresa: v, erp_cliente_id: null }))
     if (cliTimer.current) clearTimeout(cliTimer.current)
     cliTimer.current = setTimeout(() => void buscarClientes(v), 250)
   }
@@ -133,7 +134,7 @@ export default function LeadsPage() {
     // prefill contato do cadastro GE
     const { data } = await supabase.from('erp_clientes').select('email, telefone, celular, whatsapp').eq('id', c.id).maybeSingle()
     const d = (data ?? {}) as { email?: string | null; telefone?: string | null; celular?: string | null; whatsapp?: string | null }
-    setForm((f) => ({ ...f, empresa: c.nome, cliente_id: c.id, contato_email: d.email ?? f.contato_email, contato_telefone: d.telefone || d.celular || d.whatsapp || f.contato_telefone }))
+    setForm((f) => ({ ...f, empresa: c.nome, erp_cliente_id: c.id, contato_email: d.email ?? f.contato_email, contato_telefone: d.telefone || d.celular || d.whatsapp || f.contato_telefone }))
     setToast('Cliente vinculado — dados preenchidos.')
   }
   async function criarClienteInline() {
@@ -145,7 +146,7 @@ export default function LeadsPage() {
       const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: form.contato_email || null, telefone: form.contato_telefone || null } })
       if (error) { setToast(`Erro: ${error.message}`); return }
       const cid = data as string | null
-      setForm((f) => ({ ...f, empresa: nome, cliente_id: cid })); setCliSug([]); setCliTermo(nome)
+      setForm((f) => ({ ...f, empresa: nome, erp_cliente_id: cid })); setCliSug([]); setCliTermo(nome)
       setToast('Cliente CRIADO na GE e vinculado.')
     } finally { setBusy(false) }
   }
@@ -159,7 +160,8 @@ export default function LeadsPage() {
         company_id: empresa, empresa: form.empresa.trim() || null, nome: form.nome.trim() || null,
         contato_email: form.contato_email.trim() || null, contato_telefone: form.contato_telefone.trim() || null,
         canal_contato: form.canal_contato.trim() || null, origem: form.origem,
-        valor_estimado: form.valor_estimado || null, cliente_id: form.cliente_id, responsavel_id: uid,
+        valor_estimado: form.valor_estimado || null,
+        erp_cliente_id: form.erp_cliente_id, cliente_id: null, responsavel_id: uid,
       },
     })
     setBusy(false)
@@ -197,14 +199,15 @@ export default function LeadsPage() {
     if (!empresa) return
     setBusy(true)
     try {
-      let cid = l.cliente_id
+      // Converter liga/cria um cadastro GE (erp_clientes) → guardar em erp_cliente_id (não cliente_id/FK agency).
+      let cid = l.erp_cliente_id
       if (!cid) {
         const nome = (l.empresa || l.nome || '').trim()
         if (!nome) { setToast('Lead sem empresa/contato para criar cliente.'); return }
         const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: l.contato_email || null, telefone: l.contato_telefone || null } })
         if (error) { setToast(`Erro: ${error.message}`); return }
         cid = data as string | null
-        if (cid) await supabase.from('agency_leads').update({ cliente_id: cid, atualizado_em: new Date().toISOString() }).eq('id', l.id)
+        if (cid) await supabase.from('agency_leads').update({ erp_cliente_id: cid, atualizado_em: new Date().toISOString() }).eq('id', l.id)
       }
       setToast('Cliente ligado ao lead → Propostas.'); void carregar()
       setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
@@ -281,7 +284,7 @@ export default function LeadsPage() {
                           style={{ background: OFFWHITE, border: `1px solid ${BORDA}`, borderRadius: 10, padding: '9px 10px', cursor: 'grab' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <strong style={{ fontSize: 13 }}>{l.empresa || l.nome}</strong>
-                            {l.cliente_id && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
+                            {(l.erp_cliente_id || l.cliente_id) && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
                           </div>
                           {l.empresa && l.nome && l.nome !== l.empresa && <div style={{ fontSize: 11.5, color: TEXTM }}>{l.nome}</div>}
                           <div style={{ fontSize: 11, color: TEXTM, marginTop: 3 }}>
@@ -319,7 +322,7 @@ export default function LeadsPage() {
             <label style={lbl}>Empresa / cliente
               <div style={{ position: 'relative' }}>
                 <input style={{ ...inp, width: '100%' }} value={cliTermo || form.empresa} onChange={(e) => onCliTermo(e.target.value)} placeholder="Buscar cliente da GE ou digitar novo" data-testid="lead-cliente-busca" />
-                {(cliSug.length > 0 || cliBuscando || (cliTermo.trim().length >= 2 && !form.cliente_id)) && (
+                {(cliSug.length > 0 || cliBuscando || (cliTermo.trim().length >= 2 && !form.erp_cliente_id)) && (
                   <div style={{ position: 'absolute', zIndex: 5, top: '100%', left: 0, right: 0, marginTop: 2, background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8, boxShadow: '0 6px 16px rgba(61,35,20,.12)', maxHeight: 200, overflowY: 'auto' }}>
                     {cliBuscando && <div style={{ padding: '8px 10px', fontSize: 12, color: TEXTM }}>Buscando…</div>}
                     {cliSug.map((c) => (
@@ -336,7 +339,7 @@ export default function LeadsPage() {
                 )}
               </div>
             </label>
-            {form.cliente_id && <div style={{ fontSize: 11, color: GREEN, marginTop: 4 }}>✓ vinculado a um cliente cadastrado</div>}
+            {form.erp_cliente_id && <div style={{ fontSize: 11, color: GREEN, marginTop: 4 }}>✓ vinculado a um cliente cadastrado</div>}
 
             <label style={lbl}>Contato (nome)<input style={inp} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Pessoa de contato" /></label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
