@@ -32,6 +32,8 @@ const CAMPOS_MASSA = [
 type Tipo = 'pagar' | 'receber'
 
 type Situacao = 'pago' | 'vencido' | 'hoje' | 'a_vencer'
+// RD-41 · filtro de Status em múltipla seleção (Jordana): lista de status; [] = todos.
+type StatusOpt = 'avencer' | 'vencidos' | 'hoje' | 'pagos'
 
 type Resultado = {
   id: string
@@ -132,7 +134,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [massaMsg, setMassaMsg] = useState<string | null>(null)
   const [loteAberto, setLoteAberto] = useState(false)
   const [periodoChoice, setPeriodoChoice] = useState<PeriodoChoice>('mes_atual')
-  const [statusFiltro, setStatusFiltro] = useState<'todos' | 'avencer' | 'vencidos' | 'pagos' | 'hoje'>('todos')
+  const [statusSel, setStatusSel] = useState<StatusOpt[]>([])   // [] = todos; combina Vencidos + Pagas etc.
+  const toggleStatus = (s: StatusOpt) => setStatusSel((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]))
   const [categoria, setCategoria] = useState('')
   const [busca, setBusca] = useState('')
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
@@ -316,7 +319,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         p_tipo: tipo,
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
-        p_status_filtro: statusFiltro,
+        p_status_filtros: statusSel.length ? statusSel : null,   // multi-select; null = todos
       })
       .then(({ data, error }) => {
         if (!alive) return
@@ -331,7 +334,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     return () => {
       alive = false
     }
-  }, [companyId, tipo, dataInicio, dataFim, statusFiltro, reloadKey])
+  }, [companyId, tipo, dataInicio, dataFim, statusSel, reloadKey])
 
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
@@ -385,7 +388,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // Export (Pendência Jordana #3): descrição dos filtros ativos + KPIs do topo (ASCII-safe p/ PDF).
   const filtrosDesc = useMemo(() => {
     const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel }
-    const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusMap[statusFiltro] ?? statusFiltro}`]
+    const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
+    const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
     if (categoria) partes.push(`Categoria: ${categoria}`)
     if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
     if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
@@ -394,7 +398,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     if (fValorMax.trim()) partes.push(`Valor <= R$ ${fValorMax.trim()}`)
     if (contasSel.size > 0) partes.push(`Conta: ${Array.from(contasSel).join(', ')}`)
     return partes.join(' · ')
-  }, [dataInicio, dataFim, statusFiltro, categoria, busca, fPessoa, fForma, fValorMin, fValorMax, contasSel, labels, tipo])
+  }, [dataInicio, dataFim, statusSel, categoria, busca, fPessoa, fForma, fValorMin, fValorMax, contasSel, labels, tipo])
 
   const kpisExport = useMemo(() => data ? [
     { label: labels.vencidosLabel, valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
@@ -426,7 +430,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }
   function limparSelecao() { setSelecionados(new Set()) }
 
-  useEffect(() => { setSelecionados(new Set()) }, [companyId, tipo, dataInicio, dataFim, statusFiltro, reloadKey])
+  useEffect(() => { setSelecionados(new Set()) }, [companyId, tipo, dataInicio, dataFim, statusSel, reloadKey])
 
   const totalPages = Math.max(1, Math.ceil(resultadosFiltrados.length / PAGE_SIZE))
   const pageSafe = Math.min(page, totalPages)
@@ -686,40 +690,40 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             qtd={data?.kpis.vencidos.qtd ?? 0}
             cor="#DC2626"
             destaque={(data?.kpis.vencidos.qtd ?? 0) > 0}
-            ativo={statusFiltro === 'vencidos'}
-            onClick={() => setStatusFiltro((s) => (s === 'vencidos' ? 'todos' : 'vencidos'))}
+            ativo={statusSel.includes('vencidos')}
+            onClick={() => toggleStatus('vencidos')}
           />
           <KpiCard
             titulo={labels.hojeLabel}
             valor={data?.kpis.hoje.valor ?? 0}
             qtd={data?.kpis.hoje.qtd ?? 0}
             cor="#C8941A"
-            ativo={statusFiltro === 'hoje'}
-            onClick={() => setStatusFiltro((s) => (s === 'hoje' ? 'todos' : 'hoje'))}
+            ativo={statusSel.includes('hoje')}
+            onClick={() => toggleStatus('hoje')}
           />
           <KpiCard
             titulo="A vencer"
             valor={data?.kpis.avencer.valor ?? 0}
             qtd={data?.kpis.avencer.qtd ?? 0}
             cor="#3D2314"
-            ativo={statusFiltro === 'avencer'}
-            onClick={() => setStatusFiltro((s) => (s === 'avencer' ? 'todos' : 'avencer'))}
+            ativo={statusSel.includes('avencer')}
+            onClick={() => toggleStatus('avencer')}
           />
           <KpiCard
             titulo={labels.pagosLabel}
             valor={data?.kpis.pagos.valor ?? 0}
             qtd={data?.kpis.pagos.qtd ?? 0}
             cor="#16A34A"
-            ativo={statusFiltro === 'pagos'}
-            onClick={() => setStatusFiltro((s) => (s === 'pagos' ? 'todos' : 'pagos'))}
+            ativo={statusSel.includes('pagos')}
+            onClick={() => toggleStatus('pagos')}
           />
           <KpiCard
             titulo="Total"
             valor={data?.kpis.total ?? 0}
             qtd={(data?.resultados ?? []).length}
             cor="#3D2314"
-            ativo={statusFiltro === 'todos'}
-            onClick={() => setStatusFiltro('todos')}
+            ativo={statusSel.length === 0}
+            onClick={() => setStatusSel([])}
           />
         </div>
       </div>
@@ -767,14 +771,23 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </>
         )}
 
-        <Campo label="Status">
-          <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value as typeof statusFiltro)} style={inputStyle}>
-            <option value="todos">Todos</option>
-            <option value="avencer">A vencer</option>
-            <option value="vencidos">Vencidos</option>
-            <option value="hoje">Hoje</option>
-            <option value="pagos">{labels.pagosLabel}</option>
-          </select>
+        <Campo label="Status (múltiplo)">
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {(([['avencer', 'A vencer'], ['vencidos', 'Vencidos'], ['hoje', 'Hoje'], ['pagos', labels.pagosLabel]]) as [StatusOpt, string][]).map(([v, l]) => {
+              const on = statusSel.includes(v)
+              return (
+                <button key={v} type="button" data-testid={`status-chip-${v}`} onClick={() => { toggleStatus(v); setPage(1) }}
+                  style={{ padding: '6px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: `0.5px solid ${on ? '#C8941A' : 'rgba(61,35,20,0.2)'}`,
+                    background: on ? 'rgba(200,148,26,0.15)' : '#fff', color: on ? '#8A5A0B' : 'rgba(61,35,20,0.7)' }}>
+                  {on ? '✓ ' : ''}{l}
+                </button>
+              )
+            })}
+            {statusSel.length > 0
+              ? <button type="button" onClick={() => { setStatusSel([]); setPage(1) }} style={{ padding: '6px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', border: '0.5px solid rgba(61,35,20,0.2)', background: 'transparent', color: 'rgba(61,35,20,0.6)' }}>limpar</button>
+              : <span style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.45)' }}>Todos</span>}
+          </div>
         </Campo>
 
         <Campo label="Categoria">
@@ -954,20 +967,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               </div>
             )}
 
-            {statusFiltro !== 'todos' && data && (() => {
-              const info: Record<string, { label: string; cor: string; valor: number; qtd: number }> = {
+            {statusSel.length > 0 && data && (() => {
+              const info: Record<StatusOpt, { label: string; cor: string; valor: number; qtd: number }> = {
                 vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
                 hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: data.kpis.hoje.valor, qtd: data.kpis.hoje.qtd },
                 avencer: { label: 'A vencer', cor: '#3D2314', valor: data.kpis.avencer.valor, qtd: data.kpis.avencer.qtd },
                 pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: data.kpis.pagos.valor, qtd: data.kpis.pagos.qtd },
               }
-              const c = info[statusFiltro]
-              if (!c) return null
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: `${c.cor}12`, border: `0.5px solid ${c.cor}44` }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: c.cor }}>{c.label}</span>
-                  <span style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.75)' }}>{c.qtd} {c.qtd === 1 ? 'lançamento' : 'lançamentos'} · {fmtBRL(c.valor)}</span>
-                  <button onClick={() => setStatusFiltro('todos')} style={{ marginLeft: 'auto', background: 'transparent', border: `0.5px solid ${c.cor}55`, color: c.cor, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>ver todos ✕</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                  {statusSel.map((s) => {
+                    const c = info[s]
+                    return (
+                      <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: `${c.cor}12`, border: `0.5px solid ${c.cor}44` }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: c.cor }}>{c.label}</span>
+                        <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)' }}>{c.qtd} · {fmtBRL(c.valor)}</span>
+                        <button onClick={() => { toggleStatus(s); setPage(1) }} title="Remover este status" style={{ background: 'transparent', border: 'none', color: c.cor, cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✕</button>
+                      </span>
+                    )
+                  })}
+                  <button onClick={() => { setStatusSel([]); setPage(1) }} style={{ marginLeft: 'auto', background: 'transparent', border: '0.5px solid rgba(61,35,20,0.25)', color: 'rgba(61,35,20,0.7)', borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>ver todos ✕</button>
                 </div>
               )
             })()}
