@@ -18,4 +18,9 @@ jobs:
         with:
           version: latest
       - run: supabase link --project-ref $SUPABASE_PROJECT_ID
-      - run: supabase db push
+      # --include-all: aplica migrations pendentes mesmo quando uma nova entra com timestamp
+      # ANTERIOR à última já aplicada (ex.: PRs mergeados fora da ordem do nome do arquivo).
+      # Só aplica versões NÃO rastreadas; nunca re-roda migrations já no schema_migrations.
+      # Auditado em 2026-08-14: histórico consistente (0 órfãs), então o efeito é aplicar apenas
+      # as pendentes reais, sem risco de re-executar migrations antigas não-idempotentes.
+      - run: supabase db push --include-all
