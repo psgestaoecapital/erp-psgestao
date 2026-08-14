@@ -73,6 +73,11 @@ const C = {
 }
 
 const fmtBRL = (v: number) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// RD-41 · data/hora do selo pós-entrega (DD/MM/AAAA HH:MM), tolerante a valor inválido.
+const fmtQuando = (iso: string) => {
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? String(iso) : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
 
 const STATUS: Array<{ value: string; label: string; cor: string; bg: string }> = [
   { value: 'aberta',                 label: 'Aberta',                  cor: C.espresso, bg: C.neutralBg },
@@ -129,9 +134,18 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [erroExcluir, setErroExcluir] = useState<string | null>(null)
   // OS → GE · faturar (gera título em Contas a Receber)
   const [faturando, setFaturando] = useState(false)
+  // RD-41 · edição pós-entrega restrita a Master (CLIENT_OWNER). papel na empresa da OS + selo de auditoria.
+  const [papel, setPapel] = useState<string | null>(null)
+  const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
+  // RD-41 · OS entregue: só Master (CLIENT_OWNER) ajusta. Não-Master fica somente-leitura.
+  const entregue = os?.status === 'entregue'
+  const isMaster = papel === 'CLIENT_OWNER'
+  const bloqueadoEntrega = Boolean(entregue && !isMaster)   // não-Master não edita OS entregue
+  const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const tipEntrega = 'OS entregue — ajustes só por usuário Master.'
 
   async function faturar() {
     if (!os) return
@@ -226,6 +240,24 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   }
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // RD-41 · papel do usuário na empresa da OS (Master = CLIENT_OWNER) + selo "editada após entrega".
+  useEffect(() => {
+    const cid = os?.company_id; const oid = os?.id
+    if (!cid || !oid) { setPapel(null); setSelo(null); return }
+    let alive = true
+    void (async () => {
+      const [p, s] = await Promise.all([
+        supabase.rpc('fn_oficina_papel', { p_company_id: cid }),
+        supabase.rpc('fn_os_editado_pos_entrega', { p_os_id: oid }),
+      ])
+      if (!alive) return
+      setPapel(typeof p.data === 'string' ? p.data : null)
+      const sel = s.data as { user_email?: string; quando?: string } | null
+      setSelo(sel ?? null)
+    })()
+    return () => { alive = false }
+  }, [os?.id, os?.company_id, os?.status])
 
   async function abrirOS() {
     setCriando(true)
@@ -362,13 +394,33 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         <StatusBadge status={os.status} />
       </div>
 
+      {/* RD-41 · selo de auditoria: OS ajustada após a entrega (controle pedido pela Jordana) */}
+      {selo && (
+        <div data-testid="os-selo-pos-entrega" style={{ fontSize: 11.5, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>
+          ✏️ Editada após entrega{selo.user_email ? ` por ${selo.user_email}` : ''}{selo.quando ? ` em ${fmtQuando(selo.quando)}` : ''}
+        </div>
+      )}
+      {/* RD-41 · avisos de edição pós-entrega */}
+      {entregue && isMaster && (
+        <div data-testid="os-aviso-master" style={{ fontSize: 12, color: C.espresso, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
+          ⚠️ Você está ajustando uma OS já entregue. A alteração fica registrada.
+        </div>
+      )}
+      {bloqueadoEntrega && (
+        <div data-testid="os-bloqueio-entrega" style={{ fontSize: 12, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>
+          🔒 {tipEntrega}
+        </div>
+      )}
+
       <label style={{ display: 'block' }}>
         <span style={lbl}>Status</span>
         <select
           value={os.status}
           onChange={(e) => void alterarStatus(e.target.value)}
           data-testid="os-status-select"
-          style={{ ...inp, cursor: 'pointer' }}
+          disabled={bloqueadoEntrega}
+          title={bloqueadoEntrega ? tipEntrega : undefined}
+          style={{ ...inp, cursor: bloqueadoEntrega ? 'not-allowed' : 'pointer', opacity: bloqueadoEntrega ? 0.6 : 1 }}
         >
           {STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
@@ -382,14 +434,17 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           onChange={(e) => setClienteNome(e.target.value)}
           placeholder="Nome do cliente"
           data-testid="os-cliente-nome"
+          readOnly={roEntrega}
           style={inp}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
           {clienteCnpj && <span style={{ fontSize: 11, color: C.espressoM }}>Doc: {clienteCnpj}</span>}
-          <button type="button" onClick={() => { setTrocarCli((v) => !v); setBuscaCli('') }}
-            style={{ background: 'none', border: 'none', color: C.gold, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
-            {trocarCli ? '− cancelar' : '🔍 Trocar / re-vincular cliente'}
-          </button>
+          {!roEntrega && (
+            <button type="button" onClick={() => { setTrocarCli((v) => !v); setBuscaCli('') }}
+              style={{ background: 'none', border: 'none', color: C.gold, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+              {trocarCli ? '− cancelar' : '🔍 Trocar / re-vincular cliente'}
+            </button>
+          )}
         </div>
         {trocarCli && (
           <div style={{ marginTop: 6, position: 'relative' }}>
@@ -426,6 +481,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           onChange={(e) => setEquipamento(e.target.value)}
           placeholder="Ex: Compressor 3HP / Notebook Dell / etc"
           data-testid="os-equipamento"
+          readOnly={roEntrega}
           style={inp}
         />
       </label>
@@ -438,6 +494,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           rows={2}
           placeholder="O que o cliente relatou?"
           data-testid="os-defeito"
+          readOnly={roEntrega}
           style={ta}
         />
       </label>
@@ -450,6 +507,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           rows={2}
           placeholder="O que foi/será feito"
           data-testid="os-descricao"
+          readOnly={roEntrega}
           style={ta}
         />
       </label>
@@ -461,6 +519,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           onChange={(e) => setEndereco(e.target.value)}
           placeholder="Ex: no cliente / endereço de execução"
           data-testid="os-endereco"
+          readOnly={roEntrega}
           style={inp}
         />
       </label>
@@ -472,6 +531,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           onChange={(e) => setObsCliente(e.target.value)}
           rows={2}
           data-testid="os-obs-cliente"
+          readOnly={roEntrega}
           style={ta}
         />
       </label>
@@ -494,6 +554,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
             onChange={(e) => setTecnicoNome(e.target.value)}
             placeholder="Nome do responsável pela execução"
             data-testid="os-tecnico"
+            readOnly={roEntrega}
             style={inp}
           />
         </label>
@@ -525,8 +586,11 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
             value={valorHora}
             onChange={(e) => setValorHora(e.target.value)}
             data-testid="os-valor-hora"
-            style={inp}
+            readOnly={roEntrega || faturada}
+            title={faturada ? 'Valores travados: OS já lançada na GE.' : (roEntrega ? tipEntrega : undefined)}
+            style={{ ...inp, ...(faturada ? { background: C.neutralBg, color: C.espressoM } : {}) }}
           />
+          {faturada && <span style={{ fontSize: 10, color: C.espressoL, fontStyle: 'italic' }}>🔒 Valores travados: OS já lançada na GE. Dados de veículo/cliente permanecem editáveis.</span>}
         </label>
 
         <div style={{
@@ -580,9 +644,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           type="button"
           onClick={() => window.open(`/dashboard/commerce/otc/imprimir/${os.id}`, '_blank', 'noopener,noreferrer')}
           data-testid="os-imprimir"
+          title={entregue ? 'Reimprimir a OS (documento atualizado) para reenviar ao cliente/comprador' : undefined}
           style={btnSec}
         >
-          🖨️ Imprimir OS
+          🖨️ {entregue ? 'Reimprimir OS' : 'Imprimir OS'}
         </button>
         {faturada ? (
           <span data-testid="os-faturada" style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>
@@ -603,9 +668,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         <button
           type="button"
           onClick={salvar}
-          disabled={salvando}
+          disabled={salvando || bloqueadoEntrega}
           data-testid="os-salvar"
-          style={{ ...btnPri, opacity: salvando ? 0.6 : 1 }}
+          title={bloqueadoEntrega ? tipEntrega : undefined}
+          style={{ ...btnPri, opacity: (salvando || bloqueadoEntrega) ? 0.5 : 1, cursor: bloqueadoEntrega ? 'not-allowed' : 'pointer' }}
         >
           {salvando ? 'Salvando…' : 'Salvar OS'}
         </button>
