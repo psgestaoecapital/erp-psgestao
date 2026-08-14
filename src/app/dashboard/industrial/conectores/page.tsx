@@ -29,6 +29,7 @@ const LEIA_ME_TEXTO = `# PS Agente ATAK — instalação em 3 passos
 
 ## O que você recebeu (no .zip)
 - **agente-atak.exe** — o coletor (não precisa instalar Node).
+- **nssm.exe** — utilitário que registra o coletor como serviço do Windows (fica ao lado do .exe; não mexa).
 - **config.json** — já vem com o endereço da PS e o **token desta empresa** (não mexa).
 - **instalar.bat** — instala o serviço com 1 duplo-clique.
 - **LEIA-ME.md** — este guia.
@@ -184,8 +185,9 @@ export default function ConectoresIndustrialPage() {
     const a = document.createElement('a'); a.href = url; a.download = nome; a.click(); URL.revokeObjectURL(url)
   }
 
-  // "Gerar instalador": monta o .zip (agente-atak.exe + config.json c/ token + instalar.bat + LEIA-ME)
-  // no navegador (JSZip). O .exe vem do Supabase Storage (bucket público 'agente', publicado pelo CI).
+  // "Gerar instalador": monta o .zip (agente-atak.exe + nssm.exe + config.json c/ token + instalar.bat + LEIA-ME)
+  // no navegador (JSZip). O .exe e o nssm.exe vêm do Supabase Storage (bucket público 'agente', publicado pelo CI).
+  // O nssm.exe empacota o coletor como serviço do Windows (RD-41) — o instalar.bat o acha ao lado do binário.
   // Pilar 2: o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
   const gerarInstalador = async () => {
     const cx = dados?.conexao
@@ -203,9 +205,20 @@ export default function ConectoresIndustrialPage() {
       if (exe.byteLength < 100000 || mz[0] !== 0x4D || mz[1] !== 0x5A) {
         throw new Error('O arquivo do instalador no Storage não é um executável válido (publicação pendente).')
       }
+      // nssm.exe: envelopa o .exe como serviço do Windows (sc.exe nativo não roda um .exe comum como serviço).
+      // Vem do mesmo bucket público 'agente' (publicado pelo CI). Sem ele, instalar.bat falha (RD-41 · erro do Jian).
+      const nssmUrl = `${SB_URL}/storage/v1/object/public/agente/nssm.exe`
+      const nresp = await fetch(nssmUrl, { cache: 'no-store' })
+      if (!nresp.ok) throw new Error('O nssm.exe ainda não foi publicado no Storage (bucket agente) — rode o build do agente (tag agente-v*) ou suba o nssm.exe manualmente. Avise o suporte PS.')
+      const nssm = await nresp.arrayBuffer()
+      const nmz = new Uint8Array(nssm.slice(0, 2)) // MZ = PE válido — não zipa um HTML de 404 por engano
+      if (nssm.byteLength < 100000 || nmz[0] !== 0x4D || nmz[1] !== 0x5A) {
+        throw new Error('O nssm.exe no Storage não é um executável válido (publicação pendente).')
+      }
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()
       zip.file('agente-atak.exe', exe)
+      zip.file('nssm.exe', nssm)
       // config.json: PS_ANON_KEY é obrigatório pelo agente (#966 exige PS_URL+PS_TOKEN+PS_ANON_KEY) e é PÚBLICO.
       zip.file('config.json', JSON.stringify({ PS_URL: SB_URL, PS_TOKEN: cx.agente_token, PS_ANON_KEY: SB_ANON }, null, 2) + '\n')
       zip.file('instalar.bat', '@echo off\r\nagente-atak.exe --instalar-servico\r\npause\r\n')
@@ -361,8 +374,8 @@ export default function ConectoresIndustrialPage() {
             {busy === 'zip' ? 'Gerando…' : '📦 Gerar instalador (.zip)'}
           </button>
           <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>
-            Baixa <code>instalador-{slug(dados?.nome ?? 'empresa')}.zip</code> com <b>agente-atak.exe</b>, <b>config.json</b> (token embutido),
-            {' '}<b>instalar.bat</b> e <b>LEIA-ME.md</b>. O TI extrai e dá duplo-clique no <code>instalar.bat</code>.
+            Baixa <code>instalador-{slug(dados?.nome ?? 'empresa')}.zip</code> com 5 arquivos: <b>agente-atak.exe</b>, <b>nssm.exe</b>,
+            {' '}<b>config.json</b> (token embutido), <b>instalar.bat</b> e <b>LEIA-ME.md</b>. O TI extrai e dá duplo-clique no <code>instalar.bat</code>.
           </div>
 
           {/* Avançado — arquivos separados (modelo antigo Node/.env; mantido por compatibilidade) */}
