@@ -72,6 +72,11 @@ export default function VincularVariosModal({
   const [busca, setBusca] = useState('')
   const [valorMin, setValorMin] = useState('')
   const [valorMax, setValorMax] = useState('')
+  // RD-41 · filtro de data por vencimento. Default: janela ±90 dias (a lista sem recorte trazia 2028).
+  // Limpar os campos = sem recorte (comportamento antigo).
+  const isoOffset = (dias: number) => { const d = new Date(); d.setDate(d.getDate() + dias); return d.toISOString().slice(0, 10) }
+  const [dataIni, setDataIni] = useState<string>(() => isoOffset(-90))
+  const [dataFim, setDataFim] = useState<string>(() => isoOffset(90))
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
   const [buscando, setBuscando] = useState(false)
   const [acao, setAcao] = useState<string | null>(null)
@@ -127,6 +132,8 @@ export default function VincularVariosModal({
       p_termo: termo || null,
       p_valor_ref: null,
       p_limite: 50,
+      p_data_ini: dataIni || null,
+      p_data_fim: dataFim || null,
     }
     const { data, error } = await supabase.rpc('fn_conciliacao_buscar_lancamentos', args)
     setBuscando(false)
@@ -358,6 +365,18 @@ export default function VincularVariosModal({
               placeholder="Valor max"
               style={{ ...inputStyle, maxWidth: 110 }}
             />
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 9.5, color: 'rgba(61,35,20,0.5)' }}>Venc. de</span>
+              <input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} title="Vencimento inicial" style={{ ...inputStyle, maxWidth: 150 }} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 9.5, color: 'rgba(61,35,20,0.5)' }}>Venc. até</span>
+              <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} title="Vencimento final" style={{ ...inputStyle, maxWidth: 150 }} />
+            </label>
+            {(dataIni || dataFim) && (
+              <button onClick={() => { setDataIni(''); setDataFim('') }} title="Sem recorte de data"
+                style={{ ...inputStyle, maxWidth: 70, cursor: 'pointer', color: 'rgba(61,35,20,0.6)' }}>limpar</button>
+            )}
             <button onClick={() => void buscar(busca)} disabled={buscando} style={primaryBtn(buscando)}>
               {buscando ? 'Buscando…' : '🔍 Buscar'}
             </button>
