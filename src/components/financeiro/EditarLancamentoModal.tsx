@@ -8,12 +8,96 @@
 // centro_custo_id). Contexto PAGAR fica como texto (erp_pagar ainda não tem as FKs — sem regressão).
 // Aviso (não bloqueia) ao editar campo financeiro de um pago/conciliado.
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Modal from '@/components/ui/Modal'
 import { validarCodigoBarrasEntrada } from '@/lib/financeiro/boleto-parser'
+import CategoriaCombobox from './CategoriaCombobox'
 
 type Tipo = 'pagar' | 'receber'
+
+// RD-41 · Paridade Editar × Criar: contraparte (cliente/fornecedor) com autocomplete + criar inline,
+// igual ao "Novo lançamento". Cliente usa fn_cliente_buscar/fn_cliente_criar_inline; fornecedor busca
+// direto em erp_fornecedores (não há RPC dedicada — mesmo caminho do form de nova despesa).
+type Sugestao = { id: string; nome: string; doc: string | null }
+function ContraparteAutocomplete({ kind, companyId, value, onChange }: {
+  kind: 'cliente' | 'fornecedor'; companyId: string; value: string; onChange: (nome: string) => void
+}) {
+  const [termo, setTermo] = useState(value)
+  const [abrir, setAbrir] = useState(false)
+  const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [criando, setCriando] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF'
+  useEffect(() => { setTermo(value) }, [value])
+
+  const buscar = useCallback(async (t: string) => {
+    const q = t.trim()
+    if (q.length < 2) { setSugestoes([]); return }
+    setBuscando(true)
+    try {
+      if (kind === 'cliente') {
+        const { data } = await supabase.rpc('fn_cliente_buscar', { p_company_id: companyId, p_termo: q, p_limit: 10 })
+        const res = ((data as { resultados?: { cliente_id: string; nome: string; cnpj_cpf: string | null }[] } | null)?.resultados) ?? []
+        setSugestoes(res.map((r) => ({ id: r.cliente_id, nome: r.nome, doc: r.cnpj_cpf })))
+      } else {
+        const safe = q.replace(/[%,()]/g, ' ')
+        const { data } = await supabase.from('erp_fornecedores')
+          .select('id, nome_fantasia, razao_social, cpf_cnpj')
+          .eq('company_id', companyId).eq('ativo', true)
+          .or(`nome_fantasia.ilike.%${safe}%,razao_social.ilike.%${safe}%`).order('nome_fantasia').limit(10)
+        const rows = (data as { id: string; nome_fantasia: string | null; razao_social: string | null; cpf_cnpj: string | null }[] | null) ?? []
+        setSugestoes(rows.map((r) => ({ id: r.id, nome: r.nome_fantasia || r.razao_social || '—', doc: r.cpf_cnpj })))
+      }
+    } finally { setBuscando(false) }
+  }, [kind, companyId])
+
+  const onType = (v: string) => {
+    setTermo(v); onChange(v); setAbrir(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => void buscar(v), 250)
+  }
+  const escolher = (s: Sugestao) => { onChange(s.nome); setTermo(s.nome); setAbrir(false); setSugestoes([]) }
+  async function criarCliente() {
+    const nome = termo.trim()
+    if (!nome) return
+    setCriando(true)
+    try {
+      const { data } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
+      const r = data as { ok?: boolean; nome?: string } | null
+      onChange(r?.nome || nome); setTermo(r?.nome || nome); setAbrir(false); setSugestoes([])
+    } finally { setCriando(false) }
+  }
+  const semMatchExato = kind === 'cliente' && termo.trim().length >= 2 && !sugestoes.some((s) => s.nome.toLowerCase() === termo.trim().toLowerCase())
+
+  const inpLocal: React.CSSProperties = { width: '100%', padding: '8px 10px', border: `0.5px solid ${LINE}`, borderRadius: 6, fontSize: 13, background: '#fff', color: ESP, boxSizing: 'border-box' }
+  return (
+    <div style={{ position: 'relative' }}>
+      <input value={termo} onChange={(e) => onType(e.target.value)} onFocus={() => termo.trim().length >= 2 && setAbrir(true)}
+        onBlur={() => setTimeout(() => setAbrir(false), 150)}
+        placeholder={kind === 'cliente' ? 'Buscar cliente cadastrado…' : 'Buscar fornecedor cadastrado…'}
+        data-testid={`edit-${kind}-autocomplete`} style={inpLocal} />
+      {abrir && (sugestoes.length > 0 || buscando || semMatchExato) && (
+        <div style={{ position: 'absolute', zIndex: 30, top: '100%', left: 0, right: 0, marginTop: 2, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 8, boxShadow: '0 6px 16px rgba(61,35,20,0.12)', maxHeight: 220, overflowY: 'auto' }}>
+          {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: 'rgba(61,35,20,0.5)' }}>Buscando…</div>}
+          {sugestoes.map((s) => (
+            <button key={s.id} type="button" onMouseDown={(e) => { e.preventDefault(); escolher(s) }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none', padding: '8px 10px', fontSize: 13, cursor: 'pointer', color: ESP }}>
+              {s.nome}{s.doc ? <span style={{ color: 'rgba(61,35,20,0.5)', fontSize: 11, marginLeft: 6 }}>· {s.doc}</span> : null}
+            </button>
+          ))}
+          {semMatchExato && (
+            <button type="button" disabled={criando} onMouseDown={(e) => { e.preventDefault(); void criarCliente() }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', borderTop: `0.5px solid ${LINE}`, background: 'rgba(200,148,26,0.08)', padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', color: GOLD, fontWeight: 600 }}>
+              {criando ? 'Criando…' : `+ Criar cliente "${termo.trim()}"`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface Props {
   open: boolean
@@ -39,15 +123,15 @@ const CAMPOS_FINANCEIROS = ['valor', 'data_pagamento', 'conta_bancaria', 'conta_
 const NAO_REPLICA = new Set(['data_vencimento', 'data_pagamento', 'data_competencia', 'parcela', 'codigo_barras'])
 type Irma = { id: string; parcela: string | null; parcela_num: number | null; status: string; valor: number; data_vencimento: string; pago: boolean; atual: boolean }
 
-type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro'
+type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'cliente' | 'fornecedor' | 'categoria'
 type Campo = { col: string; label: string; tipo: CampoTipo; opcoes?: string[]; largo?: boolean }
 const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito', 'cheque', 'permuta', 'debito_automatico']
 const TIPOS_CHAVE_PIX_OPCOES = ['', 'cpf_cnpj', 'telefone', 'email', 'aleatoria', 'copia_cola']
 
 function campos(tipo: Tipo): Campo[] {
   const contraparte: Campo = tipo === 'pagar'
-    ? { col: 'fornecedor_nome', label: 'Fornecedor', tipo: 'text', largo: true }
-    : { col: 'cliente_nome', label: 'Cliente', tipo: 'text', largo: true }
+    ? { col: 'fornecedor_nome', label: 'Fornecedor', tipo: 'fornecedor', largo: true }
+    : { col: 'cliente_nome', label: 'Cliente', tipo: 'cliente', largo: true }
   // conta/centro: dropdown (FK) no receber; texto no pagar.
   const contaCampo: Campo = tipo === 'receber'
     ? { col: 'conta_bancaria_id', label: 'Conta bancária', tipo: 'conta' }
@@ -58,7 +142,7 @@ function campos(tipo: Tipo): Campo[] {
   const base: Campo[] = [
     contraparte,
     { col: 'descricao', label: 'Descrição *', tipo: 'text', largo: true },
-    { col: 'categoria', label: 'Categoria', tipo: 'text' },
+    { col: 'categoria', label: 'Categoria', tipo: 'categoria' },
     { col: 'linha_negocio', label: 'Linha de negócio', tipo: 'text' },
     { col: 'valor', label: 'Valor (R$) *', tipo: 'num' },
     { col: 'forma_pagamento', label: 'Forma de pagamento', tipo: 'select', opcoes: FORMAS },
@@ -299,6 +383,10 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
                     {centros.length === 0 && <span style={hintErr}>nenhum centro · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: GOLD }}>cadastrar</a></span>}
                     {!val && legadoCentro && <span style={hintErr}>centro atual (texto legado): {legadoCentro}</span>}
                   </>
+                ) : c.tipo === 'categoria' ? (
+                  <CategoriaCombobox companyId={companyId} aplicacao={tipo} value={val} onChange={(codigo) => set(c.col, codigo)} />
+                ) : c.tipo === 'cliente' || c.tipo === 'fornecedor' ? (
+                  <ContraparteAutocomplete kind={c.tipo} companyId={companyId} value={val} onChange={(nome) => set(c.col, nome)} />
                 ) : (
                   <input value={val} onChange={(e) => set(c.col, e.target.value)} type={c.tipo === 'date' ? 'date' : 'text'} inputMode={c.tipo === 'num' ? 'decimal' : undefined} style={inp} />
                 )}
