@@ -8,11 +8,16 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { Construction } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 type Modulo = { id: string; nome: string; grupo: string | null; descricao: string | null; prioridade: string | null }
 
 const C = { espresso: '#3D2314', offWhite: '#FAF7F2', dourado: '#C8941A', cinza: '#E7DECF' }
+
+// Rótulo amigável do roadmap por grupo (ex.: 'wealth' → 'Wealth'); fallback capitaliza o próprio grupo.
+const GRUPO_LABEL: Record<string, string> = { wealth: 'Wealth' }
+const grupoLabel = (g: string | null) => (g ? (GRUPO_LABEL[g] ?? g.charAt(0).toUpperCase() + g.slice(1)) : null)
 
 function Badge({ texto, cor, bg }: { texto: string; cor: string; bg: string }) {
   return (
@@ -47,19 +52,23 @@ export default function EmConstrucaoPage() {
 
   const nome = modulo?.nome ?? 'Funcionalidade'
   const prio = badgePrioridade(modulo?.prioridade ?? null)
+  const roadmap = grupoLabel(modulo?.grupo ?? null)
 
   return (
     <div style={{ background: C.offWhite, minHeight: '100vh' }}>
       <header style={{ background: C.espresso, color: C.offWhite, padding: '20px 24px' }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <p style={{ margin: 0, fontSize: 11, color: C.dourado, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>PS Gestão</p>
-          <h1 style={{ margin: '8px 0 0', fontSize: 22, fontWeight: 700, color: C.offWhite }}>{loading ? 'Carregando…' : nome}</h1>
+          <h1 style={{ margin: '8px 0 0', fontSize: 22, fontWeight: 700, color: C.offWhite, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Construction size={22} color={C.dourado} aria-hidden />
+            {loading ? 'Carregando…' : nome}
+          </h1>
         </div>
       </header>
 
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '24px 20px' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
-          <Badge texto="Previsto" cor={C.espresso} bg={C.cinza} />
+          <Badge texto="Em construção" cor={C.espresso} bg="#FEF3C7" />
           <Badge {...prio} />
         </div>
 
@@ -71,6 +80,9 @@ export default function EmConstrucaoPage() {
         </section>
 
         <section style={{ background: '#FFF9EE', border: `0.5px dashed ${C.dourado}`, borderRadius: 10, padding: 16 }}>
+          <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: C.espresso }}>
+            Faz parte do roadmap{roadmap ? ` ${roadmap}` : ''} · em breve.
+          </p>
           <p style={{ margin: 0, fontSize: 13, color: '#7A5A0F' }}>Quer adiantar essa entrega? Fala com o time da PS — quem pede, antecipa.</p>
         </section>
 
