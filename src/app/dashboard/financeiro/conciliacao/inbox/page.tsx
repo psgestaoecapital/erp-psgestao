@@ -71,6 +71,18 @@ interface Conciliado {
   conciliado_em: string | null
 }
 
+// Títulos que compõem um movimento agrupado (fn_conciliacao_vinculos → itens[]).
+interface VinculoItem {
+  vinculo_id: string
+  tabela: string | null
+  lancamento_id: string | null
+  valor: number | null
+  contraparte: string | null
+  descricao: string | null
+  vencimento: string | null
+}
+type VinculosState = { loading: boolean; itens: VinculoItem[]; erro?: string }
+
 // conciliacao-reorg-tela-v1
 interface Lote {
   id: string
@@ -212,6 +224,8 @@ export default function InboxPage() {
 
   const [items, setItems] = useState<Item[]>([])
   const [conciliados, setConciliados] = useState<Conciliado[]>([])
+  // expandir fatura agrupada → títulos (fn_conciliacao_vinculos), por movimento_id
+  const [vinculosExp, setVinculosExp] = useState<Record<string, VinculosState>>({})
   // RD-41 · aba de ruído ignorado (saldo/futuro/manual), reversível.
   const [ignorados, setIgnorados] = useState<IgnoradoMov[]>([])
   const [avisoOk, setAvisoOk] = useState<string | null>(null)
@@ -324,6 +338,22 @@ export default function InboxPage() {
       p_limite: 500,
     })
     if (!error) setConciliados((data ?? []) as Conciliado[])
+  }
+
+  // Expande/recolhe os títulos de uma fatura agrupada (lancamento_id NULL).
+  async function toggleVinculos(movId: string) {
+    if (vinculosExp[movId]) {           // já aberto → recolhe
+      setVinculosExp((m) => { const n = { ...m }; delete n[movId]; return n })
+      return
+    }
+    setVinculosExp((m) => ({ ...m, [movId]: { loading: true, itens: [] } }))
+    const { data, error } = await supabase.rpc('fn_conciliacao_vinculos', { p_movimento_id: movId })
+    const j = data as { ok?: boolean; itens?: VinculoItem[]; erro?: string } | null
+    if (error || !j?.ok) {
+      setVinculosExp((m) => ({ ...m, [movId]: { loading: false, itens: [], erro: error?.message ?? j?.erro ?? 'falhou' } }))
+      return
+    }
+    setVinculosExp((m) => ({ ...m, [movId]: { loading: false, itens: j.itens ?? [] } }))
   }
 
   // Ignorados (ruído) — leitura direta (RLS escopa por empresa) pra trazer motivo_status.
@@ -1256,7 +1286,14 @@ export default function InboxPage() {
                         <span style={{ display: 'inline-block', background: selo.bg, color: selo.cor, padding: '2px 8px', borderRadius: 8, fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
                           {selo.emoji} {selo.label} · {Math.round(Number(c.precisao ?? 0))}%
                         </span>
-                        <div style={{ fontSize: 13, color: '#3D2314', marginBottom: 2 }}>
+                        <div style={{ fontSize: 13, color: '#3D2314', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {c.lancamento_id === null && (
+                            <button onClick={() => void toggleVinculos(c.movimento_id)}
+                              title="Ver títulos da fatura" aria-label="Ver títulos"
+                              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#C8941A', fontSize: 12, padding: '0 2px', lineHeight: 1 }}>
+                              {vinculosExp[c.movimento_id] ? '▾' : '▸'}
+                            </button>
+                          )}
                           {c.contraparte ?? '(sem contraparte)'}
                         </div>
                         <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>
@@ -1267,6 +1304,35 @@ export default function InboxPage() {
                         </div>
                       </div>
                     </div>
+
+                    {c.lancamento_id === null && vinculosExp[c.movimento_id] && (
+                      <div style={{ marginTop: 12, borderTop: '1px solid rgba(61,35,20,0.08)', paddingTop: 10 }}>
+                        {vinculosExp[c.movimento_id].loading ? (
+                          <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Carregando títulos…</div>
+                        ) : vinculosExp[c.movimento_id].erro ? (
+                          <div style={{ fontSize: 12, color: '#7A1F1F' }}>Erro: {vinculosExp[c.movimento_id].erro}</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                              Títulos da fatura ({vinculosExp[c.movimento_id].itens.length})
+                            </div>
+                            {vinculosExp[c.movimento_id].itens.map((it) => (
+                              <div key={it.vinculo_id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
+                                <span style={{ color: '#3D2314', wordBreak: 'break-word' }}>
+                                  {it.contraparte ?? it.descricao ?? '(título)'}
+                                  {it.vencimento ? <span style={{ color: 'rgba(61,35,20,0.5)' }}> · venc {fmtBR(it.vencimento)}</span> : null}
+                                </span>
+                                <span style={{ fontVariantNumeric: 'tabular-nums', color: '#3D2314', whiteSpace: 'nowrap' }}>R$ {fmt(it.valor)}</span>
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, borderTop: '1px dashed rgba(61,35,20,0.15)', paddingTop: 6 }}>
+                              <span>Soma dos títulos</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(vinculosExp[c.movimento_id].itens.reduce((s, i) => s + Number(i.valor ?? 0), 0))}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
                       <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)}>
