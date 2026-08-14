@@ -773,10 +773,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
         <Campo label="Status (múltiplo)">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            {(([['avencer', 'A vencer'], ['vencidos', 'Vencidos'], ['hoje', 'Hoje'], ['pagos', labels.pagosLabel]]) as [StatusOpt, string][]).map(([v, l]) => {
-              const on = statusSel.includes(v)
+            {/* Vocabulário da Jordana (RD-41): Aberto = A vencer + Hoje (não pago, não vencido). Multi-select preservado. */}
+            {(([['aberto', 'Aberto', ['avencer', 'hoje']], ['pago', labels.pagosLabel, ['pagos']], ['vencido', 'Vencido', ['vencidos']]]) as [string, string, StatusOpt[]][]).map(([key, l, buckets]) => {
+              const on = buckets.every((b) => statusSel.includes(b))
+              const toggle = () => {
+                setStatusSel((arr) => (on ? arr.filter((x) => !buckets.includes(x)) : Array.from(new Set([...arr, ...buckets]))))
+                setPage(1)
+              }
               return (
-                <button key={v} type="button" data-testid={`status-chip-${v}`} onClick={() => { toggleStatus(v); setPage(1) }}
+                <button key={key} type="button" data-testid={`status-chip-${key}`} onClick={toggle}
                   style={{ padding: '6px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     border: `0.5px solid ${on ? '#C8941A' : 'rgba(61,35,20,0.2)'}`,
                     background: on ? 'rgba(200,148,26,0.15)' : '#fff', color: on ? '#8A5A0B' : 'rgba(61,35,20,0.7)' }}>
