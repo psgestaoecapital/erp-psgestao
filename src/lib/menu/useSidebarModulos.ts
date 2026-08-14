@@ -80,6 +80,11 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PM_PRODUCAO: '2 · Produção & Controle',
   PM_FINANCEIRO: '3 · Financeiro da Produção',
   PM_INTELIGENCIA: '4 · Inteligência & IA',
+  // Wealth (consultoria de investimentos): 13 módulos em 4 seções (subgrupo → secao)
+  WEALTH_CARTEIRA: '1 · Carteira & Clientes',
+  WEALTH_COMPLIANCE: '2 · Onboarding & Compliance',
+  WEALTH_DADOS: '3 · Dados & Cotações',
+  WEALTH_ANALISE: '4 · Análise & Entrega',
   // Oficina: acentos + rótulos sem "Oficina" redundante (o usuário já está na área Oficina)
   PATIO: 'Pátio',
   OPERACAO: 'Operação',
