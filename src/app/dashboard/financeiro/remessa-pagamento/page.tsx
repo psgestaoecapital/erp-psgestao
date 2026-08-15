@@ -188,6 +188,22 @@ export default function RemessaPagamentoPage() {
       : mapearRemessaSicoob({ ...cfg, ...emp } as never, selecionadas, opts)
   }, [cfg, emp, selecionadas, provider])
 
+  // Elegibilidade transparente (RD-51): roda o mapper sobre TODOS os títulos listados (não só os selecionados),
+  // para exibir o motivo de cada inelegível na própria linha + um resumo. `id === '*'` = bloqueio global (DV).
+  const eleg = useMemo(() => {
+    if (!cfg || !emp || !filtradas.length) return { motivoPorId: new Map<string, string>(), grupos: [] as { motivo: string; qtd: number }[] }
+    const opts = { dtPagto: hoje().toISOString().slice(0, 10), dataGer: ddmmaaaa(hoje()), horaGer: hhmmss(hoje()), seqArq: 0 }
+    const r = provider === 'sicredi'
+      ? mapearRemessaSicredi({ ...cfg, ...emp } as never, filtradas, opts)
+      : mapearRemessaSicoob({ ...cfg, ...emp } as never, filtradas, opts)
+    const perId = r.erros.filter((e) => e.id !== '*')
+    const motivoPorId = new Map(perId.map((e) => [e.id, e.motivo]))
+    const cont = new Map<string, number>()
+    for (const e of perId) cont.set(e.motivo, (cont.get(e.motivo) ?? 0) + 1)
+    const grupos = Array.from(cont.entries()).map(([motivo, qtd]) => ({ motivo, qtd })).sort((a, b) => b.qtd - a.qtd)
+    return { motivoPorId, grupos }
+  }, [cfg, emp, filtradas, provider])
+
   function toggle(id: string) { setRows((rs) => rs.map((r) => (r.id === id ? { ...r, _sel: !r._sel } : r))) }
   function toggleAll(v: boolean) { setRows((rs) => rs.map((r) => (filtradas.some((f) => f.id === r.id) ? { ...r, _sel: v } : r))) }
 
@@ -215,6 +231,7 @@ export default function RemessaPagamentoPage() {
       // É esse número que vai pro header do arquivo (pos 158-163) e pro registro — o Sicredi controla por ele.
       const seq = Math.trunc(Number(numRemessa))
       if (!Number.isFinite(seq) || seq < 1) throw new Error('Número da remessa inválido — informe um inteiro ≥ 1.')
+      if (!((cfg.convenio ?? '').trim())) throw new Error('Banco sem convênio configurado — defina o convênio na config do banco antes de gerar.')
       const d = hoje()
       const opts = { dtPagto: d.toISOString().slice(0, 10), dataGer: ddmmaaaa(d), horaGer: hhmmss(d), seqArq: seq }
       const res = provider === 'sicredi'
@@ -398,6 +415,7 @@ export default function RemessaPagamentoPage() {
   )
 
   const semDv = !cfg.agencia_dv
+  const semConvenio = !((cfg.convenio ?? '').trim())   // convênio em branco → arquivo silenciosamente inválido (RD-51)
   const labelBanco = provider === 'sicredi' ? 'Sicredi' : 'Sicoob'
   const isProd = cfg.ambiente === 'producao'
   const seqNum = Math.trunc(Number(numRemessa))
@@ -439,6 +457,12 @@ export default function RemessaPagamentoPage() {
               <input value={dvInput} onChange={(e) => setDvInput(e.target.value)} placeholder="DV" maxLength={2} style={{ width: 60, ...inp }} />
               <button onClick={salvarDv} disabled={busy || !dvInput.trim()} style={btnGhost}>Salvar DV</button>
             </div>
+          </div>
+        )}
+
+        {semConvenio && (
+          <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FBEAEA', border: `0.5px solid ${VERM}`, fontSize: 12.5, color: ESP }}>
+            <b>Banco sem convênio configurado.</b> A config ativa do {labelBanco} está sem número de convênio — sem ele o arquivo sai inválido e o banco rejeita. Defina o convênio na configuração do banco antes de gerar.
           </div>
         )}
 
@@ -502,13 +526,21 @@ export default function RemessaPagamentoPage() {
           <button onClick={() => toggleAll(false)} style={btnGhost}>Limpar</button>
         </div>
 
+        {eleg.motivoPorId.size > 0 && (
+          <div style={{ margin: '0 0 10px', padding: '9px 12px', borderRadius: 8, background: '#FBF4E4', border: `0.5px solid ${GOLD}`, fontSize: 12.5, color: ESP }}>
+            <b>{eleg.motivoPorId.size}</b> título(s) não entram na remessa —{' '}
+            {eleg.grupos.slice(0, 3).map((g) => `${g.qtd} ${g.motivo}`).join(' · ')}
+            {eleg.grupos.length > 3 ? ' · …' : ''}. O motivo aparece em cada linha abaixo.
+          </div>
+        )}
+
         <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }}>
           {filtradas.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center', color: MUT, fontSize: 13 }}>Nenhum título a pagar disponível (ou todos já estão em remessa ativa).</div>
           ) : filtradas.map((r) => {
-            const erro = preview?.erros.find((e) => e.id === r.id)
+            const motivo = eleg.motivoPorId.get(r.id)   // motivo de inelegibilidade (qualquer linha, não só a selecionada)
             return (
-              <label key={r.id} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', borderTop: `0.5px solid ${BG}`, cursor: 'pointer', opacity: r._sel && erro ? 0.6 : 1 }}>
+              <label key={r.id} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', borderTop: `0.5px solid ${BG}`, cursor: 'pointer', opacity: motivo ? 0.6 : 1 }}>
                 <input type="checkbox" checked={r._sel} onChange={() => toggle(r.id)} style={{ width: 16, height: 16, margin: 0 }} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.fornecedor?.nome || r.descricao || '—'}</div>
@@ -516,7 +548,7 @@ export default function RemessaPagamentoPage() {
                     {(r.forma_pagamento ?? '—')} · venc {r.data_vencimento?.slice(0, 10).split('-').reverse().join('/')}
                     {r.data_pagamento_prevista && <span style={{ color: VERDE }}> · paga {r.data_pagamento_prevista.slice(0, 10).split('-').reverse().join('/')}</span>}
                     {r.numero_documento ? ` · doc ${r.numero_documento}` : ''}
-                    {r._sel && erro && <span style={{ color: VERM, fontWeight: 700 }}> · ⚠ {erro.motivo}</span>}
+                    {motivo && <span style={{ color: VERM, fontWeight: 700 }}> · ⚠ {motivo}</span>}
                   </div>
                 </div>
                 <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>{brl(Math.round((r.valor ?? 0) * 100))}</div>
@@ -532,9 +564,9 @@ export default function RemessaPagamentoPage() {
           </div>
           <button
             onClick={() => setConfirmar(true)}
-            disabled={busy || semDv || !seqValido || !!remessaAtivaMesmoNum || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
-            title={remessaAtivaMesmoNum ? `Já existe uma remessa ATIVA nº ${seqNum}` : undefined}
-            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || !seqValido || !!remessaAtivaMesmoNum || !preview?.input ? 0.5 : 1 }}
+            disabled={busy || semDv || semConvenio || !seqValido || !!remessaAtivaMesmoNum || !preview?.input || (preview?.incluidos.length ?? 0) === 0}
+            title={semConvenio ? 'Banco sem convênio configurado' : remessaAtivaMesmoNum ? `Já existe uma remessa ATIVA nº ${seqNum}` : undefined}
+            style={{ ...btnPrimary, background: isProd ? VERM : ESP, opacity: busy || semDv || semConvenio || !seqValido || !!remessaAtivaMesmoNum || !preview?.input ? 0.5 : 1 }}
           >
             {busy ? 'Gerando…' : `Gerar remessa Nº ${seqValido ? seqNum : '—'} (${isProd ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'})`}
           </button>
