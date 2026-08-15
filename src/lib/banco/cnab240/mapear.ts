@@ -8,6 +8,8 @@ export type FornecedorPag = { pix?: string | null; cnpj_cpf?: string | null; nom
 export type TituloPag = {
   id: string; forma_pagamento?: string | null; codigo_barras?: string | null; valor: number
   data_vencimento: string; numero_documento?: string | null; descricao?: string | null; fornecedor?: FornecedorPag | null
+  // Chave PIX do PRÓPRIO título (tem prioridade sobre a do cadastro do fornecedor). Sem ela, cai no fornecedor.pix.
+  chave_pix?: string | null
   // Data do Pagamento (segmento J/A) = vencimento no próximo dia útil, nunca no passado. Vem da RPC
   // fn_remessa_datas_pagamento (fonte única da regra de feriado). Fallback: opts.dtPagto (retrocompat/scripts).
   data_pagamento_prevista?: string | null
@@ -62,8 +64,9 @@ export function mapearRemessaSicoob(cfg: ConfigSicoobDb, titulos: TituloPag[], o
       }
       incluidos.push(t.id)
     } else if (forma === 'pix') {
-      const key = (t.fornecedor?.pix ?? '').trim()
-      if (!key) { erros.push({ id: t.id, motivo: 'PIX sem chave cadastrada no fornecedor' }); continue }
+      // Chave do título tem prioridade; cai pra chave do cadastro do fornecedor (mesma regra da tela ao gravar o item).
+      const key = ((t.chave_pix ?? '').trim() || (t.fornecedor?.pix ?? '').trim())
+      if (!key) { erros.push({ id: t.id, motivo: 'PIX sem chave (nem no título, nem no cadastro do fornecedor)' }); continue }
       pixs.push({ seg: 'J', codBarras: '0'.repeat(44), nomeBenef: nome, dtVenc, valTitulo: valor, valPagto: valor, dtPagto, seuNum, cnpjBenef: soDigitos(t.fornecedor?.cnpj_cpf), nomeBenefFull: nome, pixKey: key })
       incluidos.push(t.id)
     } else if (forma === 'transferencia') {
