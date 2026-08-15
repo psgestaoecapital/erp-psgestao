@@ -2,8 +2,9 @@
 // PROPOSTAS / ORÇAMENTOS (P&M). Sobre agency_propostas, escopado por company_id (RD-45).
 // Criação via fn_agency_proposta_criar (valida acesso + soma itens no servidor).
 // Aprovar → status 'aprovada' + gera contrato (fn_agency_proposta_aprovar). Tema Espresso claro.
-// Nota de modelagem: agency_propostas.cliente_id referencia agency_clientes (não erp_clientes) —
-// é o que a aprovação consome; por isso o picker é sobre agency_clientes.
+// Cliente unificado em erp_clientes (base mestre, regra-mãe b9333675): o picker busca erp_clientes e
+// envia erp_cliente_id; o backend resolve/cria o agency_cliente (fn_agency_cliente_resolver) e grava os
+// dois, coerentes — assim Lead → Proposta → Contrato casam pelo mesmo cliente.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -51,7 +52,7 @@ export default function PropostasPage() {
   const prefill = useRef<{ cliente_id?: string; briefing_id?: string; titulo?: string }>({})
 
   // formulário da nova proposta (com editor de itens)
-  const [fCliente, setFCliente] = useState('')       // agency_clientes.id
+  const [fCliente, setFCliente] = useState('')       // erp_cliente_id (base mestre)
   const [fTitulo, setFTitulo] = useState('')
   const [fCondicao, setFCondicao] = useState('Mensal')
   const [fDesconto, setFDesconto] = useState('')
@@ -84,11 +85,11 @@ export default function PropostasPage() {
     setNovo(true)
   }
 
-  // pré-preenchimento vindo de Lead/Briefing (?cliente_id / ?briefing_id / ?titulo) — abre já o modal.
+  // pré-preenchimento vindo de Lead/Briefing (?erp_cliente_id / ?briefing_id / ?titulo) — abre já o modal.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search)
-    const cli = q.get('cliente_id') || undefined
+    const cli = q.get('erp_cliente_id') || q.get('cliente_id') || undefined
     const brf = q.get('briefing_id') || undefined
     const tit = q.get('titulo') || undefined
     if (!(cli || brf || tit)) return
@@ -131,7 +132,7 @@ export default function PropostasPage() {
     const { data, error } = await supabase.rpc('fn_agency_proposta_criar', {
       p_campos: {
         company_id: empresa,
-        cliente_id: fCliente || null,
+        erp_cliente_id: fCliente || null,   // base mestre; o backend resolve/cria o agency_cliente
         briefing_id: prefill.current.briefing_id || null,
         titulo: fTitulo.trim(),
         itens: itensLimpos,
@@ -253,8 +254,7 @@ export default function PropostasPage() {
           <div style={{ ...modal, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>Nova proposta</h2>
 
-            <ClienteField clientes={clientes} value={fCliente} onChange={setFCliente} empresa={empresa}
-              onCriado={async (id) => { await carregar(); setFCliente(id) }} setToast={setToast} />
+            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} />
 
             <label style={lbl}>Título *<input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
 
@@ -352,55 +352,86 @@ export default function PropostasPage() {
   )
 }
 
-// Autocomplete sobre agency_clientes (lista já carregada) + criação inline.
-function ClienteField({ clientes, value, onChange, empresa, onCriado, setToast }: {
-  clientes: ClienteOpt[]; value: string; onChange: (id: string) => void; empresa: string
-  onCriado: (id: string) => void | Promise<void>; setToast: (s: string) => void
+// Autocomplete sobre erp_clientes (base mestre, via fn_cliente_buscar) + cadastro rápido inline
+// (fn_cliente_criar_inline). Igual ao picker dos Leads (regra-mãe b9333675). value = erp_cliente_id.
+function ClienteField({ value, onChange, empresa, setToast }: {
+  value: string; onChange: (erpId: string) => void; empresa: string; setToast: (s: string) => void
 }) {
   const [q, setQ] = useState('')
+  const [nomeSel, setNomeSel] = useState('')
+  const [sug, setSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
+  const [buscando, setBuscando] = useState(false)
   const [open, setOpen] = useState(false)
   const [criando, setCriando] = useState(false)
   const [novoNome, setNovoNome] = useState('')
-  const sel = clientes.find((c) => c.id === value)
-  const nomeSel = sel ? (sel.nome_fantasia ?? sel.nome) : ''
-  const filtro = clientes.filter((c) => `${c.nome} ${c.nome_fantasia ?? ''}`.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // nome do cliente pré-selecionado (prefill) — busca deferida (evita setState síncrono no effect)
+  useEffect(() => {
+    let alive = true
+    const t = setTimeout(async () => {
+      if (!value) { setNomeSel(''); return }
+      const { data } = await supabase.from('erp_clientes').select('nome_fantasia, razao_social').eq('id', value).maybeSingle()
+      if (!alive) return
+      const d = (data ?? {}) as { nome_fantasia?: string | null; razao_social?: string | null }
+      setNomeSel(d.nome_fantasia ?? d.razao_social ?? '')
+    }, 0)
+    return () => { alive = false; clearTimeout(t) }
+  }, [value])
+
+  function buscar(t: string) {
+    setQ(t); setOpen(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(async () => {
+      const term = t.trim()
+      if (term.length < 2) { setSug([]); return }
+      setBuscando(true)
+      try {
+        const { data } = await supabase.rpc('fn_cliente_buscar', { p_company_id: empresa, p_termo: term, p_limit: 8 })
+        const res = ((data as { resultados?: { cliente_id: string; nome: string; cnpj_cpf: string | null }[] } | null)?.resultados) ?? []
+        setSug(res.map((r) => ({ id: r.cliente_id, nome: r.nome, doc: r.cnpj_cpf })))
+      } finally { setBuscando(false) }
+    }, 250)
+  }
+  function escolher(c: { id: string; nome: string }) { onChange(c.id); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
   async function criarInline() {
-    if (!novoNome.trim()) return
-    const { data, error } = await supabase.from('agency_clientes')
-      .insert({ company_id: empresa, nome: novoNome.trim() }).select('id').single()
-    if (error || !data) { setToast(`Erro ao criar cliente: ${error?.message ?? 'falhou'}`); return }
-    setCriando(false); setNovoNome(''); setOpen(false)
-    await onCriado((data as { id: string }).id)
-    setToast('Cliente CRIADO e vinculado.')
+    const nome = (novoNome || q).trim()
+    if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
+    if (error) { setToast(`Erro ao criar cliente: ${error.message}`); return }
+    const id = data as string | null
+    if (id) { onChange(id); setNomeSel(nome) }
+    setCriando(false); setNovoNome(''); setOpen(false); setSug([])
+    setToast('Cliente CRIADO na GE e vinculado.')
   }
 
   return (
     <div style={{ position: 'relative' }}>
-      <label style={lbl}>Cliente
+      <label style={lbl}>Cliente (cadastro GE)
         {value ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ ...inp, flex: 1, display: 'flex', alignItems: 'center' }}>{nomeSel}</div>
-            <button onClick={() => { onChange(''); setQ('') }} style={btnSec}>Trocar</button>
+            <div style={{ ...inp, flex: 1, display: 'flex', alignItems: 'center' }}>{nomeSel || 'Cliente selecionado'}</div>
+            <button onClick={() => { onChange(''); setNomeSel(''); setQ('') }} style={btnSec}>Trocar</button>
           </div>
         ) : (
-          <input style={inp} value={q} onChange={(e) => { setQ(e.target.value); setOpen(true) }}
+          <input style={inp} value={q} onChange={(e) => buscar(e.target.value)}
             onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
-            placeholder="Buscar cliente…" />
+            placeholder="Buscar cliente da GE…" />
         )}
       </label>
-      {!value && open && (
+      {!value && open && (q.trim().length >= 2 || criando) && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
-          {filtro.map((c) => (
-            <div key={c.id} onMouseDown={(e) => { e.preventDefault(); onChange(c.id); setOpen(false); setQ('') }}
+          {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: TEXTM }}>Buscando…</div>}
+          {sug.map((c) => (
+            <div key={c.id} onMouseDown={(e) => { e.preventDefault(); escolher(c) }}
               style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${BORDA}` }}>
-              {c.nome_fantasia ?? c.nome}
+              {c.nome}{c.doc ? <span style={{ color: TEXTM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
             </div>
           ))}
           {!criando ? (
             <div onMouseDown={(e) => { e.preventDefault(); setCriando(true); setNovoNome(q) }}
               style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: DOURADO, fontWeight: 700 }}>
-              + Novo cliente{q.trim() ? ` "${q.trim()}"` : ''}
+              + Cadastrar cliente{q.trim() ? ` "${q.trim()}"` : ''} na GE
             </div>
           ) : (
             <div style={{ padding: 10, display: 'flex', gap: 6 }} onMouseDown={(e) => e.preventDefault()}>
