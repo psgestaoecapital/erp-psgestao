@@ -62,6 +62,7 @@ export default function RemessaPagamentoPage() {
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
 
   const [cfg, setCfg] = useState<Config | null>(null)
+  const [cfgAviso, setCfgAviso] = useState('')   // config de pagamento ambígua/ausente → não escolher no escuro (RD-51/RD-52)
   const [provider, setProvider] = useState<'sicoob' | 'sicredi'>('sicoob')
   const [emp, setEmp] = useState<Empresa | null>(null)
   const [rows, setRows] = useState<Row[]>([])
@@ -98,12 +99,27 @@ export default function RemessaPagamentoPage() {
     // ambiente (homologacao|producao) — e escolhe o que tem cap_pagamento ligado; sem nenhum ligado, cai no
     // Sicoob (retrocompat). O ambiente escolhido rege a tarja/nome do arquivo. Só boleto/segmento J por ora.
     const [{ data: cs }, { data: e }] = await Promise.all([
-      supabase.from('erp_banco_provider_config').select('id,provider,ambiente,cooperativa,agencia_dv,conta,convenio,cap_pagamento')
+      supabase.from('erp_banco_provider_config').select('id,provider,ambiente,cooperativa,agencia_dv,conta,convenio,cap_pagamento,ativo')
         .eq('company_id', companyId).in('provider', ['sicoob', 'sicredi']),
       supabase.from('companies').select('cnpj,razao_social,endereco,cidade_estado').eq('id', companyId).single(),
     ])
-    const lista = (cs ?? []) as (Config & { provider: string; cap_pagamento: boolean })[]
-    const escolhida = lista.find((x) => x.cap_pagamento) ?? lista.find((x) => x.provider === 'sicoob') ?? lista[0] ?? null
+    const lista = (cs ?? []) as (Config & { provider: string; cap_pagamento: boolean; ativo: boolean })[]
+    // Config PRONTA p/ pagamento = ativa + convênio preenchido + cap_pagamento. Se houver >1 ou nenhuma,
+    // NÃO escolher no escuro (RD-51/RD-52): avisa e deixa o operador/admin resolver a duplicidade/config.
+    const prontas = lista.filter((x) => x.ativo && (x.convenio ?? '').trim() && x.cap_pagamento)
+    let escolhida: (typeof lista)[number] | null = null
+    let aviso = ''
+    if (prontas.length === 1) {
+      escolhida = prontas[0]
+    } else if (prontas.length > 1) {
+      aviso = `Há ${prontas.length} configurações de pagamento prontas (convênios: ${prontas.map((p) => p.convenio).join(', ')}). Deixe só a correta ativa — o sistema não escolhe sozinho.`
+    } else if (lista.length > 0) {
+      const comConvenioAtivas = lista.filter((x) => x.ativo && (x.convenio ?? '').trim())
+      aviso = comConvenioAtivas.length > 1
+        ? `Há ${comConvenioAtivas.length} configs ativas com convênio (${comConvenioAtivas.map((p) => p.convenio).join(', ')}), mas nenhuma com "capacidade de pagamento" marcada. Marque cap_pagamento na correta e desative as demais.`
+        : 'A configuração do banco não está pronta para pagamento (precisa: ativa + convênio + capacidade de pagamento). Ajuste na configuração do banco.'
+    }
+    setCfgAviso(aviso)
     setProvider(escolhida?.provider === 'sicredi' ? 'sicredi' : 'sicoob')
     setCfg(escolhida ?? null); setEmp((e as Empresa) ?? null); setDvInput(escolhida?.agencia_dv ?? '')
 
@@ -408,8 +424,10 @@ export default function RemessaPagamentoPage() {
   if (loading) return <div style={{ background: BG, minHeight: '100vh', padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div>
   if (!cfg) return (
     <div style={{ background: BG, minHeight: '100vh', padding: 32 }}>
-      <div style={{ maxWidth: 560, margin: '40px auto', background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 24, color: MUT, fontSize: 14 }}>
-        Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado. Configure o banco antes de gerar remessa.
+      <div style={{ maxWidth: 560, margin: '40px auto', background: '#FFF', border: `0.5px solid ${cfgAviso ? VERM : LINE}`, borderRadius: 12, padding: 24, color: cfgAviso ? ESP : MUT, fontSize: 14 }}>
+        {cfgAviso
+          ? <><b>Configuração de pagamento não definida.</b><div style={{ marginTop: 8 }}>{cfgAviso}</div></>
+          : 'Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado. Configure o banco antes de gerar remessa.'}
       </div>
     </div>
   )
