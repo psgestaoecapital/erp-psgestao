@@ -7,6 +7,11 @@ export interface SidebarSubItemNode {
   status: SidebarStatus
   badge?: string
   matchPaths?: string[]
+  /** FIX-MENU-WEALTH-LANDING · quando true, o item casa a rota EXATA (sem startsWith).
+   *  Usado no módulo landing cujo id === area (ex.: 'wealth', href '/dashboard/wealth'):
+   *  sem isto ele casaria todo '/dashboard/wealth/*' e sequestraria o auto-expand pra
+   *  a seção 1, fazendo as demais seções parecerem subordinadas a ela. */
+  exact?: boolean
 }
 
 export interface SidebarModuleNode {
@@ -17,6 +22,8 @@ export interface SidebarModuleNode {
   status: SidebarStatus
   separator?: boolean
   matchPaths?: string[]
+  /** ver SidebarSubItemNode.exact — casa a rota EXATA (sem startsWith). */
+  exact?: boolean
 }
 
 // ADMIN-CONECTORES-NO-MENU-v1 · bloco reutilizavel
