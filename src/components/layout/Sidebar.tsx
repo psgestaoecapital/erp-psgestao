@@ -36,14 +36,17 @@ function SidebarInner() {
   // Auto-expandir modulo pai do item ativo (respeita matchPaths)
   useEffect(() => {
     if (!isHydrated) return
-    const matches = (p: string, href?: string, extra?: string[]) => {
+    // exact (landing id===area): só a rota-raiz casa — evita que o landing sequestre
+    // o auto-expand pra a seção 1 em todas as sub-rotas da área (FIX-MENU-WEALTH-LANDING).
+    const matches = (p: string, href?: string, extra?: string[], exact?: boolean) => {
+      if (exact) return (extra?.some((m) => p === m) ?? false) || (!!href && p === href)
       if (extra?.some((m) => p === m || p.startsWith(m + '/'))) return true
       return !!href && (p === href || p.startsWith(href + '/'))
     }
     const moduleAtivo = modulos.find(
       (m) =>
-        m.items?.some((s) => matches(pathname, s.href, s.matchPaths)) ||
-        matches(pathname, m.href, m.matchPaths)
+        m.items?.some((s) => matches(pathname, s.href, s.matchPaths, s.exact)) ||
+        matches(pathname, m.href, m.matchPaths, m.exact)
     )
     if (moduleAtivo && moduleAtivo.id !== expandedModule && moduleAtivo.items) {
       setActiveModule(moduleAtivo.id)

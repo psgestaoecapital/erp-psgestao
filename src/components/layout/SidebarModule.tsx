@@ -16,16 +16,19 @@ interface Props {
   onNavigate?: () => void
 }
 
-function itemMatches(pathname: string, currentTab: string | null, href: string, matchPaths?: string[]): boolean {
+function itemMatches(pathname: string, currentTab: string | null, href: string, matchPaths?: string[], exact?: boolean): boolean {
   // Extrai pathname + tab do href configurado
   const [hrefPath, hrefQs = ''] = href.split('?')
   let hrefTab: string | null = null
   try { hrefTab = new URLSearchParams(hrefQs).get('tab') } catch { /* noop */ }
 
-  const pathHit =
-    matchPaths?.some((p) => pathname === p || pathname.startsWith(p + '/'))
-    ?? false
-  const hrefPathHit = pathname === hrefPath || pathname.startsWith(hrefPath + '/')
+  // exact (landing id===area): só a rota-raiz casa — não os descendentes. Sem isto,
+  // '/dashboard/wealth' casaria '/dashboard/wealth/suitability' etc. e sequestraria o
+  // realce/auto-expand pra a seção do landing (a 1), afundando as demais seções.
+  const pathHit = exact
+    ? (matchPaths?.some((p) => pathname === p) ?? false)
+    : (matchPaths?.some((p) => pathname === p || pathname.startsWith(p + '/')) ?? false)
+  const hrefPathHit = exact ? pathname === hrefPath : (pathname === hrefPath || pathname.startsWith(hrefPath + '/'))
 
   if (!pathHit && !hrefPathHit) return false
   // Se href especifica tab, exige que a tab atual da URL bata.
@@ -38,8 +41,8 @@ function itemMatches(pathname: string, currentTab: string | null, href: string, 
 
 export default function SidebarModule({ modulo, pathname, currentTab, isExpanded, onToggle, onNavigate }: Props) {
   const hasItems = !!modulo.items?.length
-  const isActiveSelf = modulo.href ? itemMatches(pathname, currentTab, modulo.href, modulo.matchPaths) : false
-  const hasActiveChild = modulo.items?.some((item) => itemMatches(pathname, currentTab, item.href, item.matchPaths)) ?? false
+  const isActiveSelf = modulo.href ? itemMatches(pathname, currentTab, modulo.href, modulo.matchPaths, modulo.exact) : false
+  const hasActiveChild = modulo.items?.some((item) => itemMatches(pathname, currentTab, item.href, item.matchPaths, item.exact)) ?? false
   const isActive = isActiveSelf || hasActiveChild
 
   if (!hasItems && modulo.href) {
@@ -91,7 +94,7 @@ export default function SidebarModule({ modulo, pathname, currentTab, isExpanded
             <SidebarSubItem
               key={item.id}
               item={item}
-              isActive={itemMatches(pathname, currentTab, item.href, item.matchPaths)}
+              isActive={itemMatches(pathname, currentTab, item.href, item.matchPaths, item.exact)}
               onNavigate={onNavigate}
             />
           ))}

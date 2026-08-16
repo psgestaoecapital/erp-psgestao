@@ -98,7 +98,7 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   INTELIGENCIA_BI: 'Inteligência (BI)',
 }
 
-function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, labelOverride?: Record<string, string>): SidebarModuleNode[] {
+function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, areaSlug: string, labelOverride?: Record<string, string>): SidebarModuleNode[] {
   // RPC ja vem ordenada (secao_ordem, ordem). Agrupar preservando a ordem
   // de aparicao da secao na lista (1a ocorrencia define a posicao).
   const grupos = new Map<string, { label: string; items: SidebarSubItemNode[] }>()
@@ -111,11 +111,18 @@ function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, labelOverride?: Record<
       grupos.set(secaoKey, { label, items: [] })
     }
     const grp = grupos.get(secaoKey)!
+    // FIX-MENU-WEALTH-LANDING · o módulo landing (id === area, ex.: 'wealth' →
+    // /dashboard/wealth) casa a rota EXATA. Sem isto, ele casaria todo
+    // '/dashboard/wealth/*' e o auto-expand/realce grudaria na seção 1, fazendo as
+    // seções 2–4 parecerem subordinadas. Padroniza o comportamento com P&M (que não
+    // tem módulo id === area). Vale pra qualquer área com landing homônimo.
+    const ehLanding = r.modulo_id === areaSlug
     grp.items.push({
       id: r.modulo_id,
       label: labelOverride?.[r.modulo_id] ?? r.nome,
       href: r.rota ?? '#',
       status: statusFromRpc(r.status),
+      ...(ehLanding ? { exact: true } : {}),
       ...(isPS && r.badge_label ? { badge: r.badge_label } : {}),
     })
   }
@@ -359,7 +366,7 @@ export function useSidebarModulos(): State {
   const overrideNomes = (areaSlugRpc === 'oficina' && ramoOficina && ramoOficina !== 'automotiva')
     ? { oficina_recepcao: ramoConfig(ramoOficina).menuRecepcao, oficina_entregues: ramoConfig(ramoOficina).menuEntregues }
     : undefined
-  const modulos = rpcRowsToModulos(rows, isPS, overrideNomes)
+  const modulos = rpcRowsToModulos(rows, isPS, areaSlugRpc, overrideNomes)
   // Rodape de apoio da Gestao Empresarial: Guia de Implantacao (onboarding
   // sob demanda). Hardcoded aqui pra evitar migration por cada apresentacao
   // — segue o mesmo padrao de SECAO_LABEL_OVERRIDE acima.
