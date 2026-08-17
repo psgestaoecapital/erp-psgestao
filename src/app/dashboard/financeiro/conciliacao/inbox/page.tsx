@@ -1640,10 +1640,14 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
         {itens.map((i) => {
           const on = sel.has(i.lancamento_id)
           return (
-            <label key={i.lancamento_id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 2px', fontSize: 12, cursor: 'pointer' }}>
-              <input type="checkbox" checked={on} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
-              <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.fornecedor || i.descricao || 'título'}</span>
-              <span style={{ fontWeight: 600 }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+            <label key={i.lancamento_id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 2px', fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={on} style={{ flexShrink: 0 }} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
+              {/* RD-41 · nome do favorecido à vista (a Jordana confere QUEM está conciliando, não só o valor) */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: '#3D2314', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.fornecedor || i.descricao || 'título'}</div>
+                {i.vencimento && <div style={{ fontSize: 10.5, color: 'rgba(61,35,20,0.5)' }}>venc {fmtDate(i.vencimento)}</div>}
+              </div>
+              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
             </label>
           )
         })}
