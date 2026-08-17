@@ -21,7 +21,9 @@ const fs = require('fs')
 const path = require('path')
 const readline = require('readline')
 
-const VERSAO_AGENTE = '2.1.0'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const VERSAO_AGENTE = '2.1.1'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+// ↑ FONTE DA VERDADE da versão do binário. O CI (build-agente-atak.yml) valida que a tag agente-vX.Y.Z
+//   e o package.json batem com isto e gera o versao.json a partir DAQUI — nunca anuncia versão sem binário.
 const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
 const SERVICE_NAME = 'PS Agente ATAK'
 
@@ -30,6 +32,11 @@ const BASE_DIR = process.pkg ? path.dirname(process.execPath) : __dirname
 const CRED_FILE = path.join(BASE_DIR, 'cred.dat')
 const CONFIG_FILE = path.join(BASE_DIR, 'config.json')
 const LOG_FILE = path.join(BASE_DIR, 'agente.log')
+// Circuit-breaker do auto-update (RD-57): estado PERSISTIDO em disco (sobrevive ao restart do serviço,
+// diferente do throttle em memória) — sem isso, um update que não "vinga" reinicia o processo e volta a
+// tentar de 4 em 4s pra sempre, zerando a coleta. Depois de MAX tentativas na MESMA versão-alvo, para.
+const UPDATE_STATE_FILE = path.join(BASE_DIR, 'update-state.json')
+const MAX_TENTATIVAS_UPDATE = 3
 const HOSTNAME = os.hostname()
 
 // ── log em arquivo + console (resiliência RD-58: fica rastro mesmo rodando como serviço) ──────────
@@ -269,6 +276,15 @@ function semverGt(a, b) {
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false }
   return false
 }
+// Estado do circuit-breaker (RD-57): { alvo, tentativas, alertado } — persistido ao lado do .exe.
+function lerUpdateState() {
+  try { if (fs.existsSync(UPDATE_STATE_FILE)) return JSON.parse(fs.readFileSync(UPDATE_STATE_FILE, 'utf8')) }
+  catch (e) { logErr('update-state.json ilegível (recomeço limpo):', e.message) }
+  return { alvo: null, tentativas: 0, alertado: false }
+}
+function salvarUpdateState(s) {
+  try { fs.writeFileSync(UPDATE_STATE_FILE, JSON.stringify(s)) } catch (e) { logErr('não gravei update-state.json:', e.message) }
+}
 let _ultimaChecagemUpdate = 0
 async function verificarAtualizacao(C) {
   if (!process.pkg) return                                     // só faz sentido no .exe instalado (Windows)
@@ -284,7 +300,30 @@ async function verificarAtualizacao(C) {
     if (!res.ok) return
     const man = await res.json()
     if (!man || !man.versao || !semverGt(man.versao, VERSAO_AGENTE)) return
-    log(`nova versão ${man.versao} disponível (rodando ${VERSAO_AGENTE})${man.obrigatorio ? ' [OBRIGATÓRIA]' : ''} — baixando…`)
+
+    // ── Circuit-breaker (RD-57) ──────────────────────────────────────────────────────────────────
+    let st = lerUpdateState()
+    // Se já rodamos a versão-alvo (ou além), o update anterior "vingou": zera o histórico e segue.
+    if (st.alvo && !semverGt(st.alvo, VERSAO_AGENTE)) { st = { alvo: null, tentativas: 0, alertado: false }; salvarUpdateState(st) }
+    // Mesma versão-alvo já falhou MAX vezes (baixou/reiniciou e o binário NÃO virou man.versao) → PARA.
+    // Fica na versão estável que coleta; alerta uma vez na nuvem. Um update quebrado nunca mais zera a coleta.
+    if (st.alvo === man.versao && st.tentativas >= MAX_TENTATIVAS_UPDATE) {
+      if (!st.alertado) {
+        logErr(`circuit-breaker: update ${man.versao} falhou ${st.tentativas}x (binário segue ${VERSAO_AGENTE}). ` +
+               `PARANDO de tentar — fico na versão estável que coleta. Publique um binário que se auto-reporte ${man.versao}.`)
+        try {
+          await rpc(C, 'fn_agente_heartbeat', {
+            p_token: C.token, p_versao: VERSAO_AGENTE, p_hostname: HOSTNAME,
+            p_ultima_carga: null, p_status: `update_travado:${man.versao}`,
+          })
+        } catch (e) { logErr('alerta de update travado não enviado:', e.message) }
+        st.alertado = true; salvarUpdateState(st)
+      }
+      return                                                    // desiste deste ciclo — a coleta segue normal
+    }
+
+    log(`nova versão ${man.versao} disponível (rodando ${VERSAO_AGENTE})${man.obrigatorio ? ' [OBRIGATÓRIA]' : ''} — baixando… ` +
+        `(tentativa ${(st.alvo === man.versao ? st.tentativas : 0) + 1}/${MAX_TENTATIVAS_UPDATE})`)
     // o versao.json do CI leva o url ABSOLUTO do Storage; fallback resolve contra a base do manifesto.
     const relBase = C.updateBase || storageBase.replace(/\/agente$/, '')
     const exeUrl = String(man.url || '/agente/agente-atak.exe').startsWith('http') ? man.url : `${relBase}${man.url}`
@@ -311,6 +350,13 @@ async function verificarAtualizacao(C) {
       '',
     ].join('\r\n')
     fs.writeFileSync(path.join(BASE_DIR, 'atualizar.bat'), bat)
+    // Conta a tentativa ANTES de disparar/encerrar (RD-57): se o binário não virar man.versao, na volta
+    // o contador já subiu; após MAX o breaker trava. Persistido em disco → sobrevive ao restart.
+    salvarUpdateState({
+      alvo: man.versao,
+      tentativas: (st.alvo === man.versao ? st.tentativas : 0) + 1,
+      alertado: st.alvo === man.versao ? st.alertado : false,
+    })
     const { spawn } = require('child_process')
     spawn('cmd.exe', ['/c', 'atualizar.bat'], { cwd: BASE_DIR, detached: true, stdio: 'ignore' }).unref()
     log(`updater disparado — o serviço reinicia na ${man.versao} (rollback automático se não subir em 15s).`)
