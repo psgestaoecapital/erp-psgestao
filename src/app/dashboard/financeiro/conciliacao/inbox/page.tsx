@@ -750,11 +750,20 @@ export default function InboxPage() {
   }
 
   async function desvincularConciliado(c: Conciliado) {
-    // Antes retornava em silêncio quando não havia vínculo de título (ex.: movimento
-    // conciliado com lancamento_tabela NULL) — o botão "não fazia nada" e parecia bug.
-    // Agora avisa em vez de virar no-op silencioso.
+    // Fatura AGRUPADA (lancamento_id NULL): os vínculos ficam em conciliacao_vinculo, não no 1:1.
+    // Antes o botão virava um aviso inerte ("use Ignorar") — não desfazia nada. Agora chama a RPC
+    // de movimento, que estorna a baixa dos N títulos + limpa vínculos + volta o movimento p/ Pendentes.
     if (!c.lancamento_id || !c.lancamento_tabela) {
-      setErro('Este movimento não tem vínculo de título para desfazer. Use "Ignorar" na aba Pendentes se precisar removê-lo.')
+      if (!confirm('Desvincular esta fatura agrupada? Os títulos vinculados voltam a Aberto e o movimento volta para Pendentes.')) return
+      const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
+        p_movimento_id: c.movimento_id,
+      })
+      if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string }
+      if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+      await carregarConciliados()
+      await carregar()
+      if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título(s) com ajuste — confira o valor manualmente
       return
     }
     if (!confirm(`Desvincular este lançamento conciliado? O movimento volta para pendente.`)) return
