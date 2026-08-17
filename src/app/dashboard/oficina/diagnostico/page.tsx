@@ -83,6 +83,10 @@ export default function DiagnosticoPage() {
   // busca de peça no catálogo/estoque
   const [buscaPeca, setBuscaPeca] = useState('')
   const [sugestoesPeca, setSugestoesPeca] = useState<Peca[]>([])
+  // RD-26 · gerar cotação de compra a partir do diagnóstico (ponte p/ Compras/GE)
+  const [cotarAberto, setCotarAberto] = useState(false)
+  const [cotarSel, setCotarSel] = useState<Set<string>>(new Set())
+  const [gerandoCot, setGerandoCot] = useState(false)
   const [solicitarAberto, setSolicitarAberto] = useState(false)  // R5 · modal solicitar peça ao dono
   // RD-41 · fotos do diagnóstico (reusa erp_os_registro_foto, etapa='diagnostico')
   const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
@@ -207,6 +211,30 @@ export default function DiagnosticoPage() {
     setMsg(`✅ Laudo salvo — ${j?.itens ?? 0} item(ns). Próximo: aprovação do cliente.`)
     await carregarLista()
     setTimeout(() => setOsSel(null), 1400)
+  }
+
+  // ── RD-26 · Gerar cotação de compra a partir do diagnóstico (ponte p/ Compras/GE [→GE]) ──
+  // Só PEÇAS salvas (com id). Pré-marca o que precisa comprar: item livre (sem produto_id) ou catálogo sem saldo.
+  // Serviço/mão de obra nunca entra. A cotação cai na tela de comparação de fornecedores que já existe.
+  const pecasCotaveis = () => itens.filter((i) => i.tipo === 'peca' && !!i.id && i.descricao.trim().length > 0)
+  const abrirCotar = () => {
+    const pecas = pecasCotaveis()
+    if (pecas.length === 0) { setMsg('Salve o laudo e adicione peças antes de gerar a cotação.'); return }
+    const pre = new Set(pecas.filter((p) => !p.produto_id || (p._estoque ?? 0) <= 0).map((p) => p.id as string))
+    setCotarSel(pre); setCotarAberto(true)
+  }
+  const gerarCotacao = async () => {
+    if (!osSel) return
+    const ids = Array.from(cotarSel)
+    if (ids.length === 0) { setMsg('Marque ao menos uma peça para cotar.'); return }
+    setGerandoCot(true)
+    const { data, error } = await supabase.rpc('fn_os_diagnostico_gerar_cotacao', { p_os_id: osSel.id, p_itens_ids: ids })
+    setGerandoCot(false)
+    const j = data as { sucesso?: boolean; erro?: string; msg?: string; numero?: string; itens?: number } | null
+    if (error || j?.sucesso === false) { setMsg('❌ ' + (error?.message || j?.msg || j?.erro || 'falha ao gerar cotação')); return }
+    setCotarAberto(false)
+    setMsg(`✅ Cotação ${j?.numero ?? ''} criada (${j?.itens ?? 0} peça(s)). Abra em Compras › Cotações para comparar fornecedores.`)
+    setTimeout(() => router.push('/dashboard/commerce/compras'), 1000)
   }
 
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
@@ -392,10 +420,45 @@ export default function DiagnosticoPage() {
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${LINE}`, padding: '10px 14px', display: 'flex', justifyContent: 'center' }}>
-        <button onClick={salvar} disabled={salvando} style={{ ...btnGold, maxWidth: 560, width: '100%', fontSize: 15, minHeight: 48 }}>
-          {salvando ? 'Salvando…' : 'Salvar laudo'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, maxWidth: 560, width: '100%' }}>
+          <button onClick={salvar} disabled={salvando} style={{ ...btnGold, flex: 1, fontSize: 15, minHeight: 48 }}>
+            {salvando ? 'Salvando…' : 'Salvar laudo'}
+          </button>
+          <button onClick={abrirCotar} disabled={salvando} title="Gerar cotação de compra das peças (comparar fornecedores)"
+            style={{ ...btnLine, flex: 1, fontSize: 14, minHeight: 48, justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Package size={16} /> Gerar cotação
+          </button>
+        </div>
       </div>
+      {/* RD-26 · seleção de peças p/ cotação (serviço não entra; estoque vem desmarcado) */}
+      {cotarAberto && osSel && (
+        <div onClick={() => setCotarAberto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 560, maxHeight: '82vh', overflowY: 'auto', padding: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: ESP, marginBottom: 4 }}>Gerar cotação de compra</div>
+            <div style={{ fontSize: 12, color: ESP60, marginBottom: 12 }}>Marque as peças que precisam cotar. Serviços não entram; itens em estoque vêm desmarcados.</div>
+            {pecasCotaveis().length === 0 ? (
+              <div style={{ fontSize: 13, color: ESP60, padding: '16px 0' }}>Nenhuma peça salva para cotar. Salve o laudo primeiro.</div>
+            ) : pecasCotaveis().map((p) => {
+              const on = cotarSel.has(p.id as string)
+              return (
+                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: `1px solid ${LINE}`, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={on} onChange={() => setCotarSel((s) => { const n = new Set(s); if (n.has(p.id as string)) n.delete(p.id as string); else n.add(p.id as string); return n })} style={{ width: 18, height: 18, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: ESP, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.descricao || 'Peça'}</div>
+                    <div style={{ fontSize: 11, color: ESP60 }}>Qtd {p.quantidade || '1'}{p.produto_id ? (p._estoque != null ? ` · estoque ${Number(p._estoque)}` : ' · catálogo') : ' · item livre'}</div>
+                  </div>
+                </label>
+              )
+            })}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <button onClick={() => setCotarAberto(false)} style={{ ...btnLine, flex: 1 }}>Cancelar</button>
+              <button onClick={() => void gerarCotacao()} disabled={gerandoCot || cotarSel.size === 0} style={{ ...btnGold, flex: 1 }}>
+                {gerandoCot ? 'Gerando…' : `Gerar cotação (${cotarSel.size})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {msg && <Toast>{msg}</Toast>}
       {osSel && companyId && (
         <SolicitarPecaModal companyId={companyId} osId={osSel.id} aberto={solicitarAberto}
