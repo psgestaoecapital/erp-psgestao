@@ -29,6 +29,14 @@ type Prod = {
   estoque_atual: number | null
 }
 
+type OSLite = {
+  id: string
+  numero: string
+  cliente_nome: string | null
+  placa: string | null
+  status: string
+}
+
 interface SugerirResp {
   ok: boolean
   itens?: Item[]
@@ -58,6 +66,10 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [q, setQ] = useState('')
   const [res, setRes] = useState<Prod[]>([])
   const [busy, setBusy] = useState(false)
+  // RD-26 · vincular o item da NF a uma OS (baixa automática do estoque no faturamento da OS)
+  const [buscaOS, setBuscaOS] = useState<string | null>(null)
+  const [qOS, setQOS] = useState('')
+  const [resOS, setResOS] = useState<OSLite[]>([])
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -100,6 +112,38 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const r = data as VincularResp | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao vincular'); return }
     setBuscaItem(null); setQ(''); setRes([])
+    await carregar()
+    onChange?.()
+  }
+
+  // RD-26 · busca de OS (por número/cliente/placa) para vincular o item da NF
+  async function buscarOS(termo: string) {
+    setQOS(termo)
+    if (termo.trim().length < 2) { setResOS([]); return }
+    const t = `%${termo.trim()}%`
+    const { data } = await supabase
+      .from('erp_os')
+      .select('id, numero, cliente_nome, placa, status')
+      .eq('company_id', companyId)
+      .not('status', 'in', '(cancelada,excluida)')
+      .or(`numero.ilike.${t},cliente_nome.ilike.${t},placa.ilike.${t}`)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    setResOS((data as OSLite[]) ?? [])
+  }
+
+  async function vincularOS(itemId: string, osId: string) {
+    setBusy(true)
+    setErro(null)
+    // p_diag_item_id opcional (null): vincula à OS; a peça específica pode ser refinada depois
+    const { data, error } = await supabase.rpc('fn_nfe_item_vincular_os', {
+      p_item_id: itemId, p_os_id: osId, p_diag_item_id: null,
+    })
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Erro ao vincular à OS'); return }
+    setBuscaOS(null); setQOS(''); setResOS([])
     await carregar()
     onChange?.()
   }
@@ -161,12 +205,23 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             {chipEstoque(it)}
             {chipVinculo(it)}
+            {it.vinculo_origem?.startsWith('os:') && (
+              <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8EEF9] text-[#2F5AA8] font-medium">✓ vinculado à OS</span>
+            )}
             <button
               type="button"
               onClick={() => { setBuscaItem(it.item_id); setQ(''); setRes([]) }}
               className="text-[10.5px] px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810]"
             >
               {it.produto_id ? 'Trocar produto' : 'Vincular produto'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setBuscaOS(it.item_id); setQOS(''); setResOS([]) }}
+              className="text-[10.5px] px-2.5 py-1 rounded-md border border-[#2F5AA8] text-[#2F5AA8] font-medium hover:bg-[#E8EEF9]"
+              title="Vincular esta peça a uma OS — no faturamento da OS o estoque baixa automático"
+            >
+              {it.vinculo_origem?.startsWith('os:') ? 'Trocar OS' : 'Vincular à OS'}
             </button>
           </div>
 
@@ -203,6 +258,44 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
               <button
                 type="button"
                 onClick={() => { setBuscaItem(null); setQ(''); setRes([]) }}
+                className="text-[10.5px] text-[#3D2314]/55 mt-1 hover:underline"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
+
+          {buscaOS === it.item_id && (
+            <div className="mt-2 rounded-md bg-white border border-[#2F5AA8]/30 p-2">
+              <input
+                autoFocus
+                value={qOS}
+                onChange={(e) => void buscarOS(e.target.value)}
+                placeholder="Buscar OS por número, cliente ou placa…"
+                className="w-full text-[12px] border border-[#3D2314]/15 rounded-md px-2 py-1 outline-none text-[#3D2314]"
+              />
+              <div className="max-h-48 overflow-auto mt-1">
+                {resOS.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void vincularOS(it.item_id, o.id)}
+                    className="w-full text-left text-[12px] px-2 py-1 hover:bg-[#2F5AA8]/5 rounded text-[#3D2314] disabled:opacity-50"
+                  >
+                    <span className="font-medium">{o.numero}</span>{' '}
+                    <span className="text-[10.5px] text-[#3D2314]/55">
+                      · {o.cliente_nome ?? 'sem cliente'}{o.placa ? ` · ${o.placa}` : ''} · {o.status}
+                    </span>
+                  </button>
+                ))}
+                {qOS.length >= 2 && resOS.length === 0 && (
+                  <div className="text-[10.5px] text-[#3D2314]/50 px-2 py-1">Nenhuma OS encontrada.</div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setBuscaOS(null); setQOS(''); setResOS([]) }}
                 className="text-[10.5px] text-[#3D2314]/55 mt-1 hover:underline"
               >
                 Cancelar
