@@ -1149,9 +1149,8 @@ export default function InboxPage() {
                             </div>
                           </>
                         ) : (
-                          <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
-                            Sem sugestão automática. Conciliar manualmente.
-                          </div>
+                          // RD-41 · débito de remessa (DEB.COB.ELETR-NN) sugere o lote de títulos pagos p/ conciliar agrupado
+                          <LoteRemessaCard mov={it} onConciliado={() => { void carregar() }} />
                         )}
                       </div>
                     </div>
@@ -1561,4 +1560,101 @@ const infoBox: React.CSSProperties = {
 const emptyBox: React.CSSProperties = {
   background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8,
   padding: 48, textAlign: 'center', color: 'rgba(61,35,20,0.65)',
+}
+
+// RD-41 · Melhoria 2: débito de cobrança eletrônica de remessa (DEB.COB.ELETR-NN) sugere o LOTE de
+// títulos pagos daquela remessa p/ conciliar agrupado. Guarda de valor: o subconjunto selecionado deve
+// somar ao débito (tolerância mínima p/ tarifa). Como uma remessa gera múltiplos débitos (por banco
+// destino), pré-seleciona o subconjunto ÚNICO que bate; senão a Jordana marca (soma × débito à vista).
+type LoteCand = { lancamento_id: string; lancamento_tabela: string; descricao: string | null; fornecedor: string | null; valor: number; vencimento: string | null }
+
+function subsetUnico(itens: LoteCand[], alvoCents: number): string[] | null {
+  const n = itens.length
+  if (n === 0 || n > 20) return null // acima disso, força seleção manual (evita custo/ambiguidade)
+  const cents = itens.map((i) => Math.round((i.valor || 0) * 100))
+  let achado = -1; let qtd = 0
+  for (let mask = 1; mask < (1 << n); mask++) {
+    let s = 0
+    for (let b = 0; b < n; b++) if (mask & (1 << b)) s += cents[b]
+    if (Math.abs(s - alvoCents) <= 5) { qtd++; achado = mask; if (qtd > 1) return null } // único
+  }
+  if (qtd !== 1 || achado < 0) return null
+  const ids: string[] = []
+  for (let b = 0; b < n; b++) if (achado & (1 << b)) ids.push(itens[b].lancamento_id)
+  return ids
+}
+
+function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () => void }) {
+  const [fase, setFase] = useState<'idle' | 'load' | 'ready' | 'busy' | 'na'>('idle')
+  const [rem, setRem] = useState<number | null>(null)
+  const [itens, setItens] = useState<LoteCand[]>([])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [erroL, setErroL] = useState<string | null>(null)
+  const alvo = Math.round(Math.abs(mov.valor) * 100)
+  const ehDeb = /COB\.?\s*ELETR/i.test(mov.descricao ?? '') && mov.natureza === 'debito'
+
+  useEffect(() => {
+    if (!ehDeb) return   // não é débito de remessa → render mostra o texto padrão (sem setState síncrono no effect)
+    let alive = true
+    void (async () => {
+      setFase('load')
+      const { data, error } = await supabase.rpc('fn_conciliacao_lote_remessa_candidatos', { p_movimento_id: mov.movimento_id })
+      if (!alive) return
+      const r = data as { ok?: boolean; aplicavel?: boolean; encontrada?: boolean; remessa?: number; itens?: LoteCand[] } | null
+      if (error || !r?.ok || !r.aplicavel || !r.encontrada || !(r.itens && r.itens.length)) { setFase('na'); return }
+      setRem(r.remessa ?? null); setItens(r.itens)
+      setSel(new Set(subsetUnico(r.itens, alvo) ?? []))
+      setFase('ready')
+    })()
+    return () => { alive = false }
+  }, [ehDeb, mov.movimento_id, alvo])
+
+  const somaSel = Math.round(itens.filter((i) => sel.has(i.lancamento_id)).reduce((a, i) => a + (i.valor || 0), 0) * 100)
+  const bate = sel.size > 0 && Math.abs(somaSel - alvo) <= 5
+  const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+  async function conciliar() {
+    setFase('busy'); setErroL(null)
+    for (const id of Array.from(sel)) {
+      const it = itens.find((x) => x.lancamento_id === id)
+      if (!it) continue
+      const { data, error } = await supabase.rpc('fn_conciliacao_vincular', { p_movimento_id: mov.movimento_id, p_lancamento_tabela: it.lancamento_tabela, p_lancamento_id: id, p_valor: null })
+      const rv = data as { ok?: boolean; erro?: string; msg?: string } | null
+      if (error || rv?.ok === false) { setErroL('Falha ao vincular: ' + (error?.message || rv?.msg || rv?.erro || '')); setFase('ready'); return }
+    }
+    const { data, error } = await supabase.rpc('fn_conciliacao_fechar_agrupado', { p_movimento_id: mov.movimento_id })
+    const rf = data as { ok?: boolean; erro?: string } | null
+    if (error || rf?.ok === false) { setErroL('Falha ao fechar o lote: ' + (error?.message || rf?.erro || '')); setFase('ready'); return }
+    onConciliado()
+  }
+
+  if (!ehDeb || fase === 'na') return <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Sem sugestão automática. Conciliar manualmente.</div>
+  if (fase === 'idle' || fase === 'load') return <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Verificando lote da remessa…</div>
+  return (
+    <div style={{ border: '1px solid #0D9488', borderRadius: 8, padding: 10, background: '#F0FDFA' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>Remessa Nº {rem} — {itens.length} título(s) pago(s) neste lote</div>
+      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
+        Marque os títulos deste débito · selecionado {brl(somaSel)} · débito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}
+      </div>
+      <div style={{ maxHeight: 168, overflowY: 'auto', marginTop: 6 }}>
+        {itens.map((i) => {
+          const on = sel.has(i.lancamento_id)
+          return (
+            <label key={i.lancamento_id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 2px', fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={on} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
+              <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.fornecedor || i.descricao || 'título'}</span>
+              <span style={{ fontWeight: 600 }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+            </label>
+          )
+        })}
+      </div>
+      {erroL && <div style={{ fontSize: 11.5, color: '#A32D2D', marginTop: 4 }}>{erroL}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        <button onClick={() => void conciliar()} disabled={fase === 'busy' || !bate}
+          style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: bate ? '#0D9488' : 'rgba(13,148,136,0.4)', border: 'none', borderRadius: 6, padding: '7px 12px', cursor: bate ? 'pointer' : 'not-allowed' }}>
+          {fase === 'busy' ? 'Conciliando…' : `Conciliar lote (${sel.size})`}
+        </button>
+      </div>
+    </div>
+  )
 }
