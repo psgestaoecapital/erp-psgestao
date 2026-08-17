@@ -1,6 +1,6 @@
 {
   "name": "ps-atak-agente",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "description": "Agente PS config-driven — coletor ATAK/Frigosoft empacotável como .exe de 2 cliques. Senha do SQL só local (DPAPI · Pilar 2); token embutido no config.json; auto-instala como Serviço do Windows com loop interno.",
   "bin": "agent.js",

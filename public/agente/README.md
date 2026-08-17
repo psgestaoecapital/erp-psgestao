@@ -14,10 +14,20 @@ URLs do Storage. Enquanto o `.exe` não estiver publicado, o botão avisa em PT-
 `MZ` — não zipa um HTML de 404).
 
 ## Fluxo de release (automático)
-1. `git tag agente-v2.1.0 && git push --tags` → o workflow "Build Agente ATAK" builda o `.exe`,
-   gera o `versao.json` (com o sha256 e o `url` absoluto do Storage) e **publica os dois no bucket**.
+0. **Antes de taggear, faça o bump da versão em DOIS lugares** (senão o build falha de propósito):
+   `collectors/atak-agente/agent.js` → `VERSAO_AGENTE` **e** `collectors/atak-agente/package.json` → `version`.
+   A tag `agente-vX.Y.Z` tem que casar com esses. **Nunca anuncie uma versão que o binário não carrega** —
+   foi o que criou o loop 2.1.1↔2.1.0 (manifesto 2.1.1 em cima de binário 2.1.0 → re-download infinito).
+1. `git tag agente-v2.1.1 && git push --tags` → o workflow "Build Agente ATAK" valida (guard) que
+   binário == package.json == tag, builda o `.exe`, gera o `versao.json` **a partir da versão do binário**
+   (com sha256 + `url` absoluto do Storage) e **publica os dois no bucket**.
 2. Pronto — todos os agentes se atualizam no próximo ciclo; a tela Conectores gera o instalador
    com o `.exe` do Storage.
+
+> **Circuit-breaker (RD-57):** se mesmo assim um update não "vingar" (o binário não vira a versão
+> anunciada), o agente tenta no máximo **3×** para o mesmo alvo, então **para**, fica na versão estável
+> que coleta e grava `status = update_travado:<versao>` em `erp_agente_status`. Um update quebrado nunca
+> mais zera a coleta. O estado fica em `update-state.json` ao lado do `.exe` (sobrevive a restart).
 
 Requer (1×, pelo CEO) os secrets `SUPABASE_URL` e `SUPABASE_STORAGE_KEY` no repo (Pilar 2 — a chave
 só serve pro Storage, vive nos Secrets do GitHub, nunca no código; vault intocado).
