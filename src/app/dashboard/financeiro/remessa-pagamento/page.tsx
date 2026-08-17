@@ -47,14 +47,14 @@ type RemessaLista = { id: string; numero_sequencial: number; status: string; amb
 type ExtratoItem = { item_id: string; beneficiario: string; descricao: string | null; data_vencimento: string | null; valor: number; forma: string; status_item: string }
 type ExtratoResp = { sucesso: boolean; erro?: string; remessa?: { numero_sequencial: number; status: string; ambiente: string; arquivo_nome: string | null; gerado_em: string | null; retorno_importado_em: string | null }; itens?: ExtratoItem[]; total?: number; qtd?: number }
 // Payload por pagamento do .RET enviado à RPC de auto-conciliação (casa por identificador, sem escolher remessa).
-type RetAutoItem = { codigo_barras: string; valor: number; valor_pago: number; data_pagamento: string | null; ocorrencia: string; pago_hint: boolean }
+type RetAutoItem = { codigo_barras: string; valor: number; valor_pago: number; data_pagamento: string | null; ocorrencia: string; pago_hint: boolean; cod_movimento?: string; ocorrencias?: string; banco_codigo?: string }
 type RetCasado = { item_id: string; remessa: number; pagar_id: string; descricao: string | null; valor: number; valor_pago: number; resultado: string; ocorrencia: string; motivo: string }
 type RetSimples = { item_id?: string; remessa?: number; descricao?: string | null; valor: number; valor_pago?: number; codigo_barras?: string | null; ocorrencia?: string; motivo?: string }
 type RetAutoResp = {
   ok: boolean; erro?: string; confirmado?: boolean
-  casados?: RetCasado[]; nao_casados?: RetSimples[]; rejeitados?: RetSimples[]; ja_pagos?: RetSimples[]
-  qtd_casados?: number; qtd_nao_casados?: number
-  resumo?: { total: number; pagos: number; rejeitados: number; ja_pagos: number; erros: number; nao_casados: number }
+  casados?: RetCasado[]; agendados?: RetSimples[]; nao_casados?: RetSimples[]; rejeitados?: RetSimples[]; ja_pagos?: RetSimples[]
+  qtd_casados?: number; qtd_agendados?: number; qtd_nao_casados?: number
+  resumo?: { total: number; pagos: number; agendados?: number; rejeitados: number; ja_pagos: number; erros: number; nao_casados: number }
 }
 
 export default function RemessaPagamentoPage() {
@@ -285,6 +285,14 @@ export default function RemessaPagamentoPage() {
       const { error: itErr } = await supabase.from('erp_remessa_pagamento_item').insert(itens)
       if (itErr) throw itErr
 
+      // Máquina de estados (RD-41): as contas incluídas viram "Incluído na remessa" (guarda o status
+      // anterior p/ a rejeição reverter exatamente). Não bloqueia a geração do arquivo se falhar.
+      const idsIncluidos = itens.map((it) => it.erp_pagar_id)
+      const { error: marcErr } = await supabase.rpc('fn_remessa_marcar_incluidos', {
+        p_ids: idsIncluidos, p_company_id: companyId,
+      })
+      if (marcErr) console.warn('marcar_incluidos falhou (arquivo já gerado):', marcErr.message)
+
       // baixa o .rem em latin-1
       const conteudo = provider === 'sicredi'
         ? buildArquivoSicredi(res.input as Parameters<typeof buildArquivoSicredi>[0])
@@ -317,6 +325,8 @@ export default function RemessaPagamentoPage() {
       codigo_barras: normalizarCodigoBarras(r.codBarras) || r.codBarras,
       valor: r.valTitulo, valor_pago: r.valPago, data_pagamento: r.dtPagamento,
       ocorrencia: r.ocorrencia, pago_hint: r.pagoHint,
+      // códigos CRUS p/ o de-para de ocorrência da RPC (BD=agendar, 00=liquidar, resto=rejeitar) · RD-41
+      cod_movimento: r.codMovimento, ocorrencias: r.ocorrencias, banco_codigo: '748',
     }))
   }
 
@@ -718,12 +728,20 @@ export default function RemessaPagamentoPage() {
                   {impConfirmado ? '✅ Baixa concluída' : 'Prévia — confira antes de confirmar'}
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
-                  <span style={{ padding: '3px 8px', borderRadius: 6, background: '#EAF5EE', color: VERDE, fontWeight: 700 }}>{impResumo.resumo.pagos} {impConfirmado ? 'baixados' : 'a baixar'}</span>
+                  <span style={{ padding: '3px 8px', borderRadius: 6, background: '#EAF5EE', color: VERDE, fontWeight: 700 }}>{impResumo.resumo.pagos} {impConfirmado ? 'liquidados (baixados)' : 'a liquidar (baixar)'}</span>
+                  {(impResumo.resumo.agendados ?? 0) > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#EEF2FB', color: '#2F5AA8', fontWeight: 700 }}>{impResumo.resumo.agendados} {impConfirmado ? 'agendados' : 'a agendar'}</span>}
                   {impResumo.resumo.ja_pagos > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.ja_pagos} já baixados</span>}
                   {impResumo.resumo.rejeitados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.rejeitados} rejeitados</span>}
                   {impResumo.resumo.erros > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.erros} c/ erro</span>}
                   {impResumo.resumo.nao_casados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.nao_casados} não casados</span>}
                 </div>
+
+                {/* Rejeição VISÍVEL (forma 1: alerta no topo) — a Jordana pediu pra nunca esconder rejeição */}
+                {impResumo.resumo.rejeitados > 0 && (
+                  <div style={{ marginTop: 10, padding: '9px 12px', borderRadius: 8, background: '#FBEAEA', border: `1px solid ${VERM}`, color: VERM, fontSize: 12.5, fontWeight: 700 }}>
+                    ⚠ {impResumo.resumo.rejeitados} título(s) rejeitado(s) pelo banco — {impConfirmado ? 'voltaram ao status anterior' : 'voltarão ao status anterior'}. Veja os motivos abaixo.
+                  </div>
+                )}
 
                 {/* casados: título · remessa · valor · ocorrência */}
                 {(impResumo.casados ?? []).length > 0 && (
@@ -740,13 +758,30 @@ export default function RemessaPagamentoPage() {
                   </div>
                 )}
 
-                {/* rejeitados pelo banco (casaram título, mas sem confirmação de pagamento) */}
-                {(impResumo.rejeitados ?? []).length > 0 && (
+                {/* agendados pelo banco (BD/02): não baixam — só mudam de status pra Agendado */}
+                {(impResumo.agendados ?? []).length > 0 && (
                   <div style={{ marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+                    {(impResumo.agendados ?? []).map((d, i) => (
+                      <div key={d.item_id ?? i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, alignItems: 'center', padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
+                        <div style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ padding: '1px 6px', borderRadius: 5, background: '#EEF2FB', color: '#2F5AA8', fontWeight: 700, fontSize: 11 }}>agendado</span>
+                          <span style={{ color: ESP, fontWeight: 600 }}> {d.descricao || '—'}</span>
+                          <span style={{ color: MUT }}> · remessa Nº {d.remessa}{d.ocorrencia ? ` · oc ${d.ocorrencia}` : ''}</span>
+                        </div>
+                        <span style={{ color: '#2F5AA8', fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(Math.round((d.valor ?? 0) * 100))}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* rejeitados pelo banco (forma 2: badge "Rejeitado: {motivo}" na linha de cada título) */}
+                {(impResumo.rejeitados ?? []).length > 0 && (
+                  <div style={{ marginTop: 8, border: `1px solid ${VERM}`, borderRadius: 8, overflow: 'hidden' }}>
                     {(impResumo.rejeitados ?? []).map((d, i) => (
-                      <div key={i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
-                        <b style={{ color: VERM }}>rejeitado</b>
-                        <span style={{ color: MUT }}> · {d.descricao || brl(Math.round((d.valor ?? 0) * 100))} — {d.motivo}</span>
+                      <div key={d.item_id ?? i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
+                        <span style={{ padding: '1px 6px', borderRadius: 5, background: '#FBEAEA', color: VERM, fontWeight: 700, fontSize: 11 }}>Rejeitado</span>
+                        <span style={{ color: ESP, fontWeight: 600 }}> {d.descricao || brl(Math.round((d.valor ?? 0) * 100))}</span>
+                        <span style={{ color: VERM }}> — {d.motivo}</span>
                       </div>
                     ))}
                   </div>
@@ -770,9 +805,13 @@ export default function RemessaPagamentoPage() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               <button onClick={() => setImpOpen(false)} disabled={impBusy} style={btnGhost}>{impConfirmado ? 'Fechar' : 'Cancelar'}</button>
-              {impResumo?.ok && !impConfirmado && (impResumo.resumo?.pagos ?? 0) > 0 && (
+              {impResumo?.ok && !impConfirmado && ((impResumo.resumo?.pagos ?? 0) + (impResumo.resumo?.agendados ?? 0) + (impResumo.resumo?.rejeitados ?? 0)) > 0 && (
                 <button onClick={confirmarImportar} disabled={impBusy} style={btnPrimary}>
-                  {impBusy ? 'Baixando…' : `Confirmar baixa de ${impResumo.resumo?.pagos}`}
+                  {impBusy ? 'Aplicando…' : `Confirmar (${[
+                    (impResumo.resumo?.pagos ?? 0) > 0 ? `${impResumo.resumo?.pagos} baixar` : '',
+                    (impResumo.resumo?.agendados ?? 0) > 0 ? `${impResumo.resumo?.agendados} agendar` : '',
+                    (impResumo.resumo?.rejeitados ?? 0) > 0 ? `${impResumo.resumo?.rejeitados} rejeitar` : '',
+                  ].filter(Boolean).join(' · ')})`}
                 </button>
               )}
             </div>
