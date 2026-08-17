@@ -15,12 +15,13 @@ export interface LinhaExport {
   valor_pago: number | null
   data_vencimento: string
   data_pagamento: string | null
-  situacao: 'pago' | 'agendado' | 'incluido_remessa' | 'vencido' | 'hoje' | 'a_vencer'
+  situacao: 'pago' | 'conciliado' | 'agendado' | 'incluido_remessa' | 'vencido' | 'hoje' | 'a_vencer'
   numero_documento: string | null
 }
 
 const statusLabel = (s: LinhaExport['situacao'], tipo: Tipo): string => {
   if (s === 'pago') return tipo === 'receber' ? 'Recebido' : 'Pago'
+  if (s === 'conciliado') return 'Conciliado'
   if (s === 'agendado') return 'Agendado'
   if (s === 'incluido_remessa') return 'Incluído na remessa'
   if (s === 'vencido') return 'Vencido'
