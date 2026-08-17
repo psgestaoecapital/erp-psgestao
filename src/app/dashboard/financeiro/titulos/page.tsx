@@ -33,7 +33,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 type TipoFiltro = 'todos' | 'pagar' | 'receber'
-type StatusFiltro = 'todos' | 'aberto' | 'vencido' | 'agendado' | 'pago' | 'cancelado'
+type StatusFiltro = 'todos' | 'aberto' | 'vencido' | 'incluido_remessa' | 'agendado' | 'pago' | 'cancelado'
 
 type Titulo = {
   id: string
@@ -68,6 +68,8 @@ function statusBadge(status: string, tipoLinha?: string): { bg: string; tx: stri
       return { bg: 'bg-emerald-50', tx: 'text-emerald-700', label: tipoLinha === 'receber' ? 'Recebido' : 'Pago' }
     case 'agendado':
       return { bg: 'bg-blue-50', tx: 'text-blue-700', label: 'Agendado' }
+    case 'incluido_remessa':
+      return { bg: 'bg-indigo-50', tx: 'text-indigo-700', label: 'Incluído na remessa' }
     case 'aberto':
       return { bg: 'bg-amber-50', tx: 'text-amber-700', label: 'Aberto' }
     case 'vencido':
@@ -171,7 +173,7 @@ function TitulosInner() {
 
   // KPIs agregados
   const kpiPagar = aggregados
-    .filter((t) => t.tipo === 'pagar' && ['aberto', 'vencido', 'agendado'].includes(t.status_calculado))
+    .filter((t) => t.tipo === 'pagar' && ['aberto', 'vencido', 'incluido_remessa', 'agendado'].includes(t.status_calculado))
     .reduce((a, t) => a + (Number(t.valor) || 0), 0)
   const kpiReceber = aggregados
     .filter((t) => t.tipo === 'receber' && ['aberto', 'vencido', 'agendado'].includes(t.status_calculado))
@@ -240,6 +242,7 @@ function TitulosInner() {
                 { v: 'todos', l: 'Todos' },
                 { v: 'aberto', l: 'Aberto' },
                 { v: 'vencido', l: 'Vencido' },
+                { v: 'incluido_remessa', l: 'Incluído na remessa' },
                 { v: 'agendado', l: 'Agendado' },
                 { v: 'pago', l: 'Pago' },
                 { v: 'cancelado', l: 'Cancelado' },
