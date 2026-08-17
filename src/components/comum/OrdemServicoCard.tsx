@@ -137,6 +137,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   // RD-41 · edição pós-entrega restrita a Master (CLIENT_OWNER). papel na empresa da OS + selo de auditoria.
   const [papel, setPapel] = useState<string | null>(null)
   const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
+  // RD-41 · itens do diagnóstico (peças + serviços). A ficha reabria SEM eles → impresso zerado.
+  const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -209,6 +211,14 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
       setClienteNome(row.cliente_nome ?? '')
       setClienteCnpj(row.cliente_cnpj ?? '')
       setTrocarCli(false); setBuscaCli(''); setCliOpts([])
+    }
+    // RD-41 · carrega os itens do diagnóstico (a ficha reabria SEM eles ao editar OS entregue → impresso zerado)
+    if (row?.id && row.company_id) {
+      const { data: diag } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: row.company_id, p_os_id: row.id })
+      const dd = diag as { itens?: typeof itensDiag } | null   // o retorno traz {diagnostico,km,itens,resumo} (sem 'ok')
+      setItensDiag(Array.isArray(dd?.itens) ? (dd?.itens ?? []) : [])
+    } else {
+      setItensDiag([])
     }
     setLoading(false)
   }, [pedidoId, osId])
@@ -615,6 +625,42 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
       {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
       {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
+
+      {/* RD-41 · Itens da OS (peças + serviços). Vinham vazios ao reabrir OS entregue → impresso zerado. */}
+      {itensDiag.length > 0 && (
+        <div data-testid="os-itens" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: 10, padding: 12, background: C.white }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 8 }}>Itens da OS ({itensDiag.length})</div>
+          {itensDiag.map((it, i) => {
+            const qtd = it.quantidade != null && String(it.quantidade) !== '' ? Number(it.quantidade) : 1
+            const val = it.subtotal ?? it.preco
+            return (
+              <div key={it.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none', fontSize: 12.5 }}>
+                <span>{it.tipo === 'servico' ? '🔧' : '📦'}</span>
+                <span style={{ flex: 1, minWidth: 0, color: C.espresso, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.descricao || (it.tipo === 'servico' ? 'Serviço' : 'Peça')}</span>
+                <span style={{ color: C.espressoL, whiteSpace: 'nowrap' }}>{qtd.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}×</span>
+                {it.status_item === 'recusado'
+                  ? <span style={{ fontSize: 11, fontWeight: 700, color: C.espressoL }}>recusado</span>
+                  : val != null
+                    ? <span style={{ fontWeight: 700, color: C.espresso, whiteSpace: 'nowrap' }}>{fmtBRL(Number(val))}</span>
+                    : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>precificar</span>}
+              </div>
+            )
+          })}
+          {itensDiag.some((it) => (it.subtotal ?? it.preco) == null && it.status_item !== 'recusado') && (
+            <div style={{ fontSize: 11.5, color: C.amber, marginTop: 8 }}>
+              ⚠️ Itens sem preço. Precifique no diagnóstico da OS para o total e o impresso saírem com valores.
+            </div>
+          )}
+          {(() => {
+            const total = itensDiag.filter((it) => it.status_item !== 'recusado').reduce((a, it) => a + Number(it.subtotal ?? it.preco ?? 0), 0)
+            return total > 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(61,35,20,0.12)', fontSize: 13, fontWeight: 800, color: C.espresso }}>
+                Total: {fmtBRL(total)}
+              </div>
+            ) : null
+          })()}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
         {podeExcluir && (
