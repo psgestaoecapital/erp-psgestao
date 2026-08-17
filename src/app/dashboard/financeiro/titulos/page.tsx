@@ -33,7 +33,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 type TipoFiltro = 'todos' | 'pagar' | 'receber'
-type StatusFiltro = 'todos' | 'aberto' | 'vencido' | 'incluido_remessa' | 'agendado' | 'pago' | 'cancelado'
+type StatusFiltro = 'todos' | 'aberto' | 'vencido' | 'incluido_remessa' | 'agendado' | 'pago' | 'conciliado' | 'cancelado'
 
 type Titulo = {
   id: string
@@ -66,6 +66,9 @@ function statusBadge(status: string, tipoLinha?: string): { bg: string; tx: stri
     case 'pago':
       // Pilar 3: conta a RECEBER quitada = "Recebido" (entrou dinheiro), não "Pago".
       return { bg: 'bg-emerald-50', tx: 'text-emerald-700', label: tipoLinha === 'receber' ? 'Recebido' : 'Pago' }
+    case 'conciliado':
+      // RD-41 · Conciliado = pago + confirmado no extrato (derivado de conciliado=true). Verde mais forte.
+      return { bg: 'bg-teal-100', tx: 'text-teal-800', label: 'Conciliado' }
     case 'agendado':
       return { bg: 'bg-blue-50', tx: 'text-blue-700', label: 'Agendado' }
     case 'incluido_remessa':
@@ -245,6 +248,7 @@ function TitulosInner() {
                 { v: 'incluido_remessa', l: 'Incluído na remessa' },
                 { v: 'agendado', l: 'Agendado' },
                 { v: 'pago', l: 'Pago' },
+                { v: 'conciliado', l: 'Conciliado' },
                 { v: 'cancelado', l: 'Cancelado' },
               ]}
               atual={status}
