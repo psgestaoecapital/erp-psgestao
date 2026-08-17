@@ -21,7 +21,7 @@ const fs = require('fs')
 const path = require('path')
 const readline = require('readline')
 
-const VERSAO_AGENTE = '2.1.1'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const VERSAO_AGENTE = '2.1.2'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
 // ↑ FONTE DA VERDADE da versão do binário. O CI (build-agente-atak.yml) valida que a tag agente-vX.Y.Z
 //   e o package.json batem com isto e gera o versao.json a partir DAQUI — nunca anuncia versão sem binário.
 const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
