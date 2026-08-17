@@ -31,9 +31,10 @@ const CAMPOS_MASSA = [
 
 type Tipo = 'pagar' | 'receber'
 
-type Situacao = 'pago' | 'vencido' | 'hoje' | 'a_vencer'
+// RD-41 · 'agendado'/'incluido_remessa' vêm da remessa (status real), têm PRECEDÊNCIA sobre o vencimento.
+type Situacao = 'pago' | 'agendado' | 'incluido_remessa' | 'vencido' | 'hoje' | 'a_vencer'
 // RD-41 · filtro de Status em múltipla seleção (Jordana): lista de status; [] = todos.
-type StatusOpt = 'avencer' | 'vencidos' | 'hoje' | 'pagos'
+type StatusOpt = 'avencer' | 'vencidos' | 'hoje' | 'pagos' | 'agendado' | 'incluido_remessa'
 
 type Resultado = {
   id: string
@@ -99,6 +100,8 @@ const CORES_SITUACAO: Record<Situacao, string> = {
   hoje: '#C8941A',
   a_vencer: '#3D2314',
   pago: '#16A34A',
+  agendado: '#2F5AA8',
+  incluido_remessa: '#4F46E5',
 }
 
 type PeriodoChoice = 'mes_atual' | 'mes_passado' | 'ano_atual' | 'personalizado'
@@ -387,7 +390,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   // Export (Pendência Jordana #3): descrição dos filtros ativos + KPIs do topo (ASCII-safe p/ PDF).
   const filtrosDesc = useMemo(() => {
-    const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel }
+    const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel, agendado: 'Agendado', incluido_remessa: 'Incluído na remessa' }
     const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
     const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
     if (categoria) partes.push(`Categoria: ${categoria}`)
@@ -773,8 +776,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
         <Campo label="Status (múltiplo)">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            {/* Vocabulário da Jordana (RD-41): Aberto = A vencer + Hoje (não pago, não vencido). Multi-select preservado. */}
-            {(([['aberto', 'Aberto', ['avencer', 'hoje']], ['pago', labels.pagosLabel, ['pagos']], ['vencido', 'Vencido', ['vencidos']]]) as [string, string, StatusOpt[]][]).map(([key, l, buckets]) => {
+            {/* Vocabulário da Jordana (RD-41): Aberto = A vencer + Hoje (não pago, não vencido). Multi-select preservado.
+                'Incluído na remessa' e 'Agendado' vêm da remessa (só a pagar) — na lista como os demais, sem 2ª classe. */}
+            {(([
+              ['aberto', 'Aberto', ['avencer', 'hoje']],
+              ['vencido', 'Vencido', ['vencidos']],
+              ...(tipo === 'pagar'
+                ? [['incluido_remessa', 'Incluído na remessa', ['incluido_remessa']], ['agendado', 'Agendado', ['agendado']]] as [string, string, StatusOpt[]][]
+                : []),
+              ['pago', labels.pagosLabel, ['pagos']],
+            ]) as [string, string, StatusOpt[]][]).map(([key, l, buckets]) => {
               const on = buckets.every((b) => statusSel.includes(b))
               const toggle = () => {
                 setStatusSel((arr) => (on ? arr.filter((x) => !buckets.includes(x)) : Array.from(new Set([...arr, ...buckets]))))
@@ -973,11 +984,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             )}
 
             {statusSel.length > 0 && data && (() => {
+              // agendado/incluido_remessa não têm KPI de período na RPC — derivo do resultado filtrado.
+              const derivar = (sit: Situacao) => {
+                const rows = (data.resultados ?? []).filter((r) => r.situacao === sit)
+                return { qtd: rows.length, valor: rows.reduce((a, r) => a + (r.valor_documento || 0), 0) }
+              }
               const info: Record<StatusOpt, { label: string; cor: string; valor: number; qtd: number }> = {
                 vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
                 hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: data.kpis.hoje.valor, qtd: data.kpis.hoje.qtd },
                 avencer: { label: 'A vencer', cor: '#3D2314', valor: data.kpis.avencer.valor, qtd: data.kpis.avencer.qtd },
                 pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: data.kpis.pagos.valor, qtd: data.kpis.pagos.qtd },
+                agendado: { label: 'Agendado', cor: '#2F5AA8', ...derivar('agendado') },
+                incluido_remessa: { label: 'Incluído na remessa', cor: '#4F46E5', ...derivar('incluido_remessa') },
               }
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -1575,6 +1593,8 @@ function Pill({ situacao, tipo }: { situacao: Situacao; tipo?: Tipo }) {
   // não "Pago" (que é da conta a PAGAR). O VALOR do status no banco continua 'pago'.
   const map: Record<Situacao, { bg: string; cor: string; label: string }> = {
     pago: { bg: '#DCFCE7', cor: '#16A34A', label: tipo === 'receber' ? 'Recebido' : 'Pago' },
+    agendado: { bg: '#E8EEF9', cor: '#2F5AA8', label: 'Agendado' },
+    incluido_remessa: { bg: '#EEF0FE', cor: '#4F46E5', label: 'Incluído na remessa' },
     a_vencer: { bg: '#FEF3C7', cor: '#C8941A', label: 'A vencer' },
     hoje: { bg: '#FEF3C7', cor: '#C8941A', label: 'Hoje' },
     vencido: { bg: '#FEE2E2', cor: '#DC2626', label: 'Vencido' },
