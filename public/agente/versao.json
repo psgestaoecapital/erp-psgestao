@@ -1,7 +1,7 @@
 {
-  "versao": "2.1.0",
+  "versao": "2.1.1",
   "url": "/agente/agente-atak.exe",
   "sha256": "",
   "obrigatorio": false,
-  "notas": "Auto-update + heartbeat de versão (PowerShell DPAPI · Pilar 2)."
+  "notas": "Template/referência — a fonte viva é o Storage (bucket agente), publicado pelo CI. A versão TEM que bater com VERSAO_AGENTE do binário (guard do CI). Auto-update com circuit-breaker (RD-57)."
 }

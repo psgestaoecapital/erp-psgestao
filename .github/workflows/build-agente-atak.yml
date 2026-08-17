@@ -56,8 +56,28 @@ jobs:
           $sha = (Get-FileHash -Algorithm SHA256 dist\nssm.exe).Hash.ToLower()
           Write-Host "nssm.exe -> origem=$($nssm.FullName) len=$len sha256=$sha"
 
+      # Guard anti-loop (RD-57): a versao ANUNCIADA tem que ser exatamente a que o binario se auto-reporta.
+      # A fonte da verdade e VERSAO_AGENTE em agent.js; package.json e a tag TEM que bater com ela. Se
+      # divergirem, FALHA o build — nunca publica um versao.json anunciando versao sem o binario
+      # correspondente (foi o que criou o loop 2.1.1/2.1.0).
+      - name: Guard versao (agent.js == package.json == tag)
+        shell: pwsh
+        run: |
+          $m = Select-String -Path agent.js -Pattern "VERSAO_AGENTE\s*=\s*'([^']+)'" | Select-Object -First 1
+          if (-not $m) { Write-Error "Nao achei VERSAO_AGENTE em agent.js"; exit 1 }
+          $agentVer = $m.Matches[0].Groups[1].Value
+          $pkgVer = (Get-Content package.json | ConvertFrom-Json).version
+          if ($agentVer -ne $pkgVer) { Write-Error "Descompasso: VERSAO_AGENTE=$agentVer != package.json=$pkgVer. Alinhe os dois antes de buildar."; exit 1 }
+          $ref = "${{ github.ref_name }}"
+          if ($ref -match '^agente-v(.+)$') {
+            $tagVer = $Matches[1]
+            if ($tagVer -ne $agentVer) { Write-Error "Descompasso: tag $ref anuncia $tagVer mas o binario se auto-reporta $agentVer. Bump VERSAO_AGENTE + package.json ANTES de taggear."; exit 1 }
+          }
+          Write-Host "Guard OK: binario, package.json e tag concordam em $agentVer"
+          "AGENT_VER=$agentVer" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       # Gera o versao.json COM o sha256 calculado (zero erro de sha manual · auto-update).
-      # A versao vem da tag agente-vX.Y.Z (ou do package.json no dispatch manual).
+      # A versao vem do binario (VERSAO_AGENTE, validado pelo guard acima) — NUNCA da tag isolada.
       - name: Gerar versao.json (sha256 + url do Storage)
         shell: pwsh
         env:
@@ -65,7 +85,7 @@ jobs:
         run: |
           $sha = (Get-FileHash -Algorithm SHA256 dist/agente-atak.exe).Hash.ToLower()
           $ref = "${{ github.ref_name }}"
-          if ($ref -match '^agente-v(.+)$') { $versao = $Matches[1] } else { $versao = (Get-Content package.json | ConvertFrom-Json).version }
+          $versao = "$env:AGENT_VER"   # fonte da verdade = VERSAO_AGENTE do binario (guard garante tag/pkg iguais)
           $base = if ($env:SB_URL) { $env:SB_URL.TrimEnd('/') } else { '' }
           $manifesto = [ordered]@{
             versao = $versao
