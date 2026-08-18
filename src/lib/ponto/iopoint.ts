@@ -12,7 +12,7 @@
 //   + total_hours em /totalHours.
 
 import type {
-  PontoAdapter, PontoColaborador, PontoCredencial, PontoHoras, PontoDia, PontoMarcacaoPonto,
+  PontoAdapter, PontoColaborador, PontoCredencial, PontoHoras, PontoDia, PontoMarcacaoPonto, PontoPausa,
 } from './types'
 import { hhmmParaDecimal } from './hhmm'
 
@@ -222,5 +222,22 @@ export const iopointAdapter: PontoAdapter = {
       }
     }
     return out
+  },
+
+  // PAUSAS TÉCNICAS (NR-36 / Art.253) — Fase 2. STUB: hoje retorna [] (no-op seguro).
+  //
+  // Auditoria (RD-38): /point/getFromPeriod traz só o espelho de jornada (~4 batidas/dia); NÃO traz as
+  // pausas técnicas. O RH confirmou que as pausas existem na MESMA API IO Point, em endpoint/registro
+  // diferente. Falta o Jian (tem o token e a doc fechada) confirmar:
+  //   1. Qual rota da API v2 retorna as pausas (ex.: /break, /pause, um `type` no registro de ponto, ou
+  //      uma leitora/point específica da pausa térmica, distinta do relógio Hikvision principal).
+  //   2. Se a pausa vem como um tipo de marcação (campo type/reason) ou como registro separado.
+  //   3. Amostra JSON cru de 1 dia de um funcionário de câmara fria com as pausas.
+  //
+  // Ao confirmar, implementar aqui: GET ${cred.base_url}/<rota_das_pausas>?begin_date=&end_date=, mapear
+  // cada pausa -> PontoPausa { cpf, data, inicio, fim, duracao_seg, tipo, point_id, raw }. O sync-diario
+  // já faz o upsert em ind_ponto_pausa quando este método existe, e o fn_nr36_apurar passa a ter o REALIZADO.
+  async listarPausas(): Promise<PontoPausa[]> {
+    return []
   },
 }

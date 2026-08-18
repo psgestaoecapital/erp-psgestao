@@ -62,9 +62,25 @@ export type PontoDia = {
   raw: unknown
 }
 
+// Pausa técnica (NR-36 psicofisiológica / Art.253 térmica). Fase 2 do coletor: alimenta ind_ponto_pausa,
+// que o motor fn_nr36_apurar cruza com a jornada. Endpoint da IOPoint ainda a confirmar com o Jian — por
+// isso listarPausas é OPCIONAL e o adapter IO Point hoje devolve [] (no-op seguro até o endpoint ser ligado).
+export type PontoPausa = {
+  cpf: string
+  data: string              // YYYY-MM-DD
+  inicio: string            // ISO datetime
+  fim: string | null
+  duracao_seg: number | null
+  tipo: string | null       // 'termica_253' | 'psicofisiologica' | bruto da IOPoint (a mapear)
+  point_id: number | null
+  raw: unknown
+}
+
 export interface PontoAdapter {
   listarColaboradores(cred: PontoCredencial): Promise<PontoColaborador[]>
   listarHoras(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoHoras[]>
   // Opcional: nem todo provider expõe marcação diária. IO Point implementa.
   listarMarcacoesDiarias?(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoDia[]>
+  // Opcional (Fase 2): pausas técnicas. IO Point tem um stub até o endpoint de pausas ser confirmado.
+  listarPausas?(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoPausa[]>
 }
