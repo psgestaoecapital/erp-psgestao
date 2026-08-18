@@ -9,7 +9,8 @@ import { UploadDocumentoModal, type UploadContext } from '../../_components/Uplo
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 
 type Matriz = {
-  tipo_documento_id: string
+  tipo_documento_id: string | null
+  exigido_id?: string | null
   tipo_slug: string
   tipo_nome: string
   tipo_grupo: string | null
@@ -129,6 +130,7 @@ export default function FuncionarioDetalhePage() {
               setUploadCtx({
                 companyId: funcionario.company_id,
                 tipoDocumentoId: m.tipo_documento_id,
+                exigidoId: m.exigido_id ?? null,
                 tipoNome: m.tipo_nome,
                 funcionarioId: funcionario.id,
                 modo,
@@ -275,7 +277,7 @@ function AbaDocumentos({
             {matriz.map((m, i) => {
               const temDoc = !!m.documento_id
               return (
-                <tr key={m.tipo_documento_id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
+                <tr key={m.tipo_documento_id ?? m.exigido_id ?? m.tipo_slug} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
                   <Td>
                     <div style={{ fontWeight: 600 }}>{m.tipo_nome}</div>
                     {m.obrigatorio && <div style={{ fontSize: 10, color: C.red, marginTop: 2, fontWeight: 600 }}>OBRIGATÓRIO</div>}

@@ -39,7 +39,8 @@ type Prestador = {
 }
 
 type MatrizLinha = {
-  tipo_documento_id: string
+  tipo_documento_id: string | null
+  exigido_id?: string | null
   tipo_slug: string
   tipo_nome: string
   tipo_grupo: string | null
@@ -238,6 +239,7 @@ export default function PrestadorDetalhePage() {
             onUpload={(linha) => setUploadCtx({
               companyId: prestador.company_id,
               tipoDocumentoId: linha.tipo_documento_id,
+              exigidoId: linha.exigido_id ?? null,
               tipoNome: linha.tipo_nome,
               prestadorId: prestador.id,
               modo: linha.documento_id ? 'substituir' : 'upload',
@@ -415,7 +417,7 @@ function AbaDocumentos({
           <tbody>
             {ordenadas.length === 0 && (<tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum tipo cadastrado</td></tr>)}
             {ordenadas.map((m, i) => (
-              <tr key={m.tipo_documento_id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: m.obrigatorio ? 1 : 0.85 }}>
+              <tr key={m.tipo_documento_id ?? m.exigido_id ?? m.tipo_slug} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: m.obrigatorio ? 1 : 0.85 }}>
                 <Td>
                   <div style={{ fontWeight: 600 }}>{m.tipo_nome}</div>
                   {m.obrigatorio ? (

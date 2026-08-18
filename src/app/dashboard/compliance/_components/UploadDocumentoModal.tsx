@@ -18,7 +18,8 @@ const MIME_ACEITOS = 'application/pdf,image/jpeg,image/png'
 
 export type UploadContext = {
   companyId: string
-  tipoDocumentoId: string
+  tipoDocumentoId: string | null      // null = documento próprio (custom) — usa exigidoId
+  exigidoId?: string | null           // doc próprio da empresa (compliance_documento_exigido)
   tipoNome: string
   funcionarioId?: string | null
   empresaAlvoId?: string | null
@@ -60,7 +61,8 @@ export function UploadDocumentoModal({
       const fd = new FormData()
       fd.append('file', file)
       fd.append('company_id', ctx.companyId)
-      fd.append('tipo_documento_id', ctx.tipoDocumentoId)
+      if (ctx.tipoDocumentoId) fd.append('tipo_documento_id', ctx.tipoDocumentoId)
+      if (ctx.exigidoId) fd.append('exigido_id', ctx.exigidoId)
       if (ctx.funcionarioId) fd.append('funcionario_id', ctx.funcionarioId)
       if (ctx.empresaAlvoId) fd.append('empresa_alvo_id', ctx.empresaAlvoId)
       if (ctx.prestadorId) fd.append('prestador_id', ctx.prestadorId)

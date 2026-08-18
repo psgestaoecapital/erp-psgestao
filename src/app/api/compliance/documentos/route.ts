@@ -59,7 +59,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
   const file = form.get('file') as File | null
   const companyId = (form.get('company_id') as string | null) || ''
-  const tipoDocumentoId = (form.get('tipo_documento_id') as string | null) || ''
+  const tipoDocumentoId = (form.get('tipo_documento_id') as string | null) || null
+  const exigidoId = (form.get('exigido_id') as string | null) || null   // doc próprio (custom) sem tipo do catálogo
   const funcionarioId = (form.get('funcionario_id') as string | null) || null
   const empresaAlvoId = (form.get('empresa_alvo_id') as string | null) || null
   const prestadorId = (form.get('prestador_id') as string | null) || null
@@ -71,9 +72,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   const observacoes = (form.get('observacoes') as string | null) || null
 
   if (!file) return NextResponse.json({ ok: false, error: 'file obrigatório' }, { status: 400 })
-  if (!companyId || !tipoDocumentoId) {
+  if (!companyId || (!tipoDocumentoId && !exigidoId)) {
     return NextResponse.json(
-      { ok: false, error: 'company_id e tipo_documento_id obrigatórios' },
+      { ok: false, error: 'company_id e (tipo_documento_id ou exigido_id) obrigatórios' },
       { status: 400 }
     )
   }
@@ -98,13 +99,18 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
   const sb = admin()
 
-  // Descobre o slug do tipo para compor o path.
-  const { data: tipo } = await sb
-    .from('compliance_tipos_documento')
-    .select('slug')
-    .eq('id', tipoDocumentoId)
-    .maybeSingle()
-  const tipoSlug = (tipo as any)?.slug || 'sem-slug'
+  // Descobre o slug do tipo para compor o path. Doc próprio (custom) usa o exigido_id.
+  let tipoSlug = 'proprio'
+  if (tipoDocumentoId) {
+    const { data: tipo } = await sb
+      .from('compliance_tipos_documento')
+      .select('slug')
+      .eq('id', tipoDocumentoId)
+      .maybeSingle()
+    tipoSlug = (tipo as any)?.slug || 'sem-slug'
+  } else if (exigidoId) {
+    tipoSlug = `proprio-${exigidoId.slice(0, 8)}`
+  }
 
   const scope = funcionarioId || (prestadorId ? `prestador-${prestadorId}` : 'empresa')
   const ext = extFromName(file.name)
@@ -128,9 +134,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   // Marca documento(s) anterior(es) como inativos para o mesmo escopo + tipo.
   const anteriorFilters: Record<string, any> = {
     company_id: companyId,
-    tipo_documento_id: tipoDocumentoId,
     ativo: true,
   }
+  if (tipoDocumentoId) anteriorFilters.tipo_documento_id = tipoDocumentoId
+  if (exigidoId) anteriorFilters.exigido_id = exigidoId
   if (funcionarioId) anteriorFilters.funcionario_id = funcionarioId
   if (empresaAlvoId) anteriorFilters.empresa_alvo_id = empresaAlvoId
   if (prestadorId) anteriorFilters.prestador_id = prestadorId
@@ -157,6 +164,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     empresa_alvo_id: empresaAlvoId,
     prestador_id: prestadorId,
     tipo_documento_id: tipoDocumentoId,
+    exigido_id: exigidoId,
     arquivo_url: path, // guardamos o path; signed URL é gerada na GET.
     arquivo_nome_original: file.name,
     arquivo_tamanho_bytes: file.size,
