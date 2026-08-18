@@ -79,17 +79,21 @@ export default function ConectoresIndustrialPage() {
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [showToken, setShowToken] = useState(false)
+  // RD-41 · checklist de onboarding: bloqueia "Gerar instalador" enquanto houver elo solto (causa das ~20 tentativas)
+  const [checklist, setChecklist] = useState<{ tudo_ok?: boolean; checks?: Record<string, boolean>; dominios_pendentes?: string[]; erro?: string } | null>(null)
 
   // form
   const [f, setF] = useState({ host: '', porta: 1433, banco: '', cod_filial: '100', usuario: '', senha: '', sync_minuto: 15, ativo: true })
   const [doms, setDoms] = useState<Set<string>>(new Set())
 
   const carregar = useCallback(async (companyId: string) => {
-    const [{ data }, dm, ag] = await Promise.all([
+    const [{ data }, dm, ag, ck] = await Promise.all([
       supabase.rpc('fn_atak_conexao_listar', { p_company_id: companyId }),
       supabase.from('atak_fonte_mapa').select('dominio').eq('ativo', true),
       supabase.from('erp_agente_status').select('versao_agente,hostname,ultima_carga,status,ultimo_heartbeat').eq('company_id', companyId).maybeSingle(),
+      supabase.rpc('fn_atak_onboarding_checklist', { p_company_id: companyId }),
     ])
+    setChecklist((ck.data as typeof checklist) ?? null)
     const d = data as Listar | null
     setDados(d)
     setAgente((ag.data as AgenteStatus | null) ?? null)
@@ -192,6 +196,12 @@ export default function ConectoresIndustrialPage() {
   const gerarInstalador = async () => {
     const cx = dados?.conexao
     if (!cx?.agente_token || !empresaUnica) { setMsg({ t: 'Salve a conexão primeiro — o token é gerado no salvar.', ok: false }); return }
+    // RD-41 · não libera o instalador com elo solto (senha↔config, ingest_secret, domínios, teste) — o que evitava as ~20 tentativas
+    if (checklist && checklist.tudo_ok === false) {
+      const c = checklist.checks ?? {}
+      const falta = [!c.config_completa && 'config', !c.senha_vault && 'senha no vault (salve a senha na tela)', !c.ingest_secret && 'ingest_secret', !c.dominios_ok && 'domínios (watermark/full)', !c.teste_conexao && 'teste de conexão'].filter(Boolean).join(' · ')
+      setMsg({ t: 'Checklist incompleto — resolva antes de gerar o instalador: ' + falta, ok: false }); return
+    }
     const SB_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '')
     const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
     if (!SB_URL || !SB_ANON) { setMsg({ t: 'Configuração da nuvem PS ausente (URL/chave pública). Avise o suporte.', ok: false }); return }
@@ -369,8 +379,20 @@ export default function ConectoresIndustrialPage() {
             máquina — nunca sai da rede do cliente (Pilar 2).
           </div>
           {!dados?.conexao?.agente_token && <div style={{ fontSize: 11.5, color: C.y, marginBottom: 10 }}>⚠ Salve a conexão primeiro — o token e a configuração são gerados no salvar.</div>}
-          <button onClick={gerarInstalador} disabled={!dados?.conexao?.agente_token || busy === 'zip'}
-            style={{ ...dlBtn, fontSize: 13, padding: '11px 18px', opacity: (dados?.conexao?.agente_token && busy !== 'zip') ? 1 : 0.5, cursor: (dados?.conexao?.agente_token && busy !== 'zip') ? 'pointer' : 'not-allowed' }}>
+          {/* RD-41 · checklist visível: só libera o instalador quando tudo ✅ (impede repetir os ciclos com elo solto) */}
+          {checklist && !checklist.erro && (
+            <div style={{ fontSize: 11.5, marginBottom: 10, border: '1px solid rgba(61,35,20,0.15)', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ fontWeight: 700, color: '#3D2314', marginBottom: 5 }}>Checklist do onboarding {checklist.tudo_ok ? '· ✅ pronto pra gerar' : '· ⚠ pendências'}</div>
+              {(([['config_completa', 'Configuração (host/banco/filial/usuário/token)'], ['senha_vault', 'Senha no Vault (salve a senha na tela)'], ['ingest_secret', 'Canal de ingestão (ingest_secret)'], ['dominios_ok', 'Domínios com watermark/full-refresh'], ['teste_conexao', 'Teste de conexão OK']]) as [string, string][]).map(([k, l]) => (
+                <div key={k} style={{ color: checklist.checks?.[k] ? '#16A34A' : '#C8941A' }}>{checklist.checks?.[k] ? '✅' : '❌'} {l}</div>
+              ))}
+              {(checklist.dominios_pendentes?.length ?? 0) > 0 && (
+                <div style={{ color: '#C8941A', marginTop: 4 }}>Domínios pendentes: {checklist.dominios_pendentes?.join(', ')}</div>
+              )}
+            </div>
+          )}
+          <button onClick={gerarInstalador} disabled={!dados?.conexao?.agente_token || busy === 'zip' || checklist?.tudo_ok === false}
+            style={{ ...dlBtn, fontSize: 13, padding: '11px 18px', opacity: (dados?.conexao?.agente_token && busy !== 'zip' && checklist?.tudo_ok !== false) ? 1 : 0.5, cursor: (dados?.conexao?.agente_token && busy !== 'zip' && checklist?.tudo_ok !== false) ? 'pointer' : 'not-allowed' }}>
             {busy === 'zip' ? 'Gerando…' : '📦 Gerar instalador (.zip)'}
           </button>
           <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>
