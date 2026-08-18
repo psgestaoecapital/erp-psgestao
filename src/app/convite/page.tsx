@@ -3,12 +3,15 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 function ConviteForm() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [showPw, setShowPw] = useState(false);   // mostrar/ocultar "Crie uma senha" (independente)
+  const [showPw2, setShowPw2] = useState(false);  // mostrar/ocultar "Confirme sua senha" (independente)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -190,14 +193,26 @@ function ConviteForm() {
 
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Crie uma senha (mínimo 6 caracteres)</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6}
-                style={{ background: "#2A2822", border: "1px solid #3D3A30", color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
+              <div style={{ position: "relative" }}>
+                <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6}
+                  style={{ background: "#2A2822", border: "1px solid #3D3A30", color: "#E8E5DC", borderRadius: 8, padding: "10px 48px 10px 14px", fontSize: 14, width: "100%" }} />
+                <button type="button" onClick={() => setShowPw(v => !v)} aria-label={showPw ? "Ocultar senha" : "Mostrar senha"} title={showPw ? "Ocultar senha" : "Mostrar senha"}
+                  style={{ position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: "#C8941A", padding: 0 }}>
+                  {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <div style={{ marginBottom: 24 }}>
               <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Confirme sua senha</label>
-              <input type="password" value={password2} onChange={e => setPassword2(e.target.value)} placeholder="••••••••" required minLength={6}
-                style={{ background: "#2A2822", border: `1px solid ${password2 && password !== password2 ? "#EF4444" : "#3D3A30"}`, color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
+              <div style={{ position: "relative" }}>
+                <input type={showPw2 ? "text" : "password"} value={password2} onChange={e => setPassword2(e.target.value)} placeholder="••••••••" required minLength={6}
+                  style={{ background: "#2A2822", border: `1px solid ${password2 && password !== password2 ? "#EF4444" : "#3D3A30"}`, color: "#E8E5DC", borderRadius: 8, padding: "10px 48px 10px 14px", fontSize: 14, width: "100%" }} />
+                <button type="button" onClick={() => setShowPw2(v => !v)} aria-label={showPw2 ? "Ocultar senha" : "Mostrar senha"} title={showPw2 ? "Ocultar senha" : "Mostrar senha"}
+                  style={{ position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: "#C8941A", padding: 0 }}>
+                  {showPw2 ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               {password2 && password !== password2 && (
                 <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>As senhas não coincidem</div>
               )}
