@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
+import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 
 interface OS {
   id: string
@@ -674,9 +675,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           </button>
         )}
         <span style={{ fontSize: 10, color: C.espressoL, marginRight: 'auto' }}>
-          {os.data_abertura && <>Aberta {os.data_abertura}</>}
-          {os.data_execucao && <> · em execução desde {os.data_execucao}</>}
-          {os.data_conclusao && <> · concluída {os.data_conclusao}</>}
+          {os.data_abertura && <>Aberta em {fmtData(os.data_abertura)}</>}
+          {os.data_execucao && <> · em execução desde {fmtData(os.data_execucao)}</>}
+          {os.data_conclusao && <> · concluída {fmtData(os.data_conclusao)}</>}
         </span>
         <button
           type="button"

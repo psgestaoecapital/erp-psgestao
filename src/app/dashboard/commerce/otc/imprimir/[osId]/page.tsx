@@ -36,8 +36,11 @@ interface Dados {
 
 const fmtCNPJ = (c: string | null | undefined) => { const d = (c ?? '').replace(/\D/g, ''); return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : (c ?? '') }
 const fmtBRL = (v: number | null | undefined) => v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('pt-BR') } catch { return '—' } }
-const fmtDataHora = (s: string | null | undefined) => { if (!s) return '—'; try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' } }
+// FIX (bug −1 dia): string 'YYYY-MM-DD' (date puro) em new Date() é lida como UTC 00:00 → em BRT recua 1 dia
+// (mostrava "Aberta em 11/08" p/ OS aberta 12/08). Parse LOCAL p/ date puro; ISO com hora cai no parser nativo.
+const parseLocal = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s)
+const fmtData = (s: string | null | undefined) => { if (!s) return '—'; try { return parseLocal(s).toLocaleDateString('pt-BR') } catch { return '—' } }
+const fmtDataHora = (s: string | null | undefined) => { if (!s) return '—'; try { return parseLocal(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '—' } }
 
 // valor por extenso (BRL) — pra Nota Promissória. Compacto, cobre até bilhões + centavos.
 function valorExtenso(v: number): string {
