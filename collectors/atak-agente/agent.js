@@ -20,8 +20,9 @@ const os = require('os')
 const fs = require('fs')
 const path = require('path')
 const readline = require('readline')
+const crypto = require('crypto')
 
-const VERSAO_AGENTE = '2.1.1'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const VERSAO_AGENTE = '2.1.2'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
 // ↑ FONTE DA VERDADE da versão do binário. O CI (build-agente-atak.yml) valida que a tag agente-vX.Y.Z
 //   e o package.json batem com isto e gera o versao.json a partir DAQUI — nunca anuncia versão sem binário.
 const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
@@ -189,17 +190,33 @@ async function conectarComRetry(cfg, senha, tentativas = 3) {
 }
 
 async function coletarDominio(C, pool, cfg, dom) {
+  // FIX 3 — colchete SEMPRE o nome da coluna do watermark: ele pode vir "sujo" (espaco/ponto/maiuscula,
+  // ex.: TITULO.DATA VENCTO). Sem os colchetes, `WHERE TITULO.DATA VENCTO >= ...` vira `TITULO.DATA` +
+  // `VENCTO` solto → "non-boolean near 'VENCTO'". `[TITULO.DATA VENCTO]` trata o nome inteiro como 1 coluna.
   const where = dom.coluna_watermark
-    ? ` WHERE ${dom.coluna_watermark} >= DATEADD(day, -${C.janelaDias}, CAST(GETDATE() AS date))`
+    ? ` WHERE [${dom.coluna_watermark}] >= DATEADD(day, -${C.janelaDias}, CAST(GETDATE() AS date))`
     : ''
-  const query = `SELECT *, (${dom.chave_fato_sql}) AS __chave_fato FROM ${dom.tabela_origem}${where}`
+  // FIX 2 — HASH_ROW (ou chave vazia): view de evento/snapshot SEM chave natural → o hash sha256 da linha
+  // e computado AQUI (nao no SQL; `HASH_ROW` nao e coluna). Idempotente e IDENTICO ao que os coletores
+  // irmaos (atak-frioeste / downloads) ja gravaram — mesma expressao exata: JSON.stringify(row, keys.sort()).
+  // Assim reprocessar NAO duplica os fatos ja no banco. Chave natural → EXPRESSAO SQL computada no servidor.
+  const hashRow = !dom.chave_fato_sql || String(dom.chave_fato_sql).trim().toUpperCase() === 'HASH_ROW'
+  const query = hashRow
+    ? `SELECT * FROM ${dom.tabela_origem}${where}`
+    : `SELECT *, (${dom.chave_fato_sql}) AS __chave_fato FROM ${dom.tabela_origem}${where}`
   const rows = clean((await pool.request().query(query)).recordset)
   const registros = []
   let semChave = 0
   for (const row of rows) {
-    const chave = row.__chave_fato
+    let chave
+    if (hashRow) {
+      // ordem estavel das colunas (keys.sort()) → mesmo hash pra mesma linha; upsert vira no-op se repetir.
+      chave = crypto.createHash('sha256').update(JSON.stringify(row, Object.keys(row).sort())).digest('hex')
+    } else {
+      chave = row.__chave_fato
+      delete row.__chave_fato
+    }
     if (chave == null || String(chave).trim() === '') { semChave++; continue }
-    delete row.__chave_fato
     registros.push({ cod_filial: String(cfg.cod_filial), chave_fato: String(chave).trim(), raw: row })
   }
   log(`[${dom.dominio}] ${registros.length} registros${semChave ? ` (${semChave} sem chave)` : ''}.`)
