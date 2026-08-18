@@ -47,22 +47,42 @@ async function upsertEmLotes<T extends Record<string, unknown>>(
   return null
 }
 
+// FIX 1 (RD-52) — o segredo de ingestao tem UMA fonte: o Vault (atak_ingest_secret), o MESMO valor que
+// fn_atak_agente_config entrega ao coletor. Antes o edge so validava contra a env var ATAK_INGEST_SECRET,
+// que e uma copia do Vault e podia divergir → 401 pos-conexao (o dominio lia os dados mas nao conseguia
+// enviar). Agora o esperado vem do Vault (lido 1x por processo e cacheado), com a env var aceita como alias
+// legado. Assim nao ha dois valores pra manter em sincronia.
+let _ingestSecretCache: string | null = null
+async function ingestSecretDoVault(sb: ReturnType<typeof createClient>): Promise<string> {
+  if (_ingestSecretCache !== null) return _ingestSecretCache
+  try {
+    const { data } = await sb.rpc('fn_vault_ler_secret', { p_name: 'atak_ingest_secret' })
+    _ingestSecretCache = typeof data === 'string' && data.trim() ? data : ''
+  } catch {
+    _ingestSecretCache = ''  // sem Vault → cai na env var
+  }
+  return _ingestSecretCache
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405)
-
-  const secret = req.headers.get('x-ingest-secret')
-  if (!secret || secret !== Deno.env.get('ATAK_INGEST_SECRET')) {
-    // Sem heartbeat aqui de proposito: chamada nao autenticada nao e o coletor
-    // legitimo; nao suja o log de saude da empresa.
-    return json({ error: 'unauthorized' }, 401)
-  }
 
   const iniciadoEm = new Date()
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
+
+  // Auth (RD-52): aceita o segredo do Vault (fonte unica, = o que o coletor recebe) OU a env var (alias legado).
+  // Sem heartbeat aqui de proposito: chamada nao autenticada nao e o coletor legitimo; nao suja o log de saude.
+  const secret = req.headers.get('x-ingest-secret')
+  const envSecret = Deno.env.get('ATAK_INGEST_SECRET') ?? ''
+  const vaultSecret = await ingestSecretDoVault(supabase)
+  const autorizado = !!secret && ((envSecret !== '' && secret === envSecret) || (vaultSecret !== '' && secret === vaultSecret))
+  if (!autorizado) {
+    return json({ error: 'unauthorized' }, 401)
+  }
 
   // heartbeat: grava SEMPRE (sucesso ou erro). Nunca lanca — se o log falhar,
   // a ingestao segue e o erro do log fica so no console.
