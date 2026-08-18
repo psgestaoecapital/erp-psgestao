@@ -1637,17 +1637,19 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
         Marque os títulos deste débito · selecionado {brl(somaSel)} · débito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}
       </div>
       <div style={{ maxHeight: 168, overflowY: 'auto', marginTop: 6 }}>
-        {itens.map((i) => {
+        {itens.map((i, idx) => {
           const on = sel.has(i.lancamento_id)
           return (
-            <label key={i.lancamento_id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 2px', fontSize: 12, cursor: 'pointer' }}>
-              <input type="checkbox" checked={on} style={{ flexShrink: 0 }} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
-              {/* RD-41 · nome do favorecido à vista (a Jordana confere QUEM está conciliando, não só o valor) */}
-              <div style={{ flex: 1, minWidth: 0 }}>
+            // RD-41 · 3 colunas ALINHADAS: [checkbox extrema-esquerda] · [favorecido flex] · [valor à direita],
+            // cores escuras de alto contraste (o valor herdava cinza-claro e sumia). align-items:center.
+            <label key={i.lancamento_id} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
+              <input type="checkbox" checked={on} style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
+                onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: '#3D2314', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.fornecedor || i.descricao || 'título'}</div>
-                {i.vencimento && <div style={{ fontSize: 10.5, color: 'rgba(61,35,20,0.5)' }}>venc {fmtDate(i.vencimento)}</div>}
+                {i.vencimento && <div style={{ fontSize: 10.5, color: 'rgba(61,35,20,0.55)' }}>venc {fmtDate(i.vencimento)}</div>}
               </div>
-              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+              <span style={{ fontWeight: 800, color: '#3D2314', whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
             </label>
           )
         })}
