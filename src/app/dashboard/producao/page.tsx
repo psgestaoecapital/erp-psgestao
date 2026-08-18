@@ -36,6 +36,7 @@ type Timesheet = {
   horas: number; descricao: string; tipo_atividade: string
 }
 type ContratoOpt = { id: string; numero: string | null; nome: string | null; valor_mensal: number | null; status: string | null }
+type ServicoOpt = { id: string; nome: string; area: string | null; valor_base: number | null; horas_estimadas: number | null; responsavel_padrao_id: string | null }
 
 // 5 estagios oficiais (spec). Ordem: esquerda -> direita.
 const ESTAGIOS: { v: string; l: string; bg: string; fg: string }[] = [
@@ -67,6 +68,7 @@ function ProducaoPageInner() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [timesheets, setTimesheets] = useState<Timesheet[]>([])
   const [contratos, setContratos] = useState<ContratoOpt[]>([])
+  const [servicos, setServicos] = useState<ServicoOpt[]>([])   // catálogo p/ irrigar o job (horas/responsável/valor)
   const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null; full_name?: string | null }>>([])
 
   const [showForm, setShowForm] = useState<'cliente' | 'job' | 'timesheet' | null>(null)
@@ -108,12 +110,13 @@ function ProducaoPageInner() {
   }
 
   async function loadAll() {
-    const [cl, jb, ts, us, ct] = await Promise.all([
+    const [cl, jb, ts, us, ct, sv] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('*').eq('company_id', sel).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
+      supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
@@ -121,6 +124,7 @@ function ProducaoPageInner() {
     type U = { id: string; email: string | null; full_name?: string | null }
     setResponsaveis((us.data ?? []) as U[])
     setContratos((ct.data ?? []) as ContratoOpt[])
+    setServicos(((sv.data as { servicos?: ServicoOpt[] } | null)?.servicos ?? []) as ServicoOpt[])
 
     const now = new Date()
     const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -350,6 +354,21 @@ function ProducaoPageInner() {
             <Field label="Título *" v={form.titulo} on={(v) => setForm({ ...form, titulo: v })} />
             <Select label="Cliente" v={(form.cliente_id as string) ?? ''} on={(v) => setForm({ ...form, cliente_id: v || null })}
               opts={[['', '— selecionar —'], ...clientes.map((c) => [c.id, c.nome_fantasia || c.nome] as [string, string])]} />
+            {servicos.length > 0 && (
+              <Select label="Serviço (catálogo)" v={(form.servico_id as string) ?? ''}
+                on={(v) => {
+                  const s = servicos.find((x) => x.id === v)
+                  if (!s) { setForm({ ...form, servico_id: null }); return }
+                  setForm({
+                    ...form, servico_id: s.id,
+                    titulo: form.titulo || s.nome,
+                    valor_job: form.valor_job || s.valor_base || 0,
+                    horas_estimadas: form.horas_estimadas || s.horas_estimadas || 0,
+                    responsavel_id: (form.responsavel_id as string) || s.responsavel_padrao_id || null,
+                  })
+                }}
+                opts={[['', '— do catálogo (herda horas/responsável) —'], ...servicos.map((s) => [s.id, s.nome] as [string, string])]} />
+            )}
             <Select label="Tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
               opts={[['', '— tipo —'], ['site', 'Site'], ['video', 'Vídeo'], ['arte', 'Arte/Design'],
                 ['campanha', 'Campanha'], ['social_media', 'Social Media'], ['assessoria', 'Assessoria'],
