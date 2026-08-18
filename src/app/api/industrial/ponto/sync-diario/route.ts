@@ -151,11 +151,32 @@ async function handle(req: NextRequest) {
       // marcacao e' complementar (auditoria/NR-36); se falhar, nao derruba o resumo diario.
     }
 
+    // PAUSAS TÉCNICAS (NR-36/Art.253) — Fase 2: só roda se o adapter expõe listarPausas. Hoje o IO Point
+    // devolve [] (endpoint de pausas pendente do Jian), então é no-op seguro. Quando ligado, popula
+    // ind_ponto_pausa e o fn_nr36_apurar passa a ter o REALIZADO. Complementar: falha não derruba o sync.
+    let qtdPausas = 0
+    if (typeof adapter.listarPausas === 'function') {
+      try {
+        const pausas = await adapter.listarPausas({ token, base_url: cfg.base_url as string }, beginISO, endISO)
+        const rowsPausa = pausas
+          .filter((p) => p.cpf && p.inicio)
+          .map((p) => ({
+            company_id: companyId, plant_id: plantId, cpf: p.cpf, data: p.data,
+            inicio: p.inicio, fim: p.fim, duracao_seg: p.duracao_seg, tipo: p.tipo, point_id: p.point_id,
+            raw: p.raw, sincronizado_em: nowISO,
+          }))
+        if (rowsPausa.length > 0) {
+          const { error } = await supabaseAdmin.from('ind_ponto_pausa').upsert(rowsPausa, { onConflict: 'company_id,cpf,inicio' })
+          if (!error) qtdPausas = rowsPausa.length
+        }
+      } catch { /* pausas é complementar; não derruba o sync de jornada */ }
+    }
+
     const cpfs = new Set(dias.map((d) => d.cpf)).size
     const datas = new Set(dias.map((d) => d.data)).size
-    await logSync(companyId, provider, 'ok', `dias=${rowsDia.length} cpfs=${cpfs} datas=${datas} batidas=${qtdMarca}`, rowsDia.length, { beginISO, endISO })
+    await logSync(companyId, provider, 'ok', `dias=${rowsDia.length} cpfs=${cpfs} datas=${datas} batidas=${qtdMarca} pausas=${qtdPausas}`, rowsDia.length, { beginISO, endISO })
 
-    return NextResponse.json({ ok: true, provider, company_id: companyId, periodo: { begin: beginISO, end: endISO }, dias: rowsDia.length, cpfs, datas, batidas: qtdMarca })
+    return NextResponse.json({ ok: true, provider, company_id: companyId, periodo: { begin: beginISO, end: endISO }, dias: rowsDia.length, cpfs, datas, batidas: qtdMarca, pausas: qtdPausas })
   } catch (e) {
     const erro = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ ok: false, erro }, { status: 500 })
