@@ -28,7 +28,8 @@ const STATUS: Record<string, { l: string; cor: string }> = {
 }
 const stCfg = (v: string) => STATUS[v] ?? { l: v, cor: OFFWHITE }
 
-type Item = { tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number }
+type Item = { tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[] }
+type ServicoOpt = { id: string; nome: string; tipo: string; area: string | null; valor_base: number | null; unidade: string | null; periodicidade: string | null; horas_estimadas: number | null; entregaveis: string[] | null }
 type Proposta = {
   id: string; company_id: string; cliente_id: string | null; briefing_id: string | null; numero: string | null
   titulo: string; descricao: string | null; itens: Item[] | null; valor_total: number | null
@@ -37,7 +38,7 @@ type Proposta = {
 }
 type ClienteOpt = { id: string; nome: string; nome_fantasia: string | null; telefone: string | null }
 
-const itemVazio = (): Item => ({ tipo_servico: '', descricao: '', quantidade: 1, unidade: 'un', valor_unitario: 0, valor_total: 0 })
+const itemVazio = (): Item => ({ tipo_servico: '', descricao: '', quantidade: 1, unidade: 'un', valor_unitario: 0, valor_total: 0, servico_id: null })
 
 export default function PropostasPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -45,6 +46,7 @@ export default function PropostasPage() {
 
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [clientes, setClientes] = useState<ClienteOpt[]>([])
+  const [catalogo, setCatalogo] = useState<ServicoOpt[]>([])   // serviços do catálogo p/ irrigar os itens
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -66,12 +68,14 @@ export default function PropostasPage() {
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
     setLoading(true)
-    const [p, c] = await Promise.all([
+    const [p, c, cat] = await Promise.all([
       supabase.from('agency_propostas').select('*').eq('company_id', empresa).order('created_at', { ascending: false }),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia, telefone').eq('company_id', empresa).order('nome'),
+      supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: empresa }),
     ])
     setPropostas((p.data ?? []) as Proposta[])
     setClientes((c.data ?? []) as ClienteOpt[])
+    setCatalogo(((cat.data as { servicos?: ServicoOpt[] } | null)?.servicos ?? []) as ServicoOpt[])
     setLoading(false)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -265,8 +269,22 @@ export default function PropostasPage() {
             <div style={{ display: 'grid', gap: 8 }}>
               {itens.map((it, i) => (
                 <div key={i} style={{ border: `1px solid ${BORDA}`, borderRadius: 10, padding: 10, background: '#FDFBF7' }}>
+                  {catalogo.length > 0 && (
+                    <select
+                      style={{ ...inp, marginBottom: 8 }}
+                      value={it.servico_id ?? ''}
+                      onChange={(e) => {
+                        const s = catalogo.find((x) => x.id === e.target.value)
+                        if (!s) { setItem(i, { servico_id: null }); return }
+                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [] })
+                      }}
+                    >
+                      <option value="">Do catálogo… (ou digite abaixo)</option>
+                      {catalogo.map((s) => <option key={s.id} value={s.id}>{s.nome}{s.valor_base != null ? ` — ${brl(s.valor_base)}${s.unidade ? '/' + s.unidade : ''}` : ''}</option>)}
+                    </select>
+                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <input style={inp} value={it.tipo_servico} onChange={(e) => setItem(i, { tipo_servico: e.target.value })} placeholder="Tipo (ex.: Social)" />
+                    <input style={inp} value={it.tipo_servico} onChange={(e) => setItem(i, { tipo_servico: e.target.value, servico_id: null })} placeholder="Tipo (ex.: Social)" />
                     <input style={inp} value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder="Descrição" />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 0.7fr 1fr 1fr auto', gap: 8, marginTop: 8, alignItems: 'center' }}>
