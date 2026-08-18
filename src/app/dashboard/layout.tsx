@@ -20,10 +20,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </DashboardMain>
         </div>
       </div>
-      {/* Central de Ajuda · widget "?" contextual (F0 Fatia 3) — presente em toda tela do dashboard */}
-      <AjudaWidget />
-      {/* Comunicador Interno da Equipe · widget flutuante (tempo real) — presente em toda tela */}
-      <ChatWidget />
+      {/* FABs flutuantes (ajuda "?" + comunicador). data-no-print → o @media print do globals.css esconde
+          todo o subtree, tirando-os de CIMA da OS na impressão (pedido Jordana). display:none no wrapper
+          remove os filhos position:fixed do render impresso. */}
+      <div data-no-print="true">
+        {/* Central de Ajuda · widget "?" contextual (F0 Fatia 3) — presente em toda tela do dashboard */}
+        <AjudaWidget />
+        {/* Comunicador Interno da Equipe · widget flutuante (tempo real) — presente em toda tela */}
+        <ChatWidget />
+      </div>
     </SelectedCompanyProvider>
   )
 }
