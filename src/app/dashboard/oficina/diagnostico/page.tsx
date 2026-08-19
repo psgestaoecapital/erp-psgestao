@@ -198,6 +198,23 @@ export default function DiagnosticoPage() {
     if (!r?.ok) { setMsg('❌ ' + (r?.erro ?? 'Falha ao salvar a foto')); return }
     setFotoPend(null); setMsg('📷 Foto do diagnóstico salva'); void carregarFotos(osSel.id)
   }
+  // exclui a foto (pedido Gean) — RPC com guard de company; a foto some do histórico/impressão, então confirma.
+  // A RPC apaga a linha e devolve foto_path; o arquivo do storage é removido no mesmo bucket do upload.
+  const excluirFoto = async (f: FotoDiag) => {
+    if (!companyId || !osSel) return
+    if (!confirm('Excluir esta foto?\n\nEla sai do histórico fotográfico da OS (some também da impressão).')) return
+    const { data, error } = await supabase.rpc('fn_os_foto_excluir', { p_id: f.id })
+    const r = data as { sucesso?: boolean; erro?: string; foto_path?: string } | null
+    if (error || !r?.sucesso) {
+      const m = r?.erro === 'sem_acesso' ? 'Sem permissão para excluir esta foto.'
+        : r?.erro === 'foto_inexistente' ? 'Foto já removida.'
+        : (error?.message ?? r?.erro ?? 'Falha ao excluir a foto')
+      setMsg('❌ ' + m); return
+    }
+    setFotosDiag((prev) => prev.filter((x) => x.id !== f.id)) // some da tela na hora
+    if (r.foto_path) { await supabase.storage.from(BUCKET).remove([r.foto_path]) } // remove o arquivo (a RPC só apaga a linha)
+    setMsg('🗑 Foto excluída')
+  }
 
   const salvar = async () => {
     if (!companyId || !osSel) return
@@ -445,7 +462,14 @@ export default function DiagnosticoPage() {
           {fotosDiag.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
               {fotosDiag.map((f) => (
-                <div key={f.id} style={{ border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                <div key={f.id} style={{ position: 'relative', border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                  <button
+                    onClick={() => void excluirFoto(f)}
+                    title="Excluir foto" aria-label="Excluir foto"
+                    style={{ position: 'absolute', top: 4, right: 4, zIndex: 2, width: 22, height: 22, borderRadius: 999, border: 'none', background: 'rgba(61,35,20,0.62)', color: '#fff', fontSize: 13, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                  >
+                    <X size={13} />
+                  </button>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} onClick={() => setFotoZoom(f._url ?? null)} title="Clique para ampliar" style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} />
                     : <div style={{ width: '100%', height: 72, background: '#F0EADE' }} />}
