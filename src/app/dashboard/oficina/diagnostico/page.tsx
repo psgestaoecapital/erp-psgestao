@@ -87,6 +87,12 @@ export default function DiagnosticoPage() {
   const [cotarAberto, setCotarAberto] = useState(false)
   const [cotarSel, setCotarSel] = useState<Set<string>>(new Set())
   const [gerandoCot, setGerandoCot] = useState(false)
+  // Item 2 · após gerar a cotação, convidar fornecedores (dispatch [→GE]). 2ª fase do mesmo modal.
+  const [cotacaoCriada, setCotacaoCriada] = useState<{ id: string; numero: string } | null>(null)
+  const [fornecedores, setFornecedores] = useState<{ id: string; nome: string; local: string | null }[]>([])
+  const [convidarSel, setConvidarSel] = useState<Set<string>>(new Set())
+  const [buscaFornec, setBuscaFornec] = useState('')
+  const [convidando, setConvidando] = useState(false)
   const [solicitarAberto, setSolicitarAberto] = useState(false)  // R5 · modal solicitar peça ao dono
   // RD-41 · fotos do diagnóstico (reusa erp_os_registro_foto, etapa='diagnostico')
   const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
@@ -230,12 +236,44 @@ export default function DiagnosticoPage() {
     setGerandoCot(true)
     const { data, error } = await supabase.rpc('fn_os_diagnostico_gerar_cotacao', { p_os_id: osSel.id, p_itens_ids: ids })
     setGerandoCot(false)
-    const j = data as { sucesso?: boolean; erro?: string; msg?: string; numero?: string; itens?: number } | null
-    if (error || j?.sucesso === false) { setMsg('❌ ' + (error?.message || j?.msg || j?.erro || 'falha ao gerar cotação')); return }
-    setCotarAberto(false)
-    setMsg(`✅ Cotação ${j?.numero ?? ''} criada (${j?.itens ?? 0} peça(s)). Abra em Compras › Cotações para comparar fornecedores.`)
+    const j = data as { sucesso?: boolean; erro?: string; msg?: string; cotacao_id?: string; numero?: string; itens?: number } | null
+    if (error || j?.sucesso === false || !j?.cotacao_id) { setMsg('❌ ' + (error?.message || j?.msg || j?.erro || 'falha ao gerar cotação')); return }
+    // Fica no modal e passa à 2ª fase: convidar fornecedores para esta cotação (dispatch [→GE]).
+    setCotacaoCriada({ id: j.cotacao_id, numero: j.numero ?? '' })
+    setConvidarSel(new Set()); setBuscaFornec('')
+    setMsg(`✅ Cotação ${j?.numero ?? ''} criada (${j?.itens ?? 0} peça(s)). Convide fornecedores ou vá para Compras.`)
+    void carregarFornecedores()
+  }
+
+  // Fornecedores ativos da empresa (multiselect do convite). Nome = nome_fantasia || razao_social.
+  const carregarFornecedores = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase
+      .from('erp_fornecedores').select('id, nome_fantasia, razao_social, cidade_estado')
+      .eq('company_id', companyId).eq('ativo', true)
+      .order('nome_fantasia', { ascending: true, nullsFirst: false }).limit(500)
+    setFornecedores((data ?? []).map((f) => ({
+      id: f.id as string,
+      nome: (f.nome_fantasia || f.razao_social || '(sem nome)') as string,
+      local: (f.cidade_estado ?? null) as string | null,
+    })))
+  }, [companyId])
+
+  const convidarFornecedores = async () => {
+    if (!cotacaoCriada) return
+    const ids = Array.from(convidarSel)
+    if (ids.length === 0) { setMsg('Marque ao menos um fornecedor para convidar.'); return }
+    setConvidando(true)
+    const { data, error } = await supabase.rpc('fn_cotacao_convidar_fornecedores', { p_cotacao_id: cotacaoCriada.id, p_fornecedor_ids: ids })
+    setConvidando(false)
+    const j = data as { ok?: boolean; erro?: string; convidados?: number } | null
+    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro || 'falha ao convidar')); return }
+    fecharCotar()
+    setMsg(`✅ ${j?.convidados ?? ids.length} fornecedor(es) convidado(s) para a cotação ${cotacaoCriada.numero}. Compare as propostas em Compras › Cotações.`)
     setTimeout(() => router.push('/dashboard/commerce/compras'), 1000)
   }
+
+  const fecharCotar = () => { setCotarAberto(false); setCotacaoCriada(null); setFornecedores([]); setConvidarSel(new Set()); setBuscaFornec('') }
 
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
 
@@ -432,30 +470,72 @@ export default function DiagnosticoPage() {
       </div>
       {/* RD-26 · seleção de peças p/ cotação (serviço não entra; estoque vem desmarcado) */}
       {cotarAberto && osSel && (
-        <div onClick={() => setCotarAberto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+        <div onClick={fecharCotar} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 560, maxHeight: '82vh', overflowY: 'auto', padding: 16 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: ESP, marginBottom: 4 }}>Gerar cotação de compra</div>
-            <div style={{ fontSize: 12, color: ESP60, marginBottom: 12 }}>Marque as peças que precisam cotar. Serviços não entram; itens em estoque vêm desmarcados.</div>
-            {pecasCotaveis().length === 0 ? (
-              <div style={{ fontSize: 13, color: ESP60, padding: '16px 0' }}>Nenhuma peça salva para cotar. Salve o laudo primeiro.</div>
-            ) : pecasCotaveis().map((p) => {
-              const on = cotarSel.has(p.id as string)
-              return (
-                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: `1px solid ${LINE}`, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={on} onChange={() => setCotarSel((s) => { const n = new Set(s); if (n.has(p.id as string)) n.delete(p.id as string); else n.add(p.id as string); return n })} style={{ width: 18, height: 18, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: ESP, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.descricao || 'Peça'}</div>
-                    <div style={{ fontSize: 11, color: ESP60 }}>Qtd {p.quantidade || '1'}{p.produto_id ? (p._estoque != null ? ` · estoque ${Number(p._estoque)}` : ' · catálogo') : ' · item livre'}</div>
-                  </div>
-                </label>
-              )
-            })}
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <button onClick={() => setCotarAberto(false)} style={{ ...btnLine, flex: 1 }}>Cancelar</button>
-              <button onClick={() => void gerarCotacao()} disabled={gerandoCot || cotarSel.size === 0} style={{ ...btnGold, flex: 1 }}>
-                {gerandoCot ? 'Gerando…' : `Gerar cotação (${cotarSel.size})`}
-              </button>
-            </div>
+            {!cotacaoCriada ? (
+              // ── Fase 1 · escolher peças e gerar a cotação ──
+              <>
+                <div style={{ fontSize: 16, fontWeight: 800, color: ESP, marginBottom: 4 }}>Gerar cotação de compra</div>
+                <div style={{ fontSize: 12, color: ESP60, marginBottom: 12 }}>Marque as peças que precisam cotar. Serviços não entram; itens em estoque vêm desmarcados.</div>
+                {pecasCotaveis().length === 0 ? (
+                  <div style={{ fontSize: 13, color: ESP60, padding: '16px 0' }}>Nenhuma peça salva para cotar. Salve o laudo primeiro.</div>
+                ) : pecasCotaveis().map((p) => {
+                  const on = cotarSel.has(p.id as string)
+                  return (
+                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: `1px solid ${LINE}`, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} onChange={() => setCotarSel((s) => { const n = new Set(s); if (n.has(p.id as string)) n.delete(p.id as string); else n.add(p.id as string); return n })} style={{ width: 18, height: 18, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: ESP, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.descricao || 'Peça'}</div>
+                        <div style={{ fontSize: 11, color: ESP60 }}>Qtd {p.quantidade || '1'}{p.produto_id ? (p._estoque != null ? ` · estoque ${Number(p._estoque)}` : ' · catálogo') : ' · item livre'}</div>
+                      </div>
+                    </label>
+                  )
+                })}
+                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                  <button onClick={fecharCotar} style={{ ...btnLine, flex: 1 }}>Cancelar</button>
+                  <button onClick={() => void gerarCotacao()} disabled={gerandoCot || cotarSel.size === 0} style={{ ...btnGold, flex: 1 }}>
+                    {gerandoCot ? 'Gerando…' : `Gerar cotação (${cotarSel.size})`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              // ── Fase 2 · convidar fornecedores para a cotação recém-criada ([→GE]) ──
+              <>
+                <div style={{ fontSize: 16, fontWeight: 800, color: ESP, marginBottom: 4 }}>Convidar fornecedores · Cotação {cotacaoCriada.numero}</div>
+                <div style={{ fontSize: 12, color: ESP60, marginBottom: 12 }}>Selecione quem receberá o pedido de cotação. A comparação das propostas é feita em Compras.</div>
+                <div style={{ position: 'relative', marginBottom: 10 }}>
+                  <Search size={15} style={{ position: 'absolute', left: 10, top: 10, color: ESP60 }} />
+                  <input value={buscaFornec} onChange={(e) => setBuscaFornec(e.target.value)} placeholder="Buscar fornecedor…"
+                    style={{ width: '100%', padding: '9px 10px 9px 30px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13, color: ESP, boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ maxHeight: '42vh', overflowY: 'auto' }}>
+                  {(() => {
+                    const t = buscaFornec.trim().toLowerCase()
+                    const lista = t ? fornecedores.filter((f) => f.nome.toLowerCase().includes(t) || (f.local ?? '').toLowerCase().includes(t)) : fornecedores
+                    if (fornecedores.length === 0) return <div style={{ fontSize: 13, color: ESP60, padding: '16px 0' }}>Nenhum fornecedor ativo cadastrado.</div>
+                    if (lista.length === 0) return <div style={{ fontSize: 13, color: ESP60, padding: '16px 0' }}>Nenhum fornecedor encontrado.</div>
+                    return lista.map((f) => {
+                      const on = convidarSel.has(f.id)
+                      return (
+                        <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: `1px solid ${LINE}`, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={on} onChange={() => setConvidarSel((s) => { const n = new Set(s); if (n.has(f.id)) n.delete(f.id); else n.add(f.id); return n })} style={{ width: 18, height: 18, flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: ESP, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.nome}</div>
+                            {f.local && <div style={{ fontSize: 11, color: ESP60 }}>{f.local}</div>}
+                          </div>
+                        </label>
+                      )
+                    })
+                  })()}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                  <button onClick={() => { fecharCotar(); setTimeout(() => router.push('/dashboard/commerce/compras'), 100) }} style={{ ...btnLine, flex: 1 }}>Pular · ir para Compras</button>
+                  <button onClick={() => void convidarFornecedores()} disabled={convidando || convidarSel.size === 0} style={{ ...btnGold, flex: 1 }}>
+                    {convidando ? 'Convidando…' : `Convidar (${convidarSel.size})`}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
