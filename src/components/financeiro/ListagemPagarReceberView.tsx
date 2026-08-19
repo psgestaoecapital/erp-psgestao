@@ -71,7 +71,17 @@ type Resposta = {
   resultados: Resultado[]
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 20 // default (Rodrigo): itens por página começa em 20
+const PAGE_SIZE_OPCOES = [20, 50, 100] as const
+// Paginação é client-side (todos os resultados já vêm do fn_ge_listagem_v2); trocar o
+// tamanho é só re-fatiar em memória — sem p_limit/p_offset, sem mudar RPC.
+const lerPageSizeSessao = (tipo: string): number => {
+  if (typeof window === 'undefined') return PAGE_SIZE
+  try {
+    const v = Number(window.sessionStorage.getItem(`ps_lanc_page_size_${tipo}`))
+    return (PAGE_SIZE_OPCOES as readonly number[]).includes(v) ? v : PAGE_SIZE
+  } catch { return PAGE_SIZE }
+}
 
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
@@ -150,6 +160,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [fValorMax, setFValorMax] = useState('')
   const [fForma, setFForma] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<number>(() => lerPageSizeSessao(tipo))
+  const trocarPageSize = (n: number) => {
+    setPageSize(n)
+    setPage(1) // volta pra página 1: o offset antigo pode ficar inválido no novo tamanho
+    if (typeof window !== 'undefined') {
+      try { window.sessionStorage.setItem(`ps_lanc_page_size_${tipo}`, String(n)) } catch { /* sessão indisponível */ }
+    }
+  }
 
   const [data, setData] = useState<Resposta | null>(null)
   const [loading, setLoading] = useState(false)
@@ -437,10 +455,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   useEffect(() => { setSelecionados(new Set()) }, [companyId, tipo, dataInicio, dataFim, statusSel, reloadKey])
 
-  const totalPages = Math.max(1, Math.ceil(resultadosFiltrados.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(resultadosFiltrados.length / pageSize))
   const pageSafe = Math.min(page, totalPages)
-  const pageStart = (pageSafe - 1) * PAGE_SIZE
-  const pageItems = resultadosFiltrados.slice(pageStart, pageStart + PAGE_SIZE)
+  const pageStart = (pageSafe - 1) * pageSize
+  const pageItems = resultadosFiltrados.slice(pageStart, pageStart + pageSize)
 
   const categoriasDistinct = useMemo(() => {
     const set = new Set<string>()
@@ -1260,8 +1278,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 color: 'rgba(61,35,20,0.65)',
               }}
             >
-              <div>
-                Mostrando {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, resultadosFiltrados.length)} de {resultadosFiltrados.length}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <span>
+                  Mostrando {pageStart + 1}–{Math.min(pageStart + pageSize, resultadosFiltrados.length)} de {resultadosFiltrados.length}
+                </span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>Itens por página:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => trocarPageSize(Number(e.target.value))}
+                    style={{ ...inputStyle, width: 'auto', padding: '4px 8px', fontSize: 12 }}
+                  >
+                    {PAGE_SIZE_OPCOES.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
