@@ -39,6 +39,23 @@ const OWNER_ADMIN_MODULO: SidebarModuleNode = {
   matchPaths: ['/dashboard/admin/acessos', '/dashboard/admin'],
 }
 
+// Item 3 · Cotações na Oficina — só para o CLIENT_OWNER (decisão CEO; Pilar 2: compras é
+// sensível, viewer/operador ficam de fora). Aponta para a tela EXISTENTE de Compras/Cotações
+// do GE (default tab = Cotações) — NÃO recria a janela, preservando a Fronteira GE. Atalho
+// por papel, aditivo e reversível, no mesmo padrão de OWNER_ADMIN_MODULO acima. Expandir para
+// CLIENT_VIEWER depois = só afrouxar a condição (ownerAtalho) no push. Premissa auditada:
+// commerce_compras.surface_in_groups=['gestao_empresarial'] (não entra na oficina pela RPC),
+// e o gate de nível da RPC (permissoes_nivel) é por módulo/area-agnóstico — não sabe
+// CLIENT_OWNER. Por isso o gate mora no front, único lugar que já consulta tenant_user_roles.
+const OFICINA_COTACOES_OWNER_MODULO: SidebarModuleNode = {
+  id: 'oficina-cotacoes-owner',
+  label: 'Cotações',
+  href: '/dashboard/commerce/compras',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/commerce/compras'],
+}
+
 export type SidebarModoFonte = 'hardcoded' | 'rpc' | 'rpc-empty' | 'rpc-error'
 
 interface RpcRow {
@@ -383,6 +400,12 @@ export function useSidebarModulos(): State {
   // Dedupe: nao adiciona se algum modulo/RPC ja aponta pra /dashboard/admin.
   if (ownerAtalho && !modulos.some((m) => m.href === '/dashboard/admin/acessos' || m.items?.some((s) => s.href === '/dashboard/admin/acessos'))) {
     modulos.push(OWNER_ADMIN_MODULO)
+  }
+  // Item 3 · na área Oficina, o CLIENT_OWNER (ownerAtalho) ganha o atalho "Cotações" pra tela
+  // de Compras/Cotações do GE. Dedupe: não duplica se a RPC já surfou compras nesta área.
+  if (areaSlugRpc === 'oficina' && ownerAtalho
+    && !modulos.some((m) => m.href?.startsWith('/dashboard/commerce/compras') || m.items?.some((s) => s.href?.startsWith('/dashboard/commerce/compras')))) {
+    modulos.push(OFICINA_COTACOES_OWNER_MODULO)
   }
   return { modulos, loading: false, mode: 'rpc' }
 }
