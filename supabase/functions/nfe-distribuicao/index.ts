@@ -93,18 +93,25 @@ function normalizar(o: Record<string, unknown>): NotaResumo {
   ).replace(/\D/g, "")
   const cnpjEmit = String(
     (o.emitente as Record<string, unknown> | undefined)?.cnpj ??
-    o.cnpj_emitente ?? o.CNPJ ?? o.emit_cnpj ?? ""
+    o.cnpj_emitente ?? o.CNPJ ?? o.emit_cnpj ??
+    o.documento_emitente ?? ""   // resumo Focus /v2/nfes_recebidas usa documento_emitente
   ).replace(/\D/g, "")
   const razaoEmit = String(
     (o.emitente as Record<string, unknown> | undefined)?.razao_social ??
-    o.razao_social_emitente ?? o.xNome ?? o.emit_razao ?? ""
+    o.razao_social_emitente ?? o.xNome ?? o.emit_razao ??
+    o.nome_emitente ?? ""        // resumo Focus /v2/nfes_recebidas usa nome_emitente
   )
   const ieEmit = String(
     (o.emitente as Record<string, unknown> | undefined)?.inscricao_estadual ??
     o.ie_emitente ?? o.IE ?? ""
   )
-  const numero = o.numero != null ? String(o.numero) : (o.nNF != null ? String(o.nNF) : null)
-  const serie = o.serie != null ? String(o.serie) : null
+  // numero/serie: o resumo Focus nao traz; derivamos da chave de 44 digitos
+  // (serie = digitos 23-25 -> indices 22..25; nNF = digitos 26-34 -> indices 25..34).
+  const numero = o.numero != null ? String(o.numero)
+    : (o.nNF != null ? String(o.nNF)
+      : (chave.length === 44 ? String(Number(chave.substring(25, 34))) : null))
+  const serie = o.serie != null ? String(o.serie)
+    : (chave.length === 44 ? String(Number(chave.substring(22, 25))) : null)
   const dataEmissao =
     typeof o.data_emissao === "string" ? o.data_emissao :
     typeof o.dhEmi === "string" ? o.dhEmi :
@@ -279,6 +286,10 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
     const novasParaManifestar: { id: string; chave: string }[] = []
     let lastStatus = 0
     let lastBodyPreview = ""
+    // Diagnóstico RD-51: como o log da edge é gated, persistimos no controle o FORMATO do
+    // envelope da 1ª resposta (só as chaves / arr:N — Pilar 2: sem valores/segredos), pra
+    // descobrir por SQL qual é o mecanismo de paginação real da Focus (NSU vs página/cursor).
+    let envDbg = ""
 
     for (let iter = 0; iter < LOOP_CAP; iter++) {
       const cursorAntes = cursorNsu
@@ -344,6 +355,18 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
         const env = envelope && typeof envelope === "object" && !Array.isArray(envelope)
           ? Object.keys(envelope as Record<string, unknown>).slice(0, 12)
           : "array"
+        // Formato persistível (só chaves/estrutura + NOMES de header, sem valores/segredos) —
+        // vai pro controle p/ leitura via SQL. Se a paginação vier por header (ex.: link/x-next),
+        // o nome aparece aqui e guia o próximo patch.
+        const corpo = Array.isArray(envelope)
+          ? `arr:${(envelope as unknown[]).length}`
+          : (envelope && typeof envelope === "object"
+            ? `obj:${Object.keys(envelope as Record<string, unknown>).slice(0, 15).join(",")}`
+            : "other")
+        const hdrs = Array.from(r.headers.keys())
+          .filter((h) => /nsu|pag|page|next|cursor|offset|total|link/i.test(h))
+          .join(",")
+        envDbg = corpo + (hdrs ? ` hdr:${hdrs}` : "")
         console.log("[nfe-distribuicao][nsu-debug]", JSON.stringify({
           company_id, ambiente, iter, status: r.status, envelope_keys: env,
           body_preview: body.slice(0, 300),
@@ -434,6 +457,12 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
 
       if (maxLote > cursorNsu) cursorNsu = maxLote
 
+      // Fix 1: o resumo nao traz NSU por item, mas o envelope Focus pode trazer o ultimo_nsu
+      // consultado. Avancar por ele faz a paginacao andar (junho -> ... -> agosto). NULL-guard:
+      // se o envelope nao trouxer NSU (caso empirico atual, max_nsu=0), isto e no-op e o
+      // break-guard abaixo encerra — sem regressao. O envDbg persistido dira o mecanismo real.
+      if (maxNsuEnvelope !== null && maxNsuEnvelope > cursorNsu) cursorNsu = maxNsuEnvelope
+
       // Checkpoint incremental: persiste o progresso ao fim de CADA iteracao (antes
       // de qualquer break/sleep). Se algum dia o run estourar o tempo, o que ja
       // avancou fica salvo e o proximo run continua de onde parou — nunca mais volta a 0.
@@ -442,7 +471,7 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
           ultimo_nsu: cursorNsu,
           max_nsu: maxNsuEnvelope ?? cursorNsu,
           ultima_consulta_em: new Date().toISOString(),
-          ultima_consulta_status: lastStatus === 200 ? "ok" : `http_${lastStatus}`,
+          ultima_consulta_status: (lastStatus === 200 ? "ok" : `http_${lastStatus}`) + (envDbg ? ` · env=${envDbg}` : ""),
           updated_at: new Date().toISOString(),
         })
         .eq("company_id", company_id)
@@ -498,7 +527,7 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
         ultimo_nsu: cursorNsu,
         max_nsu: maxNsuEnvelope ?? cursorNsu,
         ultima_consulta_em: new Date().toISOString(),
-        ultima_consulta_status: lastStatus === 200 ? "ok" : `http_${lastStatus}`,
+        ultima_consulta_status: (lastStatus === 200 ? "ok" : `http_${lastStatus}`) + (envDbg ? ` · env=${envDbg}` : ""),
         ultimo_ciclo_em: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
