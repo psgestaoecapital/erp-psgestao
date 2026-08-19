@@ -88,7 +88,7 @@ export default function KpisDashboard({ companyId }: { companyId: string }) {
         expandido={expandidos.has('receber_vencido')}
         onToggle={() => toggle('receber_vencido')}
         onClick={() => router.push('/dashboard/contas-receber?filtro=vencido')} />
-      <KpiCard chave="vencem_hoje" cor="#BA7517" label="Vencem hoje" valor={venHoje?.valor ?? 0}
+      <KpiCard chave="vencem_hoje" cor="#BA7517" label="A receber hoje" valor={venHoje?.valor ?? 0}
         sublabel={`Restante: R$ ${fmt(venHoje?.restante_mes)}`}
         breakdown={venHoje?.breakdown}
         expandido={expandidos.has('vencem_hoje')}
