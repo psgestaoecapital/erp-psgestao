@@ -600,14 +600,43 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const { data, error } = await supabase.rpc(rpc, { p_ids: Array.from(selecionados) })
     setMassaBusy(false)
     if (error) { alert('Erro ao excluir: ' + error.message); return }
-    const j = data as { excluidos?: number; ignoradas_pago_conciliado?: number; ignoradas_boleto_ativo?: number } | null
-    const partes = [
-      j?.ignoradas_pago_conciliado ? `${j.ignoradas_pago_conciliado} paga(s)/conciliada(s)` : '',
-      j?.ignoradas_boleto_ativo ? `${j.ignoradas_boleto_ativo} com boleto ativo` : '',
-    ].filter(Boolean)
-    setMassaMsg(`EXCLUIU ${j?.excluidos ?? 0}${partes.length ? ' · ' + partes.join(' · ') + ' ignorada(s)' : ''}`)
+    const j = data as {
+      sucesso?: boolean; erro?: string
+      excluidos?: number; ignoradas_pago_conciliado?: number; ignoradas_boleto_ativo?: number
+      ja_excluidas?: number; outras_falhas?: number
+    } | null
+    if (j?.sucesso === false) { alert('Não foi possível excluir: ' + (j?.erro ?? 'desconhecido')); return }
     setMassaExcluirAberto(false)
-    limparSelecao(); setReloadKey((k) => k + 1)
+
+    const excluidos = j?.excluidos ?? 0
+    // Placar completo (não engolir nada): boleto ativo, pago/conciliado, já excluída, outras falhas.
+    const ignoradas = [
+      j?.ignoradas_boleto_ativo ? `${j.ignoradas_boleto_ativo} com boleto ativo` : '',
+      j?.ignoradas_pago_conciliado ? `${j.ignoradas_pago_conciliado} paga(s)/conciliada(s)` : '',
+      j?.ja_excluidas ? `${j.ja_excluidas} já excluída(s)` : '',
+      j?.outras_falhas ? `${j.outras_falhas} com falha` : '',
+    ].filter(Boolean)
+
+    // RD-58 · a tela NÃO pode dar a impressão de que "nada aconteceu". Quando NADA é
+    // excluído (tudo bloqueado por boleto ativo / pago / conciliado), a lista não muda e um
+    // toast no canto passa batido → o operador acha que quebrou. Então avisamos de forma
+    // inequívoca (alert, igual à exclusão unitária) explicando o porquê, e MANTEMOS a seleção
+    // pra o operador tratar (cancelar boleto/baixa) e tentar de novo — nada mudou no banco.
+    if (excluidos === 0) {
+      const motivo = j?.ignoradas_boleto_ativo
+        ? 'Cancele o boleto no banco antes de excluir esses títulos.'
+        : (j?.ignoradas_pago_conciliado ? 'Contas pagas/conciliadas precisam ser tratadas antes de excluir.' : '')
+      alert(
+        `Nenhuma conta foi excluída.` +
+        (ignoradas.length ? `\n\nBloqueadas: ${ignoradas.join(' · ')}.` : '') +
+        (motivo ? `\n\n${motivo}` : ''),
+      )
+      return
+    }
+
+    // Algo foi excluído: resumo em toast + refresh (o reloadKey também limpa a seleção).
+    setMassaMsg(`EXCLUIU ${excluidos}${ignoradas.length ? ' · ' + ignoradas.join(' · ') + ' ignorada(s)' : ''}`)
+    setReloadKey((k) => k + 1)
     setTimeout(() => setMassaMsg(null), 6000)
   }
 
