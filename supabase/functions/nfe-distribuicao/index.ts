@@ -59,6 +59,19 @@ function focusBase(amb: Ambiente): string {
 function basicAuth(token: string): string { return "Basic " + btoa(token + ":") }
 function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)) }
 
+// Higiene: fetch com timeout via AbortController. Se a Focus pendurar, falha rapido
+// (~20s) em vez de segurar a conexao ate o cap do loop (150s -> 546 no proxy).
+const FETCH_TIMEOUT_MS = 20_000
+async function fetchComTimeout(url: string, init: RequestInit, ms = FETCH_TIMEOUT_MS): Promise<Response> {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: ac.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 interface NotaResumo {
   chave: string
   numero: string | null
@@ -202,16 +215,22 @@ async function manifestarCiencia(
   token: string,
 ): Promise<{ ok: boolean; status: number; bodyPreview: string }> {
   const url = `${focusBase(ambiente)}/v2/nfes_recebidas/${chave}/manifesto`
-  const r = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: basicAuth(token),
-      "User-Agent": "PSGestao-ERP/3.0",
-    },
-    body: JSON.stringify({ tipo: "ciencia" }),
-  })
+  let r: Response
+  try {
+    r = await fetchComTimeout(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: basicAuth(token),
+        "User-Agent": "PSGestao-ERP/3.0",
+      },
+      body: JSON.stringify({ tipo: "ciencia" }),
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+    return { ok: false, status: 0, bodyPreview: `timeout/rede · ${msg}`.slice(0, 300) }
+  }
   const body = await r.text()
   if (r.ok) return { ok: true, status: r.status, bodyPreview: body.slice(0, 200) }
   const lower = body.toLowerCase()
@@ -262,19 +281,38 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
     let lastBodyPreview = ""
 
     for (let iter = 0; iter < LOOP_CAP; iter++) {
+      const cursorAntes = cursorNsu
       const qs = new URLSearchParams()
       qs.set("cnpj", cnpjLimpo)
       if (cursorNsu > 0) qs.set("ultimo_nsu", String(cursorNsu))
       const url = `${focusBase(ambiente)}/v2/nfes_recebidas?${qs.toString()}`
 
-      const r = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: basicAuth(token),
-          "User-Agent": "PSGestao-ERP/3.0",
-        },
-      })
+      let r: Response
+      try {
+        r = await fetchComTimeout(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: basicAuth(token),
+            "User-Agent": "PSGestao-ERP/3.0",
+          },
+        })
+      } catch (e) {
+        // Timeout/rede: grava erro_focus e sai rapido (nao come os 150s do cap).
+        const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+        await sbAdmin.from("erp_nfe_distribuicao_controle")
+          .update({
+            ultima_consulta_em: new Date().toISOString(),
+            ultima_consulta_status: `erro_focus:timeout · ${msg}`.slice(0, 400),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("company_id", company_id)
+        return {
+          company_id, ok: false,
+          erro: `Focus timeout/erro de rede na listagem · ${msg}`,
+          iteracoes: iter,
+        }
+      }
       const body = await r.text()
       lastStatus = r.status
       lastBodyPreview = body.slice(0, 500)
@@ -395,6 +433,25 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       }
 
       if (maxLote > cursorNsu) cursorNsu = maxLote
+
+      // Checkpoint incremental: persiste o progresso ao fim de CADA iteracao (antes
+      // de qualquer break/sleep). Se algum dia o run estourar o tempo, o que ja
+      // avancou fica salvo e o proximo run continua de onde parou — nunca mais volta a 0.
+      await sbAdmin.from("erp_nfe_distribuicao_controle")
+        .update({
+          ultimo_nsu: cursorNsu,
+          max_nsu: maxNsuEnvelope ?? cursorNsu,
+          ultima_consulta_em: new Date().toISOString(),
+          ultima_consulta_status: lastStatus === 200 ? "ok" : `http_${lastStatus}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("company_id", company_id)
+
+      // Break-guard: se o cursor NAO avancou, a proxima iteracao re-buscaria a MESMA
+      // pagina (causa do loop 20x -> 150s -> 546). Este endpoint da Focus nao traz NSU
+      // no resumo, entao maxLote fica em 0 e caimos aqui na 1a volta: processa a pagina
+      // uma vez, ja salvou acima, e encerra. As notas novas entram nos runs seguintes.
+      if (cursorNsu === cursorAntes) break
 
       // Condicoes de parada do loop:
       //   1. envelope explicito disse maxNsu e ja batemos
