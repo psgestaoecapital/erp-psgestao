@@ -8,7 +8,8 @@
 // gera contas a pagar).
 
 import { useEffect, useMemo, useState } from 'react'
-import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap, ChevronDown, ChevronUp } from 'lucide-react'
+import Link from 'next/link'
+import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { ItensNfeRecebida } from './_components/ItensNfeRecebida'
@@ -555,6 +556,14 @@ export default function DocumentosRecebidosPage() {
                             {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
                           </button>
                         )}
+                        {/* Devolver ao fornecedor: abre a NF-e de devolução pré-preenchida por esta nota (chave/fornecedor/itens). */}
+                        <Link
+                          href={`/dashboard/fiscal/nfe/devolucao?recebida_id=${n.id}`}
+                          title="Emitir NF-e de devolução ao fornecedor (pré-preenchida por esta nota)"
+                          className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#C8941A]/40 text-[#A77A12] font-medium hover:bg-[#FBF3E0]"
+                        >
+                          <RotateCcw size={11} /> Devolver
+                        </Link>
                       </div>
                     </div>
                     {isExpandido && empresaUnica && (
