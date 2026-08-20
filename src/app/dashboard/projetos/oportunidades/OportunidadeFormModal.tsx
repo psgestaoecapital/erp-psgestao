@@ -55,8 +55,16 @@ interface Props {
   onSaved: (id: string) => void
 }
 
+// Máscara BR de moeda por CENTAVOS (sem ambiguidade de milhar/decimal): o usuário digita só dígitos
+// e o valor cresce da direita (16468920 → "164.689,20"). Corrige a causa raiz do bug "164,69"
+// (o input type=number quebrava "164.689,20"). Grava o número em reais (164689.20), não 164.69.
+const fmtBR = (n: number): string => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 export default function OportunidadeFormModal({ companyId, initial, onClose, onSaved }: Props) {
   const [form, setForm] = useState<OportunidadeRow>(initial ?? empty())
+  const [valorStr, setValorStr] = useState<string>(
+    initial?.valor_estimado != null ? fmtBR(initial.valor_estimado) : '',
+  )
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const isEdit = !!initial?.id
@@ -342,9 +350,16 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           <label style={lbl}>
             Valor estimado (R$)
             <input
-              type="number" step="0.01"
-              value={form.valor_estimado ?? ''}
-              onChange={(e) => setF('valor_estimado', e.target.value === '' ? null : Number(e.target.value))}
+              inputMode="decimal"
+              value={valorStr}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '')
+                if (!digits) { setValorStr(''); setF('valor_estimado', null); return }
+                const num = parseInt(digits, 10) / 100      // centavos → reais (sem perder milhar)
+                setValorStr(fmtBR(num))
+                setF('valor_estimado', num)
+              }}
+              placeholder="0,00"
               style={inp}
             />
           </label>
