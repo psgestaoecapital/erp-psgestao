@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { ArrowLeft, Loader2, AlertCircle, Trash2, Plus, RotateCcw } from 'lucide-react'
@@ -48,8 +49,11 @@ const fmtBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
 export default function DevolucaoCompraClient() {
+  const searchParams = useSearchParams()
+  const recebidaId = searchParams?.get('recebida_id') ?? null
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [erroEmpresa, setErroEmpresa] = useState<string | null>(null)
+  const [prefillMsg, setPrefillMsg] = useState<string | null>(null)
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [fornecedorId, setFornecedorId] = useState('')
@@ -93,6 +97,51 @@ export default function DevolucaoCompraClient() {
       setProdutos((p.data ?? []) as Produto[])
     })()
   }, [companyId])
+
+  // Pré-preenche a partir de uma NF-e recebida (?recebida_id=): fornecedor + chave de origem + itens.
+  // Só itens com produto vinculado entram (emissão precisa de produtoId). Itens sem produto ou nota
+  // ainda sem XML (resumo) são avisados — o operador completa manualmente pelo buscador de produtos.
+  useEffect(() => {
+    if (!companyId || !recebidaId) return
+    void (async () => {
+      const { data: rec } = await supabase
+        .from('erp_nfe_recebidas')
+        .select('id, chave_acesso, fornecedor_id')
+        .eq('id', recebidaId)
+        .eq('company_id', companyId)
+        .maybeSingle()
+      if (!rec) { setPrefillMsg('Nota recebida não encontrada para pré-preencher.'); return }
+      if (rec.chave_acesso) setChaveCompra(maskChave(String(rec.chave_acesso)))
+      if (rec.fornecedor_id) setFornecedorId(String(rec.fornecedor_id))
+
+      const { data: its } = await supabase
+        .from('erp_nfe_recebidas_itens')
+        .select('produto_id, codigo_produto, descricao, quantidade, valor_unitario')
+        .eq('nfe_recebida_id', recebidaId)
+        .order('numero_item')
+      const linhas = its ?? []
+      const mapeados = linhas
+        .filter((i) => i.produto_id)
+        .map((i) => ({
+          produtoId: i.produto_id as string,
+          produtoLabel: `${i.codigo_produto ? `[${i.codigo_produto}] ` : ''}${i.descricao ?? 'Item'}`,
+          quantidade: Number(i.quantidade ?? 1),
+          valorUnitarioOverride: Number(i.valor_unitario ?? 0),
+          cfopOverride: '5202',
+        }))
+      if (mapeados.length > 0) setItens(mapeados)
+
+      const semProduto = linhas.length - mapeados.length
+      if (linhas.length === 0) {
+        setPrefillMsg('Esta nota ainda não tem itens detalhados (XML não aplicado). Busque o XML em Documentos Recebidos, ou adicione os produtos manualmente abaixo. Fornecedor e chave já foram preenchidos.')
+      } else if (semProduto > 0) {
+        setPrefillMsg(`${semProduto} item(ns) da nota sem produto vinculado ficaram de fora — adicione manualmente se precisar devolvê-los.`)
+      } else {
+        setPrefillMsg(null)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, recebidaId])
 
   function adicionarItem(prod: Produto) {
     setItens((arr) => [
@@ -165,7 +214,7 @@ export default function DevolucaoCompraClient() {
 
   function resetar() {
     setFornecedorId(''); setChaveCompra(''); setNatureza('Devolução de compra')
-    setItens([]); setProdutoBusca(''); setErro(null); setSucesso(null)
+    setItens([]); setProdutoBusca(''); setErro(null); setSucesso(null); setPrefillMsg(null)
   }
 
   if (erroEmpresa) {
@@ -194,6 +243,13 @@ export default function DevolucaoCompraClient() {
       <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[11.5px] text-[#3D2314]/85 leading-snug">
         <strong>Atenção (Pilar 1):</strong> CFOP, CST/CSOSN e CEST devem espelhar a NF-e de compra para devolver o mesmo imposto creditado. Padrão sugerido: <strong>5202</strong> (dentro do estado) ou <strong>6202</strong> (fora). Se a compra teve ICMS-ST, use <strong>5411/6411</strong>. Validar com contador antes de produção.
       </div>
+
+      {prefillMsg && (
+        <div className="mb-4 p-3 bg-[#EAF1FB] border border-[#2C5AA0]/30 rounded-lg text-[12px] text-[#2C5AA0] flex items-start gap-2">
+          <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+          <span>{prefillMsg}</span>
+        </div>
+      )}
 
       {sucesso && (
         <div className="mb-4 p-3 bg-[#E7F4EC] border border-[#1B873F]/40 rounded-lg text-[12.5px] text-[#1B873F]">
