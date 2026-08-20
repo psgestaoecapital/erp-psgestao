@@ -5,7 +5,7 @@
 // Reforma Tributaria desabilitada quando regime = simples_nacional
 // (consulta erp_fiscal_provider_config.regime_tributario).
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { X, Save, Loader2, AlertCircle, Trash2 } from 'lucide-react'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
@@ -98,21 +98,71 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   const [rtIbsE, setRtIbsE] = useState(String(servico?.rt_aliquota_ibs_estadual ?? '0'))
   const [rtCbs,  setRtCbs]  = useState(String(servico?.rt_aliquota_cbs ?? '0'))
 
-  // Regime tributario da empresa (RT depende disso)
+  // Regime tributario da empresa (RT depende disso). Fonte única = companies.regime_tributario
+  // (a migration normaliza; normalizo aqui também por segurança enquanto o deploy não roda).
   useEffect(() => {
     let alive = true
     void (async () => {
       const { data } = await supabase
-        .from('erp_fiscal_provider_config')
+        .from('companies')
         .select('regime_tributario')
-        .eq('company_id', companyId)
+        .eq('id', companyId)
         .maybeSingle()
-      if (alive) setRegime((data?.regime_tributario as string | null) ?? null)
+      if (!alive) return
+      const raw = (data?.regime_tributario as string | null)?.trim().toLowerCase() ?? null
+      const norm = raw === 'simples' ? 'simples_nacional'
+        : raw === 'presumido' ? 'lucro_presumido'
+        : raw === 'real' ? 'lucro_real'
+        : raw
+      setRegime(norm)
     })()
     return () => { alive = false }
   }, [companyId])
 
   const isSimples = regime === 'simples_nacional'
+
+  // RT · auto-preenche cClassTrib + indOpRT da correlação ao escolher o NBS (fonte: fiscal_correlacao_servico).
+  // Não passa o LC116 (o campo está em formato incompatível com a correlação); NBS ambíguo → não chuta.
+  // rt_cst NÃO vem da correlação (não tem CST) → fica manual.
+  const correlacaoAplicadaRef = useRef(false)
+  useEffect(() => {
+    if (!codigoNbs) return
+    let alive = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_reforma_correlacao_servico', { p_nbs: codigoNbs, p_lc116: null })
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | { cclasstrib: string | null; cindop: string | null; ambiguo: boolean; encontrou: boolean }
+        | undefined
+      if (!alive || !row || !row.encontrou || row.ambiguo) return
+      // 1a passada (edição): só preenche vazio; depois (troca de NBS): sobrescreve.
+      const inicial = !correlacaoAplicadaRef.current
+      correlacaoAplicadaRef.current = true
+      if (row.cclasstrib) setRtClass((p) => (inicial ? p || row.cclasstrib! : row.cclasstrib!))
+      if (row.cindop) setRtIndOp((p) => (inicial ? p || row.cindop! : row.cindop!))
+    })()
+    return () => { alive = false }
+  }, [codigoNbs])
+
+  // RT · alíquotas IBS/CBS vêm da tabela de parâmetro por ano (não hardcoded).
+  const [paramRT, setParamRT] = useState<{ ano: number; cbs: number; ibsUf: number; ibsMun: number } | null>(null)
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const ano = new Date().getFullYear()
+      const { data } = await supabase.rpc('fn_reforma_parametro_ano', { p_ano: ano })
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | { ano: number; cbs_pct: number; ibs_uf_pct: number; ibs_mun_pct: number } | undefined
+      if (!alive || !row) return
+      setParamRT({ ano: row.ano, cbs: Number(row.cbs_pct), ibsUf: Number(row.ibs_uf_pct), ibsMun: Number(row.ibs_mun_pct) })
+      // Em modo CRIAR, prefill os campos ainda zerados com o parâmetro do ano.
+      if (!servico) {
+        setRtIbsE((p) => (num(p) === 0 ? String(row.ibs_uf_pct) : p))
+        setRtIbsM((p) => (num(p) === 0 ? String(row.ibs_mun_pct) : p))
+        setRtCbs((p) => (num(p) === 0 ? String(row.cbs_pct) : p))
+      }
+    })()
+    return () => { alive = false }
+  }, [servico])
 
   // Sugere proximo codigo SRVNNNNN ao abrir em modo CRIAR
   useEffect(() => {
@@ -308,11 +358,18 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
                   </span>
                 </div>
               )}
+              {!isSimples && (
+                <p className="text-[11px] text-[#3D2314]/70 bg-[#C8941A]/8 rounded-lg px-3 py-2">
+                  <b>Classificação tributária</b> e <b>indicador de operação</b> preenchem automático a partir do
+                  <b> NBS</b> (correlação LC116×NBS). NBS ambíguo fica manual. O <b>CST</b> não vem da correlação — preencha à mão.
+                  {paramRT && <> As alíquotas abaixo vêm do parâmetro <b>{paramRT.ano}</b> (CBS {paramRT.cbs}% · IBS UF {paramRT.ibsUf}% · Mun {paramRT.ibsMun}%), editável.</>}
+                </p>
+              )}
               <fieldset disabled={isSimples} className={isSimples ? 'opacity-50' : ''}>
                 <div className="grid grid-cols-2 gap-3">
-                  <Campo label="CST (RT)" value={rtCst} onChange={setRtCst} placeholder="ex: 000" mono />
-                  <Campo label="Classificação tributária" value={rtClass} onChange={setRtClass} placeholder="cClassTrib" mono />
-                  <Campo label="Indicador de operação" value={rtIndOp} onChange={setRtIndOp} placeholder="indOpRT" mono />
+                  <Campo label="CST (RT) · manual" value={rtCst} onChange={setRtCst} placeholder="ex: 000" mono />
+                  <Campo label="Classificação tributária (cClassTrib · auto)" value={rtClass} onChange={setRtClass} placeholder="do NBS" mono />
+                  <Campo label="Indicador de operação (indOpRT · auto)" value={rtIndOp} onChange={setRtIndOp} placeholder="do NBS" mono />
                   <span />
                   <Campo label="Alíq. IBS Municipal (%)" value={rtIbsM} onChange={setRtIbsM} placeholder="0" />
                   <Campo label="Alíq. IBS Estadual (%)" value={rtIbsE} onChange={setRtIbsE} placeholder="0" />
