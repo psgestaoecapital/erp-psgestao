@@ -26,11 +26,14 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const providerFinal =
       typeof provider === 'string' && provider.length > 0 ? provider : 'focusnfe'
 
+    // Só pode existir 1 config ATIVA por empresa (índice uq_fiscal_uma_config_ativa =
+    // UNIQUE(company_id) WHERE ativo). Ao trocar de provider/ambiente (ex.: gov homologação →
+    // Focus produção) o certo é ATUALIZAR a config ativa da empresa na mesma linha — nunca inserir
+    // uma segunda ativa (era o que estourava "duplicate key uq_fiscal_uma_config_ativa").
     const { data: existente } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('id')
+      .select('id, provider, api_key_encrypted')
       .eq('company_id', companyId)
-      .eq('provider', providerFinal)
       .eq('ativo', true)
       .maybeSingle()
 
@@ -62,15 +65,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         typeof govNfseMunicipioAderido === 'boolean' ? govNfseMunicipioAderido : false
       // gov.br NÃO precisa api_key · ignora campo
     } else {
+      // Trocando gov → Focus na mesma linha: zera os campos do gov (a linha vira Focus).
+      payload.gov_nfse_municipio_codigo = null
+      payload.gov_nfse_municipio_aderido = false
       if (typeof apiKey === 'string' && apiKey.trim()) {
         payload.api_key_encrypted = Buffer.from(apiKey, 'utf-8').toString('base64')
         payload.api_key_hash = createHash('sha256').update(apiKey).digest('hex')
-      } else if (!existente) {
+      } else if (!existente || existente.provider !== providerFinal || !existente.api_key_encrypted) {
+        // Sem config ainda, ou trocando de provider (ex.: gov → Focus), ou a config atual não tem
+        // API key salva pra este provider → precisa informar a API key agora.
         return NextResponse.json(
-          { ok: false, erro: 'API key obrigatória na primeira configuração do Focus NFe' },
+          { ok: false, erro: 'API key obrigatória para o Focus NFe (informe a chave para ativar a produção).' },
           { status: 400 }
         )
       }
+      // Mesmo provider Focus e chave já salva: mantém a api_key existente (não precisa re-digitar).
     }
 
     if (existente) {
