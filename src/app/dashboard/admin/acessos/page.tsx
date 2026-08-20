@@ -5,7 +5,8 @@
 import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
-import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2 } from "lucide-react";
+import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2, Plus } from "lucide-react";
+import NovaEmpresaWizard from "./_components/NovaEmpresaWizard";
 
 const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
   BD = "var(--ps-border,#E0D8CC)", TX = "var(--ps-text,#3D2314)", TXM = "var(--ps-text-m,#6B5D4F)", TXD = "var(--ps-text-d,#9C8E80)",
@@ -54,6 +55,8 @@ export default function AcessosCascataPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
   useEffect(() => {
@@ -80,7 +83,7 @@ export default function AcessosCascataPage() {
       if (empresas.length > 0) setCompanyId((prev) => prev || inicial);
       setLoading(false);
     })();
-  }, []);
+  }, [reloadKey]);
 
   // Re-scope: se a empresa do topo mudar (e for gerível), a tela acompanha — nunca mostra outra empresa.
   useEffect(() => {
@@ -108,13 +111,24 @@ export default function AcessosCascataPage() {
         <h1 style={{ fontSize: 22, fontWeight: 800, color: TX, display: "inline-flex", alignItems: "center", gap: 8 }}>
           <Users size={22} color={GO} /> Usuários &amp; Acessos
         </h1>
-        {empresasGeriveis.length > 1 && (
-          <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
-            style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG2, color: TX, fontWeight: 600 }}>
-            {empresasGeriveis.map((e) => <option key={e.id} value={e.id}>{e.nome_fantasia || e.razao_social}</option>)}
-          </select>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {empresasGeriveis.length > 1 && (
+            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
+              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG2, color: TX, fontWeight: 600 }}>
+              {empresasGeriveis.map((e) => <option key={e.id} value={e.id}>{e.nome_fantasia || e.razao_social}</option>)}
+            </select>
+          )}
+          {isAdmin && (
+            <button onClick={() => setWizardOpen(true)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+              <Plus size={15} /> Incluir nova empresa
+            </button>
+          )}
+        </div>
       </div>
+      {wizardOpen && (
+        <NovaEmpresaWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onCreated={() => setReloadKey((k) => k + 1)} />
+      )}
 
       {erro && <div style={{ background: "#FEF2F2", border: `1px solid ${R}`, color: R, padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
