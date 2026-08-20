@@ -32,11 +32,18 @@ export interface Conta {
   incluir_no_fluxo: boolean
   incluir_no_orcamento: boolean
   limite_credito: number
+  // Cartão de crédito (só relevante quando tipo_conta = 'cartao')
+  conta_corrente_vinculada_id?: string | null
+  dia_fechamento_fatura?: number | null
+  dia_vencimento_fatura?: number | null
+  numero_cartao_final?: string | null
 }
 
 interface Props {
   companyId: string
   conta: Conta | null
+  // Lista de contas da empresa — usada pra oferecer a conta corrente vinculada do cartão.
+  contas?: Conta[]
   onClose: () => void
   onSaved: () => void
 }
@@ -52,7 +59,7 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-export default function ContasBancariasForm({ companyId, conta, onClose, onSaved }: Props) {
+export default function ContasBancariasForm({ companyId, conta, contas = [], onClose, onSaved }: Props) {
   const [nome, setNome] = useState(conta?.nome ?? '')
   const [banco, setBanco] = useState(conta?.banco ?? '')
   const [agencia, setAgencia] = useState(conta?.agencia ?? '')
@@ -68,8 +75,36 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
   const [incluirOrcamento, setIncluirOrcamento] = useState(conta?.incluir_no_orcamento ?? true)
   const [limiteCredito, setLimiteCredito] = useState(conta?.limite_credito?.toString() ?? '0')
   const [cor, setCor] = useState(conta?.cor ?? '#3D2314')
+  // Cartão de crédito
+  const [ccVinculada, setCcVinculada] = useState(conta?.conta_corrente_vinculada_id ?? '')
+  const [diaFechamento, setDiaFechamento] = useState(conta?.dia_fechamento_fatura?.toString() ?? '')
+  const [diaVencimento, setDiaVencimento] = useState(conta?.dia_vencimento_fatura?.toString() ?? '')
+  const [cartaoFinal, setCartaoFinal] = useState(conta?.numero_cartao_final ?? '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Guarda anti-perda-de-dado: snapshot inicial pra detectar "sujo" ao tentar fechar.
+  const [snapInicial] = useState(() => JSON.stringify(montarSnapshot()))
+  const ehCartao = tipoConta === 'cartao'
+
+  // Só contas correntes da empresa (exclui a própria) pra oferecer como conta que paga a fatura.
+  const contasCorrentes = contas.filter(
+    (c) => c.id !== conta?.id && (c.tipo_conta === 'corrente' || c.tipo_conta === 'checking_account'),
+  )
+
+  function montarSnapshot() {
+    return {
+      nome, banco, agencia, contaNumero, tipoConta, saldoInicial, dataSaldoInicial,
+      somaNoSaldo, incluirResumo, incluirFluxo, incluirOrcamento, limiteCredito, cor,
+      ccVinculada, diaFechamento, diaVencimento, cartaoFinal,
+    }
+  }
+
+  // Fecha só pelo X/Cancelar. Se o form está sujo, confirma o descarte (nunca perde dado por clique).
+  function tentarFechar() {
+    if (salvando) return
+    if (JSON.stringify(montarSnapshot()) !== snapInicial && !confirm('Descartar alterações não salvas?')) return
+    onClose()
+  }
 
   async function handleSalvar() {
     if (!nome.trim()) {
@@ -95,6 +130,11 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
       limite_credito: parseFloat(limiteCredito) || 0,
       cor,
       ativo: true,
+      // Cartão: só grava o bloco quando tipo = cartão; troca de tipo limpa os campos.
+      conta_corrente_vinculada_id: ehCartao ? (ccVinculada || null) : null,
+      dia_fechamento_fatura: ehCartao && diaFechamento !== '' ? parseInt(diaFechamento, 10) : null,
+      dia_vencimento_fatura: ehCartao && diaVencimento !== '' ? parseInt(diaVencimento, 10) : null,
+      numero_cartao_final: ehCartao ? (cartaoFinal.replace(/\D/g, '').slice(0, 4) || null) : null,
     }
 
     const result = conta?.id
@@ -108,7 +148,6 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
 
   return (
     <div
-      onClick={onClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -120,8 +159,8 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
         padding: 20,
       }}
     >
+      {/* Clicar fora NÃO fecha (evita perder o que foi digitado). Só X / Cancelar fecham. */}
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           background: '#FAF7F2',
           borderRadius: 12,
@@ -151,7 +190,7 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={tentarFechar}
             aria-label="Fechar"
             style={{ background: 'transparent', color: '#FAF7F2', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}
           >
@@ -227,6 +266,71 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
             <input type="number" step="0.01" min="0" value={limiteCredito} onChange={(e) => setLimiteCredito(e.target.value)} style={inputStyle} />
           </Campo>
 
+          {ehCartao && (
+            <div style={{ background: 'rgba(59,109,17,0.05)', border: '0.5px solid rgba(59,109,17,0.25)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700, marginBottom: 12 }}>
+                💳 Cartão de crédito
+              </div>
+
+              <Campo label="Conta corrente vinculada" hint="A fatura deste cartão debita desta conta">
+                <select value={ccVinculada} onChange={(e) => setCcVinculada(e.target.value)} style={inputStyle}>
+                  <option value="">— selecionar —</option>
+                  {contasCorrentes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}{c.banco ? ` · ${c.banco}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {contasCorrentes.length === 0 && (
+                  <div style={{ fontSize: 11, color: '#854F0B', marginTop: 4 }}>
+                    Cadastre uma conta corrente primeiro pra poder vincular.
+                  </div>
+                )}
+              </Campo>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Campo label="Dia de fechamento" hint="Dia 1–31 em que a fatura fecha">
+                  <input
+                    type="number" min="1" max="31" inputMode="numeric"
+                    value={diaFechamento}
+                    onChange={(e) => {
+                      const n = e.target.value.replace(/\D/g, '')
+                      setDiaFechamento(n === '' ? '' : String(Math.min(31, Math.max(1, parseInt(n, 10)))))
+                    }}
+                    placeholder="ex.: 28"
+                    style={inputStyle}
+                  />
+                </Campo>
+                <Campo label="Dia de vencimento" hint="Dia 1–31 em que a fatura vence">
+                  <input
+                    type="number" min="1" max="31" inputMode="numeric"
+                    value={diaVencimento}
+                    onChange={(e) => {
+                      const n = e.target.value.replace(/\D/g, '')
+                      setDiaVencimento(n === '' ? '' : String(Math.min(31, Math.max(1, parseInt(n, 10)))))
+                    }}
+                    placeholder="ex.: 5"
+                    style={inputStyle}
+                  />
+                </Campo>
+              </div>
+
+              <Campo label="Número do cartão (final)" hint="Só os 4 últimos dígitos, pra identificar (ex.: 'MasterCard final 1234')">
+                <input
+                  inputMode="numeric"
+                  value={cartaoFinal}
+                  onChange={(e) => setCartaoFinal(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="1234"
+                  maxLength={4}
+                  style={{ ...inputStyle, maxWidth: 120, letterSpacing: 2, fontFamily: 'ui-monospace, monospace' }}
+                />
+                <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)', marginTop: 4 }}>
+                  🔒 Por segurança, o sistema guarda só os 4 últimos dígitos — nunca o número completo.
+                </div>
+              </Campo>
+            </div>
+          )}
+
           <Campo label="Cor identificadora">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {CORES_SUGERIDAS.map((c) => (
@@ -291,7 +395,7 @@ export default function ContasBancariasForm({ companyId, conta, onClose, onSaved
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button
               type="button"
-              onClick={onClose}
+              onClick={tentarFechar}
               disabled={salvando}
               style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '10px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}
             >

@@ -32,6 +32,10 @@ type ContaBancaria = {
   id: string
   nome: string
   banco: string
+  // Cartão de crédito: ciclo de fatura (auto-data de pagamento ao lançar despesa no cartão).
+  tipo_conta?: string | null
+  dia_fechamento_fatura?: number | null
+  dia_vencimento_fatura?: number | null
 }
 
 type DupConta = {
@@ -78,6 +82,23 @@ interface NovaDespesaFormProps {
 const exibirNomeFornecedor = (f: Fornecedor) =>
   f.nome_fantasia || f.razao_social || 'Sem nome'
 
+// [→GE] Data de vencimento da fatura do cartão a partir da data da compra.
+// Regra: compra até o dia de fechamento entra no ciclo que fecha neste mês; depois, no ciclo seguinte.
+// O vencimento cai após o fechamento — mesmo mês se o dia de vencimento > fechamento, senão mês seguinte.
+// Não recria janela financeira: só calcula a data que a despesa (contas a pagar da GE) vai usar.
+function calcularVencimentoFatura(dataCompraISO: string, diaFechamento: number, diaVencimento: number): string {
+  const [y, m, d] = dataCompraISO.split('-').map(Number)
+  if (!y || !m || !d) return dataCompraISO
+  let closeIdx = y * 12 + (m - 1)              // índice absoluto do mês da compra (0-based)
+  if (d > diaFechamento) closeIdx += 1          // compra após o fechamento → próximo ciclo
+  const vencIdx = closeIdx + (diaVencimento > diaFechamento ? 0 : 1)
+  const vy = Math.floor(vencIdx / 12)
+  const vm = vencIdx % 12                        // 0-based
+  const ultimoDia = new Date(vy, vm + 1, 0).getDate()
+  const dia = Math.min(diaVencimento, ultimoDia) // 31 em mês curto → último dia
+  return `${vy}-${String(vm + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+}
+
 export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: NovaDespesaFormProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -116,6 +137,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [observacao, setObservacao] = useState('')
   const [jaPago, setJaPago] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
+  // [→GE] Cartão de crédito: data da compra → vencimento da fatura calculado automaticamente.
+  const [dataCompra, setDataCompra] = useState(new Date().toISOString().split('T')[0])
   // Fatia 3 estabilização nova-despesa (09/07): ⚡ conta com integração + salvar-dropdown
   const [contasAuto, setContasAuto] = useState<Set<string>>(new Set())
   const [salvarMenu, setSalvarMenu] = useState(false)
@@ -286,7 +309,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           .order('codigo'),
         supabase
           .from('erp_banco_contas')
-          .select('id, nome, banco')
+          .select('id, nome, banco, tipo_conta, dia_fechamento_fatura, dia_vencimento_fatura')
           .eq('company_id', companyId)
           .eq('ativo', true)
           .order('nome'),
@@ -309,6 +332,25 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
       alive = false
     }
   }, [companyId])
+
+  // [→GE] Conta selecionada (o select guarda o NOME) → se for cartão com ciclo definido,
+  // a data de vencimento vira o vencimento da fatura do ciclo certo (editável).
+  const contaSelecionada = contas.find((c) => c.nome === contaBancaria)
+  const ehCartaoComFatura =
+    contaSelecionada?.tipo_conta === 'cartao' &&
+    contaSelecionada?.dia_fechamento_fatura != null &&
+    contaSelecionada?.dia_vencimento_fatura != null
+  const vencimentoFatura = ehCartaoComFatura
+    ? calcularVencimentoFatura(dataCompra, contaSelecionada!.dia_fechamento_fatura!, contaSelecionada!.dia_vencimento_fatura!)
+    : null
+
+  useEffect(() => {
+    // Só cartão de parcela única: preenche o vencimento com o da fatura (o usuário pode editar depois).
+    if (vencimentoFatura && parcelas <= 1) {
+      setDataVencimento(vencimentoFatura)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vencimentoFatura, parcelas])
 
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
   // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
@@ -776,6 +818,22 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               <small style={helperStyle}>⚡ = conta com integração bancária (concilia automático)</small>
             ) : null}
           </Campo>
+
+          {ehCartaoComFatura && parcelas <= 1 && (
+            <Campo label="Data da compra (cartão)">
+              <input
+                type="date"
+                value={dataCompra}
+                onChange={(e) => setDataCompra(e.target.value)}
+                style={inputStyle}
+              />
+              {vencimentoFatura && (
+                <small style={{ ...helperStyle, color: '#3B6D11' }}>
+                  💳 Entra na fatura que vence em <b>{fmtDataBr(vencimentoFatura)}</b> — já preenchemos o vencimento acima (editável).
+                </small>
+              )}
+            </Campo>
+          )}
 
           <Campo label="Número do documento (opcional)">
             <input
