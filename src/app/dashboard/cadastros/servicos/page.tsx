@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 50
 
-const SELECT_COLS = 'id,company_id,codigo,descricao_resumida,descricao_detalhada,categoria,codigo_nbs,codigo_servico_municipio,codigo_lc116,cnae,cnae_secundario,tipo_tributacao,aliquota_iss,iss_retido,valor_unitario,pct_desconto,aliquota_pis,retem_pis,aliquota_cofins,retem_cofins,aliquota_ir,retem_ir,aliquota_csll,retem_csll,aliquota_inss,retem_inss,rt_cst,rt_classificacao_tributaria,rt_indicador_operacao,rt_aliquota_ibs_municipal,rt_aliquota_ibs_estadual,rt_aliquota_cbs,ativo'
+const SELECT_COLS = 'id,company_id,codigo,descricao_resumida,descricao_detalhada,categoria,categoria_codigo,codigo_nbs,codigo_servico_municipio,codigo_lc116,cnae,cnae_secundario,tipo_tributacao,aliquota_iss,iss_retido,valor_unitario,pct_desconto,aliquota_pis,retem_pis,aliquota_cofins,retem_cofins,aliquota_ir,retem_ir,aliquota_csll,retem_csll,aliquota_inss,retem_inss,rt_cst,rt_classificacao_tributaria,rt_indicador_operacao,rt_aliquota_ibs_municipal,rt_aliquota_ibs_estadual,rt_aliquota_cbs,ativo'
 
 const fmtBRL = (v: number | null | undefined) =>
   v == null
