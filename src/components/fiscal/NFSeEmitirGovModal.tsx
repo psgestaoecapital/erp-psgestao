@@ -92,7 +92,9 @@ export default function NFSeEmitirGovModal({
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · seeds vindas do pedido (read-only · usuario pode editar)
   const tomTipoSeed: TomadorTipo = tomadorTipo === 'cpf' ? 'CPF' : 'CNPJ'
   const tomDocSeed = tomadorDocumento ? mascaraDoc(tomadorDocumento, tomTipoSeed) : ''
-  const codTribSeed = (codigoServicoMunicipio ?? codigoLC116 ?? '140101').trim() || '140101'
+  // Código de tributação = código de serviço do MUNICÍPIO (não o LC116). Desde que o LC116 passou a
+  // guardar o subitem oficial ("07.02"), ele deixou de servir como codTrib — a emissão lê o do município.
+  const codTribSeed = (codigoServicoMunicipio ?? '140101').trim() || '140101'
   const aliquotaSeed = aliquotaIss != null ? String(aliquotaIss).replace('.', ',') : '0'
   const valorSeed = valorServicos != null
     ? Number(valorServicos).toFixed(2).replace('.', ',')
