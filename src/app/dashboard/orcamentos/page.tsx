@@ -7,6 +7,7 @@ import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
+import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -85,6 +86,7 @@ export default function OrcamentosPage(){
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
   const [showForm,setShowForm]=useState(false);
+  const [showNumeracao,setShowNumeracao]=useState(false);
   const [editing,setEditing]=useState<Orcamento|null>(null);
   const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
   const [msg,setMsg]=useState("");
@@ -550,9 +552,16 @@ export default function OrcamentosPage(){
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {companyIdParaCadastro && (
+            <button onClick={()=>setShowNumeracao(true)} title="Configurar a numeração dos orçamentos"
+              style={{padding:"8px 12px",borderRadius:8,background:"transparent",color:"#3D2314",fontSize:12,fontWeight:600,border:"1px solid rgba(61,35,20,0.15)",cursor:"pointer"}}>⚙ Numeração</button>
+          )}
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
         </div>
       </div>
+      {showNumeracao && companyIdParaCadastro && (
+        <NumeracaoConfigModal companyId={companyIdParaCadastro} onClose={()=>setShowNumeracao(false)} />
+      )}
 
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":msg.startsWith("❌")?R+"15":Y+"15",border:`1px solid ${msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 

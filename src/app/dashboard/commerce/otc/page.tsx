@@ -1186,7 +1186,10 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   async function criar() {
     if (!clienteSel) return
     setSalvando(true)
-    const numero = `ORC-${Date.now().toString().slice(-6)}`
+    // Numeração oficial e sequencial (config por empresa). Antes gerava ORC-<timestamp> aleatório
+    // (fonte dos números órfãos tipo ORC-346035). O trigger BEFORE INSERT é a rede de segurança.
+    const { data: numData } = await supabase.rpc('next_orcamento_numero', { p_company_id: companyId })
+    const numero = (numData as string | null) || `ORC-${new Date().getFullYear()}-0001`
     const validade = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const { data: { user } } = await supabase.auth.getUser()
     const { data: orc, error } = await supabase
