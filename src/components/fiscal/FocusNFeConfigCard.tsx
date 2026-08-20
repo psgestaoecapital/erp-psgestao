@@ -35,6 +35,10 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState(false)
 
+  // Feedback de segredo (Pilar 2): mostra só o ESTADO (configurada/vazia), nunca o valor.
+  // Baseado na presença real da chave — não em "existe alguma config" (uma config gov não tem key).
+  const temApiKey = !!(configAtual && (configAtual as Record<string, unknown>).api_key_encrypted)
+
   useEffect(() => {
     if (!configAtual) return
     const c = configAtual as Record<string, unknown>
@@ -271,16 +275,19 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
           <div>
             <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
               API Key Focus NFe{' '}
-              {configAtual && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter a atual)</span>}
+              {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter a atual)</span>}
             </label>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               disabled={!podeEditar}
-              placeholder={configAtual ? '••••••••••••••••' : 'Token gerado em focusnfe.com.br'}
+              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado em focusnfe.com.br'}
               className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
             />
+            <p className={`text-[11px] mt-1 flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
+              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com Focus NFe'}
+            </p>
           </div>
         )}
 
