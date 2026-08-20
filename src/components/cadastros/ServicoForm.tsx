@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { X, Save, Loader2, AlertCircle, Trash2 } from 'lucide-react'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
+import CategoriaCombobox from '@/components/financeiro/CategoriaCombobox'
 
 export interface Servico {
   id: string
@@ -17,6 +18,7 @@ export interface Servico {
   descricao_resumida: string
   descricao_detalhada: string | null
   categoria: string | null
+  categoria_codigo: string | null
   codigo_nbs: string | null
   codigo_servico_municipio: string | null
   codigo_lc116: string | null
@@ -65,7 +67,10 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   const [codigo, setCodigo] = useState(servico?.codigo ?? '')
   const [descricaoResumida, setDescricaoResumida] = useState(servico?.descricao_resumida ?? '')
   const [descricaoDetalhada, setDescricaoDetalhada] = useState(servico?.descricao_detalhada ?? '')
-  const [categoria, setCategoria] = useState(servico?.categoria ?? '')
+  // Categoria agora é vínculo ao Plano de Contas (codigo). `categoria` (texto) fica só como
+  // legado/denormalizado — a trigger no banco a sincroniza a partir do codigo escolhido.
+  const [categoria] = useState(servico?.categoria ?? '')
+  const [categoriaCodigo, setCategoriaCodigo] = useState(servico?.categoria_codigo ?? '')
   const [codigoNbs, setCodigoNbs] = useState(servico?.codigo_nbs ?? '')
   const [codigoServicoMun, setCodigoServicoMun] = useState(servico?.codigo_servico_municipio ?? '')
   const [codigoLc116, setCodigoLc116] = useState(servico?.codigo_lc116 ?? '')
@@ -129,6 +134,9 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
         codigo: codigo.trim() || null,
         descricao_resumida: descricaoResumida.trim(),
         descricao_detalhada: descricaoDetalhada.trim() || null,
+        // Envia o vínculo (codigo); a trigger preenche `categoria` (texto) a partir dele.
+        // Sem codigo, mantém o texto legado que veio carregado (não perde dado).
+        categoria_codigo: categoriaCodigo || null,
         categoria: categoria.trim() || null,
         codigo_nbs: codigoNbs.trim() || null,
         codigo_servico_municipio: codigoServicoMun.trim() || null,
@@ -206,7 +214,26 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
               <Campo label="Código (interno · auto)" value={codigo} onChange={setCodigo} placeholder="ex: SRV00001" mono />
               <Campo label="Descrição resumida *" value={descricaoResumida} onChange={setDescricaoResumida} placeholder="ex: Hora técnica de mecânica" />
               <Campo label="Descrição detalhada (entra na NFS-e)" value={descricaoDetalhada} onChange={setDescricaoDetalhada} multiline />
-              <Campo label="Categoria" value={categoria} onChange={setCategoria} placeholder="ex: Mão de obra" />
+              <div>
+                <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
+                  Categoria <span className="text-[#3D2314]/50 font-normal">(Plano de Contas · receita)</span>
+                </label>
+                <CategoriaCombobox
+                  companyId={companyId}
+                  aplicacao="receber"
+                  value={categoriaCodigo}
+                  onChange={setCategoriaCodigo}
+                  placeholder="busque uma receita do plano (ex.: serviços prestados)…"
+                />
+                {!categoriaCodigo && categoria.trim() !== '' && (
+                  <p className="text-[11px] mt-1 text-[#8A5A00]">
+                    Categoria atual (texto legado): <b>{categoria}</b> — escolha uma do plano pra vincular à classificação (DRE).
+                  </p>
+                )}
+                <p className="text-[11px] mt-1 text-[#3D2314]/55">
+                  Vincula ao Plano de Contas em vez de texto solto. Não achou? Digite e crie a categoria na hora.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="NBS" value={codigoNbs} onChange={setCodigoNbs} placeholder="Nomenclatura Brasileira Serviços" mono />
                 <Campo label="Cód. Serviço Município" value={codigoServicoMun} onChange={setCodigoServicoMun} placeholder="ex: 140101" mono />
