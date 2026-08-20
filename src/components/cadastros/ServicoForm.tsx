@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { X, Save, Loader2, AlertCircle, Trash2 } from 'lucide-react'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import CategoriaCombobox from '@/components/financeiro/CategoriaCombobox'
+import CatalogoFiscalCombobox from '@/components/comum/CatalogoFiscalCombobox'
 
 export interface Servico {
   id: string
@@ -235,7 +236,16 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Campo label="NBS" value={codigoNbs} onChange={setCodigoNbs} placeholder="Nomenclatura Brasileira Serviços" mono />
+                <div>
+                  <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">NBS</label>
+                  <CatalogoFiscalCombobox
+                    tipo="nbs"
+                    value={codigoNbs}
+                    onChange={setCodigoNbs}
+                    placeholder="busque por código ou palavra (ex.: gesso)…"
+                  />
+                  <p className="text-[11px] mt-1 text-[#3D2314]/55">Nomenclatura Brasileira de Serviços — busque no catálogo.</p>
+                </div>
                 <Campo label="Cód. Serviço Município" value={codigoServicoMun} onChange={setCodigoServicoMun} placeholder="ex: 140101" mono />
                 <Campo label="Cód. LC 116" value={codigoLc116}
                   onChange={(v) => setCodigoLc116(v.replace(/\D/g, '').slice(0, 6))}
