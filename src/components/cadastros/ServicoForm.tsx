@@ -129,7 +129,10 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
     if (!codigoNbs) return
     let alive = true
     void (async () => {
-      const { data } = await supabase.rpc('fn_reforma_correlacao_servico', { p_nbs: codigoNbs, p_lc116: null })
+      // LC116 no formato subitem (GG.SS) desambigua; formato legado/incompatível → só NBS.
+      const m = codigoLc116.match(/^(\d{1,2})\.(\d{2})$/)
+      const lc116Param = m ? `${m[1].padStart(2, '0')}.${m[2]}` : null
+      const { data } = await supabase.rpc('fn_reforma_correlacao_servico', { p_nbs: codigoNbs, p_lc116: lc116Param })
       const row = (Array.isArray(data) ? data[0] : data) as
         | { cclasstrib: string | null; cindop: string | null; ambiguo: boolean; encontrou: boolean }
         | undefined
@@ -141,7 +144,7 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
       if (row.cindop) setRtIndOp((p) => (inicial ? p || row.cindop! : row.cindop!))
     })()
     return () => { alive = false }
-  }, [codigoNbs])
+  }, [codigoNbs, codigoLc116])
 
   // RT · alíquotas IBS/CBS vêm da tabela de parâmetro por ano (não hardcoded).
   const [paramRT, setParamRT] = useState<{ ano: number; cbs: number; ibsUf: number; ibsMun: number } | null>(null)
@@ -297,15 +300,18 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
                   <p className="text-[11px] mt-1 text-[#3D2314]/55">Nomenclatura Brasileira de Serviços — busque no catálogo.</p>
                 </div>
                 <Campo label="Cód. Serviço Município" value={codigoServicoMun} onChange={setCodigoServicoMun} placeholder="ex: 140101" mono />
-                <Campo label="Cód. LC 116" value={codigoLc116}
-                  onChange={(v) => setCodigoLc116(v.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="ex.: 172401" mono
-                  hint={codigoLc116.replace(/\D/g, '').length === 6
-                    ? '6 dígitos ✓ (17.24.01 → 172401)'
-                    : codigoLc116.length > 0
-                      ? `⚠️ ${codigoLc116.replace(/\D/g, '').length} díg. — o LC 116 tem 6 (17.24.01 → 172401)`
-                      : '6 dígitos, só números (17.24.01 → 172401)'}
-                  hintWarn={codigoLc116.length > 0 && codigoLc116.replace(/\D/g, '').length !== 6} />
+                <div>
+                  <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
+                    Cód. LC 116 <span className="text-[#3D2314]/50 font-normal">(subitem · catálogo)</span>
+                  </label>
+                  <CatalogoFiscalCombobox
+                    tipo="lc116"
+                    value={codigoLc116}
+                    onChange={setCodigoLc116}
+                    placeholder="busque o subitem (ex.: 07.02 ou 'gesso')…"
+                  />
+                  <p className="text-[11px] mt-1 text-[#3D2314]/55">Subitem oficial da LC 116 (ex.: 07.02) — desambigua a classificação da RT.</p>
+                </div>
                 <Campo label="CNAE" value={cnae} onChange={setCnae} placeholder="0000-0/00" mono />
                 <Campo label="CNAE Secundário" value={cnaeSec} onChange={setCnaeSec} placeholder="opcional" mono />
                 <Select
