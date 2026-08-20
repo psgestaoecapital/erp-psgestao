@@ -103,6 +103,8 @@ export async function POST(req: Request) {
   let urlFinalVisitada: string | null = null;
   let redirectDetectado = false;
   let authState: 'autenticado' | 'redirected_login' | 'redirected_root' | 'erro_session' | 'desconhecido' = 'desconhecido';
+  // FIX 2 · guarda anti-login: se caiu no login, re-autentica e tenta 1x antes de desistir.
+  let loginRetentado = false;
 
   try {
     const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
@@ -121,27 +123,33 @@ export async function POST(req: Request) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: signInData, error: signInError } = await botClient.auth.signInWithPassword({
-      email: PLAYWRIGHT_USER_EMAIL,
-      password: PLAYWRIGHT_USER_PASSWORD,
-    });
+    const storageKey = `sb-${PROJECT_REF}-auth-token`;
 
-    if (signInError || !signInData?.session) {
-      throw new Error(`Falha login bot: ${signInError?.message || 'sem session'}`);
+    // FIX 2 · autentica o bot e devolve o payload de sessão pronto pra localStorage.
+    // Reutilizável: usado no init e de novo no re-login da guarda anti-login.
+    // Pilar 2: token nunca é logado — só injetado no localStorage do contexto.
+    async function obterSessionPayload(): Promise<string> {
+      const { data: signInData, error: signInError } = await botClient.auth.signInWithPassword({
+        email: PLAYWRIGHT_USER_EMAIL!,
+        password: PLAYWRIGHT_USER_PASSWORD!,
+      });
+      if (signInError || !signInData?.session) {
+        throw new Error(`Falha login bot: ${signInError?.message || 'sem session'}`);
+      }
+      const s = signInData.session;
+      return JSON.stringify({
+        access_token: s.access_token,
+        refresh_token: s.refresh_token,
+        expires_in: s.expires_in,
+        expires_at: s.expires_at,
+        token_type: s.token_type,
+        user: s.user,
+        provider_token: null,
+        provider_refresh_token: null,
+      });
     }
 
-    const botSession = signInData.session;
-    const sessionPayload = JSON.stringify({
-      access_token: botSession.access_token,
-      refresh_token: botSession.refresh_token,
-      expires_in: botSession.expires_in,
-      expires_at: botSession.expires_at,
-      token_type: botSession.token_type,
-      user: botSession.user,
-      provider_token: null,
-      provider_refresh_token: null,
-    });
-    const storageKey = `sb-${PROJECT_REF}-auth-token`;
+    const sessionPayload = await obterSessionPayload();
 
     // PR #148: injecao de DOIS itens - session JWT + ps_empresa_sel
     // Razao: useCompanyIds() le ps_empresa_sel de localStorage; sem isso
@@ -172,23 +180,54 @@ export async function POST(req: Request) {
       if (msg.type() === 'error') errorsCount++;
     });
 
-    await page.goto(`${SAAS_BASE_URL}${rotaCompleta}`, { waitUntil: 'networkidle', timeout: 30000 });
+    const urlAlvo = `${SAAS_BASE_URL}${rotaCompleta}`;
+
+    // FIX 2 · guarda anti-login robusta: URL /login OU root OU campo de senha no DOM.
+    // Só a URL não basta — algumas telas renderizam o form de login sem trocar a URL.
+    async function ehTelaLogin(): Promise<boolean> {
+      const u = page.url();
+      if (u.includes('/login')) return true;
+      if (u === `${SAAS_BASE_URL}/`) return true;
+      const temSenha = await page.$('input[type="password"]');
+      return temSenha !== null;
+    }
+
+    // FIX 2 · re-autentica e reinjeta a sessão no localStorage vivo da página.
+    async function reautenticar(): Promise<void> {
+      const novoPayload = await obterSessionPayload();
+      await page.evaluate(
+        ({ key, value, empresaKey, empresaValue }) => {
+          window.localStorage.setItem(key, value);
+          window.localStorage.setItem(empresaKey, empresaValue);
+        },
+        { key: storageKey, value: novoPayload, empresaKey: 'ps_empresa_sel', empresaValue: empresaId },
+      );
+    }
+
+    await page.goto(urlAlvo, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(800);
+
+    // FIX 2 · se caiu no login, re-autentica e tenta 1x antes de desistir.
+    if (await ehTelaLogin()) {
+      loginRetentado = true;
+      await reautenticar();
+      await page.goto(urlAlvo, { waitUntil: 'networkidle', timeout: 30000 });
+      await page.waitForTimeout(800);
+    }
 
     // PR #148: RD-38 Camada 1 - capturar URL final e classificar auth state
     urlFinalVisitada = page.url();
-    const urlPedida = `${SAAS_BASE_URL}${rotaCompleta}`;
-    const urlPedidaSemHash = urlPedida.split('#')[0];
+    const urlPedidaSemHash = urlAlvo.split('#')[0];
     const urlFinalSemHash = urlFinalVisitada.split('#')[0];
     redirectDetectado = urlPedidaSemHash !== urlFinalSemHash;
 
-    if (urlFinalVisitada.includes('/login')) {
-      authState = 'redirected_login';
-      throw new Error(`Bot redirecionado para login ao acessar ${rotaCompleta} (URL final: ${urlFinalVisitada})`);
-    }
-    if (urlFinalVisitada === `${SAAS_BASE_URL}/`) {
-      authState = 'redirected_root';
-      throw new Error(`Bot redirecionado para root ao acessar ${rotaCompleta} (URL final: ${urlFinalVisitada})`);
+    // FIX 2 · se ainda é login depois do retry → NÃO analisar (não gasta Claude com print de login).
+    if (await ehTelaLogin()) {
+      const naRoot = urlFinalVisitada === `${SAAS_BASE_URL}/`;
+      authState = naRoot && !urlFinalVisitada.includes('/login') ? 'redirected_root' : 'redirected_login';
+      throw new Error(
+        `Bot caiu na tela de login ao acessar ${rotaCompleta} (URL final: ${urlFinalVisitada}, retry=${loginRetentado})`,
+      );
     }
 
     const sessionStillPresent = await page.evaluate((key) => {
@@ -287,6 +326,7 @@ export async function POST(req: Request) {
         url_final_visitada: urlFinalVisitada,
         redirect_detectado: redirectDetectado,
         auth_state: authState,
+        login_retentado: loginRetentado,
       },
       { status: 500 },
     );
@@ -305,6 +345,7 @@ export async function POST(req: Request) {
     url_final_visitada: urlFinalVisitada,
     redirect_detectado: redirectDetectado,
     auth_state: authState,
+    login_retentado: loginRetentado,
     empresa_id_usada: empresaId,
   });
 }
