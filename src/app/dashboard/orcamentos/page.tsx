@@ -7,6 +7,7 @@ import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
+import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -23,6 +24,9 @@ type ItemOrc = {
   desconto_percentual:number; desconto_valor:number;
   subtotal:number; margem_percentual?:number; bdi_percentual?:number;
   aliquota_iss?:number; // override do ISS por item (default vem do cadastro do serviço)
+  iss_retido?:boolean;  // ISS retido na fonte por item (override do cadastro)
+  valor_iss?:number;    // valor do ISS (subtotal * aliquota/100) — persistido p/ emissão/financeiro
+  setor_id?:string|null; // setor/departamento p/ rateio (compliance_setores)
   _srv_aliquota_padrao?:number; // só p/ hint "padrão do cadastro" — não persiste
   observacoes?:string;
   _srv_eng?:boolean; // linha = serviço do catálogo de ENGENHARIA (projetos_servicos), precificado com BDI
@@ -39,7 +43,7 @@ const statusMargem=(m?:number|null):{cor:string;label:string}=>{
 type Orcamento = {
   id:string; company_id:string; numero:string; versao:number;
   cliente_id:string; cliente_nome:string; cliente_cnpj:string; cliente_email:string; cliente_telefone:string;
-  data_emissao:string; data_validade:string; data_aprovacao:string;
+  data_emissao:string; data_validade:string; data_aprovacao:string; data_previsao_faturamento?:string|null;
   status:string; vendedor_nome:string; comissao_percentual:number;
   condicao_pagamento:string; prazo_entrega_dias:number; forma_pagamento:string;
   frete_tipo:string; frete_valor:number;
@@ -85,6 +89,7 @@ export default function OrcamentosPage(){
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
   const [showForm,setShowForm]=useState(false);
+  const [showNumeracao,setShowNumeracao]=useState(false);
   const [editing,setEditing]=useState<Orcamento|null>(null);
   const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
   const [msg,setMsg]=useState("");
@@ -382,6 +387,7 @@ export default function OrcamentosPage(){
       cliente_id:form.cliente_id,cliente_nome:form.cliente_nome,cliente_cnpj:(form.cliente_cnpj||'').replace(/\D/g,''),
       cliente_email:form.cliente_email,cliente_telefone:form.cliente_telefone,
       data_emissao:form.data_emissao,data_validade:form.data_validade,
+      data_previsao_faturamento:form.data_previsao_faturamento||null,
       status:form.status||'rascunho',
       vendedor_nome:form.vendedor_nome,comissao_percentual:Number(form.comissao_percentual)||0,
       condicao_pagamento:form.condicao_pagamento,prazo_entrega_dias:Number(form.prazo_entrega_dias)||0,
@@ -425,6 +431,8 @@ export default function OrcamentosPage(){
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,observacoes:i.observacoes,
           margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,
           aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
+          iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
+          setor_id:i.setor_id ?? null,
         }));
         const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
         if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
@@ -446,6 +454,9 @@ export default function OrcamentosPage(){
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
           margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,observacoes:i.observacoes,
           aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
+          iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
+          valor_iss:i.tipo_item==='servico'&&(i.aliquota_iss??0)>0?Math.round(i.subtotal*(i.aliquota_iss??0)/100*100)/100:null,
+          setor_id:i.setor_id ?? null,
         }));
         if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
       }
@@ -550,9 +561,16 @@ export default function OrcamentosPage(){
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {companyIdParaCadastro && (
+            <button onClick={()=>setShowNumeracao(true)} title="Configurar a numeração dos orçamentos"
+              style={{padding:"8px 12px",borderRadius:8,background:"transparent",color:"#3D2314",fontSize:12,fontWeight:600,border:"1px solid rgba(61,35,20,0.15)",cursor:"pointer"}}>⚙ Numeração</button>
+          )}
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
         </div>
       </div>
+      {showNumeracao && companyIdParaCadastro && (
+        <NumeracaoConfigModal companyId={companyIdParaCadastro} onClose={()=>setShowNumeracao(false)} />
+      )}
 
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":msg.startsWith("❌")?R+"15":Y+"15",border:`1px solid ${msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
@@ -623,6 +641,8 @@ export default function OrcamentosPage(){
               <input type="date" value={form.data_emissao} onChange={e=>setForm({...form,data_emissao:e.target.value})} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade</div>
               <input type="date" value={form.data_validade} onChange={e=>setForm({...form,data_validade:e.target.value})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
+              <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
           </div>
 
           {/* Itens */}
@@ -713,6 +733,10 @@ export default function OrcamentosPage(){
                       style={{width:70,padding:"3px 6px",fontSize:10,textAlign:"right",border:`1px solid ${BD}`,borderRadius:4}}/>
                     {it._srv_aliquota_padrao!=null && <span>padrão do cadastro: {it._srv_aliquota_padrao}%</span>}
                     {(it.aliquota_iss??0)>0 && it.subtotal>0 && <span style={{color:P}}>· ISS ≈ {fmtR(it.subtotal*(it.aliquota_iss??0)/100)}</span>}
+                    <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",marginLeft:6}} title="ISS retido na fonte neste orçamento (afeta o a receber e a NFS-e)">
+                      <input type="checkbox" checked={!!it.iss_retido} onChange={e=>atualizarItem(idx,'iss_retido',e.target.checked)} style={{accentColor:P}}/>
+                      <span style={{fontWeight:600,color:it.iss_retido?P:TXD}}>Retido{it.iss_retido?' na fonte':''}</span>
+                    </label>
                   </div>
                 )}
               </div>
