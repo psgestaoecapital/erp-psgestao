@@ -22,6 +22,8 @@ type ItemOrc = {
   unidade:string; quantidade:number; preco_unitario:number; preco_custo?:number;
   desconto_percentual:number; desconto_valor:number;
   subtotal:number; margem_percentual?:number; bdi_percentual?:number;
+  aliquota_iss?:number; // override do ISS por item (default vem do cadastro do serviço)
+  _srv_aliquota_padrao?:number; // só p/ hint "padrão do cadastro" — não persiste
   observacoes?:string;
   _srv_eng?:boolean; // linha = serviço do catálogo de ENGENHARIA (projetos_servicos), precificado com BDI
 };
@@ -252,6 +254,7 @@ export default function OrcamentosPage(){
       subtotal:Number(i.subtotal),
       bdi_percentual:i.bdi_percentual!=null?Number(i.bdi_percentual):undefined,
       margem_percentual:i.margem_percentual!=null?Number(i.margem_percentual):undefined,
+      aliquota_iss:i.aliquota_iss!=null?Number(i.aliquota_iss):undefined,
     })));
     setBuscaCliente(o.cliente_nome||'');
     setShowForm(true);
@@ -325,6 +328,9 @@ export default function OrcamentosPage(){
       produto_nome:s.descricao_resumida, // pra exibicao + filtro de "valido"
       unidade:'SV',
       preco_unitario:Number(s.valor_unitario ?? 0),
+      // ISS: pré-preenche com o do cadastro (default), editável ali → vira override do item.
+      aliquota_iss:s.aliquota_iss!=null?Number(s.aliquota_iss):undefined,
+      _srv_aliquota_padrao:s.aliquota_iss!=null?Number(s.aliquota_iss):undefined,
     };
     recalcularItem(idx,novosItens);
   };
@@ -418,6 +424,7 @@ export default function OrcamentosPage(){
           unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,observacoes:i.observacoes,
           margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,
+          aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
         }));
         const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
         if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
@@ -438,6 +445,7 @@ export default function OrcamentosPage(){
           unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
           desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
           margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,observacoes:i.observacoes,
+          aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
         }));
         if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
       }
@@ -695,6 +703,18 @@ export default function OrcamentosPage(){
                 <input type="number" step="0.1" value={it.desconto_percentual||''} onChange={e=>atualizarItem(idx,'desconto_percentual',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:G}}>{fmtR(it.subtotal)}</div>
                 <button onClick={()=>removerItem(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
+                {it.tipo_item==='servico' && (
+                  <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:8,fontSize:10,color:TXD,paddingTop:2,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:600}}>ISS %</span>
+                    <input type="number" step="0.01" value={it.aliquota_iss??''}
+                      onChange={e=>atualizarItem(idx,'aliquota_iss', e.target.value===''?undefined:(parseFloat(e.target.value)||0))}
+                      placeholder={it._srv_aliquota_padrao!=null?`padrão ${it._srv_aliquota_padrao}`:'0'}
+                      title="Alíquota ISS deste orçamento (override do cadastro do serviço)"
+                      style={{width:70,padding:"3px 6px",fontSize:10,textAlign:"right",border:`1px solid ${BD}`,borderRadius:4}}/>
+                    {it._srv_aliquota_padrao!=null && <span>padrão do cadastro: {it._srv_aliquota_padrao}%</span>}
+                    {(it.aliquota_iss??0)>0 && it.subtotal>0 && <span style={{color:P}}>· ISS ≈ {fmtR(it.subtotal*(it.aliquota_iss??0)/100)}</span>}
+                  </div>
+                )}
               </div>
             ))}
             {/* FEAT-OS-ONDA1: Subtotais separados Servicos vs Produtos */}
@@ -702,6 +722,9 @@ export default function OrcamentosPage(){
               <div style={{display:"flex",justifyContent:"flex-end",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
                 <span>Serviços: <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
                 <span>Produtos: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                {itens.some(i=>i.tipo_item==='servico'&&(i.aliquota_iss??0)>0) && (
+                  <span title="ISS embutido (informativo) — não soma ao total">ISS (incl.): <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0)*(i.aliquota_iss??0)/100,0))}</strong></span>
+                )}
               </div>
             )}
           </div>
