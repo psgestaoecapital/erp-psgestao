@@ -277,8 +277,19 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       return { company_id, ok: false, erro: "cnpj_empresa_ausente" }
     }
 
-    let cursorNsu = job.ultimo_nsu
-    let maxNsuEnvelope: number | null = null
+    // Paginação OFFSET/VERSÃO. Diagnóstico v17 provou: envelope = array de até 100 + header
+    // x-total-count (env=arr:100 hdr:x-total-count). A Focus /v2/nfes_recebidas ignora
+    // ?ultimo_nsu, então o cursor NSU nunca andava e ficava sempre na 1ª página (junho).
+    // A doc da Focus (endpoint análogo de recebidas) pagina por um cursor de VERSÃO lido do
+    // header x-max-version. Como o nome exato do param de avanço não está 100% provado, avançamos
+    // pelos DOIS cursores plausíveis ao mesmo tempo (offset por contagem + versao pelo x-max-version):
+    // a Focus honra o que reconhece e ignora o resto. Um stall-guard (página sem chave nova) encerra
+    // se nenhum avançar — sem loop 20x nem reprocessar. Fix 2 (fornecedor/número) segue em normalizar.
+    const PAGE = 100
+    let offset = 0
+    let versao = 0
+    let total = 0
+    const vistas = new Set<string>()   // chaves já vistas NESTE run (stall-guard de paginação)
     let totalRecebidas = 0
     let novas = 0
     let atualizadas = 0
@@ -286,16 +297,16 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
     const novasParaManifestar: { id: string; chave: string }[] = []
     let lastStatus = 0
     let lastBodyPreview = ""
-    // Diagnóstico RD-51: como o log da edge é gated, persistimos no controle o FORMATO do
-    // envelope da 1ª resposta (só as chaves / arr:N — Pilar 2: sem valores/segredos), pra
-    // descobrir por SQL qual é o mecanismo de paginação real da Focus (NSU vs página/cursor).
+    // Diagnóstico RD-51: como o log da edge é gated, persistimos no controle os headers da 1ª
+    // resposta (só NOMES + x-total-count / x-max-version — Pilar 2: sem valores/segredos), pra
+    // travar o mecanismo real de paginação por SQL.
     let envDbg = ""
 
     for (let iter = 0; iter < LOOP_CAP; iter++) {
-      const cursorAntes = cursorNsu
       const qs = new URLSearchParams()
       qs.set("cnpj", cnpjLimpo)
-      if (cursorNsu > 0) qs.set("ultimo_nsu", String(cursorNsu))
+      if (offset > 0) qs.set("offset", String(offset))
+      if (versao > 0) { qs.set("versao", String(versao)); qs.set("version", String(versao)) }
       const url = `${focusBase(ambiente)}/v2/nfes_recebidas?${qs.toString()}`
 
       let r: Response
@@ -349,40 +360,32 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       try { envelope = JSON.parse(body) }
       catch { return { company_id, ok: false, erro: "Focus retornou JSON invalido" } }
 
-      // Log defensivo da 1a resposta da empresa (sem token) pra travarmos
-      // o formato do envelope NSU. Pilar 2: sem segredos.
+      // Diagnóstico da 1ª resposta: TODOS os nomes de header + x-total-count/x-max-version
+      // (Pilar 2: só nomes e esses dois números de cursor, sem valores/segredos). Trava o mecanismo.
       if (iter === 0) {
-        const env = envelope && typeof envelope === "object" && !Array.isArray(envelope)
-          ? Object.keys(envelope as Record<string, unknown>).slice(0, 12)
-          : "array"
-        // Formato persistível (só chaves/estrutura + NOMES de header, sem valores/segredos) —
-        // vai pro controle p/ leitura via SQL. Se a paginação vier por header (ex.: link/x-next),
-        // o nome aparece aqui e guia o próximo patch.
+        total = Number(r.headers.get("x-total-count") ?? "0")
         const corpo = Array.isArray(envelope)
           ? `arr:${(envelope as unknown[]).length}`
-          : (envelope && typeof envelope === "object"
-            ? `obj:${Object.keys(envelope as Record<string, unknown>).slice(0, 15).join(",")}`
-            : "other")
-        const hdrs = Array.from(r.headers.keys())
-          .filter((h) => /nsu|pag|page|next|cursor|offset|total|link/i.test(h))
-          .join(",")
-        envDbg = corpo + (hdrs ? ` hdr:${hdrs}` : "")
+          : (envelope && typeof envelope === "object" ? "obj" : "other")
+        const hdrNames = Array.from(r.headers.keys()).join("|")
+        const xmv = r.headers.get("x-max-version") ?? ""
+        envDbg = `${corpo} tot:${total}${xmv ? ` xmv:${xmv}` : ""} hdr:${hdrNames}`.slice(0, 380)
         console.log("[nfe-distribuicao][nsu-debug]", JSON.stringify({
-          company_id, ambiente, iter, status: r.status, envelope_keys: env,
-          body_preview: body.slice(0, 300),
+          company_id, ambiente, iter, status: r.status, envDbg,
         }))
       }
+      // Avança o cursor de versão pelo header (se a Focus for version-cursor).
+      const xMaxVer = Number(r.headers.get("x-max-version") ?? "0")
+      if (Number.isFinite(xMaxVer) && xMaxVer > versao) versao = xMaxVer
 
       const lista = extrairLista(envelope)
-      const maxEnv = extrairMaxNsuEnvelope(envelope)
-      if (maxEnv !== null) maxNsuEnvelope = maxEnv
       totalRecebidas += lista.length
 
-      let maxLote = cursorNsu
+      let novasNestaPagina = 0
       for (const item of lista) {
         const n = normalizar(item)
         if (!n.chave || n.chave.length !== 44) continue
-        if (n.nsu !== null && n.nsu > maxLote) maxLote = n.nsu
+        if (!vistas.has(n.chave)) { vistas.add(n.chave); novasNestaPagina++ }
 
         const baseRow = {
           company_id,
@@ -455,40 +458,28 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
         }
       }
 
-      if (maxLote > cursorNsu) cursorNsu = maxLote
+      // Avança o cursor de OFFSET pela contagem processada.
+      offset += lista.length
 
-      // Fix 1: o resumo nao traz NSU por item, mas o envelope Focus pode trazer o ultimo_nsu
-      // consultado. Avancar por ele faz a paginacao andar (junho -> ... -> agosto). NULL-guard:
-      // se o envelope nao trouxer NSU (caso empirico atual, max_nsu=0), isto e no-op e o
-      // break-guard abaixo encerra — sem regressao. O envDbg persistido dira o mecanismo real.
-      if (maxNsuEnvelope !== null && maxNsuEnvelope > cursorNsu) cursorNsu = maxNsuEnvelope
-
-      // Checkpoint incremental: persiste o progresso ao fim de CADA iteracao (antes
-      // de qualquer break/sleep). Se algum dia o run estourar o tempo, o que ja
-      // avancou fica salvo e o proximo run continua de onde parou — nunca mais volta a 0.
+      // Checkpoint incremental (ultimo_nsu vira "posição alcançada" = offset; max_nsu = total do header).
       await sbAdmin.from("erp_nfe_distribuicao_controle")
         .update({
-          ultimo_nsu: cursorNsu,
-          max_nsu: maxNsuEnvelope ?? cursorNsu,
+          ultimo_nsu: offset,
+          max_nsu: total,
           ultima_consulta_em: new Date().toISOString(),
           ultima_consulta_status: (lastStatus === 200 ? "ok" : `http_${lastStatus}`) + (envDbg ? ` · env=${envDbg}` : ""),
           updated_at: new Date().toISOString(),
         })
         .eq("company_id", company_id)
 
-      // Break-guard: se o cursor NAO avancou, a proxima iteracao re-buscaria a MESMA
-      // pagina (causa do loop 20x -> 150s -> 546). Este endpoint da Focus nao traz NSU
-      // no resumo, entao maxLote fica em 0 e caimos aqui na 1a volta: processa a pagina
-      // uma vez, ja salvou acima, e encerra. As notas novas entram nos runs seguintes.
-      if (cursorNsu === cursorAntes) break
-
-      // Condicoes de parada do loop:
-      //   1. envelope explicito disse maxNsu e ja batemos
-      //   2. lista veio menor que PAGE_SIZE_SEFAZ (fim de pool)
-      //   3. cap LOOP_CAP atingido
-      const fimPorEnvelope = maxNsuEnvelope !== null && cursorNsu >= maxNsuEnvelope
-      const fimPorTamanho = lista.length < PAGE_SIZE_SEFAZ
-      if (fimPorEnvelope || fimPorTamanho) break
+      // Condições de parada:
+      //   1. página vazia ou menor que PAGE → fim do pool
+      //   2. STALL-GUARD: página não trouxe NENHUMA chave nova (o cursor não avançou — a Focus
+      //      ignorou offset/versao) → encerra em vez de re-buscar a mesma página 20x
+      //   3. já cobrimos o total informado pelo header
+      if (lista.length === 0 || lista.length < PAGE) break
+      if (novasNestaPagina === 0) break
+      if (total > 0 && offset >= total) break
 
       // Throttle 2s entre chamadas (limite SEFAZ)
       await sleep(THROTTLE_MS)
@@ -524,8 +515,8 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
 
     await sbAdmin.from("erp_nfe_distribuicao_controle")
       .update({
-        ultimo_nsu: cursorNsu,
-        max_nsu: maxNsuEnvelope ?? cursorNsu,
+        ultimo_nsu: offset,
+        max_nsu: total,
         ultima_consulta_em: new Date().toISOString(),
         ultima_consulta_status: (lastStatus === 200 ? "ok" : `http_${lastStatus}`) + (envDbg ? ` · env=${envDbg}` : ""),
         ultimo_ciclo_em: new Date().toISOString(),
@@ -537,8 +528,8 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       company_id, ok: true,
       recebidas: totalRecebidas,
       novas, atualizadas, manifestadas, geradas_pagar,
-      novo_ultimo_nsu: cursorNsu,
-      novo_max_nsu: maxNsuEnvelope,
+      novo_ultimo_nsu: offset,
+      novo_max_nsu: total,
     }
   } catch (e) {
     return {
