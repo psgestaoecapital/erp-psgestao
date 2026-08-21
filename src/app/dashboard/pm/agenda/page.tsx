@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -21,7 +22,7 @@ const STATUS_COR: Record<string, string> = { agendado: GOLD, confirmado: GREEN, 
 type Ag = {
   id: string; titulo: string; data: string; hora_inicio: string | null; hora_fim: string | null
   status: string; cliente_nome: string | null; responsavel_nome: string | null; observacao: string | null
-  dados: { lead_id?: string } | null
+  local: string | null; link_reuniao: string | null; dados: { lead_id?: string } | null
 }
 type LeadOpt = { id: string; nome: string; empresa: string | null; erp_cliente_id: string | null }
 type Vis = 'dia' | 'semana' | 'mes'
@@ -51,7 +52,7 @@ export default function AgendaComercialPage() {
     if (!empresa) { setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.from('erp_agendamento')
-      .select('id, titulo, data, hora_inicio, hora_fim, status, cliente_nome, responsavel_nome, observacao, dados')
+      .select('id, titulo, data, hora_inicio, hora_fim, status, cliente_nome, responsavel_nome, observacao, local, link_reuniao, dados')
       .eq('company_id', empresa).eq('origem_modulo', 'comercial')
       .gte('data', range.de).lte('data', range.ate).order('data').order('hora_inicio')
     setLoading(false)
@@ -167,6 +168,7 @@ function DiaCol({ data, ags, onNovo, onEditar, onStatus, destaque }: {
               </button>
               <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
                 {a.dados?.lead_id && <Link href="/dashboard/pm/leads" style={{ fontSize: 9.5, color: '#2F5AA8', textDecoration: 'none', fontWeight: 700 }}>lead ↗</Link>}
+                {a.link_reuniao && <a href={a.link_reuniao} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 9.5, color: '#fff', background: '#2F5AA8', borderRadius: 5, padding: '1px 6px', textDecoration: 'none', fontWeight: 700 }}>▶ entrar</a>}
                 {a.status !== 'confirmado' && a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'confirmado')} style={miniBtn(GREEN)}>confirmar</button>}
                 {a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'concluido')} style={miniBtn('#166534')}>concluir</button>}
                 {a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'cancelado')} style={miniBtn(RED)}>cancelar</button>}
@@ -219,21 +221,25 @@ function EventoModal({ empresa, uid, dataInicial, ag, leads, onClose, onSaved }:
   const [hFim, setHFim] = useState(ag?.hora_fim?.slice(0, 5) ?? '10:00')
   const [obs, setObs] = useState(ag?.observacao ?? '')
   const [leadId, setLeadId] = useState(ag?.dados?.lead_id ?? '')
+  const [local, setLocal] = useState(ag?.local ?? '')
+  const [link, setLink] = useState(ag?.link_reuniao ?? '')
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const router = useRouter()
+  const linkOk = !link.trim() || /^https?:\/\/.+/i.test(link.trim())
 
   async function salvar() {
     if (!titulo.trim()) { setErro('Informe o título.'); return }
+    if (!linkOk) { setErro('O link deve começar com http:// ou https://'); return }
     setBusy(true); setErro(null)
     const lead = leads.find((l) => l.id === leadId)
-    // Fase 1: editar reusa o mesmo criar? Não há fn_editar — para edição, mudamos só o status via RPC.
-    // Criar novo agendamento (o fluxo de edição completa fica pra refinamento; aqui o Novo é o caminho).
     const { error } = await supabase.rpc('fn_agendamento_criar', {
       p_company_id: empresa, p_origem: 'comercial', p_titulo: titulo.trim(),
       p_cliente_id: lead?.erp_cliente_id ?? null, p_cliente_nome: lead ? (lead.empresa || lead.nome) : null,
       p_responsavel_id: uid, p_responsavel_nome: null,
       p_data: data, p_hora_inicio: hIni || null, p_hora_fim: hFim || null,
-      p_dados: leadId ? { lead_id: leadId } : {}, p_observacao: obs.trim() || null,
+      p_dados: { ...(leadId ? { lead_id: leadId } : {}), local: local.trim() || null, link_reuniao: link.trim() || null },
+      p_observacao: obs.trim() || null,
     })
     setBusy(false)
     if (error) { setErro(error.message); return }
@@ -248,7 +254,22 @@ function EventoModal({ empresa, uid, dataInicial, ag, leads, onClose, onSaved }:
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: BG, cursor: 'pointer', fontSize: 18 }}>✕</button>
         </div>
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {ag && <div style={{ fontSize: 11.5, color: TEXTM }}>Para reagendar/alterar este evento, crie um novo ou mude o status na agenda. (Edição completa vem no refinamento.)</div>}
+          {ag && (
+            <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 12, color: TEXTM }}>
+                {ag.cliente_nome ? <><b>{ag.cliente_nome}</b> · </> : null}{ag.hora_inicio?.slice(0, 5) ?? ''}{ag.hora_fim ? `–${ag.hora_fim.slice(0, 5)}` : ''}{ag.local ? ` · ${ag.local}` : ''}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {ag.dados?.lead_id && (
+                  <button onClick={() => router.push('/dashboard/pm/leads')} style={{ background: '#2F5AA8', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🔗 Abrir card do lead</button>
+                )}
+                {ag.link_reuniao && (
+                  <a href={ag.link_reuniao} target="_blank" rel="noopener noreferrer" style={{ background: '#166534', color: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>▶ Entrar na reunião</a>
+                )}
+              </div>
+              <div style={{ fontSize: 10.5, color: TEXTM }}>Para reagendar, crie um novo evento ou mude o status. (Edição completa vem no refinamento.)</div>
+            </div>
+          )}
           <label style={lbl}>Título<input value={titulo} onChange={(e) => setTitulo(e.target.value)} style={inp} placeholder="Ex.: Reunião com cliente" /></label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <label style={lbl}>Data<input type="date" value={data} onChange={(e) => setData(e.target.value)} style={inp} /></label>
@@ -261,6 +282,8 @@ function EventoModal({ empresa, uid, dataInicial, ag, leads, onClose, onSaved }:
               {leads.map((l) => <option key={l.id} value={l.id}>{l.empresa || l.nome}</option>)}
             </select>
           </label>
+          <label style={lbl}>Local (endereço, sala ou &quot;Online&quot;)<input value={local} onChange={(e) => setLocal(e.target.value)} style={inp} placeholder="Online / Sala 2 / Rua X" /></label>
+          <label style={lbl}>Link da reunião (Meet/Zoom — opcional)<input value={link} onChange={(e) => setLink(e.target.value)} style={{ ...inp, borderColor: linkOk ? LINE : RED }} placeholder="https://meet.google.com/..." /></label>
           <label style={lbl}>Observação<input value={obs} onChange={(e) => setObs(e.target.value)} style={inp} /></label>
           {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12 }}>{erro}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
