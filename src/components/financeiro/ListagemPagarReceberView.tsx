@@ -1130,7 +1130,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         </Td>
                         <Td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <strong style={{ color: '#3D2314' }}>{r.descricao}</strong>
+                            {/* #15b · abrir a ficha completa do lançamento (conferir todos os campos lançados) */}
+                            <strong
+                              onClick={() => setEditandoItem(r)}
+                              title="Abrir ficha completa (conferir todos os dados do lançamento)"
+                              style={{ color: '#3D2314', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(61,35,20,0.25)', textUnderlineOffset: 2 }}
+                            >
+                              {r.descricao}
+                            </strong>
                             {parcelaVisivel && (
                               <span style={{ fontSize: 10, fontWeight: 700, color: '#854F0B', background: 'rgba(200,148,26,0.12)', border: '0.5px solid rgba(200,148,26,0.35)', padding: '2px 6px', borderRadius: 4, fontVariantNumeric: 'tabular-nums' }} title="Parcela atual / total">
                                 ⛓ {r.parcela}
