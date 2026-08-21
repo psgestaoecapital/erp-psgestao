@@ -19,13 +19,9 @@ const TIPO_FUNIL = 'leads'
 
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-const ORIGENS: { v: string; l: string }[] = [
-  { v: 'prospeccao_ia_fria', l: 'Prospecção IA (fria)' },
-  { v: 'indicacao', l: 'Indicação' },
-  { v: 'trafego_pago', l: 'Tráfego pago' },
-  { v: 'relacionamento', l: 'Relacionamento' },
-]
-const origemL = (v: string) => ORIGENS.find((o) => o.v === v)?.l ?? v
+// #19b · origens do lead agora são configuráveis por empresa (tabela agency_lead_origem),
+// carregadas via fn_agency_origens_listar. Nada hardcoded (RD-52 — fonte única).
+type Origem = { id: string; chave: string; nome: string; ordem: number; ativo: boolean }
 
 const TIPOS_ETAPA: { v: string; l: string }[] = [
   { v: 'normal', l: 'Normal' },
@@ -75,12 +71,21 @@ export default function LeadsPage() {
   const [busy, setBusy] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [cfgOpen, setCfgOpen] = useState(false)
+  const [origemCfgOpen, setOrigemCfgOpen] = useState(false)
+  const [origens, setOrigens] = useState<Origem[]>([])
 
   const carregarEtapas = useCallback(async () => {
     if (!empresa) { setEtapas([]); return }
     const { data } = await supabase.rpc('fn_funil_etapas_listar', { p_company_id: empresa, p_tipo_funil: TIPO_FUNIL })
     setEtapas(((data ?? []) as Etapa[]).slice().sort((a, b) => a.ordem - b.ordem))
   }, [empresa])
+
+  const carregarOrigens = useCallback(async () => {
+    if (!empresa) { setOrigens([]); return }
+    const { data } = await supabase.rpc('fn_agency_origens_listar', { p_company_id: empresa })
+    setOrigens(((data ?? []) as Origem[]).slice().sort((a, b) => a.ordem - b.ordem))
+  }, [empresa])
+  const origemLabel = useCallback((v: string) => origens.find((o) => o.chave === v)?.nome ?? v, [origens])
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLeads([]); setLoading(false); return }
@@ -100,6 +105,7 @@ export default function LeadsPage() {
 
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { void carregarEtapas() }, [carregarEtapas])
+  useEffect(() => { void carregarOrigens() }, [carregarOrigens])
   useEffect(() => { void supabase.auth.getUser().then(({ data }) => setUid(data.user?.id ?? null)) }, [])
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
 
@@ -247,6 +253,7 @@ export default function LeadsPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setCfgOpen(true)} style={btnGhost} data-testid="funil-config" title="Configurar etapas do funil">⚙️ Configurar funil</button>
+            <button onClick={() => setOrigemCfgOpen(true)} style={btnGhost} data-testid="origem-config" title="Configurar origens do lead">⚙️ Origens</button>
             <button onClick={() => { setForm(FORM0); setCliTermo(''); setCliSug([]); setNovo(true) }} style={btnPri} data-testid="lead-novo">+ Novo lead</button>
           </div>
         </header>
@@ -262,7 +269,7 @@ export default function LeadsPage() {
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
           <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
             <option value="todas">Origem: todas</option>
-            {ORIGENS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+            {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
           </select>
           <select value={fCanal} onChange={(e) => setFCanal(e.target.value)} style={inp} aria-label="Canal">
             <option value="todos">Canal: todos</option>
@@ -308,7 +315,7 @@ export default function LeadsPage() {
                           </div>
                           {l.empresa && l.nome && l.nome !== l.empresa && <div style={{ fontSize: 11.5, color: TEXTM }}>{l.nome}</div>}
                           <div style={{ fontSize: 11, color: TEXTM, marginTop: 3 }}>
-                            {origemL(l.origem)}{l.canal_contato ? ` · ${l.canal_contato}` : ''}{l.valor_estimado ? ` · ${brl(Number(l.valor_estimado))}` : ''}
+                            {origemLabel(l.origem)}{l.canal_contato ? ` · ${l.canal_contato}` : ''}{l.valor_estimado ? ` · ${brl(Number(l.valor_estimado))}` : ''}
                           </div>
                           {(l.contato_email || l.contato_telefone) && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>{[l.contato_telefone, l.contato_email].filter(Boolean).join(' · ')}</div>}
                           {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
@@ -369,8 +376,15 @@ export default function LeadsPage() {
             {/* QW6 (#19a): "Canal" removido — o banco tem só `origem`. Um campo só, sem duplicar conceito. */}
             <label style={lbl}>Origem do Lead
               <select style={inp} value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })}>
-                {ORIGENS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                {!origens.some((o) => o.chave === form.origem) && form.origem && (
+                  <option value={form.origem}>{origemLabel(form.origem)}</option>
+                )}
+                {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
               </select>
+              <button type="button" onClick={() => { setNovo(false); setOrigemCfgOpen(true) }}
+                style={{ background: 'none', border: 'none', color: DOURADO, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '4px 0 0', textAlign: 'left' }}>
+                ⚙️ Gerenciar origens
+              </button>
             </label>
             <label style={lbl}>Valor estimado (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
 
@@ -386,6 +400,13 @@ export default function LeadsPage() {
         <ConfigFunil empresa={empresa} etapas={etapas} leads={leads}
           onClose={() => setCfgOpen(false)}
           onChange={async () => { await carregarEtapas() }}
+          setToast={setToast} />
+      )}
+
+      {origemCfgOpen && empresa && (
+        <ConfigOrigens empresa={empresa} origens={origens} leads={leads}
+          onClose={() => setOrigemCfgOpen(false)}
+          onChange={async () => { await carregarOrigens() }}
           setToast={setToast} />
       )}
 
@@ -508,6 +529,99 @@ function ConfigFunil({ empresa, etapas, leads, onClose, onChange, setToast }: {
           <select value={novoTipo} onChange={(e) => setNovoTipo(e.target.value)} style={{ ...inp, minHeight: 34 }}>
             {TIPOS_ETAPA.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
           </select>
+          <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnPri, minHeight: 34, padding: '6px 12px' }}>+ Add</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── #19b · Configurar origens do lead: add / renomear / ativar / excluir (guarda leads) ──────────
+function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }: {
+  empresa: string; origens: Origem[]; leads: Lead[]
+  onClose: () => void; onChange: () => Promise<void>; setToast: (s: string) => void
+}) {
+  // Carrega TODAS (inclusive inativas) direto da tabela — o RPC de listagem só traz ativas.
+  const [rows, setRows] = useState<Origem[]>(origens)
+  const [novo, setNovo] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const recarregar = useCallback(async () => {
+    const { data } = await supabase.from('agency_lead_origem').select('id, chave, nome, ordem, ativo')
+      .eq('company_id', empresa).order('ordem')
+    setRows(((data ?? []) as Origem[]))
+  }, [empresa])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void recarregar() }, [recarregar])
+
+  const contagem = useCallback((chave: string) => leads.filter((l) => l.origem === chave).length, [leads])
+  function patch(id: string, p: Partial<Origem>) { setRows((arr) => arr.map((r) => (r.id === id ? { ...r, ...p } : r))) }
+
+  async function salvar(o: Origem) {
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_origem_salvar', {
+      p_campos: { id: o.id, nome: o.nome, ordem: o.ordem, ativo: o.ativo },
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    await recarregar(); await onChange()
+  }
+  async function adicionar() {
+    if (!novo.trim()) { setToast('Informe o nome da origem.'); return }
+    setBusy(true)
+    const maxOrdem = rows.reduce((m, r) => Math.max(m, r.ordem), 0)
+    const { data, error } = await supabase.rpc('fn_agency_origem_salvar', {
+      p_campos: { company_id: empresa, nome: novo.trim(), ordem: maxOrdem + 10 },
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setNovo(''); setToast('Origem ADICIONADA.'); await recarregar(); await onChange()
+  }
+  async function excluir(o: Origem) {
+    const n = contagem(o.chave)
+    if (n > 0) { setToast(`${n} lead(s) usam "${o.nome}". Desative em vez de excluir.`); return }
+    if (!confirm(`Excluir a origem "${o.nome}"?`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_origem_excluir', { p_id: o.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string; qtd?: number } | null
+    if (error || !j?.ok) {
+      if (j?.erro === 'origem_com_leads') setToast(`${j.qtd} lead(s) usam "${o.nome}". Desative em vez de excluir.`)
+      else setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`)
+      return
+    }
+    setToast('Origem EXCLUÍDA.'); await recarregar(); await onChange()
+  }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Origens do lead</h2>
+          <button onClick={onClose} style={btnSec}>Fechar</button>
+        </div>
+        <p style={{ fontSize: 12, color: TEXTM, margin: '0 0 12px' }}>De onde os leads chegam. Desative uma origem para escondê-la sem apagar histórico. Origem em uso não pode ser excluída.</p>
+
+        <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+          {rows.map((o) => {
+            const n = contagem(o.chave)
+            return (
+              <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 8px', background: o.ativo ? '#fff' : '#F6F1E8' }}>
+                <input value={o.nome} onChange={(ev) => patch(o.id, { nome: ev.target.value })} onBlur={() => void salvar(o)} style={{ ...inp, minHeight: 34 }} />
+                <span style={{ fontSize: 11, color: TEXTM, textAlign: 'right', minWidth: 44 }}>{n} lead{n === 1 ? '' : 's'}</span>
+                <button disabled={busy} onClick={() => void salvar({ ...o, ativo: !o.ativo })} title={o.ativo ? 'Desativar' : 'Ativar'} style={{ ...btnSec, minHeight: 34, color: o.ativo ? GREEN : TEXTM }}>{o.ativo ? 'Ativa' : 'Inativa'}</button>
+                <button disabled={busy} onClick={() => void excluir(o)} title={n > 0 ? `${n} leads usam` : 'Excluir'} style={{ ...btnSec, borderColor: RED, color: RED, minHeight: 34, opacity: n > 0 ? 0.5 : 1 }}>✕</button>
+              </div>
+            )
+          })}
+          {rows.length === 0 && <div style={{ fontSize: 12, color: TEXTM, padding: 8 }}>Sem origens — adicione a primeira abaixo.</div>}
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Adicionar origem</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, alignItems: 'center' }}>
+          <input value={novo} onChange={(e) => setNovo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} placeholder="Nome da origem (ex.: Feira, LinkedIn)" style={{ ...inp, minHeight: 34 }} />
           <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnPri, minHeight: 34, padding: '6px 12px' }}>+ Add</button>
         </div>
       </div>
