@@ -27,6 +27,8 @@ async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Prom
   return data as T
 }
 
+type Opcao = { id: string; valor: string; rotulo: string; ordem: number; ativo: boolean }
+
 export default function ServicosPage() {
   const { sel, selInfo } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
@@ -35,6 +37,18 @@ export default function ServicosPage() {
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<Partial<Servico> | null>(null)
   const [erro, setErro] = useState('')
+  // campos de lista configuráveis (área/unidade/periodicidade) — fn_agency_config_listar
+  const [opcoes, setOpcoes] = useState<Record<string, Opcao[]>>({})
+  const [gerenciar, setGerenciar] = useState<string | null>(null)
+
+  const carregarOpcoes = useCallback(async () => {
+    if (!companyId) return
+    const listas = ['area_equipe', 'unidade', 'periodicidade']
+    const res = await Promise.all(listas.map((l) => supabase.rpc('fn_agency_config_listar', { p_company_id: companyId, p_lista: l })))
+    const next: Record<string, Opcao[]> = {}
+    listas.forEach((l, i) => { next[l] = ((res[i].data ?? []) as Opcao[]) })
+    setOpcoes(next)
+  }, [companyId])
 
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
@@ -48,6 +62,7 @@ export default function ServicosPage() {
     } catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
   }, [companyId])
   useEffect(() => { void carregar() }, [carregar])
+  useEffect(() => { void carregarOpcoes() }, [carregarOpcoes])
 
   const salvar = async () => {
     if (!edit || !companyId) return
@@ -108,13 +123,18 @@ export default function ServicosPage() {
         </div>
       )}
 
-      {edit && <FormServico edit={edit} setEdit={setEdit} equipe={equipe} servicos={servicos} onSalvar={salvar} erro={erro} />}
+      {edit && <FormServico edit={edit} setEdit={setEdit} equipe={equipe} servicos={servicos} onSalvar={salvar} erro={erro} opcoes={opcoes} onGerenciar={setGerenciar} />}
+      {gerenciar && companyId && (
+        <ConfigOpcoesModal companyId={companyId} lista={gerenciar} servicos={servicos}
+          onClose={() => setGerenciar(null)} onChange={() => void carregarOpcoes()} />
+      )}
     </Shell>
   )
 }
 
-function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro }: {
+function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, onGerenciar }: {
   edit: Partial<Servico>; setEdit: (s: Partial<Servico> | null) => void; equipe: Equipe[]; servicos: Servico[]; onSalvar: () => void; erro: string
+  opcoes: Record<string, Opcao[]>; onGerenciar: (lista: string) => void
 }) {
   const [novoEntreg, setNovoEntreg] = useState('')
   const entregaveis = edit.entregaveis ?? []
@@ -130,15 +150,15 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro }: {
       <Campo label="Nome *"><input style={inp} value={edit.nome ?? ''} onChange={e => setEdit({ ...edit, nome: e.target.value })} placeholder="Ex.: Social Mensal" /></Campo>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Campo label="Tipo"><select style={inp} value={edit.tipo ?? 'pontual'} onChange={e => setEdit({ ...edit, tipo: e.target.value })}>{TIPOS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Campo>
-        <Campo label="Área / equipe"><input style={inp} value={edit.area ?? ''} onChange={e => setEdit({ ...edit, area: e.target.value })} placeholder="social, tráfego, vídeo…" /></Campo>
+        <Campo label="Área / equipe"><SelectConfig lista="area_equipe" opcoes={opcoes} value={edit.area ?? ''} onChange={v => setEdit({ ...edit, area: v || null })} onGerenciar={onGerenciar} /></Campo>
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Campo label="Modelo de preço"><select style={inp} value={edit.modelo_preco ?? 'fixo'} onChange={e => setEdit({ ...edit, modelo_preco: e.target.value })}>{MODELOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}</select></Campo>
         <Campo label="Valor base (R$)"><input type="number" style={inp} value={edit.valor_base ?? ''} onChange={e => setEdit({ ...edit, valor_base: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
-        <Campo label="Unidade"><input style={inp} value={edit.unidade ?? ''} onChange={e => setEdit({ ...edit, unidade: e.target.value })} placeholder="mês, post, projeto…" /></Campo>
+        <Campo label="Unidade"><SelectConfig lista="unidade" opcoes={opcoes} value={edit.unidade ?? ''} onChange={v => setEdit({ ...edit, unidade: v || null })} onGerenciar={onGerenciar} /></Campo>
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {edit.tipo === 'recorrente' && <Campo label="Periodicidade"><input style={inp} value={edit.periodicidade ?? ''} onChange={e => setEdit({ ...edit, periodicidade: e.target.value })} placeholder="mensal, quinzenal…" /></Campo>}
+        {edit.tipo === 'recorrente' && <Campo label="Periodicidade"><SelectConfig lista="periodicidade" opcoes={opcoes} value={edit.periodicidade ?? ''} onChange={v => setEdit({ ...edit, periodicidade: v || null })} onGerenciar={onGerenciar} /></Campo>}
         <Campo label="Horas estimadas"><input type="number" style={inp} value={edit.horas_estimadas ?? ''} onChange={e => setEdit({ ...edit, horas_estimadas: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
         <Campo label="Prazo padrão (dias)"><input type="number" style={inp} value={edit.prazo_dias_padrao ?? ''} onChange={e => setEdit({ ...edit, prazo_dias_padrao: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
       </div>
@@ -190,6 +210,95 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro }: {
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
         <button onClick={() => setEdit(null)} style={btnSec}>Cancelar</button>
         <Btn onClick={onSalvar}>Salvar</Btn>
+      </div>
+    </Modal>
+  )
+}
+
+// select de uma lista configurável + botão ⚙️ pra gerenciar as opções
+function SelectConfig({ lista, opcoes, value, onChange, onGerenciar }: {
+  lista: string; opcoes: Record<string, Opcao[]>; value: string; onChange: (v: string) => void; onGerenciar: (lista: string) => void
+}) {
+  const lst = opcoes[lista] ?? []
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      <select style={{ ...inp, flex: 1 }} value={value} onChange={e => onChange(e.target.value)}>
+        <option value="">—</option>
+        {value && !lst.some(o => o.valor === value) && <option value={value}>{value}</option>}
+        {lst.map(o => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+      </select>
+      <button type="button" onClick={() => onGerenciar(lista)} title="Gerenciar opções" style={{ ...btnSec, padding: '0 10px' }}>⚙️</button>
+    </div>
+  )
+}
+
+const LISTA_ROTULO: Record<string, string> = { area_equipe: 'Área / equipe', unidade: 'Unidade', periodicidade: 'Periodicidade' }
+const CAMPO_DE_LISTA: Record<string, keyof Servico> = { area_equipe: 'area', unidade: 'unidade', periodicidade: 'periodicidade' }
+// mini-CRUD das opções de uma lista (add / renomear / ativar / excluir), reusável por lista
+function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
+  companyId: string; lista: string; servicos: Servico[]; onClose: () => void; onChange: () => void
+}) {
+  const [rows, setRows] = useState<Opcao[]>([])
+  const [novo, setNovo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const recarregar = useCallback(async () => {
+    const { data } = await supabase.from('agency_config_opcao').select('id, valor, rotulo, ordem, ativo').eq('company_id', companyId).eq('lista', lista).order('ordem')
+    setRows((data ?? []) as Opcao[])
+  }, [companyId, lista])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void recarregar() }, [recarregar])
+  const usoDe = (valor: string) => { const campo = CAMPO_DE_LISTA[lista]; return campo ? servicos.filter(s => s[campo] === valor).length : 0 }
+  async function salvar(o: Opcao) {
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_agency_config_salvar', { p_campos: { id: o.id, rotulo: o.rotulo, ordem: o.ordem, ativo: o.ativo } })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    await recarregar(); onChange()
+  }
+  async function adicionar() {
+    if (!novo.trim()) { setMsg('Informe o nome da opção.'); return }
+    setBusy(true); setMsg(null)
+    const maxOrdem = rows.reduce((m, r) => Math.max(m, r.ordem), 0)
+    const { data, error } = await supabase.rpc('fn_agency_config_salvar', { p_campos: { company_id: companyId, lista, rotulo: novo.trim(), ordem: maxOrdem + 10 } })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setNovo(''); await recarregar(); onChange()
+  }
+  async function excluir(o: Opcao) {
+    const n = usoDe(o.valor)
+    if (n > 0) { setMsg(`${n} serviço(s) usam "${o.rotulo}". Desative em vez de excluir.`); return }
+    if (!confirm(`Excluir "${o.rotulo}"?`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_config_excluir', { p_id: o.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string; qtd?: number } | null
+    if (error || !j?.ok) { setMsg(j?.erro === 'opcao_em_uso' ? `${j.qtd} serviço(s) usam esta opção. Desative.` : `Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    await recarregar(); onChange()
+  }
+  function patch(id: string, p: Partial<Opcao>) { setRows(arr => arr.map(r => r.id === id ? { ...r, ...p } : r)) }
+  return (
+    <Modal titulo={`Opções · ${LISTA_ROTULO[lista] ?? lista}`} onClose={onClose}>
+      {msg && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>{msg}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        {rows.map(o => {
+          const n = usoDe(o.valor)
+          return (
+            <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center' }}>
+              <input value={o.rotulo} onChange={e => patch(o.id, { rotulo: e.target.value })} onBlur={() => void salvar(o)} style={inp} />
+              <span style={{ fontSize: 11, color: TEXTM, minWidth: 54, textAlign: 'right' }}>{n} uso{n === 1 ? '' : 's'}</span>
+              <button disabled={busy} onClick={() => void salvar({ ...o, ativo: !o.ativo })} style={{ ...btnSec, color: o.ativo ? '#166534' : TEXTM }}>{o.ativo ? 'Ativa' : 'Inativa'}</button>
+              <button disabled={busy} onClick={() => void excluir(o)} title={n > 0 ? `${n} em uso` : 'Excluir'} style={{ ...btnSec, borderColor: RED, color: RED, opacity: n > 0 ? 0.5 : 1 }}>✕</button>
+            </div>
+          )
+        })}
+        {rows.length === 0 && <div style={{ fontSize: 12.5, color: TEXTM }}>Sem opções — adicione a primeira.</div>}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void adicionar() }} placeholder="Nova opção (ex.: carrossel)" style={{ ...inp, flex: 1 }} />
+        <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnSec, background: DOURADO, color: '#fff', borderColor: DOURADO }}>+ Add</button>
       </div>
     </Modal>
   )
