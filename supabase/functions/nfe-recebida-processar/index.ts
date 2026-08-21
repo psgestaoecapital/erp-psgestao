@@ -32,6 +32,16 @@ const CORS_HEADERS = {
 
 const FOCUS_BASE = "https://api.focusnfe.com.br"
 
+// tipo do evento Focus → estado gravado (CHECK erp_nfe_recebidas_status_manifestacao_check).
+// Os nomes do evento (confirmacao/desconhecimento) ≠ os estados do CHECK (confirmada/desconhecida):
+// gravar o nome cru violaria o constraint.
+const EVENTO_PARA_STATUS: Record<string, string> = {
+  ciencia: "ciencia",
+  confirmacao: "confirmada",
+  desconhecimento: "desconhecida",
+  nao_realizada: "nao_realizada",
+}
+
 function respond(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
@@ -360,7 +370,7 @@ Deno.serve(async (req: Request) => {
     .from("erp_nfe_recebidas")
     .update({
       status: "aguardando_xml",
-      status_manifestacao: tipoManif,
+      status_manifestacao: EVENTO_PARA_STATUS[tipoManif] ?? "ciencia",
       manifestado_em: new Date().toISOString(),
       lancar_ao_completar: gerarPagar,
       updated_at: new Date().toISOString(),
