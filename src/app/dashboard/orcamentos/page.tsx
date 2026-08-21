@@ -26,7 +26,8 @@ type ItemOrc = {
   aliquota_iss?:number; // override do ISS por item (default vem do cadastro do serviço)
   iss_retido?:boolean;  // ISS retido na fonte por item (override do cadastro)
   valor_iss?:number;    // valor do ISS (subtotal * aliquota/100) — persistido p/ emissão/financeiro
-  setor_id?:string|null; // setor/departamento p/ rateio (compliance_setores)
+  setor_id?:string|null; // DEPRECATED (era compliance_setores) — não usar
+  centro_custo_id?:string|null; // rateio gerencial → erp_centros_custo
   _srv_aliquota_padrao?:number; // só p/ hint "padrão do cadastro" — não persiste
   observacoes?:string;
   _srv_eng?:boolean; // linha = serviço do catálogo de ENGENHARIA (projetos_servicos), precificado com BDI
@@ -97,6 +98,8 @@ export default function OrcamentosPage(){
   // Form state
   const [form,setForm]=useState<Partial<Orcamento>>({});
   const [itens,setItens]=useState<ItemOrc[]>([]);
+  // Centros de custo p/ rateio do item (erp_centros_custo — cadastro certo, não setor de RH)
+  const [centrosCusto,setCentrosCusto]=useState<{id:string;nome:string;codigo:string|null}[]>([]);
   
   // Autocomplete
   const [buscaCliente,setBuscaCliente]=useState("");
@@ -119,6 +122,18 @@ export default function OrcamentosPage(){
   useEffect(()=>{
     if(companyIds.length>0){loadOrcamentos();loadProdutos();}
   },[companyIds.join(",")]);
+
+  // Carrega os centros de custo da empresa do orçamento (rateio do item).
+  useEffect(()=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    if(!showForm||!cid){return;}
+    let alive=true;
+    void(async()=>{
+      const{data}=await supabase.from("erp_centros_custo").select("id,nome,codigo").eq("company_id",cid).eq("ativo",true).order("nome");
+      if(alive)setCentrosCusto((data||[]) as {id:string;nome:string;codigo:string|null}[]);
+    })();
+    return()=>{alive=false;};
+  },[showForm,editing,companyIdParaCadastro]);
 
   // Contexto de engenharia: se a empresa tem projetos_modulo_config → habilita busca de serviço
   // de engenharia + BDI. Trava de preço: vendedor_pode_alterar_preco, senão só quem pode gerir (master).
@@ -432,7 +447,7 @@ export default function OrcamentosPage(){
           margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,
           aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
           iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
-          setor_id:i.setor_id ?? null,
+          setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
         }));
         const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
         if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
@@ -456,7 +471,7 @@ export default function OrcamentosPage(){
           aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
           iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
           valor_iss:i.tipo_item==='servico'&&(i.aliquota_iss??0)>0?Math.round(i.subtotal*(i.aliquota_iss??0)/100*100)/100:null,
-          setor_id:i.setor_id ?? null,
+          setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
         }));
         if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
       }
@@ -737,6 +752,16 @@ export default function OrcamentosPage(){
                       <input type="checkbox" checked={!!it.iss_retido} onChange={e=>atualizarItem(idx,'iss_retido',e.target.checked)} style={{accentColor:P}}/>
                       <span style={{fontWeight:600,color:it.iss_retido?P:TXD}}>Retido{it.iss_retido?' na fonte':''}</span>
                     </label>
+                  </div>
+                )}
+                {centrosCusto.length>0 && (
+                  <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",gap:8,fontSize:10,color:TXD,paddingTop:2}}>
+                    <span style={{fontWeight:600}} title="Rateio gerencial deste item — centro de custo (não setor de RH)">Rateio</span>
+                    <select value={it.centro_custo_id??''} onChange={e=>atualizarItem(idx,'centro_custo_id', e.target.value||null)}
+                      style={{flex:1,maxWidth:300,padding:"3px 6px",fontSize:10,border:`1px solid ${BD}`,borderRadius:4,background:'#fff',cursor:'pointer'}}>
+                      <option value="">— sem rateio —</option>
+                      {centrosCusto.map(cc=><option key={cc.id} value={cc.id}>{cc.codigo?`${cc.codigo} · `:''}{cc.nome}</option>)}
+                    </select>
                   </div>
                 )}
               </div>
