@@ -229,9 +229,12 @@ export default function DiagnosticoPage() {
       })) },
     })
     setSalvando(false)
-    const j = data as { ok?: boolean; erro?: string; itens?: number } | null
+    const j = data as { ok?: boolean; erro?: string; itens?: number; nao_removidos?: number } | null
     if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
-    setMsg(`✅ Laudo salvo — ${j?.itens ?? 0} item(ns). Próximo: aprovação do cliente.`)
+    const bloq = j?.nao_removidos ?? 0
+    setMsg(bloq > 0
+      ? `✅ Laudo salvo — ${j?.itens ?? 0} item(ns). ⚠️ ${bloq} item(ns) não removido(s): já estão em cotação/apontamento.`
+      : `✅ Laudo salvo — ${j?.itens ?? 0} item(ns). Próximo: aprovação do cliente.`)
     await carregarLista()
     setTimeout(() => setOsSel(null), 1400)
   }
