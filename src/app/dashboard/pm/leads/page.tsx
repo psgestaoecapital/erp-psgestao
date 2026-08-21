@@ -64,6 +64,8 @@ export default function LeadsPage() {
   const [form, setForm] = useState<FormLead>(FORM0)
   const [editando, setEditando] = useState<Lead | null>(null)   // Demanda 2: modal de edição
   const [menuLead, setMenuLead] = useState<string | null>(null) // Demanda 1: "⋯" do card (ganhar/perder/converter)
+  const [reuniaoLead, setReuniaoLead] = useState<Lead | null>(null) // modal de agendamento de reunião
+  const [reunioesMap, setReunioesMap] = useState<Record<string, { data: string; hora: string | null; link: string | null; local: string | null }>>({})
   const [cliTermo, setCliTermo] = useState('')
   const [cliSug, setCliSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
   const [cliBuscando, setCliBuscando] = useState(false)
@@ -101,6 +103,17 @@ export default function LeadsPage() {
       for (const u of (us ?? []) as { id: string; full_name: string | null; email: string | null }[]) m[u.id] = u.full_name || u.email || '—'
       setRespMap(m)
     } else setRespMap({})
+    // reuniões vinculadas (erp_agendamento comercial · dados.lead_id) → mapa por lead (a mais recente)
+    const { data: ags } = await supabase.from('erp_agendamento')
+      .select('data, hora_inicio, link_reuniao, local, dados')
+      .eq('company_id', empresa).eq('origem_modulo', 'comercial')
+      .order('data', { ascending: false })
+    const rm: Record<string, { data: string; hora: string | null; link: string | null; local: string | null }> = {}
+    for (const a of (ags ?? []) as { data: string; hora_inicio: string | null; link_reuniao: string | null; local: string | null; dados: { lead_id?: string } | null }[]) {
+      const lid = a.dados?.lead_id
+      if (lid && !rm[lid]) rm[lid] = { data: a.data, hora: a.hora_inicio, link: a.link_reuniao, local: a.local }
+    }
+    setReunioesMap(rm)
     setLoading(false)
   }, [empresa])
 
@@ -228,30 +241,8 @@ export default function LeadsPage() {
       setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
     } finally { setBusy(false) }
   }
-  async function agendar(l: Lead) {
-    const atual = l.reuniao_agendada_em ? l.reuniao_agendada_em.slice(0, 16) : ''
-    const val = prompt('Data/hora da reunião (AAAA-MM-DDThh:mm):', atual)
-    if (val === null) return
-    const iso = val.trim() ? new Date(val.trim()).toISOString() : null
-    if (val.trim() && iso && isNaN(new Date(val.trim()).getTime())) { setToast('Data inválida.'); return }
-    const reuniaoChave = etapas.find((e) => e.chave === 'reuniao_agendada')?.chave
-    await supabase.from('agency_leads').update({ reuniao_agendada_em: iso, etapa: iso && reuniaoChave ? reuniaoChave : l.etapa, atualizado_em: new Date().toISOString() }).eq('id', l.id)
-    // Fase 1b · além de marcar reuniao_agendada_em, cria um agendamento comercial (aparece na Agenda,
-    // vinculado ao lead por dados.lead_id). Não bloqueia o fluxo se falhar.
-    if (iso && empresa) {
-      const [d, hm] = val.trim().split('T')
-      const hIni = (hm || '09:00').slice(0, 5)
-      const [hh, mm] = hIni.split(':').map((n) => parseInt(n, 10) || 0)
-      const hFim = `${String((hh + 1) % 24).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
-      await supabase.rpc('fn_agendamento_criar', {
-        p_company_id: empresa, p_origem: 'comercial', p_titulo: `Reunião · ${l.empresa || l.nome || 'lead'}`,
-        p_cliente_id: l.erp_cliente_id ?? null, p_cliente_nome: l.empresa || l.nome || null,
-        p_responsavel_id: l.responsavel_id ?? uid, p_responsavel_nome: null,
-        p_data: d, p_hora_inicio: hIni, p_hora_fim: hFim, p_dados: { lead_id: l.id }, p_observacao: null,
-      })
-    }
-    setToast(iso ? 'Reunião AGENDADA.' : 'Agendamento removido.'); void carregar()
-  }
+  // Reunião: abre o modal de agendamento (substitui o prompt cru).
+  function agendar(l: Lead) { setReuniaoLead(l) }
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
@@ -328,7 +319,16 @@ export default function LeadsPage() {
                           </div>
                           {(l.contato_email || l.contato_telefone) && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>{[l.contato_telefone, l.contato_email].filter(Boolean).join(' · ')}</div>}
                           {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
-                          {l.reuniao_agendada_em && <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2 }}>📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>}
+                          {l.reuniao_agendada_em && (
+                            <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              {reunioesMap[l.id]?.link && (
+                                <a href={reunioesMap[l.id]!.link!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                  style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#2F5AA8', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>▶ entrar</a>
+                              )}
+                              {reunioesMap[l.id]?.local && <span style={{ color: TEXTM }}>· {reunioesMap[l.id]!.local}</span>}
+                            </div>
+                          )}
                           {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
                           {!fim && (
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
@@ -430,6 +430,12 @@ export default function LeadsPage() {
       {editando && empresa && (
         <EditarLeadModal lead={editando} empresa={empresa} origens={origens}
           onClose={() => setEditando(null)} onSaved={() => { setEditando(null); void carregar() }} />
+      )}
+
+      {reuniaoLead && empresa && (
+        <ReuniaoModal lead={reuniaoLead} empresa={empresa} uid={uid}
+          reuniaoChave={etapas.find((e) => e.chave === 'reuniao_agendada')?.chave ?? null}
+          onClose={() => setReuniaoLead(null)} onSaved={() => { setReuniaoLead(null); void carregar() }} setToast={setToast} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
@@ -645,6 +651,78 @@ function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }:
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, alignItems: 'center' }}>
           <input value={novo} onChange={(e) => setNovo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} placeholder="Nome da origem (ex.: Feira, LinkedIn)" style={{ ...inp, minHeight: 34 }} />
           <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnPri, minHeight: 34, padding: '6px 12px' }}>+ Add</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Reunião do lead · modal completo (substitui o prompt): data/hora + local + link + obs ─────────
+function ReuniaoModal({ lead, empresa, uid, reuniaoChave, onClose, onSaved, setToast }: {
+  lead: Lead; empresa: string; uid: string | null; reuniaoChave: string | null
+  onClose: () => void; onSaved: () => void; setToast: (s: string) => void
+}) {
+  const nomeLead = lead.empresa || lead.nome || 'lead'
+  const hoje = new Date()
+  const dataDefault = lead.reuniao_agendada_em ? lead.reuniao_agendada_em.slice(0, 10)
+    : `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`
+  const horaDefault = lead.reuniao_agendada_em ? new Date(lead.reuniao_agendada_em).toTimeString().slice(0, 5) : '09:00'
+  const [titulo, setTitulo] = useState(`Reunião · ${nomeLead}`)
+  const [data, setData] = useState(dataDefault)
+  const [hIni, setHIni] = useState(horaDefault)
+  const [hFim, setHFim] = useState(() => { const [h, m] = horaDefault.split(':').map((n) => parseInt(n, 10) || 0); return `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}` })
+  const [local, setLocal] = useState('')
+  const [link, setLink] = useState('')
+  const [obs, setObs] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const linkOk = !link.trim() || /^https?:\/\/.+/i.test(link.trim())
+
+  async function salvar() {
+    if (!data || !hIni) { setErro('Informe data e hora.'); return }
+    if (!linkOk) { setErro('O link da reunião deve começar com http:// ou https://'); return }
+    setBusy(true); setErro(null)
+    const iso = new Date(`${data}T${hIni}`).toISOString()
+    // marca a reunião no lead (+ etapa reuniao se existir no funil)
+    await supabase.from('agency_leads').update({
+      reuniao_agendada_em: iso, etapa: reuniaoChave ? reuniaoChave : lead.etapa, atualizado_em: new Date().toISOString(),
+    }).eq('id', lead.id)
+    // cria o evento na Agenda (comercial) com local + link (via dados → colunas)
+    const { error } = await supabase.rpc('fn_agendamento_criar', {
+      p_company_id: empresa, p_origem: 'comercial', p_titulo: titulo.trim() || `Reunião · ${nomeLead}`,
+      p_cliente_id: lead.erp_cliente_id ?? null, p_cliente_nome: lead.empresa || lead.nome || null,
+      p_responsavel_id: lead.responsavel_id ?? uid, p_responsavel_nome: null,
+      p_data: data, p_hora_inicio: hIni, p_hora_fim: hFim || null,
+      p_dados: { lead_id: lead.id, local: local.trim() || null, link_reuniao: link.trim() || null },
+      p_observacao: obs.trim() || null,
+    })
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    setToast('Reunião AGENDADA.'); onSaved()
+  }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={modal} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>📅 Agendar reunião</h2>
+          <button onClick={onClose} style={btnSec}>Fechar</button>
+        </div>
+        <label style={lbl}>Título<input style={inp} value={titulo} onChange={(e) => setTitulo(e.target.value)} /></label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 10 }}>
+          <label style={lbl}>Data<input type="date" style={inp} value={data} onChange={(e) => setData(e.target.value)} /></label>
+          <label style={lbl}>Início<input type="time" style={inp} value={hIni} onChange={(e) => setHIni(e.target.value)} /></label>
+          <label style={lbl}>Fim<input type="time" style={inp} value={hFim} onChange={(e) => setHFim(e.target.value)} /></label>
+        </div>
+        <label style={lbl}>Local (endereço, sala ou &quot;Online&quot;)<input style={inp} value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Online / Sala 2 / Rua X" /></label>
+        <label style={lbl}>Link da reunião (Meet/Zoom/Teams — opcional)
+          <input style={{ ...inp, borderColor: linkOk ? BORDA : RED }} value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://meet.google.com/..." />
+        </label>
+        <label style={lbl}>Observação<input style={inp} value={obs} onChange={(e) => setObs(e.target.value)} /></label>
+        {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginTop: 8 }}>{erro}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <button onClick={onClose} style={btnGhost}>Cancelar</button>
+          <button disabled={busy} onClick={() => void salvar()} style={btnPri}>{busy ? 'Salvando…' : 'Agendar'}</button>
         </div>
       </div>
     </div>
