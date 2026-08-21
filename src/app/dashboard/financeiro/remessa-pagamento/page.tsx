@@ -196,6 +196,19 @@ export default function RemessaPagamentoPage() {
     () => selecionadas.filter((t) => ehPix(t.forma_pagamento) && !(t.chave_pix?.trim()) && !(t.fornecedor?.pix?.trim())),
     [selecionadas],
   )
+  // #7a.3 · fallback "não travar mudo": lista, POR FORNECEDOR, quem tem pagamento PIX sem chave (nem no
+  // título, nem no cadastro do fornecedor) entre os títulos exibidos — pra a Jordana cadastrar a chave.
+  // Com 0 chaves hoje, é o que guia o cadastro. (A geração do segmento PIX em si é o #7a.2, pendente.)
+  const fornSemChavePix = useMemo(() => {
+    const porNome = new Map<string, number>()
+    for (const t of filtradas) {
+      if (!ehPix(t.forma_pagamento)) continue
+      if (t.chave_pix?.trim() || t.fornecedor?.pix?.trim()) continue
+      const nome = (t.fornecedor?.nome?.trim() || t.descricao?.trim() || 'Fornecedor sem nome')
+      porNome.set(nome, (porNome.get(nome) ?? 0) + 1)
+    }
+    return Array.from(porNome.entries()).map(([nome, qtd]) => ({ nome, qtd })).sort((a, b) => b.qtd - a.qtd)
+  }, [filtradas])
   const preview = useMemo(() => {
     if (!cfg || !emp || !selecionadas.length) return null
     const opts = { dtPagto: hoje().toISOString().slice(0, 10), dataGer: ddmmaaaa(hoje()), horaGer: hhmmss(hoje()), seqArq: 0 }
@@ -559,6 +572,29 @@ export default function RemessaPagamentoPage() {
             <b>{eleg.motivoPorId.size}</b> título(s) não entram na remessa —{' '}
             {eleg.grupos.slice(0, 3).map((g) => `${g.qtd} ${g.motivo}`).join(' · ')}
             {eleg.grupos.length > 3 ? ' · …' : ''}. O motivo aparece em cada linha abaixo.
+          </div>
+        )}
+
+        {/* #7a.3 · chave PIX faltando por fornecedor + link pro cadastro (não travar mudo) */}
+        {fornSemChavePix.length > 0 && (
+          <div style={{ margin: '0 0 10px', padding: '9px 12px', borderRadius: 8, background: '#FBEAEA', border: `0.5px solid ${VERM}`, fontSize: 12.5, color: ESP }}>
+            <b>Chave PIX faltando</b> — {fornSemChavePix.reduce((s, f) => s + f.qtd, 0)} pagamento(s) PIX sem chave.
+            A chave precisa estar no cadastro do fornecedor (ou no título) para pagar por PIX. Cadastre:
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {fornSemChavePix.slice(0, 12).map((f) => (
+                <a
+                  key={f.nome}
+                  href={`/dashboard/fornecedores?busca=${encodeURIComponent(f.nome)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Abrir o cadastro de ${f.nome} para preencher a chave PIX`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 999, background: '#FFF', border: `0.5px solid ${VERM}`, color: VERM, fontWeight: 600, textDecoration: 'none' }}
+                >
+                  cadastrar chave PIX · {f.nome}{f.qtd > 1 ? ` (${f.qtd})` : ''} ↗
+                </a>
+              ))}
+              {fornSemChavePix.length > 12 && <span style={{ color: MUT }}>+{fornSemChavePix.length - 12} fornecedor(es)…</span>}
+            </div>
           </div>
         )}
 
