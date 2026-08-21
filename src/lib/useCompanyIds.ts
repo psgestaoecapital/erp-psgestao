@@ -76,6 +76,11 @@ export function useCompanyIds() {
   // renderizar vazio ao inves de detectar "empresa desconhecida".
   const selValido = useMemo<string>(() => {
     if (!companies.length) return sel; // ainda carregando: preserva pra evitar flicker
+    // TENANT-UNICO: usuario com EXATAMENTE 1 empresa nao deve ver "selecione uma
+    // empresa" — a consolidacao dele E a empresa dele. Auto-seleciona pra telas
+    // que exigem empresa especifica (selInfo.tipo==='empresa', ex: Catalogo).
+    // Cobre os 28 operadores single-tenant. Multi-empresa NUNCA e chutada.
+    if (companies.length === 1) return companies[0].id;
     if (sel === "consolidado") return "consolidado";
     if (sel.startsWith("group_")) return sel;
     return companies.some((c) => c.id === sel) ? sel : "consolidado";

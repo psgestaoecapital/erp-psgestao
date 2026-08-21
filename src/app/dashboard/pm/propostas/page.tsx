@@ -61,6 +61,8 @@ export default function PropostasPage() {
   const [fObs, setFObs] = useState('')
   const [itens, setItens] = useState<Item[]>([itemVazio()])
 
+  // destaque de uma proposta vinda do card do lead (?proposta=<id>)
+  const [destaque, setDestaque] = useState<string | null>(null)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
   const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
@@ -80,6 +82,12 @@ export default function PropostasPage() {
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
+  // rola até a proposta destacada (vinda do card do lead) quando a lista carrega
+  useEffect(() => {
+    if (!destaque || loading) return
+    const el = document.getElementById(`prop-${destaque}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [destaque, loading, propostas])
 
   function abrirNovo(cliId?: string, tit?: string) {
     setFCliente(cliId ?? '')
@@ -93,6 +101,9 @@ export default function PropostasPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search)
+    const prop = q.get('proposta') || undefined
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (prop) { setDestaque(prop); return } // veio do card do lead → destaca a proposta existente/criada
     const cli = q.get('erp_cliente_id') || q.get('cliente_id') || undefined
     const brf = q.get('briefing_id') || undefined
     const tit = q.get('titulo') || undefined
@@ -227,7 +238,7 @@ export default function PropostasPage() {
                 const cfg = stCfg(p.status)
                 const nItens = Array.isArray(p.itens) ? p.itens.length : 0
                 return (
-                  <div key={p.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div key={p.id} id={`prop-${p.id}`} style={{ background: p.id === destaque ? '#FBF3DE' : '#fff', border: `${p.id === destaque ? 2 : 1}px solid ${p.id === destaque ? DOURADO : BORDA}`, borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1, minWidth: 180 }}>
                       <div style={{ fontWeight: 700 }}>{p.titulo}{p.numero ? <span style={{ color: TEXTM, fontWeight: 400 }}> · {p.numero}</span> : null}</div>
                       <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>

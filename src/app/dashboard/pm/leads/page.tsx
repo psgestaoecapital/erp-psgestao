@@ -245,6 +245,26 @@ export default function LeadsPage() {
   // Reunião: abre o modal de agendamento (substitui o prompt cru).
   function agendar(l: Lead) { setReuniaoLead(l) }
 
+  // Proposta: abre a proposta vinculada ao lead; se não houver, cria uma vinculada (nunca órfã) e abre.
+  async function proposta(l: Lead) {
+    setBusy(true)
+    try {
+      const { data } = await supabase.rpc('fn_agency_lead_proposta', { p_lead_id: l.id })
+      const r = data as { ok?: boolean; proposta?: { id: string } | null } | null
+      if (r?.ok && r.proposta?.id) { router.push(`/dashboard/pm/propostas?proposta=${r.proposta.id}`); return }
+      // sem proposta → cria vinculada + pré-preenchida
+      const { data: c, error } = await supabase.rpc('fn_agency_lead_proposta_criar', { p_lead_id: l.id })
+      const cr = c as { ok?: boolean; id?: string; erro?: string } | null
+      if (error || !cr?.ok || !cr.id) { setToast('Erro ao criar proposta: ' + (error?.message ?? cr?.erro ?? 'falhou')); return }
+      // criar proposta = avançar: move o lead pra etapa "proposta" se existir no funil
+      const propChave = etapas.find((e) => e.chave === 'proposta')?.chave
+      if (propChave && l.etapa !== propChave) {
+        await supabase.from('agency_leads').update({ etapa: propChave, atualizado_em: new Date().toISOString() }).eq('id', l.id)
+      }
+      router.push(`/dashboard/pm/propostas?proposta=${cr.id}`)
+    } finally { setBusy(false) }
+  }
+
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
   return (
@@ -338,7 +358,7 @@ export default function LeadsPage() {
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
                               {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
                               <button onClick={() => agendar(l)} style={chip(DOURADO)}>📅 Reunião</button>
-                              <button disabled={busy} onClick={() => void moverEtapa(l, 'proposta')} style={chip(ESPRESSO)}>📄 Proposta</button>
+                              <button disabled={busy} onClick={() => void proposta(l)} style={chip(ESPRESSO)}>📄 Proposta</button>
                               <button onClick={() => setEditando(l)} style={chip('#2F5AA8')}>✏️ Editar</button>
                               <button onClick={() => setMenuLead(menuLead === l.id ? null : l.id)} title="Mais ações" style={{ ...chip(TEXTM), fontWeight: 700 }}>⋯</button>
                               {menuLead === l.id && (

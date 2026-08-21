@@ -57,6 +57,14 @@ export default function SidebarHeader() {
         nome: c.nome_fantasia || c.razao_social || c.id,
       }))
       setEmpresas(lista)
+      // TENANT-UNICO: usuario com EXATAMENTE 1 empresa e sem selecao valida no
+      // storage — persiste a empresa dele em ps_empresa_sel (silencioso, sem
+      // reload). Sem isso, telas que leem o storage direto veem "selecione uma
+      // empresa". Espelha o auto-select do useCompanyIds pros 28 operadores.
+      if (lista.length === 1 && !lerEmpresaId() && typeof window !== 'undefined') {
+        localStorage.setItem(EMPRESA_STORAGE_KEY, lista[0].id)
+        setEmpresaSelId(lista[0].id)
+      }
     })()
     return () => { ignore = true }
   }, [])
