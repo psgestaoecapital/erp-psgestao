@@ -70,6 +70,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [buscaOS, setBuscaOS] = useState<string | null>(null)
   const [qOS, setQOS] = useState('')
   const [resOS, setResOS] = useState<OSLite[]>([])
+  // #11b · ações da nota (entrada de estoque / enviar pro financeiro) + feedback
+  const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -84,6 +87,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     setItens(r.itens ?? [])
   }, [nfeId])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
   async function buscarProduto(termo: string) {
@@ -114,6 +118,55 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     setBuscaItem(null); setQ(''); setRes([])
     await carregar()
     onChange?.()
+  }
+
+  // #11b · override do flag "movimenta estoque" por item (fn_nfe_item_set_entra_estoque, gated).
+  async function setEntra(itemId: string, entra: boolean) {
+    setBusy(true); setErro(null); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_nfe_item_set_entra_estoque', {
+      p_item_id: itemId, p_entra: entra,
+    })
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok: boolean; erro?: string; entra_estoque?: boolean } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Não consegui alterar o item'); return }
+    setItens((prev) => prev.map((x) =>
+      x.item_id === itemId ? { ...x, entra_estoque: r.entra_estoque ?? entra } : x))
+    onChange?.()
+  }
+
+  // #11b · dar entrada no estoque (respeita entra_estoque por item; local único resolvido no servidor)
+  async function darEntradaEstoque() {
+    setAcaoBusy('estoque'); setErro(null); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_dar_entrada_estoque', {
+      p_nfe_recebida_id: nfeId,
+    })
+    setAcaoBusy(null)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok: boolean; erro?: string; itens_movidos?: number; pendentes_vinculo?: number } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Não consegui dar entrada'); return }
+    const partes = [`${r.itens_movidos ?? 0} item(ns) deram entrada no estoque`]
+    if ((r.pendentes_vinculo ?? 0) > 0) {
+      partes.push(`${r.pendentes_vinculo} marcado(s) p/ estoque ainda SEM produto vinculado — vincule e repita`)
+    }
+    setMsg('✅ ' + partes.join(' · '))
+    await carregar(); onChange?.()
+  }
+
+  // #11b · enviar pro financeiro (gera a pagar) — independente da entrada de estoque, decisão do operador
+  async function enviarFinanceiro() {
+    setAcaoBusy('financeiro'); setErro(null); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_enviar_financeiro', {
+      p_nfe_recebida_id: nfeId,
+    })
+    setAcaoBusy(null)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok: boolean; erro?: string; pagar_criadas?: number; ja_lancado?: boolean } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Não consegui enviar pro financeiro'); return }
+    setMsg(r.ja_lancado
+      ? 'Esta nota já tinha sido enviada ao financeiro.'
+      : `✅ ${r.pagar_criadas ?? 0} conta(s) a pagar criada(s).`)
+    await carregar(); onChange?.()
   }
 
   // RD-26 · busca de OS (por número/cliente/placa) para vincular o item da NF
@@ -148,15 +201,6 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     onChange?.()
   }
 
-  function chipEstoque(it: Item) {
-    if (it.entra_estoque === true) {
-      return <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8F4DC] text-[#3F7012] font-medium">entra no estoque</span>
-    }
-    if (it.entra_estoque === false) {
-      return <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium">não entra</span>
-    }
-    return <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium">classificar CFOP</span>
-  }
   function chipVinculo(it: Item) {
     if (it.produto_id) {
       const sufixo = it.vinculo_origem === 'sugerido'
@@ -203,7 +247,22 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            {chipEstoque(it)}
+            {/* #11b · toggle "movimenta estoque" por item (override do CFOP) */}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void setEntra(it.item_id, !(it.entra_estoque === true))}
+              title="Define se este item movimenta o estoque na entrada. Clique para alternar."
+              className={
+                it.entra_estoque === true
+                  ? 'text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8F4DC] text-[#3F7012] font-medium hover:brightness-95 disabled:opacity-50'
+                  : it.entra_estoque === false
+                  ? 'text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium hover:brightness-95 disabled:opacity-50'
+                  : 'text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium hover:brightness-95 disabled:opacity-50'
+              }
+            >
+              {it.entra_estoque === true ? '☑ entra no estoque' : it.entra_estoque === false ? '☐ não entra' : '☐ classificar CFOP'}
+            </button>
             {chipVinculo(it)}
             {it.vinculo_origem?.startsWith('os:') && (
               <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8EEF9] text-[#2F5AA8] font-medium">✓ vinculado à OS</span>
@@ -304,6 +363,33 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
           )}
         </div>
       ))}
+
+      {/* #11b · ações da nota: entrada de estoque e/ou financeiro (independentes, decisão do operador) */}
+      {msg && (
+        <div className="text-[11.5px] px-3 py-2 rounded-md bg-[#E8F4DC] text-[#1B3608] border border-[#3F7012]/20">
+          {msg}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <button
+          type="button"
+          disabled={acaoBusy !== null}
+          onClick={() => void darEntradaEstoque()}
+          title="Movimenta o estoque só dos itens marcados 'entra no estoque' e com produto vinculado."
+          className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-50 min-h-[36px]"
+        >
+          {acaoBusy === 'estoque' ? 'Dando entrada…' : '📦 Dar entrada no estoque'}
+        </button>
+        <button
+          type="button"
+          disabled={acaoBusy !== null}
+          onClick={() => void enviarFinanceiro()}
+          title="Gera as contas a pagar desta nota (duplicatas). Independente da entrada de estoque."
+          className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50 min-h-[36px]"
+        >
+          {acaoBusy === 'financeiro' ? 'Enviando…' : '💰 Enviar pro financeiro'}
+        </button>
+      </div>
     </div>
   )
 }
