@@ -1148,10 +1148,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {r.numero_documento && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>nº {r.numero_documento}</div>
                           )}
-                          {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor) na linha */}
-                          {(r.categoria || r.nome_pessoa) && (
+                          {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
+                          {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
                               {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
