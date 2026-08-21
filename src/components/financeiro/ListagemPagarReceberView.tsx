@@ -563,6 +563,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setReloadKey((k) => k + 1)
   }
 
+  // BUG #13b · cancelar título manualmente (defensivo): status='cancelado' com motivo + histórico.
+  // Sai de inadimplentes na hora. Cobre título sem vínculo OMIE / falha de sync. Só recebíveis.
+  const cancelarTitulo = async (r: Resultado) => {
+    const motivo = prompt(`CANCELAR o título "${r.descricao}"?\nR$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nO título sai de inadimplentes (não é exclusão — fica como cancelado, recuperável).\nMotivo (fica no histórico):`, '')
+    if (motivo === null) return
+    const { data, error } = await supabase.rpc('fn_receber_cancelar', { p_id: r.id, p_motivo: motivo.trim() || null })
+    if (error) { alert('Erro ao cancelar: ' + error.message); return }
+    const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
+    if (!j?.sucesso) { alert('Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido')); return }
+    setReloadKey((k) => k + 1)
+  }
+
   // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
   // do domínio (whitelist + pula pagos p/ valor/vencimento + RLS + log — RD-55/RD-57).
   const campoMassaDef = CAMPOS_MASSA.find((c) => c.v === massaCampo) ?? CAMPOS_MASSA[0]
@@ -1275,6 +1287,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               📋
                             </button>
+                            {tipo === 'receber' && r.status !== 'cancelado' && (
+                              <button
+                                type="button"
+                                onClick={() => void cancelarTitulo(r)}
+                                title="Cancelar título (sai de inadimplentes · não é exclusão · recuperável)"
+                                aria-label="Cancelar título"
+                                style={{ background: 'transparent', color: '#8A5A00', border: '0.5px solid rgba(200,148,26,0.35)', width: 26, height: 26, borderRadius: 4, cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                🚫
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => void excluir(r)}
