@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react'
+import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Power, Zap, ChevronDown, ChevronUp, RotateCcw, Eye, Check, Ban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { ItensNfeRecebida } from './_components/ItensNfeRecebida'
@@ -104,6 +104,8 @@ export default function DocumentosRecebidosPage() {
   const [progresso, setProgresso] = useState<{ feitas: number; total: number } | null>(null)
   // Onda 3 · expansao por card pra ver/vincular itens
   const [expandido, setExpandido] = useState<Record<string, boolean>>({})
+  // #11a · manifestacao individual (ciencia/confirmar/recusar) por card
+  const [manifestando, setManifestando] = useState<Record<string, boolean>>({})
 
   async function carregar() {
     if (!empresaUnica) return
@@ -319,6 +321,51 @@ export default function DocumentosRecebidosPage() {
     setTimeout(() => setToast(null), 6000)
   }
 
+  // #11a · manifestação individual (evento oficial no SEFAZ via Focus, edge nfe-manifestar).
+  // tipo = nome do evento Focus; o status só muda se o Focus aceitar (RD-58).
+  async function manifestar(nfeId: string, tipo: 'ciencia' | 'confirmacao' | 'desconhecimento') {
+    if (!empresaUnica) return
+    const rotulo = tipo === 'ciencia' ? 'ciência' : tipo === 'confirmacao' ? 'confirmação' : 'recusa'
+    if (tipo === 'desconhecimento') {
+      if (!confirm('Recusar (desconhecer) esta nota? Envia o evento de Desconhecimento à SEFAZ — use quando a nota NÃO é da sua empresa. Ela sai do fluxo de lançamento.')) return
+    }
+    setManifestando((p) => ({ ...p, [nfeId]: true }))
+    setErro(null)
+    setToast(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '')
+      const r = await fetch(`${baseUrl}/functions/v1/nfe-manifestar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ company_id: empresaUnica, nfe_recebida_id: nfeId, tipo }),
+      })
+      const json = (await r.json()) as { ok: boolean; etapa?: string; body_preview?: string }
+      if (!r.ok || !json.ok) {
+        // Focus recusou / offline → status NÃO muda (não mente)
+        const detalhe = json.etapa === 'focus_manifestacao'
+          ? `SEFAZ/Focus recusou o evento${json.body_preview ? ' · ' + json.body_preview : ''}`
+          : (json.etapa ?? `Erro HTTP ${r.status}`)
+        setErro(`Não foi possível registrar a ${rotulo}: ${detalhe}`)
+        return
+      }
+      setToast(
+        tipo === 'desconhecimento'
+          ? '🚫 Nota recusada (Desconhecimento enviado à SEFAZ) — saiu do fluxo de lançamento.'
+          : `✅ ${tipo === 'confirmacao' ? 'Confirmação' : 'Ciência'} registrada na SEFAZ.`
+      )
+      await carregar()
+      setTimeout(() => setToast(null), 4000)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro de rede')
+    } finally {
+      setManifestando((p) => ({ ...p, [nfeId]: false }))
+    }
+  }
+
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return lista
@@ -528,9 +575,48 @@ export default function DocumentosRecebidosPage() {
                             {isExpandido ? 'Ocultar' : 'Itens'}
                           </button>
                         )}
+                        {/* #11a · manifestação individual (ciência/confirmar/recusar) — só enquanto pendente */}
+                        {n.manifestacao === 'pendente' && n.status !== 'ignorada' && (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void manifestar(n.id, 'ciencia')}
+                              disabled={!!manifestando[n.id]}
+                              title="Ciência da Operação (210210): registra que você sabe da nota, sem validar ainda."
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#BA7517]/40 text-[#A77A12] font-medium hover:bg-[#FBF3E0] disabled:opacity-50"
+                            >
+                              {manifestando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Eye size={11} />}
+                              Ciência
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void manifestar(n.id, 'confirmacao')}
+                              disabled={!!manifestando[n.id]}
+                              title="Confirmação da Operação (210200): confirma que a operação da nota ocorreu."
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#3F7012]/40 text-[#3F7012] font-medium hover:bg-[#E8F4DC] disabled:opacity-50"
+                            >
+                              <Check size={11} />
+                              Confirmar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void manifestar(n.id, 'desconhecimento')}
+                              disabled={!!manifestando[n.id]}
+                              title="Desconhecimento da Operação (210220): a nota NÃO é da sua empresa. Recusa e tira do fluxo."
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#C94544]/40 text-[#A32D2D] font-medium hover:bg-[#FCEBEB] disabled:opacity-50"
+                            >
+                              <Ban size={11} />
+                              Recusar
+                            </button>
+                          </div>
+                        )}
                         {n.lancado_pagar || n.status === 'lancada' ? (
                           <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
                             ✓ Lançada
+                          </span>
+                        ) : n.status === 'ignorada' ? (
+                          <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314]/8 text-[#3D2314]/60 font-medium">
+                            Recusada
                           </span>
                         ) : n.status === 'aguardando_xml' ? (
                           <span
