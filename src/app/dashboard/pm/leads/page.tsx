@@ -55,14 +55,15 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true)
   const [respMap, setRespMap] = useState<Record<string, string>>({})
   const [uid, setUid] = useState<string | null>(null)
-  // filtros
+  // filtros (Canal removido — Demanda 3 Luzardo: só "Origem do Lead")
   const [fOrigem, setFOrigem] = useState('todas')
-  const [fCanal, setFCanal] = useState('todos')
   const [fResp, setFResp] = useState('todos')
   const [busca, setBusca] = useState('')
   // modal + cadastro rápido
   const [novo, setNovo] = useState(false)
   const [form, setForm] = useState<FormLead>(FORM0)
+  const [editando, setEditando] = useState<Lead | null>(null)   // Demanda 2: modal de edição
+  const [menuLead, setMenuLead] = useState<string | null>(null) // Demanda 1: "⋯" do card (ganhar/perder/converter)
   const [cliTermo, setCliTermo] = useState('')
   const [cliSug, setCliSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
   const [cliBuscando, setCliBuscando] = useState(false)
@@ -114,16 +115,14 @@ export default function LeadsPage() {
   const ganhoChaves = useMemo(() => new Set(etapas.filter((e) => e.tipo_etapa === 'ganho').map((e) => e.chave)), [etapas])
   const perdaChave = useMemo(() => etapas.find((e) => e.tipo_etapa === 'perda')?.chave ?? 'perdido', [etapas])
 
-  const canais = useMemo(() => Array.from(new Set(leads.map((l) => l.canal_contato).filter(Boolean))) as string[], [leads])
   const responsaveis = useMemo(() => Array.from(new Set(leads.map((l) => l.responsavel_id).filter(Boolean))) as string[], [leads])
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return leads.filter((l) =>
       (fOrigem === 'todas' || l.origem === fOrigem) &&
-      (fCanal === 'todos' || l.canal_contato === fCanal) &&
       (fResp === 'todos' || l.responsavel_id === fResp) &&
       (!q || [l.nome, l.empresa, l.contato_email, l.contato_telefone].some((x) => (x ?? '').toLowerCase().includes(q))))
-  }, [leads, fOrigem, fCanal, fResp, busca])
+  }, [leads, fOrigem, fResp, busca])
   const kpis = useMemo(() => ({
     total: leads.length,
     emAberto: leads.filter((l) => !fechadas.has(l.etapa)).length,
@@ -285,10 +284,6 @@ export default function LeadsPage() {
             <option value="todas">Origem: todas</option>
             {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
           </select>
-          <select value={fCanal} onChange={(e) => setFCanal(e.target.value)} style={inp} aria-label="Canal">
-            <option value="todos">Canal: todos</option>
-            {canais.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
           <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
             <option value="todos">Responsável: todos</option>
             {responsaveis.map((r) => <option key={r} value={r}>{respMap[r] ?? '—'}</option>)}
@@ -336,11 +331,19 @@ export default function LeadsPage() {
                           {l.reuniao_agendada_em && <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2 }}>📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>}
                           {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
                           {!fim && (
-                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7 }}>
-                              <button disabled={busy} onClick={() => ganhar(l)} style={chip(GREEN)}>✓ Ganhar</button>
-                              <button onClick={() => perder(l)} style={chip(RED)}>✕ Perder</button>
-                              <button disabled={busy} onClick={() => converter(l)} style={chip(ESPRESSO)}>→ Converter</button>
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
+                              {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
                               <button onClick={() => agendar(l)} style={chip(DOURADO)}>📅 Reunião</button>
+                              <button disabled={busy} onClick={() => void moverEtapa(l, 'proposta')} style={chip(ESPRESSO)}>📄 Proposta</button>
+                              <button onClick={() => setEditando(l)} style={chip('#2F5AA8')}>✏️ Editar</button>
+                              <button onClick={() => setMenuLead(menuLead === l.id ? null : l.id)} title="Mais ações" style={{ ...chip(TEXTM), fontWeight: 700 }}>⋯</button>
+                              {menuLead === l.id && (
+                                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', width: '100%', marginTop: 2 }}>
+                                  <button disabled={busy} onClick={() => { setMenuLead(null); ganhar(l) }} style={chip(GREEN)}>✓ Ganhar</button>
+                                  <button onClick={() => { setMenuLead(null); perder(l) }} style={chip(RED)}>✕ Perder</button>
+                                  <button disabled={busy} onClick={() => { setMenuLead(null); converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -400,7 +403,7 @@ export default function LeadsPage() {
                 ⚙️ Gerenciar origens
               </button>
             </label>
-            <label style={lbl}>Valor estimado (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
+            <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <button onClick={() => setNovo(false)} style={btnGhost}>Cancelar</button>
@@ -422,6 +425,11 @@ export default function LeadsPage() {
           onClose={() => setOrigemCfgOpen(false)}
           onChange={async () => { await carregarOrigens() }}
           setToast={setToast} />
+      )}
+
+      {editando && empresa && (
+        <EditarLeadModal lead={editando} empresa={empresa} origens={origens}
+          onClose={() => setEditando(null)} onSaved={() => { setEditando(null); void carregar() }} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
@@ -637,6 +645,61 @@ function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }:
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, alignItems: 'center' }}>
           <input value={novo} onChange={(e) => setNovo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} placeholder="Nome da origem (ex.: Feira, LinkedIn)" style={{ ...inp, minHeight: 34 }} />
           <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnPri, minHeight: 34, padding: '6px 12px' }}>+ Add</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Demanda 2 · Editar lead (update direto em agency_leads via RLS — RD-26, sem RPC nova) ─────────
+function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
+  lead: Lead; empresa: string; origens: Origem[]; onClose: () => void; onSaved: () => void
+}) {
+  const [f, setF] = useState({
+    empresa: lead.empresa ?? '', nome: lead.nome ?? '',
+    contato_email: lead.contato_email ?? '', contato_telefone: lead.contato_telefone ?? '',
+    origem: lead.origem ?? '', valor_estimado: lead.valor_estimado != null ? String(lead.valor_estimado) : '',
+    observacoes: lead.observacoes ?? '',
+  })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  async function salvar() {
+    setBusy(true); setErro(null)
+    const { error } = await supabase.from('agency_leads').update({
+      empresa: f.empresa.trim() || null, nome: f.nome.trim() || null,
+      contato_email: f.contato_email.trim() || null, contato_telefone: f.contato_telefone.trim() || null,
+      origem: f.origem || lead.origem, valor_estimado: f.valor_estimado.trim() ? Number(f.valor_estimado) : null,
+      observacoes: f.observacoes.trim() || null, atualizado_em: new Date().toISOString(),
+    }).eq('id', lead.id).eq('company_id', empresa)
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    onSaved()
+  }
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={modal} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Editar lead</h2>
+          <button onClick={onClose} style={btnSec}>Fechar</button>
+        </div>
+        <label style={lbl}>Empresa<input style={inp} value={f.empresa} onChange={(e) => setF({ ...f, empresa: e.target.value })} /></label>
+        <label style={lbl}>Contato (nome)<input style={inp} value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} /></label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label style={lbl}>Email<input style={inp} value={f.contato_email} onChange={(e) => setF({ ...f, contato_email: e.target.value })} /></label>
+          <label style={lbl}>Telefone<input style={inp} value={f.contato_telefone} onChange={(e) => setF({ ...f, contato_telefone: e.target.value })} /></label>
+        </div>
+        <label style={lbl}>Origem do Lead
+          <select style={inp} value={f.origem} onChange={(e) => setF({ ...f, origem: e.target.value })}>
+            {!origens.some((o) => o.chave === f.origem) && f.origem && <option value={f.origem}>{f.origem}</option>}
+            {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
+          </select>
+        </label>
+        <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={f.valor_estimado} onChange={(e) => setF({ ...f, valor_estimado: e.target.value })} /></label>
+        <label style={lbl}>Observações<input style={inp} value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} /></label>
+        {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginTop: 8 }}>{erro}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <button onClick={onClose} style={btnGhost}>Cancelar</button>
+          <button disabled={busy} onClick={() => void salvar()} style={btnPri}>{busy ? 'Salvando…' : 'Salvar'}</button>
         </div>
       </div>
     </div>
