@@ -33,6 +33,14 @@ export default function AgendaComercialPage() {
 
   const [vis, setVis] = useState<Vis>('semana')
   const [ref, setRef] = useState(new Date())
+  // deep-link ?data=YYYY-MM-DD (ex.: clique "Ver na Agenda" no card do lead) → posiciona no dia do evento
+  useEffect(() => {
+    try {
+      const d = new URLSearchParams(window.location.search).get('data')
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setRef(new Date(`${d}T12:00:00`)); setVis('dia') }
+    } catch { /* SSR/sem window */ }
+  }, [])
   const [ags, setAgs] = useState<Ag[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)

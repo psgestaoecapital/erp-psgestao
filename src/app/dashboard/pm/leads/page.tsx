@@ -65,6 +65,7 @@ export default function LeadsPage() {
   const [editando, setEditando] = useState<Lead | null>(null)   // Demanda 2: modal de edição
   const [menuLead, setMenuLead] = useState<string | null>(null) // Demanda 1: "⋯" do card (ganhar/perder/converter)
   const [reuniaoLead, setReuniaoLead] = useState<Lead | null>(null) // modal de agendamento de reunião
+  const [detalheLead, setDetalheLead] = useState<Lead | null>(null) // detalhe da reunião (clique no 📅)
   const [reunioesMap, setReunioesMap] = useState<Record<string, { data: string; hora: string | null; link: string | null; local: string | null }>>({})
   const [cliTermo, setCliTermo] = useState('')
   const [cliSug, setCliSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
@@ -321,7 +322,10 @@ export default function LeadsPage() {
                           {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
                           {l.reuniao_agendada_em && (
                             <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              <button onClick={(e) => { e.stopPropagation(); setDetalheLead(l) }} title="Ver detalhes da reunião"
+                                style={{ background: 'none', border: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: 10.5 }}>
+                                📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </button>
                               {reunioesMap[l.id]?.link && (
                                 <a href={reunioesMap[l.id]!.link!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                                   style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#2F5AA8', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>▶ entrar</a>
@@ -430,6 +434,13 @@ export default function LeadsPage() {
       {editando && empresa && (
         <EditarLeadModal lead={editando} empresa={empresa} origens={origens}
           onClose={() => setEditando(null)} onSaved={() => { setEditando(null); void carregar() }} />
+      )}
+
+      {detalheLead && (
+        <ReuniaoDetalheModal lead={detalheLead} info={reunioesMap[detalheLead.id] ?? null}
+          onClose={() => setDetalheLead(null)}
+          onVerAgenda={(d) => { setDetalheLead(null); router.push(`/dashboard/pm/agenda?data=${d}`) }}
+          onReagendar={() => { const l = detalheLead; setDetalheLead(null); setReuniaoLead(l) }} />
       )}
 
       {reuniaoLead && empresa && (
@@ -652,6 +663,36 @@ function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }:
           <input value={novo} onChange={(e) => setNovo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} placeholder="Nome da origem (ex.: Feira, LinkedIn)" style={{ ...inp, minHeight: 34 }} />
           <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnPri, minHeight: 34, padding: '6px 12px' }}>+ Add</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Detalhe da reunião (clique no 📅 do card): hora/local + ▶ Entrar + Ver na Agenda + Reagendar ──
+function ReuniaoDetalheModal({ lead, info, onClose, onVerAgenda, onReagendar }: {
+  lead: Lead; info: { data: string; hora: string | null; link: string | null; local: string | null } | null
+  onClose: () => void; onVerAgenda: (data: string) => void; onReagendar: () => void
+}) {
+  const quando = lead.reuniao_agendada_em ? new Date(lead.reuniao_agendada_em).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+  const dataAgenda = info?.data ?? (lead.reuniao_agendada_em ? lead.reuniao_agendada_em.slice(0, 10) : '')
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>📅 Reunião</h2>
+          <button onClick={onClose} style={btnSec}>Fechar</button>
+        </div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: ESPRESSO }}>{lead.empresa || lead.nome}</div>
+        <div style={{ fontSize: 12.5, color: TEXTM, marginTop: 4 }}>🕒 {quando}</div>
+        {info?.local && <div style={{ fontSize: 12.5, color: TEXTM, marginTop: 2 }}>📍 {info.local}</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+          {info?.link && (
+            <a href={info.link} target="_blank" rel="noopener noreferrer" style={{ background: '#166534', color: '#fff', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>▶ Entrar na reunião</a>
+          )}
+          {dataAgenda && <button onClick={() => onVerAgenda(dataAgenda)} style={{ background: '#2F5AA8', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📆 Ver na Agenda</button>}
+          <button onClick={onReagendar} style={btnGhost}>Reagendar</button>
+        </div>
+        {!info?.link && <div style={{ fontSize: 11, color: TEXTM, marginTop: 10 }}>Sem link de reunião. Use &quot;Reagendar&quot; para adicionar o link do Meet/Zoom.</div>}
       </div>
     </div>
   )
