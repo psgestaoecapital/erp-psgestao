@@ -37,7 +37,21 @@ type Lead = {
   responsavel_id: string | null; cliente_id: string | null; erp_cliente_id: string | null
   contato_email: string | null; contato_telefone: string | null
   motivo_perda: string | null; observacoes: string | null; criado_em: string
+  etapa_desde: string | null; criado_por: string | null; deleted_at: string | null
 }
+// "há quanto tempo" curto: 45min · 6h · 3d 4h. Base para idade do lead e tempo na etapa.
+function tempoCurto(iso: string | null): string {
+  if (!iso) return '—'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60000) return 'agora'
+  const min = Math.floor(ms / 60000)
+  if (min < 60) return `${min}min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h}h`
+  const d = Math.floor(h / 24), hr = h % 24
+  return hr > 0 ? `${d}d ${hr}h` : `${d}d`
+}
+function diasDesde(iso: string | null): number { return iso ? (Date.now() - new Date(iso).getTime()) / 86400000 : 0 }
 type FormLead = {
   empresa: string; nome: string; contato_email: string; contato_telefone: string
   canal_contato: string; origem: string; valor_estimado: string; erp_cliente_id: string | null
@@ -94,10 +108,10 @@ export default function LeadsPage() {
   const carregar = useCallback(async () => {
     if (!empresa) { setLeads([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase.from('agency_leads').select('*').eq('company_id', empresa).order('criado_em', { ascending: false })
+    const { data } = await supabase.from('agency_leads').select('*').eq('company_id', empresa).is('deleted_at', null).order('criado_em', { ascending: false })
     const rows = (data ?? []) as Lead[]
     setLeads(rows)
-    const ids = Array.from(new Set(rows.map((r) => r.responsavel_id).filter(Boolean))) as string[]
+    const ids = Array.from(new Set(rows.flatMap((r) => [r.responsavel_id, r.criado_por]).filter(Boolean))) as string[]
     if (ids.length) {
       const { data: us } = await supabase.from('users').select('id, full_name, email').in('id', ids)
       const m: Record<string, string> = {}
@@ -265,6 +279,25 @@ export default function LeadsPage() {
     } finally { setBusy(false) }
   }
 
+  // Excluir lead = soft-delete (RD-54/55: não some do banco). Gate no servidor
+  // (responsável/criador/admin) — mensagem clara se não puder.
+  async function excluirLead(l: Lead) {
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir o lead "${l.empresa || l.nome}"?\nEle sai do Kanban (pode ser recuperado depois).`)) return
+    setBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_crm_lead_excluir', { p_lead_id: l.id })
+      const r = data as { ok?: boolean; erro?: string; orientacao?: string } | null
+      if (error || !r?.ok) {
+        setToast(r?.orientacao ?? (r?.erro === 'sem_permissao'
+          ? 'Só o responsável, quem criou ou um admin podem excluir este lead.'
+          : 'Erro ao excluir: ' + (error?.message ?? r?.erro ?? 'falhou')))
+        return
+      }
+      setToast('Lead excluído.')
+      await carregar()
+    } finally { setBusy(false) }
+  }
+
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
   return (
@@ -326,6 +359,9 @@ export default function LeadsPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
                     {items.map((l) => {
                       const fim = fechadas.has(l.etapa)
+                      // semáforo de lead parado (confirmado c/ CEO): amarelo ≥3d, vermelho ≥7d na etapa.
+                      const dEtapa = diasDesde(l.etapa_desde)
+                      const corEtapa = dEtapa >= 7 ? RED : dEtapa >= 3 ? DOURADO : TEXTM
                       return (
                         <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onDragEnd={() => setDragId(null)}
                           data-testid="lead-card"
@@ -340,6 +376,11 @@ export default function LeadsPage() {
                           </div>
                           {(l.contato_email || l.contato_telefone) && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>{[l.contato_telefone, l.contato_email].filter(Boolean).join(' · ')}</div>}
                           {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
+                          {l.criado_por && l.criado_por !== l.responsavel_id && respMap[l.criado_por] && <div style={{ fontSize: 10.5, color: TEXTM }}>criado por: {respMap[l.criado_por]}</div>}
+                          <div style={{ fontSize: 10, color: TEXTM, marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <span title={new Date(l.criado_em).toLocaleString('pt-BR')}>🕒 criado há {tempoCurto(l.criado_em)}</span>
+                            {!fim && <span style={{ color: corEtapa, fontWeight: dEtapa >= 3 ? 700 : 400 }} title={dEtapa >= 7 ? 'Lead parado há muito tempo nesta etapa' : dEtapa >= 3 ? 'Atenção: tempo elevado nesta etapa' : undefined}>⏱ nesta etapa há {tempoCurto(l.etapa_desde)}</span>}
+                          </div>
                           {l.reuniao_agendada_em && (
                             <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               <button onClick={(e) => { e.stopPropagation(); setDetalheLead(l) }} title="Ver detalhes da reunião"
@@ -354,6 +395,11 @@ export default function LeadsPage() {
                             </div>
                           )}
                           {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
+                          {fim && (
+                            <div style={{ marginTop: 6 }}>
+                              <button disabled={busy} onClick={() => void excluirLead(l)} style={chip(RED)}>🗑 Excluir</button>
+                            </div>
+                          )}
                           {!fim && (
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
                               {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
@@ -365,7 +411,8 @@ export default function LeadsPage() {
                                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', width: '100%', marginTop: 2 }}>
                                   <button disabled={busy} onClick={() => { setMenuLead(null); ganhar(l) }} style={chip(GREEN)}>✓ Ganhar</button>
                                   <button onClick={() => { setMenuLead(null); perder(l) }} style={chip(RED)}>✕ Perder</button>
-                                  <button disabled={busy} onClick={() => { setMenuLead(null); converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
+                                  <button disabled={busy} onClick={() => { setMenuLead(null); void converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
+                                  <button disabled={busy} onClick={() => { setMenuLead(null); void excluirLead(l) }} style={chip(RED)}>🗑 Excluir</button>
                                 </div>
                               )}
                             </div>
