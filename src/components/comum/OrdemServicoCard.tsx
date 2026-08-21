@@ -15,6 +15,7 @@ interface OS {
   id: string
   numero: string | null
   status: string
+  total: number | null
   company_id: string
   pedido_id: string | null
   cliente_id: string | null
@@ -135,8 +136,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [erroExcluir, setErroExcluir] = useState<string | null>(null)
   // OS → GE · faturar (gera título em Contas a Receber)
   const [faturando, setFaturando] = useState(false)
-  // RD-41 · edição pós-entrega restrita a Master (CLIENT_OWNER). papel na empresa da OS + selo de auditoria.
+  // RD-41 · edição pós-entrega restrita a Master (CLIENT_OWNER) — e agora também ao BPO (BUG #16b).
   const [papel, setPapel] = useState<string | null>(null)
+  const [isBpo, setIsBpo] = useState(false)
+  const [reabrindo, setReabrindo] = useState(false)
   const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
   // RD-41 · itens do diagnóstico (peças + serviços). A ficha reabria SEM eles → impresso zerado.
   const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
@@ -146,9 +149,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   // RD-41 · OS entregue: só Master (CLIENT_OWNER) ajusta. Não-Master fica somente-leitura.
   const entregue = os?.status === 'entregue'
   const isMaster = papel === 'CLIENT_OWNER'
-  const bloqueadoEntrega = Boolean(entregue && !isMaster)   // não-Master não edita OS entregue
+  const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
+  const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
   const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
-  const tipEntrega = 'OS entregue — ajustes só por usuário Master.'
+  const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
 
   async function faturar() {
     if (!os) return
@@ -190,7 +194,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -258,12 +262,18 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (!cid || !oid) { setPapel(null); setSelo(null); return }
     let alive = true
     void (async () => {
-      const [p, s] = await Promise.all([
+      const { data: userData } = await supabase.auth.getUser()
+      const uid = userData?.user?.id
+      const [p, s, b] = await Promise.all([
         supabase.rpc('fn_oficina_papel', { p_company_id: cid }),
         supabase.rpc('fn_os_editado_pos_entrega', { p_os_id: oid }),
+        uid
+          ? supabase.from('bpo_companies_assignment').select('id').eq('company_id', cid).eq('user_id', uid).eq('ativo', true).limit(1)
+          : Promise.resolve({ data: null }),
       ])
       if (!alive) return
       setPapel(typeof p.data === 'string' ? p.data : null)
+      setIsBpo(Array.isArray(b.data) && b.data.length > 0)
       const sel = s.data as { user_email?: string; quando?: string } | null
       setSelo(sel ?? null)
     })()
@@ -285,7 +295,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (resp?.os_id) {
       const { data: row } = await supabase
         .from('erp_os')
-        .select('id,numero,status,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .select('id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
         .eq('id', resp.os_id)
         .maybeSingle()
       if (row) {
@@ -312,6 +322,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
   async function alterarStatus(novoStatus: string) {
     if (!os) return
+    // BUG #16a · não deixar "entregar" com os valores zerados sem avisar (não passa silencioso).
+    if (novoStatus === 'entregue' && Number(os.total ?? 0) === 0) {
+      if (!window.confirm('Esta OS está com total R$ 0,00 (sem peças/mão de obra fechados). Entregar assim mesmo? O custo/lucro sairá zerado nos relatórios.')) return
+    }
     setErro(null)
     const { data, error } = await supabase.rpc('fn_os_salvar', {
       p_os_id: os.id,
@@ -321,6 +335,21 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     const resp = data as { ok?: boolean; erro?: string }
     if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao alterar status'); return }
     flash('Status ALTERADO.')
+    await carregar()
+  }
+
+  // BUG #16b · reabrir OS entregue → em_execucao (Master/BPO/admin), com log. Destrava o ajuste de valores.
+  async function reabrir() {
+    if (!os) return
+    const motivo = window.prompt('Reabrir esta OS entregue para ajustar valores. Motivo (fica no log):', '')
+    if (motivo === null) return
+    setReabrindo(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_reabrir', { p_os_id: os.id, p_motivo: motivo.trim() || null })
+    setReabrindo(false)
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string; faturada?: boolean }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao reabrir'); return }
+    flash(resp?.faturada ? 'OS reaberta — atenção: já faturada, os valores seguem travados na GE.' : 'OS reaberta para ajuste. Lance os valores e reentregue.')
     await carregar()
   }
 
@@ -412,9 +441,13 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </div>
       )}
       {/* RD-41 · avisos de edição pós-entrega */}
-      {entregue && isMaster && (
-        <div data-testid="os-aviso-master" style={{ fontSize: 12, color: C.espresso, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
-          ⚠️ Você está ajustando uma OS já entregue. A alteração fica registrada.
+      {entregue && podeAjustarEntregue && (
+        <div data-testid="os-aviso-master" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
+          <span>⚠️ OS já entregue — você ({isMaster ? 'Master' : 'BPO'}) pode ajustar os valores. A alteração fica registrada.</span>
+          <button type="button" onClick={reabrir} disabled={reabrindo} data-testid="os-reabrir"
+            style={{ ...btnSec, borderColor: C.amber, color: C.goldD, background: C.white }}>
+            {reabrindo ? 'Reabrindo…' : '↩︎ Reabrir OS (voltar p/ execução)'}
+          </button>
         </div>
       )}
       {bloqueadoEntrega && (
