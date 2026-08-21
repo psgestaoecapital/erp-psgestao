@@ -87,6 +87,12 @@ export default function VincularVariosModal({
   const [desconto, setDesconto] = useState('')
   const [obsAjuste, setObsAjuste] = useState('')
   const [ajusteTouched, setAjusteTouched] = useState(false)
+  // #22 · rateio de PIX/avulso: distribui o valor do movimento entre os títulos vinculados, com baixa
+  // parcial no que sobrar (por ordem de vencimento). Só em crédito (recebimento).
+  const [modoRateio, setModoRateio] = useState(false)
+  const [rateioVals, setRateioVals] = useState<Record<string, string>>({})
+  const [saldos, setSaldos] = useState<Record<string, number>>({})
+  const [rateando, setRateando] = useState(false)
 
   const naturezaBusca: 'debito' | 'credito' = natureza === 'credito' ? 'credito' : 'debito'
   const parseNum = (s: string) => Number((s || '0').replace(/\s/g, '').replace(',', '.')) || 0
@@ -205,6 +211,55 @@ export default function VincularVariosModal({
     onClose()
   }
 
+  // #22 · entra no modo rateio: busca o saldo real de cada título vinculado e pré-preenche a
+  // distribuição por ordem de vencimento (mais antigo primeiro) até esgotar o valor do movimento.
+  async function entrarRateio() {
+    const ids = (resumo?.itens ?? []).map((v) => v.lancamento_id)
+    if (ids.length === 0) { setErro('Adicione os títulos do cliente primeiro (busque e clique "+ adicionar").'); return }
+    setErro(null)
+    const { data } = await supabase.from('erp_receber').select('id, valor, valor_pago, data_vencimento').in('id', ids)
+    const sMap: Record<string, number> = {}
+    const vencMap: Record<string, string> = {}
+    for (const r of (data ?? []) as { id: string; valor: number; valor_pago: number | null; data_vencimento: string | null }[]) {
+      sMap[r.id] = Math.round((r.valor - (r.valor_pago ?? 0)) * 100) / 100
+      vencMap[r.id] = r.data_vencimento ?? ''
+    }
+    setSaldos(sMap)
+    const ordenados = (resumo?.itens ?? []).slice().sort((a, b) => (vencMap[a.lancamento_id] || '').localeCompare(vencMap[b.lancamento_id] || ''))
+    let restante = Math.abs(valorMovimento)
+    const next: Record<string, string> = {}
+    for (const it of ordenados) {
+      const saldo = sMap[it.lancamento_id] ?? 0
+      const aplica = Math.max(0, Math.min(saldo, Math.round(restante * 100) / 100))
+      next[it.lancamento_id] = aplica.toFixed(2)
+      restante = Math.round((restante - aplica) * 100) / 100
+    }
+    setRateioVals(next)
+    setModoRateio(true)
+  }
+
+  async function ratearAvulso() {
+    const dist = (resumo?.itens ?? [])
+      .map((v) => ({ lancamento_id: v.lancamento_id, valor: parseNum(rateioVals[v.lancamento_id] ?? '0') }))
+      .filter((d) => d.valor > 0)
+    if (dist.length === 0) { setErro('Informe ao menos um valor a aplicar.'); return }
+    if (!window.confirm(`Ratear R$ ${fmt(Math.abs(valorMovimento))} entre ${dist.length} título(s)?\nO título que não for coberto pelo total fica PARCIAL (saldo segue em aberto).`)) return
+    setRateando(true); setErro(null)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_conciliacao_ratear_avulso', {
+      p_movimento_id: movimentoId, p_distribuicao: dist, p_operador_id: user?.id ?? null,
+    })
+    setRateando(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok: boolean; erro?: string; diferenca?: number }
+    if (!r.ok) {
+      setErro(r.erro === 'distribuicao_nao_fecha'
+        ? `A distribuição não soma o valor do movimento (falta/sobra R$ ${fmt(Math.abs(r.diferenca ?? 0))}).`
+        : (r.erro ?? 'Erro ao ratear')); return
+    }
+    onConciliado?.(); onClose()
+  }
+
   const valorAbs = Math.abs(valorMovimento)
   const somaVinc = resumo?.soma_vinculada ?? 0
   const acrNum = parseNum(acrescimo)
@@ -215,6 +270,10 @@ export default function VincularVariosModal({
   const mostrarAjuste = somaVinc > 0 && (Math.abs(diffRaw) > 0.05 || acrNum > 0 || descNum > 0)
   const pct = fechaAjuste ? 100 : (resumo ? Math.min(100, (somaVinc / valorAbs) * 100) : 0)
   const corBarra = fechaAjuste ? '#3B6D11' : '#C8941A'
+  // #22 · rateio
+  const somaRateio = Math.round((resumo?.itens ?? []).reduce((s, v) => s + parseNum(rateioVals[v.lancamento_id] ?? '0'), 0) * 100) / 100
+  const rateioFecha = Math.abs(valorAbs - somaRateio) <= 0.01
+  const podeRatear = naturezaBusca === 'credito' && (resumo?.itens?.length ?? 0) >= 1
 
   return (
     <div
@@ -341,6 +400,52 @@ export default function VincularVariosModal({
             </div>
           )}
 
+          {/* #22 · Rateio de avulso — distribuição por título com baixa parcial (por vencimento) */}
+          {modoRateio && (resumo?.itens ?? []).length > 0 && (
+            <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(200,148,26,0.55)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#3D2314', marginBottom: 2 }}>Ratear R$ {fmt(valorAbs)} entre os títulos</div>
+              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)', marginBottom: 10 }}>
+                Pré-preenchido por vencimento (mais antigo primeiro). O que não cobrir o total do título fica <strong>parcial</strong> (saldo em aberto).
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(resumo?.itens ?? []).map((v) => {
+                  const saldo = saldos[v.lancamento_id] ?? v.valor
+                  const aplica = parseNum(rateioVals[v.lancamento_id] ?? '0')
+                  const resta = Math.round((saldo - aplica) * 100) / 100
+                  return (
+                    <div key={v.lancamento_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#FAF7F2', borderRadius: 6, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 180, fontSize: 12 }}>
+                        <div style={{ fontWeight: 600, color: '#3D2314' }}>{v.descricao ?? '(sem descrição)'}</div>
+                        <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>venc {fmtDate(v.vencimento)} · saldo R$ {fmt(saldo)}</div>
+                      </div>
+                      <label style={{ fontSize: 11, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        aplicar R$
+                        <input value={rateioVals[v.lancamento_id] ?? ''} onChange={(e) => setRateioVals((m) => ({ ...m, [v.lancamento_id]: e.target.value }))}
+                          inputMode="decimal" style={{ ...inputStyle, maxWidth: 110, minWidth: 90 }} />
+                      </label>
+                      <div style={{ fontSize: 11, minWidth: 150, textAlign: 'right', color: resta > 0.01 ? '#BA7517' : '#3B6D11' }}>
+                        {resta > 0.01 ? `ficará parcial: saldo R$ ${fmt(resta)}` : aplica > 0 ? 'quita o título ✓' : '—'}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10, fontSize: 12.5, fontWeight: 700 }}>
+                <span style={{ color: rateioFecha ? '#3B6D11' : '#A32D2D' }}>
+                  {rateioFecha
+                    ? `✅ distribuído R$ ${fmt(somaRateio)} de R$ ${fmt(valorAbs)}`
+                    : `distribuído R$ ${fmt(somaRateio)} de R$ ${fmt(valorAbs)} · ${somaRateio > valorAbs ? 'sobra' : 'faltam'} R$ ${fmt(Math.abs(valorAbs - somaRateio))}`}
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setModoRateio(false)} disabled={rateando} style={ghostBtn}>Cancelar rateio</button>
+                  <button onClick={() => void ratearAvulso()} disabled={!rateioFecha || rateando} style={primaryBtn(rateando)}>
+                    {rateando ? 'Rateando…' : '✅ Ratear e conciliar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Busca de contas */}
           <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
             Buscar contas a {naturezaBusca === 'debito' ? 'pagar' : 'receber'}
@@ -426,13 +531,21 @@ export default function VincularVariosModal({
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={onClose} style={ghostBtn}>Fechar</button>
-            <button
-              onClick={() => void fecharFatura()}
-              disabled={!fechaAjuste || fechando}
-              style={primaryBtn(fechando)}
-            >
-              {fechando ? 'Conciliando…' : '✅ Conciliar fatura'}
-            </button>
+            {/* #22 · rateio avulso (recebimento): distribui o valor entre os títulos, com baixa parcial */}
+            {podeRatear && !modoRateio && (
+              <button onClick={() => void entrarRateio()} disabled={fechando} style={ghostBtn} title="Distribuir um PIX/recebimento avulso entre os títulos, com baixa parcial no que sobrar">
+                ➗ Ratear avulso (baixa parcial)
+              </button>
+            )}
+            {!modoRateio && (
+              <button
+                onClick={() => void fecharFatura()}
+                disabled={!fechaAjuste || fechando}
+                style={primaryBtn(fechando)}
+              >
+                {fechando ? 'Conciliando…' : '✅ Conciliar fatura'}
+              </button>
+            )}
           </div>
         </div>
       </div>
