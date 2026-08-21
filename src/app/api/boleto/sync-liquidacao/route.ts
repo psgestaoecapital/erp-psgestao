@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
       .from('erp_receber')
       .select('id, boleto_nosso_numero, valor')
       .eq('company_id', companyId)
+      .is('deleted_at', null) // service-role bypassa o RLS → não liquidar título soft-deletado
       .eq('boleto_status', 'registrado')
       .in('status', ['aberto', 'vencido', 'parcial'])
       .not('boleto_nosso_numero', 'is', null)

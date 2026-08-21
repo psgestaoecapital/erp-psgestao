@@ -237,6 +237,7 @@ async function buscarAcoes(supabase: any, companyIds: string[]) {
     supabase.from('erp_pagar')
       .select('id, fornecedor_nome, valor, data_vencimento, company_id')
       .in('company_id', companyIds)
+      .is('deleted_at', null) // service-role bypassa o RLS → filtra soft-delete explicitamente
       .gte('data_vencimento', hoje)
       .lte('data_vencimento', em3Dias)
       .neq('status', 'pago')
@@ -245,6 +246,7 @@ async function buscarAcoes(supabase: any, companyIds: string[]) {
     supabase.from('erp_receber')
       .select('id, cliente_nome, valor, data_vencimento, company_id')
       .in('company_id', companyIds)
+      .is('deleted_at', null) // idem
       .lt('data_vencimento', hoje)
       .neq('status', 'pago')
       .order('data_vencimento')

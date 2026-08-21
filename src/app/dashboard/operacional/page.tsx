@@ -129,7 +129,14 @@ export default function OperacionalPage(){
     const{data:fd}=await supabase.from('erp_fornecedores').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
     setFornecedores(fd||[])
     const{data:pc}=await supabase.from('erp_plano_contas').select('*').or(`company_id.is.null,company_id.eq.${sel}`).eq('ativo',true).order('codigo')
-    setPlano(pc||[])
+    // Dedup por codigo preferindo a cópia da empresa sobre o template global (RD-52 fonte única):
+    // sem isso, uma conta que existe como global + cópia da empresa aparecia DUAS vezes (DRE/lista).
+    const _porCodigo=new Map<string,any>()
+    for(const r of ((pc||[]) as any[])){
+      const ex=_porCodigo.get(r.codigo)
+      if(!ex || (r.company_id===sel && ex.company_id!==sel)) _porCodigo.set(r.codigo,r)
+    }
+    setPlano(Array.from(_porCodigo.values()).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo))))
     try{
       const{data:cb}=await supabase.from('erp_contas_bancarias').select('*').eq('company_id',sel).eq('ativo',true).order('nome')
       setContasBancarias(cb||[])
