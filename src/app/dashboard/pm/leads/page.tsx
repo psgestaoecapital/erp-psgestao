@@ -47,7 +47,7 @@ type FormLead = {
   canal_contato: string; origem: string; valor_estimado: string; erp_cliente_id: string | null
 }
 // erp_cliente_id: vínculo ao cadastro GE (erp_clientes) — NÃO agency_clientes. Corrige a FK do #1007.
-const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: 'whatsapp', origem: 'trafego_pago', valor_estimado: '', erp_cliente_id: null }
+const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: '', origem: 'trafego_pago', valor_estimado: '', erp_cliente_id: null }
 
 export default function LeadsPage() {
   const router = useRouter()
@@ -366,18 +366,12 @@ export default function LeadsPage() {
               <label style={lbl}>Email<input style={inp} value={form.contato_email} onChange={(e) => setForm({ ...form, contato_email: e.target.value })} /></label>
               <label style={lbl}>Telefone<input style={inp} value={form.contato_telefone} onChange={(e) => setForm({ ...form, contato_telefone: e.target.value })} /></label>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Canal
-                <select style={inp} value={form.canal_contato} onChange={(e) => setForm({ ...form, canal_contato: e.target.value })}>
-                  {['whatsapp', 'site', 'indicacao', 'trafego_pago', 'ligacao', 'email', 'evento'].map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
-              <label style={lbl}>Origem
-                <select style={inp} value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })}>
-                  {ORIGENS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-                </select>
-              </label>
-            </div>
+            {/* QW6 (#19a): "Canal" removido — o banco tem só `origem`. Um campo só, sem duplicar conceito. */}
+            <label style={lbl}>Origem do Lead
+              <select style={inp} value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })}>
+                {ORIGENS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </label>
             <label style={lbl}>Valor estimado (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
