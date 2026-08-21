@@ -237,6 +237,20 @@ export default function LeadsPage() {
     if (val.trim() && iso && isNaN(new Date(val.trim()).getTime())) { setToast('Data inválida.'); return }
     const reuniaoChave = etapas.find((e) => e.chave === 'reuniao_agendada')?.chave
     await supabase.from('agency_leads').update({ reuniao_agendada_em: iso, etapa: iso && reuniaoChave ? reuniaoChave : l.etapa, atualizado_em: new Date().toISOString() }).eq('id', l.id)
+    // Fase 1b · além de marcar reuniao_agendada_em, cria um agendamento comercial (aparece na Agenda,
+    // vinculado ao lead por dados.lead_id). Não bloqueia o fluxo se falhar.
+    if (iso && empresa) {
+      const [d, hm] = val.trim().split('T')
+      const hIni = (hm || '09:00').slice(0, 5)
+      const [hh, mm] = hIni.split(':').map((n) => parseInt(n, 10) || 0)
+      const hFim = `${String((hh + 1) % 24).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+      await supabase.rpc('fn_agendamento_criar', {
+        p_company_id: empresa, p_origem: 'comercial', p_titulo: `Reunião · ${l.empresa || l.nome || 'lead'}`,
+        p_cliente_id: l.erp_cliente_id ?? null, p_cliente_nome: l.empresa || l.nome || null,
+        p_responsavel_id: l.responsavel_id ?? uid, p_responsavel_nome: null,
+        p_data: d, p_hora_inicio: hIni, p_hora_fim: hFim, p_dados: { lead_id: l.id }, p_observacao: null,
+      })
+    }
     setToast(iso ? 'Reunião AGENDADA.' : 'Agendamento removido.'); void carregar()
   }
 

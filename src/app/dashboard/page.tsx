@@ -53,6 +53,10 @@ export default function DashboardIndex() {
         if (!alive) return;
 
         const areas = (data ?? []) as AreaVisivel[];
+        // 1c (Agenda Comercial) · quem tem acesso ao P&M abre direto no Kanban de leads (decisão CEO —
+        // "só quem tem acesso ao P&M", não todos). Prioriza P&M sobre GE. Os demais seguem a regra abaixo.
+        const temPM = areas.some((a) => a.area_slug === 'pm' && a.empresa_tem_acesso !== false);
+        if (temPM) { router.replace('/dashboard/pm/leads'); return; }
         // GE permitida (ou nao ha dado) -> mantem default GE.
         // Usuario restrito a outra area -> 1a area permitida com rota valida.
         const temGE = areas.some((a) => a.area_slug === AREA_GE);
