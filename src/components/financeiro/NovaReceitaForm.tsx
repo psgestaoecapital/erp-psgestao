@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
@@ -85,6 +85,18 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [observacao, setObservacao] = useState('')
   const [jaRecebido, setJaRecebido] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
+
+  // CART-1 · cartão: adquirente + bandeira + modalidade → líquido/data_repasse via fn_cartao_calcular (RD-26).
+  const ehCartao = formaRecebimento === 'cartao_credito' || formaRecebimento === 'cartao_debito'
+  const [adquirentes, setAdquirentes] = useState<{ id: string; nome: string }[]>([])
+  const [adquirenteId, setAdquirenteId] = useState('')
+  const [taxasCartao, setTaxasCartao] = useState<{ bandeira: string; modalidade: string }[]>([])
+  const [bandeira, setBandeira] = useState('')
+  const [modalidadeCartao, setModalidadeCartao] = useState('')
+  type CartaoCalc =
+    | { ok: true; taxa_percentual: number; valor_taxa: number; valor_liquido: number; prazo_repasse_dias: number; data_repasse: string }
+    | { ok: false; erro: string }
+  const [cartaoCalc, setCartaoCalc] = useState<CartaoCalc | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [dupWarn, setDupWarn] = useState(false)
@@ -232,6 +244,63 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
     return () => clearTimeout(t)
   }, [toast])
 
+  // Cartão: carrega adquirentes quando cartão selecionado; auto-seleciona se houver só 1 (KGF tem 1).
+  useEffect(() => {
+    if (!ehCartao || !companyId) return
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_cartao_adquirente_listar', { p_company_id: companyId })
+      const r = data as { ok?: boolean; adquirentes?: { id: string; nome: string }[] } | null
+      if (!alive) return
+      const lista = r?.ok ? (r.adquirentes ?? []) : []
+      setAdquirentes(lista)
+      if (lista.length === 1) setAdquirenteId(lista[0].id)
+    })()
+    return () => { alive = false }
+  }, [ehCartao, companyId])
+
+  // Cartão: carrega as taxas do adquirente → bandeiras/modalidades com taxa cadastrada.
+  useEffect(() => {
+    if (!ehCartao || !companyId || !adquirenteId) { setTaxasCartao([]); return }
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_cartao_taxa_listar', { p_company_id: companyId, p_adquirente_id: adquirenteId })
+      const r = data as { ok?: boolean; taxas?: { bandeira: string; modalidade: string }[] } | null
+      if (!alive) return
+      setTaxasCartao(r?.ok ? (r.taxas ?? []) : [])
+    })()
+    return () => { alive = false }
+  }, [ehCartao, companyId, adquirenteId])
+
+  // Cartão: recalcula o líquido ao mudar adquirente/bandeira/modalidade/parcelas/valor/data.
+  useEffect(() => {
+    if (!ehCartao || !companyId || !adquirenteId || !bandeira || !modalidadeCartao || !(parseFloat(valor) > 0)) {
+      setCartaoCalc(null); return
+    }
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_cartao_calcular', {
+        p_company_id: companyId, p_adquirente_id: adquirenteId, p_bandeira: bandeira,
+        p_modalidade: modalidadeCartao, p_parcelas: parcelas, p_valor: parseFloat(valor), p_data_venda: dataRecebimento,
+      })
+      if (!alive) return
+      setCartaoCalc((data as CartaoCalc) ?? null)
+    })()
+    return () => { alive = false }
+  }, [ehCartao, companyId, adquirenteId, bandeira, modalidadeCartao, parcelas, valor, dataRecebimento])
+
+  // Bandeiras distintas (dedupe case-insensitive) e modalidades da bandeira escolhida.
+  const bandeirasDisp = useMemo(() => {
+    const seen = new Set<string>(); const out: string[] = []
+    for (const t of taxasCartao) { const k = t.bandeira.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(t.bandeira) } }
+    return out.sort((a, b) => a.localeCompare(b))
+  }, [taxasCartao])
+  const modalidadesDisp = useMemo(() => {
+    const filt = bandeira ? taxasCartao.filter((t) => t.bandeira.toLowerCase() === bandeira.toLowerCase()) : taxasCartao
+    return Array.from(new Set(filt.map((t) => t.modalidade)))
+  }, [taxasCartao, bandeira])
+  const rotuloModalidade = (m: string) => m === 'credito' ? 'Crédito' : m === 'debito' ? 'Débito' : m
+
   // Validação client-side no padrão RD-41: banner "Faltou preencher: X" + destaque no campo.
   function validarCampos(): { campo: string; banner: string } | null {
     if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
@@ -331,6 +400,17 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
       const pixR = ehPix(formaRecebimento) && chavePix.trim()
       patch.tipo_chave_pix = pixR ? tipoChavePix : null
       patch.chave_pix = pixR ? normalizarChavePix(tipoChavePix, chavePix) : null
+      // CART-1: grava os dados do cartão + líquido projetado (a parcela mantém o BRUTO).
+      if (ehCartao && cartaoCalc?.ok) {
+        patch.adquirente_id = adquirenteId
+        patch.bandeira = bandeira
+        patch.modalidade_cartao = modalidadeCartao
+        patch.cartao_parcelas = parcelas
+        patch.taxa_percentual = cartaoCalc.taxa_percentual
+        patch.data_repasse = cartaoCalc.data_repasse
+        // valor_taxa/valor_liquido são do TOTAL — só gravo quando é 1 recebível (evita total em cada parcela).
+        if (parcelas === 1) { patch.valor_taxa = cartaoCalc.valor_taxa; patch.valor_liquido = cartaoCalc.valor_liquido }
+      }
       if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
     }
 
@@ -624,6 +704,55 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
 
           {ehPix(formaRecebimento) && (
             <CamposPix tipoChave={tipoChavePix} chave={chavePix} setTipoChave={setTipoChavePix} setChave={setChavePix} inputStyle={inputStyle} />
+          )}
+
+          {/* CART-1 · cartão: bandeira/modalidade → mostra o líquido que entra e a data do repasse. */}
+          {ehCartao && (
+            <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: '14px 16px', background: '#FBF6EC', border: '0.5px solid rgba(200,148,26,0.35)', borderRadius: 10 }}>
+              <Campo label="Adquirente (maquininha)">
+                <select value={adquirenteId} onChange={(e) => { setAdquirenteId(e.target.value); setBandeira(''); setModalidadeCartao('') }} style={inputStyle}>
+                  <option value="">— escolher —</option>
+                  {adquirentes.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                </select>
+                {adquirentes.length === 0 && (
+                  <small style={{ ...helperStyle, color: '#854F0B' }}>
+                    Nenhuma maquininha cadastrada · <a href="/dashboard/financeiro/cartoes-adquirentes" style={{ color: PSGC_COLORS.dourado }}>cadastrar →</a>
+                  </small>
+                )}
+              </Campo>
+
+              <Campo label="Bandeira">
+                <select value={bandeira} onChange={(e) => { setBandeira(e.target.value); setModalidadeCartao('') }} disabled={!adquirenteId} style={inputStyle}>
+                  <option value="">— escolher —</option>
+                  {bandeirasDisp.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </Campo>
+
+              <Campo label="Modalidade">
+                <select value={modalidadeCartao} onChange={(e) => setModalidadeCartao(e.target.value)} disabled={!bandeira} style={inputStyle}>
+                  <option value="">— escolher —</option>
+                  {modalidadesDisp.map((m) => <option key={m} value={m}>{rotuloModalidade(m)}</option>)}
+                </select>
+              </Campo>
+
+              {cartaoCalc?.ok && (
+                <div style={{ gridColumn: '1 / -1', background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600 }}>
+                    Taxa {Number(cartaoCalc.taxa_percentual).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% · Você recebe <b>{brl(cartaoCalc.valor_liquido)}</b>
+                    {' '}<span style={{ color: 'rgba(61,35,20,0.6)', fontWeight: 400 }}>(bruto {brl(parseFloat(valor) || 0)})</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.7)', marginTop: 3 }}>
+                    Cai em <b>{cartaoCalc.data_repasse.split('-').reverse().join('/').slice(0, 5)}</b> (D+{cartaoCalc.prazo_repasse_dias})
+                    {parcelas > 1 ? ` · por parcela: ${brl((cartaoCalc.valor_liquido || 0) / parcelas)} líquido` : ''}
+                  </div>
+                </div>
+              )}
+              {cartaoCalc && !cartaoCalc.ok && cartaoCalc.erro === 'taxa_nao_cadastrada' && (
+                <div style={{ gridColumn: '1 / -1', background: '#FFF4E5', border: '1px solid #E6A23C', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: '#854F0B' }}>
+                  Ainda não há taxa para essa bandeira/modalidade. <a href="/dashboard/financeiro/cartoes-adquirentes" style={{ color: PSGC_COLORS.dourado, fontWeight: 600 }}>Cadastrar em Cartões / Adquirentes →</a>
+                </div>
+              )}
+            </div>
           )}
 
           <Campo label="Em qual conta entra o dinheiro?">
