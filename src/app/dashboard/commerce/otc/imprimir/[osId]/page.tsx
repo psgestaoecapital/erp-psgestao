@@ -242,8 +242,10 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                 <img src={empresa.logo} alt="Logomarca" style={{ maxHeight: 56, maxWidth: 140, objectFit: 'contain' }} />
               )}
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#3D2314' }}>{empresa.razao_social || empresa.nome || '—'}</div>
-                {empresa.nome && empresa.nome !== empresa.razao_social && <div style={{ fontSize: 11, color: '#6B5D4F' }}>{empresa.nome}</div>}
+                {/* Mockup aprovado (OS-CAB): nome_fantasia em destaque, razão social menor embaixo.
+                    empresa.nome = COALESCE(nome_fantasia, razao_social) na RPC → sem fantasia, cai na razão. */}
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#3D2314' }}>{empresa.nome || empresa.razao_social || '—'}</div>
+                {empresa.razao_social && empresa.razao_social !== empresa.nome && <div style={{ fontSize: 11, color: '#6B5D4F' }}>{empresa.razao_social}</div>}
                 <div style={{ fontSize: 10.5, color: '#6B5D4F', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '2px 12px' }}>
                   {empresa.cnpj && <span>CNPJ: {fmtCNPJ(empresa.cnpj)}</span>}
                   {empresa.ie && <span>IE: {empresa.ie}</span>}
