@@ -58,6 +58,9 @@ export default function RecepcaoPage() {
   const router = useRouter()
   // RD-41 · ramo dirige a recepção: automotiva = check-in de carro; retífica/usinagem/elétrica = recebimento da peça.
   const { config: ramo } = useOficinaRamo(companyId)
+  // OFIC-A (#10) · quando vem do Pátio ("Apontar chegada"), a URL traz o agendamento + prefill.
+  // Ao criar a OS (fim do check-in), vinculamos o agendamento (fn_agendamento_vincular_os).
+  const [agendamentoId, setAgendamentoId] = useState<string | null>(null)
   const [placa, setPlaca] = useState(''); const [buscando, setBuscando] = useState(false); const [historico, setHistorico] = useState<string | null>(null)
   const [clienteNome, setClienteNome] = useState(''); const [clienteCnpj, setClienteCnpj] = useState(''); const [clienteId, setClienteId] = useState('')
   // RD-41 · busca de cliente por documento (CPF/CNPJ) na base do tenant + cadastro inline (sem sair da recepção).
@@ -252,6 +255,11 @@ export default function RecepcaoPage() {
     if (j?.os_id && mecanico.trim()) {
       await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim() })
     }
+    // OFIC-A (#10) · veio de um agendamento do Pátio → vincula a OS (os_id + status em_atendimento).
+    // Idempotente no backend; o agendamento sai dos "Programados" (fn_agenda_patio_hoje filtra os_id).
+    if (j?.os_id && agendamentoId) {
+      await supabase.rpc('fn_agendamento_vincular_os', { p_agendamento_id: agendamentoId, p_os_id: j.os_id })
+    }
     setSalvando(false)
     setMsg(`✅ Recepção registrada — ${j?.numero}.`)
     // RD-41 · colher a assinatura "ciente do checklist" do cliente (pode pular).
@@ -266,6 +274,15 @@ export default function RecepcaoPage() {
       setMecLimpos(Array.isArray(data) ? data.map((r: { nome: string }) => r.nome) : [])
     })
   }, [companyId])
+  // OFIC-A (#10) · prefill vindo do Pátio (?ag=&placa=&cliente_id=&cliente_nome=). Só no mount (client).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search)
+    const ag = q.get('ag'); if (ag) setAgendamentoId(ag)
+    const pl = q.get('placa'); if (pl) setPlaca(pl)
+    const cid = q.get('cliente_id'); if (cid) setClienteId(cid)
+    const cnome = q.get('cliente_nome'); if (cnome) setClienteNome(cnome)
+  }, [])
 
   if (!companyId) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione uma empresa específica no topo para abrir a Recepção.</div>
 
