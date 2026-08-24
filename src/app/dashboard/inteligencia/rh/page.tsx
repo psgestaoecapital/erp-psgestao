@@ -27,7 +27,7 @@ type RvRow = {
   funcionario_id: string; cargo: string | null; perfil: string; faixa: string
   dias: number; entregas: number; infracoes_registradas: number; sem_infracao: boolean
   salario_base: number | null; premio_util: number | null; diaria: number | null; hora_extra: number | null
-  por_entrega: number | null; bonus: number | null; inss: number | null; variavel_total: number | null; bruto_total: number | null
+  por_entrega: number | null; bonus: number | null; ajuste_manual: number | null; inss: number | null; variavel_total: number | null; bruto_total: number | null
 }
 type RvResp = {
   ok: boolean; erro?: string; competencia: string; pode_salario: boolean; inss_pela_folha: boolean
@@ -81,6 +81,8 @@ export default function RhHubPage() {
   const [compFechada, setCompFechada] = useState(false)
   const [fechando, setFechando] = useState(false)
   const [rvAviso, setRvAviso] = useState<string | null>(null)
+  // RV-F5.1 · ajuste individual por motorista
+  const [ajusteFor, setAjusteFor] = useState<{ funcionario_id: string; nome: string } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
@@ -346,10 +348,17 @@ export default function RhHubPage() {
                               <tr key={i}><td style={{ color: MUT, padding: '3px 0' }}>{row.tag} {row.l}</td>
                                 <td style={{ textAlign: 'right', padding: '3px 0', color: row.red ? RED : ESP, fontWeight: row.red ? 700 : 400 }}>{brl(row.v as number)}{row.red ? ' (zerado)' : ''}</td></tr>
                             ))}
+                            {!!r.ajuste_manual && (
+                              <tr><td style={{ color: MUT, padding: '3px 0' }}>✍ Ajustes manuais</td>
+                                <td style={{ textAlign: 'right', padding: '3px 0', fontWeight: 600, color: (r.ajuste_manual ?? 0) < 0 ? RED : GREEN }}>{(r.ajuste_manual ?? 0) >= 0 ? '+' : '−'}{brl(Math.abs(r.ajuste_manual as number))}</td></tr>
+                            )}
                             <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0' }}>Variável</td><td style={{ textAlign: 'right', fontWeight: 700, color: GOLD }}>{brl(r.variavel_total)}</td></tr>
                             <tr><td style={{ color: MUT, padding: '2px 0', fontSize: 11 }}>Bruto (c/ base+prêmio)</td><td style={{ textAlign: 'right', padding: '2px 0', fontSize: 11, color: MUT }}>{brl(r.bruto_total)}</td></tr>
                           </tbody></table>
-                          <div style={{ fontSize: 10, color: MUT, marginTop: 4 }}>📋 plano · ⏱ ponto · ✍ manual</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                            <span style={{ fontSize: 10, color: MUT }}>📋 plano · ⏱ ponto · ✍ manual</span>
+                            {!compFechada && <button onClick={() => setAjusteFor({ funcionario_id: r.funcionario_id, nome: nomes[r.funcionario_id] ?? '—' })} style={{ background: '#fff', border: `0.5px solid ${GOLD}`, color: ESP, borderRadius: 6, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>+ Ajuste</button>}
+                          </div>
                         </>
                       ) : <div style={{ fontSize: 11.5, color: MUT }}>Valores ocultos (LGPD).</div>}
                     </div>
@@ -367,6 +376,10 @@ export default function RhHubPage() {
       {partOpen && empresa && (
         <ParticipantesModal empresa={empresa} podeSalario={rv?.pode_salario ?? false} compFechada={compFechada}
           onClose={() => setPartOpen(false)} onChanged={() => { void carregar(); void carregarRv() }} />
+      )}
+      {ajusteFor && empresa && (
+        <AjusteModal empresa={empresa} competencia={competencia} funcionarioId={ajusteFor.funcionario_id} nome={ajusteFor.nome}
+          onClose={() => setAjusteFor(null)} onChanged={() => void carregarRv()} />
       )}
     </div>
   )
@@ -615,6 +628,80 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
               </div>
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── RV-F5.1 · Ajuste individual por motorista numa competência ───────────────────────────────────
+function AjusteModal({ empresa, competencia, funcionarioId, nome, onClose, onChanged }: { empresa: string; competencia: string; funcionarioId: string; nome: string; onClose: () => void; onChanged: () => void }) {
+  const [lista, setLista] = useState<{ id: string; tipo: string; valor: number; motivo: string }[]>([])
+  const [tipo, setTipo] = useState<'adicional' | 'desconto'>('adicional')
+  const [valor, setValor] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    const { data } = await supabase.from('rh_rv_ajuste_manual')
+      .select('id, tipo, valor, motivo').eq('company_id', empresa).eq('funcionario_id', funcionarioId)
+      .eq('competencia', competencia).eq('ativo', true).order('created_at', { ascending: false })
+    setLista((data as { id: string; tipo: string; valor: number; motivo: string }[]) ?? [])
+  }, [empresa, funcionarioId, competencia])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function salvar() {
+    if (!motivo.trim()) { setMsg('O motivo é obrigatório.'); return }
+    if (!(parseFloat(valor) > 0)) { setMsg('Informe um valor maior que zero.'); return }
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_ajuste_salvar', {
+      p_company_id: empresa, p_funcionario_id: funcionarioId, p_competencia: competencia, p_tipo: tipo, p_valor: parseFloat(valor), p_motivo: motivo.trim() })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro === 'competencia_fechada' ? 'competência fechada.' : j?.erro === 'sem_permissao' ? 'só RH/sócio.' : (error?.message ?? j?.erro ?? 'falhou'))); return }
+    setValor(''); setMotivo(''); setMsg('✔ CRIOU ajuste'); await carregar(); onChanged()
+  }
+  async function excluir(id: string) {
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_ajuste_excluir', { p_company_id: empresa, p_ajuste_id: id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    setMsg('✔ EXCLUIU ajuste'); await carregar(); onChanged()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '30px 12px', zIndex: 70, overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 12, width: '100%', maxWidth: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '12px 12px 0 0' }}>
+          <div style={{ color: GOLD, fontWeight: 700, fontSize: 14 }}>✍ Ajuste · {nome} · {competencia}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: BG, cursor: 'pointer', fontSize: 18 }}>✕</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value as 'adicional' | 'desconto')} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
+              <option value="adicional">Adicional (+)</option><option value="desconto">Desconto (−)</option>
+            </select>
+            <input inputMode="decimal" placeholder="valor R$" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+          </div>
+          <input placeholder="motivo (obrigatório)" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} style={{ width: '100%', marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff', boxSizing: 'border-box' }} />
+          <button onClick={() => void salvar()} disabled={busy} style={{ marginTop: 8, background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Lançar ajuste</button>
+          {msg && <div style={{ fontSize: 12, color: msg.startsWith('✔') ? GREEN : RED, marginTop: 8 }}>{msg}</div>}
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {lista.length === 0 ? <div style={{ fontSize: 12, color: MUT }}>Nenhum ajuste nesta competência.</div>
+            : lista.map((a) => (
+              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
+                <div style={{ fontSize: 12 }}>
+                  <strong style={{ color: a.tipo === 'desconto' ? RED : GREEN }}>{a.tipo === 'desconto' ? '−' : '+'}{brl(a.valor)}</strong>
+                  <span style={{ color: MUT }}> · {a.motivo}</span>
+                </div>
+                <button onClick={() => void excluir(a.id)} disabled={busy} style={{ background: 'transparent', border: `0.5px solid ${RED}`, color: RED, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: MUT, marginTop: 10 }}>O ajuste entra na Variável e no valor da conta a pagar ao fechar. Bloqueado após o fechamento.</div>
         </div>
       </div>
     </div>
