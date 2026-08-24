@@ -28,6 +28,7 @@ type RvRow = {
   dias: number; entregas: number; entregas_origem: string | null; infracoes_registradas: number; sem_infracao: boolean
   salario_base: number | null; premio_util: number | null; diaria: number | null; hora_extra: number | null
   por_entrega: number | null; bonus: number | null; ajuste_manual: number | null; inss: number | null; variavel_total: number | null; bruto_total: number | null
+  encargos_pct: number | null; encargos_valor: number | null; custo_total: number | null
 }
 type RvResp = {
   ok: boolean; erro?: string; competencia: string; pode_salario: boolean; inss_pela_folha: boolean
@@ -86,6 +87,31 @@ export default function RhHubPage() {
   // RV-F6 · entregas do mês (total digitável por pessoa)
   const [entregasEdit, setEntregasEdit] = useState<Record<string, string>>({})
   const [savingEntregas, setSavingEntregas] = useState<string | null>(null)
+  // RV-F7 · salário base e % encargos por participante
+  const [salarioEdit, setSalarioEdit] = useState<Record<string, string>>({})
+  const [encargosEdit, setEncargosEdit] = useState<Record<string, string>>({})
+  const [savingValores, setSavingValores] = useState<string | null>(null)
+
+  async function salvarValoresParticipante(funcId: string) {
+    if (!empresa) return
+    const sal = salarioEdit[funcId]; const enc = encargosEdit[funcId]
+    if (sal === undefined && enc === undefined) return
+    setSavingValores(funcId); setRvAviso(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_participante_valores_salvar', {
+      p_company_id: empresa, p_funcionario_id: funcId,
+      p_salario_base: sal !== undefined && sal !== '' ? Number(sal) : null,
+      p_encargos_pct: enc !== undefined && enc !== '' ? Number(enc) : null,
+      p_competencia: competencia })
+    setSavingValores(null)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) {
+      setRvAviso('Erro ao salvar valores: ' + (j?.erro === 'competencia_fechada' ? 'competência fechada.' : j?.erro === 'sem_permissao' ? 'só RH/sócio.' : (error?.message ?? j?.erro ?? 'falhou')))
+      return
+    }
+    setSalarioEdit((p) => { const n = { ...p }; delete n[funcId]; return n })
+    setEncargosEdit((p) => { const n = { ...p }; delete n[funcId]; return n })
+    setRvAviso('✔ ALTEROU salário base / encargos'); void carregarRv()
+  }
 
   async function salvarEntregasMes(funcId: string) {
     const val = entregasEdit[funcId]
@@ -373,7 +399,20 @@ export default function RhHubPage() {
                             )}
                             <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0' }}>Variável</td><td style={{ textAlign: 'right', fontWeight: 700, color: GOLD }}>{brl(r.variavel_total)}</td></tr>
                             <tr><td style={{ color: MUT, padding: '2px 0', fontSize: 11 }}>Bruto (c/ base+prêmio)</td><td style={{ textAlign: 'right', padding: '2px 0', fontSize: 11, color: MUT }}>{brl(r.bruto_total)}</td></tr>
+                            {!!r.encargos_valor && <tr><td style={{ color: MUT, padding: '2px 0', fontSize: 11 }}>Encargos ({Number(r.encargos_pct ?? 0).toLocaleString('pt-BR')}%) · sobre base+HE</td><td style={{ textAlign: 'right', padding: '2px 0', fontSize: 11, color: MUT }}>{brl(r.encargos_valor)}</td></tr>}
+                            <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0', color: ESP }}>Custo total (empresa)</td><td style={{ textAlign: 'right', fontWeight: 700, color: ESP }}>{brl(r.custo_total)}</td></tr>
                           </tbody></table>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
+                            <label style={{ fontSize: 10.5, color: MUT }}>Salário base ✍<br />
+                              <input inputMode="decimal" value={salarioEdit[r.funcionario_id] ?? (r.salario_base != null ? String(r.salario_base) : '')} disabled={compFechada}
+                                onChange={(e) => setSalarioEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                                style={{ width: 90, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} /></label>
+                            <label style={{ fontSize: 10.5, color: MUT }}>% encargos ✍<br />
+                              <input inputMode="decimal" value={encargosEdit[r.funcionario_id] ?? (r.encargos_pct != null ? String(r.encargos_pct) : '')} disabled={compFechada}
+                                onChange={(e) => setEncargosEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                                style={{ width: 70, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} /></label>
+                            {!compFechada && <button onClick={() => void salvarValoresParticipante(r.funcionario_id)} disabled={savingValores === r.funcionario_id} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 5, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{savingValores === r.funcionario_id ? '…' : 'ok'}</button>}
+                          </div>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 11, color: MUT }}>Entregas do mês:</span>
                             <input inputMode="numeric" value={entregasEdit[r.funcionario_id] ?? String(r.entregas)} disabled={compFechada}
