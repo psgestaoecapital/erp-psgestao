@@ -35,6 +35,7 @@ type Proposta = {
   titulo: string; descricao: string | null; itens: Item[] | null; valor_total: number | null
   desconto: number | null; valor_final: number | null; condicao_pagamento: string | null; status: string
   data_envio: string | null; data_aprovacao: string | null; contrato_id: string | null; created_at: string
+  erp_cliente_id: string | null; observacoes: string | null   // PM-QW #15 · usados na edição (select '*' já traz)
 }
 type ClienteOpt = { id: string; nome: string; nome_fantasia: string | null; telefone: string | null }
 
@@ -49,6 +50,7 @@ export default function PropostasPage() {
   const [catalogo, setCatalogo] = useState<ServicoOpt[]>([])   // serviços do catálogo p/ irrigar os itens
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)   // PM-QW #15 · id em edição (modal reusada)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const prefill = useRef<{ cliente_id?: string; briefing_id?: string; titulo?: string }>({})
@@ -71,7 +73,7 @@ export default function PropostasPage() {
     if (!empresa) { setPropostas([]); setLoading(false); return }
     setLoading(true)
     const [p, c, cat] = await Promise.all([
-      supabase.from('agency_propostas').select('*').eq('company_id', empresa).order('created_at', { ascending: false }),
+      supabase.from('agency_propostas').select('*').eq('company_id', empresa).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia, telefone').eq('company_id', empresa).order('nome'),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: empresa }),
     ])
@@ -90,11 +92,54 @@ export default function PropostasPage() {
   }, [destaque, loading, propostas])
 
   function abrirNovo(cliId?: string, tit?: string) {
+    setEditId(null)
     setFCliente(cliId ?? '')
     setFTitulo(tit ?? '')
     setFCondicao('Mensal'); setFDesconto(''); setFObs('')
     setItens([itemVazio()])
     setNovo(true)
+  }
+
+  // PM-QW #15 · abrir a MESMA modal em modo edição (pré-preenchida). A modal é o "detalhe" da proposta.
+  function abrirEditar(p: Proposta) {
+    setEditId(p.id)
+    setFCliente(p.erp_cliente_id ?? p.cliente_id ?? '')
+    setFTitulo(p.titulo ?? '')
+    setFCondicao(p.condicao_pagamento ?? 'Mensal')
+    setFDesconto(p.desconto ? String(p.desconto) : '')
+    setFObs(p.observacoes ?? '')
+    const its = (Array.isArray(p.itens) ? p.itens : []) as Partial<Item>[]
+    setItens(its.length ? its.map((it) => ({ ...itemVazio(), ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) })) : [itemVazio()])
+    setNovo(true)
+  }
+
+  async function salvarEdicao() {
+    if (!editId) return
+    if (!fTitulo.trim()) { setToast('Informe o título da proposta.'); return }
+    setBusy(true)
+    const itensLimpos = itens
+      .filter((it) => it.tipo_servico.trim() || it.descricao.trim() || num(it.valor_total) > 0)
+      .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
+    const { data, error } = await supabase.rpc('fn_agency_proposta_editar', {
+      p_id: editId,
+      p_patch: {
+        titulo: fTitulo.trim(), itens: itensLimpos, valor_total: somaItens,
+        desconto: descNum, condicao_pagamento: fCondicao, observacoes: fObs.trim() || null,
+      },
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setNovo(false); setEditId(null)
+    setToast('Proposta ALTERADA.'); void carregar()
+  }
+
+  async function excluir(p: Proposta) {
+    if (!window.confirm(`Excluir a proposta "${p.titulo}"? Ela sai da lista (exclusão reversível, nada é apagado de vez).`)) return
+    const { data, error } = await supabase.rpc('fn_agency_proposta_excluir', { p_id: p.id })
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setToast('Proposta EXCLUÍDA.'); void carregar()
   }
 
   // pré-preenchimento vindo de Lead/Briefing (?erp_cliente_id / ?briefing_id / ?titulo) — abre já o modal.
@@ -125,6 +170,7 @@ export default function PropostasPage() {
   const somaItens = useMemo(() => itens.reduce((s, it) => s + num(it.valor_total), 0), [itens])
   const descNum = num(fDesconto)
   const valorFinal = Math.max(somaItens - descNum, 0)
+  const propEdit = editId ? (propostas.find((x) => x.id === editId) ?? null) : null   // PM-QW #15 · proposta em edição
 
   function setItem(i: number, patch: Partial<Item>) {
     setItens((arr) => arr.map((it, idx) => {
@@ -248,14 +294,14 @@ export default function PropostasPage() {
                       </div>
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: cfg.cor, padding: '3px 10px', borderRadius: 999 }}>{cfg.l}</span>
+                    {/* PM-QW #15 · pedido do Luzardo: card só com Editar + Excluir. As demais ações
+                        (Enviar/WhatsApp/Aprovar/Recusar) ficam no detalhe = a modal de edição. */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {p.status === 'rascunho' && <button onClick={() => mudarStatus(p, 'enviada')} style={btnSec}>📨 Enviar</button>}
-                      {['rascunho', 'enviada'].includes(p.status) && <button onClick={() => compartilhar(p)} style={btnSec}>🟢 WhatsApp</button>}
-                      {['rascunho', 'enviada'].includes(p.status) && <button disabled={busy} onClick={() => abrirAprovar(p)} style={btnGanhar}>✓ Aprovar</button>}
-                      {['rascunho', 'enviada'].includes(p.status) && <button onClick={() => mudarStatus(p, 'recusada')} style={btnPerder}>✕ Recusar</button>}
-                      {p.status === 'aprovada' && (p.contrato_id
-                        ? <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>
-                        : <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>Aprovada</span>)}
+                      <button onClick={() => abrirEditar(p)} style={btnSec}>✏️ Editar</button>
+                      <button onClick={() => void excluir(p)} style={{ ...btnSec, borderColor: RED, color: RED }}>🗑️ Excluir</button>
+                      {p.status === 'aprovada' && p.contrato_id && (
+                        <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>
+                      )}
                     </div>
                   </div>
                 )
@@ -267,7 +313,19 @@ export default function PropostasPage() {
       {novo && (
         <div style={overlay} onClick={() => setNovo(false)}>
           <div style={{ ...modal, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>Nova proposta</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>{editId ? 'Editar proposta' : 'Nova proposta'}</h2>
+
+            {/* PM-QW #15 · "detalhe": ações de status ficam aqui (fora do card). Só na edição. */}
+            {propEdit && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', background: '#FBF6EA', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '8px 10px', marginBottom: 12 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: stCfg(propEdit.status).cor, padding: '3px 10px', borderRadius: 999 }}>{stCfg(propEdit.status).l}</span>
+                {propEdit.status === 'rascunho' && <button onClick={() => { void mudarStatus(propEdit, 'enviada'); setNovo(false) }} style={btnSec}>📨 Enviar</button>}
+                {['rascunho', 'enviada'].includes(propEdit.status) && <button onClick={() => compartilhar(propEdit)} style={btnSec}>🟢 WhatsApp</button>}
+                {['rascunho', 'enviada'].includes(propEdit.status) && <button disabled={busy} onClick={() => { setNovo(false); abrirAprovar(propEdit) }} style={btnGanhar}>✓ Aprovar</button>}
+                {['rascunho', 'enviada'].includes(propEdit.status) && <button onClick={() => { void mudarStatus(propEdit, 'recusada'); setNovo(false) }} style={btnPerder}>✕ Recusar</button>}
+                {propEdit.status === 'aprovada' && propEdit.contrato_id && <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>}
+              </div>
+            )}
 
             <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} />
 
@@ -328,8 +386,8 @@ export default function PropostasPage() {
             <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-              <button onClick={() => setNovo(false)} style={btnGhost}>Cancelar</button>
-              <button disabled={busy} onClick={criar} style={btnPri}>{busy ? 'Salvando…' : 'CRIAR'}</button>
+              <button onClick={() => { setNovo(false); setEditId(null) }} style={btnGhost}>Cancelar</button>
+              <button disabled={busy} onClick={editId ? salvarEdicao : criar} style={btnPri}>{busy ? 'Salvando…' : (editId ? 'SALVAR' : 'CRIAR')}</button>
             </div>
           </div>
         </div>

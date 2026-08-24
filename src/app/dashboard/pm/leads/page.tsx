@@ -111,13 +111,14 @@ export default function LeadsPage() {
     const { data } = await supabase.from('agency_leads').select('*').eq('company_id', empresa).is('deleted_at', null).order('criado_em', { ascending: false })
     const rows = (data ?? []) as Lead[]
     setLeads(rows)
-    const ids = Array.from(new Set(rows.flatMap((r) => [r.responsavel_id, r.criado_por]).filter(Boolean))) as string[]
-    if (ids.length) {
-      const { data: us } = await supabase.from('users').select('id, full_name, email').in('id', ids)
-      const m: Record<string, string> = {}
-      for (const u of (us ?? []) as { id: string; full_name: string | null; email: string | null }[]) m[u.id] = u.full_name || u.email || '—'
-      setRespMap(m)
-    } else setRespMap({})
+    // PM-QW #14 · nomes via RPC do tenant (RD-26): from('users') direto vem VAZIO p/ não-admin (RLS)
+    // → o nome do responsável nunca aparecia. fn_usuarios_da_empresa é SECURITY DEFINER e resolve.
+    const { data: us } = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: empresa })
+    const m: Record<string, string> = {}
+    for (const u of (us ?? []) as { id: string; full_name: string | null; email: string | null }[]) {
+      m[u.id] = u.full_name || (u.email ? u.email.split('@')[0] : '') || '—'
+    }
+    setRespMap(m)
     // reuniões vinculadas (erp_agendamento comercial · dados.lead_id) → mapa por lead (a mais recente)
     const { data: ags } = await supabase.from('erp_agendamento')
       .select('data, hora_inicio, link_reuniao, local, dados')
