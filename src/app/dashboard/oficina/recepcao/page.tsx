@@ -87,12 +87,22 @@ export default function RecepcaoPage() {
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
   const [assinarOsId, setAssinarOsId] = useState<string | null>(null)  // RD-41 · assinatura "ciente do checklist"
+  // OFIC-B (#11) · "Somente orçamento": cria um orçamento (sem OS/pátio) e leva pro editor.
+  const [somenteOrcamento, setSomenteOrcamento] = useState(false)
+  // OFIC-B (#12) · orçamentos ABERTOS achados pela placa (chegada → converter em OS).
+  type OrcAberto = { id: string; numero: string | null; cliente_nome: string | null; placa: string | null; veiculo_modelo: string | null; total: number | null; status: string }
+  const [orcamentosPlaca, setOrcamentosPlaca] = useState<OrcAberto[]>([])
+  const [convertendoOrc, setConvertendoOrc] = useState<string | null>(null)
 
   const buscarPlaca = async () => {
     if (!companyId || placa.trim().length < 5) return
     setBuscando(true); setHistorico(null)
-    const { data } = await supabase.rpc('fn_oficina_buscar_placa', { p_company_id: companyId, p_placa: placa })
+    const [{ data }, { data: orcs }] = await Promise.all([
+      supabase.rpc('fn_oficina_buscar_placa', { p_company_id: companyId, p_placa: placa }),
+      supabase.rpc('fn_oficina_buscar_por_placa', { p_company_id: companyId, p_placa: placa }),
+    ])
     setBuscando(false)
+    setOrcamentosPlaca((orcs as OrcAberto[]) ?? [])   // OFIC-B (#12): orçamentos abertos desta placa
     const d = data as { cliente_id?: string; cliente_nome?: string; cliente_cnpj?: string; marca?: string; modelo?: string; ano?: number; ultimo_km?: number; os_anteriores?: number } | null
     if (d) {
       setClienteId(d.cliente_id ?? ''); setClienteNome(d.cliente_nome ?? ''); setClienteCnpj(d.cliente_cnpj ?? '')
@@ -101,6 +111,18 @@ export default function RecepcaoPage() {
     } else {
       setHistorico('Veículo novo — cadastrando na hora.')
     }
+  }
+
+  // OFIC-B (#12) · converte um orçamento aberto (achado por placa) em OS. Idempotente no backend.
+  async function converterOrcamentoEmOS(orcId: string) {
+    if (!companyId) return
+    setConvertendoOrc(orcId); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_oficina_orcamento_para_os', { p_orcamento_id: orcId })
+    setConvertendoOrc(null)
+    const r = data as { ok?: boolean; erro?: string; os_id?: string; numero?: string; ja_existia?: boolean } | null
+    if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao converter em OS')); return }
+    setMsg(`✅ OS ${r.numero ?? ''} ${r.ja_existia ? 'já existia (aberta)' : 'CRIOU'} — do orçamento. Abrindo o pátio…`)
+    setTimeout(() => router.push('/dashboard/oficina/patio'), 1200)
   }
 
   // Detecta CPF (11) x CNPJ (14) pela quantidade de dígitos. A busca só dispara com documento válido.
@@ -220,6 +242,24 @@ export default function RecepcaoPage() {
 
   const salvar = async () => {
     if (!companyId) return
+    // OFIC-B (#11) · "Somente orçamento": não cria OS/pátio; cria um orçamento e vai pro editor.
+    if (somenteOrcamento) {
+      if (!clienteNome.trim() && placa.trim().length < 2 && !itemDesc.trim()) {
+        setMsg('Informe o cliente, a placa ou a peça para o orçamento.'); return
+      }
+      setSalvando(true); setMsg(null)
+      const veic = [marca, modelo].filter(Boolean).join(' ') || itemDesc.trim() || null
+      const { data, error } = await supabase.rpc('fn_oficina_orcamento_avulso', {
+        p_company_id: companyId, p_cliente_id: clienteId || null, p_cliente_nome: clienteNome || null,
+        p_placa: placa || null, p_veiculo: veic, p_queixa: queixa.trim() || itemDesc.trim() || null, p_itens: [],
+      })
+      setSalvando(false)
+      const r = data as { ok?: boolean; erro?: string; orcamento_id?: string } | null
+      if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao criar orçamento')); return }
+      setMsg('✅ Orçamento CRIOU — abra para adicionar itens e enviar o link ao cliente. Abrindo…')
+      setTimeout(() => router.push('/dashboard/orcamentos'), 1200)
+      return
+    }
     if (ramo.automotivo) {
       if (placa.trim().length < 5) { setMsg('Informe a placa.'); return }
     } else if (!itemDesc.trim() && !queixa.trim()) {
@@ -297,6 +337,14 @@ export default function RecepcaoPage() {
           {ramo.automotivo ? <Car size={22} /> : <Package size={22} />} {ramo.recepcaoTitulo}
         </h1>
 
+        {/* OFIC-B (#11) · modo "Somente orçamento" — cria um orçamento (sem OS/pátio) e vai pro editor. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: somenteOrcamento ? '#FBF4E4' : '#fff', border: `1px solid ${somenteOrcamento ? GOLD : LINE}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+          <input id="somente-orcamento" type="checkbox" checked={somenteOrcamento} onChange={(e) => setSomenteOrcamento(e.target.checked)} style={{ width: 20, height: 20, accentColor: GOLD }} />
+          <label htmlFor="somente-orcamento" style={{ fontSize: 13, color: ESP, fontWeight: 700, cursor: 'pointer' }}>
+            🧾 Somente orçamento <span style={{ fontWeight: 400, color: ESP60 }}>· sem carro no pátio — não cria OS</span>
+          </label>
+        </div>
+
         {/* PLACA + busca — só na automotiva (a peça/trabalho não tem placa) */}
         {ramo.pedeVeiculo && (
           <Sec titulo="Placa">
@@ -307,6 +355,24 @@ export default function RecepcaoPage() {
               <button onClick={buscarPlaca} disabled={buscando} style={{ ...btnGold, minWidth: 52 }}><Search size={18} /></button>
             </div>
             {historico && <div style={{ fontSize: 12, color: historico.startsWith('Veículo novo') ? GOLD : OK, marginTop: 6, fontWeight: 600 }}>{historico}</div>}
+            {/* OFIC-B (#12) · orçamentos ABERTOS desta placa → converter em OS (chegada). */}
+            {orcamentosPlaca.length > 0 && (
+              <div style={{ marginTop: 10, background: '#FBF4E4', border: `1px solid ${GOLD}`, borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 6 }}>🧾 Orçamento em aberto p/ esta placa</div>
+                {orcamentosPlaca.map((o) => (
+                  <div key={o.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderTop: `1px solid ${LINE}` }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{o.numero || 'orçamento'} · {(o.total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
+                      <div style={{ fontSize: 11, color: ESP60 }}>{o.cliente_nome || '—'} · {o.status}{o.veiculo_modelo ? ` · ${o.veiculo_modelo}` : ''}</div>
+                    </div>
+                    <button type="button" onClick={() => void converterOrcamentoEmOS(o.id)} disabled={convertendoOrc === o.id}
+                      style={{ ...btnGold, minHeight: 40, padding: '8px 12px', fontSize: 12.5, whiteSpace: 'nowrap', opacity: convertendoOrc === o.id ? 0.6 : 1 }}>
+                      {convertendoOrc === o.id ? 'Convertendo…' : '→ Converter em OS'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </Sec>
         )}
 
@@ -471,7 +537,7 @@ export default function RecepcaoPage() {
       {/* barra fixa de salvar (mobile) */}
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${LINE}`, padding: '10px 14px', display: 'flex', justifyContent: 'center' }}>
         <button onClick={salvar} disabled={salvando} style={{ ...btnGold, maxWidth: 560, width: '100%', fontSize: 15, minHeight: 48 }}>
-          {salvando ? 'Registrando…' : 'Registrar recepção → Pátio'}
+          {salvando ? (somenteOrcamento ? 'Criando…' : 'Registrando…') : (somenteOrcamento ? '🧾 Criar orçamento' : 'Registrar recepção → Pátio')}
         </button>
       </div>
       {msg && <div style={{ position: 'fixed', bottom: 74, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{msg}</div>}
