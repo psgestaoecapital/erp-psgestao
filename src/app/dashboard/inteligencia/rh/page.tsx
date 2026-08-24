@@ -25,7 +25,7 @@ type QuadroResp = {
 }
 type RvRow = {
   funcionario_id: string; cargo: string | null; perfil: string; faixa: string
-  dias: number; entregas: number; infracoes_registradas: number; sem_infracao: boolean
+  dias: number; entregas: number; entregas_origem: string | null; infracoes_registradas: number; sem_infracao: boolean
   salario_base: number | null; premio_util: number | null; diaria: number | null; hora_extra: number | null
   por_entrega: number | null; bonus: number | null; ajuste_manual: number | null; inss: number | null; variavel_total: number | null; bruto_total: number | null
 }
@@ -83,6 +83,25 @@ export default function RhHubPage() {
   const [rvAviso, setRvAviso] = useState<string | null>(null)
   // RV-F5.1 · ajuste individual por motorista
   const [ajusteFor, setAjusteFor] = useState<{ funcionario_id: string; nome: string } | null>(null)
+  // RV-F6 · entregas do mês (total digitável por pessoa)
+  const [entregasEdit, setEntregasEdit] = useState<Record<string, string>>({})
+  const [savingEntregas, setSavingEntregas] = useState<string | null>(null)
+
+  async function salvarEntregasMes(funcId: string) {
+    const val = entregasEdit[funcId]
+    if (val === undefined || !empresa) return
+    setSavingEntregas(funcId); setRvAviso(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_entregas_mes_salvar', {
+      p_company_id: empresa, p_funcionario_id: funcId, p_competencia: competencia, p_entregas: parseInt(val || '0', 10) || 0 })
+    setSavingEntregas(null)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) {
+      setRvAviso('Erro ao salvar entregas: ' + (j?.erro === 'competencia_fechada' ? 'competência fechada.' : (error?.message ?? j?.erro ?? 'falhou')))
+      return
+    }
+    setEntregasEdit((prev) => { const n = { ...prev }; delete n[funcId]; return n })
+    setRvAviso('✔ ALTEROU entregas do mês'); void carregarRv()
+  }
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
@@ -355,6 +374,14 @@ export default function RhHubPage() {
                             <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0' }}>Variável</td><td style={{ textAlign: 'right', fontWeight: 700, color: GOLD }}>{brl(r.variavel_total)}</td></tr>
                             <tr><td style={{ color: MUT, padding: '2px 0', fontSize: 11 }}>Bruto (c/ base+prêmio)</td><td style={{ textAlign: 'right', padding: '2px 0', fontSize: 11, color: MUT }}>{brl(r.bruto_total)}</td></tr>
                           </tbody></table>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, color: MUT }}>Entregas do mês:</span>
+                            <input inputMode="numeric" value={entregasEdit[r.funcionario_id] ?? String(r.entregas)} disabled={compFechada}
+                              onChange={(e) => setEntregasEdit((prev) => ({ ...prev, [r.funcionario_id]: e.target.value.replace(/\D/g, '') }))}
+                              style={{ width: 72, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} />
+                            {!compFechada && <button onClick={() => void salvarEntregasMes(r.funcionario_id)} disabled={savingEntregas === r.funcionario_id} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 5, padding: '4px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{savingEntregas === r.funcionario_id ? '…' : 'ok'}</button>}
+                            <span style={{ fontSize: 10, color: MUT }} title={r.entregas_origem === 'mensal' ? 'total digitado do mês' : 'somado dos lançamentos diários'}>{r.entregas_origem === 'mensal' ? '✍ total do mês' : '⏱ somado dos dias'}</span>
+                          </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                             <span style={{ fontSize: 10, color: MUT }}>📋 plano · ⏱ ponto · ✍ manual</span>
                             {!compFechada && <button onClick={() => setAjusteFor({ funcionario_id: r.funcionario_id, nome: nomes[r.funcionario_id] ?? '—' })} style={{ background: '#fff', border: `0.5px solid ${GOLD}`, color: ESP, borderRadius: 6, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>+ Ajuste</button>}
