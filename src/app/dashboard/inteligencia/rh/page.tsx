@@ -60,6 +60,10 @@ export default function RhHubPage() {
   const [nomes, setNomes] = useState<Record<string, string>>({})
   const [lancarOpen, setLancarOpen] = useState(false)
   const [partOpen, setPartOpen] = useState(false)
+  // RV-F4 · fechamento da competência (evento GE)
+  const [compFechada, setCompFechada] = useState(false)
+  const [fechando, setFechando] = useState(false)
+  const [rvAviso, setRvAviso] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
@@ -98,8 +102,29 @@ export default function RhHubPage() {
         setNomes(m)
       }
     }
+    // status da competência (fechada trava lançamento e some o botão fechar)
+    const { data: comp } = await supabase.from('rh_rv_competencia')
+      .select('status').eq('company_id', empresa).eq('competencia', competencia).maybeSingle()
+    setCompFechada((comp as { status?: string } | null)?.status === 'fechada')
     setRvLoading(false)
   }, [empresa, competencia])
+
+  async function fecharCompetencia() {
+    if (!empresa) return
+    if (typeof window !== 'undefined' && !window.confirm(
+      `Fechar a competência ${competencia}?\nGera 1 conta a pagar por motorista na Gestão Empresarial (folha) e trava novos lançamentos deste mês.`)) return
+    setFechando(true); setRvAviso(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_fechar_competencia', { p_company_id: empresa, p_competencia: competencia })
+    setFechando(false)
+    const j = data as { ok?: boolean; erro?: string; motoristas?: number; total?: number } | null
+    if (error || !j?.ok) {
+      setRvAviso('Não foi possível fechar: ' + (j?.erro === 'sem_permissao_fechar'
+        ? 'só RH/sócio podem fechar a competência.' : (error?.message ?? j?.erro ?? 'falhou')))
+      return
+    }
+    setRvAviso(`✔ Fechou a competência · ${j.motoristas} motorista(s) enviados à GE (folha)${rv?.pode_salario ? ` · ${brl(j.total)}` : ''}.`)
+    void carregarRv()
+  }
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (sub === 'remun') void carregarRv() }, [sub, carregarRv])
 
@@ -246,9 +271,17 @@ export default function RhHubPage() {
                 style={{ background: '#fff', color: ESP, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>👥 Participantes</button>
               <button type="button" onClick={exportarRv} disabled={!rv?.lista?.length}
                 style={{ background: '#fff', color: ESP, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: rv?.lista?.length ? 'pointer' : 'not-allowed', opacity: rv?.lista?.length ? 1 : 0.5 }}>⬇ Exportar</button>
+              {compFechada ? (
+                <span style={{ marginLeft: 'auto', background: '#EDE4D3', color: ESP, border: `0.5px solid ${GOLD}`, borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 700 }}>🔒 Competência fechada · enviada à folha (GE)</span>
+              ) : (
+                <button type="button" onClick={() => void fecharCompetencia()} disabled={fechando || !rv?.lista?.length}
+                  style={{ marginLeft: 'auto', background: '#7A1F1F', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: rv?.lista?.length ? 'pointer' : 'not-allowed', opacity: rv?.lista?.length ? 1 : 0.5 }}>
+                  {fechando ? 'Fechando…' : '🔒 Fechar competência'}</button>
+              )}
             </div>
 
-            <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>ℹ️ INSS não é calculado aqui — vem da folha oficial (Dominio), pra não divergir.</div>
+            {rvAviso && <div style={{ fontSize: 12, color: rvAviso.startsWith('✔') ? GREEN : RED, marginBottom: 10, fontWeight: 600 }}>{rvAviso}</div>}
+            <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>ℹ️ INSS não é calculado aqui — vem da folha oficial (Dominio), pra não divergir. Ao fechar, gera 1 conta a pagar por motorista na GE (rastreável).</div>
 
             {rvLoading ? <div style={{ padding: 30, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
             : (rv?.lista?.length ?? 0) === 0 ? (
@@ -282,12 +315,25 @@ export default function RhHubPage() {
                       <div style={{ fontSize: 13.5, fontWeight: 700 }}>{nomes[r.funcionario_id] ?? '—'}</div>
                       <div style={{ fontSize: 11, color: MUT, marginBottom: 8 }}>{r.cargo ?? '—'} · {r.perfil}/{r.faixa} · {r.dias} dia(s) · {r.entregas} entrega(s){!r.sem_infracao ? ' · ⚠ infração' : ''}</div>
                       {rv!.pode_salario ? (
-                        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}><tbody>
-                          {[['Salário base', r.salario_base], ['Prêmio útil', r.premio_util], ['Diária (ponto)', r.diaria], ['Hora extra (ponto)', r.hora_extra], ['Por entrega', r.por_entrega], ['Bônus s/ infração', r.bonus]].map(([l, v], i) => (
-                            <tr key={i}><td style={{ color: MUT, padding: '3px 0' }}>{l}</td><td style={{ textAlign: 'right', padding: '3px 0' }}>{brl(v as number)}</td></tr>
-                          ))}
-                          <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0' }}>Bruto (RH)</td><td style={{ textAlign: 'right', fontWeight: 700, color: GOLD }}>{brl(r.bruto_total)}</td></tr>
-                        </tbody></table>
+                        <>
+                          {r.salario_base === 0 && <div style={{ fontSize: 11, color: RED, marginBottom: 6, fontWeight: 600 }}>⚠ Salário base não configurado no plano — cálculo incompleto.</div>}
+                          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}><tbody>
+                            {[
+                              { l: 'Salário base', tag: '📋', v: r.salario_base },
+                              { l: 'Prêmio útil', tag: '📋', v: r.premio_util },
+                              { l: 'Diária', tag: '⏱', v: r.diaria },
+                              { l: 'Hora extra', tag: '⏱', v: r.hora_extra },
+                              { l: 'Por entrega', tag: '✍', v: r.por_entrega },
+                              { l: 'Bônus s/ infração', tag: '✍', v: r.bonus, red: !r.sem_infracao },
+                            ].map((row, i) => (
+                              <tr key={i}><td style={{ color: MUT, padding: '3px 0' }}>{row.tag} {row.l}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 0', color: row.red ? RED : ESP, fontWeight: row.red ? 700 : 400 }}>{brl(row.v as number)}{row.red ? ' (zerado)' : ''}</td></tr>
+                            ))}
+                            <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0' }}>Variável</td><td style={{ textAlign: 'right', fontWeight: 700, color: GOLD }}>{brl(r.variavel_total)}</td></tr>
+                            <tr><td style={{ color: MUT, padding: '2px 0', fontSize: 11 }}>Bruto (c/ base+prêmio)</td><td style={{ textAlign: 'right', padding: '2px 0', fontSize: 11, color: MUT }}>{brl(r.bruto_total)}</td></tr>
+                          </tbody></table>
+                          <div style={{ fontSize: 10, color: MUT, marginTop: 4 }}>📋 plano · ⏱ ponto · ✍ manual</div>
+                        </>
                       ) : <div style={{ fontSize: 11.5, color: MUT }}>Valores ocultos (LGPD).</div>}
                     </div>
                   ))}
@@ -299,7 +345,7 @@ export default function RhHubPage() {
       </div>
 
       {lancarOpen && empresa && (
-        <LancarDiaModal empresa={empresa} onClose={() => setLancarOpen(false)} onSaved={() => { void carregarRv() }} />
+        <LancarDiaModal empresa={empresa} competencia={competencia} competenciaFechada={compFechada} onClose={() => setLancarOpen(false)} onSaved={() => { void carregarRv() }} />
       )}
       {partOpen && empresa && (
         <ParticipantesModal empresa={empresa} onClose={() => setPartOpen(false)} onChanged={() => { void carregar(); void carregarRv() }} />
@@ -309,8 +355,9 @@ export default function RhHubPage() {
 }
 
 // ── Lançamento diário (mobile): data + entregas + infração por participante ──────────────────────
-function LancarDiaModal({ empresa, onClose, onSaved }: { empresa: string; onClose: () => void; onSaved: () => void }) {
+function LancarDiaModal({ empresa, competencia, competenciaFechada, onClose, onSaved }: { empresa: string; competencia?: string; competenciaFechada?: boolean; onClose: () => void; onSaved: () => void }) {
   const [data, setData] = useState(hojeISO())
+  const dataFechada = !!competenciaFechada && data.slice(0, 7) === competencia
   const [rows, setRows] = useState<{ funcionario_id: string; nome: string; entregas: string; infracao: boolean; tipo: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -355,6 +402,7 @@ function LancarDiaModal({ empresa, onClose, onSaved }: { empresa: string; onClos
         </div>
         <div style={{ padding: 16 }}>
           <label style={{ fontSize: 12, color: MUT }}>Data <input type="date" value={data} onChange={(e) => setData(e.target.value)} style={{ marginLeft: 6, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '6px 8px', color: ESP, background: '#fff' }} /></label>
+          {dataFechada && <div style={{ marginTop: 8, fontSize: 12, color: RED, fontWeight: 600 }}>🔒 A competência {competencia} está fechada (enviada à folha) — não dá para lançar neste mês.</div>}
           {msg && <div style={{ marginTop: 8, fontSize: 12, color: msg.startsWith('Erro') ? RED : GREEN }}>{msg}</div>}
           {loading ? <div style={{ padding: 20, textAlign: 'center', color: MUT }}>Carregando…</div>
           : rows.length === 0 ? <div style={{ padding: 20, textAlign: 'center', color: MUT, fontSize: 12.5 }}>Nenhum participante no plano. Inclua em “Participantes”.</div>
@@ -373,7 +421,7 @@ function LancarDiaModal({ empresa, onClose, onSaved }: { empresa: string; onClos
                         <option value="registrada">registrada</option><option value="verbal">verbal</option>
                       </select>
                     )}
-                    <button onClick={() => void salvar(r)} disabled={busy === r.funcionario_id} style={{ marginLeft: 'auto', background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{busy === r.funcionario_id ? '…' : 'Salvar'}</button>
+                    <button onClick={() => void salvar(r)} disabled={busy === r.funcionario_id || dataFechada} style={{ marginLeft: 'auto', background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: dataFechada ? 'not-allowed' : 'pointer', opacity: dataFechada ? 0.5 : 1 }}>{busy === r.funcionario_id ? '…' : 'Salvar'}</button>
                   </div>
                 </div>
               ))}
@@ -415,11 +463,12 @@ function ParticipantesModal({ empresa, onClose, onChanged }: { empresa: string; 
   async function incluir() {
     if (!selFunc || !selPlano) { setMsg('Escolha o funcionário e o plano.'); return }
     setBusy(true); setMsg(null)
-    const { error } = await supabase.from('rh_rv_participante').upsert(
-      { company_id: empresa, funcionario_id: selFunc, plano_id: selPlano, ativo: true }, { onConflict: 'company_id,funcionario_id' })
+    const { data, error } = await supabase.rpc('fn_rh_rv_participante_salvar', {
+      p_company_id: empresa, p_funcionario_id: selFunc, p_plano_id: selPlano, p_ativo: true })
     setBusy(false)
-    if (error) { setMsg('Erro: ' + error.message); return }
-    setSelFunc(''); setMsg('✔ incluído'); await carregar(); onChanged()
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    setSelFunc(''); setMsg('✔ CRIOU vínculo'); await carregar(); onChanged()
   }
   async function remover(id: string) {
     setBusy(true)
