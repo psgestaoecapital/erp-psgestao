@@ -162,7 +162,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     const r = data as { ok?: boolean; erro?: string; valor?: number } | null
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
     const v = r?.valor != null ? ` — R$ ${Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
-    flash(`Faturada ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
+    flash(`Financeiro gravado ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
     void carregar()
   }
 
@@ -739,10 +739,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
             onClick={() => void faturar()}
             disabled={faturando}
             data-testid="os-faturar"
-            title="Gera o título em Contas a Receber (GE)"
+            title="Recalcula o total pelos itens e gera o título em Contas a Receber (GE). Não emite NF."
             style={{ ...btnPri, background: C.gold, color: '#3D2314', opacity: faturando ? 0.6 : 1 }}
           >
-            {faturando ? 'Faturando…' : '💰 Faturar OS'}
+            {faturando ? 'Gravando…' : '💰 Gravar Financeiro'}
           </button>
         ) : null}
         <button
