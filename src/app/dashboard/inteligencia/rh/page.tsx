@@ -27,7 +27,7 @@ type RvRow = {
   funcionario_id: string; cargo: string | null; perfil: string; faixa: string
   dias: number; entregas: number; infracoes_registradas: number; sem_infracao: boolean
   salario_base: number | null; premio_util: number | null; diaria: number | null; hora_extra: number | null
-  por_entrega: number | null; bonus: number | null; inss: number | null; variavel_total: number | null; bruto_total: number | null
+  por_entrega: number | null; bonus: number | null; ajuste_manual: number | null; inss: number | null; variavel_total: number | null; bruto_total: number | null
 }
 type RvResp = {
   ok: boolean; erro?: string; competencia: string; pode_salario: boolean; inss_pela_folha: boolean
@@ -35,7 +35,24 @@ type RvResp = {
   lista: RvRow[]
 }
 type Participante = { id: string; funcionario_id: string; plano_id: string; ativo: boolean }
-type Plano = { id: string; perfil: string; faixa: string }
+type Plano = {
+  id: string; perfil: string; faixa: string
+  salario_base: number | null; diaria_valor: number | null; premio_util: number | null
+  valor_entrega: number | null; bonus_sem_infracao: number | null; he_min_dia: number | null
+  inss_pct: number | null; calcula_inss: boolean | null; entregas_meta: number | null; infracoes_zera: number | null
+}
+// campos editáveis do plano (rótulo + chave + tipo) — fonte única do formulário de edição.
+const PLANO_CAMPOS: { k: keyof Plano; l: string; tipo: 'moeda' | 'int' | 'pct' }[] = [
+  { k: 'salario_base', l: 'Salário base', tipo: 'moeda' },
+  { k: 'diaria_valor', l: 'Diária (R$/dia)', tipo: 'moeda' },
+  { k: 'premio_util', l: 'Prêmio utilização', tipo: 'moeda' },
+  { k: 'valor_entrega', l: 'Valor por entrega', tipo: 'moeda' },
+  { k: 'bonus_sem_infracao', l: 'Bônus sem infração', tipo: 'moeda' },
+  { k: 'he_min_dia', l: 'HE (min/dia)', tipo: 'int' },
+  { k: 'inss_pct', l: 'INSS %', tipo: 'pct' },
+  { k: 'entregas_meta', l: 'Meta de entregas', tipo: 'int' },
+  { k: 'infracoes_zera', l: 'Infrações que zeram bônus', tipo: 'int' },
+]
 type Func = { id: string; nome_completo: string | null; cargo: string | null }
 
 type SubKey = 'quadro' | 'folha' | 'ponto' | 'remun' | 'indic' | 'nr'
@@ -64,6 +81,8 @@ export default function RhHubPage() {
   const [compFechada, setCompFechada] = useState(false)
   const [fechando, setFechando] = useState(false)
   const [rvAviso, setRvAviso] = useState<string | null>(null)
+  // RV-F5.1 · ajuste individual por motorista
+  const [ajusteFor, setAjusteFor] = useState<{ funcionario_id: string; nome: string } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
@@ -329,10 +348,17 @@ export default function RhHubPage() {
                               <tr key={i}><td style={{ color: MUT, padding: '3px 0' }}>{row.tag} {row.l}</td>
                                 <td style={{ textAlign: 'right', padding: '3px 0', color: row.red ? RED : ESP, fontWeight: row.red ? 700 : 400 }}>{brl(row.v as number)}{row.red ? ' (zerado)' : ''}</td></tr>
                             ))}
+                            {!!r.ajuste_manual && (
+                              <tr><td style={{ color: MUT, padding: '3px 0' }}>✍ Ajustes manuais</td>
+                                <td style={{ textAlign: 'right', padding: '3px 0', fontWeight: 600, color: (r.ajuste_manual ?? 0) < 0 ? RED : GREEN }}>{(r.ajuste_manual ?? 0) >= 0 ? '+' : '−'}{brl(Math.abs(r.ajuste_manual as number))}</td></tr>
+                            )}
                             <tr style={{ borderTop: `1px solid ${LINE}` }}><td style={{ fontWeight: 700, padding: '5px 0' }}>Variável</td><td style={{ textAlign: 'right', fontWeight: 700, color: GOLD }}>{brl(r.variavel_total)}</td></tr>
                             <tr><td style={{ color: MUT, padding: '2px 0', fontSize: 11 }}>Bruto (c/ base+prêmio)</td><td style={{ textAlign: 'right', padding: '2px 0', fontSize: 11, color: MUT }}>{brl(r.bruto_total)}</td></tr>
                           </tbody></table>
-                          <div style={{ fontSize: 10, color: MUT, marginTop: 4 }}>📋 plano · ⏱ ponto · ✍ manual</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                            <span style={{ fontSize: 10, color: MUT }}>📋 plano · ⏱ ponto · ✍ manual</span>
+                            {!compFechada && <button onClick={() => setAjusteFor({ funcionario_id: r.funcionario_id, nome: nomes[r.funcionario_id] ?? '—' })} style={{ background: '#fff', border: `0.5px solid ${GOLD}`, color: ESP, borderRadius: 6, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>+ Ajuste</button>}
+                          </div>
                         </>
                       ) : <div style={{ fontSize: 11.5, color: MUT }}>Valores ocultos (LGPD).</div>}
                     </div>
@@ -348,7 +374,12 @@ export default function RhHubPage() {
         <LancarDiaModal empresa={empresa} competencia={competencia} competenciaFechada={compFechada} onClose={() => setLancarOpen(false)} onSaved={() => { void carregarRv() }} />
       )}
       {partOpen && empresa && (
-        <ParticipantesModal empresa={empresa} onClose={() => setPartOpen(false)} onChanged={() => { void carregar(); void carregarRv() }} />
+        <ParticipantesModal empresa={empresa} podeSalario={rv?.pode_salario ?? false} compFechada={compFechada}
+          onClose={() => setPartOpen(false)} onChanged={() => { void carregar(); void carregarRv() }} />
+      )}
+      {ajusteFor && empresa && (
+        <AjusteModal empresa={empresa} competencia={competencia} funcionarioId={ajusteFor.funcionario_id} nome={ajusteFor.nome}
+          onClose={() => setAjusteFor(null)} onChanged={() => void carregarRv()} />
       )}
     </div>
   )
@@ -358,7 +389,7 @@ export default function RhHubPage() {
 function LancarDiaModal({ empresa, competencia, competenciaFechada, onClose, onSaved }: { empresa: string; competencia?: string; competenciaFechada?: boolean; onClose: () => void; onSaved: () => void }) {
   const [data, setData] = useState(hojeISO())
   const dataFechada = !!competenciaFechada && data.slice(0, 7) === competencia
-  const [rows, setRows] = useState<{ funcionario_id: string; nome: string; entregas: string; infracao: boolean; tipo: string }[]>([])
+  const [rows, setRows] = useState<{ funcionario_id: string; nome: string; entregas: string; infracao: boolean; tipo: string; lancId: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -374,11 +405,41 @@ function LancarDiaModal({ empresa, competencia, competenciaFechada, onClose, onS
         for (const f of (fs ?? []) as { id: string; nome_completo: string | null }[]) nomeMap[f.id] = f.nome_completo ?? '—'
       }
       if (!alive) return
-      setRows(ids.map((id) => ({ funcionario_id: id, nome: nomeMap[id] ?? '—', entregas: '', infracao: false, tipo: 'registrada' })))
+      setRows(ids.map((id) => ({ funcionario_id: id, nome: nomeMap[id] ?? '—', entregas: '', infracao: false, tipo: 'registrada', lancId: null })))
       setLoading(false)
     })()
     return () => { alive = false }
   }, [empresa])
+
+  // Ao trocar a data, carrega os lançamentos JÁ existentes desse dia (editar/excluir).
+  useEffect(() => {
+    if (loading) return
+    let alive = true
+    ;(async () => {
+      const { data: ls } = await supabase.from('rh_rv_lancamento_dia')
+        .select('id, funcionario_id, entregas_qtd, infracao, infracao_tipo').eq('company_id', empresa).eq('data', data)
+      if (!alive) return
+      const m = new Map(((ls ?? []) as { id: string; funcionario_id: string; entregas_qtd: number | null; infracao: boolean | null; infracao_tipo: string | null }[]).map((l) => [l.funcionario_id, l]))
+      setRows((rs) => rs.map((r) => {
+        const l = m.get(r.funcionario_id)
+        return l ? { ...r, lancId: l.id, entregas: String(l.entregas_qtd ?? ''), infracao: !!l.infracao, tipo: l.infracao_tipo || 'registrada' }
+                 : { ...r, lancId: null, entregas: '', infracao: false, tipo: 'registrada' }
+      }))
+    })()
+    return () => { alive = false }
+  }, [data, empresa, loading])
+
+  async function excluir(r: (typeof rows)[number]) {
+    if (!r.lancId) return
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir o lançamento de ${r.nome} em ${data.split('-').reverse().join('/')}?`)) return
+    setBusy(r.funcionario_id); setMsg(null)
+    const { data: res, error } = await supabase.rpc('fn_rh_rv_lancamento_excluir', { p_company_id: empresa, p_lancamento_id: r.lancId })
+    setBusy(null)
+    const j = res as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro === 'competencia_fechada' ? 'competência fechada.' : (error?.message ?? j?.erro ?? 'falhou'))); return }
+    setRows((rs) => rs.map((x) => x.funcionario_id === r.funcionario_id ? { ...x, lancId: null, entregas: '', infracao: false, tipo: 'registrada' } : x))
+    setMsg(`✔ EXCLUIU lançamento de ${r.nome}`); onSaved()
+  }
 
   async function salvar(r: (typeof rows)[number]) {
     setBusy(r.funcionario_id); setMsg(null)
@@ -421,7 +482,12 @@ function LancarDiaModal({ empresa, competencia, competenciaFechada, onClose, onS
                         <option value="registrada">registrada</option><option value="verbal">verbal</option>
                       </select>
                     )}
-                    <button onClick={() => void salvar(r)} disabled={busy === r.funcionario_id || dataFechada} style={{ marginLeft: 'auto', background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: dataFechada ? 'not-allowed' : 'pointer', opacity: dataFechada ? 0.5 : 1 }}>{busy === r.funcionario_id ? '…' : 'Salvar'}</button>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                      {r.lancId && !dataFechada && (
+                        <button onClick={() => void excluir(r)} disabled={busy === r.funcionario_id} title="Excluir lançamento deste dia" style={{ background: 'transparent', border: `0.5px solid ${RED}`, color: RED, borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>🗑</button>
+                      )}
+                      <button onClick={() => void salvar(r)} disabled={busy === r.funcionario_id || dataFechada} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: dataFechada ? 'not-allowed' : 'pointer', opacity: dataFechada ? 0.5 : 1 }}>{busy === r.funcionario_id ? '…' : r.lancId ? 'Atualizar' : 'Salvar'}</button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -435,8 +501,11 @@ function LancarDiaModal({ empresa, competencia, competenciaFechada, onClose, onS
 }
 
 // ── Participantes: incluir motorista/ajudante no plano (perfil/faixa) ────────────────────────────
-function ParticipantesModal({ empresa, onClose, onChanged }: { empresa: string; onClose: () => void; onChanged: () => void }) {
+function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChanged }: { empresa: string; podeSalario: boolean; compFechada: boolean; onClose: () => void; onChanged: () => void }) {
   const [planos, setPlanos] = useState<Plano[]>([])
+  const [planosEdit, setPlanosEdit] = useState<Record<string, Plano>>({})
+  const [savingPlano, setSavingPlano] = useState<string | null>(null)
+  const [planoMsg, setPlanoMsg] = useState<string | null>(null)
   const [participantes, setParticipantes] = useState<(Participante & { nome: string })[]>([])
   const [funcs, setFuncs] = useState<Func[]>([])
   const [selFunc, setSelFunc] = useState('')
@@ -446,11 +515,13 @@ function ParticipantesModal({ empresa, onClose, onChanged }: { empresa: string; 
 
   const carregar = useCallback(async () => {
     const [pl, pa, fu] = await Promise.all([
-      supabase.from('rh_rv_plano').select('id, perfil, faixa').eq('company_id', empresa).eq('ativo', true).order('perfil'),
+      supabase.from('rh_rv_plano').select('id, perfil, faixa, salario_base, diaria_valor, premio_util, valor_entrega, bonus_sem_infracao, he_min_dia, inss_pct, calcula_inss, entregas_meta, infracoes_zera').eq('company_id', empresa).eq('ativo', true).order('perfil'),
       supabase.from('rh_rv_participante').select('id, funcionario_id, plano_id, ativo').eq('company_id', empresa).eq('ativo', true),
       supabase.from('compliance_funcionarios').select('id, nome_completo, cargo').eq('company_id', empresa).or('cargo.ilike.%motorista%,cargo.ilike.%ajudante%').order('nome_completo'),
     ])
-    setPlanos((pl.data as Plano[]) ?? [])
+    const planosList = (pl.data as Plano[]) ?? []
+    setPlanos(planosList)
+    setPlanosEdit(Object.fromEntries(planosList.map((p) => [p.id, { ...p }])))
     setFuncs((fu.data as Func[]) ?? [])
     const parts = (pa.data as Participante[]) ?? []
     const nomeMap: Record<string, string> = {}
@@ -471,12 +542,30 @@ function ParticipantesModal({ empresa, onClose, onChanged }: { empresa: string; 
     setSelFunc(''); setMsg('✔ CRIOU vínculo'); await carregar(); onChanged()
   }
   async function remover(id: string) {
+    if (typeof window !== 'undefined' && !window.confirm('Excluir este participante do plano?')) return
     setBusy(true)
-    const { error } = await supabase.from('rh_rv_participante').update({ ativo: false }).eq('id', id)
+    const { data, error } = await supabase.rpc('fn_rh_rv_participante_excluir', { p_company_id: empresa, p_participante_id: id })
     setBusy(false)
-    if (error) { setMsg('Erro: ' + error.message); return }
-    await carregar(); onChanged()
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    setMsg('✔ EXCLUIU participante'); await carregar(); onChanged()
   }
+
+  async function salvarPlano(pl: Plano) {
+    setSavingPlano(pl.id); setPlanoMsg(null)
+    const patch: Record<string, unknown> = {}
+    for (const c of PLANO_CAMPOS) patch[c.k] = pl[c.k]
+    const { data, error } = await supabase.rpc('fn_rh_rv_plano_salvar', { p_company_id: empresa, p_plano_id: pl.id, p_patch: patch })
+    setSavingPlano(null)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) {
+      setPlanoMsg('Erro ao salvar plano: ' + (j?.erro === 'sem_permissao' ? 'só RH/sócio editam valores.' : (error?.message ?? j?.erro ?? 'falhou')))
+      return
+    }
+    setPlanoMsg(`✔ ALTEROU o plano ${pl.perfil}/${pl.faixa}`); onChanged()
+  }
+  const setPlanoField = (id: string, k: keyof Plano, v: string) =>
+    setPlanosEdit((prev) => ({ ...prev, [id]: { ...prev[id], [k]: v === '' ? null : Number(v) } }))
 
   const planoLabel = (id: string) => { const p = planos.find((x) => x.id === id); return p ? `${p.perfil}/${p.faixa}` : '—' }
 
@@ -484,10 +573,36 @@ function ParticipantesModal({ empresa, onClose, onChanged }: { empresa: string; 
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '30px 12px', zIndex: 60, overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 12, width: '100%', maxWidth: 560 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '12px 12px 0 0' }}>
-          <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>👥 Participantes do plano</div>
+          <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>👥 Participantes e planos</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: BG, cursor: 'pointer', fontSize: 18 }}>✕</button>
         </div>
         <div style={{ padding: 16 }}>
+          {podeSalario && planos.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Valores dos planos (perfil × faixa){compFechada ? ' · 🔒 fechada (leitura)' : ''}</div>
+              {planoMsg && <div style={{ fontSize: 12, color: planoMsg.startsWith('✔') ? GREEN : RED, marginBottom: 8 }}>{planoMsg}</div>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {planos.map((p) => { const e = planosEdit[p.id] ?? p; return (
+                  <div key={p.id} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: GOLD, marginBottom: 6 }}>{p.perfil} / {p.faixa}{(e.salario_base ?? 0) === 0 ? ' · ⚠ salário base 0' : ''}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                      {PLANO_CAMPOS.map((c) => (
+                        <label key={String(c.k)} style={{ fontSize: 10.5, color: MUT }}>{c.l}
+                          <input type="number" step={c.tipo === 'moeda' ? '0.01' : c.tipo === 'pct' ? '0.001' : '1'} value={(e[c.k] ?? '') as number | string} disabled={compFechada}
+                            onChange={(ev) => setPlanoField(p.id, c.k, ev.target.value)}
+                            style={{ width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '5px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff', marginTop: 2 }} />
+                        </label>
+                      ))}
+                    </div>
+                    {!compFechada && (
+                      <button onClick={() => void salvarPlano(e)} disabled={savingPlano === p.id} style={{ marginTop: 8, background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{savingPlano === p.id ? 'Salvando…' : 'Salvar plano'}</button>
+                    )}
+                  </div>
+                )})}
+              </div>
+              <div style={{ height: 1, background: LINE, margin: '14px 0' }} />
+            </div>
+          )}
           {planos.length === 0 ? (
             <div style={{ fontSize: 12.5, color: RED }}>Nenhum plano visível (precisa de perfil RH/sócio para gerenciar o plano — LGPD).</div>
           ) : (
@@ -513,6 +628,80 @@ function ParticipantesModal({ empresa, onClose, onChanged }: { empresa: string; 
               </div>
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── RV-F5.1 · Ajuste individual por motorista numa competência ───────────────────────────────────
+function AjusteModal({ empresa, competencia, funcionarioId, nome, onClose, onChanged }: { empresa: string; competencia: string; funcionarioId: string; nome: string; onClose: () => void; onChanged: () => void }) {
+  const [lista, setLista] = useState<{ id: string; tipo: string; valor: number; motivo: string }[]>([])
+  const [tipo, setTipo] = useState<'adicional' | 'desconto'>('adicional')
+  const [valor, setValor] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    const { data } = await supabase.from('rh_rv_ajuste_manual')
+      .select('id, tipo, valor, motivo').eq('company_id', empresa).eq('funcionario_id', funcionarioId)
+      .eq('competencia', competencia).eq('ativo', true).order('created_at', { ascending: false })
+    setLista((data as { id: string; tipo: string; valor: number; motivo: string }[]) ?? [])
+  }, [empresa, funcionarioId, competencia])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function salvar() {
+    if (!motivo.trim()) { setMsg('O motivo é obrigatório.'); return }
+    if (!(parseFloat(valor) > 0)) { setMsg('Informe um valor maior que zero.'); return }
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_ajuste_salvar', {
+      p_company_id: empresa, p_funcionario_id: funcionarioId, p_competencia: competencia, p_tipo: tipo, p_valor: parseFloat(valor), p_motivo: motivo.trim() })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro === 'competencia_fechada' ? 'competência fechada.' : j?.erro === 'sem_permissao' ? 'só RH/sócio.' : (error?.message ?? j?.erro ?? 'falhou'))); return }
+    setValor(''); setMotivo(''); setMsg('✔ CRIOU ajuste'); await carregar(); onChanged()
+  }
+  async function excluir(id: string) {
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_rh_rv_ajuste_excluir', { p_company_id: empresa, p_ajuste_id: id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    setMsg('✔ EXCLUIU ajuste'); await carregar(); onChanged()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '30px 12px', zIndex: 70, overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 12, width: '100%', maxWidth: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '12px 12px 0 0' }}>
+          <div style={{ color: GOLD, fontWeight: 700, fontSize: 14 }}>✍ Ajuste · {nome} · {competencia}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: BG, cursor: 'pointer', fontSize: 18 }}>✕</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value as 'adicional' | 'desconto')} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
+              <option value="adicional">Adicional (+)</option><option value="desconto">Desconto (−)</option>
+            </select>
+            <input inputMode="decimal" placeholder="valor R$" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+          </div>
+          <input placeholder="motivo (obrigatório)" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} style={{ width: '100%', marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff', boxSizing: 'border-box' }} />
+          <button onClick={() => void salvar()} disabled={busy} style={{ marginTop: 8, background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Lançar ajuste</button>
+          {msg && <div style={{ fontSize: 12, color: msg.startsWith('✔') ? GREEN : RED, marginTop: 8 }}>{msg}</div>}
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {lista.length === 0 ? <div style={{ fontSize: 12, color: MUT }}>Nenhum ajuste nesta competência.</div>
+            : lista.map((a) => (
+              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
+                <div style={{ fontSize: 12 }}>
+                  <strong style={{ color: a.tipo === 'desconto' ? RED : GREEN }}>{a.tipo === 'desconto' ? '−' : '+'}{brl(a.valor)}</strong>
+                  <span style={{ color: MUT }}> · {a.motivo}</span>
+                </div>
+                <button onClick={() => void excluir(a.id)} disabled={busy} style={{ background: 'transparent', border: `0.5px solid ${RED}`, color: RED, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: MUT, marginTop: 10 }}>O ajuste entra na Variável e no valor da conta a pagar ao fechar. Bloqueado após o fechamento.</div>
         </div>
       </div>
     </div>
