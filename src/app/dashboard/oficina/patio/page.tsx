@@ -127,7 +127,7 @@ export default function PatioKanbanPage() {
   const { companyIds } = useCompanyIds()
   const companyId = companyIds.length === 1 ? companyIds[0] : null
   // A1 · "Programados para hoje" — agendamentos do dia que ainda não viraram OS (só exibição).
-  const [programados, setProgramados] = useState<{ id: string; hora_inicio: string | null; cliente_nome: string | null; responsavel_nome: string | null; dados: { placa?: string; veiculo?: string } | null }[]>([])
+  const [programados, setProgramados] = useState<{ id: string; hora_inicio: string | null; cliente_id: string | null; cliente_nome: string | null; responsavel_nome: string | null; dados: { placa?: string; veiculo?: string; modelo?: string } | null }[]>([])
   const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · card/labels coerentes por ramo
   // RD-41 · Auxiliar (OPERATOR) → abre a Visão de Execução (sem R$/gerencial).
   const { isOperator } = useAcesso(companyId)
@@ -273,6 +273,17 @@ export default function PatioKanbanPage() {
     if (error) { setErro(error.message); void carregar(); return }
   }
 
+  // OFIC-A (#10) · "Apontar chegada": leva pro recebimento (check-in) pré-preenchido com o agendamento.
+  // A recepção cria a OS (fn_oficina_recepcao_criar) e, no fim, vincula o agendamento (os_id + status),
+  // que então some daqui (fn_agenda_patio_hoje filtra os_id IS NULL). Sem recriar OS (evita duplicar).
+  function apontarChegada(p: { id: string; cliente_id: string | null; cliente_nome: string | null; dados: { placa?: string; modelo?: string } | null }) {
+    const qs = new URLSearchParams({ ag: p.id })
+    if (p.dados?.placa) qs.set('placa', p.dados.placa)
+    if (p.cliente_id) qs.set('cliente_id', p.cliente_id)
+    if (p.cliente_nome) qs.set('cliente_nome', p.cliente_nome)
+    router.push(`/dashboard/oficina/recepcao?${qs.toString()}`)
+  }
+
   if (!companyId) {
     return (
       <div style={{ padding: 24, background: C.bg, minHeight: '100vh', color: C.espressoM }}>
@@ -321,6 +332,10 @@ export default function PatioKanbanPage() {
                   <div style={{ fontSize: 12.5, color: C.espresso, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.cliente_nome || 'Sem cliente'}</div>
                   {veic && <div style={{ fontSize: 11, color: C.espressoM }}>{veic}</div>}
                   {p.responsavel_nome && <div style={{ fontSize: 10.5, color: C.espressoD }}>👤 {p.responsavel_nome}</div>}
+                  <button onClick={() => apontarChegada(p)}
+                    style={{ marginTop: 7, width: '100%', minHeight: 38, padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#fff', background: C.gold, border: 'none', borderRadius: 8, cursor: 'pointer' }}>
+                    🚗 Apontar chegada
+                  </button>
                 </div>
               )
             })}
