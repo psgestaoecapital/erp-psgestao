@@ -1,5 +1,6 @@
 'use client'
-// Compliance · Pausas Técnicas frigorífico (NR-36 psicofisiológica + Art.253 CLT térmica) — Fase 1.
+// Compliance · Pausas Térmicas frigorífico (NR-36 psicofisiológica + Art.253 CLT térmica) — Fase 1.
+// Rota mantida /pausas-tecnicas (não quebrar links); rótulo exibido = "Pausas Térmicas" (COMPL-L1 #24).
 // 4 abas: Config (regras editáveis) · Elegíveis (quem cumpre, por função/manual) · Apuração (devido vs
 // realizado, semáforo) · Prova (relatório cronológico por funcionário). O DEVIDO sai de ind_ponto_dia.
 // ⚠️ O REALIZADO depende do endpoint de pausas da IOPoint (Fase 2, Jian). Enquanto não vem, o painel mostra
@@ -36,7 +37,7 @@ export default function PausasTecnicasPage() {
   const [aba, setAba] = useState<'config' | 'elegiveis' | 'apuracao' | 'prova'>('config')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
-  if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas técnicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
+  if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
 
   return (
     <Wrap>
@@ -305,7 +306,7 @@ function BannerAguardando({ prova }: { prova?: boolean }) {
     <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 13, marginBottom: 14 }}>
       <AlertTriangle size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
       <div style={{ fontSize: 12.5, color: C.espresso }}>
-        <b>Realizado indisponível — este painel mostra só o DEVIDO.</b> O coletor IOPoint ainda não puxa as pausas técnicas (endpoint pendente do Jian, Fase 2). {prova ? 'Esta prova documenta o DEVIDO; ' : ''}<b>NÃO comprova a concessão</b> enquanto o realizado não for integrado. Não use como prova de conformidade sem o realizado.
+        <b>Realizado indisponível — este painel mostra só o DEVIDO.</b> O coletor IOPoint ainda não puxa as pausas térmicas (endpoint pendente do Jian, Fase 2). {prova ? 'Esta prova documenta o DEVIDO; ' : ''}<b>NÃO comprova a concessão</b> enquanto o realizado não for integrado. Não use como prova de conformidade sem o realizado.
       </div>
     </div>
   )
@@ -318,7 +319,7 @@ function Header() {
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
       <span style={{ width: 42, height: 42, borderRadius: 12, background: '#F3E6C9', color: C.gold, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Snowflake size={22} /></span>
       <div>
-        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 23, fontWeight: 400, color: C.espresso, margin: 0 }}>Pausas Técnicas</h1>
+        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 23, fontWeight: 400, color: C.espresso, margin: 0 }}>Pausas Térmicas</h1>
         <div style={{ fontSize: 12, color: C.gray }}>NR-36 psicofisiológica + Art.253 CLT térmica · devido vs realizado + prova</div>
       </div>
     </div>
