@@ -16,6 +16,11 @@ verify_jwt = true
 # Chamado autenticado pela tela (JWT user) ou pelo cron (service_role).
 verify_jwt = true
 
+[functions.nfe-consultar-processando]
+# NFE-EMISSAO: worker de reconsulta de NFe presa em 'processando'. Chamado só pelo
+# cron (fn_nfe_auto_consultar_pendentes) com service_role (Bearer).
+verify_jwt = true
+
 [functions.gov-nfse-flags]
 # Tela autenticada checa disponibilidade de producao.
 verify_jwt = true

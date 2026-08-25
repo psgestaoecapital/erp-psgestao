@@ -57,7 +57,9 @@ interface RespostaEmissao {
   mensagem?: string
 }
 
-type Status = 'preview' | 'enviando' | 'consultando' | 'autorizada' | 'rejeitada'
+// NFE-EMISSAO: 'processando' é um estado PRÓPRIO (não é rejeição) — a Focus é assíncrona e a nota
+// pode ficar autorizando por alguns segundos/minutos. Nunca rotular processando como rejeitada.
+type Status = 'preview' | 'enviando' | 'consultando' | 'autorizada' | 'rejeitada' | 'processando'
 
 export default function NFePreviewModal(props: Props) {
   const [status, setStatus] = useState<Status>('preview')
@@ -65,6 +67,7 @@ export default function NFePreviewModal(props: Props) {
   const [itens, setItens] = useState<ItemSelecionado[]>([])
   const [naturezaOp, setNaturezaOp] = useState('Venda de mercadoria')
   const [resposta, setResposta] = useState<RespostaEmissao | null>(null)
+  const [nfeId, setNfeId] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
 
   const carregarProdutos = useCallback(async () => {
@@ -84,6 +87,7 @@ export default function NFePreviewModal(props: Props) {
       setStatus('preview')
       setItens([])
       setResposta(null)
+      setNfeId(null)
       setErro(null)
       carregarProdutos()
     }
@@ -128,29 +132,39 @@ export default function NFePreviewModal(props: Props) {
     }))
   )
 
-  async function pollStatus(nfeId: string, attempt: number) {
+  async function pollStatus(id: string, attempt: number) {
     if (attempt > 10) {
-      setErro('Tempo esgotado · consulte depois no Hub Fiscal')
-      setStatus('rejeitada')
+      // Ainda processando após o polling: NÃO é rejeição (RD-51). Mostra estado "processando"
+      // com opção de consultar de novo; o cron também reconsulta em background.
+      setStatus('processando')
       return
     }
     await new Promise((r) => setTimeout(r, 3000))
     try {
-      const r = await authFetch(`/api/fiscal/nfe/consultar/${nfeId}`)
+      const r = await authFetch(`/api/fiscal/nfe/consultar/${id}`)
       const json = (await r.json()) as RespostaEmissao
       if (json.status === 'autorizada') {
         setResposta((prev) => ({ ...(prev ?? {}), ...json }))
         setStatus('autorizada')
-        props.onSucesso?.(nfeId)
+        props.onSucesso?.(id)
       } else if (json.status === 'rejeitada' || json.status === 'denegada') {
-        setErro(json.motivoRejeicao ?? 'Rejeitada')
+        setResposta((prev) => ({ ...(prev ?? {}), ...json }))
+        setErro(json.motivoRejeicao ?? 'Nota rejeitada pela SEFAZ (motivo não informado)')
         setStatus('rejeitada')
       } else {
-        pollStatus(nfeId, attempt + 1)
+        pollStatus(id, attempt + 1)
       }
     } catch {
-      pollStatus(nfeId, attempt + 1)
+      pollStatus(id, attempt + 1)
     }
+  }
+
+  // NFE-EMISSAO: consultar sob demanda (botão no estado "processando"). Reusa a mesma rota de consulta.
+  function consultarAgora() {
+    const id = nfeId ?? resposta?.nfeId
+    if (!id) return
+    setStatus('consultando')
+    void pollStatus(id, 0)
   }
 
   async function emitir() {
@@ -178,20 +192,30 @@ export default function NFePreviewModal(props: Props) {
         }),
       })
       const json = (await r.json()) as RespostaEmissao
-      if (!r.ok || !json.ok) {
-        setErro(json.mensagem ?? json.motivoRejeicao ?? 'Erro')
+      // Só falha de verdade (HTTP != 2xx) é erro de emissão. NÃO usar json.ok aqui: a Focus
+      // devolve ok=false quando a nota está apenas 'processando' — e isso NÃO é rejeição.
+      if (!r.ok) {
+        setErro(json.mensagem ?? json.motivoRejeicao ?? 'Falha ao emitir a NFe')
         setStatus('rejeitada')
         return
       }
       setResposta(json)
+      if (json.nfeId) setNfeId(json.nfeId)
       if (json.status === 'autorizada') {
         setStatus('autorizada')
         if (json.nfeId) props.onSucesso?.(json.nfeId)
+      } else if (json.status === 'rejeitada' || json.status === 'denegada') {
+        setErro(json.motivoRejeicao ?? 'Nota rejeitada pela SEFAZ (motivo não informado)')
+        setStatus('rejeitada')
       } else if (json.status === 'processando') {
         setStatus('consultando')
-        if (json.nfeId) pollStatus(json.nfeId, 0)
+        if (json.nfeId) void pollStatus(json.nfeId, 0)
+      } else if (json.nfeId) {
+        // status desconhecido mas a nota existe → trata como processando (consulta), nunca como rejeição
+        setStatus('consultando')
+        void pollStatus(json.nfeId, 0)
       } else {
-        setErro(json.motivoRejeicao ?? 'Rejeitada')
+        setErro(json.mensagem ?? 'Resposta inesperada do provedor')
         setStatus('rejeitada')
       }
     } catch (e) {
@@ -436,13 +460,45 @@ export default function NFePreviewModal(props: Props) {
             </div>
           )}
 
+          {status === 'processando' && (
+            <div className="space-y-3">
+              <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-lg p-3.5 flex items-start gap-2.5">
+                <Loader2 className="text-[#C8941A] flex-shrink-0 mt-0.5" size={18} />
+                <div className="text-[12.5px] text-[#633806]">
+                  <div className="font-medium">⏳ Processando autorização na SEFAZ…</div>
+                  <div className="mt-1">
+                    A nota foi enviada e ainda está sendo autorizada — isso pode levar alguns segundos a
+                    minutos. <strong>Não foi rejeitada.</strong> Consulte de novo agora ou acompanhe depois
+                    no Hub Fiscal (a consulta automática também roda em segundo plano).
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={consultarAgora}
+                  className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810]"
+                >
+                  Consultar agora
+                </button>
+                <button
+                  type="button"
+                  onClick={props.onClose}
+                  className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
+
           {status === 'rejeitada' && (
             <div className="space-y-3">
               <div className="bg-[#FCEBEB] border border-[#E8A6A5] rounded-lg p-3.5 flex items-start gap-2.5">
                 <AlertTriangle className="text-[#C94544] flex-shrink-0 mt-0.5" size={18} />
                 <div className="text-[12.5px] text-[#791F1F]">
                   <div className="font-medium">NFe rejeitada</div>
-                  <div className="mt-1">{erro ?? 'Erro desconhecido'}</div>
+                  <div className="mt-1">{erro ?? 'Motivo não informado pela SEFAZ · consulte o Hub Fiscal'}</div>
                 </div>
               </div>
               <div className="flex gap-2">
