@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { PackageOpen, Plus, Pencil, Trash2, X, GripVertical } from 'lucide-react'
+import { PackageOpen, Plus, Pencil, Trash2, Copy, X, GripVertical } from 'lucide-react'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', RED = '#7A1F1F'
 const brl = (n: number | null | undefined) => n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -84,6 +84,19 @@ export default function ServicosPage() {
     if (!confirm(`Excluir "${s.nome}"?${s.usos > 0 ? ' (em uso — será desativado)' : ''}`)) return
     try { await rpc('fn_agency_servico_excluir', { p_company_id: companyId, p_id: s.id }); void carregar() } catch (e) { alert((e as Error).message) }
   }
+  // PM-25 · duplica o serviço (cópia editável) e ABRE a cópia em edição pra ajustar os "pequenos pontos".
+  const duplicar = async (s: Servico) => {
+    if (!companyId) return
+    setErro('')
+    try {
+      const r = await rpc<{ ok?: boolean; erro?: string; novo_id?: string }>('fn_agency_servico_duplicar', { p_id: s.id })
+      if (!r?.ok) throw new Error(r?.erro || 'falha ao duplicar')
+      const lista = await rpc<{ servicos: Servico[] }>('fn_agency_servico_listar', { p_company_id: companyId, p_incluir_inativos: true })
+      setServicos(lista.servicos || [])
+      const novo = (lista.servicos || []).find(x => x.id === r.novo_id)
+      if (novo) setEdit({ ...novo })   // CRIOU uma cópia de {nome} — já aberta pra editar
+    } catch (e) { alert((e as Error).message) }
+  }
 
   if (!companyId) return <Shell><Vazio t="Selecione uma empresa" l="O catálogo de serviços é por empresa. Escolha uma empresa específica no topo." /></Shell>
 
@@ -115,6 +128,7 @@ export default function ServicosPage() {
                 {s.entregaveis?.length > 0 && <div style={{ fontSize: 11.5, color: TEXTM, marginTop: 2 }}>Entregáveis: {s.entregaveis.join(' · ')}</div>}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
+                <IconBtn title="Duplicar" onClick={() => void duplicar(s)}><Copy size={15} /></IconBtn>
                 <IconBtn title="Editar" onClick={() => setEdit({ ...s })}><Pencil size={15} /></IconBtn>
                 <IconBtn title="Excluir" onClick={() => excluir(s)} danger><Trash2 size={15} /></IconBtn>
               </div>
