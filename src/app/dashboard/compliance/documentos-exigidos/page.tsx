@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
-import { ListChecks, Users, HardHat, Plus, Trash2, X } from 'lucide-react'
+import { ListChecks, Users, HardHat, UserCog, Plus, Trash2, X } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -17,7 +17,7 @@ type CustomItem = { exigido_id: string; nome_custom: string; obrigatorio: boolea
 export default function DocumentosExigidosPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'funcionario' | 'prestador'>('funcionario')
+  const [aba, setAba] = useState<'funcionario' | 'prestador' | 'funcionario_terceiro'>('funcionario')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="A lista de documentos exigidos é por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -27,7 +27,7 @@ export default function DocumentosExigidosPage() {
       <Header />
       <p style={{ fontSize: 12.5, color: C.gray, marginBottom: 14 }}>Marque quais documentos <b>a sua empresa</b> exige. O catálogo é uma biblioteca comum (base legal/eSocial); aqui você monta a lista da sua realidade — separada entre próprios e terceiros. A ficha de cada pessoa passa a mostrar só o que você marcar.</p>
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['funcionario', 'Funcionários próprios', Users], ['prestador', 'Terceiros / Prestadores', HardHat]] as const).map(([k, label, Icon]) => (
+        {([['funcionario', 'Funcionários próprios', Users], ['prestador', 'Terceiros / Prestadores', HardHat], ['funcionario_terceiro', 'Funcionários do terceiro', UserCog]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
@@ -36,7 +36,7 @@ export default function DocumentosExigidosPage() {
   )
 }
 
-function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funcionario' | 'prestador' }) {
+function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funcionario' | 'prestador' | 'funcionario_terceiro' }) {
   const [catalogo, setCatalogo] = useState<CatItem[]>([])
   const [custom, setCustom] = useState<CustomItem[]>([])
   const [loading, setLoading] = useState(true)
