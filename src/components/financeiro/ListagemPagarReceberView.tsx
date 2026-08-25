@@ -176,6 +176,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
   const [nfseDocMap, setNfseDocMap] = useState<Record<string, { pdf?: string | null; xml?: string | null; notaId?: string }>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
+  // RECEBER-DANFE: doc da NF-e autorizada vinculada à receita (DANFE/XML/nº) — sempre do banco.
+  const [nfeDocMap, setNfeDocMap] = useState<Record<string, { danfe?: string | null; xml?: string | null; numero?: string | null; motivo?: string | null }>>({})
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
   const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | null>(null)
@@ -235,6 +237,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     if (!companyId || tipo !== 'receber') {
       setNfseMap({})
       setNfeMap({})
+      setNfeDocMap({})
       setBoletoMap({})
       setClientesMap({})
       setProvider(null)
@@ -250,9 +253,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .not('erp_receber_id', 'is', null),
       supabase
         .from('erp_nfe_emitidas')
-        .select('erp_receber_id, status')
+        .select('erp_receber_id, status, numero, danfe_url, xml_url, motivo_rejeicao')
         .eq('company_id', companyId)
-        .not('erp_receber_id', 'is', null),
+        .not('erp_receber_id', 'is', null)
+        .order('criado_em', { ascending: false }),
       supabase
         .from('erp_receber')
         .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_qr_code, boleto_url')
@@ -282,13 +286,21 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       setNfseMap(nfseMapNew)
       setNfseDocMap(nfseDocMapNew)
 
+      // Rows ordenadas por criado_em desc → a 1ª autorizada encontrada é a MAIS RECENTE (SPEC item 2).
       const nfeMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'> = {}
+      const nfeDocMapNew: Record<string, { danfe?: string | null; xml?: string | null; numero?: string | null; motivo?: string | null }> = {}
       for (const row of nfeRes.data ?? []) {
         if (!row.erp_receber_id) continue
-        if (nfeMapNew[row.erp_receber_id] === 'autorizada') continue
+        if (nfeMapNew[row.erp_receber_id] === 'autorizada') continue   // já travado na autorizada mais recente
         nfeMapNew[row.erp_receber_id] = row.status
+        if (row.status === 'autorizada') {
+          nfeDocMapNew[row.erp_receber_id] = { danfe: row.danfe_url, xml: row.xml_url, numero: row.numero }
+        } else if ((row.status === 'rejeitada' || row.status === 'denegada') && !nfeDocMapNew[row.erp_receber_id]) {
+          nfeDocMapNew[row.erp_receber_id] = { motivo: row.motivo_rejeicao }
+        }
       }
       setNfeMap(nfeMapNew)
+      setNfeDocMap(nfeDocMapNew)
 
       const boletoMapNew: Record<string, BoletoEstado> = {}
       const clienteIds = new Set<string>()
@@ -1233,6 +1245,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 erpReceberId={r.id}
                                 valor={r.valor_documento}
                                 jaEmitida={nfeMap[r.id] === 'autorizada'}
+                                processando={nfeMap[r.id] === 'processando'}
+                                rejeitada={nfeMap[r.id] === 'rejeitada' || nfeMap[r.id] === 'denegada'}
+                                numero={nfeDocMap[r.id]?.numero ?? undefined}
+                                danfeUrl={nfeDocMap[r.id]?.danfe ?? undefined}
+                                xmlUrl={nfeDocMap[r.id]?.xml ?? undefined}
+                                motivo={nfeDocMap[r.id]?.motivo ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
                               {provider === 'sicoob' || provider === 'sicredi' ? (
