@@ -69,9 +69,9 @@ export default function HeaderGE({ companyId, companyName: _companyName, userNam
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <BotaoAcao label="Despesa" onClick={() => router.push('/dashboard/contas-pagar/nova')} />
-            <BotaoAcao label="Receita" onClick={() => router.push('/dashboard/contas-receber/nova')} />
-            <BotaoAcao label="NFSe" onClick={() => router.push('/dashboard/nfse/nova')} destaque />
+            <BotaoAcao label="Despesa" onClick={() => router.push('/dashboard/financeiro/nova-despesa')} />
+            <BotaoAcao label="Receita" onClick={() => router.push('/dashboard/financeiro/nova-receita')} />
+            <BotaoAcao label="NFSe" onClick={() => router.push('/dashboard/fiscal/nfse')} destaque />
           </div>
         </div>
       )}

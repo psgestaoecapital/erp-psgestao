@@ -45,7 +45,7 @@ export default function ColunaContas({ companyId }: { companyId: string }) {
         </span>
         <button
           type="button"
-          onClick={() => router.push('/dashboard/contas-bancarias/nova')}
+          onClick={() => router.push('/dashboard/cadastros/contas-bancarias')}
           aria-label="Adicionar conta"
           style={{ background: 'none', border: 'none', color: '#C8941A', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}
         >
@@ -62,7 +62,7 @@ export default function ColunaContas({ companyId }: { companyId: string }) {
           <div style={{ fontSize: 13, marginBottom: 12 }}>Nenhuma conta cadastrada</div>
           <button
             type="button"
-            onClick={() => router.push('/dashboard/contas-bancarias/nova')}
+            onClick={() => router.push('/dashboard/cadastros/contas-bancarias')}
             style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
           >
             Cadastrar primeira conta
