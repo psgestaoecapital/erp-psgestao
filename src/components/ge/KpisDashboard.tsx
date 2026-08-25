@@ -87,31 +87,31 @@ export default function KpisDashboard({ companyId }: { companyId: string }) {
         breakdown={recVen?.breakdown}
         expandido={expandidos.has('receber_vencido')}
         onToggle={() => toggle('receber_vencido')}
-        onClick={() => router.push('/dashboard/contas-receber?filtro=vencido')} />
+        onClick={() => router.push('/dashboard/financeiro/receber?status=vencido')} />
       <KpiCard chave="vencem_hoje" cor="#BA7517" label="A receber hoje" valor={venHoje?.valor ?? 0}
         sublabel={`Restante: R$ ${fmt(venHoje?.restante_mes)}`}
         breakdown={venHoje?.breakdown}
         expandido={expandidos.has('vencem_hoje')}
         onToggle={() => toggle('vencem_hoje')}
-        onClick={() => router.push('/dashboard/contas-receber?filtro=hoje')} />
+        onClick={() => router.push('/dashboard/financeiro/receber?status=hoje')} />
       <KpiCard chave="vencer_mes" cor="rgba(61,35,20,0.3)" label="A vencer este mês" valor={venMes?.valor ?? 0}
         sublabel={`${venMes?.qtd ?? 0} lançamentos`}
         breakdown={venMes?.breakdown}
         expandido={expandidos.has('vencer_mes')}
         onToggle={() => toggle('vencer_mes')}
-        onClick={() => router.push('/dashboard/contas-receber?filtro=mes')} />
+        onClick={() => router.push('/dashboard/financeiro/receber?status=avencer')} />
       <KpiCard chave="pagar_vencido" cor="#A32D2D" label="A pagar vencido" valor={pagVen?.valor ?? 0}
         sublabel={(pagVen?.dias_max_atraso ?? 0) > 0 ? `Atrasado ${pagVen?.dias_max_atraso} dias` : `${pagVen?.qtd ?? 0} contas`}
         breakdown={pagVen?.breakdown}
         expandido={expandidos.has('pagar_vencido')}
         onToggle={() => toggle('pagar_vencido')}
-        onClick={() => router.push('/dashboard/contas-pagar?filtro=vencido')} />
+        onClick={() => router.push('/dashboard/financeiro/pagar?status=vencido')} />
       <KpiCard chave="saldo_total" cor={(saldo?.valor ?? 0) < 0 ? '#A32D2D' : '#3B6D11'} label="Saldo total" valor={saldo?.valor ?? 0}
         sublabel={`${saldo?.qtd_contas ?? 0} contas`}
         breakdown={saldo?.breakdown}
         expandido={expandidos.has('saldo_total')}
         onToggle={() => toggle('saldo_total')}
-        onClick={() => router.push('/dashboard/contas-bancarias')} />
+        onClick={() => router.push('/dashboard/cadastros/contas-bancarias')} />
     </div>
   )
 }

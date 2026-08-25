@@ -191,6 +191,27 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [contaMap, setContaMap] = useState<Record<string, string>>({})     // item 3: id -> conta bancaria (texto)
   const [contasSel, setContasSel] = useState<Set<string>>(new Set())
 
+  // GE-CARDS-404 · filtro inicial via query param (?status=vencido|hoje|avencer), disparado pelos
+  // KPI cards do painel Gestão Empresarial. Lê UMA vez no mount (client-only, sem useSearchParams p/
+  // não exigir Suspense boundary). 'vencido' abre período largo — atrasados podem ser de meses anteriores,
+  // então o mês atual esconderia parte deles e o total não bateria com o card.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const st = new URLSearchParams(window.location.search).get('status')
+    if (st === 'vencido') {
+      setStatusSel(['vencidos'])
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
+      setDataFim(fimMesAtual())
+    } else if (st === 'hoje') {
+      setStatusSel(['hoje'])
+    } else if (st === 'avencer') {
+      setStatusSel(['avencer'])
+    }
+    // roda só no mount: é o filtro inicial vindo da URL
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
   useEffect(() => {
