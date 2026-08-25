@@ -22,6 +22,11 @@ export const maxDuration = 300
 
 const BACKFILL_DIAS = 60
 const CHUNK_DIAS = 15
+// PONTO-SYNC · janela móvel: a cada execução reprocessa os últimos N dias. Sem isso, a estratégia
+// incremental (do dia seguinte ao último sincronizado) NUNCA re-lia um dia já sincronizado — então
+// batidas ímpares/parciais completadas depois pelo RH nunca voltavam (worked_seconds=0 permanente).
+// O upsert em ind_ponto_dia (onConflict company_id,cpf,data) já existe; faltava re-ler o dia.
+const JANELA_MOVEL_DIAS = 15
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -75,7 +80,7 @@ export async function GET(req: NextRequest) {
   for (const cfg of cfgs ?? []) {
     const companyId = cfg.company_id as string
     let begin: string
-    let end: string = forcaFim || ontem
+    const end: string = forcaFim || ontem
 
     if (forcaBegin) {
       begin = forcaBegin
@@ -88,9 +93,16 @@ export async function GET(req: NextRequest) {
         .order('data', { ascending: false })
         .limit(1)
         .maybeSingle()
-      begin = ult?.data
-        ? ymd(addDias(new Date(ult.data as string), 1))
-        : ymd(addDias(new Date(), -BACKFILL_DIAS))
+      if (ult?.data) {
+        // Janela móvel: reprocessa os últimos JANELA_MOVEL_DIAS (o upsert atualiza dias parciais que
+        // o RH completou depois). Se houver GAP maior que a janela, começa do dia seguinte ao último
+        // sincronizado (não deixa buraco). begin = o MENOR entre (último+1) e (hoje-N).
+        const aposUltimo = ymd(addDias(new Date(ult.data as string), 1))
+        const janela = ymd(addDias(new Date(), -JANELA_MOVEL_DIAS))
+        begin = aposUltimo < janela ? aposUltimo : janela
+      } else {
+        begin = ymd(addDias(new Date(), -BACKFILL_DIAS))
+      }
     }
 
     if (begin > end) {
