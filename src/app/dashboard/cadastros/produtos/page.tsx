@@ -18,6 +18,7 @@ const SELECT_COLS = 'id,codigo,nome,ncm,unidade,preco_venda,codigo_barras,estoqu
 
 type OrdenarPor = 'codigo' | 'nome' | 'preco_venda' | 'unidade' | 'estoque_atual'
 type ComEan = 'todos' | 'sim' | 'nao'
+type OrigemFiltro = 'todos' | 'omie' | 'manual'
 type StatusEstoque = 'todos' | 'zerado' | 'abaixo_minimo' | 'ok'
 type Situacao = 'ativos' | 'inativos' | 'todos'
 
@@ -52,6 +53,7 @@ export default function ProdutosPage() {
   const [precoMax, setPrecoMax] = useState<string>('')
   const [semPreco, setSemPreco] = useState(false)
   const [comEan, setComEan] = useState<ComEan>('todos')
+  const [origem, setOrigem] = useState<OrigemFiltro>('todos')
   const [gruposOpts, setGruposOpts] = useState<string[]>([])
 
   // Ordenacao
@@ -153,7 +155,10 @@ export default function ProdutosPage() {
           .from('v_erp_produtos_estoque')
           .select(SELECT_COLS, { count: 'exact' })
           .eq('company_id', companyId)
-          .eq('ref_externa_sistema', 'OMIE')
+
+        // PRODUTOS-LISTA-TODOS: lista TODOS por padrão (não só OMIE). Origem é filtro opcional.
+        if (origem === 'omie') q = q.eq('ref_externa_sistema', 'OMIE')
+        else if (origem === 'manual') q = q.is('ref_externa_sistema', null)
 
         if (buscaDebounced) {
           const b = buscaDebounced.replace(/[%]/g, '')
@@ -189,14 +194,14 @@ export default function ProdutosPage() {
         setLoadingMore(false)
       }
     },
-    [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, ordenarPor, ordemAsc]
+    [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem, ordenarPor, ordemAsc]
   )
 
   // Reset on qualquer mudanca de filtro/ordem/busca
   useEffect(() => {
     if (companyId) carregar(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, ordenarPor, ordemAsc])
+  }, [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem, ordenarPor, ordemAsc])
 
   function toggleOrdem(coluna: OrdenarPor) {
     if (ordenarPor === coluna) {
@@ -216,6 +221,7 @@ export default function ProdutosPage() {
     setPrecoMax('')
     setSemPreco(false)
     setComEan('todos')
+    setOrigem('todos')
   }
 
   const filtrosAtivos = useMemo(() => {
@@ -228,8 +234,9 @@ export default function ProdutosPage() {
     if (precoMax) n++
     if (semPreco) n++
     if (comEan !== 'todos') n++
+    if (origem !== 'todos') n++
     return n
-  }, [unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan])
+  }, [unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem])
 
   const podeCarregarMais = produtos.length < total
   const buscaOuFiltroAtivo = !!buscaDebounced || filtrosAtivos > 0
@@ -480,6 +487,22 @@ export default function ProdutosPage() {
                     <option value="todos">Todos</option>
                     <option value="sim">Com EAN</option>
                     <option value="nao">Sem EAN</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Origem
+                  </label>
+                  <select
+                    value={origem}
+                    onChange={(e) => setOrigem(e.target.value as OrigemFiltro)}
+                    data-testid="filtro-origem"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="todos">Todas</option>
+                    <option value="omie">OMIE</option>
+                    <option value="manual">Manual / Importado</option>
                   </select>
                 </div>
 
