@@ -281,6 +281,13 @@ export default function ProdutosPage() {
             >
               <Upload size={15} /> Importar planilha fiscal
             </button>
+            <a
+              href="/dashboard/cadastros/produtos/importar"
+              data-testid="produto-importar-estoque"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Upload size={15} /> Importar estoque (planilha)
+            </a>
             <button
               type="button"
               onClick={() => setNovoAberto(true)}
