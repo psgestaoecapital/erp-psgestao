@@ -106,6 +106,7 @@ export default function DocumentosRecebidosPage() {
   const [expandido, setExpandido] = useState<Record<string, boolean>>({})
   // #11a · manifestacao individual (ciencia/confirmar/recusar) por card
   const [manifestando, setManifestando] = useState<Record<string, boolean>>({})
+  const [puxando, setPuxando] = useState<Record<string, boolean>>({})   // NFE-4 · "Puxar XML" por nota
 
   async function carregar() {
     if (!empresaUnica) return
@@ -121,6 +122,20 @@ export default function DocumentosRecebidosPage() {
     const r = data as ListaResp
     if (!r.ok) { setErro(r.erro ?? 'Erro ao carregar'); return }
     setLista(r.itens ?? [])
+  }
+
+  // NFE-4 (#4) · promove uma nota 'resumo' → 'aguardando_xml' (o cron de 30min baixa XML+itens+duplicatas).
+  // Baixar o XML pela distribuição DF-e NÃO depende de manifestação fiscal (isso continua ação separada).
+  async function solicitarXml(nfeId: string) {
+    if (!empresaUnica) return
+    setPuxando((p) => ({ ...p, [nfeId]: true })); setErro(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_solicitar_xml', { p_nfe_id: nfeId })
+    setPuxando((p) => ({ ...p, [nfeId]: false }))
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro('Não consegui solicitar o XML: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
+    setToast('Na fila da SEFAZ — o XML (itens) chega no próximo ciclo (até 30 min).')
+    setTimeout(() => setToast(null), 6000)
+    void carregar()
   }
 
   useEffect(() => {
@@ -609,6 +624,19 @@ export default function DocumentosRecebidosPage() {
                               Recusar
                             </button>
                           </div>
+                        )}
+                        {/* NFE-4 · nota só-resumo: puxar o XML completo (itens/duplicatas) via DF-e. */}
+                        {n.status === 'resumo' && (
+                          <button
+                            type="button"
+                            onClick={() => void solicitarXml(n.id)}
+                            disabled={!!puxando[n.id]}
+                            title="Puxa o XML completo (itens + duplicatas) pela distribuição DF-e. Não depende de manifestação; o XML chega no próximo ciclo (até 30 min)."
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#BA7517]/40 text-[#A77A12] font-medium hover:bg-[#FBF3E0] disabled:opacity-50"
+                          >
+                            {puxando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <RotateCcw size={11} />}
+                            Puxar XML
+                          </button>
                         )}
                         {n.lancado_pagar || n.status === 'lancada' ? (
                           <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
