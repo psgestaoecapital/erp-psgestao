@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PessoaForm, { type Pessoa } from './PessoaForm'
+import ClienteArquivos from './ClienteArquivos'   // PM-QW #16 · anexos do cliente (contrato)
 
 interface Props {
   companyId: string
@@ -342,6 +343,11 @@ function PessoaDrawer({ pessoa, tipo, onClose, onEditar, onInativar }: { pessoa:
             <DrawerAction label="✉️ Enviar email" disabled hint="Sem email cadastrado" onClick={() => undefined} />
           )}
           <DrawerAction label="📄 Exportar histórico (CSV)" onClick={exportar} />
+          {tipo === 'cliente' && (
+            <div style={{ borderTop: '1px solid rgba(61,35,20,0.1)', paddingTop: 12, marginTop: 4 }}>
+              <ClienteArquivos companyId={pessoa.company_id} clienteId={pessoa.id} />
+            </div>
+          )}
           <div style={{ height: 1, background: 'rgba(61,35,20,0.1)', margin: '8px 0' }} />
           <DrawerAction label="🗑 Inativar" onClick={onInativar} danger />
         </div>
