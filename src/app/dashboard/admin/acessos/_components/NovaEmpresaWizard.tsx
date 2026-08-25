@@ -55,6 +55,8 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
   const [criando, setCriando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [resultado, setResultado] = useState<{ companyId: string; convites: number } | null>(null)
+  // UX-EMPRESA-MODAL: cadastro longo não pode ser descartado por engano (clique fora / ESC).
+  const [confirmClose, setConfirmClose] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -154,6 +156,43 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
     } catch (e) { setErro((e as Error)?.message ?? 'Erro ao criar') } finally { setCriando(false) }
   }
 
+  // "Sujo" = tem algo digitado/selecionado OU já avançou de passo. Fechar sem confirmar só se vazio.
+  const dirty = useMemo(() => (
+    !!(cnpj || razao || fantasia || cidadeUf || endereco || cnae || ie || im || novoGrupo || grupoId)
+    || planIds.length > 0
+    || !!(master.nome || master.email || master.telefone)
+    || equipe.length > 0
+    || step > 1
+  ), [cnpj, razao, fantasia, cidadeUf, endereco, cnae, ie, im, novoGrupo, grupoId, planIds, master, equipe, step])
+
+  function resetTudo() {
+    setStep(1); setCnpj(''); setRazao(''); setFantasia(''); setCidadeUf(''); setEndereco(''); setCnae('')
+    setIe(''); setIm(''); setRegime('simples'); setGrupoId(''); setNovoGrupo(''); setCnpjMsg(null)
+    setPlanIds([]); setMaster({ nome: '', email: '', telefone: '' }); setEquipe([])
+    setErro(null); setResultado(null); setConfirmClose(false)
+  }
+
+  // Único caminho de fechamento (X, Cancelar, ESC): se já criou, fecha limpo; se sujo, confirma; senão fecha.
+  function tentarFechar() {
+    if (resultado) { resetTudo(); onClose(); return }
+    if (dirty) { setConfirmClose(true); return }
+    onClose()
+  }
+
+  // ESC não descarta direto — cai na mesma guarda de "tentar fechar".
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      if (confirmClose) { setConfirmClose(false); return }
+      tentarFechar()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, dirty, resultado, confirmClose])
+
   if (!open) return null
 
   const STEPS = [
@@ -165,12 +204,13 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
   ]
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: BG2, borderRadius: 16, width: '100%', maxWidth: 720, border: `1px solid ${BD}`, boxShadow: '0 24px 64px rgba(0,0,0,0.25)', margin: '20px 0' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      {/* UX-EMPRESA-MODAL: sem dismiss por clique no overlay — só X/Cancelar/Concluir. */}
+      <div style={{ background: BG2, borderRadius: 16, width: '100%', maxWidth: 720, border: `1px solid ${BD}`, boxShadow: '0 24px 64px rgba(0,0,0,0.25)', margin: '20px 0' }}>
         {/* header + passos */}
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${BD}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontWeight: 800, color: TX, fontSize: 16, display: 'inline-flex', alignItems: 'center', gap: 8 }}><Building2 size={18} color={GO} /> Incluir nova empresa</div>
-          <button onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: TXM, cursor: 'pointer' }}><X size={18} /></button>
+          <button onClick={tentarFechar} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: TXM, cursor: 'pointer' }}><X size={18} /></button>
         </div>
         {step <= 5 && (
           <div style={{ display: 'flex', gap: 6, padding: '12px 20px 0', flexWrap: 'wrap' }}>
@@ -302,7 +342,7 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${BD}`, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
           {step <= 5 ? (
             <>
-              <button onClick={() => (step === 1 ? onClose() : setStep(step - 1))} disabled={criando} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${BD}`, background: BG2, color: TX, borderRadius: 8, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              <button onClick={() => (step === 1 ? tentarFechar() : setStep(step - 1))} disabled={criando} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${BD}`, background: BG2, color: TX, borderRadius: 8, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                 <ChevronLeft size={14} /> {step === 1 ? 'Cancelar' : 'Voltar'}
               </button>
               {step < 5 ? (
@@ -316,10 +356,24 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
               )}
             </>
           ) : (
-            <button onClick={onClose} style={{ marginLeft: 'auto', background: GO, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>Concluir</button>
+            <button onClick={tentarFechar} style={{ marginLeft: 'auto', background: GO, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>Concluir</button>
           )}
         </div>
       </div>
+
+      {/* Confirmação de descarte — só aparece com dados preenchidos (form dirty). */}
+      {confirmClose && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.55)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: BG2, borderRadius: 14, width: '100%', maxWidth: 400, border: `1px solid ${BD}`, boxShadow: '0 24px 64px rgba(0,0,0,0.3)', padding: 20, display: 'grid', gap: 12 }}>
+            <div style={{ fontWeight: 800, color: TX, fontSize: 15 }}>Descartar o cadastro?</div>
+            <div style={{ fontSize: 13, color: TXM, lineHeight: 1.45 }}>As informações preenchidas serão perdidas.</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>
+              <button onClick={() => setConfirmClose(false)} style={{ border: `1px solid ${BD}`, background: BG2, color: TX, borderRadius: 8, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Continuar editando</button>
+              <button onClick={() => { resetTudo(); onClose() }} style={{ background: R, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>Descartar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
