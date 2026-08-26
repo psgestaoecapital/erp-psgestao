@@ -36,11 +36,15 @@ function addDias(d: Date, n: number): Date {
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
   const pingSecret = process.env.PING_SICOOB_SECRET
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const auth = req.headers.get('authorization')
   const xPing = req.headers.get('x-ping-secret')
   const cronOk = !!cronSecret && auth === `Bearer ${cronSecret}`
   const pingOk = !!pingSecret && xPing === pingSecret
-  if (!cronOk && !pingOk) {
+  // CRON-PONTO: o pg_cron (fn_ponto_sync_dispatch) chama esta rota com o service_role key no Bearer —
+  // o Vault não tem CRON_SECRET/PING_SICOOB_SECRET, só a service key. Aceita como auth máquina-a-máquina.
+  const svcOk = !!serviceKey && auth === `Bearer ${serviceKey}`
+  if (!cronOk && !pingOk && !svcOk) {
     return NextResponse.json({ ok: false, erro: 'Unauthorized' }, { status: 401 })
   }
   if (!pingSecret) {
@@ -48,7 +52,6 @@ export async function GET(req: NextRequest) {
   }
 
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!supaUrl || !serviceKey) {
     return NextResponse.json({ ok: false, erro: 'SUPABASE_URL/SERVICE_ROLE_KEY ausentes' }, { status: 500 })
   }
