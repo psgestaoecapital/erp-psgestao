@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ImportLoteXlsxCard from '@/components/importar/ImportLoteXlsxCard'
+import ImportMigracaoFinanceiraCard from '@/components/financeiro/ImportMigracaoFinanceiraCard'
 
 const C = {
   bg: '#FAF7F2',
@@ -83,7 +84,14 @@ export default function ImportarUniversalPage() {
             Selecione uma empresa para começar.
           </div>
         ) : (
-          <ImportLoteXlsxCard companyId={companyId} />
+          <>
+            <ImportMigracaoFinanceiraCard
+              companyId={companyId}
+              empresaNome={(() => { const c = companies.find((x) => x.id === companyId); return c?.nome_fantasia || c?.nome || c?.razao_social || null })()}
+            />
+            <div style={{ height: 16 }} />
+            <ImportLoteXlsxCard companyId={companyId} />
+          </>
         )}
 
         <div style={{ background: C.douradoSoft, border: `0.5px solid ${C.dourado}`, borderRadius: 8, padding: '12px 16px', marginTop: 16, fontSize: 12, color: C.espresso, lineHeight: 1.5 }}>
