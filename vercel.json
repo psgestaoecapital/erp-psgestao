@@ -21,7 +21,7 @@
     },
     {
       "path": "/api/cron/ponto-diario",
-      "schedule": "0 * * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
