@@ -426,6 +426,14 @@ interface LinhaPesagem {
   msgs: string[]
 }
 
+// PESAGEM-MODELO: normaliza rótulo de cabeçalho (sem acento/caixa/'*'/espaços extras) p/ casar
+// tanto o modelo PS novo ("Brinco *","Peso (kg) *","Método","Observação") quanto o cru antigo.
+function normHeader(s: string): string {
+  return (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\*/g, '').trim()
+}
+// Assinatura (brinco|peso) das 3 linhas de exemplo do modelo PS — p/ avisar se não foram apagadas.
+const EXEMPLOS_MODELO = new Set(['645|412,5', '646|398,0', '002- t|455,2'])
+
 function parseNumBR(s: string): number | null {
   const t = (s ?? '').trim()
   if (!t) return null
@@ -463,27 +471,6 @@ function ImportarPesagem({
     return { ok, aviso, erro }
   }, [linhas])
 
-  function baixarModelo() {
-    const header = ['brinco', 'peso_kg', 'data', 'metodo', 'lote', 'piquete', 'observacao']
-    const ex1 = ['EX-0001', '450,5', '', 'balanca', '', '', 'exemplo — apague esta linha']
-    const ex2 = ['EX-0002', '312', '15/08/2026', 'fita', '', '', '']
-    const wsP = XLSX.utils.aoa_to_sheet([header, ex1, ex2])
-    const instr = [
-      ['MODELO DE IMPORTAÇÃO DE PESAGEM · PS Gestão'],
-      ['Preencha a aba "Pesagem". Linhas de exemplo (brinco começando com EX-) são ignoradas na importação.'],
-      ['Obrigatórios: brinco (identificação do animal, já cadastrado) e peso_kg (> 0).'],
-      ['data: YYYY-MM-DD ou DD/MM/AAAA. Vazio → usa a Data selecionada na tela.'],
-      ['metodo: balanca | visual | fita | estimado. Vazio → usa o Método da tela.'],
-      ['lote / piquete: opcionais. Se preenchidos e não encontrados, a pesagem é gravada mesmo assim (aviso).'],
-      ['observacao: opcional.'],
-    ]
-    const wsI = XLSX.utils.aoa_to_sheet(instr)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, wsP, 'Pesagem')
-    XLSX.utils.book_append_sheet(wb, wsI, 'Instruções')
-    XLSX.writeFile(wb, 'MODELO_importacao_pesagem_PS.xlsx')
-  }
-
   async function onArquivo(file: File) {
     setParseErro(null); setResultado(null); setLinhas([])
     try {
@@ -491,16 +478,23 @@ function ImportarPesagem({
       const wb = XLSX.read(buf, { type: 'array' })
       const wsName = wb.SheetNames.find((n) => n.toLowerCase().startsWith('pesagem')) ?? wb.SheetNames[0]
       const matriz = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[wsName], { header: 1, raw: false, defval: '' })
+      // Cabeçalho tolerante (RD-53): casa tanto o modelo PS ("Brinco *","Peso (kg) *","Método"…)
+      // quanto o cru antigo ("brinco","peso_kg"…). Detecta a linha por conter brinco + peso.
       const idxHeader = matriz.findIndex((row) => {
-        const low = row.map((c) => String(c).trim().toLowerCase())
-        return low.includes('brinco') && low.includes('peso_kg')
+        const hs = row.map((c) => normHeader(String(c)))
+        return hs.some((h) => h.includes('brinco')) && hs.some((h) => h.includes('peso'))
       })
-      if (idxHeader < 0) { setParseErro('Não achei o cabeçalho (linha com "brinco" e "peso_kg"). Use o modelo.'); return }
-      const header = matriz[idxHeader].map((c) => String(c).trim().toLowerCase())
-      const col = (k: string) => header.indexOf(k)
+      if (idxHeader < 0) { setParseErro('Não achei o cabeçalho (linha com "Brinco" e "Peso"). Use o modelo.'); return }
+      const header = matriz[idxHeader].map((c) => normHeader(String(c)))
+      const idxOf = (pred: (h: string) => boolean) => header.findIndex(pred)
       const ci = {
-        brinco: col('brinco'), peso: col('peso_kg'), data: col('data'), metodo: col('metodo'),
-        lote: col('lote'), piquete: col('piquete'), observacao: col('observacao'),
+        brinco: idxOf((h) => h.includes('brinco')),
+        peso: idxOf((h) => h.includes('peso')),
+        data: idxOf((h) => h.includes('data')),
+        metodo: idxOf((h) => h.includes('metodo')),
+        lote: idxOf((h) => h.includes('lote')),
+        piquete: idxOf((h) => h.includes('piquete')),
+        observacao: idxOf((h) => h.includes('observ')),
       }
 
       // resolve brincos: TODOS os animais ativos da propriedade (multi-tenant por company+propriedade)
@@ -533,6 +527,10 @@ function ImportarPesagem({
         const observacao = get(ci.observacao)
         const pesoRaw = get(ci.peso)
 
+        // Pula a linha 2 (DICAS) do modelo PS: logo após o cabeçalho, o brinco é um texto descritivo
+        // (longo / "Identificação…/Ex:/opcional"). Um brinco real é curto, então isto não pega dado válido.
+        if (i === idxHeader + 1 && (brinco.length > 20 || /identifica|cadastro|ex:|vazio =|opcional/i.test(brinco))) continue
+
         const erros: string[] = []; const avisos: string[] = []
         let animalId: string | null = null
 
@@ -549,6 +547,8 @@ function ImportarPesagem({
 
         if (lote && !lotesCod.has(norm(lote))) avisos.push('Lote não encontrado (ignorado)')
         if (piquete && !areasNome.has(norm(piquete))) avisos.push('Piquete não encontrado (ignorado)')
+        // Exemplos do modelo PS não apagados → avisa (não bloqueia — o operador decide).
+        if (EXEMPLOS_MODELO.has(`${norm(brinco)}|${pesoRaw}`)) avisos.push('Linha de exemplo do modelo — confira/apague antes de importar')
 
         parsed.push({
           n: i + 1, brinco, peso: pesoRaw, data: dataNorm ?? dataRaw, metodo, lote, piquete, observacao,
@@ -608,10 +608,10 @@ function ImportarPesagem({
     <section className="rounded-2xl p-4 space-y-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
       <div className="text-sm font-semibold" style={{ color: ESP }}>Importar planilha</div>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={baixarModelo}
-          className="rounded-xl px-3 py-2 text-sm font-semibold border" style={{ borderColor: GOLD, color: GOLD }}>
+        <a href="/modelos/MODELO_importacao_pesagem_PS.xlsx" download="MODELO_importacao_pesagem_PS.xlsx"
+          className="rounded-xl px-3 py-2 text-sm font-semibold border inline-block" style={{ borderColor: GOLD, color: GOLD }}>
           Baixar modelo
-        </button>
+        </a>
         <button type="button" onClick={() => inputRef.current?.click()}
           className="rounded-xl px-3 py-2 text-sm font-semibold" style={{ background: ESP, color: '#fff' }}>
           {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
