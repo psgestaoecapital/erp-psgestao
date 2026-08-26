@@ -1,17 +1,15 @@
 // GET /api/cron/ponto-diario
-// Vercel Cron (05h BRT = 08h UTC) dispara a ingestão DIÁRIA do ponto de TODAS as
-// empresas com provider configurado. Era o passo que faltava: a rota sync-diario
-// já existia (popula ind_ponto_dia + ind_ponto_marcacao), mas ninguém a disparava.
+// CRON-PONTO · Vercel Cron HORÁRIO (0 * * * *) dispara o sync do ponto de TODAS as empresas com
+// provider IO Point ativo. Mantém a base como espelho fiel do IO Point (fonte da verdade).
 //
-// Estratégia por empresa:
-//   • se ind_ponto_dia está VAZIO → BACKFILL (últimos BACKFILL_DIAS dias);
-//   • senão → do dia seguinte ao último sincronizado até ONTEM (incremental).
-//   • janela grande é fatiada em CHUNKS de CHUNK_DIAS (respeita o timeout de 60s
-//     da rota sync-diario e o rate limit da API do IO Point).
+// Estratégia por empresa: sincroniza SEMPRE o MÊS CORRENTE inteiro (1º dia do mês → hoje),
+// fatiado em CHUNKS de CHUNK_DIAS (timeout da sync-diario + rate limit da API IO Point). A gravação
+// é UPSERT (sync-diario, onConflict company_id,cpf,data) → rodar de novo não empilha; um dia corrigido
+// no IO Point volta atualizado. Erro numa empresa é logado e não trava as outras (multi-tenant).
 //
-// Auth: Vercel Cron manda `Authorization: Bearer <CRON_SECRET>`. Chamada manual
-// aceita `x-ping-secret: <PING_SICOOB_SECRET>` (mesmo segredo que a sync-diario).
-// Segredos só do env; token do IO Point nunca é tocado aqui (fica na sync-diario/Vault).
+// Auth: Vercel Cron manda `Authorization: Bearer <CRON_SECRET>`. Chamada manual aceita
+// `x-ping-secret: <PING_SICOOB_SECRET>` (mesmo segredo que a sync-diario). Segredos só do env;
+// token do IO Point nunca é tocado aqui (fica na sync-diario/Vault).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -20,13 +18,11 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-const BACKFILL_DIAS = 60
 const CHUNK_DIAS = 15
-// PONTO-SYNC · janela móvel: a cada execução reprocessa os últimos N dias. Sem isso, a estratégia
-// incremental (do dia seguinte ao último sincronizado) NUNCA re-lia um dia já sincronizado — então
-// batidas ímpares/parciais completadas depois pelo RH nunca voltavam (worked_seconds=0 permanente).
-// O upsert em ind_ponto_dia (onConflict company_id,cpf,data) já existe; faltava re-ler o dia.
-const JANELA_MOVEL_DIAS = 15
+// CRON-PONTO · janela = MÊS CORRENTE inteiro (date_trunc('month') → hoje), reprocessado a cada rodada
+// horária. O upsert em ind_ponto_dia (onConflict company_id,cpf,data) garante espelho fiel do IO Point
+// sem empilhar: um dia corrigido lá (ex.: batida ímpar completada pelo RH) volta atualizado na próxima
+// rodada. Fatiado em CHUNK_DIAS por causa do timeout da sync-diario e do rate limit da API IO Point.
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -74,36 +70,16 @@ export async function GET(req: NextRequest) {
   const { data: cfgs, error: eCfg } = await q
   if (eCfg) return NextResponse.json({ ok: false, erro: eCfg.message }, { status: 500 })
 
-  const ontem = ymd(addDias(new Date(), -1))
+  // Janela default: mês corrente inteiro (1º dia do mês → hoje). Override manual via ?begin_date/end_date.
+  const agora = new Date()
+  const inicioMes = ymd(new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1)))
+  const hoje = ymd(agora)
   const resultados: Array<Record<string, unknown>> = []
 
   for (const cfg of cfgs ?? []) {
     const companyId = cfg.company_id as string
-    let begin: string
-    const end: string = forcaFim || ontem
-
-    if (forcaBegin) {
-      begin = forcaBegin
-    } else {
-      // último dia já sincronizado nesta empresa
-      const { data: ult } = await supa
-        .from('ind_ponto_dia')
-        .select('data')
-        .eq('company_id', companyId)
-        .order('data', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (ult?.data) {
-        // Janela móvel: reprocessa os últimos JANELA_MOVEL_DIAS (o upsert atualiza dias parciais que
-        // o RH completou depois). Se houver GAP maior que a janela, começa do dia seguinte ao último
-        // sincronizado (não deixa buraco). begin = o MENOR entre (último+1) e (hoje-N).
-        const aposUltimo = ymd(addDias(new Date(ult.data as string), 1))
-        const janela = ymd(addDias(new Date(), -JANELA_MOVEL_DIAS))
-        begin = aposUltimo < janela ? aposUltimo : janela
-      } else {
-        begin = ymd(addDias(new Date(), -BACKFILL_DIAS))
-      }
-    }
+    const begin: string = forcaBegin || inicioMes
+    const end: string = forcaFim || hoje
 
     if (begin > end) {
       resultados.push({ company_id: companyId, status: 'em_dia', begin, end })
