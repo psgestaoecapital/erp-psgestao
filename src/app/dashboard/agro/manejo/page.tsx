@@ -420,7 +420,7 @@ const METODOS_PESAGEM = ['balanca', 'visual', 'fita', 'estimado']
 type NivelP = 'ok' | 'aviso' | 'erro'
 interface LinhaPesagem {
   n: number
-  brinco: string; peso: string; data: string; metodo: string; lote: string; piquete: string; observacao: string
+  brinco: string; peso: string; pesoNum: number | null; data: string; metodo: string; lote: string; piquete: string; observacao: string
   animalId: string | null
   nivel: NivelP
   msgs: string[]
@@ -434,11 +434,32 @@ function normHeader(s: string): string {
 // Assinatura (brinco|peso) das 3 linhas de exemplo do modelo PS — p/ avisar se não foram apagadas.
 const EXEMPLOS_MODELO = new Set(['645|412,5', '646|398,0', '002- t|455,2'])
 
-function parseNumBR(s: string): number | null {
-  const t = (s ?? '').trim()
-  if (!t) return null
-  const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, ''))
+// FIX-PESAGEM-VÍRGULA: converte número respeitando formato BR e US ANTES de parsear.
+// Bug antigo: `.replace(/\./g,'')` removia TODO ponto → "432.9" (número vindo do xlsx com raw:false)
+// virava "4329". Agora o ponto só é tratado como milhar quando há vírgula decimal depois dele.
+// Casos: "432,9"→432.9 | "1.234,5"→1234.5 | "500"→500 | "398.0"→398 | "1,234.5"→1234.5
+function parseNumBR(s: string | number | null | undefined): number | null {
+  if (s == null) return null
+  let t = String(s).trim()
+  if (t === '') return null
+  if (t.includes(',') && t.includes('.')) {
+    // vírgula depois do ponto ⇒ BR (ponto = milhar, vírgula = decimal); senão US (vírgula = milhar)
+    if (t.lastIndexOf(',') > t.lastIndexOf('.')) t = t.replace(/\./g, '').replace(',', '.')
+    else t = t.replace(/,/g, '')
+  } else if (t.includes(',')) {
+    t = t.replace(',', '.') // só vírgula ⇒ decimal BR
+  }
+  t = t.replace(/[^\d.\-]/g, '') // remove unidades/espaços; separadores já normalizados
+  if (!/\d/.test(t)) return null // sem dígito (ex.: "abc") ⇒ não é número
+  const n = Number(t)
   return Number.isFinite(n) ? n : null
+}
+// Faixa sã p/ peso bovino (kg) — fora disso vira erro no preview (provável vírgula perdida).
+const PESO_MAX_KG = 2000
+// Exibe o peso JÁ parseado, em pt-BR (432.9 → "432,9 kg") — o operador vê o que será gravado.
+function fmtPesoBR(n: number | null): string {
+  if (n == null) return '—'
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) + ' kg'
 }
 // Aceita YYYY-MM-DD ou DD/MM/YYYY → normaliza p/ YYYY-MM-DD; null se inválida.
 function parseDataBR(s: string): string | null {
@@ -537,8 +558,9 @@ function ImportarPesagem({
         if (!brinco) erros.push('Falta brinco')
         else { animalId = mapBrinco.get(norm(brinco)) ?? null; if (!animalId) erros.push(`Brinco "${brinco}" não encontrado`) }
 
-        const peso = parseNumBR(pesoRaw)
-        if (peso == null || peso <= 0) erros.push('Peso inválido (numérico > 0)')
+        const pesoNum = parseNumBR(pesoRaw)
+        if (pesoNum == null || pesoNum <= 0) erros.push('Peso inválido (numérico > 0)')
+        else if (pesoNum > PESO_MAX_KG) erros.push(`Peso fora da faixa (${fmtPesoBR(pesoNum)}) — confira a vírgula`)
 
         if (!METODOS_PESAGEM.includes(metodo)) erros.push(`Método inválido (${metodo})`)
 
@@ -551,7 +573,7 @@ function ImportarPesagem({
         if (EXEMPLOS_MODELO.has(`${norm(brinco)}|${pesoRaw}`)) avisos.push('Linha de exemplo do modelo — confira/apague antes de importar')
 
         parsed.push({
-          n: i + 1, brinco, peso: pesoRaw, data: dataNorm ?? dataRaw, metodo, lote, piquete, observacao,
+          n: i + 1, brinco, peso: pesoRaw, pesoNum, data: dataNorm ?? dataRaw, metodo, lote, piquete, observacao,
           animalId, nivel: erros.length ? 'erro' : avisos.length ? 'aviso' : 'ok', msgs: [...erros, ...avisos],
         })
       }
@@ -591,7 +613,7 @@ function ImportarPesagem({
       if (!l.animalId) { ignoradas++; erros.push({ linha: l.n, brinco: l.brinco, motivo: 'animal não resolvido' }); continue }
       const { error } = await supabase.rpc('fn_pec_pesagem_registrar', {
         p_company_id: companyId, p_propriedade_id: propriedadeId, p_animal_id: l.animalId,
-        p_data: l.data, p_peso_kg: parseNumBR(l.peso), p_metodo: l.metodo,
+        p_data: l.data, p_peso_kg: l.pesoNum, p_metodo: l.metodo,
         p_observacao: l.observacao || null, p_id: null,
       })
       if (error) { ignoradas++; erros.push({ linha: l.n, brinco: l.brinco, motivo: error.message }) }
@@ -650,7 +672,7 @@ function ImportarPesagem({
                     <td className="px-2 py-1 opacity-50">{l.n}</td>
                     <td className="px-2 py-1">{l.nivel === 'erro' ? '🔴' : l.nivel === 'aviso' ? '🟡' : '🟢'}</td>
                     <td className="px-2 py-1 font-medium" style={{ color: ESP }}>{l.brinco}</td>
-                    <td className="px-2 py-1 text-right">{l.peso || '—'}</td>
+                    <td className="px-2 py-1 text-right tabular-nums" title={l.peso ? `planilha: ${l.peso}` : undefined}>{l.pesoNum != null ? fmtPesoBR(l.pesoNum) : (l.peso || '—')}</td>
                     <td className="px-2 py-1">{l.data}</td>
                     <td className="px-2 py-1">{l.metodo}</td>
                     <td className="px-2 py-1" style={{ color: ESP60 }}>{l.msgs.join(' · ')}</td>
