@@ -733,14 +733,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         labels={labels}
         onHistorico={() => setHistoricoGlobalAberto(true)}
         acaoExtra={
-          <ExportarListaButton
-            companyId={companyId}
-            tipo={tipo}
-            titulo={labels.titulo}
-            filtros={filtrosDesc}
-            kpis={kpisExport}
-            linhas={resultadosFiltrados}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/importar-universal"
+              title="Importar receitas e despesas em massa por planilha (migração/implantação)"
+              style={{
+                background: 'transparent', color: '#3D2314', border: '1px solid #C8941A',
+                padding: '7px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                textDecoration: 'none', whiteSpace: 'nowrap',
+              }}>
+              📥 Importar em massa
+            </Link>
+            <ExportarListaButton
+              companyId={companyId}
+              tipo={tipo}
+              titulo={labels.titulo}
+              filtros={filtrosDesc}
+              kpis={kpisExport}
+              linhas={resultadosFiltrados}
+            />
+          </div>
         }
       />
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
+import { parseNumBR, parseDataBR } from '@/lib/num'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -434,42 +435,14 @@ function normHeader(s: string): string {
 // Assinatura (brinco|peso) das 3 linhas de exemplo do modelo PS — p/ avisar se não foram apagadas.
 const EXEMPLOS_MODELO = new Set(['645|412,5', '646|398,0', '002- t|455,2'])
 
-// FIX-PESAGEM-VÍRGULA: converte número respeitando formato BR e US ANTES de parsear.
-// Bug antigo: `.replace(/\./g,'')` removia TODO ponto → "432.9" (número vindo do xlsx com raw:false)
-// virava "4329". Agora o ponto só é tratado como milhar quando há vírgula decimal depois dele.
-// Casos: "432,9"→432.9 | "1.234,5"→1234.5 | "500"→500 | "398.0"→398 | "1,234.5"→1234.5
-function parseNumBR(s: string | number | null | undefined): number | null {
-  if (s == null) return null
-  let t = String(s).trim()
-  if (t === '') return null
-  if (t.includes(',') && t.includes('.')) {
-    // vírgula depois do ponto ⇒ BR (ponto = milhar, vírgula = decimal); senão US (vírgula = milhar)
-    if (t.lastIndexOf(',') > t.lastIndexOf('.')) t = t.replace(/\./g, '').replace(',', '.')
-    else t = t.replace(/,/g, '')
-  } else if (t.includes(',')) {
-    t = t.replace(',', '.') // só vírgula ⇒ decimal BR
-  }
-  t = t.replace(/[^\d.\-]/g, '') // remove unidades/espaços; separadores já normalizados
-  if (!/\d/.test(t)) return null // sem dígito (ex.: "abc") ⇒ não é número
-  const n = Number(t)
-  return Number.isFinite(n) ? n : null
-}
+// parseNumBR/parseDataBR vêm da fonte única @/lib/num (RD-52) — mesmos parsers do
+// FIX-PESAGEM-VÍRGULA, agora compartilhados com a migração financeira.
 // Faixa sã p/ peso bovino (kg) — fora disso vira erro no preview (provável vírgula perdida).
 const PESO_MAX_KG = 2000
 // Exibe o peso JÁ parseado, em pt-BR (432.9 → "432,9 kg") — o operador vê o que será gravado.
 function fmtPesoBR(n: number | null): string {
   if (n == null) return '—'
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) + ' kg'
-}
-// Aceita YYYY-MM-DD ou DD/MM/YYYY → normaliza p/ YYYY-MM-DD; null se inválida.
-function parseDataBR(s: string): string | null {
-  const t = (s ?? '').trim()
-  if (!t) return null
-  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`
-  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-  return null
 }
 
 function ImportarPesagem({
