@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 
@@ -381,6 +382,19 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
         {busy ? 'Salvando…' : `CRIAR ${Object.values(pesos).filter((v) => Number(v) > 0).length} pesagens`}
       </button>
 
+      {/* PESAGEM-LOTE: importação por planilha (somada ao manual acima). Herda Data/Método/Lote/Piquete da tela. */}
+      <ImportarPesagem
+        companyId={companyId}
+        propriedadeId={propriedadeId}
+        dataTela={data}
+        metodoTela={metodo}
+        lotes={lotes}
+        areas={areas}
+        filtroLote={filtroLote}
+        filtroArea={filtroArea}
+        onImported={async () => { await carregarRecentes(); onDone() }}
+      />
+
       <section className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="p-3 text-sm font-semibold border-b" style={{ color: ESP, borderColor: LINE }}>
           Pesagens recentes ({pesagensRecentes.length})
@@ -398,6 +412,272 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
         ))}
       </section>
     </div>
+  )
+}
+
+// ───────── Importar pesagem por planilha (PESAGEM-LOTE) ─────────
+const METODOS_PESAGEM = ['balanca', 'visual', 'fita', 'estimado']
+type NivelP = 'ok' | 'aviso' | 'erro'
+interface LinhaPesagem {
+  n: number
+  brinco: string; peso: string; data: string; metodo: string; lote: string; piquete: string; observacao: string
+  animalId: string | null
+  nivel: NivelP
+  msgs: string[]
+}
+
+function parseNumBR(s: string): number | null {
+  const t = (s ?? '').trim()
+  if (!t) return null
+  const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+// Aceita YYYY-MM-DD ou DD/MM/YYYY → normaliza p/ YYYY-MM-DD; null se inválida.
+function parseDataBR(s: string): string | null {
+  const t = (s ?? '').trim()
+  if (!t) return null
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  return null
+}
+
+function ImportarPesagem({
+  companyId, propriedadeId, dataTela, metodoTela, lotes, areas, filtroLote, filtroArea, onImported,
+}: {
+  companyId: string; propriedadeId: string; dataTela: string; metodoTela: string
+  lotes: Lote[]; areas: Area[]; filtroLote: string; filtroArea: string; onImported: () => void
+}) {
+  const [nomeArquivo, setNomeArquivo] = useState<string | null>(null)
+  const [linhas, setLinhas] = useState<LinhaPesagem[]>([])
+  const [parseErro, setParseErro] = useState<string | null>(null)
+  const [soValidas, setSoValidas] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [resultado, setResultado] = useState<{ criadas: number; ignoradas: number; erros: { linha: number; brinco: string; motivo: string }[] } | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const cont = useMemo(() => {
+    let ok = 0, aviso = 0, erro = 0
+    for (const l of linhas) { if (l.nivel === 'erro') erro++; else if (l.nivel === 'aviso') aviso++; else ok++ }
+    return { ok, aviso, erro }
+  }, [linhas])
+
+  function baixarModelo() {
+    const header = ['brinco', 'peso_kg', 'data', 'metodo', 'lote', 'piquete', 'observacao']
+    const ex1 = ['EX-0001', '450,5', '', 'balanca', '', '', 'exemplo — apague esta linha']
+    const ex2 = ['EX-0002', '312', '15/08/2026', 'fita', '', '', '']
+    const wsP = XLSX.utils.aoa_to_sheet([header, ex1, ex2])
+    const instr = [
+      ['MODELO DE IMPORTAÇÃO DE PESAGEM · PS Gestão'],
+      ['Preencha a aba "Pesagem". Linhas de exemplo (brinco começando com EX-) são ignoradas na importação.'],
+      ['Obrigatórios: brinco (identificação do animal, já cadastrado) e peso_kg (> 0).'],
+      ['data: YYYY-MM-DD ou DD/MM/AAAA. Vazio → usa a Data selecionada na tela.'],
+      ['metodo: balanca | visual | fita | estimado. Vazio → usa o Método da tela.'],
+      ['lote / piquete: opcionais. Se preenchidos e não encontrados, a pesagem é gravada mesmo assim (aviso).'],
+      ['observacao: opcional.'],
+    ]
+    const wsI = XLSX.utils.aoa_to_sheet(instr)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, wsP, 'Pesagem')
+    XLSX.utils.book_append_sheet(wb, wsI, 'Instruções')
+    XLSX.writeFile(wb, 'MODELO_importacao_pesagem_PS.xlsx')
+  }
+
+  async function onArquivo(file: File) {
+    setParseErro(null); setResultado(null); setLinhas([])
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const wsName = wb.SheetNames.find((n) => n.toLowerCase().startsWith('pesagem')) ?? wb.SheetNames[0]
+      const matriz = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[wsName], { header: 1, raw: false, defval: '' })
+      const idxHeader = matriz.findIndex((row) => {
+        const low = row.map((c) => String(c).trim().toLowerCase())
+        return low.includes('brinco') && low.includes('peso_kg')
+      })
+      if (idxHeader < 0) { setParseErro('Não achei o cabeçalho (linha com "brinco" e "peso_kg"). Use o modelo.'); return }
+      const header = matriz[idxHeader].map((c) => String(c).trim().toLowerCase())
+      const col = (k: string) => header.indexOf(k)
+      const ci = {
+        brinco: col('brinco'), peso: col('peso_kg'), data: col('data'), metodo: col('metodo'),
+        lote: col('lote'), piquete: col('piquete'), observacao: col('observacao'),
+      }
+
+      // resolve brincos: TODOS os animais ativos da propriedade (multi-tenant por company+propriedade)
+      const { data: ans } = await supabase.from('erp_pec_animal')
+        .select('id, identificacao')
+        .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
+      const norm = (s: string) => (s ?? '').trim().toLowerCase()
+      const mapBrinco = new Map<string, string>()
+      for (const a of (ans ?? []) as Array<{ id: string; identificacao: string | null }>) {
+        if (a.identificacao) mapBrinco.set(norm(a.identificacao), a.id)
+      }
+      const lotesCod = new Set(lotes.map((l) => norm(l.codigo)))
+      const areasNome = new Set(areas.map((a) => norm(a.nome)))
+      const loteTela = lotes.find((l) => l.id === filtroLote)?.codigo ?? ''
+      const piqueteTela = areas.find((a) => a.id === filtroArea)?.nome ?? ''
+
+      const parsed: LinhaPesagem[] = []
+      for (let i = idxHeader + 1; i < matriz.length; i++) {
+        const row = matriz[i]
+        if (!row || row.every((c) => String(c ?? '').trim() === '')) continue
+        const get = (j: number) => (j >= 0 ? String(row[j] ?? '').trim() : '')
+        const brinco = get(ci.brinco)
+        if (brinco.toUpperCase().startsWith('EX-')) continue
+
+        // herança da tela quando a célula vem vazia
+        const dataRaw = get(ci.data) || dataTela
+        const metodo = (get(ci.metodo) || metodoTela).toLowerCase()
+        const lote = get(ci.lote) || loteTela
+        const piquete = get(ci.piquete) || piqueteTela
+        const observacao = get(ci.observacao)
+        const pesoRaw = get(ci.peso)
+
+        const erros: string[] = []; const avisos: string[] = []
+        let animalId: string | null = null
+
+        if (!brinco) erros.push('Falta brinco')
+        else { animalId = mapBrinco.get(norm(brinco)) ?? null; if (!animalId) erros.push(`Brinco "${brinco}" não encontrado`) }
+
+        const peso = parseNumBR(pesoRaw)
+        if (peso == null || peso <= 0) erros.push('Peso inválido (numérico > 0)')
+
+        if (!METODOS_PESAGEM.includes(metodo)) erros.push(`Método inválido (${metodo})`)
+
+        const dataNorm = parseDataBR(dataRaw)
+        if (!dataNorm) erros.push('Data inválida (use AAAA-MM-DD ou DD/MM/AAAA)')
+
+        if (lote && !lotesCod.has(norm(lote))) avisos.push('Lote não encontrado (ignorado)')
+        if (piquete && !areasNome.has(norm(piquete))) avisos.push('Piquete não encontrado (ignorado)')
+
+        parsed.push({
+          n: i + 1, brinco, peso: pesoRaw, data: dataNorm ?? dataRaw, metodo, lote, piquete, observacao,
+          animalId, nivel: erros.length ? 'erro' : avisos.length ? 'aviso' : 'ok', msgs: [...erros, ...avisos],
+        })
+      }
+      if (parsed.length === 0) { setParseErro('Nenhuma linha de dados (fora as de exemplo).'); return }
+
+      // Aviso de duplicidade: já existe pesagem do mesmo animal+data? (não bloqueia — pesagem é evento)
+      const validas = parsed.filter((l) => l.animalId && l.nivel !== 'erro')
+      if (validas.length > 0) {
+        const ids = Array.from(new Set(validas.map((l) => l.animalId!)))
+        const datas = Array.from(new Set(validas.map((l) => l.data)))
+        const { data: jaExiste } = await supabase.from('erp_pec_pesagem')
+          .select('animal_id, data')
+          .eq('company_id', companyId).eq('propriedade_id', propriedadeId)
+          .in('animal_id', ids).in('data', datas)
+        const setDup = new Set(((jaExiste ?? []) as Array<{ animal_id: string; data: string }>).map((r) => `${r.animal_id}|${r.data}`))
+        for (const l of parsed) {
+          if (l.animalId && l.nivel !== 'erro' && setDup.has(`${l.animalId}|${l.data}`)) {
+            if (l.nivel === 'ok') l.nivel = 'aviso'
+            l.msgs.push('Já existe pesagem deste brinco nesta data')
+          }
+        }
+      }
+
+      setLinhas(parsed); setNomeArquivo(file.name)
+    } catch (e) {
+      setParseErro((e as Error)?.message ?? 'Falha ao ler o arquivo')
+    }
+  }
+
+  async function importar() {
+    const grava = linhas.filter((l) => l.nivel !== 'erro')
+    if (grava.length === 0) return
+    setImportando(true)
+    let criadas = 0, ignoradas = 0
+    const erros: { linha: number; brinco: string; motivo: string }[] = []
+    for (const l of grava) {
+      if (!l.animalId) { ignoradas++; erros.push({ linha: l.n, brinco: l.brinco, motivo: 'animal não resolvido' }); continue }
+      const { error } = await supabase.rpc('fn_pec_pesagem_registrar', {
+        p_company_id: companyId, p_propriedade_id: propriedadeId, p_animal_id: l.animalId,
+        p_data: l.data, p_peso_kg: parseNumBR(l.peso), p_metodo: l.metodo,
+        p_observacao: l.observacao || null, p_id: null,
+      })
+      if (error) { ignoradas++; erros.push({ linha: l.n, brinco: l.brinco, motivo: error.message }) }
+      else criadas++
+    }
+    setImportando(false)
+    setResultado({ criadas, ignoradas, erros })
+    if (criadas > 0) onImported()
+  }
+
+  const podeImportar = linhas.length > 0 && !importando && (soValidas ? cont.ok + cont.aviso > 0 : cont.erro === 0)
+
+  return (
+    <section className="rounded-2xl p-4 space-y-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+      <div className="text-sm font-semibold" style={{ color: ESP }}>Importar planilha</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={baixarModelo}
+          className="rounded-xl px-3 py-2 text-sm font-semibold border" style={{ borderColor: GOLD, color: GOLD }}>
+          Baixar modelo
+        </button>
+        <button type="button" onClick={() => inputRef.current?.click()}
+          className="rounded-xl px-3 py-2 text-sm font-semibold" style={{ background: ESP, color: '#fff' }}>
+          {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
+        </button>
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
+        {nomeArquivo && <span className="text-xs" style={{ color: ESP60 }}>{nomeArquivo} · {linhas.length} linha(s)</span>}
+      </div>
+
+      {parseErro && <div className="rounded-xl p-3 text-sm" style={{ background: '#FCEBEB', color: RED }}>{parseErro}</div>}
+
+      {linhas.length > 0 && (
+        <>
+          <div className="flex items-center justify-between flex-wrap gap-2 text-xs" style={{ color: ESP60 }}>
+            <span>🟢 {cont.ok} ok · 🟡 {cont.aviso} aviso(s) · 🔴 {cont.erro} erro(s)</span>
+            {cont.erro > 0 && (
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={soValidas} onChange={(e) => setSoValidas(e.target.checked)} />
+                Importar só as válidas ({cont.ok + cont.aviso})
+              </label>
+            )}
+          </div>
+          <div className="rounded-xl overflow-auto max-h-72" style={{ border: `1px solid ${LINE}` }}>
+            <table className="w-full text-xs">
+              <thead style={{ background: BG, color: ESP60 }}>
+                <tr>
+                  <th className="text-left px-2 py-1.5">#</th><th className="text-left px-2 py-1.5">st</th>
+                  <th className="text-left px-2 py-1.5">brinco</th><th className="text-right px-2 py-1.5">peso</th>
+                  <th className="text-left px-2 py-1.5">data</th><th className="text-left px-2 py-1.5">método</th>
+                  <th className="text-left px-2 py-1.5">mensagens</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={i} style={{ borderTop: `1px solid ${LINE}` }}>
+                    <td className="px-2 py-1 opacity-50">{l.n}</td>
+                    <td className="px-2 py-1">{l.nivel === 'erro' ? '🔴' : l.nivel === 'aviso' ? '🟡' : '🟢'}</td>
+                    <td className="px-2 py-1 font-medium" style={{ color: ESP }}>{l.brinco}</td>
+                    <td className="px-2 py-1 text-right">{l.peso || '—'}</td>
+                    <td className="px-2 py-1">{l.data}</td>
+                    <td className="px-2 py-1">{l.metodo}</td>
+                    <td className="px-2 py-1" style={{ color: ESP60 }}>{l.msgs.join(' · ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={() => void importar()} disabled={!podeImportar}
+            className="w-full rounded-xl py-3 text-sm font-semibold"
+            style={{ background: GOLD, color: '#fff', opacity: podeImportar ? 1 : 0.5 }}>
+            {importando ? 'Importando…' : 'Importar pesagens'}
+          </button>
+        </>
+      )}
+
+      {resultado && (
+        <div className="rounded-xl p-3 text-sm" style={{ background: '#EAF5DC', color: ESP }}>
+          <b>{resultado.criadas}</b> pesagem(ns) criada(s){resultado.ignoradas > 0 && <> · <b>{resultado.ignoradas}</b> ignorada(s)</>}
+          {resultado.erros.length > 0 && (
+            <ul className="mt-1 list-disc pl-5" style={{ color: RED }}>
+              {resultado.erros.slice(0, 8).map((e, i) => <li key={i}>linha {e.linha} ({e.brinco}): {e.motivo}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
