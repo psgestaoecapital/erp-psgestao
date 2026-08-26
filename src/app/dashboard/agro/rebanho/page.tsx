@@ -51,6 +51,64 @@ type Piquete = { id: string; nome: string; area_ha: number | null; capacidade_ua
 
 const CATEGORIAS = ['matriz','touro','bezerro','bezerra','garrote','novilha','boi_magro','boi_gordo','descarte','outro'] as const
 
+// Rótulos amigáveis das categorias (EDITAR-ANIMAL).
+const CAT_LABEL: Record<string, string> = {
+  matriz: 'Matriz', touro: 'Touro', bezerro: 'Bezerro', bezerra: 'Bezerra',
+  garrote: 'Garrote', novilha: 'Novilha', boi_magro: 'Boi magro', boi_gordo: 'Boi gordo',
+  descarte: 'Descarte', outro: 'Outro',
+}
+const catLabel = (c: string) => CAT_LABEL[c] ?? c.replace('_', ' ')
+
+// Coerência categoria×sexo — alerta (não trava), pois foi assim que o erro dos 70 aconteceu.
+const SEXO_ESPERADO: Record<string, 'M' | 'F'> = {
+  matriz: 'F', novilha: 'F', bezerra: 'F',
+  touro: 'M', garrote: 'M', bezerro: 'M', boi_magro: 'M', boi_gordo: 'M',
+}
+const incoerente = (categoria: string, sexo: string | null | undefined) => {
+  const esp = SEXO_ESPERADO[categoria]
+  return !!esp && !!sexo && esp !== sexo
+}
+
+type AcaoTipo = 'mover' | 'vender' | 'morte' | 'identificar' | 'novo' | 'editar' | 'editar_lote'
+type Acao = { tipo: AcaoTipo; alvos?: string[] }
+
+// Linha COMPLETA do animal — necessária porque fn_pec_animal_salvar sobrescreve TODAS as colunas
+// no UPDATE (NULL zera o campo). Editar = reenviar o registro inteiro, trocando só o que mudou.
+type AnimalFull = {
+  id: string; identificacao: string | null; sisbov: string | null; sexo: 'M' | 'F' | null
+  categoria: string; raca: string | null; data_nascimento: string | null; origem: string
+  data_entrada: string | null; peso_entrada_kg: number | null; lote_id: string | null
+  area_atual_id: string | null; mae_id: string | null; contraparte_nome: string | null; observacao: string | null
+}
+const COLS_FULL = 'id,identificacao,sisbov,sexo,categoria,raca,data_nascimento,origem,data_entrada,peso_entrada_kg,lote_id,area_atual_id,mae_id,contraparte_nome,observacao'
+
+type OverEdit = {
+  identificacao?: string | null; categoria?: string; sexo?: string | null
+  raca?: string | null; data_nascimento?: string | null; observacao?: string | null
+  lote_id?: string | null; area_atual_id?: string | null
+}
+// Monta os parâmetros de fn_pec_animal_salvar preservando o registro atual e aplicando só o `over`.
+function paramsEdicao(a: AnimalFull, companyId: string, propriedadeId: string, o: OverEdit) {
+  const pick = <K extends keyof OverEdit>(k: K, cur: OverEdit[K]) => (k in o ? o[k] : cur)
+  return {
+    p_company_id: companyId, p_propriedade_id: propriedadeId, p_id: a.id,
+    p_identificacao: pick('identificacao', a.identificacao),
+    p_sisbov: a.sisbov,
+    p_sexo: pick('sexo', a.sexo),
+    p_categoria: pick('categoria', a.categoria),
+    p_raca: pick('raca', a.raca),
+    p_data_nascimento: pick('data_nascimento', a.data_nascimento),
+    p_origem: a.origem,
+    p_data_entrada: a.data_entrada,
+    p_peso_entrada_kg: a.peso_entrada_kg,
+    p_lote_id: pick('lote_id', a.lote_id),
+    p_area_atual_id: pick('area_atual_id', a.area_atual_id),
+    p_mae_id: a.mae_id,
+    p_contraparte_nome: a.contraparte_nome,
+    p_observacao: pick('observacao', a.observacao),
+  }
+}
+
 export default function RebanhoPage() {
   const { companyId } = useEmpresaSelecionada()
   const { propriedade, loading: loadingProp } = usePropriedade(companyId)
@@ -317,7 +375,7 @@ function Animais({
   const [erro, setErro] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
   const [sel, setSel] = useState<Set<string>>(new Set())
-  const [acao, setAcao] = useState<null | { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }>(null)
+  const [acao, setAcao] = useState<null | Acao>(null)
   const [contagensCat, setContagensCat] = useState<Record<string, number>>({})
   const [totalRebanho, setTotalRebanho] = useState<number>(0)
 
@@ -458,7 +516,7 @@ function Animais({
   const filtrados = animais // paginacao (server online / cliente offline) ja aconteceu
 
   // Ações de escrita ficam desabilitadas offline (Fase A = consulta). Bloqueia na origem.
-  const abrirAcao = (a: { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }) => {
+  const abrirAcao = (a: Acao) => {
     if (!online) { setErro('Sem conexão — registre quando o sinal voltar (modo consulta offline).'); return }
     setAcao(a)
   }
@@ -522,6 +580,7 @@ function Animais({
       {sel.size > 0 && (
         <div className="flex flex-wrap gap-2 items-center rounded-xl p-2" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}` }}>
           <span className="text-xs font-semibold" style={{ color: ESP }}>{sel.size} selecionado(s)</span>
+          <button onClick={() => abrirAcao({ tipo: 'editar_lote', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: '#fff', border: `1px solid ${ESP}`, color: ESP }}>Editar</button>
           <button onClick={() => abrirAcao({ tipo: 'mover', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: ESP, color: '#fff' }}>Mover</button>
           <button onClick={() => abrirAcao({ tipo: 'vender', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: GOLD, color: '#fff' }}>Vender</button>
           <button onClick={() => abrirAcao({ tipo: 'morte', alvos: Array.from(sel) })} className="text-xs px-3 py-1 rounded-lg font-semibold" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Morte</button>
@@ -559,6 +618,7 @@ function Animais({
                 <td className="p-2 text-right text-xs">{a.peso_entrada_kg ?? '—'}{a.peso_entrada_kg ? ' kg' : ''}</td>
                 <td className="p-2">
                   <div className="flex gap-1 justify-center">
+                    <button onClick={() => abrirAcao({ tipo: 'editar', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${ESP}`, color: ESP }}>Editar</button>
                     <button onClick={() => abrirAcao({ tipo: 'mover', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Mover</button>
                     <button onClick={() => abrirAcao({ tipo: 'vender', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: GOLD, color: '#fff' }}>Vender</button>
                     <button onClick={() => abrirAcao({ tipo: 'morte', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Morte</button>
@@ -588,6 +648,7 @@ function Animais({
                 </div>
               </div>
               <div className="flex flex-col gap-1">
+                <button onClick={() => abrirAcao({ tipo: 'editar', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${ESP}`, color: ESP }}>Editar</button>
                 <button onClick={() => abrirAcao({ tipo: 'mover', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Mover</button>
                 <button onClick={() => abrirAcao({ tipo: 'vender', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: GOLD, color: '#fff' }}>Vender</button>
               </div>
@@ -631,7 +692,7 @@ function AcaoModal({
   companyId, propriedadeId, acao, lotes, piquetes, onClose, onDone,
 }: {
   companyId: string; propriedadeId: string
-  acao: { tipo: 'mover' | 'vender' | 'morte' | 'identificar' | 'novo'; alvos?: string[] }
+  acao: Acao
   lotes: Lote[]; piquetes: Piquete[]; onClose: () => void; onDone: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -657,6 +718,10 @@ function AcaoModal({
   const [identificacao, setIdentificacao] = useState('')
   // novo
   const [novo, setNovo] = useState({ categoria: 'bezerro', sexo: 'M', lote_id: '', area_atual_id: '', peso: '', identificacao: '' })
+  // editar (individual + lote) — carrega o(s) registro(s) completo(s) dos alvos
+  const [full, setFull] = useState<AnimalFull[] | null>(null)
+  const [ed, setEd] = useState({ identificacao: '', categoria: 'outro', sexo: '', raca: '', data_nascimento: '', observacao: '' })
+  const [edLote, setEdLote] = useState({ categoria: '', sexo: '', raca: '', lote_id: '', area_atual_id: '', gerarBrinco: false, prefixo: '', inicio: '1' })
 
   const hoje = new Date().toISOString().slice(0, 10)
 
@@ -676,6 +741,30 @@ function AcaoModal({
     return () => { alive = false }
   }, [acao.tipo, companyId])
 
+  // Editar: carrega o registro COMPLETO dos alvos (pra preservar campos não editados no UPDATE).
+  useEffect(() => {
+    if (acao.tipo !== 'editar' && acao.tipo !== 'editar_lote') return
+    const ids = acao.alvos ?? []
+    if (ids.length === 0) return
+    let alive = true
+    void (async () => {
+      const { data, error } = await supabase.from('erp_pec_animal')
+        .select(COLS_FULL).eq('company_id', companyId).in('id', ids)
+      if (!alive) return
+      if (error) { setErro(error.message); return }
+      const rows = (data ?? []) as AnimalFull[]
+      setFull(rows)
+      if (acao.tipo === 'editar' && rows[0]) {
+        const a = rows[0]
+        setEd({
+          identificacao: a.identificacao ?? '', categoria: a.categoria, sexo: a.sexo ?? '',
+          raca: a.raca ?? '', data_nascimento: a.data_nascimento ?? '', observacao: a.observacao ?? '',
+        })
+      }
+    })()
+    return () => { alive = false }
+  }, [acao.tipo, acao.alvos, companyId])
+
   async function criarComprador() {
     if (!novoNome.trim()) return
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: novoNome.trim(), p_cpf_cnpj: novoDoc.trim() || null })
@@ -688,6 +777,41 @@ function AcaoModal({
   const executar = async () => {
     setBusy(true); setErro(null)
     try {
+      // EDITAR individual — reenvia o registro inteiro trocando só os campos do formulário.
+      if (acao.tipo === 'editar') {
+        const a = full?.[0]
+        if (!a) { setErro('Carregando dados do animal…'); return }
+        const { error } = await supabase.rpc('fn_pec_animal_salvar', paramsEdicao(a, companyId, propriedadeId, {
+          identificacao: ed.identificacao.trim() || null,
+          categoria: ed.categoria,
+          sexo: ed.sexo || null,
+          raca: ed.raca.trim() || null,
+          data_nascimento: ed.data_nascimento || null,
+          observacao: ed.observacao.trim() || null,
+        }))
+        if (error) throw error
+        onDone(); return
+      }
+      // EDITAR em lote — aplica só os campos preenchidos a cada animal, preservando o resto.
+      if (acao.tipo === 'editar_lote') {
+        const rows = full ?? []
+        if (rows.length === 0) { setErro('Carregando dados dos animais…'); return }
+        if (!window.confirm(`Editar ${rows.length} animais?`)) { return }
+        const inicio = Math.trunc(Number(edLote.inicio)) || 1
+        const prefixo = edLote.prefixo.trim()
+        for (let i = 0; i < rows.length; i++) {
+          const over: OverEdit = {}
+          if (edLote.categoria) over.categoria = edLote.categoria
+          if (edLote.sexo) over.sexo = edLote.sexo
+          if (edLote.raca.trim()) over.raca = edLote.raca.trim()
+          if (edLote.lote_id) over.lote_id = edLote.lote_id
+          if (edLote.area_atual_id) over.area_atual_id = edLote.area_atual_id
+          if (edLote.gerarBrinco && prefixo) over.identificacao = `${prefixo}${inicio + i}`
+          const { error } = await supabase.rpc('fn_pec_animal_salvar', paramsEdicao(rows[i], companyId, propriedadeId, over))
+          if (error) throw error
+        }
+        onDone(); return
+      }
       if (acao.tipo === 'novo') {
         const { error } = await supabase.rpc('fn_pec_animal_salvar', {
           p_company_id: companyId, p_propriedade_id: propriedadeId,
@@ -757,6 +881,7 @@ function AcaoModal({
   const titulo: Record<string, string> = {
     mover: 'Mover animal(is)', vender: 'Vender animal(is)', morte: 'Registrar morte',
     identificar: 'Identificar animal', novo: 'Novo animal',
+    editar: 'Editar animal', editar_lote: 'Editar em lote',
   }
   const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]'
 
@@ -825,6 +950,74 @@ function AcaoModal({
           {acao.tipo === 'identificar' && (
             <input className={inp} placeholder="Identificação / brinco" value={identificacao} onChange={(e) => setIdentificacao(e.target.value)} />
           )}
+          {acao.tipo === 'editar' && (full === null ? (
+            <div className="text-sm py-4 text-center" style={{ color: ESP60 }}>Carregando dados do animal…</div>
+          ) : (<>
+            <input className={inp} placeholder="Identificação / brinco" value={ed.identificacao} onChange={(e) => setEd({ ...ed, identificacao: e.target.value })} />
+            <div className="grid grid-cols-2 gap-2">
+              <select className={inp} value={ed.categoria} onChange={(e) => setEd({ ...ed, categoria: e.target.value })}>
+                {CATEGORIAS.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
+              </select>
+              <select className={inp} value={ed.sexo} onChange={(e) => setEd({ ...ed, sexo: e.target.value })}>
+                <option value="">Sexo — não informado</option>
+                <option value="M">Macho</option><option value="F">Fêmea</option>
+              </select>
+            </div>
+            <input className={inp} placeholder="Raça (opcional)" value={ed.raca} onChange={(e) => setEd({ ...ed, raca: e.target.value })} />
+            <label className="block text-xs" style={{ color: ESP60 }}>Data de nascimento (opcional)
+              <input className={inp} type="date" value={ed.data_nascimento} onChange={(e) => setEd({ ...ed, data_nascimento: e.target.value })} />
+            </label>
+            <textarea className={inp} placeholder="Observação (opcional)" rows={2} value={ed.observacao} onChange={(e) => setEd({ ...ed, observacao: e.target.value })} />
+            {incoerente(ed.categoria, ed.sexo) && (
+              <div className="text-[11px] rounded-lg p-2" style={{ background: '#FBF4E4', border: `1px dashed ${GOLD}`, color: '#8A5A0B' }}>
+                Atenção: {catLabel(ed.categoria)} costuma ser {SEXO_ESPERADO[ed.categoria] === 'F' ? 'fêmea' : 'macho'} — confira o sexo. (Não trava.)
+              </div>
+            )}
+          </>))}
+          {acao.tipo === 'editar_lote' && (full === null ? (
+            <div className="text-sm py-4 text-center" style={{ color: ESP60 }}>Carregando dados dos animais…</div>
+          ) : (<>
+            <div className="text-xs" style={{ color: ESP60 }}>Deixe “manter” / em branco no que não quiser alterar. Aplica a todos os selecionados.</div>
+            <div className="grid grid-cols-2 gap-2">
+              <select className={inp} value={edLote.categoria} onChange={(e) => setEdLote({ ...edLote, categoria: e.target.value })}>
+                <option value="">Categoria — manter</option>
+                {CATEGORIAS.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
+              </select>
+              <select className={inp} value={edLote.sexo} onChange={(e) => setEdLote({ ...edLote, sexo: e.target.value })}>
+                <option value="">Sexo — manter</option>
+                <option value="M">Macho</option><option value="F">Fêmea</option>
+              </select>
+            </div>
+            <input className={inp} placeholder="Raça — deixe em branco p/ manter" value={edLote.raca} onChange={(e) => setEdLote({ ...edLote, raca: e.target.value })} />
+            <div className="grid grid-cols-2 gap-2">
+              <select className={inp} value={edLote.lote_id} onChange={(e) => setEdLote({ ...edLote, lote_id: e.target.value })}>
+                <option value="">Lote — manter</option>
+                {lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo}</option>)}
+              </select>
+              <select className={inp} value={edLote.area_atual_id} onChange={(e) => setEdLote({ ...edLote, area_atual_id: e.target.value })}>
+                <option value="">Piquete — manter</option>
+                {piquetes.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-xs" style={{ color: ESP }}>
+              <input type="checkbox" checked={edLote.gerarBrinco} onChange={(e) => setEdLote({ ...edLote, gerarBrinco: e.target.checked })} />
+              Gerar identificação sequencial (senão, deixa em branco p/ preencher depois)
+            </label>
+            {edLote.gerarBrinco && (
+              <div className="grid grid-cols-2 gap-2">
+                <input className={inp} placeholder="Prefixo (ex.: BM-)" value={edLote.prefixo} onChange={(e) => setEdLote({ ...edLote, prefixo: e.target.value })} />
+                <input className={inp} type="number" inputMode="numeric" placeholder="Nº inicial" value={edLote.inicio} onChange={(e) => setEdLote({ ...edLote, inicio: e.target.value })} />
+              </div>
+            )}
+            {edLote.gerarBrinco && edLote.prefixo.trim() && (
+              <div className="text-[11px]" style={{ color: ESP60 }}>Ex.: {edLote.prefixo.trim()}{Math.trunc(Number(edLote.inicio)) || 1} … {edLote.prefixo.trim()}{(Math.trunc(Number(edLote.inicio)) || 1) + (full.length - 1)}</div>
+            )}
+            {incoerente(edLote.categoria, edLote.sexo) && (
+              <div className="text-[11px] rounded-lg p-2" style={{ background: '#FBF4E4', border: `1px dashed ${GOLD}`, color: '#8A5A0B' }}>
+                Atenção: {catLabel(edLote.categoria)} costuma ser {SEXO_ESPERADO[edLote.categoria] === 'F' ? 'fêmea' : 'macho'} — confira o sexo. (Não trava.)
+              </div>
+            )}
+          </>))}
           {acao.tipo === 'novo' && (<>
             <input className={inp} placeholder="Identificação / brinco (opcional)" value={novo.identificacao} onChange={(e) => setNovo({ ...novo, identificacao: e.target.value })} />
             <div className="grid grid-cols-2 gap-2">
@@ -855,9 +1048,14 @@ function AcaoModal({
 
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onClose} disabled={busy} className="px-4 py-2 rounded-xl text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Cancelar</button>
-          <button onClick={executar} disabled={busy} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
-            {busy ? 'Salvando…' : 'Confirmar'}
-          </button>
+          {(() => {
+            const carregandoEdicao = (acao.tipo === 'editar' || acao.tipo === 'editar_lote') && full === null
+            return (
+              <button onClick={executar} disabled={busy || carregandoEdicao} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy || carregandoEdicao ? 0.6 : 1 }}>
+                {busy ? 'Salvando…' : 'Confirmar'}
+              </button>
+            )
+          })()}
         </div>
       </div>
     </div>
