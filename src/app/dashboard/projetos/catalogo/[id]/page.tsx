@@ -218,6 +218,19 @@ export default function ServicoEditorPage({
       setTimeout(() => setAviso(null), 2000);
       return;
     }
+    // Obrigatórios (NOT NULL no banco): validar ANTES de enviar e nunca mostrar erro cru de Postgres.
+    const obrigatorios: { k: keyof Servico; msg: string }[] = [
+      { k: "codigo", msg: "Informe o código do serviço." },
+      { k: "nome", msg: "Informe o nome do serviço." },
+      { k: "unidade", msg: "Informe a unidade de medida do serviço (m², m, un)." },
+    ];
+    for (const { k, msg } of obrigatorios) {
+      if (k in edits && !String((edits as any)[k] ?? "").trim()) {
+        setErro(msg);
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+    }
     setSalvandoMeta(true);
     setErro(null);
     try {
@@ -239,7 +252,15 @@ export default function ServicoEditorPage({
       setTimeout(() => setAviso(null), 3000);
       await carregar({ soft: true });
     } catch (e: any) {
-      setErro(e.message || "Falha ao salvar");
+      // Nunca expor mensagem crua do banco (RD-51): traduzir para linguagem do usuário.
+      const raw = String(e?.message ?? "");
+      setErro(
+        /unidade/i.test(raw)
+          ? "Informe a unidade de medida do serviço (m², m, un)."
+          : /violates not-null|null value in column/i.test(raw)
+            ? "Preencha os campos obrigatórios: código, nome e unidade."
+            : "Não foi possível salvar. Tente novamente.",
+      );
     } finally {
       setSalvandoMeta(false);
     }

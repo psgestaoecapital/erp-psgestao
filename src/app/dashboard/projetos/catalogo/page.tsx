@@ -149,6 +149,7 @@ export default function CatalogoServicosPage() {
           company_id: companyId,
           codigo: `SERV-${servicos.length + 1}`,
           nome: "Novo serviço",
+          unidade: "m2", // NOT NULL no banco — default sensato; usuário ajusta na tela de edição
           ativo: true,
         })
         .select("id")

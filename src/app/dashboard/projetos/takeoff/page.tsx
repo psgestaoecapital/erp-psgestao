@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { UploadCloud, Sparkles, Check, AlertTriangle, Archive } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -156,6 +156,7 @@ async function pdfPagina1ParaPng(pdfBytes: Uint8Array): Promise<{ blob: Blob; pa
 export default function TakeoffPage() {
   const { companyId } = useEmpresaSelecionada()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const plantaIdParam = searchParams?.get('planta_id') ?? null
   const [orcamentos, setOrcamentos] = useState<Orc[]>([])
   const [orcId, setOrcId] = useState<string>('')
@@ -521,6 +522,31 @@ export default function TakeoffPage() {
     }
   }
 
+  // 5a · cria um orçamento novo a partir do take-off (mata o "beco" de precisar de orçamento pré-existente).
+  const criarOrcamentoDoTakeoff = async () => {
+    if (!companyId || !planta) { setErro('Suba ou selecione uma planta antes de criar o orçamento.'); return }
+    const prontos = ambientes.filter((a) => a.confirmado && a.servico_id)
+    if (prontos.length === 0) { setErro('Confirme ao menos 1 ambiente com serviço vinculado antes de criar o orçamento.'); return }
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_criar_orcamento', {
+        p_company_id: companyId, p_planta_id: planta.id,
+      })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; itens?: number } | null
+      if (!j?.ok) {
+        setErro(j?.mensagem ?? (j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (j?.erro ?? 'Não foi possível criar o orçamento.')))
+        return
+      }
+      setMsg(`Orçamento ${j.numero ?? ''} criado com ${j.itens ?? 0} item(ns). Abrindo…`)
+      router.push('/dashboard/orcamentos')
+    } catch (e) {
+      setErro((e as Error).message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const totalEstimado = ambientes.reduce((s, a) => {
     if (!a.confirmado || !a.servico_id) return s
     const sv = servicos.find((x) => x.id === a.servico_id)
@@ -557,12 +583,18 @@ export default function TakeoffPage() {
 
       <section className="rounded-2xl bg-white p-4 border border-[#E7DECF] space-y-2">
         <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino</label>
-        <select className={inp} value={orcId} onChange={(e) => setOrcId(e.target.value)}>
-          <option value="">— selecione (ou crie em /dashboard/projetos/propostas) —</option>
+        <select className={inp} value={orcId} onChange={(e) => {
+          const v = e.target.value
+          if (v === '__novo__') { void criarOrcamentoDoTakeoff() } // não seta orcId no sentinela
+          else setOrcId(v)
+        }}>
+          <option value="">— selecione —</option>
+          <option value="__novo__">➕ Criar novo orçamento a partir deste take-off</option>
           {orcamentos.map((o) => (
             <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>
           ))}
         </select>
+        <p className="text-[11px]" style={{ color: ESP60 }}>Confirme os ambientes com serviço e escolha <b>“Criar novo orçamento”</b> — não precisa ter orçamento antes.</p>
 
         <div className="grid grid-cols-2 gap-2 pt-1">
           <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
