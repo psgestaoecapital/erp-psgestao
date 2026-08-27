@@ -40,6 +40,7 @@ function linkDaEtapa(etapa: string): { href: string; tip: string } | null {
 }
 type TempoRow = { oportunidade_id: string; dias_na_etapa: number; origem: string; semaforo: string }
 type QuemRow = { oportunidade_id: string; autor_nome: string; acao: string; quando: string }
+type OrcRow = { oportunidade_id: string; orcamento_id: string; numero: string; status: string; total: number; itens: number }
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -112,6 +113,9 @@ export default function OportunidadesKanban({
   // F2.6 · tempo na etapa (semáforo) e quem moveu por último, por oportunidade_id.
   const [tempoMap, setTempoMap] = useState<Record<string, TempoRow>>({})
   const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
+  // F2.7 · orçamento vinculado por oportunidade_id.
+  const [orcMap, setOrcMap] = useState<Record<string, OrcRow>>({})
+  const [gerandoId, setGerandoId] = useState<string | null>(null)
 
   async function abrirFechadas(etapa: 'ganho' | 'perdido') {
     setFechadas({ etapa, loading: true, itens: [] })
@@ -141,9 +145,23 @@ export default function OportunidadesKanban({
     await aplicarMove(p.cardId, 'perdido', p.etapaAtual, motivo)
   }
 
+  // F2.7 · cria (ou devolve) o orçamento da oportunidade e abre nele.
+  async function gerarOrcamento(oportunidadeId: string) {
+    setGerandoId(oportunidadeId)
+    const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: oportunidadeId })
+    setGerandoId(null)
+    const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; ja_existia?: boolean } | null
+    if (error || !j?.ok) {
+      onError(`Erro ao gerar orçamento: ${j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade antes.' : (error?.message ?? j?.erro ?? 'falha'))}`)
+      return
+    }
+    onMoved(j.ja_existia ? `Orçamento ${j.numero} já existia — abrindo.` : `Orçamento ${j.numero} criado da oportunidade.`)
+    if (j.orcamento_id) router.push(`/dashboard/orcamentos?id=${j.orcamento_id}`)
+  }
+
   async function carregar() {
     setLoading(true)
-    const [p, gp, tempo, quem] = await Promise.all([
+    const [p, gp, tempo, quem, orc] = await Promise.all([
       supabase.rpc('fn_crm_pipeline', { p_company_id: companyId }),
       supabase
         .from('erp_crm_oportunidade')
@@ -152,6 +170,7 @@ export default function OportunidadesKanban({
         .in('etapa', ['ganho', 'perdido']),
       supabase.rpc('fn_crm_tempo_etapa', { p_company_id: companyId }),
       supabase.rpc('fn_crm_quem_moveu', { p_company_id: companyId }),
+      supabase.rpc('fn_crm_orcamento_do_card', { p_company_id: companyId }),
     ])
     setPipe((p.data ?? { etapas: [] }) as Pipeline)
     // F2.6 · monta os mapas (se a RPC ainda não deployou, fica vazio — não quebra o board).
@@ -161,6 +180,9 @@ export default function OportunidadesKanban({
     const qm: Record<string, QuemRow> = {}
     for (const r of ((quem.data ?? []) as QuemRow[])) qm[r.oportunidade_id] = r
     setQuemMap(qm)
+    const om: Record<string, OrcRow> = {}
+    for (const r of ((orc.data ?? []) as OrcRow[])) om[r.oportunidade_id] = r
+    setOrcMap(om)
     const rows = (gp.data ?? []) as Array<{ etapa: string; valor_estimado: number | null }>
     const g = rows.filter((r) => r.etapa === 'ganho')
     const pd = rows.filter((r) => r.etapa === 'perdido')
@@ -299,6 +321,13 @@ export default function OportunidadesKanban({
             const cards = cardsPorEtapa(et.v)
             const tot = totalEtapa(et.v)
             const hover = hoverEtapa === et.v
+            // F2.7 · o link da coluna Orçando/Proposta filtra a lista pelos orçamentos DAQUELAS oportunidades.
+            const _link = linkDaEtapa(et.v)
+            const linkHref = _link
+              ? ((et.v === 'orcando' || et.v === 'proposta_enviada')
+                  ? `${_link.href}?oportunidades=${cards.map((c) => c.id).join(',')}`
+                  : _link.href)
+              : null
             return (
               <div
                 key={et.v}
@@ -310,9 +339,9 @@ export default function OportunidadesKanban({
                 <div style={colHead}>
                   <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {linkDaEtapa(et.v) && (
-                      <button type="button" onClick={() => router.push(linkDaEtapa(et.v)!.href)} title={linkDaEtapa(et.v)!.tip}
-                        aria-label={linkDaEtapa(et.v)!.tip}
+                    {_link && linkHref && (
+                      <button type="button" onClick={() => router.push(linkHref)} title={_link.tip}
+                        aria-label={_link.tip}
                         style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, color: DOURADO }}>🔗</button>
                     )}
                     <span style={{ fontSize: 11, color: TEXTM }}>{tot.qtd}</span>
@@ -371,6 +400,30 @@ export default function OportunidadesKanban({
                           ⏱️ {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
                         </div>
                       )}
+                      {/* F2.7 · orçamento vinculado (chip clicável) ou botão de gerar */}
+                      <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                        {orcMap[c.id] ? (
+                          <button
+                            onClick={() => router.push(`/dashboard/orcamentos?id=${orcMap[c.id].orcamento_id}`)}
+                            title="Abrir orçamento vinculado"
+                            style={{
+                              width: '100%', textAlign: 'left', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                              borderRadius: 6, padding: '4px 8px',
+                              border: `1px solid ${orcMap[c.id].itens === 0 ? '#D9A441' : BORDA}`,
+                              background: orcMap[c.id].itens === 0 ? '#FBF0D8' : '#F6F1E8',
+                              color: orcMap[c.id].itens === 0 ? '#7A5A0F' : ESPRESSO,
+                            }}>
+                            📄 {orcMap[c.id].numero} · {orcMap[c.id].itens === 0 ? 'sem itens' : `${brl(orcMap[c.id].total)} · ${orcMap[c.id].itens} ${orcMap[c.id].itens === 1 ? 'item' : 'itens'}`}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => void gerarOrcamento(c.id)}
+                            disabled={gerandoId === c.id}
+                            style={{ width: '100%', cursor: gerandoId === c.id ? 'wait' : 'pointer', fontSize: 11, fontWeight: 700, borderRadius: 6, padding: '4px 8px', border: `1px solid ${DOURADO}`, background: '#FBF4E4', color: '#A57A15', opacity: gerandoId === c.id ? 0.6 : 1 }}>
+                            {gerandoId === c.id ? 'Gerando…' : '+ Gerar orçamento'}
+                          </button>
+                        )}
+                      </div>
                       {/* Fallback touch: select de etapa */}
                       <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
                         <select
