@@ -55,7 +55,10 @@ const PLANO_CAMPOS: { k: keyof Plano; l: string; tipo: 'moeda' | 'int' | 'pct' }
   { k: 'entregas_meta', l: 'Meta de entregas', tipo: 'int' },
   { k: 'infracoes_zera', l: 'Infrações que zeram bônus', tipo: 'int' },
 ]
-type Func = { id: string; nome_completo: string | null; cargo: string | null }
+// RV-FONTE-IOPOINT: o dropdown passa a listar do IO Point (ind_ponto_colaborador), a fonte da verdade.
+type Func = { id: string; nome: string | null; funcao: string | null; cpf: string | null }
+type CompFunc = { id: string; nome_completo: string | null; cpf: string | null }
+const soDigitos = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
 
 type SubKey = 'quadro' | 'folha' | 'ponto' | 'remun' | 'indic' | 'nr'
 const compAtual = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
@@ -585,7 +588,8 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
   const [savingPlano, setSavingPlano] = useState<string | null>(null)
   const [planoMsg, setPlanoMsg] = useState<string | null>(null)
   const [participantes, setParticipantes] = useState<(Participante & { nome: string })[]>([])
-  const [funcs, setFuncs] = useState<Func[]>([])
+  const [funcs, setFuncs] = useState<Func[]>([])       // colaboradores do IO Point (fonte do dropdown)
+  const [compFuncs, setCompFuncs] = useState<CompFunc[]>([]) // compliance (p/ resolver nome do participante + CPF)
   const [selFunc, setSelFunc] = useState('')
   const [buscaFunc, setBuscaFunc] = useState('')
   const [selPlano, setSelPlano] = useState('')
@@ -593,20 +597,23 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
   const [msg, setMsg] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
-    const [pl, pa, fu] = await Promise.all([
+    const [pl, pa, col, comp] = await Promise.all([
       supabase.from('rh_rv_plano').select('id, perfil, faixa, salario_base, diaria_valor, premio_util, valor_entrega, bonus_sem_infracao, he_min_dia, inss_pct, calcula_inss, entregas_meta, infracoes_zera').eq('company_id', empresa).eq('ativo', true).order('perfil'),
       supabase.from('rh_rv_participante').select('id, funcionario_id, plano_id, ativo').eq('company_id', empresa).eq('ativo', true),
-      // RV-TODOS-FUNCIONÁRIOS: lista TODOS os colaboradores da empresa (sem filtrar por cargo) — o RH
-      // decide quem entra. funcionario_id tem FK p/ compliance_funcionarios, então a fonte segue esta tabela.
-      supabase.from('compliance_funcionarios').select('id, nome_completo, cargo').eq('company_id', empresa).order('nome_completo'),
+      // RV-FONTE-IOPOINT: dropdown vem do IO Point (fonte da verdade de quem trabalha), sem filtro de função.
+      supabase.from('ind_ponto_colaborador').select('id, nome, funcao, cpf').eq('company_id', empresa).order('nome'),
+      // compliance só p/ resolver o nome do participante já vinculado + casar CPF (a FK vive aqui).
+      supabase.from('compliance_funcionarios').select('id, nome_completo, cpf').eq('company_id', empresa),
     ])
     const planosList = (pl.data as Plano[]) ?? []
     setPlanos(planosList)
     setPlanosEdit(Object.fromEntries(planosList.map((p) => [p.id, { ...p }])))
-    setFuncs((fu.data as Func[]) ?? [])
+    setFuncs((col.data as Func[]) ?? [])
+    const compRows = (comp.data as CompFunc[]) ?? []
+    setCompFuncs(compRows)
     const parts = (pa.data as Participante[]) ?? []
     const nomeMap: Record<string, string> = {}
-    for (const f of ((fu.data as Func[]) ?? [])) nomeMap[f.id] = f.nome_completo ?? '—'
+    for (const c of compRows) nomeMap[c.id] = c.nome_completo ?? '—'
     setParticipantes(parts.map((p) => ({ ...p, nome: nomeMap[p.funcionario_id] ?? '—' })))
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -615,12 +622,15 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
   async function incluir() {
     if (!selFunc || !selPlano) { setMsg('Escolha o funcionário e o plano.'); return }
     setBusy(true); setMsg(null)
-    const { data, error } = await supabase.rpc('fn_rh_rv_participante_salvar', {
-      p_company_id: empresa, p_funcionario_id: selFunc, p_plano_id: selPlano, p_ativo: true })
+    // selFunc = id do IO Point. A RPC casa/cria o compliance por CPF e grava o participante (FK íntegra).
+    const { data, error } = await supabase.rpc('fn_rh_rv_participante_incluir_do_ponto', {
+      p_company_id: empresa, p_ponto_id: selFunc, p_plano_id: selPlano })
     setBusy(false)
-    const j = data as { ok?: boolean; erro?: string } | null
+    const j = data as { ok?: boolean; erro?: string; criado_compliance?: boolean } | null
     if (error || !j?.ok) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
-    setSelFunc(''); setMsg('✔ CRIOU vínculo'); await carregar(); onChanged()
+    setSelFunc(''); setBuscaFunc('')
+    setMsg(j.criado_compliance ? '✔ INCLUIU (cadastro criado a partir do ponto)' : '✔ CRIOU vínculo')
+    await carregar(); onChanged()
   }
   async function remover(id: string) {
     if (typeof window !== 'undefined' && !window.confirm('Excluir este participante do plano?')) return
@@ -650,13 +660,14 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
 
   const planoLabel = (id: string) => { const p = planos.find((x) => x.id === id); return p ? `${p.perfil}/${p.faixa}` : '—' }
 
-  // Opções do dropdown: TODOS os colaboradores, menos quem já é participante ativo (evita duplicar),
-  // com busca por nome/cargo (essencial com ~191 na lista). Sem filtro por função (RV-TODOS-FUNCIONÁRIOS).
-  const idsAtivos = new Set(participantes.map((p) => p.funcionario_id))
+  // Opções do dropdown: TODOS os colaboradores do IO Point, menos quem já é participante ativo.
+  // Exclusão por CPF (os ids do ponto ≠ ids do compliance): pega os CPFs dos participantes ativos.
+  const idsPartAtivos = new Set(participantes.map((p) => p.funcionario_id))
+  const cpfsAtivos = new Set(compFuncs.filter((c) => idsPartAtivos.has(c.id)).map((c) => soDigitos(c.cpf)).filter(Boolean))
   const funcsDisponiveis = funcs.filter((f) => {
-    if (idsAtivos.has(f.id)) return false
+    if (cpfsAtivos.has(soDigitos(f.cpf))) return false
     const q = buscaFunc.trim().toLowerCase()
-    return !q || (f.nome_completo ?? '').toLowerCase().includes(q) || (f.cargo ?? '').toLowerCase().includes(q)
+    return !q || (f.nome ?? '').toLowerCase().includes(q) || (f.funcao ?? '').toLowerCase().includes(q)
   })
 
   return (
@@ -700,7 +711,7 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
               <input value={buscaFunc} onChange={(e) => setBuscaFunc(e.target.value)} placeholder="Buscar por nome/cargo…" style={{ minWidth: 150, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
               <select value={selFunc} onChange={(e) => setSelFunc(e.target.value)} style={{ flex: 1, minWidth: 180, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
                 <option value="">Funcionário… ({funcsDisponiveis.length})</option>
-                {funcsDisponiveis.map((f) => <option key={f.id} value={f.id}>{f.nome_completo}{f.cargo ? ` · ${f.cargo}` : ''}</option>)}
+                {funcsDisponiveis.map((f) => <option key={f.id} value={f.id}>{f.nome}{f.funcao ? ` · ${f.funcao}` : ''}</option>)}
               </select>
               <select value={selPlano} onChange={(e) => setSelPlano(e.target.value)} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
                 <option value="">Plano…</option>
