@@ -52,6 +52,8 @@ function tempoCurto(iso: string | null): string {
   return hr > 0 ? `${d}d ${hr}h` : `${d}d`
 }
 function diasDesde(iso: string | null): number { return iso ? (Date.now() - new Date(iso).getTime()) / 86400000 : 0 }
+// Data relevante do lead p/ o filtro de período: entrada/movimento (etapa_desde) ou, se vazia, criação.
+function dataLead(l: { etapa_desde: string | null; criado_em: string }): string { return (l.etapa_desde ?? l.criado_em ?? '').slice(0, 10) }
 type FormLead = {
   empresa: string; nome: string; contato_email: string; contato_telefone: string
   canal_contato: string; origem: string; valor_estimado: string; erp_cliente_id: string | null
@@ -73,6 +75,10 @@ export default function LeadsPage() {
   const [fOrigem, setFOrigem] = useState('todas')
   const [fResp, setFResp] = useState('todos')
   const [busca, setBusca] = useState('')
+  // Filtro de período (Luzardo #3) — Mês/Trimestre/Ano/Personalizado. Data do lead = etapa_desde (movimento) ?? criado_em.
+  const [fPeriodo, setFPeriodo] = useState<'todos' | 'mes' | 'trimestre' | 'ano' | 'custom'>('todos')
+  const [pIni, setPIni] = useState('')
+  const [pFim, setPFim] = useState('')
   // modal + cadastro rápido
   const [novo, setNovo] = useState(false)
   const [form, setForm] = useState<FormLead>(FORM0)
@@ -144,20 +150,32 @@ export default function LeadsPage() {
   const ganhoChaves = useMemo(() => new Set(etapas.filter((e) => e.tipo_etapa === 'ganho').map((e) => e.chave)), [etapas])
   const perdaChave = useMemo(() => etapas.find((e) => e.tipo_etapa === 'perda')?.chave ?? 'perdido', [etapas])
 
-  const responsaveis = useMemo(() => Array.from(new Set(leads.map((l) => l.responsavel_id).filter(Boolean))) as string[], [leads])
+  // Intervalo do período selecionado (ISO yyyy-mm-dd) — null = todos.
+  const periodoRange = useMemo<{ ini: string; fim: string } | null>(() => {
+    if (fPeriodo === 'custom') return (pIni && pFim) ? { ini: pIni, fim: pFim } : null
+    if (fPeriodo === 'todos') return null
+    const now = new Date()
+    const y = now.getFullYear(), m = now.getMonth()
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    if (fPeriodo === 'mes') return { ini: iso(new Date(y, m, 1)), fim: iso(new Date(y, m + 1, 0)) }
+    if (fPeriodo === 'trimestre') { const q = Math.floor(m / 3); return { ini: iso(new Date(y, q * 3, 1)), fim: iso(new Date(y, q * 3 + 3, 0)) } }
+    return { ini: iso(new Date(y, 0, 1)), fim: iso(new Date(y, 11, 31)) } // ano
+  }, [fPeriodo, pIni, pFim])
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return leads.filter((l) =>
       (fOrigem === 'todas' || l.origem === fOrigem) &&
       (fResp === 'todos' || l.responsavel_id === fResp) &&
+      (!periodoRange || (dataLead(l) >= periodoRange.ini && dataLead(l) <= periodoRange.fim)) &&
       (!q || [l.nome, l.empresa, l.contato_email, l.contato_telefone].some((x) => (x ?? '').toLowerCase().includes(q))))
-  }, [leads, fOrigem, fResp, busca])
+  }, [leads, fOrigem, fResp, busca, periodoRange])
+  // KPIs recalculados sobre os leads FILTRADOS (responsável + período + origem/busca) — Luzardo #2/#3 (RD-51).
   const kpis = useMemo(() => ({
-    total: leads.length,
-    emAberto: leads.filter((l) => !fechadas.has(l.etapa)).length,
-    ganhos: leads.filter((l) => ganhoChaves.has(l.etapa)).length,
-    pipeline: leads.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
-  }), [leads, fechadas, ganhoChaves])
+    total: filtrados.length,
+    emAberto: filtrados.filter((l) => !fechadas.has(l.etapa)).length,
+    ganhos: filtrados.filter((l) => ganhoChaves.has(l.etapa)).length,
+    pipeline: filtrados.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
+  }), [filtrados, fechadas, ganhoChaves])
 
   // ── autocomplete de cliente (GE) ────────────────────────────────────────────
   const buscarClientes = useCallback(async (t: string) => {
@@ -332,8 +350,19 @@ export default function LeadsPage() {
           </select>
           <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
             <option value="todos">Responsável: todos</option>
-            {responsaveis.map((r) => <option key={r} value={r}>{respMap[r] ?? '—'}</option>)}
+            {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
           </select>
+          <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
+            <option value="todos">Período: todos</option>
+            <option value="mes">Mês atual</option>
+            <option value="trimestre">Trimestre atual</option>
+            <option value="ano">Ano atual</option>
+            <option value="custom">Personalizado…</option>
+          </select>
+          {fPeriodo === 'custom' && (<>
+            <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
+            <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
+          </>)}
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>

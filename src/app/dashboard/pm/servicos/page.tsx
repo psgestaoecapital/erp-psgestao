@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { PackageOpen, Plus, Pencil, Trash2, X, GripVertical } from 'lucide-react'
+import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical } from 'lucide-react'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', RED = '#7A1F1F'
 const brl = (n: number | null | undefined) => n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -80,6 +80,11 @@ export default function ServicosPage() {
       setEdit(null); void carregar()
     } catch (e) { setErro((e as Error).message) }
   }
+  // Duplicar (Luzardo #1): abre uma CÓPIA editável no formulário; ao Salvar cria novo registro
+  // via fn_agency_servico_salvar (id nulo = insert), pronto pra ajustar os pequenos pontos.
+  // Obs. (RD-51): a RPC fn_projetos_duplicar_servico citada no SPEC atua em projetos_servicos
+  // (catálogo de engenharia), tabela diferente deste catálogo de agência (agency_servico).
+  const duplicar = (s: Servico) => { setErro(''); setEdit({ ...s, id: undefined, nome: `Cópia de ${s.nome}` }) }
   const excluir = async (s: Servico) => {
     if (!confirm(`Excluir "${s.nome}"?${s.usos > 0 ? ' (em uso — será desativado)' : ''}`)) return
     try { await rpc('fn_agency_servico_excluir', { p_company_id: companyId, p_id: s.id }); void carregar() } catch (e) { alert((e as Error).message) }
@@ -116,6 +121,7 @@ export default function ServicosPage() {
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <IconBtn title="Editar" onClick={() => setEdit({ ...s })}><Pencil size={15} /></IconBtn>
+                <IconBtn title="Duplicar" onClick={() => duplicar(s)}><Copy size={15} /></IconBtn>
                 <IconBtn title="Excluir" onClick={() => excluir(s)} danger><Trash2 size={15} /></IconBtn>
               </div>
             </div>
