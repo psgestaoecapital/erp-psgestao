@@ -16,7 +16,7 @@
 import https from 'node:https'
 import { createHash } from 'node:crypto'
 import { obterToken } from '@/lib/banco/sicoob'
-import type { ExtratoAdapter, ExtratoCredencial, ExtratoJanela, MovimentoExtrato } from './types'
+import type { ExtratoAdapter, ExtratoAdapterOpts, ExtratoCredencial, ExtratoJanela, MovimentoExtrato } from './types'
 
 const SICOOB_SCOPE_CONSULTA = 'cco_consulta'
 
@@ -140,8 +140,60 @@ const SICOOB_HOSTS: Record<'producao' | 'homologacao', string> = {
   homologacao: 'sandbox.sicoob.com.br',
 }
 
+// SPEC SONDA-SALDO (diagnóstico, temporário) — retrato dos campos de saldo da resposta CRUA.
+// Regras inegociáveis: NÃO devolve o payload inteiro; só (1) nomes das chaves de 1º nível e de
+// `resultado`, (2) pares chave/valor de qualquer chave cujo nome contenha saldo/balance (escalar,
+// CRU, sem normalizar), recursivo até 3 níveis. NUNCA desce em arrays de lançamento (LGPD: descrição/
+// CPF/favorecido ficam de fora); para arrays cujo NOME é de saldo (ex.: saldos por dia), registra só
+// a forma (nº de itens + nomes das chaves do 1º item), nunca os valores.
+export function montarRetratoSaldo(
+  payload: unknown,
+  endpoint: string,
+  qtdTransacoes: number,
+): Record<string, unknown> {
+  const MAX_CAMPOS = 40
+  const camposSaldo: Record<string, string> = {}
+  const ehSaldo = (k: string) => /saldo|balance/i.test(k)
+  const escalar = (v: unknown) => v === null || ['string', 'number', 'boolean'].includes(typeof v)
+
+  const walk = (node: unknown, path: string, depth: number): void => {
+    if (depth > 3 || node === null || typeof node !== 'object' || Array.isArray(node)) return
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (Object.keys(camposSaldo).length >= MAX_CAMPOS) return
+      const p = path ? `${path}.${k}` : k
+      if (ehSaldo(k) && escalar(v)) {
+        camposSaldo[p] = String(v)                       // valor CRU, sem normalizar
+      } else if (ehSaldo(k) && Array.isArray(v)) {
+        const first = v[0]
+        const chaves = first && typeof first === 'object' && !Array.isArray(first)
+          ? Object.keys(first as Record<string, unknown>) : []
+        camposSaldo[p] = `[array de ${v.length} itens; chaves: ${chaves.join(',')}]` // forma, sem valores
+      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+        walk(v, p, depth + 1)
+      }
+    }
+  }
+  walk(payload, '', 1)
+
+  const obj = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>) : {}
+  const resultado = obj.resultado
+  const chavesResultado = resultado && typeof resultado === 'object' && !Array.isArray(resultado)
+    ? Object.keys(resultado as Record<string, unknown>) : null
+
+  return {
+    sonda: 'saldo_v1',
+    endpoint,
+    chaves_nivel_1: Object.keys(obj),
+    chaves_resultado: chavesResultado,
+    campos_saldo_encontrados: camposSaldo,
+    qtd_campos_saldo: Object.keys(camposSaldo).length,
+    qtd_transacoes: qtdTransacoes,
+  }
+}
+
 export const sicoobExtratoAdapter: ExtratoAdapter = {
-  async listarMovimentos(cred, janela) {
+  async listarMovimentos(cred, janela, opts?: ExtratoAdapterOpts) {
     const token = await obterToken({
       client_id: cred.client_id, ambiente: cred.ambiente,
       pfx: cred.pfx, passphrase: cred.passphrase,
@@ -178,6 +230,13 @@ export const sicoobExtratoAdapter: ExtratoAdapter = {
         throw new Error(`sicoob_extrato_${res.status}: ${res.raw.slice(0, 200)}`)
       }
       const linhas = extrairLista(res.body)
+      // SPEC SONDA-SALDO: captura o retrato de saldo desta resposta (não altera o fluxo normal).
+      if (opts?.onRetratoSaldo) {
+        try {
+          opts.onRetratoSaldo(montarRetratoSaldo(
+            res.body, `/conta-corrente/v4/extrato/${b.mes}/${b.ano}`, linhas.length))
+        } catch { /* a sonda nunca derruba a importação */ }
+      }
       for (const linha of linhas) {
         const dataProvisoria = toISO(pick(linha, 'dataMovimento', 'data', 'dataLancamento'))
         const ordem = (ordemNoDiaByDia.get(dataProvisoria) ?? 0) + 1

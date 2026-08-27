@@ -21,6 +21,10 @@ export const maxDuration = 60
 
 const BANCO = '756' // Sicoob por default; adapter tem base URL propria
 
+// SPEC SONDA-SALDO (diagnóstico, TEMPORÁRIO): captura o retrato de saldo da resposta do Sicoob e
+// registra em erp_banco_sync_log via fn_sonda_saldo_registrar. Vire false (ou remova) após o veredito.
+const SONDA_SALDO_ATIVA = true
+
 function userSupabaseBearer(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -145,6 +149,7 @@ export async function POST(req: NextRequest) {
 
     // 4) puxa via adapter
     const adapter = getExtratoAdapter(provider)
+    const retratosSonda: Record<string, unknown>[] = []
     let movimentos
     try {
       movimentos = await adapter.listarMovimentos({
@@ -157,7 +162,7 @@ export async function POST(req: NextRequest) {
         conta: (credRow.conta as string | null) ?? cfg.conta ?? '',
         codigo_beneficiario: (credRow.codigo_beneficiario as string | null) ?? cfg.codigo_beneficiario ?? '',
         convenio: (credRow.convenio as string | null) ?? cfg.convenio ?? '',
-      }, { begin, end })
+      }, { begin, end }, SONDA_SALDO_ATIVA ? { onRetratoSaldo: (r) => retratosSonda.push(r) } : undefined)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       const naoHabilitado = /extrato_nao_habilitado|scope|invalid_scope/i.test(msg)
@@ -172,6 +177,21 @@ export async function POST(req: NextRequest) {
           : 'Falha ao puxar o extrato.',
         detalhe: msg,
       }, { status: 502 })
+    }
+
+    // 4.5) SPEC SONDA-SALDO — registra o(s) retrato(s) de saldo capturado(s) na resposta do Sicoob.
+    // Ponto único de escrita: fn_sonda_saldo_registrar (SECURITY DEFINER; erp_banco_sync_log só aceita
+    // INSERT por service role). Nunca derruba o sync. Provider marcado 'sicoob'.
+    if (SONDA_SALDO_ATIVA && retratosSonda.length > 0) {
+      for (const retrato of retratosSonda) {
+        try {
+          await supabaseAdmin.rpc('fn_sonda_saldo_registrar', {
+            p_company_id: companyId,
+            p_provider: 'sicoob',
+            p_retrato: { ...retrato, capturado_em: new Date().toISOString() },
+          })
+        } catch { /* sonda de diagnóstico — não bloqueia o fluxo */ }
+      }
     }
 
     // 5) grava via fn_extrato_importar_sistema (idempotente)

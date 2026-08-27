@@ -7,6 +7,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// SPEC SONDA-SALDO (diagnóstico, TEMPORÁRIO): registra se o OFX (corretora) traz saldo de
+// fechamento. Vire false (ou remova) após o veredito. Esta função é redeployada automaticamente
+// no merge para main (workflow deploy-functions.yml detecta a mudança em supabase/functions/**).
+const SONDA_SALDO_ATIVA = true;
+
 interface OFXUploadRequest {
   client_id: string;
   filename: string;
@@ -61,6 +66,39 @@ serve(async (req: Request) => {
 
     const corretora = body.corretora_hint || detectCorretora(body.ofx_content);
     const parseResult = parseOFX(body.ofx_content);
+
+    // SPEC SONDA-SALDO — olha se este OFX traz saldo de fechamento e registra (não bloqueia).
+    // Ponto único de escrita: RPC fn_sonda_saldo_registrar (SECURITY DEFINER). Provider 'ofx_wealth'.
+    if (SONDA_SALDO_ATIVA) {
+      try {
+        const ofx = body.ofx_content;
+        const temTag = (t: string): boolean => new RegExp(`<${t}[\\s>]`, "i").test(ofx);
+        const pegarEm = (bloco: string, t: string): string | null => {
+          const m = bloco.match(new RegExp(`<${t}>([^<\\n\\r]+)`, "i"));
+          return m ? m[1].trim() : null;
+        };
+        const ledger = ofx.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i)?.[1] ?? "";
+        const avail = ofx.match(/<AVAILBAL>([\s\S]*?)<\/AVAILBAL>/i)?.[1] ?? "";
+        const tags = ["LEDGERBAL", "BALAMT", "DTASOF", "AVAILBAL"].filter(temTag);
+        await supabase.rpc("fn_sonda_saldo_registrar", {
+          p_company_id: client.company_id,
+          p_provider: "ofx_wealth",
+          p_retrato: {
+            sonda: "saldo_ofx_v1",
+            origem: "edge:ofx-upload",
+            corretora,
+            ledgerbal_presente: temTag("LEDGERBAL"),
+            availbal_presente: temTag("AVAILBAL"),
+            balamt_bruto: pegarEm(ledger, "BALAMT"),
+            dtasof_bruto: pegarEm(ledger, "DTASOF"),
+            availbal_balamt_bruto: pegarEm(avail, "BALAMT"),
+            tags_detectadas: tags,
+            qtd_transacoes: parseResult.transactions.length,
+            capturado_em: new Date().toISOString(),
+          },
+        });
+      } catch (_) { /* sonda de diagnóstico — nunca impede o upload */ }
+    }
 
     const { data: upload, error: uploadError } = await supabase
       .from("wealth_ofx_uploads")

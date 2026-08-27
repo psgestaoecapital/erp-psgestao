@@ -8,7 +8,11 @@
 
 import { useState } from 'react';
 import { supabaseBrowser } from '@/lib/authFetch';
-import { parseOFX, calcularHashSHA256 } from '@/lib/ofx-parser';
+import { parseOFX, calcularHashSHA256, detectarSaldoOFX } from '@/lib/ofx-parser';
+
+// SPEC SONDA-SALDO (diagnóstico, TEMPORÁRIO): registra se o OFX de conciliação traz saldo.
+// Vire false (ou remova) após o veredito.
+const SONDA_SALDO_ATIVA = true;
 
 export interface EmpresaOption {
   id: string;
@@ -93,6 +97,27 @@ export default function UploadFaturaExtrato({ isOpen, onClose, onSuccess, empres
 
       // 3. Upload do arquivo no bucket
       const supabase = supabaseBrowser();
+
+      // SPEC SONDA-SALDO — olha se o OFX traz saldo de fechamento e registra (não bloqueia o upload).
+      // Sem descrição/nome/CPF: só presença das tags + valor cru da BALAMT/DTASOF. Provider 'ofx_conciliacao'.
+      if (SONDA_SALDO_ATIVA) {
+        try {
+          const sonda = detectarSaldoOFX(texto);
+          await supabase.rpc('fn_sonda_saldo_registrar', {
+            p_company_id: companyId,
+            p_provider: 'ofx_conciliacao',
+            p_retrato: {
+              sonda: 'saldo_ofx_v1',
+              origem: 'UploadFaturaExtrato',
+              tipo_lote: tipo,
+              ...sonda,
+              qtd_transacoes: resultado.movimentos.length,
+              capturado_em: new Date().toISOString(),
+            },
+          });
+        } catch { /* sonda de diagnóstico — nunca impede a importação */ }
+      }
+
       const path = `${companyId}/${Date.now()}-${arquivo.name}`;
       const { error: uploadErr } = await supabase.storage
         .from('conciliacao-arquivos')
