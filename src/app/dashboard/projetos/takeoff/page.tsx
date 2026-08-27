@@ -158,6 +158,8 @@ export default function TakeoffPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const plantaIdParam = searchParams?.get('planta_id') ?? null
+  // F2.7 · se o take-off veio de uma oportunidade, o orçamento criado é vinculado a ela.
+  const oportunidadeIdParam = searchParams?.get('oportunidade_id') ?? null
   const [orcamentos, setOrcamentos] = useState<Orc[]>([])
   const [orcId, setOrcId] = useState<string>('')
   const [servicos, setServicos] = useState<Servico[]>([])
@@ -530,7 +532,7 @@ export default function TakeoffPage() {
     setBusy(true); setErro(null); setMsg(null)
     try {
       const { data, error } = await supabase.rpc('fn_takeoff_criar_orcamento', {
-        p_company_id: companyId, p_planta_id: planta.id,
+        p_company_id: companyId, p_planta_id: planta.id, p_oportunidade_id: oportunidadeIdParam,
       })
       if (error) throw error
       const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; itens?: number } | null
@@ -539,7 +541,7 @@ export default function TakeoffPage() {
         return
       }
       setMsg(`Orçamento ${j.numero ?? ''} criado com ${j.itens ?? 0} item(ns). Abrindo…`)
-      router.push('/dashboard/orcamentos')
+      router.push(j.orcamento_id ? `/dashboard/orcamentos?id=${j.orcamento_id}` : '/dashboard/orcamentos')
     } catch (e) {
       setErro((e as Error).message || String(e))
     } finally {
@@ -582,6 +584,11 @@ export default function TakeoffPage() {
       </header>
 
       <section className="rounded-2xl bg-white p-4 border border-[#E7DECF] space-y-2">
+        {oportunidadeIdParam && (
+          <div className="text-[11px] rounded-lg px-3 py-1.5 mb-1" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, color: '#7A5A0F' }}>
+            🔗 Este take-off veio de uma oportunidade — o orçamento criado será vinculado a ela.
+          </div>
+        )}
         <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino</label>
         <select className={inp} value={orcId} onChange={(e) => {
           const v = e.target.value

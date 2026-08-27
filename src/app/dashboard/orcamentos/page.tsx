@@ -89,6 +89,11 @@ export default function OrcamentosPage(){
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
+  // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
+  const [filtroVinculo,setFiltroVinculo]=useState<'todos'|'sem_oport'>('todos');
+  const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
+  const [oportFiltroOrcIds,setOportFiltroOrcIds]=useState<string[]|null>(null);
+  const [oportFiltroAtivo,setOportFiltroAtivo]=useState(false);
   const [showForm,setShowForm]=useState(false);
   const [showNumeracao,setShowNumeracao]=useState(false);
   const [editing,setEditing]=useState<Orcamento|null>(null);
@@ -201,6 +206,27 @@ export default function OrcamentosPage(){
     if(o){ deepLinkAberto.current=true; void abrirEdicao(o); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[orcamentos]);
+
+  // F2.7 · linkagem oportunidade↔orçamento (erp_orcamentos não tem oportunidade_id; o vínculo mora na
+  // oportunidade). Carrega o conjunto de orçamentos vinculados + o recorte do ?oportunidades= da URL.
+  useEffect(()=>{
+    if(companyIds.length===0)return;
+    let alive=true;
+    void(async()=>{
+      const{data}=await supabase.from("erp_crm_oportunidade").select("id,orcamento_id").in("company_id",companyIds).is("deleted_at",null).not("orcamento_id","is",null);
+      if(!alive)return;
+      const rows=(data??[]) as {id:string;orcamento_id:string}[];
+      setLinkedOrcIds(new Set(rows.map(r=>r.orcamento_id)));
+      const param=typeof window!=='undefined'?new URLSearchParams(window.location.search).get('oportunidades'):null;
+      if(param){
+        const opIds=param.split(',').filter(Boolean);
+        setOportFiltroOrcIds(rows.filter(r=>opIds.includes(r.id)).map(r=>r.orcamento_id));
+        setOportFiltroAtivo(true);
+      } else { setOportFiltroOrcIds(null); setOportFiltroAtivo(false); }
+    })();
+    return()=>{alive=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(",")]);
 
   const abrirNovo=async()=>{
     if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}
@@ -547,14 +573,19 @@ export default function OrcamentosPage(){
       const b=busca.toLowerCase();
       r=r.filter(o=>(o.numero||'').toLowerCase().includes(b)||(o.cliente_nome||'').toLowerCase().includes(b)||(o.cliente_cnpj||'').includes(b.replace(/\D/g,'')));
     }
+    if(oportFiltroOrcIds!==null)r=r.filter(o=>oportFiltroOrcIds.includes(o.id)); // F2.7 · recorte por oportunidades da coluna
+    if(filtroVinculo==='sem_oport')r=r.filter(o=>!linkedOrcIds.has(o.id));       // F2.7 · só os sem oportunidade
     return r;
-  },[orcamentos,filtroStatus,busca]);
+  },[orcamentos,filtroStatus,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds]);
 
-  const kpiTotal=orcamentos.filter(o=>o.status!=='recusado'&&o.status!=='expirado').length;
+  // F2.7 · "Total ativos" deixa de contar rascunho: Ativos e Rascunhos separados (achado P2).
+  const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho'].includes(o.status)).length;
+  const kpiRascunhos=orcamentos.filter(o=>o.status==='rascunho').length;
+  const kpiBaseConversao=orcamentos.filter(o=>o.status!=='recusado'&&o.status!=='expirado').length;
   const kpiAprovados=orcamentos.filter(o=>o.status==='aprovado').length;
   const kpiPendentes=orcamentos.filter(o=>['enviado','visualizado'].includes(o.status)).length;
   const kpiValorPendente=orcamentos.filter(o=>['enviado','visualizado','rascunho'].includes(o.status)).reduce((s,o)=>s+Number(o.total||0),0);
-  const kpiTaxaConversao=kpiTotal>0?(kpiAprovados/kpiTotal)*100:0;
+  const kpiTaxaConversao=kpiBaseConversao>0?(kpiAprovados/kpiBaseConversao)*100:0;
 
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
@@ -589,10 +620,21 @@ export default function OrcamentosPage(){
 
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":msg.startsWith("❌")?R+"15":Y+"15",border:`1px solid ${msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
+      {/* F2.7 · aviso honesto quando o link da coluna trouxe um recorte (e pode estar vazio) */}
+      {oportFiltroAtivo && (
+        <div className="no-print" style={{background:GO+"12",border:`1px solid ${GO}55`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11.5,color:"#7A5A0F",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span>{(oportFiltroOrcIds?.length??0)===0
+            ? "Nenhuma oportunidade desta etapa tem orçamento vinculado ainda. Use “+ Gerar orçamento” no card do Kanban."
+            : `Mostrando só os orçamentos das oportunidades desta etapa (${oportFiltroOrcIds?.length}).`}</span>
+          <button onClick={()=>router.push('/dashboard/orcamentos')} style={{border:`1px solid ${GO}`,background:"#fff",color:"#7A5A0F",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Ver todos</button>
+        </div>
+      )}
+
       {/* KPIs */}
-      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:16}}>
         {[
-          {l:"Total Ativos",v:String(kpiTotal),c:B,icon:"📋"},
+          {l:"Ativos",v:String(kpiAtivos),c:B,icon:"📋"},
+          {l:"Rascunhos",v:String(kpiRascunhos),c:TXM,icon:"📝"},
           {l:"Aguardando",v:String(kpiPendentes),c:Y,icon:"⏳"},
           {l:"Aprovados",v:String(kpiAprovados),c:G,icon:"✅"},
           {l:"Conversão",v:`${kpiTaxaConversao.toFixed(1)}%`,c:kpiTaxaConversao>50?G:kpiTaxaConversao>30?Y:R,icon:"📊"},
@@ -616,6 +658,9 @@ export default function OrcamentosPage(){
           {Object.entries(STATUS_CFG).map(([k,cfg])=>(
             <button key={k} onClick={()=>setFiltroStatus(k)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroStatus===k?cfg.cor:BD}`,background:filtroStatus===k?cfg.cor+"12":"transparent",color:filtroStatus===k?cfg.cor:TXM,cursor:"pointer",fontWeight:filtroStatus===k?600:400}}>{cfg.icon} {cfg.label}</button>
           ))}
+          {/* F2.7 · filtrar os órfãos (sem oportunidade vinculada) */}
+          <button onClick={()=>setFiltroVinculo(v=>v==='sem_oport'?'todos':'sem_oport')} title="Orçamentos que não estão vinculados a nenhuma oportunidade"
+            style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroVinculo==='sem_oport'?GO:BD}`,background:filtroVinculo==='sem_oport'?GO+"12":"transparent",color:filtroVinculo==='sem_oport'?GO:TXM,cursor:"pointer",fontWeight:filtroVinculo==='sem_oport'?600:400}}>🔗 Sem oportunidade</button>
         </div>
       </div>
 
