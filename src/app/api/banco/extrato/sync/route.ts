@@ -192,6 +192,32 @@ export async function POST(req: NextRequest) {
           })
         } catch { /* sonda de diagnóstico — não bloqueia o fluxo */ }
       }
+
+      // FIN-R1 · promove a sonda: grava o saldo LIDO (resultado.saldoAtual) na conta.
+      // Só chega aqui se o adapter retornou (API respondeu) — erro de API não zera o saldo.
+      // saldoAtual vem como STRING com PONTO decimal ("26312.41"); parse direto (NÃO parseNumBR),
+      // e rejeita se não converter (RD-51: nunca gravar 0 por falha de parse).
+      let saldoStr: string | undefined
+      let camposSaldo: Record<string, unknown> | undefined
+      for (const r of retratosSonda) {
+        const c = (r?.campos_saldo_encontrados ?? undefined) as Record<string, unknown> | undefined
+        const s = c?.['resultado.saldoAtual']
+        if (typeof s === 'string' && s.trim().length > 0) { saldoStr = s.trim(); camposSaldo = c }
+      }
+      if (saldoStr !== undefined && cfg.banco_conta_id) {
+        const saldo = Number(saldoStr)
+        if (Number.isFinite(saldo)) {
+          try {
+            await supabaseAdmin.rpc('fn_banco_saldo_registrar', {
+              p_conta_id: cfg.banco_conta_id,
+              p_saldo: saldo,
+              p_origem: 'api_sicoob',
+              p_bruto: camposSaldo ?? null,
+              p_lido_em: new Date().toISOString(),
+            })
+          } catch { /* saldo lido não derruba o sync */ }
+        }
+      }
     }
 
     // 5) grava via fn_extrato_importar_sistema (idempotente)
