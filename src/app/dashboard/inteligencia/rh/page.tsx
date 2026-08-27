@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)', GREEN = '#166534', RED = '#A32D2D'
@@ -101,8 +102,16 @@ export default function RhHubPage() {
   async function salvarValoresParticipante(funcId: string) {
     if (!empresa) return
     // jsonb-patch: só os campos editados; '' → null (limpa o override → volta ao plano).
+    // FIX-RV-SALÁRIO: normaliza BR ("1.500,00" → 1500) com parseNumBR (RD-26/RD-52) antes de enviar —
+    // Number() quebrava com vírgula/ponto de milhar (NaN → null no jsonb, "salvava" vazio).
     const patch: Record<string, number | null> = {}
-    const put = (map: Record<string, string>, key: string) => { const v = map[funcId]; if (v !== undefined) patch[key] = v === '' ? null : Number(v) }
+    const put = (map: Record<string, string>, key: string) => {
+      const v = map[funcId]
+      if (v === undefined) return
+      if (v.trim() === '') { patch[key] = null; return } // limpa o override
+      const n = parseNumBR(v)
+      if (n != null) patch[key] = n                       // só envia se parseou (evita zerar por engano)
+    }
     put(salarioEdit, 'salario_base'); put(encargosEdit, 'encargos_pct'); put(diariaEdit, 'diaria_valor'); put(diariaTotalEdit, 'diaria_total_override')
     if (Object.keys(patch).length === 0) return
     setSavingValores(funcId); setRvAviso(null)
@@ -410,19 +419,19 @@ export default function RhHubPage() {
                           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
                             <label style={{ fontSize: 10.5, color: MUT }}>Salário base ✍<br />
                               <input inputMode="decimal" value={salarioEdit[r.funcionario_id] ?? (r.salario_base != null ? String(r.salario_base) : '')} disabled={compFechada}
-                                onChange={(e) => setSalarioEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                                onChange={(e) => setSalarioEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '') }))}
                                 style={{ width: 90, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} /></label>
                             <label style={{ fontSize: 10.5, color: MUT }}>% encargos ✍<br />
                               <input inputMode="decimal" value={encargosEdit[r.funcionario_id] ?? (r.encargos_pct != null ? String(r.encargos_pct) : '')} disabled={compFechada}
-                                onChange={(e) => setEncargosEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                                onChange={(e) => setEncargosEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '') }))}
                                 style={{ width: 70, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} /></label>
                             <label style={{ fontSize: 10.5, color: MUT }}>Diária R$/dia ✍<br />
                               <input inputMode="decimal" value={diariaEdit[r.funcionario_id] ?? (r.diaria_valor_dia != null ? String(r.diaria_valor_dia) : '')} disabled={compFechada}
-                                onChange={(e) => setDiariaEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                                onChange={(e) => setDiariaEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '') }))}
                                 style={{ width: 78, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} /></label>
                             <label style={{ fontSize: 10.5, color: MUT }}>Diária total (manual)<br />
                               <input inputMode="decimal" placeholder="auto" value={diariaTotalEdit[r.funcionario_id] ?? ''} disabled={compFechada}
-                                onChange={(e) => setDiariaTotalEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                                onChange={(e) => setDiariaTotalEdit((p) => ({ ...p, [r.funcionario_id]: e.target.value.replace(/[^\d.,]/g, '') }))}
                                 style={{ width: 84, border: `0.5px solid ${LINE}`, borderRadius: 5, padding: '4px 7px', fontSize: 12, color: ESP, background: compFechada ? '#F3ECE0' : '#fff' }} /></label>
                             {!compFechada && <button onClick={() => void salvarValoresParticipante(r.funcionario_id)} disabled={savingValores === r.funcionario_id} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 5, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{savingValores === r.funcionario_id ? '…' : 'ok'}</button>}
                           </div>
@@ -756,10 +765,12 @@ function AjusteModal({ empresa, competencia, funcionarioId, nome, onClose, onCha
 
   async function salvar() {
     if (!motivo.trim()) { setMsg('O motivo é obrigatório.'); return }
-    if (!(parseFloat(valor) > 0)) { setMsg('Informe um valor maior que zero.'); return }
+    // FIX-RV-SALÁRIO (mesma classe de bug): parseNumBR aceita "1.500,00"; parseFloat parava na vírgula (1.5).
+    const v = parseNumBR(valor)
+    if (!(v != null && v > 0)) { setMsg('Informe um valor maior que zero.'); return }
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_rh_rv_ajuste_salvar', {
-      p_company_id: empresa, p_funcionario_id: funcionarioId, p_competencia: competencia, p_tipo: tipo, p_valor: parseFloat(valor), p_motivo: motivo.trim() })
+      p_company_id: empresa, p_funcionario_id: funcionarioId, p_competencia: competencia, p_tipo: tipo, p_valor: v, p_motivo: motivo.trim() })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
     if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro === 'competencia_fechada' ? 'competência fechada.' : j?.erro === 'sem_permissao' ? 'só RH/sócio.' : (error?.message ?? j?.erro ?? 'falhou'))); return }
@@ -786,7 +797,7 @@ function AjusteModal({ empresa, competencia, funcionarioId, nome, onClose, onCha
             <select value={tipo} onChange={(e) => setTipo(e.target.value as 'adicional' | 'desconto')} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
               <option value="adicional">Adicional (+)</option><option value="desconto">Desconto (−)</option>
             </select>
-            <input inputMode="decimal" placeholder="valor R$" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+            <input inputMode="decimal" placeholder="valor R$" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
           </div>
           <input placeholder="motivo (obrigatório)" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} style={{ width: '100%', marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff', boxSizing: 'border-box' }} />
           <button onClick={() => void salvar()} disabled={busy} style={{ marginTop: 8, background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Lançar ajuste</button>
