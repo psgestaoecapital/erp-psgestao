@@ -587,6 +587,7 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
   const [participantes, setParticipantes] = useState<(Participante & { nome: string })[]>([])
   const [funcs, setFuncs] = useState<Func[]>([])
   const [selFunc, setSelFunc] = useState('')
+  const [buscaFunc, setBuscaFunc] = useState('')
   const [selPlano, setSelPlano] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -595,7 +596,9 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
     const [pl, pa, fu] = await Promise.all([
       supabase.from('rh_rv_plano').select('id, perfil, faixa, salario_base, diaria_valor, premio_util, valor_entrega, bonus_sem_infracao, he_min_dia, inss_pct, calcula_inss, entregas_meta, infracoes_zera').eq('company_id', empresa).eq('ativo', true).order('perfil'),
       supabase.from('rh_rv_participante').select('id, funcionario_id, plano_id, ativo').eq('company_id', empresa).eq('ativo', true),
-      supabase.from('compliance_funcionarios').select('id, nome_completo, cargo').eq('company_id', empresa).or('cargo.ilike.%motorista%,cargo.ilike.%ajudante%').order('nome_completo'),
+      // RV-TODOS-FUNCIONÁRIOS: lista TODOS os colaboradores da empresa (sem filtrar por cargo) — o RH
+      // decide quem entra. funcionario_id tem FK p/ compliance_funcionarios, então a fonte segue esta tabela.
+      supabase.from('compliance_funcionarios').select('id, nome_completo, cargo').eq('company_id', empresa).order('nome_completo'),
     ])
     const planosList = (pl.data as Plano[]) ?? []
     setPlanos(planosList)
@@ -647,6 +650,15 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
 
   const planoLabel = (id: string) => { const p = planos.find((x) => x.id === id); return p ? `${p.perfil}/${p.faixa}` : '—' }
 
+  // Opções do dropdown: TODOS os colaboradores, menos quem já é participante ativo (evita duplicar),
+  // com busca por nome/cargo (essencial com ~191 na lista). Sem filtro por função (RV-TODOS-FUNCIONÁRIOS).
+  const idsAtivos = new Set(participantes.map((p) => p.funcionario_id))
+  const funcsDisponiveis = funcs.filter((f) => {
+    if (idsAtivos.has(f.id)) return false
+    const q = buscaFunc.trim().toLowerCase()
+    return !q || (f.nome_completo ?? '').toLowerCase().includes(q) || (f.cargo ?? '').toLowerCase().includes(q)
+  })
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '30px 12px', zIndex: 60, overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 12, width: '100%', maxWidth: 560 }}>
@@ -685,9 +697,10 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
             <div style={{ fontSize: 12.5, color: RED }}>Nenhum plano visível (precisa de perfil RH/sócio para gerenciar o plano — LGPD).</div>
           ) : (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+              <input value={buscaFunc} onChange={(e) => setBuscaFunc(e.target.value)} placeholder="Buscar por nome/cargo…" style={{ minWidth: 150, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
               <select value={selFunc} onChange={(e) => setSelFunc(e.target.value)} style={{ flex: 1, minWidth: 180, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
-                <option value="">Funcionário (motorista/ajudante)…</option>
-                {funcs.map((f) => <option key={f.id} value={f.id}>{f.nome_completo} · {f.cargo}</option>)}
+                <option value="">Funcionário… ({funcsDisponiveis.length})</option>
+                {funcsDisponiveis.map((f) => <option key={f.id} value={f.id}>{f.nome_completo}{f.cargo ? ` · ${f.cargo}` : ''}</option>)}
               </select>
               <select value={selPlano} onChange={(e) => setSelPlano(e.target.value)} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
                 <option value="">Plano…</option>
