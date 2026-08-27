@@ -28,6 +28,19 @@ const ETAPAS_DESTINOS = [
 ]
 const labelEtapa = (v: string) => ETAPAS_DESTINOS.find((e) => e.v === v)?.l ?? v
 
+// F2.6 · semáforo 3/7 dias (mesmo padrão do Kanban P&M), autor e destino do link por etapa.
+const semColor = (s: string) => (s === 'verde' ? '#1F5A1F' : s === 'amarelo' ? '#B45309' : '#B91C1C')
+const ACAO_LBL: Record<string, string> = { etapa_mudou: 'moveu', criada: 'criou', ganha: 'ganhou', perdida: 'perdeu', retornou_funil: 'retornou' }
+const fmtDiaMes = (iso: string | null) => { if (!iso) return ''; const d = new Date(iso); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}` }
+function linkDaEtapa(etapa: string): { href: string; tip: string } | null {
+  if (etapa === 'orcando' || etapa === 'proposta_enviada') return { href: '/dashboard/orcamentos', tip: 'Ver orçamentos desta empresa' }
+  if (etapa === 'visita_agendada' || etapa === 'visita_feita') return { href: '/dashboard/projetos/visitas?area=hub', tip: 'Ver visitas desta empresa' }
+  if (etapa === 'ganho') return { href: '/dashboard/projetos/obras?area=hub', tip: 'Ver obras desta empresa' }
+  return null
+}
+type TempoRow = { oportunidade_id: string; dias_na_etapa: number; origem: string; semaforo: string }
+type QuemRow = { oportunidade_id: string; autor_nome: string; acao: string; quando: string }
+
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
 const DOURADO  = '#C8941A'
@@ -96,6 +109,9 @@ export default function OportunidadesKanban({
   // FIX (Angélica): clicar em Ganhas/Perdidas → lista das fechadas (cliente + orçamento).
   const [fechadas, setFechadas] = useState<null | { etapa: 'ganho' | 'perdido'; loading: boolean; itens: Fechada[] }>(null)
   const [nomesCliente, setNomesCliente] = useState<Record<string, string>>({})
+  // F2.6 · tempo na etapa (semáforo) e quem moveu por último, por oportunidade_id.
+  const [tempoMap, setTempoMap] = useState<Record<string, TempoRow>>({})
+  const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
 
   async function abrirFechadas(etapa: 'ganho' | 'perdido') {
     setFechadas({ etapa, loading: true, itens: [] })
@@ -127,15 +143,24 @@ export default function OportunidadesKanban({
 
   async function carregar() {
     setLoading(true)
-    const [p, gp] = await Promise.all([
+    const [p, gp, tempo, quem] = await Promise.all([
       supabase.rpc('fn_crm_pipeline', { p_company_id: companyId }),
       supabase
         .from('erp_crm_oportunidade')
         .select('etapa, valor_estimado')
         .eq('company_id', companyId)
         .in('etapa', ['ganho', 'perdido']),
+      supabase.rpc('fn_crm_tempo_etapa', { p_company_id: companyId }),
+      supabase.rpc('fn_crm_quem_moveu', { p_company_id: companyId }),
     ])
     setPipe((p.data ?? { etapas: [] }) as Pipeline)
+    // F2.6 · monta os mapas (se a RPC ainda não deployou, fica vazio — não quebra o board).
+    const tm: Record<string, TempoRow> = {}
+    for (const r of ((tempo.data ?? []) as TempoRow[])) tm[r.oportunidade_id] = r
+    setTempoMap(tm)
+    const qm: Record<string, QuemRow> = {}
+    for (const r of ((quem.data ?? []) as QuemRow[])) qm[r.oportunidade_id] = r
+    setQuemMap(qm)
     const rows = (gp.data ?? []) as Array<{ etapa: string; valor_estimado: number | null }>
     const g = rows.filter((r) => r.etapa === 'ganho')
     const pd = rows.filter((r) => r.etapa === 'perdido')
@@ -284,7 +309,14 @@ export default function OportunidadesKanban({
               >
                 <div style={colHead}>
                   <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
-                  <span style={{ fontSize: 11, color: TEXTM }}>{tot.qtd}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {linkDaEtapa(et.v) && (
+                      <button type="button" onClick={() => router.push(linkDaEtapa(et.v)!.href)} title={linkDaEtapa(et.v)!.tip}
+                        aria-label={linkDaEtapa(et.v)!.tip}
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, color: DOURADO }}>🔗</button>
+                    )}
+                    <span style={{ fontSize: 11, color: TEXTM }}>{tot.qtd}</span>
+                  </div>
                 </div>
                 <div style={colSubHead}>
                   <span>{brl(tot.valor)}</span>
@@ -324,6 +356,19 @@ export default function OportunidadesKanban({
                       {nomeResp(c.responsavel_id) && (
                         <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span aria-hidden>👤</span>{nomeResp(c.responsavel_id)}
+                        </div>
+                      )}
+                      {/* F2.6 · quem moveu por último (autor · ação · data) */}
+                      {quemMap[c.id] && (
+                        <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>
+                          <span aria-hidden>👤</span> {quemMap[c.id].autor_nome} · {ACAO_LBL[quemMap[c.id].acao] ?? quemMap[c.id].acao} em {fmtDiaMes(quemMap[c.id].quando)}
+                        </div>
+                      )}
+                      {/* F2.6 · tempo parado na etapa com semáforo (RD-51: "desde a criação" quando não há histórico) */}
+                      {tempoMap[c.id] && (
+                        <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: semColor(tempoMap[c.id].semaforo), display: 'inline-block', flexShrink: 0 }} aria-hidden />
+                          ⏱️ {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
                         </div>
                       )}
                       {/* Fallback touch: select de etapa */}
