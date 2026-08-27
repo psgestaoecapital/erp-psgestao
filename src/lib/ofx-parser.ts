@@ -184,6 +184,37 @@ export function parseOFX(texto: string): ResultadoParseOFX {
   };
 }
 
+// SPEC SONDA-SALDO (diagnóstico, temporário): detecta se o OFX traz saldo de fechamento.
+// NÃO altera parseOFX nem seu retorno. Só olha. Registra o VALOR CRU da <BALAMT>/<DTASOF>
+// (o saldo e sua data — não é dado de terceiro) e a presença das tags. Nada de descrição/nome/CPF.
+export interface SondaSaldoOFX {
+  ledgerbal_presente: boolean;   // <LEDGERBAL> (saldo contábil de fechamento)
+  availbal_presente: boolean;    // <AVAILBAL> (saldo disponível)
+  balamt_bruto: string | null;   // <BALAMT> dentro de <LEDGERBAL>, cru (pode vir com vírgula/sinal)
+  dtasof_bruto: string | null;   // <DTASOF> dentro de <LEDGERBAL>, cru (data do saldo)
+  availbal_balamt_bruto: string | null; // <BALAMT> dentro de <AVAILBAL>, cru
+  tags_detectadas: string[];     // quais das tags de saldo apareceram no arquivo
+}
+
+export function detectarSaldoOFX(texto: string): SondaSaldoOFX {
+  const temTag = (t: string): boolean => new RegExp(`<${t}[\\s>]`, 'i').test(texto);
+  const pegarEm = (bloco: string, t: string): string | null => {
+    const m = bloco.match(new RegExp(`<${t}>([^<\\n\\r]+)`, 'i'));
+    return m ? m[1].trim() : null;
+  };
+  const ledger = texto.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i)?.[1] ?? '';
+  const avail = texto.match(/<AVAILBAL>([\s\S]*?)<\/AVAILBAL>/i)?.[1] ?? '';
+  const tags = ['LEDGERBAL', 'BALAMT', 'DTASOF', 'AVAILBAL'].filter(temTag);
+  return {
+    ledgerbal_presente: temTag('LEDGERBAL'),
+    availbal_presente: temTag('AVAILBAL'),
+    balamt_bruto: pegarEm(ledger, 'BALAMT'),
+    dtasof_bruto: pegarEm(ledger, 'DTASOF'),
+    availbal_balamt_bruto: pegarEm(avail, 'BALAMT'),
+    tags_detectadas: tags,
+  };
+}
+
 /**
  * Calcula hash SHA-256 de um File (para deduplicacao no backend).
  * Funciona apenas no browser (usa crypto.subtle).

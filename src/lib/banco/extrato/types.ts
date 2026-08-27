@@ -33,6 +33,19 @@ export type ExtratoJanela = {
   end: string                 // YYYY-MM-DD
 }
 
+// SPEC SONDA-SALDO (diagnóstico, temporário): o adapter pode entregar um "retrato"
+// dos campos de saldo da resposta bruta do banco, SEM devolvê-los no fluxo normal
+// (não altera MovimentoExtrato). O call-site (rota) decide se registra. RD-38.
+export type SondaSaldoSink = (retrato: Record<string, unknown>) => void
+
+export type ExtratoAdapterOpts = {
+  onRetratoSaldo?: SondaSaldoSink
+}
+
 export interface ExtratoAdapter {
-  listarMovimentos(cred: ExtratoCredencial, janela: ExtratoJanela): Promise<MovimentoExtrato[]>
+  listarMovimentos(
+    cred: ExtratoCredencial,
+    janela: ExtratoJanela,
+    opts?: ExtratoAdapterOpts,
+  ): Promise<MovimentoExtrato[]>
 }
