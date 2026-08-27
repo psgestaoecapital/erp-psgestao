@@ -97,6 +97,22 @@ export default function EngenhariaPage() {
     await recarregarAmbientes(p.id)
   }
 
+  // Sugere o serviço de cada ambiente sem serviço, por palavra-chave da empresa (IA sugere, humano confirma).
+  const sugerir = async () => {
+    if (!companyId || !planta) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_sugerir_servicos', { p_company_id: companyId, p_planta_id: planta.id })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string; sugeridos?: number } | null
+      if (!j?.ok) { setErro(j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (j?.erro ?? 'Falha ao sugerir serviços.')); return }
+      await recarregarAmbientes(planta.id)
+      setMsg((j.sugeridos ?? 0) > 0
+        ? `${j.sugeridos} ambiente(s) receberam serviço sugerido — a base de cálculo foi ajustada pela unidade. Confira e confirme (a IA sugere, você confirma).`
+        : 'Nenhuma sugestão encontrada. Cadastre palavras-chave dos serviços no Catálogo (ex.: "sala" → Forro).')
+    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+  }
+
   // Passo 1 · novo take-off manual (sem DWG). fn_takeoff_planta_salvar aceita arquivo 'manual'.
   const novoTakeoff = async () => {
     if (!companyId) return
@@ -126,6 +142,12 @@ export default function EngenhariaPage() {
       p_nome: next.nome, p_area_m2: next.area_m2, p_perimetro_ml: next.perimetro_ml, p_pe_direito_m: next.pe_direito_m,
       p_servico_id: next.servico_id, p_base_calculo: next.base_calculo, p_confirmado: next.confirmado,
     })
+    // Ao trocar o serviço, o trigger ajusta a base pela unidade — reflete o valor REAL do banco (RD-51).
+    if ('servico_id' in patch) {
+      const { data } = await supabase.from('erp_obra_planta_ambiente').select('base_calculo').eq('id', a.id).single()
+      const base = (data as { base_calculo?: BaseCalc } | null)?.base_calculo
+      if (base) setAmbientes((prev) => prev.map((x) => (x.id === a.id ? { ...x, base_calculo: base } : x)))
+    }
   }
 
   const adicionarAmbiente = async (form: { nome: string; area_m2: string; largura_m: string; comprimento_m: string; perimetro_ml: string; pe_direito_m: string }) => {
@@ -205,6 +227,7 @@ export default function EngenhariaPage() {
         </div>
         <h1 className="text-2xl sm:text-3xl mt-1 text-[#3D2314]" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Take-off por ambiente</h1>
         <p className="text-sm mt-1" style={{ color: ESP60 }}>Defina ambientes, áreas e serviços → o sistema gera a lista de materiais (BOM) e as horas de mão de obra automaticamente.</p>
+        <p className="text-xs mt-1" style={{ color: ESP60 }}>Passo 2 do fluxo de obra · vem depois do <a href="/dashboard/projetos/takeoff" className="underline" style={{ color: GOLD }}>Take-off por IA</a> (upload de planta). Mesmo motor, entrada diferente.</p>
       </header>
 
       {/* Passo 1 · take-off + orçamento de destino */}
@@ -238,11 +261,16 @@ export default function EngenhariaPage() {
       {/* Passo 2 · ambientes */}
       {planta && (
         <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
-          <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF]">
+          <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF] flex-wrap">
             <span className="text-sm font-semibold text-[#3D2314]">{planta.nome} · Ambientes ({ambientes.length})</span>
-            <button onClick={() => setAddAberto(true)} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}>
-              <Plus size={13} /> Ambiente
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={sugerir} disabled={busy || ambientes.length === 0} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: GOLD, opacity: (busy || ambientes.length === 0) ? 0.5 : 1 }} title="Sugere o serviço de cada ambiente por palavra-chave (você confirma depois)">
+                <Sparkles size={13} /> Sugerir serviços
+              </button>
+              <button onClick={() => setAddAberto(true)} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}>
+                <Plus size={13} /> Ambiente
+              </button>
+            </div>
           </div>
           {ambientes.length === 0 ? (
             <div className="p-6 text-center text-sm" style={{ color: ESP60 }}>Nenhum ambiente ainda. Clique em <b>+ Ambiente</b> para começar.</div>
