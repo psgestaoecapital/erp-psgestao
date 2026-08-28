@@ -37,6 +37,14 @@ type Item = {
   alternativas?: Alternativa[]
 }
 
+// NFE-F0/F1/F2 · colunas derivadas/conferência do item
+type ItemExtra = {
+  cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null
+  quantidade_recebida: number | null; divergencia_motivo: string | null; gera_financeiro: boolean; unidade: string | null
+}
+const EXTRA0: ItemExtra = { cfop_entrada: null, categoria_codigo: null, custo_unitario_real: null, quantidade_recebida: null, divergencia_motivo: null, gera_financeiro: true, unidade: null }
+const MOTIVOS = ['faltou', 'avaria', 'sobra', 'recusado']
+
 // linguagem humana (RD inviolável): nunca "de-para", "match", "trigram"
 const CRITERIO_LABEL: Record<string, string> = {
   depara: 'já aprendido deste fornecedor',
@@ -98,12 +106,15 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   // #11b · ações da nota (entrada de estoque / enviar pro financeiro / concluir) + feedback
   const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | 'concluir' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-  // NFE-F0 · E0 · CFOP de entrada + categoria por item (derivados no servidor); E4 · navegação item a item
-  // NFE-F1 · E5 · custo real por item + memória de cálculo (fn_nfe_item_custo_real)
-  const [extras, setExtras] = useState<Record<string, { cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null }>>({})
+  // NFE-F0 · E0 · CFOP de entrada + categoria por item; E4 · navegação item a item
+  // NFE-F1 · E5 · custo real; NFE-F2 · E1/E2/E6 · recebido, motivo, fator, gera_financeiro
+  const [extras, setExtras] = useState<Record<string, ItemExtra>>({})
   const [memoria, setMemoria] = useState<Record<string, { natureza?: string; aviso?: string | null; memoria?: Record<string, unknown> } | null>>({})
   const [idxAtual, setIdxAtual] = useState(0)
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  // NFE-F2 · dados da nota p/ conferência (fornecedor p/ o fator, transp) + parcelas
+  const [notaInfo, setNotaInfo] = useState<{ emitente_cnpj: string | null; valor_total: number | null; lancado_pagar: boolean | null } | null>(null)
+  const [parcelas, setParcelas] = useState<{ id: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id: string | null }[]>([])
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -116,15 +127,20 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const r = data as SugerirResp | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao sugerir'); setItens([]); return }
     setItens(r.itens ?? [])
-    // E0 · CFOP de entrada + categoria; F1 · custo real (colunas preenchidas pelo trigger/backfill)
+    // colunas do item (F0 cfop/categoria · F1 custo real · F2 recebido/motivo/fator/gera_financeiro)
     const { data: ex } = await supabase.from('erp_nfe_recebidas_itens')
-      .select('id, cfop_entrada, categoria_codigo, custo_unitario_real').eq('nfe_recebida_id', nfeId)
-    const m: Record<string, { cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null }> = {}
-    for (const row of (ex ?? []) as { id: string; cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null }[]) {
-      m[row.id] = { cfop_entrada: row.cfop_entrada, categoria_codigo: row.categoria_codigo, custo_unitario_real: row.custo_unitario_real }
+      .select('id, cfop_entrada, categoria_codigo, custo_unitario_real, quantidade_recebida, divergencia_motivo, gera_financeiro, unidade').eq('nfe_recebida_id', nfeId)
+    const m: Record<string, ItemExtra> = {}
+    for (const row of (ex ?? []) as (ItemExtra & { id: string })[]) {
+      m[row.id] = { cfop_entrada: row.cfop_entrada, categoria_codigo: row.categoria_codigo, custo_unitario_real: row.custo_unitario_real, quantidade_recebida: row.quantidade_recebida, divergencia_motivo: row.divergencia_motivo, gera_financeiro: row.gera_financeiro ?? true, unidade: row.unidade }
     }
     setExtras(m)
-  }, [nfeId])
+    // NFE-F2 · nota (fornecedor p/ fator, valor p/ parcelas) + parcelas do XML
+    const { data: n } = await supabase.from('erp_nfe_recebidas').select('emitente_cnpj, valor_total, lancado_pagar, transportadora, frete_modalidade, peso_bruto').eq('id', nfeId).maybeSingle()
+    setNotaInfo(n ? { emitente_cnpj: (n as { emitente_cnpj: string | null }).emitente_cnpj, valor_total: (n as { valor_total: number | null }).valor_total, lancado_pagar: (n as { lancado_pagar: boolean | null }).lancado_pagar } : null)
+    const { data: dups } = await supabase.from('erp_nfe_recebidas_duplicatas').select('id, numero_dup, data_vencimento, valor, pagar_id').eq('nfe_recebida_id', nfeId).order('numero_dup')
+    setParcelas((dups ?? []) as typeof parcelas)
+  }, [nfeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // F1 · E5 · calcula o custo real do item (server) e mostra a memória de cálculo
   async function verMemoria(itemId: string) {
@@ -132,7 +148,31 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const r = data as { ok?: boolean; natureza?: string; aviso?: string | null; custo_unitario_real?: number | null; memoria?: Record<string, unknown> } | null
     if (!r?.ok) { setMsg('Não consegui calcular o custo real deste item.'); return }
     setMemoria((mm) => ({ ...mm, [itemId]: { natureza: r.natureza, aviso: r.aviso, memoria: r.memoria } }))
-    setExtras((ex) => ({ ...ex, [itemId]: { ...(ex[itemId] ?? { cfop_entrada: null, categoria_codigo: null }), custo_unitario_real: r.custo_unitario_real ?? null } }))
+    setExtras((ex) => ({ ...ex, [itemId]: { ...(ex[itemId] ?? EXTRA0), custo_unitario_real: r.custo_unitario_real ?? null } }))
+  }
+
+  // NFE-F2 · E1/E6 · conferir item (recebido + motivo + gera_financeiro)
+  async function conferir(itemId: string, patch: { qtd?: number; motivo?: string | null; gera?: boolean }) {
+    const { data } = await supabase.rpc('fn_nfe_item_conferir', { p_item_id: itemId, p_qtd_recebida: patch.qtd ?? null, p_motivo: patch.motivo ?? null, p_gera_financeiro: patch.gera ?? null })
+    const r = data as { ok?: boolean; erro?: string; recebido?: number } | null
+    if (!r?.ok) { setMsg(r?.erro === 'motivo_obrigatorio' ? 'Quantidade diferente da nota — escolha o motivo (faltou/avaria/sobra/recusado).' : 'Não consegui salvar a conferência.'); return }
+    await carregar()
+  }
+  // NFE-F2 · E2 · fator de conversão (CX→UN) no de-para (pergunta uma vez, vale sempre)
+  async function salvarFator(itemId: string, produtoId: string | null, unidadeFornecedor: string | null, fator: number) {
+    if (!produtoId) { setMsg('Vincule o produto antes de definir o fator.'); return }
+    const { data } = await supabase.rpc('fn_nfe_depara_fator_set', { p_company_id: companyId, p_fornecedor_cnpj: notaInfo?.emitente_cnpj ?? null, p_produto_id: produtoId, p_codigo_fornecedor: null, p_unidade_fornecedor: unidadeFornecedor, p_fator: fator })
+    const r = data as { ok?: boolean } | null
+    if (!r?.ok) { setMsg('Não consegui salvar o fator.'); return }
+    setMsg(`Fator salvo: 1 ${unidadeFornecedor ?? 'emb.'} = ${fator} un. Vale sempre para este item deste fornecedor.`)
+    await carregar()
+  }
+  // NFE-F2 · E3 · refazer parcelas (N × a partir de uma data)
+  async function refazerParcelas(num: number, primeiroVenc: string) {
+    const { data } = await supabase.rpc('fn_nfe_duplicatas_refazer', { p_nfe_id: nfeId, p_num_parcelas: num, p_primeiro_venc: primeiroVenc || null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setMsg(r?.erro === 'ja_lancado' ? 'Nota já lançada — edite na tela de Contas a Pagar.' : 'Não consegui refazer as parcelas.'); return }
+    setMsg(`Parcelas refeitas em ${num}×.`); await carregar()
   }
 
   // E4 · navega até o item N e o destaca (nota com 40 itens fica viável)
@@ -386,6 +426,41 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
                   </div>
                 )
               })()}
+              {/* NFE-F2 · E1/E2/E6 · conferência: recebido, motivo, fator, gera financeiro */}
+              {(() => {
+                const ex = extras[it.item_id] ?? EXTRA0
+                const rec = ex.quantidade_recebida ?? it.quantidade
+                const div = Number(rec) !== Number(it.quantidade)
+                return (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-[#3D2314]/70">
+                    <span className="flex items-center gap-1">recebido
+                      <input type="number" step="any" defaultValue={rec}
+                        onBlur={(e) => { const q = Number(e.target.value); if (q !== Number(rec)) void conferir(it.item_id, { qtd: q, motivo: div ? ex.divergencia_motivo : null }) }}
+                        className="w-16 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
+                      <span className="text-[#3D2314]/45">de {Number(it.quantidade).toLocaleString('pt-BR')}</span>
+                    </span>
+                    {div && (
+                      <span className="flex items-center gap-1 text-[#BA7517] font-medium">⚠️ divergência
+                        <select defaultValue={ex.divergencia_motivo ?? ''} onChange={(e) => void conferir(it.item_id, { qtd: rec, motivo: e.target.value })}
+                          className="border border-[#BA7517]/40 rounded px-1 py-0.5 text-[10.5px] text-[#3D2314]">
+                          <option value="">motivo…</option>
+                          {MOTIVOS.map((mo) => <option key={mo} value={mo}>{mo}</option>)}
+                        </select>
+                      </span>
+                    )}
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro
+                    </label>
+                    {/* E2 · fator de conversão (CX→UN) — pergunta uma vez, vale sempre */}
+                    <span className="flex items-center gap-1">fator ×
+                      <input type="number" step="any" min="0.000001" defaultValue={1} title="Quantas unidades do seu produto vêm em 1 unidade da nota (ex.: 1 CX = 12 UN → 12)"
+                        onBlur={(e) => { const f = Number(e.target.value); if (f > 0 && f !== 1) void salvarFator(it.item_id, it.produto_id, ex.unidade, f) }}
+                        className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
+                      {ex.custo_unitario_real != null && <span className="text-[#3D2314]/45">custo/un divide pelo fator</span>}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
@@ -578,6 +653,20 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
         </div>
       ))}
 
+      {/* NFE-F2 · E3 · parcelas (duplicatas do XML) — editar/refazer antes de gerar; a soma tem que bater */}
+      {!notaInfo?.lancado_pagar && (
+        <ParcelasBlock parcelas={parcelas} valorNota={notaInfo?.valor_total ?? null}
+          onRefazer={(n, venc) => void refazerParcelas(n, venc)}
+          onSalvar={async (lista) => {
+            const soma = lista.reduce((s, p) => s + (Number(p.valor) || 0), 0)
+            if (Math.abs(soma - (notaInfo?.valor_total ?? 0)) > 0.02) { setMsg(`As parcelas somam R$ ${soma.toLocaleString('pt-BR',{minimumFractionDigits:2})} — precisa bater com o valor da nota.`); return }
+            const { data } = await supabase.rpc('fn_nfe_duplicatas_editar', { p_nfe_id: nfeId, p_parcelas: lista.map((p, i) => ({ numero: String(i + 1), vencimento: p.data_vencimento, valor: p.valor })) })
+            const r = data as { ok?: boolean; erro?: string } | null
+            if (!r?.ok) { setMsg(r?.erro === 'soma_nao_bate' ? 'A soma das parcelas não bate com o valor da nota.' : 'Não consegui salvar as parcelas.'); return }
+            setMsg('Parcelas salvas.'); await carregar()
+          }} />
+      )}
+
       {/* #11b · ações da nota: entrada de estoque e/ou financeiro (independentes, decisão do operador) */}
       {msg && (
         <div className="text-[11.5px] px-3 py-2 rounded-md bg-[#E8F4DC] text-[#1B3608] border border-[#3F7012]/20">
@@ -617,6 +706,50 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
 
       {/* NFE-F0 · E3 · anexos na nota (boleto, comprovante, foto) — reusa o <AnexosCard> (vínculo 'nfe') */}
       <AnexosCard companyId={companyId} vinculoTipo="nfe" vinculoId={nfeId} />
+    </div>
+  )
+}
+
+// NFE-F2 · E3 · bloco de parcelas (duplicatas): editar valor/vencimento, adicionar/remover, refazer N×.
+// A soma tem que bater com o valor da nota — o botão salvar avisa/bloqueia se não bater.
+type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null }
+function ParcelasBlock({ parcelas, valorNota, onRefazer, onSalvar }: {
+  parcelas: Parcela[]; valorNota: number | null
+  onRefazer: (num: number, primeiroVenc: string) => void
+  onSalvar: (lista: Parcela[]) => void | Promise<void>
+}) {
+  const [lista, setLista] = useState<Parcela[]>(parcelas)
+  const [num, setNum] = useState('1')
+  const [primeiro, setPrimeiro] = useState('')
+  useEffect(() => { setLista(parcelas) }, [parcelas]) // eslint-disable-line react-hooks/set-state-in-effect
+  const soma = lista.reduce((s, p) => s + (Number(p.valor) || 0), 0)
+  const bate = Math.abs(soma - (valorNota ?? 0)) <= 0.02
+  const brl = (n: number) => 'R$ ' + Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+  function patch(i: number, p: Partial<Parcela>) { setLista((a) => a.map((x, idx) => (idx === i ? { ...x, ...p } : x))) }
+  return (
+    <div className="mt-3 rounded-lg border border-[#3D2314]/12 p-3 bg-white">
+      <div className="text-[12px] font-medium text-[#3D2314] mb-2">🧾 Parcelas do financeiro <span className="text-[10.5px] text-[#3D2314]/55 font-normal">(edite antes de gerar; a soma tem que bater com a nota)</span></div>
+      <div className="flex flex-wrap items-end gap-2 mb-2 text-[11px] text-[#3D2314]/70">
+        <span className="flex items-center gap-1">refazer <input type="number" min="1" value={num} onChange={(e) => setNum(e.target.value)} className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5" />×</span>
+        <span className="flex items-center gap-1">1º venc <input type="date" value={primeiro} onChange={(e) => setPrimeiro(e.target.value)} className="border border-[#3D2314]/15 rounded px-1 py-0.5" /></span>
+        <button type="button" onClick={() => onRefazer(Math.max(1, Number(num) || 1), primeiro)} className="px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium text-[11px]">Refazer</button>
+      </div>
+      <div className="space-y-1">
+        {lista.map((p, i) => (
+          <div key={p.id ?? i} className="flex items-center gap-2 text-[11px]">
+            <span className="text-[#3D2314]/45 w-5">{i + 1}</span>
+            <input type="date" value={p.data_vencimento ?? ''} onChange={(e) => patch(i, { data_vencimento: e.target.value })} className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
+            <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
+            <button type="button" onClick={() => setLista((a) => a.filter((_, idx) => idx !== i))} className="text-[#A32D2D] hover:underline">remover</button>
+          </div>
+        ))}
+        {lista.length === 0 && <div className="text-[11px] text-[#3D2314]/50">Sem parcelas — refaça acima ou adicione.</div>}
+      </div>
+      <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
+        <button type="button" onClick={() => setLista((a) => [...a, { numero_dup: null, data_vencimento: null, valor: null }])} className="text-[11px] text-[#3F7012] font-medium hover:underline">+ adicionar parcela</button>
+        <span className={'text-[11px] font-medium ' + (bate ? 'text-[#3F7012]' : 'text-[#A32D2D]')}>soma {brl(soma)} {bate ? '= nota ✅' : `≠ nota ${brl(valorNota ?? 0)}`}</span>
+        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista)} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
+      </div>
     </div>
   )
 }
