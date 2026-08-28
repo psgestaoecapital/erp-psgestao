@@ -34,7 +34,7 @@ function maskCNPJ(v: string): string {
 }
 
 export default function ConfigEmpresaPage() {
-  const { companyIds } = useCompanyIds()
+  const { companyIds, sel: selGlobal } = useCompanyIds()
   const [comps, setComps] = useState<Dados[]>([])
   const [sel, setSel] = useState<string>('')
   const [form, setForm] = useState<Form>(FORM_VAZIO)
@@ -47,10 +47,19 @@ export default function ConfigEmpresaPage() {
     const results = await Promise.all(companyIds.map((id) => supabase.rpc('fn_empresa_obter_dados', { p_company_id: id })))
     const list = results.map((r) => r.data as (Dados & { sucesso?: boolean }) | null).filter((d): d is Dados & { sucesso: boolean } => !!d && d.sucesso === true)
     setComps(list)
-    setSel((s) => s || list[0]?.id || '')
   }, [companyIds])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // FIX-LOGO-SELETOR · a empresa editada é SEMPRE a do seletor global (ps_empresa_sel).
+  // Sem isso o form abria na 1ª empresa da lista e ignorava o topo — dava pra ver/subir logo na
+  // empresa errada. Consolidado/grupo (empresa do topo não está na lista): usa o dropdown interno.
+  useEffect(() => {
+    if (!comps.length) return
+    const doTopo = comps.some((c) => c.id === selGlobal) ? selGlobal : null
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSel((s) => doTopo ?? (comps.some((c) => c.id === s) ? s : comps[0].id))
+  }, [comps, selGlobal])
 
   // popula o form quando muda a empresa selecionada / recarrega
   useEffect(() => {
@@ -97,7 +106,9 @@ export default function ConfigEmpresaPage() {
     setBusy(true); setMsg('')
     try {
       const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
-      const path = `${sel}/logo_${Date.now()}.${ext}`
+      // Caminho: {company_id}/logo.{ext} — a policy company_assets_write exige foldername[1]=company_id;
+      // nome estável (substitui, não acumula versão). upsert:true troca o arquivo no lugar.
+      const path = `${sel}/logo.${ext}`
       const up = await supabase.storage.from('company-assets').upload(path, file, { upsert: true, contentType: file.type })
       if (up.error) throw up.error
       const pub = supabase.storage.from('company-assets').getPublicUrl(path)
@@ -122,10 +133,19 @@ export default function ConfigEmpresaPage() {
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 18px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Configurações</div>
-        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 14px' }}>Dados da Empresa</h1>
+        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 10px' }}>Dados da Empresa</h1>
+
+        {/* Deixa explícito QUAL empresa está sendo editada (segue o seletor do topo) */}
+        {emp && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: ESP, background: '#FFF8E7', border: `0.5px solid ${GOLD}`, borderRadius: 999, padding: '4px 12px', marginBottom: 12 }}>
+            <span style={{ color: MUT }}>Editando:</span>
+            <strong style={{ fontWeight: 700 }}>{emp.nome_fantasia || emp.razao_social || '—'}</strong>
+            {emp.cnpj && <span style={{ color: MUT }}>· {maskCNPJ(emp.cnpj)}</span>}
+          </div>
+        )}
 
         {comps.length > 1 && (
-          <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...inp, marginBottom: 12, maxWidth: 340 }}>
+          <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...inp, marginBottom: 12, maxWidth: 340, display: 'block' }}>
             {comps.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia || c.razao_social}</option>)}
           </select>
         )}
