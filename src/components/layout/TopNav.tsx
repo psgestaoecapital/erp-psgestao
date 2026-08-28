@@ -5,14 +5,28 @@ import Link from 'next/link'
 import { Bell, LogOut } from 'lucide-react'
 import MobileDrawer from './MobileDrawer'
 import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
 
 interface UserResumo {
   email: string
   iniciais: string
 }
 
+// BRAND-1 · iniciais da empresa quando ela não tem logo (nunca espaço vazio nem imagem quebrada)
+function iniciaisDe(nome: string): string {
+  const partes = nome.split(/\s+/).filter(Boolean)
+  const ini = partes.slice(0, 2).map((p) => p[0]).join('')
+  return (ini || nome[0] || '').toUpperCase()
+}
+
 export default function TopNav() {
   const [user, setUser] = useState<UserResumo | null>(null)
+  // BRAND-1 · logo da EMPRESA SELECIONADA no topo (troca junto com o seletor). Multi-empresa: cada
+  // empresa mostra o seu; consolidado/grupo não mostra logo de empresa (não é de uma só).
+  const { selInfo, sel, companies } = useCompanyIds()
+  const empresaRow = selInfo.tipo === 'empresa' ? companies.find((c) => c.id === sel) : null
+  const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : ''
+  const empresaLogo: string | null = (empresaRow?.logo_url as string | undefined) || null
   const [temNotificacao, setTemNotificacao] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -68,6 +82,19 @@ export default function TopNav() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* BRAND-1 · logo/iniciais da empresa selecionada, à esquerda do sino */}
+        {selInfo.tipo === 'empresa' && (
+          <div className="flex items-center pr-1 sm:pr-2 sm:border-r sm:border-[#3D2314]/10" title={empresaNome} data-testid="topnav-empresa-logo">
+            {empresaLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={empresaLogo} alt={empresaNome} className="h-6 sm:h-8 w-auto max-w-[92px] sm:max-w-[128px] object-contain" />
+            ) : (
+              <span className="w-8 h-8 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[12px] flex items-center justify-center ring-[1.5px] ring-[#3D2314]/15">
+                {iniciaisDe(empresaNome)}
+              </span>
+            )}
+          </div>
+        )}
         <button
           type="button"
           aria-label="Notificações"

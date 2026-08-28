@@ -169,7 +169,13 @@ export default function ConfigEmpresaPage() {
             </label>
             {emp?.logo_url && <button onClick={removerLogo} disabled={busy} style={btnGhost}>Remover</button>}
           </div>
-          <div style={{ fontSize: 10.5, color: MUT, marginTop: 8 }}>PNG, JPG, WEBP ou SVG, até 2MB. A logo aparece no cabeçalho da OS impressa.</div>
+          <div style={{ fontSize: 10.5, color: MUT, marginTop: 8 }}>PNG, JPG, WEBP ou SVG, até 2MB. A logo aparece nos orçamentos, nas ordens de serviço e no topo do sistema.</div>
+          {/* BRAND-1 · aviso útil (não é erro): sem badge vermelho, sem bloqueio */}
+          {emp && !emp.logo_url && (
+            <div style={{ fontSize: 11.5, color: ESP, background: '#FFF8E7', border: `0.5px solid ${GOLD}`, borderRadius: 8, padding: '8px 10px', marginTop: 10 }}>
+              Sua empresa ainda não tem logo. Ele aparece nos orçamentos, nas ordens de serviço e no topo do sistema.
+            </div>
+          )}
         </div>
 
         {/* Prévia */}

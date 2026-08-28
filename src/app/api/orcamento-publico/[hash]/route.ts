@@ -40,7 +40,7 @@ export async function GET(
 
     const { data: empresa } = await sbAdmin
       .from('companies')
-      .select('razao_social, nome_fantasia, cnpj, cidade_estado')
+      .select('razao_social, nome_fantasia, cnpj, cidade_estado, logo_url')
       .eq('id', orc.company_id)
       .maybeSingle();
 
