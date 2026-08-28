@@ -99,7 +99,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | 'concluir' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   // NFE-F0 · E0 · CFOP de entrada + categoria por item (derivados no servidor); E4 · navegação item a item
-  const [extras, setExtras] = useState<Record<string, { cfop_entrada: string | null; categoria_codigo: string | null }>>({})
+  // NFE-F1 · E5 · custo real por item + memória de cálculo (fn_nfe_item_custo_real)
+  const [extras, setExtras] = useState<Record<string, { cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null }>>({})
+  const [memoria, setMemoria] = useState<Record<string, { natureza?: string; aviso?: string | null; memoria?: Record<string, unknown> } | null>>({})
   const [idxAtual, setIdxAtual] = useState(0)
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -114,15 +116,24 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const r = data as SugerirResp | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao sugerir'); setItens([]); return }
     setItens(r.itens ?? [])
-    // E0 · CFOP de entrada + categoria (colunas preenchidas pelo trigger/backfill)
+    // E0 · CFOP de entrada + categoria; F1 · custo real (colunas preenchidas pelo trigger/backfill)
     const { data: ex } = await supabase.from('erp_nfe_recebidas_itens')
-      .select('id, cfop_entrada, categoria_codigo').eq('nfe_recebida_id', nfeId)
-    const m: Record<string, { cfop_entrada: string | null; categoria_codigo: string | null }> = {}
-    for (const row of (ex ?? []) as { id: string; cfop_entrada: string | null; categoria_codigo: string | null }[]) {
-      m[row.id] = { cfop_entrada: row.cfop_entrada, categoria_codigo: row.categoria_codigo }
+      .select('id, cfop_entrada, categoria_codigo, custo_unitario_real').eq('nfe_recebida_id', nfeId)
+    const m: Record<string, { cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null }> = {}
+    for (const row of (ex ?? []) as { id: string; cfop_entrada: string | null; categoria_codigo: string | null; custo_unitario_real: number | null }[]) {
+      m[row.id] = { cfop_entrada: row.cfop_entrada, categoria_codigo: row.categoria_codigo, custo_unitario_real: row.custo_unitario_real }
     }
     setExtras(m)
   }, [nfeId])
+
+  // F1 · E5 · calcula o custo real do item (server) e mostra a memória de cálculo
+  async function verMemoria(itemId: string) {
+    const { data } = await supabase.rpc('fn_nfe_item_custo_real', { p_item_id: itemId })
+    const r = data as { ok?: boolean; natureza?: string; aviso?: string | null; custo_unitario_real?: number | null; memoria?: Record<string, unknown> } | null
+    if (!r?.ok) { setMsg('Não consegui calcular o custo real deste item.'); return }
+    setMemoria((mm) => ({ ...mm, [itemId]: { natureza: r.natureza, aviso: r.aviso, memoria: r.memoria } }))
+    setExtras((ex) => ({ ...ex, [itemId]: { ...(ex[itemId] ?? { cfop_entrada: null, categoria_codigo: null }), custo_unitario_real: r.custo_unitario_real ?? null } }))
+  }
 
   // E4 · navega até o item N e o destaca (nota com 40 itens fica viável)
   function irParaItem(idx: number) {
@@ -357,6 +368,24 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
                   categoria sugerida <span className="font-medium text-[#3D2314]">{extras[it.item_id]!.categoria_codigo}</span>
                 </div>
               )}
+              {/* NFE-F1 · E5 · custo real (item + tributos que são custo + rateio) com memória */}
+              <div className="text-[10.5px] text-[#3D2314]/60 mt-0.5 flex items-center gap-2 flex-wrap">
+                {extras[it.item_id]?.custo_unitario_real != null && (
+                  <span>custo real <span className="font-medium text-[#3D2314]">R$ {Number(extras[it.item_id]!.custo_unitario_real).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>/un</span>
+                )}
+                <button type="button" onClick={() => void verMemoria(it.item_id)} className="text-[#BA7517] font-medium hover:underline">
+                  {extras[it.item_id]?.custo_unitario_real != null ? 'recalcular · ver memória' : 'calcular custo real'}
+                </button>
+              </div>
+              {memoria[it.item_id] && (() => {
+                const mm = memoria[it.item_id]!; const d = (mm.memoria ?? {}) as Record<string, unknown>
+                return (
+                  <div className="text-[10px] text-[#3D2314]/70 mt-1 bg-[#FBF6EA] border border-[#3D2314]/10 rounded-md px-2 py-1.5">
+                    <div>natureza <strong>{mm.natureza}</strong>{mm.aviso ? <span className="text-[#BA7517]"> · {mm.aviso === 'usando_padrao' ? 'usando config padrão (empresa sem config própria)' : mm.aviso === 'sem_vprod_nao_rateia' ? 'sem valor de produtos — frete não rateado' : mm.aviso}</span> : null}</div>
+                    <div>item R$ {Number(d.valor_item ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} + tributos R$ {Number(d.tributos_custo ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} + rateio R$ {Number(d.rateio ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} − desconto R$ {Number(d.desconto ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ÷ {Number(d.quantidade ?? 1).toLocaleString('pt-BR')}</div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
