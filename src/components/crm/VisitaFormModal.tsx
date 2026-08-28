@@ -3,6 +3,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import ClienteForm from '@/components/clientes/ClienteForm'
+import AnexosCard from '@/components/crm/AnexosCard'
 
 export type VisitaFotoRef = { path: string; name?: string }
 
@@ -297,6 +298,13 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
           />
           {files.length > 0 && <p style={{ fontSize: 12, color: TEXTM, marginTop: 4 }}>{files.length} nova(s) foto(s) a enviar</p>}
         </div>
+
+        {/* ANEXO-1 · foto com observação (pedido do CEO): descrição por anexo. Só na visita já salva. */}
+        {isEdit && initial?.id && (
+          <div style={{ marginTop: 12 }}>
+            <AnexosCard companyId={companyId} vinculoTipo="visita" vinculoId={initial.id} />
+          </div>
+        )}
 
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={capturarGPS} style={btnSec}>📍 Capturar GPS</button>

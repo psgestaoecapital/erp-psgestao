@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeFormModal'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
+import AnexosCard from '@/components/crm/AnexosCard'
 
 type Oport = {
   id: string
@@ -527,6 +528,11 @@ export default function OportunidadeFichaPage() {
           <p className="text-sm whitespace-pre-wrap" style={{ color: TEXTM }}>{op.observacoes}</p>
         </Sec>
       )}
+
+      {/* ANEXO-1 · anexos com descrição (pedido da Angélica: pdf/word/dwg/fotos na oportunidade) */}
+      <Sec titulo="Anexos">
+        <AnexosCard companyId={op.company_id} vinculoTipo="oportunidade" vinculoId={op.id} />
+      </Sec>
 
       {toast && <div style={toastStyle}>{toast}</div>}
 
