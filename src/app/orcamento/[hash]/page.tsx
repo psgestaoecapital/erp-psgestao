@@ -114,10 +114,19 @@ export default function OrcamentoPublicoPage() {
       {/* Header */}
       <div style={{ background: MARROM, color: OFFWHITE, padding: '20px 24px' }}>
         <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: DOURADO, marginBottom: 4 }}>PROPOSTA COMERCIAL</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{empresa.nome_fantasia || empresa.razao_social}</div>
-            {empresa.cnpj && <div style={{ fontSize: 11, color: "#E0D8CC", marginTop: 2 }}>CNPJ {fmtCNPJ(empresa.cnpj)}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+            {empresa.logo_url && (
+              // chip branco pra logo aparecer sobre o cabeçalho escuro; nunca distorce (contain)
+              <div style={{ background: '#FFFFFF', borderRadius: 8, padding: '6px 8px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={empresa.logo_url} alt="Logomarca" style={{ height: 40, maxWidth: 130, objectFit: 'contain', display: 'block' }} />
+              </div>
+            )}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: DOURADO, marginBottom: 4 }}>PROPOSTA COMERCIAL</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{empresa.nome_fantasia || empresa.razao_social}</div>
+              {empresa.cnpj && <div style={{ fontSize: 11, color: "#E0D8CC", marginTop: 2 }}>CNPJ {fmtCNPJ(empresa.cnpj)}</div>}
+            </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 10, color: "#E0D8CC", letterSpacing: 1, textTransform: 'uppercase' }}>Nº do Orçamento</div>

@@ -382,6 +382,19 @@ export default function FiscalConfigClient() {
         onAtualizado={carregar}
       />
 
+      {/* BRAND-1 · atalho do logo (o upload mora em Dados da Empresa — fonte única, RD-52) */}
+      <a
+        href="/dashboard/configuracoes/empresa"
+        className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3 flex items-center gap-3 hover:border-[#C8941A] transition-colors"
+      >
+        <span className="text-[18px]" aria-hidden>🎨</span>
+        <div className="flex-1 min-w-0 text-[12.5px]">
+          <div className="font-medium text-[#3D2314]">Logo da empresa</div>
+          <div className="text-[#3D2314]/70 mt-0.5">Usado nos documentos (orçamentos, OS) e no topo do sistema.</div>
+        </div>
+        <span className="text-[12.5px] font-medium text-[#C8941A] whitespace-nowrap">Alterar →</span>
+      </a>
+
       <ConfigFiscalEditCard
         companyId={state.companyId!}
         imAtual={state.empresa?.inscricao_municipal ?? null}
