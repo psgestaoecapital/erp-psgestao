@@ -97,6 +97,8 @@ export default function LeadsPage() {
   const [cfgOpen, setCfgOpen] = useState(false)
   const [origemCfgOpen, setOrigemCfgOpen] = useState(false)
   const [origens, setOrigens] = useState<Origem[]>([])
+  // PM-1 · semáforo unificado (fn_crm_leads_tempo): lead_id → 'verde'|'amarelo'|'vermelho'
+  const [semaforoMap, setSemaforoMap] = useState<Record<string, string>>({})
 
   const carregarEtapas = useCallback(async () => {
     if (!empresa) { setEtapas([]); return }
@@ -117,6 +119,11 @@ export default function LeadsPage() {
     const { data } = await supabase.from('agency_leads').select('*').eq('company_id', empresa).is('deleted_at', null).order('criado_em', { ascending: false })
     const rows = (data ?? []) as Lead[]
     setLeads(rows)
+    // PM-1 · semáforo do MOTOR ÚNICO (RD-52) — régua da crm_alerta_config (PDois 7/10), fallback 3/7.
+    const { data: sems } = await supabase.rpc('fn_crm_leads_tempo', { p_company_id: empresa })
+    const sm: Record<string, string> = {}
+    for (const s of (sems ?? []) as { lead_id: string; semaforo: string }[]) sm[s.lead_id] = s.semaforo
+    setSemaforoMap(sm)
     // PM-QW #14 · nomes via RPC do tenant (RD-26): from('users') direto vem VAZIO p/ não-admin (RLS)
     // → o nome do responsável nunca aparecia. fn_usuarios_da_empresa é SECURITY DEFINER e resolve.
     const { data: us } = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: empresa })
@@ -389,13 +396,15 @@ export default function LeadsPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
                     {items.map((l) => {
                       const fim = fechadas.has(l.etapa)
-                      // semáforo de lead parado (confirmado c/ CEO): amarelo ≥3d, vermelho ≥7d na etapa.
-                      const dEtapa = diasDesde(l.etapa_desde)
-                      const corEtapa = dEtapa >= 7 ? RED : dEtapa >= 3 ? DOURADO : TEXTM
+                      // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+                      const dEtapa = Math.floor(diasDesde(l.etapa_desde))
+                      const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+                      const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
+                      const bordaSem = sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}`
                       return (
                         <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onDragEnd={() => setDragId(null)}
                           data-testid="lead-card"
-                          style={{ background: OFFWHITE, border: `1px solid ${BORDA}`, borderRadius: 10, padding: '9px 10px', cursor: 'grab' }}>
+                          style={{ background: OFFWHITE, border: bordaSem, borderRadius: 10, padding: '9px 10px', cursor: 'grab' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <strong style={{ fontSize: 13 }}>{l.empresa || l.nome}</strong>
                             {(l.erp_cliente_id || l.cliente_id) && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
@@ -409,7 +418,7 @@ export default function LeadsPage() {
                           {l.criado_por && l.criado_por !== l.responsavel_id && respMap[l.criado_por] && <div style={{ fontSize: 10.5, color: TEXTM }}>criado por: {respMap[l.criado_por]}</div>}
                           <div style={{ fontSize: 10, color: TEXTM, marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             <span title={new Date(l.criado_em).toLocaleString('pt-BR')}>🕒 criado há {tempoCurto(l.criado_em)}</span>
-                            {!fim && <span style={{ color: corEtapa, fontWeight: dEtapa >= 3 ? 700 : 400 }} title={dEtapa >= 7 ? 'Lead parado há muito tempo nesta etapa' : dEtapa >= 3 ? 'Atenção: tempo elevado nesta etapa' : undefined}>⏱ nesta etapa há {tempoCurto(l.etapa_desde)}</span>}
+                            {!fim && <span style={{ color: corEtapa, fontWeight: sem === 'verde' ? 400 : 700 }} title={sem === 'vermelho' ? 'Lead parado além do limite (config. em Configurações → Alertas)' : sem === 'amarelo' ? 'Atenção: tempo elevado nesta etapa' : undefined}>⏱ {dEtapa} {dEtapa === 1 ? 'dia' : 'dias'} nesta etapa</span>}
                           </div>
                           {l.reuniao_agendada_em && (
                             <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
