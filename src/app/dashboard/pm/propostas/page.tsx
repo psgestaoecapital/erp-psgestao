@@ -6,6 +6,7 @@
 // envia erp_cliente_id; o backend resolve/cria o agency_cliente (fn_agency_cliente_resolver) e grava os
 // dois, coerentes — assim Lead → Proposta → Contrato casam pelo mesmo cliente.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard from '@/components/crm/AnexosCard'
@@ -44,6 +45,7 @@ type ClienteOpt = { id: string; nome: string; nome_fantasia: string | null; tele
 const itemVazio = (): Item => ({ tipo_servico: '', descricao: '', quantidade: 1, unidade: 'un', valor_unitario: 0, valor_total: 0, servico_id: null })
 
 export default function PropostasPage() {
+  const router = useRouter()
   const { selInfo, companyIds } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
 
@@ -73,6 +75,9 @@ export default function PropostasPage() {
 
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
+  // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
+  const [voltarCrm, setVoltarCrm] = useState(false)
+  const abriuDestaque = useRef(false)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
   const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
@@ -95,12 +100,6 @@ export default function PropostasPage() {
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
-  // rola até a proposta destacada (vinda do card do lead) quando a lista carrega
-  useEffect(() => {
-    if (!destaque || loading) return
-    const el = document.getElementById(`prop-${destaque}`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [destaque, loading, propostas])
 
   function abrirNovo(cliId?: string, tit?: string) {
     setEditId(null)
@@ -135,6 +134,21 @@ export default function PropostasPage() {
     })) : [itemVazio()])
   }
 
+  // PM-2 · proposta vinda do CRM (?proposta=<id>): abre DIRETO no editor quando a lista carrega.
+  // Fallback (proposta não está na lista, ex.: outra empresa): rola/destaca a linha.
+  useEffect(() => {
+    if (!destaque || loading || abriuDestaque.current) return
+    const p = propostas.find((x) => x.id === destaque)
+    if (p) {
+      abriuDestaque.current = true
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void abrirEditar(p)
+      return
+    }
+    const el = document.getElementById(`prop-${destaque}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [destaque, loading, propostas]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function salvarEdicao() {
     if (!editId) return
     if (!fTitulo.trim()) { setToast('Informe o título da proposta.'); return }
@@ -159,6 +173,7 @@ export default function PropostasPage() {
     await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: editId, p_itens: itensLimpos })
     setBusy(false)
     setNovo(false); setEditId(null)
+    if (voltarCrm) { router.push('/dashboard/pm/leads'); return }   // PM-2 · voltar ao kanban de onde veio
     setToast('Proposta ALTERADA.'); void carregar()
   }
 
@@ -176,7 +191,7 @@ export default function PropostasPage() {
     const q = new URLSearchParams(window.location.search)
     const prop = q.get('proposta') || undefined
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (prop) { setDestaque(prop); return } // veio do card do lead → destaca a proposta existente/criada
+    if (prop) { setDestaque(prop); if (q.get('from') === 'leads') setVoltarCrm(true); return } // PM-2 · abre no editor
     const cli = q.get('erp_cliente_id') || q.get('cliente_id') || undefined
     const brf = q.get('briefing_id') || undefined
     const tit = q.get('titulo') || undefined
@@ -367,6 +382,13 @@ export default function PropostasPage() {
       {novo && (
         <div style={overlay} onClick={() => setNovo(false)}>
           <div style={{ ...modal, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+            {/* PM-2 · veio do CRM → breadcrumb de volta ao kanban (não deixa o usuário perdido na lista) */}
+            {voltarCrm && (
+              <button onClick={() => router.push('/dashboard/pm/leads')}
+                style={{ background: 'none', border: 'none', color: DOURADO, fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: 0, marginBottom: 6 }}>
+                ← Voltar ao CRM
+              </button>
+            )}
             <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>{editId ? 'Editar proposta' : 'Nova proposta'}</h2>
 
             {/* PM-QW #15 · "detalhe": ações de status ficam aqui (fora do card). Só na edição. */}

@@ -61,6 +61,11 @@ type FormLead = {
 // erp_cliente_id: vínculo ao cadastro GE (erp_clientes) — NÃO agency_clientes. Corrige a FK do #1007.
 const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: '', origem: 'trafego_pago', valor_estimado: '', erp_cliente_id: null }
 
+// PM-2 · proposta ligada ao lead. propMap (chip) usa só critérios FORTES (lead_id/erp_cliente_id);
+// o clique chama o resolvedor de cascata no servidor (fn_pm_proposta_do_lead), que é a autoridade.
+type PropRef = { id: string; titulo: string; status: string; valor_total: number | null; lead_id: string | null; erp_cliente_id: string | null }
+type PropCascata = { id: string; titulo: string; status: string; valor_total: number | null; criterio: string }
+
 export default function LeadsPage() {
   const router = useRouter()
   const { selInfo, companyIds } = useCompanyIds()
@@ -99,6 +104,9 @@ export default function LeadsPage() {
   const [origens, setOrigens] = useState<Origem[]>([])
   // PM-1 · semáforo unificado (fn_crm_leads_tempo): lead_id → 'verde'|'amarelo'|'vermelho'
   const [semaforoMap, setSemaforoMap] = useState<Record<string, string>>({})
+  // PM-2 · propostas fortes por lead (chip) + seletor quando há várias / match fraco por título
+  const [propMap, setPropMap] = useState<Record<string, PropRef[]>>({})
+  const [seletor, setSeletor] = useState<{ lead: Lead; propostas: PropCascata[]; fraco: boolean } | null>(null)
 
   const carregarEtapas = useCallback(async () => {
     if (!empresa) { setEtapas([]); return }
@@ -119,6 +127,17 @@ export default function LeadsPage() {
     const { data } = await supabase.from('agency_leads').select('*').eq('company_id', empresa).is('deleted_at', null).order('criado_em', { ascending: false })
     const rows = (data ?? []) as Lead[]
     setLeads(rows)
+    // PM-2 · propostas da empresa → mapa por lead (critérios fortes: lead_id ou erp_cliente_id) p/ o chip
+    const { data: props } = await supabase.from('agency_propostas')
+      .select('id, titulo, status, valor_total, lead_id, erp_cliente_id')
+      .eq('company_id', empresa).is('deleted_at', null)
+    const pr = (props ?? []) as PropRef[]
+    const pm: Record<string, PropRef[]> = {}
+    for (const l of rows) {
+      const fortes = pr.filter((p) => p.lead_id === l.id || (!!l.erp_cliente_id && p.erp_cliente_id === l.erp_cliente_id))
+      if (fortes.length) pm[l.id] = fortes
+    }
+    setPropMap(pm)
     // PM-1 · semáforo do MOTOR ÚNICO (RD-52) — régua da crm_alerta_config (PDois 7/10), fallback 3/7.
     const { data: sems } = await supabase.rpc('fn_crm_leads_tempo', { p_company_id: empresa })
     const sm: Record<string, string> = {}
@@ -285,23 +304,33 @@ export default function LeadsPage() {
   // Reunião: abre o modal de agendamento (substitui o prompt cru).
   function agendar(l: Lead) { setReuniaoLead(l) }
 
-  // Proposta: abre a proposta vinculada ao lead; se não houver, cria uma vinculada (nunca órfã) e abre.
+  // PM-2 · Proposta: resolve o destino no SERVIDOR por cascata (lead_id → erp_cliente_id → título).
+  //  1 forte → abre direto · várias → seletor · só título → lista com aviso · nenhuma → cria pré-preenchida.
+  function abrirProposta(id: string) { router.push(`/dashboard/pm/propostas?proposta=${id}&from=leads`) }
+  async function criarPropostaDoLead(l: Lead) {
+    // cria vinculada + pré-preenchida (grava lead_id sempre; total vem dos itens — trava do PR-B)
+    const { data: c, error } = await supabase.rpc('fn_agency_lead_proposta_criar', { p_lead_id: l.id })
+    const cr = c as { ok?: boolean; id?: string; erro?: string } | null
+    if (error || !cr?.ok || !cr.id) { setToast('Erro ao criar proposta: ' + (error?.message ?? cr?.erro ?? 'falhou')); return }
+    // criar proposta = avançar: move o lead pra etapa "proposta" se existir no funil
+    const propChave = etapas.find((e) => e.chave === 'proposta')?.chave
+    if (propChave && l.etapa !== propChave) {
+      await supabase.from('agency_leads').update({ etapa: propChave, atualizado_em: new Date().toISOString() }).eq('id', l.id)
+    }
+    abrirProposta(cr.id)
+  }
   async function proposta(l: Lead) {
     setBusy(true)
     try {
-      const { data } = await supabase.rpc('fn_agency_lead_proposta', { p_lead_id: l.id })
-      const r = data as { ok?: boolean; proposta?: { id: string } | null } | null
-      if (r?.ok && r.proposta?.id) { router.push(`/dashboard/pm/propostas?proposta=${r.proposta.id}`); return }
-      // sem proposta → cria vinculada + pré-preenchida
-      const { data: c, error } = await supabase.rpc('fn_agency_lead_proposta_criar', { p_lead_id: l.id })
-      const cr = c as { ok?: boolean; id?: string; erro?: string } | null
-      if (error || !cr?.ok || !cr.id) { setToast('Erro ao criar proposta: ' + (error?.message ?? cr?.erro ?? 'falhou')); return }
-      // criar proposta = avançar: move o lead pra etapa "proposta" se existir no funil
-      const propChave = etapas.find((e) => e.chave === 'proposta')?.chave
-      if (propChave && l.etapa !== propChave) {
-        await supabase.from('agency_leads').update({ etapa: propChave, atualizado_em: new Date().toISOString() }).eq('id', l.id)
-      }
-      router.push(`/dashboard/pm/propostas?proposta=${cr.id}`)
+      const { data } = await supabase.rpc('fn_pm_proposta_do_lead', { p_lead_id: l.id })
+      const r = data as { ok?: boolean; propostas?: PropCascata[] } | null
+      const lista = (r?.ok && r.propostas) ? r.propostas : []
+      const fortes = lista.filter((p) => p.criterio === '1_lead' || p.criterio === '2_cliente')
+      const fracas = lista.filter((p) => p.criterio === '3_titulo')
+      if (fortes.length === 1) { abrirProposta(fortes[0].id); return }             // 1 forte → abre direto
+      if (fortes.length > 1) { setSeletor({ lead: l, propostas: fortes, fraco: false }); return }  // várias → seletor
+      if (fracas.length > 0) { setSeletor({ lead: l, propostas: fracas, fraco: true }); return }    // só título → aviso
+      await criarPropostaDoLead(l)                                                  // nenhuma → cria pré-preenchida
     } finally { setBusy(false) }
   }
 
@@ -434,6 +463,18 @@ export default function LeadsPage() {
                             </div>
                           )}
                           {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
+                          {/* PM-2 · chip da proposta ligada (abre direto). Vê antes de clicar. */}
+                          {(propMap[l.id]?.length ?? 0) > 0 && (() => {
+                            const p0 = propMap[l.id]![0]; const n = propMap[l.id]!.length
+                            const aprovada = propMap[l.id]!.some((p) => p.status === 'aprovada')
+                            return (
+                              <button onClick={(e) => { e.stopPropagation(); void proposta(l) }} disabled={busy} title="Abrir proposta vinculada"
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, width: '100%', textAlign: 'left', border: `1px solid ${aprovada ? GREEN : BORDA}`, borderRadius: 8, padding: '5px 8px', background: aprovada ? '#DCEFD7' : '#FBF6EA', cursor: 'pointer', color: ESPRESSO, fontSize: 11 }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {p0.titulo} <span style={{ color: TEXTM }}>· {p0.status}</span></span>
+                                <span style={{ color: aprovada ? GREEN : DOURADO, fontWeight: 700, marginLeft: 'auto', whiteSpace: 'nowrap' }}>{n > 1 ? `+${n - 1}` : brl(Number(p0.valor_total ?? 0))}</span>
+                              </button>
+                            )
+                          })()}
                           {fim && (
                             <div style={{ marginTop: 6 }}>
                               <button disabled={busy} onClick={() => void excluirLead(l)} style={chip(RED)}>🗑 Excluir</button>
@@ -553,6 +594,36 @@ export default function LeadsPage() {
         <ReuniaoModal lead={reuniaoLead} empresa={empresa} uid={uid}
           reuniaoChave={etapas.find((e) => e.chave === 'reuniao_agendada')?.chave ?? null}
           onClose={() => setReuniaoLead(null)} onSaved={() => { setReuniaoLead(null); void carregar() }} setToast={setToast} />
+      )}
+
+      {/* PM-2 · seletor: cliente com várias propostas, ou match fraco por título (nunca abre direto) */}
+      {seletor && (
+        <div style={overlay} onClick={() => setSeletor(null)}>
+          <div style={modal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 4px' }}>
+              {seletor.fraco ? 'Propostas com nome parecido' : `Este cliente tem ${seletor.propostas.length} propostas`}
+            </h2>
+            <p style={{ fontSize: 12, color: TEXTM, margin: '0 0 12px' }}>
+              {seletor.fraco ? 'Encontramos propostas com nome parecido — confira qual é antes de abrir.' : 'Escolha qual abrir ou crie uma nova.'}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              {seletor.propostas.map((p) => (
+                <button key={p.id} onClick={() => { const id = p.id; setSeletor(null); abrirProposta(id) }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, textAlign: 'left', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '10px 12px', background: '#fff', cursor: 'pointer' }}>
+                  <span style={{ overflow: 'hidden' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: ESPRESSO }}>📄 {p.titulo}</span>
+                    <span style={{ fontSize: 11, color: TEXTM, marginLeft: 8 }}>{p.status}</span>
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: DOURADO, whiteSpace: 'nowrap' }}>{brl(Number(p.valor_total ?? 0))}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <button onClick={() => setSeletor(null)} style={btnGhost}>Cancelar</button>
+              <button disabled={busy} onClick={async () => { const l = seletor.lead; setSeletor(null); setBusy(true); try { await criarPropostaDoLead(l) } finally { setBusy(false) } }} style={btnPri}>+ Nova proposta</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
