@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase'
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DED3', MUT = '#6b5444', VERM = '#B91C1C'
 const MAX = 50 * 1024 * 1024
 
-export type VinculoTipo = 'proposta' | 'oportunidade' | 'visita'
+export type VinculoTipo = 'proposta' | 'oportunidade' | 'visita' | 'nfe'
 // handle que o pai (tela de nova proposta) usa para confirmar/limpar o staging no CRIAR/Cancelar
 export type AnexosCardHandle = {
   temPendentes: () => boolean

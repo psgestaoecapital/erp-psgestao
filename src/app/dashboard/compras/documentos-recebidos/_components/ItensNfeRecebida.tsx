@@ -3,8 +3,9 @@
 // Onda 3.1/3.2 · Itens da NFe recebida com de-para + vinculo manual.
 // Le fn_nfe_item_depara_sugerir e grava via fn_nfe_item_vincular.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AnexosCard from '@/components/crm/AnexosCard'
 
 type Sugestao = {
   produto_id: string
@@ -94,9 +95,13 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [buscaOS, setBuscaOS] = useState<string | null>(null)
   const [qOS, setQOS] = useState('')
   const [resOS, setResOS] = useState<OSLite[]>([])
-  // #11b · ações da nota (entrada de estoque / enviar pro financeiro) + feedback
-  const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | null>(null)
+  // #11b · ações da nota (entrada de estoque / enviar pro financeiro / concluir) + feedback
+  const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | 'concluir' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // NFE-F0 · E0 · CFOP de entrada + categoria por item (derivados no servidor); E4 · navegação item a item
+  const [extras, setExtras] = useState<Record<string, { cfop_entrada: string | null; categoria_codigo: string | null }>>({})
+  const [idxAtual, setIdxAtual] = useState(0)
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -109,7 +114,43 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const r = data as SugerirResp | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao sugerir'); setItens([]); return }
     setItens(r.itens ?? [])
+    // E0 · CFOP de entrada + categoria (colunas preenchidas pelo trigger/backfill)
+    const { data: ex } = await supabase.from('erp_nfe_recebidas_itens')
+      .select('id, cfop_entrada, categoria_codigo').eq('nfe_recebida_id', nfeId)
+    const m: Record<string, { cfop_entrada: string | null; categoria_codigo: string | null }> = {}
+    for (const row of (ex ?? []) as { id: string; cfop_entrada: string | null; categoria_codigo: string | null }[]) {
+      m[row.id] = { cfop_entrada: row.cfop_entrada, categoria_codigo: row.categoria_codigo }
+    }
+    setExtras(m)
   }, [nfeId])
+
+  // E4 · navega até o item N e o destaca (nota com 40 itens fica viável)
+  function irParaItem(idx: number) {
+    if (itens.length === 0) return
+    const i = Math.max(0, Math.min(idx, itens.length - 1))
+    setIdxAtual(i)
+    const el = itemRefs.current[itens[i].item_id]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  // E1 · concluir a nota (itens resolvidos → estoque → financeiro, atômico) num clique
+  async function concluir() {
+    setAcaoBusy('concluir'); setErro(null); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_concluir', { p_nfe_id: nfeId })
+    setAcaoBusy(null)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; faltam?: { item: number; descricao: string }[];
+      estoque?: { itens_movidos?: number }; financeiro?: { pagar_criadas?: number; valor_total?: number } } | null
+    if (!r?.ok) {
+      if (r?.erro === 'itens_nao_resolvidos') {
+        const lista = (r.faltam ?? []).map((f) => `#${f.item} ${f.descricao}`).join(' · ')
+        setErro(`Faltam itens para concluir (vincule um produto ou marque "não entra"): ${lista}`)
+      } else setErro('Não consegui concluir: ' + (r?.erro ?? 'falhou'))
+      return
+    }
+    setMsg(`✅ Nota concluída — ${r.estoque?.itens_movidos ?? 0} item(ns) no estoque · ${r.financeiro?.pagar_criadas ?? 0} conta(s) a pagar.`)
+    await carregar(); onChange?.()
+  }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -284,18 +325,38 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
           <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium">{naoEstoque} não entra(m)</span>
         )}
       </div>
-      {itens.map((it) => (
-        <div key={it.item_id} className="rounded-lg border border-[#3D2314]/10 p-3 bg-[#FAF7F2]/40">
+      {/* E4 · navegação item a item (viável com 40 itens) */}
+      {itens.length > 1 && (
+        <div className="flex items-center gap-2 text-[11px] text-[#3D2314]/70">
+          <button type="button" onClick={() => irParaItem(idxAtual - 1)} disabled={idxAtual === 0}
+            className="px-2 py-1 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40">← anterior</button>
+          <span className="tabular-nums font-medium">{idxAtual + 1} de {itens.length}</span>
+          <button type="button" onClick={() => irParaItem(idxAtual + 1)} disabled={idxAtual >= itens.length - 1}
+            className="px-2 py-1 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40">próximo →</button>
+        </div>
+      )}
+      {itens.map((it, i) => (
+        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }}
+          className={
+            'rounded-lg border p-3 bg-[#FAF7F2]/40 ' +
+            (i === idxAtual && itens.length > 1 ? 'border-[#C8941A] ring-1 ring-[#C8941A]/40' : 'border-[#3D2314]/10')
+          }>
           <div className="flex justify-between gap-2">
             <div className="min-w-0 flex-1">
               <div className="text-[12.5px] font-medium text-[#3D2314] truncate">
                 {it.descricao}
               </div>
               <div className="text-[10.5px] text-[#3D2314]/60 mt-0.5">
-                cód {it.codigo_produto} · NCM {it.ncm ?? '—'} · CFOP {it.cfop ?? '—'} ·{' '}
-                {Number(it.quantidade ?? 0).toLocaleString('pt-BR')}× R${' '}
+                cód {it.codigo_produto} · NCM {it.ncm ?? '—'} · CFOP {it.cfop ?? '—'}
+                {extras[it.item_id]?.cfop_entrada ? <> <span className="text-[#3F7012] font-medium">→ entrada {extras[it.item_id]!.cfop_entrada}</span></> : null}
+                {' · '}{Number(it.quantidade ?? 0).toLocaleString('pt-BR')}× R${' '}
                 {Number(it.valor_unitario ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </div>
+              {extras[it.item_id]?.categoria_codigo && (
+                <div className="text-[10.5px] text-[#3D2314]/60 mt-0.5">
+                  categoria sugerida <span className="font-medium text-[#3D2314]">{extras[it.item_id]!.categoria_codigo}</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
@@ -513,7 +574,20 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
         >
           {acaoBusy === 'financeiro' ? 'Enviando…' : '💰 Enviar pro financeiro'}
         </button>
+        {/* NFE-F0 · E1 · um clique: estoque + financeiro (atômico). Bloqueia se algum item não estiver resolvido. */}
+        <button
+          type="button"
+          disabled={acaoBusy !== null}
+          onClick={() => void concluir()}
+          title="Faz a entrada no estoque e gera o financeiro de uma vez. Exige todos os itens resolvidos (vinculados ou 'não entra')."
+          className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-50 min-h-[36px]"
+        >
+          {acaoBusy === 'concluir' ? 'Concluindo…' : '✅ Concluir nota'}
+        </button>
       </div>
+
+      {/* NFE-F0 · E3 · anexos na nota (boleto, comprovante, foto) — reusa o <AnexosCard> (vínculo 'nfe') */}
+      <AnexosCard companyId={companyId} vinculoTipo="nfe" vinculoId={nfeId} />
     </div>
   )
 }

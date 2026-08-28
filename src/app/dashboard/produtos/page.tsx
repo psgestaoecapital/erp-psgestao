@@ -30,6 +30,8 @@ export default function ProdutosPage(){
   const [produtos,setProdutos]=useState<Produto[]>([]);
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
+  // deep-link: /dashboard/produtos?busca=CODIGO (ex.: vindo do relatório de margem negativa)
+  useEffect(()=>{ try{ const b=new URLSearchParams(window.location.search).get('busca'); if(b) setBusca(b); }catch{} },[]); // eslint-disable-line react-hooks/set-state-in-effect
   const [filtroTipo,setFiltroTipo]=useState<string>("todos");
   const [filtroAtivo,setFiltroAtivo]=useState<string>("ativos");
   const [filtroUnidade,setFiltroUnidade]=useState<string>("todos");

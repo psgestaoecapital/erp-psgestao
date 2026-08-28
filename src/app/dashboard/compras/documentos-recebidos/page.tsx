@@ -107,6 +107,8 @@ export default function DocumentosRecebidosPage() {
   // #11a · manifestacao individual (ciencia/confirmar/recusar) por card
   const [manifestando, setManifestando] = useState<Record<string, boolean>>({})
   const [puxando, setPuxando] = useState<Record<string, boolean>>({})   // NFE-4 · "Puxar XML" por nota
+  // NFE-F0 · E1 · conclusão da nota (selo + filtro "a concluir")
+  const [concluidas, setConcluidas] = useState<Record<string, string | null>>({})
 
   async function carregar() {
     if (!empresaUnica) return
@@ -114,7 +116,8 @@ export default function DocumentosRecebidosPage() {
     setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_recebidas_listar', {
       p_company_id: empresaUnica,
-      p_status: filtroStatus === 'todos' ? null : filtroStatus,
+      // "a_concluir" é filtro do cliente (não é status do servidor)
+      p_status: (filtroStatus === 'todos' || filtroStatus === 'a_concluir') ? null : filtroStatus,
       p_limit: 200,
     })
     setLoading(false)
@@ -122,6 +125,34 @@ export default function DocumentosRecebidosPage() {
     const r = data as ListaResp
     if (!r.ok) { setErro(r.erro ?? 'Erro ao carregar'); return }
     setLista(r.itens ?? [])
+    // E1 · concluida_em das notas listadas (selo + filtro)
+    const ids = (r.itens ?? []).map((x) => x.id)
+    if (ids.length > 0) {
+      const { data: cc } = await supabase.from('erp_nfe_recebidas').select('id, concluida_em').in('id', ids)
+      const m: Record<string, string | null> = {}
+      for (const row of (cc ?? []) as { id: string; concluida_em: string | null }[]) m[row.id] = row.concluida_em
+      setConcluidas(m)
+    } else setConcluidas({})
+  }
+
+  // NFE-F0 · E2 · baixar o XML da nota (nome {chave}.xml)
+  async function verXml(n: Linha) {
+    const { data } = await supabase.from('erp_nfe_recebidas').select('xml_raw').eq('id', n.id).maybeSingle()
+    const xml = (data as { xml_raw?: string | null } | null)?.xml_raw
+    if (!xml) { setErro('Esta nota ainda não tem o XML completo.'); return }
+    const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `${n.chave_acesso || 'nfe'}.xml`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  // NFE-F0 · E2 · consulta pública da SEFAZ pela chave (copia a chave; a consulta exige captcha)
+  function verDanfe(n: Linha) {
+    try { void navigator.clipboard?.writeText(n.chave_acesso) } catch { /* sem clipboard */ }
+    window.open('https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx', '_blank', 'noopener')
+    setToast('Chave copiada — cole na consulta da SEFAZ para ver a DANFE.')
+    setTimeout(() => setToast(null), 5000)
   }
 
   // NFE-4 (#4) · promove uma nota 'resumo' → 'aguardando_xml' (o cron de 30min baixa XML+itens+duplicatas).
@@ -383,13 +414,16 @@ export default function DocumentosRecebidosPage() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    if (!q) return lista
-    return lista.filter((n) =>
+    let base = lista
+    // E1 · "a concluir" = ainda não concluída (a fila de trabalho da Jordana)
+    if (filtroStatus === 'a_concluir') base = base.filter((n) => !concluidas[n.id])
+    if (!q) return base
+    return base.filter((n) =>
       (n.fornecedor ?? '').toLowerCase().includes(q) ||
       (n.cnpj ?? '').includes(q.replace(/\D/g, '')) ||
       (n.chave_acesso ?? '').includes(q.replace(/\D/g, ''))
     )
-  }, [lista, busca])
+  }, [lista, busca, filtroStatus, concluidas])
 
   if (!empresaUnica) {
     return (
@@ -509,6 +543,7 @@ export default function DocumentosRecebidosPage() {
               className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]"
             >
               <option value="todos">Todos os status</option>
+              <option value="a_concluir">A concluir (fila de trabalho)</option>
               <option value="resumo">Resumo</option>
               <option value="aguardando_xml">Aguardando SEFAZ</option>
               <option value="completa">Pronta</option>
@@ -576,6 +611,12 @@ export default function DocumentosRecebidosPage() {
                         <span style={{ background: cs.bg, color: cs.cor }} className="px-2 py-0.5 rounded-full text-[10.5px] font-medium">
                           {cs.texto}
                         </span>
+                        {/* NFE-F0 · E1 · selo de nota concluída */}
+                        {concluidas[n.id] && (
+                          <span className="px-2 py-0.5 rounded-full text-[10.5px] font-medium bg-[#E8F4DC] text-[#3F7012]" title="Estoque e financeiro já lançados">
+                            ✅ Concluída {fmtData(concluidas[n.id])}
+                          </span>
+                        )}
                         <div className="text-[14px] font-semibold text-[#C8941A] tabular-nums min-w-[100px] text-right">
                           {fmtBRL(n.valor_total)}
                         </div>
@@ -670,6 +711,23 @@ export default function DocumentosRecebidosPage() {
                             {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
                           </button>
                         )}
+                        {/* NFE-F0 · E2 · ver o XML e a DANFE (conferência) */}
+                        <button
+                          type="button"
+                          onClick={() => void verXml(n)}
+                          title="Baixar o XML desta nota"
+                          className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5"
+                        >
+                          <FileText size={11} /> XML
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => verDanfe(n)}
+                          title="Consultar a DANFE na SEFAZ pela chave de acesso (a chave é copiada)"
+                          className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5"
+                        >
+                          <Eye size={11} /> DANFE
+                        </button>
                         {/* Devolver ao fornecedor: abre a NF-e de devolução pré-preenchida por esta nota (chave/fornecedor/itens). */}
                         <Link
                           href={`/dashboard/fiscal/nfe/devolucao?recebida_id=${n.id}`}
