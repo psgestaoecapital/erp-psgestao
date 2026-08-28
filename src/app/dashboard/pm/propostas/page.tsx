@@ -48,6 +48,8 @@ export default function PropostasPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [clientes, setClientes] = useState<ClienteOpt[]>([])
   const [catalogo, setCatalogo] = useState<ServicoOpt[]>([])   // serviços do catálogo p/ irrigar os itens
+  // PM-1 · regras da proposta (Configurações → Proposta): exigir catálogo + desconto máximo
+  const [propCfg, setPropCfg] = useState<{ exigir_item_catalogo: boolean; condicao_padrao: string | null; desconto_max_pct: number | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)   // PM-QW #15 · id em edição (modal reusada)
@@ -80,9 +82,12 @@ export default function PropostasPage() {
     setPropostas((p.data ?? []) as Proposta[])
     setClientes((c.data ?? []) as ClienteOpt[])
     setCatalogo(((cat.data as { servicos?: ServicoOpt[] } | null)?.servicos ?? []) as ServicoOpt[])
+    const { data: cfg } = await supabase.from('agency_proposta_config')
+      .select('exigir_item_catalogo, condicao_padrao, desconto_max_pct').eq('company_id', empresa).maybeSingle()
+    setPropCfg((cfg as { exigir_item_catalogo: boolean; condicao_padrao: string | null; desconto_max_pct: number | null } | null) ?? null)
     setLoading(false)
   }
-  useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
   // rola até a proposta destacada (vinda do card do lead) quando a lista carrega
   useEffect(() => {
@@ -95,7 +100,7 @@ export default function PropostasPage() {
     setEditId(null)
     setFCliente(cliId ?? '')
     setFTitulo(tit ?? '')
-    setFCondicao('Mensal'); setFDesconto(''); setFObs('')
+    setFCondicao(propCfg?.condicao_padrao || 'Mensal'); setFDesconto(''); setFObs('')  // PM-1 · condição padrão da config
     setItens([itemVazio()])
     setNovo(true)
   }
@@ -122,6 +127,8 @@ export default function PropostasPage() {
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
     // PM-1 · nunca salvar proposta com valor e sem item (o vazamento dos R$ 3.000)
     if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
+    if (propCfg?.exigir_item_catalogo && itensLimpos.some((it) => !it.servico_id)) { setBusy(false); setToast('Esta empresa exige itens do catálogo. Vincule ou remova os itens avulsos.'); return }
+    if (propCfg?.desconto_max_pct != null && somaItens > 0 && (descNum / somaItens) * 100 > propCfg.desconto_max_pct) { setBusy(false); setToast(`Desconto acima do máximo permitido (${propCfg.desconto_max_pct}%).`); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_editar', {
       p_id: editId,
       p_patch: {
@@ -194,6 +201,8 @@ export default function PropostasPage() {
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
     // PM-1 · nunca criar proposta com valor e sem item (o vazamento dos R$ 3.000)
     if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
+    if (propCfg?.exigir_item_catalogo && itensLimpos.some((it) => !it.servico_id)) { setBusy(false); setToast('Esta empresa exige itens do catálogo. Vincule ou remova os itens avulsos.'); return }
+    if (propCfg?.desconto_max_pct != null && somaItens > 0 && (descNum / somaItens) * 100 > propCfg.desconto_max_pct) { setBusy(false); setToast(`Desconto acima do máximo permitido (${propCfg.desconto_max_pct}%).`); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_criar', {
       p_campos: {
         company_id: empresa,
