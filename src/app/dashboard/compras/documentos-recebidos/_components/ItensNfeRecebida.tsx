@@ -6,6 +6,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
+type Sugestao = {
+  produto_id: string
+  nome: string
+  codigo?: string | null
+  estoque_atual?: number | null
+  criterio: 'depara' | 'ean' | 'codigo' | 'ncm_descricao' | 'descricao'
+  confianca: 'exata' | 'alta' | 'media' | 'baixa'
+  score?: number
+}
+type Alternativa = { produto_id: string; nome: string; codigo?: string | null; score?: number; mesmo_ncm?: boolean }
 type Item = {
   item_id: string
   numero_item: number
@@ -15,10 +25,24 @@ type Item = {
   cfop: string | null
   quantidade: number
   valor_unitario: number
+  codigo_barras?: string | null
   produto_id: string | null
   produto_nome: string | null
   vinculo_origem: string | null
   entra_estoque: boolean | null
+  // COM-1 · casamento reforçado (sugestão que o humano confirma — nunca vincula sozinho)
+  sugestao?: Sugestao | null
+  auto_exato?: boolean
+  alternativas?: Alternativa[]
+}
+
+// linguagem humana (RD inviolável): nunca "de-para", "match", "trigram"
+const CRITERIO_LABEL: Record<string, string> = {
+  depara: 'já aprendido deste fornecedor',
+  ean: 'código de barras',
+  codigo: 'código do fornecedor',
+  ncm_descricao: 'mesma categoria e descrição parecida',
+  descricao: 'descrição parecida',
 }
 
 type Prod = {
@@ -118,6 +142,19 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     setBuscaItem(null); setQ(''); setRes([])
     await carregar()
     onChange?.()
+  }
+
+  // COM-1 · um clique: item da nota vira produto no estoque (herda EAN/NCM/custo do XML), já vinculado.
+  async function criarProduto(itemId: string) {
+    setBusy(true); setErro(null); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_nfe_item_criar_produto', {
+      p_item_id: itemId, p_dados: null,
+    })
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok: boolean; erro?: string; produto_id?: string } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Não consegui criar o produto'); return }
+    await carregar(); onChange?.()
   }
 
   // #11b · override do flag "movimenta estoque" por item (fn_nfe_item_set_entra_estoque, gated).
@@ -227,10 +264,25 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     return <div className="text-[12px] text-[#3D2314]/55 py-2 italic">Sem itens — nota ainda sem XML completo.</div>
   }
 
+  const casados = itens.filter((x) => x.produto_id).length
+  const naoEstoque = itens.filter((x) => !x.produto_id && x.entra_estoque === false).length
+  const pendentes = itens.length - casados - naoEstoque
+
   return (
     <div className="mt-3 space-y-2">
-      <div className="text-[12px] font-medium text-[#3D2314]">
-        Itens da nota ({itens.length})
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-[12px] font-medium text-[#3D2314]">
+          Conferência de entrada — {itens.length} {itens.length === 1 ? 'item' : 'itens'}
+        </div>
+        {casados > 0 && (
+          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8F4DC] text-[#3F7012] font-medium">✅ {casados} no seu estoque</span>
+        )}
+        {pendentes > 0 && (
+          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium">⚠️ {pendentes} para conferir</span>
+        )}
+        {naoEstoque > 0 && (
+          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium">{naoEstoque} não entra(m)</span>
+        )}
       </div>
       {itens.map((it) => (
         <div key={it.item_id} className="rounded-lg border border-[#3D2314]/10 p-3 bg-[#FAF7F2]/40">
@@ -283,6 +335,78 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
               {it.vinculo_origem?.startsWith('os:') ? 'Trocar OS' : 'Vincular à OS'}
             </button>
           </div>
+
+          {/* COM-1 · sugestão de produto (nunca vincula sozinho — o humano confirma) */}
+          {!it.produto_id && it.sugestao && (
+            <div
+              className={
+                it.auto_exato
+                  ? 'mt-2 rounded-md border border-[#3F7012]/30 bg-[#E8F4DC]/60 p-2'
+                  : 'mt-2 rounded-md border border-[#C8941A]/30 bg-[#FAEEDA]/50 p-2'
+              }
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="min-w-0">
+                  <div className="text-[10.5px] font-medium" style={{ color: it.auto_exato ? '#3F7012' : '#BA7517' }}>
+                    {it.auto_exato ? '✅ casa por ' : '💡 sugestão · '}{CRITERIO_LABEL[it.sugestao.criterio] ?? 'parecido'}
+                    {!it.auto_exato && it.sugestao.score ? ` (${Math.round(it.sugestao.score * 100)}%)` : ''}
+                  </div>
+                  <div className="text-[12px] text-[#3D2314] truncate">{it.sugestao.nome}</div>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void vincular(it.item_id, it.sugestao!.produto_id)}
+                  className={
+                    it.auto_exato
+                      ? 'text-[10.5px] px-2.5 py-1 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-50'
+                      : 'text-[10.5px] px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810] disabled:opacity-50'
+                  }
+                >
+                  {it.auto_exato ? 'Confirmar' : 'Usar esta'}
+                </button>
+              </div>
+              {(it.alternativas?.length ?? 0) > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {it.alternativas!.map((a) => (
+                    <button
+                      key={a.produto_id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void vincular(it.item_id, a.produto_id)}
+                      title="Usar este produto no lugar da sugestão"
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-white border border-[#3D2314]/12 text-[#3D2314]/80 hover:border-[#C8941A] disabled:opacity-50"
+                    >
+                      {a.nome.length > 34 ? a.nome.slice(0, 34) + '…' : a.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {!it.produto_id && !it.sugestao && (
+            <div className="mt-2 flex items-center gap-2 text-[10.5px] text-[#3D2314]/60">
+              <span>Nenhum parecido no seu estoque.</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void criarProduto(it.item_id)}
+                className="px-2.5 py-1 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-50"
+              >
+                + Criar produto novo
+              </button>
+            </div>
+          )}
+          {!it.produto_id && it.sugestao && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void criarProduto(it.item_id)}
+              className="mt-1 text-[10.5px] text-[#3F7012] hover:underline disabled:opacity-50"
+            >
+              + Nenhum serve — criar produto novo
+            </button>
+          )}
 
           {buscaItem === it.item_id && (
             <div className="mt-2 rounded-md bg-white border border-[#3D2314]/10 p-2">
