@@ -28,8 +28,9 @@ const STATUS: Record<string, { l: string; cor: string }> = {
 }
 const stCfg = (v: string) => STATUS[v] ?? { l: v, cor: OFFWHITE }
 
-type Item = { tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[] }
-type ServicoOpt = { id: string; nome: string; tipo: string; area: string | null; valor_base: number | null; unidade: string | null; periodicidade: string | null; horas_estimadas: number | null; entregaveis: string[] | null }
+// PM-1 PR-D · id = linha estável em agency_proposta_itens (a fonte); preco_catalogo p/ o selo "preço ajustado"
+type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; preco_catalogo?: number | null }
+type ServicoOpt = { id: string; nome: string; tipo: string; modelo_preco: string | null; area: string | null; valor_base: number | null; unidade: string | null; periodicidade: string | null; horas_estimadas: number | null; entregaveis: string[] | null }
 type Proposta = {
   id: string; company_id: string; cliente_id: string | null; briefing_id: string | null; numero: string | null
   titulo: string; descricao: string | null; itens: Item[] | null; valor_total: number | null
@@ -50,6 +51,10 @@ export default function PropostasPage() {
   const [catalogo, setCatalogo] = useState<ServicoOpt[]>([])   // serviços do catálogo p/ irrigar os itens
   // PM-1 · regras da proposta (Configurações → Proposta): exigir catálogo + desconto máximo
   const [propCfg, setPropCfg] = useState<{ exigir_item_catalogo: boolean; condicao_padrao: string | null; desconto_max_pct: number | null } | null>(null)
+  // PM-1 PR-D · seletor múltiplo do catálogo (checkbox)
+  const [catOpen, setCatOpen] = useState(false)
+  const [catSel, setCatSel] = useState<Set<string>>(new Set())
+  const [catBusca, setCatBusca] = useState('')
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)   // PM-QW #15 · id em edição (modal reusada)
@@ -106,16 +111,27 @@ export default function PropostasPage() {
   }
 
   // PM-QW #15 · abrir a MESMA modal em modo edição (pré-preenchida). A modal é o "detalhe" da proposta.
-  function abrirEditar(p: Proposta) {
+  async function abrirEditar(p: Proposta) {
     setEditId(p.id)
     setFCliente(p.erp_cliente_id ?? p.cliente_id ?? '')
     setFTitulo(p.titulo ?? '')
     setFCondicao(p.condicao_pagamento ?? 'Mensal')
     setFDesconto(p.desconto ? String(p.desconto) : '')
     setFObs(p.observacoes ?? '')
-    const its = (Array.isArray(p.itens) ? p.itens : []) as Partial<Item>[]
-    setItens(its.length ? its.map((it) => ({ ...itemVazio(), ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) })) : [itemVazio()])
     setNovo(true)
+    // PM-1 PR-D · itens vêm da TABELA (a fonte), com id estável — é o que permite editar/soft-delete
+    const { data: its } = await supabase.from('agency_proposta_itens')
+      .select('id, servico_id, descricao, tipo_servico, unidade, periodicidade, quantidade, valor_unitario, valor_total, entregaveis')
+      .eq('proposta_id', p.id).is('excluido_em', null).order('ordem')
+    const rows = (its ?? []) as Record<string, unknown>[]
+    setItens(rows.length ? rows.map((r) => ({
+      id: r.id as string, servico_id: (r.servico_id as string | null) ?? null,
+      tipo_servico: (r.tipo_servico as string | null) ?? '', descricao: (r.descricao as string | null) ?? '',
+      unidade: (r.unidade as string | null) ?? 'un', periodicidade: (r.periodicidade as string | null) ?? null,
+      quantidade: num(r.quantidade), valor_unitario: num(r.valor_unitario), valor_total: num(r.valor_total),
+      entregaveis: Array.isArray(r.entregaveis) ? (r.entregaveis as string[]) : undefined,
+      preco_catalogo: r.servico_id ? (catalogo.find((s) => s.id === r.servico_id)?.valor_base ?? null) : null,
+    })) : [itemVazio()])
   }
 
   async function salvarEdicao() {
@@ -136,9 +152,11 @@ export default function PropostasPage() {
         desconto: descNum, condicao_pagamento: fCondicao, observacoes: fObs.trim() || null,
       },
     })
-    setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    // PM-1 PR-D · a TABELA é a fonte: concilia (upsert + soft-delete dos removidos). O espelho reescreve o jsonb.
+    await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: editId, p_itens: itensLimpos })
+    setBusy(false)
     setNovo(false); setEditId(null)
     setToast('Proposta ALTERADA.'); void carregar()
   }
@@ -192,6 +210,26 @@ export default function PropostasPage() {
   const addItem = () => setItens((a) => [...a, itemVazio()])
   const rmItem = (i: number) => setItens((a) => (a.length === 1 ? a : a.filter((_, idx) => idx !== i)))
 
+  // PM-1 PR-D · adiciona os serviços marcados no catálogo, cada um numa linha (herda valor/unidade/etc.)
+  function confirmarCatalogo() {
+    const jaIds = new Set(itens.map((it) => it.servico_id).filter(Boolean) as string[])
+    const novos: Item[] = catalogo.filter((s) => catSel.has(s.id) && !jaIds.has(s.id)).map((s) => ({
+      servico_id: s.id, tipo_servico: s.nome, descricao: s.nome, unidade: s.unidade ?? 'un',
+      periodicidade: s.periodicidade, quantidade: 1, valor_unitario: s.valor_base ?? 0,
+      valor_total: s.valor_base ?? 0, entregaveis: s.entregaveis ?? undefined, preco_catalogo: s.valor_base ?? null,
+    }))
+    setItens((arr) => {
+      const soVazio = arr.length === 1 && !arr[0].servico_id && !arr[0].descricao.trim() && !arr[0].tipo_servico.trim()
+      return [...(soVazio ? [] : arr), ...novos]
+    })
+    setCatOpen(false); setCatSel(new Set()); setCatBusca('')
+  }
+  const GRUPOS_CAT = [
+    { id: 'fee_mensal', label: 'Serviços mensais (fee)' },
+    { id: 'fixo', label: 'Avulsos / pontuais' },
+    { id: 'outros', label: 'Outros' },
+  ]
+
   async function criar() {
     if (!empresa) return
     if (!fTitulo.trim()) { setToast('Informe o título da proposta.'); return }
@@ -216,9 +254,11 @@ export default function PropostasPage() {
         observacoes: fObs.trim() || null,
       },
     })
+    const j = data as { ok?: boolean; erro?: string; id?: string } | null
+    if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    // PM-1 PR-D · popula a TABELA (a fonte) com os itens da nova proposta; o espelho reescreve o jsonb.
+    if (j.id) await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: j.id, p_itens: itensLimpos })
     setBusy(false)
-    const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     prefill.current = {}
     setNovo(false)
     setToast('Proposta CRIADA.'); void carregar()
@@ -346,7 +386,10 @@ export default function PropostasPage() {
 
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Itens do orçamento</span>
-              <button onClick={addItem} style={btnSec}>+ Item</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {catalogo.length > 0 && <button onClick={() => { setCatSel(new Set()); setCatBusca(''); setCatOpen(true) }} style={btnGanhar}>+ Do catálogo</button>}
+                <button onClick={addItem} style={btnSec}>+ Item avulso</button>
+              </div>
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
               {itens.map((it, i) => (
@@ -354,9 +397,11 @@ export default function PropostasPage() {
                   {/* PM-1 · origem do item: catálogo (verde) × avulso/digitado à mão (âmbar) */}
                   {(it.servico_id || it.descricao.trim() || it.tipo_servico.trim()) && (
                     <div style={{ marginBottom: 6 }}>
-                      {it.servico_id
-                        ? <span style={{ fontSize: 10, fontWeight: 700, color: '#3F7012', background: '#DCEFD7', borderRadius: 999, padding: '1px 8px' }}>✓ do catálogo</span>
-                        : <span title="Item digitado à mão — não veio do catálogo" style={{ fontSize: 10, fontWeight: 700, color: '#A77A12', background: '#FAEEDA', borderRadius: 999, padding: '1px 8px' }}>avulso</span>}
+                      {!it.servico_id
+                        ? <span title="Item digitado à mão — não veio do catálogo" style={{ fontSize: 10, fontWeight: 700, color: '#A77A12', background: '#FAEEDA', borderRadius: 999, padding: '1px 8px' }}>avulso</span>
+                        : (it.preco_catalogo != null && Math.abs(num(it.valor_unitario) - num(it.preco_catalogo)) > 0.009)
+                          ? <span title={`Preço de catálogo: ${brl(it.preco_catalogo)} — foi ajustado na negociação`} style={{ fontSize: 10, fontWeight: 700, color: '#A77A12', background: '#FAEEDA', borderRadius: 999, padding: '1px 8px' }}>preço ajustado</span>
+                          : <span style={{ fontSize: 10, fontWeight: 700, color: '#3F7012', background: '#DCEFD7', borderRadius: 999, padding: '1px 8px' }}>✓ do catálogo</span>}
                     </div>
                   )}
                   {catalogo.length > 0 && (
@@ -365,8 +410,8 @@ export default function PropostasPage() {
                       value={it.servico_id ?? ''}
                       onChange={(e) => {
                         const s = catalogo.find((x) => x.id === e.target.value)
-                        if (!s) { setItem(i, { servico_id: null }); return }
-                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [] })
+                        if (!s) { setItem(i, { servico_id: null, preco_catalogo: null }); return }
+                        setItem(i, { servico_id: s.id, tipo_servico: s.nome, descricao: it.descricao || (s.area ?? ''), unidade: s.unidade ?? it.unidade, valor_unitario: s.valor_base ?? 0, entregaveis: s.entregaveis ?? [], preco_catalogo: s.valor_base ?? null, periodicidade: s.periodicidade })
                       }}
                     >
                       <option value="">Do catálogo… (ou digite abaixo)</option>
@@ -387,6 +432,54 @@ export default function PropostasPage() {
                 </div>
               ))}
             </div>
+
+            {/* PM-1 PR-D · seletor múltiplo do catálogo (checkbox + busca + agrupado por modelo_preco) */}
+            {catOpen && (() => {
+              const jaIds = new Set(itens.map((it) => it.servico_id).filter(Boolean) as string[])
+              const filtro = catBusca.trim().toLowerCase()
+              const cat = catalogo.filter((s) => !filtro || s.nome.toLowerCase().includes(filtro))
+              return (
+                <div onClick={() => setCatOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                  <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 520, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 36px rgba(61,35,20,.25)' }}>
+                    <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BORDA}` }}>
+                      <div style={{ fontWeight: 700, color: ESPRESSO, marginBottom: 8 }}>Adicionar do catálogo</div>
+                      <input autoFocus value={catBusca} onChange={(e) => setCatBusca(e.target.value)} placeholder="🔍 Buscar serviço…" style={inp} />
+                    </div>
+                    <div style={{ overflowY: 'auto', padding: '8px 12px', flex: 1 }}>
+                      {GRUPOS_CAT.map((g) => {
+                        const its = cat.filter((s) => (s.modelo_preco || 'outros') === g.id)
+                        if (!its.length) return null
+                        return (
+                          <div key={g.id} style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'rgba(61,35,20,0.5)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '6px 0 2px' }}>{g.label}</div>
+                            {its.map((s) => {
+                              const ja = jaIds.has(s.id); const sel = catSel.has(s.id)
+                              return (
+                                <label key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 4px', opacity: ja ? 0.55 : 1, cursor: ja ? 'default' : 'pointer' }}>
+                                  <input type="checkbox" disabled={ja} checked={ja || sel} onChange={() => setCatSel((prev) => { const n = new Set(prev); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n })} />
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 12.5, color: ESPRESSO }}>{s.nome}{ja && <span style={{ color: 'rgba(61,35,20,0.5)', fontSize: 10.5 }}> · já adicionado</span>}</div>
+                                    <div style={{ fontSize: 10.5, color: 'rgba(61,35,20,0.5)' }}>{s.periodicidade ?? (s.modelo_preco === 'fee_mensal' ? 'mensal' : 'pontual')} · {s.valor_base != null ? brl(s.valor_base) : '—'}{s.unidade ? `/${s.unidade}` : ''}</div>
+                                  </div>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )
+                      })}
+                      {cat.length === 0 && <div style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.5)', padding: 12 }}>Nenhum serviço encontrado.</div>}
+                    </div>
+                    <div style={{ padding: '12px 16px', borderTop: `1px solid ${BORDA}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>{catSel.size} selecionado{catSel.size === 1 ? '' : 's'}</span>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => { setCatOpen(false); setCatSel(new Set()) }} style={btnSec}>Cancelar</button>
+                        <button disabled={catSel.size === 0} onClick={confirmarCatalogo} style={{ ...btnGanhar, opacity: catSel.size === 0 ? 0.5 : 1 }}>Adicionar ({catSel.size})</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
               <label style={lbl}>Desconto (R$)<input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
