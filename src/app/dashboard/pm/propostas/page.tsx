@@ -120,6 +120,8 @@ export default function PropostasPage() {
     const itensLimpos = itens
       .filter((it) => it.tipo_servico.trim() || it.descricao.trim() || num(it.valor_total) > 0)
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
+    // PM-1 · nunca salvar proposta com valor e sem item (o vazamento dos R$ 3.000)
+    if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_editar', {
       p_id: editId,
       p_patch: {
@@ -190,6 +192,8 @@ export default function PropostasPage() {
     const itensLimpos = itens
       .filter((it) => it.tipo_servico.trim() || it.descricao.trim() || num(it.valor_total) > 0)
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
+    // PM-1 · nunca criar proposta com valor e sem item (o vazamento dos R$ 3.000)
+    if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_criar', {
       p_campos: {
         company_id: empresa,
@@ -338,6 +342,14 @@ export default function PropostasPage() {
             <div style={{ display: 'grid', gap: 8 }}>
               {itens.map((it, i) => (
                 <div key={i} style={{ border: `1px solid ${BORDA}`, borderRadius: 10, padding: 10, background: '#FDFBF7' }}>
+                  {/* PM-1 · origem do item: catálogo (verde) × avulso/digitado à mão (âmbar) */}
+                  {(it.servico_id || it.descricao.trim() || it.tipo_servico.trim()) && (
+                    <div style={{ marginBottom: 6 }}>
+                      {it.servico_id
+                        ? <span style={{ fontSize: 10, fontWeight: 700, color: '#3F7012', background: '#DCEFD7', borderRadius: 999, padding: '1px 8px' }}>✓ do catálogo</span>
+                        : <span title="Item digitado à mão — não veio do catálogo" style={{ fontSize: 10, fontWeight: 700, color: '#A77A12', background: '#FAEEDA', borderRadius: 999, padding: '1px 8px' }}>avulso</span>}
+                    </div>
+                  )}
                   {catalogo.length > 0 && (
                     <select
                       style={{ ...inp, marginBottom: 8 }}
