@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import AnexosCard from '@/components/crm/AnexosCard'
+import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -64,6 +64,7 @@ export default function PropostasPage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const prefill = useRef<{ cliente_id?: string; briefing_id?: string; titulo?: string }>({})
+  const anexosRef = useRef<AnexosCardHandle>(null)   // ANEXO-2 · confirmar/limpar o staging da proposta nova
 
   // formulário da nova proposta (com editor de itens)
   const [fCliente, setFCliente] = useState('')       // erp_cliente_id (base mestre)
@@ -274,10 +275,16 @@ export default function PropostasPage() {
     if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     // PM-1 PR-D · popula a TABELA (a fonte) com os itens da nova proposta; o espelho reescreve o jsonb.
     if (j.id) await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: j.id, p_itens: itensLimpos })
+    // ANEXO-2 · persiste os anexos em espera (move tmp → proposta/{id}/). Um anexo que falhe não perde a proposta.
+    let avisoAnexo = ''
+    if (j.id && anexosRef.current?.temPendentes()) {
+      const r = await anexosRef.current.confirmar(j.id)
+      if (r.erros.length > 0) avisoAnexo = ` (${r.erros.length} anexo${r.erros.length === 1 ? '' : 's'} não subiu — tente anexar de novo na proposta)`
+    }
     setBusy(false)
     prefill.current = {}
     setNovo(false)
-    setToast('Proposta CRIADA.'); void carregar()
+    setToast('Proposta CRIADA.' + avisoAnexo); void carregar()
   }
 
   async function mudarStatus(p: Proposta, status: string) {
@@ -380,7 +387,7 @@ export default function PropostasPage() {
       </div>
 
       {novo && (
-        <div style={overlay} onClick={() => setNovo(false)}>
+        <div style={overlay} onClick={() => { if (!editId) void anexosRef.current?.limpar(); setNovo(false) }}>
           <div style={{ ...modal, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
             {/* PM-2 · veio do CRM → breadcrumb de volta ao kanban (não deixa o usuário perdido na lista) */}
             {voltarCrm && (
@@ -522,11 +529,11 @@ export default function PropostasPage() {
 
             <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
 
-            {/* ANEXO-1 · anexos com descrição (aparece na proposta salva) */}
-            {empresa && <AnexosCard companyId={empresa} vinculoTipo="proposta" vinculoId={editId} />}
+            {/* ANEXO-1/2 · anexos com descrição. Proposta nova (editId null) → modo staging (anexa antes de salvar). */}
+            {empresa && <AnexosCard ref={anexosRef} companyId={empresa} vinculoTipo="proposta" vinculoId={editId} />}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-              <button onClick={() => { setNovo(false); setEditId(null) }} style={btnGhost}>Cancelar</button>
+              <button onClick={() => { if (!editId) void anexosRef.current?.limpar(); setNovo(false); setEditId(null) }} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={editId ? salvarEdicao : criar} style={btnPri}>{busy ? 'Salvando…' : (editId ? 'SALVAR' : 'CRIAR')}</button>
             </div>
           </div>
