@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AnexosCard from '@/components/crm/AnexosCard'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -498,6 +499,9 @@ export default function PropostasPage() {
             </div>
 
             <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
+
+            {/* ANEXO-1 · anexos com descrição (aparece na proposta salva) */}
+            {empresa && <AnexosCard companyId={empresa} vinculoTipo="proposta" vinculoId={editId} />}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <button onClick={() => { setNovo(false); setEditId(null) }} style={btnGhost}>Cancelar</button>
