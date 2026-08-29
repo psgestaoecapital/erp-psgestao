@@ -70,6 +70,8 @@ function chipManifestacao(m: string): { cor: string; bg: string; texto: string }
   if (m === 'ciencia') return { cor: '#BA7517', bg: '#FAEEDA', texto: 'Ciência' }
   if (m === 'desconhecida') return { cor: '#A32D2D', bg: '#FCEBEB', texto: 'Desconhecida' }
   if (m === 'nao_realizada') return { cor: '#A32D2D', bg: '#FCEBEB', texto: 'Não realizada' }
+  // NFE-F3 · §1 · status desconhecido enquanto o OMIE manifesta (cinza, informativo, NÃO bloqueia)
+  if (m === 'gerida_omie') return { cor: 'rgba(61,35,20,0.55)', bg: 'rgba(61,35,20,0.06)', texto: 'Gerida no OMIE' }
   return { cor: 'rgba(61,35,20,0.65)', bg: 'rgba(61,35,20,0.08)', texto: 'Pendente' }
 }
 
@@ -241,6 +243,19 @@ export default function DocumentosRecebidosPage() {
     setHabilitado(novo)
     setToast(novo ? 'DF-e habilitado para esta empresa.' : 'DF-e desabilitado.')
     setTimeout(() => setToast(null), 4000)
+  }
+
+  // NFE-F3 · §1 · sincroniza a manifestação do resumo DF-e (SÓ LEITURA — nada é enviado à SEFAZ).
+  // As notas sem evento (o OMIE ainda manifesta lá) passam a "Gerida no OMIE" e param de fingir "pendente".
+  async function sincronizarManifestacao() {
+    if (!empresaUnica) return
+    setErro(null); setToast(null)
+    const { data, error } = await supabase.rpc('fn_dfe_sincronizar_manifestacao', { p_company_id: empresaUnica })
+    const r = data as { ok?: boolean; com_evento?: number; gerida_omie?: number; erro?: string } | null
+    if (error || !r?.ok) { setErro('Não consegui sincronizar: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
+    setToast(`Manifestação sincronizada (só leitura) · ${r.com_evento ?? 0} com evento real · ${r.gerida_omie ?? 0} geridas no OMIE. Nada enviado à SEFAZ.`)
+    await carregar()
+    setTimeout(() => setToast(null), 6000)
   }
 
   async function buscarAgora() {
@@ -500,6 +515,20 @@ export default function DocumentosRecebidosPage() {
                 Desabilitar
               </button>
             )}
+            {/* NFE-F3 · mutirão (fila + casamento exato em lote) */}
+            <Link href="/dashboard/compras/mutirao"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#3D2314]/15 text-[#3D2314] text-[13px] font-medium hover:bg-[#3D2314]/5 min-h-[44px]">
+              🗂️ Mutirão de notas
+            </Link>
+            {/* NFE-F3 · §1 · sincronizar manifestação (só leitura, nada à SEFAZ) */}
+            <button
+              type="button"
+              onClick={() => void sincronizarManifestacao()}
+              title="Lê o resumo DF-e e atualiza o status de manifestação. Não envia nada à SEFAZ (o OMIE faz a manifestação)."
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/70 hover:bg-[#3D2314]/5 min-h-[44px]"
+            >
+              <RefreshCw size={14} /> Sincronizar manifestação
+            </button>
             <button
               type="button"
               onClick={() => void buscarAgora()}
