@@ -28,6 +28,11 @@ export default function CustoConfigPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
   const [novaNat, setNovaNat] = useState('revenda')
+  // imposto (override) e comissão da venda — usados na margem real da precificação
+  const [vImp, setVImp] = useState('')      // erp_oficina_parametros.imposto_venda_pct (branco = usa o regime)
+  const [vCom, setVCom] = useState('')      // erp_oficina_parametros.comissao_venda_pct
+  const [vSN, setVSN] = useState<number | null>(null)  // alíquota do Simples lida da config fiscal (informativo)
+  const [savingV, setSavingV] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!empresa) { setRows([]); setLoading(false); return }
@@ -35,8 +40,33 @@ export default function CustoConfigPage() {
     const { data } = await supabase.from('erp_custo_estoque_config').select('*').eq('company_id', empresa).order('natureza')
     setRows((data ?? []) as Cfg[]); setLoading(false)
   }, [empresa])
+  const carregarVenda = useCallback(async () => {
+    if (!empresa) { setVImp(''); setVCom(''); setVSN(null); return }
+    const [{ data: op }, { data: fc }] = await Promise.all([
+      supabase.from('erp_oficina_parametros').select('imposto_venda_pct, comissao_venda_pct').eq('company_id', empresa).maybeSingle(),
+      supabase.from('erp_fiscal_provider_config').select('percentual_total_tributos_sn, regime_tributario').eq('company_id', empresa).eq('ativo', true).order('percentual_total_tributos_sn', { ascending: false, nullsFirst: false }).limit(1).maybeSingle(),
+    ])
+    setVImp(op?.imposto_venda_pct != null ? String(op.imposto_venda_pct) : '')
+    setVCom(op?.comissao_venda_pct != null ? String(op.comissao_venda_pct) : '')
+    setVSN(fc?.regime_tributario === 'simples_nacional' && fc?.percentual_total_tributos_sn != null ? Number(fc.percentual_total_tributos_sn) : null)
+  }, [empresa])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarVenda() }, [carregarVenda]) // eslint-disable-line react-hooks/set-state-in-effect
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2500); return () => clearTimeout(t) }, [toast])
+
+  async function salvarVenda() {
+    if (!empresa) return
+    setSavingV(true)
+    const { data, error } = await supabase.from('erp_oficina_parametros').update({
+      imposto_venda_pct: vImp.trim() === '' ? null : Number(vImp),
+      comissao_venda_pct: vCom.trim() === '' ? null : Number(vCom),
+      alterado_em: new Date().toISOString(),
+    }).eq('company_id', empresa).select('company_id')
+    setSavingV(false)
+    if (error) { setToast('Erro ao salvar: ' + error.message); return }
+    if (!data || data.length === 0) { setToast('Esta empresa ainda não tem parâmetros de oficina — configure a oficina primeiro.'); return }
+    setToast('Imposto e comissão da venda salvos.')
+  }
 
   async function salvar(c: Cfg) {
     if (!empresa) return
@@ -67,7 +97,39 @@ export default function CustoConfigPage() {
           monofásico, ICMS e PIS/COFINS não são creditados, então entram no custo. Sem config, usa <code>default</code>.
         </p>
 
-        <div className="mt-5 bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
+        <div className="mt-5 bg-white border border-[#3D2314]/10 rounded-xl p-4">
+          <div className="text-[13px] font-medium text-[#3D2314] mb-0.5">Imposto e comissão da venda</div>
+          <p className="text-[12px] text-[#3D2314]/60 mb-3 max-w-2xl">
+            Entram no cálculo da <strong>margem real</strong> (precificação). O imposto pode ficar em branco — aí usa
+            o regime automaticamente{vSN != null ? ' (Simples).' : '.'}
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-[12px] text-[#3D2314]/70">Imposto da venda (%)
+              <div className="mt-0.5">
+                <input type="number" step="0.01" min="0" value={vImp} onChange={(e) => setVImp(e.target.value)}
+                  placeholder={vSN != null ? `auto: ${vSN}% (Simples)` : 'ex.: 6'}
+                  className="w-44 border border-[#3D2314]/15 rounded-md px-2 py-1 text-[13px] text-[#3D2314]" />
+              </div>
+            </label>
+            <label className="text-[12px] text-[#3D2314]/70">Comissão da venda (%)
+              <div className="mt-0.5">
+                <input type="number" step="0.01" min="0" value={vCom} onChange={(e) => setVCom(e.target.value)}
+                  placeholder="ex.: 5"
+                  className="w-44 border border-[#3D2314]/15 rounded-md px-2 py-1 text-[13px] text-[#3D2314]" />
+              </div>
+            </label>
+            <button onClick={() => void salvarVenda()} disabled={savingV}
+              className="text-[12px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-40">Salvar</button>
+          </div>
+          {vSN != null && (
+            <p className="text-[11px] text-[#3D2314]/55 mt-2 max-w-2xl">
+              Regime Simples Nacional: alíquota <strong>{vSN}%</strong> (Anexo III / serviço) vem da config fiscal. Peça é
+              Anexo I e pode ter alíquota diferente — se precisar, preencha o imposto acima pra sobrescrever.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
           {loading ? (
             <div className="px-4 py-12 text-center text-[#3D2314]/55 flex items-center justify-center gap-2 text-[13px]"><Loader2 className="animate-spin" size={15} /> Carregando…</div>
           ) : (
