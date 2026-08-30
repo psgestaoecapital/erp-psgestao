@@ -62,6 +62,11 @@ BEGIN
       'valores_do_xml', true,
       'aviso', format('%s nota(s) · %s conferida(s) item a item. Valores extraídos do XML.',
                       (SELECT count(*) FROM notas), (SELECT count(*) FILTER (WHERE conferida) FROM notas)),
+      -- as não-conferidas são histórico fiscal (já registradas no OMIE; o contador já as tem). Constam no
+      -- livro (obrigação legal) mas NÃO geram movimento de estoque no PS (decisão Jordana/CEO 29/08).
+      'nota_estoque', CASE WHEN (SELECT count(*) FILTER (WHERE NOT conferida) FROM notas) > 0
+        THEN format('%s nota(s) não conferida(s) são histórico fiscal (registradas no OMIE) — constam no livro, mas não geram movimento de estoque no PS.', (SELECT count(*) FILTER (WHERE NOT conferida) FROM notas))
+        ELSE NULL END,
       'excluidas', jsonb_build_object(
         'sem_xml', (SELECT count(*) FROM erp_nfe_recebidas WHERE company_id=p_company_id AND status='aguardando_xml' AND (p_competencia IS NULL OR to_char(data_emissao,'YYYY-MM')=p_competencia)),
         'recusada_ou_nao_realizada', (SELECT count(*) FROM erp_nfe_recebidas WHERE company_id=p_company_id AND COALESCE(status_manifestacao,'') IN ('recusada','nao_realizada','não_realizada','nao realizada') AND (p_competencia IS NULL OR to_char(data_emissao,'YYYY-MM')=p_competencia)))),
