@@ -97,7 +97,7 @@ export default function CustoConfigPage() {
           Quais tributos e valores entram no custo do estoque, por natureza. Depende do regime — no Simples/
           monofásico, ICMS e PIS/COFINS não são creditados, então entram no custo. Sem config, usa <code>default</code>.
         </p>
-        <Link href="/dashboard/compras/reforma" className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:underline">
+        <Link href="/dashboard/commerce/reforma" className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:underline">
           <Landmark size={13} /> Reforma Tributária — o que já está chegando (IBS/CBS nas compras)
         </Link>
 

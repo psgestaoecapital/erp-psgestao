@@ -2,18 +2,19 @@
 
 // NFE-F5 · Entrega 5 · Painel "Reforma Tributária — o que já está chegando". SÓ informativo (RD-51):
 // mostra o IBS/CBS que já veio nas compras. Não simula alíquota nem carga futura (ainda em definição).
+// A variação mês a mês é mix de compras, NÃO "adoção da Reforma" — mostramos o número, não a leitura.
 
 import { useCallback, useEffect, useState } from 'react'
 import { Landmark, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
-type Mes = { mes: string; ibs: number; cbs: number; ibs_cbs: number; notas_com_reforma: number }
+type Mes = { mes: string; ibs: number; cbs: number; ibs_cbs: number; notas_com_valor: number }
 type Painel = {
   ok?: boolean; erro?: string
   ibs_total: number; cbs_total: number; ibs_cbs_total: number
-  notas_com_reforma: number; notas_total: number
-  fornecedores_com_reforma: number; fornecedores_total: number
+  notas_com_campo: number; notas_com_valor: number; notas_total: number
+  fornecedores_com_campo: number; fornecedores_total: number
   por_mes: Mes[]; aviso: string
 }
 const brl = (v: number | null | undefined) => 'R$ ' + Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
@@ -45,7 +46,7 @@ export default function PainelReformaPage() {
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
       <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
-        <div className="text-[11px] text-[#3D2314]/60 tracking-[1px] uppercase font-medium mb-1">Compras · Fiscal</div>
+        <div className="text-[11px] text-[#3D2314]/60 tracking-[1px] uppercase font-medium mb-1">Commerce · Compras</div>
         <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight flex items-center gap-2">
           <Landmark size={22} className="text-[#C8941A]" /> Reforma Tributária — o que já está chegando
         </h1>
@@ -68,18 +69,21 @@ export default function PainelReformaPage() {
               </div>
               <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4">
                 <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Notas com os campos novos</div>
-                <div className="text-[26px] font-semibold text-[#3D2314] tabular-nums mt-1">{dados.notas_com_reforma}<span className="text-[15px] text-[#3D2314]/45"> / {dados.notas_total}</span></div>
-                <div className="text-[11px] text-[#3D2314]/55 mt-1">notas de compra do período</div>
+                <div className="text-[26px] font-semibold text-[#3D2314] tabular-nums mt-1">{dados.notas_com_campo}<span className="text-[15px] text-[#3D2314]/45"> / {dados.notas_total}</span></div>
+                <div className="text-[11px] text-[#3D2314]/55 mt-1">têm o grupo IBS/CBS · <strong>{dados.notas_com_valor}</strong> com valor &gt; 0</div>
               </div>
               <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4">
                 <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Fornecedores já emitindo</div>
-                <div className="text-[26px] font-semibold text-[#3D2314] tabular-nums mt-1">{dados.fornecedores_com_reforma}<span className="text-[15px] text-[#3D2314]/45"> / {dados.fornecedores_total}</span></div>
+                <div className="text-[26px] font-semibold text-[#3D2314] tabular-nums mt-1">{dados.fornecedores_com_campo}<span className="text-[15px] text-[#3D2314]/45"> / {dados.fornecedores_total}</span></div>
                 <div className="text-[11px] text-[#3D2314]/55 mt-1">com IBS/CBS na nota</div>
               </div>
             </div>
 
             <div className="mt-4 bg-white border border-[#3D2314]/10 rounded-xl p-4">
-              <div className="text-[13px] font-medium text-[#3D2314] mb-3">Evolução mês a mês</div>
+              <div className="flex items-baseline justify-between mb-3">
+                <div className="text-[13px] font-medium text-[#3D2314]">IBS + CBS por mês</div>
+                <div className="text-[11px] text-[#3D2314]/50">variação = mix de compras, não adoção</div>
+              </div>
               {dados.por_mes.length === 0 ? (
                 <div className="text-[12px] text-[#3D2314]/55 py-6 text-center">Nenhuma compra com IBS/CBS ainda.</div>
               ) : (
