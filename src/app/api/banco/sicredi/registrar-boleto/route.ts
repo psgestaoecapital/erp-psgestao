@@ -136,7 +136,9 @@ export async function POST(req: NextRequest) {
       cooperativa, posto, codigo_beneficiario: codigoBeneficiario, conta, agencia,
       juros_pct: jurosPct, multa_pct: multaPct,
     }
-    const result = await registrarBoleto({ cred, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador, hibrido: hibrido ?? false })
+    const result = await registrarBoleto({ cred, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador, hibrido: hibrido ?? false,
+      idTituloEmpresa: rec.id,                                        // nosso UUID vai em idTituloEmpresa (25 chars), não em seuNumero
+      especieDocumento: (credRow.especie_documento as string | null) ?? undefined })  // espécie da config (KGF serviço = DUPLICATA_SERVICO_INDICACAO); default do conector = MERCANTIL
     if (result.status < 200 || result.status >= 300 || !result.nuTituloGerado || !result.linhaDigitavel || !result.codigoBarras) {
       await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, { receber_id, raw: result.raw, payload_enviado: result.payload_resumo })
       return NextResponse.json({ ok: false, erro: 'Sicredi recusou o registro do boleto.', detalhes: result.raw }, { status: 502 })

@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
         if (provider === 'sicoob') {
           reg = await Sicoob.registrarBoleto({ cred: credSicoob(), seuNumero, valor: 1.00, emissaoISO: hojeSP, vencimentoISO: vencSP, pagador, hibrido: true })
         } else {
-          reg = await Sicredi.registrarBoleto({ cred: credSicredi(), seuNumero, valor: 1.00, emissaoISO: hojeSP, vencimentoISO: vencSP, pagador, hibrido: false })
+          reg = await Sicredi.registrarBoleto({ cred: credSicredi(), seuNumero, valor: 1.00, emissaoISO: hojeSP, vencimentoISO: vencSP, pagador, hibrido: false, idTituloEmpresa: titulo.id as string })
         }
         if (reg.status < 200 || reg.status >= 300 || !reg.nuTituloGerado || !reg.linhaDigitavel) {
           resultados.boleto = { status: 'falhou', detalhe: reg.raw }; await gravar('boleto', 'falhou', { status: reg.status, raw: reg.raw })
