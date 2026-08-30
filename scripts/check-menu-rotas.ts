@@ -77,10 +77,10 @@ async function main() {
     process.exit(0)
   }
   const sb = createClient(url, key)
+  // carrega TODOS os itens (não só ativos): os inativos servem pra achar a "entrada-irmã" com rota real
   const { data, error } = await sb
     .from('module_catalog')
     .select('id, nome, grupo, rota, ativo')
-    .eq('ativo', true)
   if (error) { console.error('check:menu — erro ao ler module_catalog:', error.message); process.exit(0) }
 
   const reais = coletarRotasReais()
@@ -89,7 +89,27 @@ async function main() {
   const semPaginaNovo: string[] = []
   let baselineHits = 0
 
-  for (const m of (data ?? []) as { id: string; nome: string; grupo: string | null; rota: string | null }[]) {
+  type CatRow = { id: string; nome: string; grupo: string | null; rota: string | null; ativo: boolean }
+  const todas = (data ?? []) as CatRow[]
+  const ativos = todas.filter((m) => m.ativo)
+
+  // ── SELO MENTIROSO (RD-58) ────────────────────────────────────────────────────────────────────────
+  // Item ATIVO apontando pro placeholder /dashboard/em-construcao/ ENQUANTO existe a tela real: detectado
+  // por uma entrada-irmã (mesmo nome) com rota real que TEM página em src/app. Foi o padrão pego na Reforma
+  // (reforma_tributaria_2026 ficou em "em construção" com a tela pronta em /dashboard/commerce/reforma).
+  const emConstru = (r: string) => r.startsWith('/dashboard/em-construcao/')
+  const norm = (s: string | null) => (s ?? '').trim().toLowerCase()
+  const seloMentiroso: string[] = []
+  for (const m of ativos) {
+    const rota = (m.rota ?? '').trim()
+    if (!emConstru(rota)) continue
+    const irma = todas.find((o) => o.id !== m.id && norm(o.nome) === norm(m.nome)
+      && (o.rota ?? '').trim() && !emConstru((o.rota ?? '').trim()) && !/^https?:\/\//.test(o.rota ?? '')
+      && rotaTemPagina((o.rota ?? '').trim(), reais))
+    if (irma) seloMentiroso.push(`${m.grupo}/${m.id} (ativo → em construção) tem tela REAL em ${irma.rota} [entrada ${irma.id}] — reponte a rota (RD-58)`)
+  }
+
+  for (const m of ativos) {
     const rota = (m.rota ?? '').trim()
     if (!rota) { semRota.push(`${m.grupo}/${m.id} (${m.nome})`); continue }
     if (/^https?:\/\//.test(rota) || rota.startsWith('/api/')) continue     // externo/API: fora do escopo
@@ -100,7 +120,7 @@ async function main() {
 
   if (baselineHits) console.log(`ℹ️  ${baselineHits} rota(s) sem página em baseline (dívida pré-existente conhecida — scripts/menu-rotas-baseline.json).`)
 
-  const problemas = semRota.length + semPaginaNovo.length
+  const problemas = semRota.length + semPaginaNovo.length + seloMentiroso.length
   // itens ativos SEM rota nenhuma sempre falham (a RPC sintetiza um caminho morto → 404 garantido)
   if (semRota.length) {
     console.error(`\n🔴 ${semRota.length} item(ns) ATIVO(s) SEM ROTA (a RPC sintetiza rota morta → 404):`)
@@ -110,11 +130,15 @@ async function main() {
     console.error(`\n🔴 ${semPaginaNovo.length} item(ns) NOVO(s) com ROTA SEM PÁGINA real em src/app:`)
     semPaginaNovo.forEach((s) => console.error('   - ' + s))
   }
+  if (seloMentiroso.length) {
+    console.error(`\n🔴 ${seloMentiroso.length} SELO MENTIROSO (RD-58): item ATIVO em "em construção" com a tela REAL pronta:`)
+    seloMentiroso.forEach((s) => console.error('   - ' + s))
+  }
   if (problemas === 0) {
-    console.log(`✅ check:menu — ${(data ?? []).length} itens ativos; nenhum 404 novo no menu.`)
+    console.log(`✅ check:menu — ${ativos.length} itens ativos; nenhum 404 novo nem selo mentiroso no menu.`)
     process.exit(0)
   }
-  console.error(`\n👉 Conserte: crie a página, ou aponte a rota pro placeholder /dashboard/em-construcao/<id>, ou desative o item.`)
+  console.error(`\n👉 Conserte: crie a página, ou aponte a rota pro placeholder /dashboard/em-construcao/<id>, ou desative o item; se a tela real já existe, reponte a rota do item ativo pra ela.`)
   process.exit(1)
 }
 
