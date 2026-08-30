@@ -4,7 +4,8 @@
 // o custo (depende do regime). KGF (simples/monofásico) = os 8 marcados. Sem config → usa 'default'.
 
 import { useCallback, useEffect, useState } from 'react'
-import { SlidersHorizontal, Loader2 } from 'lucide-react'
+import Link from 'next/link'
+import { SlidersHorizontal, Loader2, Landmark } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -96,6 +97,9 @@ export default function CustoConfigPage() {
           Quais tributos e valores entram no custo do estoque, por natureza. Depende do regime — no Simples/
           monofásico, ICMS e PIS/COFINS não são creditados, então entram no custo. Sem config, usa <code>default</code>.
         </p>
+        <Link href="/dashboard/compras/reforma" className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:underline">
+          <Landmark size={13} /> Reforma Tributária — o que já está chegando (IBS/CBS nas compras)
+        </Link>
 
         <div className="mt-5 bg-white border border-[#3D2314]/10 rounded-xl p-4">
           <div className="text-[13px] font-medium text-[#3D2314] mb-0.5">Imposto e comissão da venda</div>
