@@ -5,11 +5,17 @@ export default function ServicesPortalPage() {
     <ModuloEmConstrucao
       area="Servicos Recorrentes"
       titulo="Portal do Cliente"
-      descricao="Area externa para clientes finais consultarem mensalidades, baixarem NFS-e, abrir chamados e atualizar dados cadastrais sem precisar contatar o time."
-      previsao="Q3 2026"
-      atalhos={[
-        { label: 'Contratos Recorrentes', href: '/dashboard/contratos' },
+      descricao="Portal self-service para o cliente final acessar faturas, contratos, segunda via, comprovantes, NFS-e e abrir tickets de suporte sem precisar ligar."
+      previsao="Q1 2027"
+      recursos={[
+        'Login do cliente com 2FA (e-mail/SMS)',
+        'Segunda via de boleto e Pix em 1 clique',
+        'Historico de pagamentos + comprovantes (PDF)',
+        'Download de NFS-e emitidas no periodo',
+        'Abertura de chamados de suporte com SLA visivel',
       ]}
+      atalhos={[{ label: 'Contratos Recorrentes', href: '/dashboard/contratos' }]}
+      ctaPriorizacao
     />
   )
 }
