@@ -39,8 +39,12 @@ async function logSync(company_id: string, status: 'ok' | 'erro', mensagem: stri
 }
 
 export async function POST(req: NextRequest) {
+  // RD-38: para o catch externo poder registrar a falha (não só o sucesso), guardamos o contexto fora do try.
+  let companyIdLog: string | null = null
+  let receberIdLog: unknown = null
   try {
     const { receber_id, hibrido } = await req.json()
+    receberIdLog = receber_id
     if (!receber_id) return NextResponse.json({ ok: false, erro: 'receber_id obrigatorio' }, { status: 400 })
 
     const segredoOk = temSegredoValido(req)
@@ -61,6 +65,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'titulo ja possui boleto registrado', nosso_numero: rec.boleto_nosso_numero }, { status: 409 })
     }
     const companyId: string = rec.company_id
+    companyIdLog = companyId
 
     // credenciais (Vault): username=codigoBeneficiario+cooperativa (manual v3.9.1), password=Código de Acesso (client_secret), x-api-key=api_key
     let ambiente: SicrediAmbiente = 'producao'
@@ -198,6 +203,13 @@ export async function POST(req: NextRequest) {
     })
   } catch (e) {
     const erro = e instanceof Error ? e.message : String(e)
+    // RD-38: exceção NÃO pode ficar invisível. Toda falha registra no sync_log, igual ao sucesso —
+    // inclusive o "Sicredi auth falhou: <status>" que o obterToken lança (ex.: 401 de token sandbox).
+    if (companyIdLog) {
+      try {
+        await logSync(companyIdLog, 'erro', `excecao nao tratada: ${erro}`, { receber_id: receberIdLog })
+      } catch { /* nunca mascarar o erro original com falha de log */ }
+    }
     return NextResponse.json({ ok: false, erro }, { status: 500 })
   }
 }
