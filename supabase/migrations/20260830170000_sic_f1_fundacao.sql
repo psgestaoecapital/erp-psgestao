@@ -2,6 +2,13 @@
 -- Auditado antes (RD-38): erp_banco_erro_catalogo já tem PK (provider,codigo); config tem todas as colunas
 -- e NÃO tem boleto_seq/especie_documento/valida_cep_pagador/webhook_*; system_screens.id e feature_catalog.id
 -- são TEXT sem default (a SPEC omitia o id — corrigido aqui).
+--
+-- CORREÇÃO PÓS-DEPLOY (RD-38): a versão original deste arquivo NÃO era aplicável. Três premissas de schema
+-- do SPEC estavam erradas e só o banco real revelou:
+--   (1) erp_banco_manifesto.campos_ausentes é JSONB (o SPEC atribuía text[] → 42804);
+--   (2) erp_banco_manifesto.scopes_ok / scopes_proibidos são JSONB (idem);
+--   (3) feature_catalog.pilar_inviolavel é INTEGER (o SPEC passava o texto 'seguranca_lgpd' → 22P02).
+-- Abaixo já corrigido para bater byte a byte com o que foi aplicado em produção.
 
 -- 1.1 · campos que a API Sicredi exige e a config não tinha
 ALTER TABLE public.erp_banco_provider_config
@@ -16,15 +23,16 @@ COMMENT ON COLUMN public.erp_banco_provider_config.valida_cep_pagador IS
   'NULL=desconhecido. Só o primeiro HTTP 422 do Sicredi responde. Proibido assumir false.';
 
 -- 1.2 · manifesto Sicredi (o atual mente: auth_tipo errado, dois segredos no mesmo slot). SÓ provider=sicredi.
+-- campos_ausentes / scopes_ok / scopes_proibidos são JSONB no schema real — literais jsonb, não text[].
 UPDATE public.erp_banco_manifesto SET
   auth_tipo = 'apikey_oauth_password',
   homologado_ref = NULL,          -- NUNCA houve homologação; dizia 'KGF' e é falso (RD-51)
   portal_url = 'https://developer.sicredi.com.br/api-portal/pt-br',
   quem_aprova = 'PJ Tech · pjtech@sicredi.com.br · (51) 3358-8000 · 9h-18h seg-sex',
   prazo_tipico = 'SLA 24h; média real 30min-1h (Cartilha do Portal)',
-  campos_ausentes = ARRAY['certificado','client_id','convenio','carteira','agencia'],
-  scopes_ok = ARRAY['cobranca'],
-  scopes_proibidos = ARRAY['Pagamentos','Pix Pagamentos','Transferencias'],
+  campos_ausentes = '["certificado","client_id","convenio","carteira","agencia"]'::jsonb,
+  scopes_ok = '["cobranca"]'::jsonb,
+  scopes_proibidos = '["Pagamentos","Pix Pagamentos","Transferencias"]'::jsonb,
   campos = '[
     {"id":"cooperativa","label":"Cooperativa","exemplo":"0313","helper":"4 dígitos. É a agência no e-mail do Sicredi."},
     {"id":"posto","label":"Posto","exemplo":"15","helper":"2 dígitos."},
@@ -33,7 +41,7 @@ UPDATE public.erp_banco_manifesto SET
     {"id":"codigo_acesso","label":"Código de Acesso","secret":"clisecret","helper":"Gerado pelo Usuário Master no Internet Banking: Cobrança >> Código de Acesso >> Gerar."}
   ]'::jsonb,
   portal_passos = jsonb_build_object(
-    'ordem', ARRAY[
+    'ordem', jsonb_build_array(
       '1. Portal do Desenvolvedor > Criar Conta (usar e-mail CORPORATIVO — a app pertence a quem criou)',
       '2. Minha Conta > Minhas Apps > Cadastrar Nova App',
       '3. Marcar Open API - OAuth - Parceiros 1.0.0 E Open API - Cobranca - Parceiros 1.0.0',
@@ -41,7 +49,7 @@ UPDATE public.erp_banco_manifesto SET
       '5. Registrar > copiar o Client ID',
       '6. Suporte > Abra um chamado > Tipo: API Cobrança Boletos > Motivo: Solicitar Access Token > Ambiente: PRODUÇÃO > colar Client ID',
       '7. Minhas Apps > Detalhes > copiar o Access Token (x-api-key)'
-    ],
+    ),
     'aviso', 'A Cartilha recomenda criar DIRETO em produção. App criada em sandbox exige repetir tudo depois.'
   ),
   updated_at = now()
@@ -103,8 +111,9 @@ ON CONFLICT (rota) DO NOTHING;
 
 -- Sicoob (756) opera em produção com boletos emitidos e a tela mostra PREVISTO por AUSÊNCIA de linha em
 -- feature_catalog. Isso é RD-58. Consertamos o CATÁLOGO da tela — o Sicoob em si não é tocado.
-INSERT INTO public.feature_catalog (id, module_id, area, titulo, descricao_executiva, status, percentual_pronto, prioridade, pilar_inviolavel)
+-- feature_catalog.pilar_inviolavel é INTEGER (não texto) e é nullable → omitido (deixa NULL).
+INSERT INTO public.feature_catalog (id, module_id, area, titulo, descricao_executiva, status, percentual_pronto, prioridade)
 VALUES ('F.banco.conexao_api','49af8f38-9262-41a9-844c-132d8fee4e36','gestao_empresarial','Conexão bancária por API',
   'Conectar o banco da empresa para emitir boleto e ler extrato sem depender de arquivo CNAB.',
-  'parcial', 60, 'alta', 'seguranca_lgpd')
+  'parcial', 60, 'alta')
 ON CONFLICT (id) DO UPDATE SET status='parcial', percentual_pronto=60;
