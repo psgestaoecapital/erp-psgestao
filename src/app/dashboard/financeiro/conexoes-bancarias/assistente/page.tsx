@@ -32,6 +32,28 @@ const ESTADO_LABEL: Record<string, string> = {
 }
 const PASSO_LABEL: Record<string, string> = { oauth: '1. Autenticar (OAuth)', boleto: '2. Registrar boleto', pdf: '3. Gerar PDF (com Pix)', extrato: '4. Puxar extrato', baixa: '5. Liquidação na conta certa' }
 
+// Matcher erro→código do catálogo. Case-insensitive; só casa o que reconhece COM CONFIANÇA.
+// Nada casou ⇒ null e a tela mostra o erro CRU (nunca uma linha arbitrária do catálogo). RD-51/RD-58:
+// erro não reconhecido é melhor que erro errado.
+const ERRO_MATCHERS: { re: RegExp; codigo: string }[] = [
+  { re: /invalid_grant|invalid user credentials/i, codigo: '401_invalid_user_credentials' },
+  { re: /10 caracteres|seu.?n[uú]mero/i,           codigo: '400_seu_numero' },
+  { re: /\b429\b|muitas requisi|too many request/i, codigo: '429' },
+]
+function acharErroCatalogo(detalhe: unknown, catalogo: ErroCat[]): ErroCat | null {
+  const raw = typeof detalhe === 'string' ? detalhe : JSON.stringify(detalhe ?? '')
+  for (const m of ERRO_MATCHERS) {
+    if (m.re.test(raw)) return catalogo.find((c) => c.codigo === m.codigo) ?? null
+  }
+  return null
+}
+function detalheTexto(detalhe: unknown): string {
+  if (detalhe == null) return '(sem detalhe)'
+  if (typeof detalhe === 'string') return detalhe
+  const d = detalhe as Record<string, unknown>
+  return String(d.erro ?? d.raw ?? JSON.stringify(detalhe))
+}
+
 export default function AssistenteConexaoPage() {
   const { companyIds } = useCompanyIds()
   const empresa = companyIds.length === 1 ? companyIds[0] : null
@@ -203,14 +225,15 @@ export default function AssistenteConexaoPage() {
             <Card n={3} titulo="Testar" bloqueado={!['recebido', 'testando', 'homologado', 'producao'].includes(estado)}>
               <div style={{ display: 'grid', gap: 6 }}>
                 {(man.escada_teste ?? []).map((passo) => {
-                  const st = testeDe(passo)
+                  const teste = testes.find((t) => t.provider === provider && t.passo === passo)
+                  const st = teste?.status ?? 'nao_testado'
                   const cfgSt = {
                     ok:                  { cor: OK,   icon: '✅', label: '' },
                     falhou:              { cor: ERR,  icon: '❌', label: '' },
                     aguardando_pagamento:{ cor: WARN, icon: '⏳', label: ' — aguardando o pagamento do R$1 (o banco confirma quando cair)' },
                     nao_disponivel:      { cor: ESP60,icon: '➖', label: ' — fase 2 (ainda não disponível)' },
                   }[st] ?? { cor: ESP60, icon: '⏸️', label: '' }
-                  const erro = st === 'falhou' ? catalogo[0] : null
+                  const erro = st === 'falhou' ? acharErroCatalogo(teste?.detalhe, catalogo) : null
                   return (
                     <div key={passo}>
                       <div style={{ fontSize: 13, color: cfgSt.cor, fontWeight: st === 'falhou' ? 700 : 500 }}>{cfgSt.icon} {PASSO_LABEL[passo] ?? passo}<span style={{ color: ESP60, fontWeight: 400 }}>{cfgSt.label}</span></div>
@@ -221,7 +244,12 @@ export default function AssistenteConexaoPage() {
                         </div>
                       )}
                       {st === 'falhou' && !erro && (
-                        <div style={{ margin: '4px 0 6px 20px', fontSize: 11, color: ESP60 }}>Erro não catalogado — copie o detalhe e reporte ao time (não inventamos causa).</div>
+                        <div style={{ margin: '4px 0 6px 20px', background: '#FBECEC', border: `1px solid ${ERR}44`, borderRadius: 8, padding: 10, fontSize: 12, color: ESP }}>
+                          <b>Erro não reconhecido no catálogo</b>
+                          <div style={{ color: ESP60, margin: '3px 0' }}>Mensagem original do banco:</div>
+                          <code style={{ display: 'block', wordBreak: 'break-all', fontSize: 11 }}>{detalheTexto(teste?.detalhe)}</code>
+                          <div style={{ color: ESP60, marginTop: 3 }}>Copie e reporte ao time — não inventamos causa.</div>
+                        </div>
                       )}
                     </div>
                   )

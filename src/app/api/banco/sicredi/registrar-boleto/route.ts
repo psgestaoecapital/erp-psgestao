@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
   // RD-38: para o catch externo poder registrar a falha (não só o sucesso), guardamos o contexto fora do try.
   let companyIdLog: string | null = null
   let receberIdLog: unknown = null
+  let usernameLog: string | null = null   // username (benef+coop) enviado ao Sicredi — logado, NUNCA o password
   try {
     const { receber_id, hibrido } = await req.json()
     receberIdLog = receber_id
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
     const codigoBeneficiario = (credRow.codigo_beneficiario as string | null) ?? ''
     // username = codigoBeneficiario+cooperativa (manual v3.9.1); NÃO client_id.
     const username = (codigoBeneficiario && cooperativa) ? `${codigoBeneficiario}${cooperativa}` : null
+    usernameLog = username
     const jurosPct = (credRow.juros_pct as number | null) ?? null
     const multaPct = (credRow.multa_pct as number | null) ?? null
 
@@ -145,7 +147,7 @@ export async function POST(req: NextRequest) {
       idTituloEmpresa: rec.id,                                        // nosso UUID vai em idTituloEmpresa (25 chars), não em seuNumero
       especieDocumento: (credRow.especie_documento as string | null) ?? undefined })  // espécie da config (KGF serviço = DUPLICATA_SERVICO_INDICACAO); default do conector = MERCANTIL
     if (result.status < 200 || result.status >= 300 || !result.nuTituloGerado || !result.linhaDigitavel || !result.codigoBarras) {
-      await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, { receber_id, raw: result.raw, payload_enviado: result.payload_resumo })
+      await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, { receber_id, username, username_len: username.length, raw: result.raw, payload_enviado: result.payload_resumo })
       return NextResponse.json({ ok: false, erro: 'Sicredi recusou o registro do boleto.', detalhes: result.raw }, { status: 502 })
     }
 
@@ -207,7 +209,7 @@ export async function POST(req: NextRequest) {
     // inclusive o "Sicredi auth falhou: <status>" que o obterToken lança (ex.: 401 de token sandbox).
     if (companyIdLog) {
       try {
-        await logSync(companyIdLog, 'erro', `excecao nao tratada: ${erro}`, { receber_id: receberIdLog })
+        await logSync(companyIdLog, 'erro', `excecao nao tratada: ${erro}`, { receber_id: receberIdLog, username: usernameLog, username_len: usernameLog?.length ?? 0 })
       } catch { /* nunca mascarar o erro original com falha de log */ }
     }
     return NextResponse.json({ ok: false, erro }, { status: 500 })
