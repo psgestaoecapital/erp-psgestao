@@ -13,9 +13,12 @@
 //                nosso_numero). Nasce 'aguardando_pagamento'; vira 'ok' só quando
 //                o banco confirma o crédito. Sem 5/5 mentiroso (RD-38).
 //
-// GUARDAS: só roda em estado recebido/testando; lê o ambiente REAL da config no
-// disparo e RECUSA se for 'producao' (não registra boleto real); para no 1º degrau
-// que falha; provider fora de sicoob/sicredi fica fora da escada automática.
+// GUARDAS: só roda em estado recebido/testando; lê o ambiente REAL da config no disparo;
+// em PRODUÇÃO a escada é CONDICIONADA (SIC-F1 §4), nunca absoluta: exige opt-in explícito
+// (confirmo_boleto_real), gate do manifesto (homologa_em_producao — Sicoob/Bradesco barrados),
+// teto de R$ 1,00, título só em erp_banco_teste_titulo, e registro de quem/quando; e PARA no
+// oauth (fase 1: valida o token, não emite o R$1). Homologação roda a escada completa. Para no
+// 1º degrau que falha; provider fora de sicoob/sicredi fica fora da escada automática.
 // ============================================================================
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -43,7 +46,7 @@ type Pagador = { tipo: 'PF' | 'PJ'; documento: string; nome: string; logradouro:
 
 export async function POST(req: NextRequest) {
   try {
-    const { company_id, provider } = await req.json()
+    const { company_id, provider, confirmo_boleto_real } = await req.json()
     if (!company_id || !provider) return NextResponse.json({ ok: false, erro: 'company_id e provider obrigatórios' }, { status: 400 })
 
     // Auth: sessão de usuário. A leitura da config passa pela RLS do usuário.
@@ -70,15 +73,46 @@ export async function POST(req: NextRequest) {
       }, { status: 409 })
     }
 
-    // GUARDA de ambiente (RD-38): lê o ambiente REAL da config no disparo — não
-    // confia no rótulo da tela. Produção = registraria boleto REAL com dinheiro real.
+    // TETO do teste real: o boleto de teste NUNCA passa de R$ 1,00 (trava 2).
+    const VALOR_TESTE = 1.00
+    const TETO_TESTE = 1.00
+
+    // GATE de ambiente (RD-38/RD-57): lê o ambiente REAL da config no disparo — não confia
+    // no rótulo da tela. A recusa de produção CONTINUA existindo; só deixa de ser absoluta.
+    // Cinco travas para rodar em produção:
+    //  (1) opt-in explícito por chamada (confirmo_boleto_real) — nunca default, nunca env;
+    //  (2) valor ≤ R$ 1,00 (VALOR_TESTE/TETO_TESTE);
+    //  (3) gate lido do MANIFESTO (homologa_em_producao), JAMAIS `if provider===x` — Sicoob/Bradesco barrados;
+    //  (4) título vive em erp_banco_teste_titulo, nunca erp_receber (já era assim);
+    //  (5) registra quem autorizou e quando.
     const ambiente = cfg.ambiente as string
-    if (ambiente === 'producao') {
-      return NextResponse.json({
-        ok: false, ambiente_producao: true,
-        erro: '⚠️ Esta config está em PRODUÇÃO — o teste registraria um boleto REAL com dinheiro real. Confirme o ambiente antes de testar.',
-      }, { status: 409 })
+    const modoProducao = ambiente === 'producao'
+    // manifesto é referência global — via service role (não depende da RLS do usuário).
+    // Coluna homologa_em_producao pode não existir ainda (fail-closed: undefined ⇒ false ⇒ barrado).
+    const { data: man } = await supabaseAdmin.from('erp_banco_manifesto')
+      .select('homologa_em_producao').eq('provider', provider).maybeSingle()
+    const homologaEmProducao = (man as { homologa_em_producao?: boolean } | null)?.homologa_em_producao === true
+
+    if (modoProducao) {
+      if (!homologaEmProducao) {
+        return NextResponse.json({
+          ok: false, ambiente_producao: true,
+          erro: `⚠️ Config em PRODUÇÃO e o provider ${provider} não homologa em produção — a escada registraria um boleto REAL. Barrado.`,
+        }, { status: 409 })
+      }
+      if (confirmo_boleto_real !== true) {
+        return NextResponse.json({
+          ok: false, ambiente_producao: true, precisa_confirmacao: true,
+          erro: '⚠️ PRODUÇÃO: a escada registraria um boleto REAL (teto R$ 1,00). Reenvie com confirmo_boleto_real: true para autorizar o teste real.',
+        }, { status: 428 })
+      }
+      if (VALOR_TESTE > TETO_TESTE) {
+        return NextResponse.json({ ok: false, erro: `Teto do teste real é R$ ${TETO_TESTE.toFixed(2)}.` }, { status: 409 })
+      }
     }
+    // (5) quem autorizou o teste real e quando — só no modo produção.
+    const autorizadoPor = modoProducao ? user.id : null
+    const autorizadoEm = modoProducao ? new Date().toISOString() : null
 
     // Reset dos 5 degraus p/ esta tentativa (o resultado reflete ESTE run)
     async function gravar(passo: string, status: string, detalhe: unknown) {
@@ -126,9 +160,10 @@ export async function POST(req: NextRequest) {
         .select('*').eq('company_id', company_id).eq('provider', provider).neq('boleto_status', 'liquidado').maybeSingle()
       if (existing) return existing
       const { data: created } = await supabaseAdmin.from('erp_banco_teste_titulo').insert({
-        company_id, provider, banco_codigo: bancoCodigo, ambiente, valor: 1.00,
+        company_id, provider, banco_codigo: bancoCodigo, ambiente, valor: VALOR_TESTE,
         pagador_nome: pagador.nome, pagador_documento: pagador.documento,
         data_emissao: hojeSP, data_vencimento: vencSP, boleto_status: 'pendente',
+        autorizado_por: autorizadoPor, autorizado_em: autorizadoEm,
       }).select('*').single()
       return created
     }
@@ -158,11 +193,21 @@ export async function POST(req: NextRequest) {
     try {
       if (provider === 'sicoob') await Sicoob.obterToken(credSicoob())
       else await Sicredi.obterToken(credSicredi())
-      resultados.oauth = { status: 'ok' }; await gravar('oauth', 'ok', { ambiente })
+      resultados.oauth = { status: 'ok' }; await gravar('oauth', 'ok', { ambiente, autorizado_por: autorizadoPor, autorizado_em: autorizadoEm })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       resultados.oauth = { status: 'falhou', detalhe: msg }; await gravar('oauth', 'falhou', { erro: msg })
       return finalizar('oauth')
+    }
+
+    // PARADA CONSCIENTE em produção (SIC-F1 §4 fase 1): valida só o OAuth contra o banco real
+    // e PARA. Não emite o boleto de R$ 1,00 ainda. Homologação segue a escada completa abaixo.
+    if (modoProducao) {
+      return NextResponse.json({
+        ok: true, parou_em: 'oauth', modo_producao: true,
+        nota: 'Produção fase 1: OAuth validado contra o banco real. Boleto REAL não emitido (parada consciente).',
+        autorizado_por: autorizadoPor, autorizado_em: autorizadoEm, resultados,
+      })
     }
 
     // ───────────────────────── DEGRAU 2: BOLETO ────────────────────────
