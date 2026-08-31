@@ -670,7 +670,8 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         const params: Record<string, unknown> = {
           p_company_id: companyId, p_banco_codigo: String(banco.codigo), p_provider: banco.sigla, p_ambiente: ambiente,
           p_cooperativa: cooperativa || null, p_codigo_beneficiario: codBenef || null,
-          p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: false, p_ativo: true,
+          // cap_pagamento (remessa CNAB) NÃO é capacidade desta tela de API: null preserva o valor (RD-57; a RPC também ignora no UPDATE).
+          p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
         }
         if (banco.sigla === 'sicredi') {
           // OAuth Cobrança: x-api-key + Código de Acesso (slot client_secret). Sem client_id/cert.

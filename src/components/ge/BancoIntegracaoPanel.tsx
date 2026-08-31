@@ -131,7 +131,8 @@ export default function BancoIntegracaoPanel({
       p_agencia: agencia || null, p_conta: contaInput || null,
       p_cooperativa: null,
       p_codigo_beneficiario: codBenef || null, p_convenio: convenio || null, p_carteira: carteira || null,
-      p_cap_extrato: capExtrato, p_cap_boleto: capBoleto, p_cap_pagamento: false,
+      // cap_pagamento (remessa CNAB) NÃO é desta tela de API: null preserva o valor (RD-57).
+      p_cap_extrato: capExtrato, p_cap_boleto: capBoleto, p_cap_pagamento: null,
       p_ativo: true,
     })
     setBusy(false)
@@ -151,7 +152,8 @@ export default function BancoIntegracaoPanel({
       p_client_id: null, p_client_secret: null, p_cert_base64: null, p_cert_senha: null,
       p_agencia: null, p_conta: null, p_cooperativa: null,
       p_codigo_beneficiario: codBenef || null, p_convenio: convenio || null, p_carteira: carteira || null,
-      p_cap_extrato: capExtrato, p_cap_boleto: capBoleto, p_cap_pagamento: false, p_ativo: true,
+      // cap_pagamento (remessa CNAB) NÃO é desta tela de API: null preserva o valor (RD-57).
+      p_cap_extrato: capExtrato, p_cap_boleto: capBoleto, p_cap_pagamento: null, p_ativo: true,
     })
     if (r1.error) { setBusy(false); setMsg({ tipo: 'erro', texto: r1.error.message }); return }
     const { error } = await supabase.rpc('fn_banco_boleto_params_salvar', {
