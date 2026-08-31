@@ -11,6 +11,8 @@ BEGIN
   SELECT pg_get_functiondef(oid) INTO v_def FROM pg_proc
    WHERE proname='fn_briefing_sessao' AND pronamespace='public'::regnamespace;
   IF v_def IS NULL THEN RAISE EXCEPTION 'fn_briefing_sessao nao encontrada'; END IF;
+  -- idempotente: se já aponta para companies_producao (re-run em banco já patcheado), não faz nada.
+  IF position('FROM companies_producao),' IN v_def) > 0 THEN RETURN; END IF;
   v_ocorr := (length(v_def) - length(replace(v_def,'FROM companies),',''))) / length('FROM companies),');
   IF v_ocorr <> 1 THEN RAISE EXCEPTION 'esperava 1 ancora FROM companies), achei %', v_ocorr; END IF;
   v_new := replace(v_def, 'FROM companies),', 'FROM companies_producao),');
