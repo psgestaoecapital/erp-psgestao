@@ -110,6 +110,7 @@ export type RegistrarBoletoInput = {
   pagador: PagadorInput
   hibrido?: boolean
   especieDocumento?: string
+  idTituloEmpresa?: string   // nosso identificador interno (UUID). Vai em idTituloEmpresa (25 chars), NÃO em seuNumero.
   mensagens?: Array<string | null | undefined>
 }
 
@@ -136,7 +137,9 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     tipoCobranca: input.hibrido ? 'HIBRIDO' : 'NORMAL', // HIBRIDO exige contratação na cooperativa
     codigoBeneficiario: c.codigo_beneficiario,
     especieDocumento: input.especieDocumento ?? 'DUPLICATA_MERCANTIL_INDICACAO',
-    seuNumero: input.seuNumero.slice(0, 25),
+    // RD-57: seuNumero (Sicredi máx. 10, só alfanumérico) é cortado AQUI — em TODO caminho (manual, API,
+    // cron, import, escada), não só nas rotas. O UUID interno vai em idTituloEmpresa (25 chars).
+    seuNumero: input.seuNumero.replace(/[^0-9A-Za-z]/g, '').slice(0, 10),
     dataVencimento: input.vencimentoISO,
     valor: Number(input.valor.toFixed(2)),
     pagador: {
@@ -150,6 +153,7 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     },
   }
   if (input.nossoNumero) payload.nossoNumero = input.nossoNumero
+  if (input.idTituloEmpresa) payload.idTituloEmpresa = String(input.idTituloEmpresa).replace(/[^0-9A-Za-z]/g, '').slice(0, 25)
   if (c.juros_pct && c.juros_pct > 0) { payload.tipoJuros = 'PERCENTUAL_MES'; payload.juros = Number(c.juros_pct) }
   if (c.multa_pct && c.multa_pct > 0) { payload.tipoMulta = 'PERCENTUAL'; payload.multa = Number(c.multa_pct) }
   if (input.mensagens && input.mensagens.length > 0) {
