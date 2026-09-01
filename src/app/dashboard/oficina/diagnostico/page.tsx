@@ -424,9 +424,12 @@ export default function DiagnosticoPage() {
             </div>
           ))}
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => addLinha('servico')} style={{ ...btnLine, flex: 1 }}><Plus size={15} /> Serviço</button>
-            <button onClick={() => addLinha('peca')} style={{ ...btnLine, flex: 1 }}><Plus size={15} /> Peça</button>
+          {/* A2 · o catálogo (busca acima) é o caminho padrão. Digitar livre continua possível,
+              mas é a exceção — não liga a estoque/tempário — por isso fica secundário (RD-58). */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: ESP60 }}>Não achou no catálogo?</span>
+            <button onClick={() => addLinha('servico')} style={{ ...btnLineGhost, flex: 1 }}><Plus size={13} /> Digitar serviço livre</button>
+            <button onClick={() => addLinha('peca')} style={{ ...btnLineGhost, flex: 1 }}><Plus size={13} /> Digitar peça livre</button>
           </div>
 
           {/* RD-41 · total do orçamento (operacional; faturamento continua [→GE]) */}
@@ -603,5 +606,7 @@ function Toast({ children }: { children: React.ReactNode }) {
 const inp: CSSProperties = { width: '100%', padding: '11px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
 const btnLine: CSSProperties = { background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }
+// A2 · botão secundário (digitar livre = exceção ao catálogo): menor, sem preenchimento, discreto.
+const btnLineGhost: CSSProperties = { background: 'transparent', color: ESP60, border: `1px dashed ${LINE}`, borderRadius: 10, padding: '8px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }
 const chip: CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
 const linkBtn: CSSProperties = { background: 'none', border: 'none', color: ESP60, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: 0 }
