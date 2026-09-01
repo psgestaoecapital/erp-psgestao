@@ -17,6 +17,13 @@ export interface Parcela {
   forma_pagamento: string | null
   gerar_boleto: boolean
   observacoes?: string | null
+  conta_bancaria_id?: string | null   // §venda · banco da cobrança POR parcela (espelho do §5 NF-e)
+}
+
+interface Conta {
+  id: string
+  nome: string
+  banco: string | null
 }
 
 interface Props {
@@ -96,6 +103,7 @@ const btnSec: React.CSSProperties = {
 
 export default function ParcelasEditor({ pedidoId, total, onSaved }: Props) {
   const [parcelas, setParcelas] = useState<Parcela[]>([])
+  const [contas, setContas] = useState<Conta[]>([])
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [msgErr, setMsgErr] = useState<string | null>(null)
@@ -110,14 +118,21 @@ export default function ParcelasEditor({ pedidoId, total, onSaved }: Props) {
     void (async () => {
       const { data } = await supabase
         .from('erp_pedidos_parcelas')
-        .select('id,numero,valor,vencimento,forma_pagamento,gerar_boleto,observacoes')
+        .select('id,numero,valor,vencimento,forma_pagamento,gerar_boleto,observacoes,conta_bancaria_id')
         .eq('pedido_id', pedidoId)
         .order('numero', { ascending: true })
+      // contas ativas da empresa DO pedido (escopo por company, não do usuário) — para não misturar tenants
+      const { data: ped } = await supabase.from('erp_pedidos').select('company_id').eq('id', pedidoId).maybeSingle()
+      const { data: cts } = ped?.company_id
+        ? await supabase.from('erp_banco_contas').select('id,nome,banco').eq('company_id', ped.company_id).eq('ativo', true).order('nome')
+        : { data: [] }
       if (alive) {
+        setContas((cts ?? []) as Conta[])
         setParcelas((data ?? []).map((p) => ({
           ...p,
           valor: Number(p.valor),
           gerar_boleto: !!p.gerar_boleto,
+          conta_bancaria_id: p.conta_bancaria_id ?? null,
         })) as Parcela[])
         setLoading(false)
       }
@@ -216,6 +231,7 @@ export default function ParcelasEditor({ pedidoId, total, onSaved }: Props) {
       forma_pagamento: p.forma_pagamento || null,
       gerar_boleto: !!p.gerar_boleto,
       observacoes: p.observacoes || null,
+      conta_bancaria_id: p.conta_bancaria_id || null,
     }))
     const { data, error } = await supabase.rpc('fn_pedido_salvar_parcelas', {
       p_pedido_id: pedidoId,
@@ -304,6 +320,18 @@ export default function ParcelasEditor({ pedidoId, total, onSaved }: Props) {
                 >
                   <option value="">Forma de pagamento…</option>
                   {FORMAS.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+                {/* §venda · banco da cobrança desta parcela (parcelas diferentes → bancos diferentes) */}
+                <select
+                  value={p.conta_bancaria_id ?? ''}
+                  onChange={(e) => alterar(i, { conta_bancaria_id: e.target.value || null })}
+                  style={{ ...inp, flex: 1 }}
+                  data-testid={`parcela-conta-${i}`}
+                  disabled={contas.length === 0}
+                  title={contas.length === 0 ? 'Nenhuma conta bancária ativa cadastrada' : 'Conta que recebe esta parcela'}
+                >
+                  <option value="">{contas.length === 0 ? 'Sem contas ativas' : 'Banco da cobrança…'}</option>
+                  {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
                 </select>
                 <label style={{
                   display: 'flex', alignItems: 'center', gap: 6, minHeight: 36, padding: '0 10px',
