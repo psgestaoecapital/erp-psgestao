@@ -223,6 +223,9 @@ function EstoqueInner() {
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([])
   const [curva, setCurva] = useState<CurvaABCRow[]>([])
+  // Bloco D · reserva de estoque como ESTADO (fonte: fn_estoque_reservas). Mapa produto_id → reservado.
+  // Só produtos COM reserva vêm no mapa; disponível = físico − (reservado ?? 0). Nada muda de lugar.
+  const [reservas, setReservas] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [erro, setErro] = useState('')
@@ -261,12 +264,12 @@ function EstoqueInner() {
   // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   const carregar = useCallback(async () => {
     if (!companyIdUnico) {
-      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([])
+      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([]); setReservas({})
       return
     }
     setLoading(true)
     setErro('')
-    const [loc, prod, mov, abc, inv] = await Promise.all([
+    const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
       supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
       supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
         .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
@@ -274,6 +277,8 @@ function EstoqueInner() {
       supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
       supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
       supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
+      // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
+      supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
     ])
     if (loc.error) setErro('Locais: ' + loc.error.message)
     else setLocais((loc.data ?? []) as Local[])
@@ -285,6 +290,12 @@ function EstoqueInner() {
     else setCurva((abc.data ?? []) as CurvaABCRow[])
     if (inv.error) setErro('Inventários: ' + inv.error.message)
     else setInventarios((inv.data ?? []) as Inventario[])
+    // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
+    if (!rsv.error) {
+      const m: Record<string, number> = {}
+      for (const r of ((rsv.data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
+      setReservas(m)
+    } else setReservas({})
     setLoading(false)
   }, [companyIdUnico])
 
@@ -526,26 +537,34 @@ function EstoqueInner() {
     local_id: string | null; local_nome: string
     saldo: number; custo_medio: number; valor_total: number
     classe_abc: 'A' | 'B' | 'C' | null
+    reservado: number; disponivel: number  // Bloco D · três números onde antes existia um
   }
   const saldoRows = useMemo<SaldoRow[]>(() => {
     const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
-    return curva.map((r) => ({
-      produto_id: r.produto_id,
-      produto_nome: r.nome,
-      produto_codigo: r.codigo,
-      local_id: principal?.id ?? null,
-      local_nome: principal?.nome ?? 'Estoque Principal',
-      saldo: Number(r.estoque_atual ?? 0),
-      custo_medio: Number(r.preco_custo_medio ?? 0),
-      valor_total: Number(r.valor_total ?? 0),
-      classe_abc: r.classe_abc ?? null,
-    }))
-  }, [curva, locais])
+    return curva.map((r) => {
+      const saldo = Number(r.estoque_atual ?? 0)
+      const reservado = Number(reservas[r.produto_id] ?? 0)
+      return {
+        produto_id: r.produto_id,
+        produto_nome: r.nome,
+        produto_codigo: r.codigo,
+        local_id: principal?.id ?? null,
+        local_nome: principal?.nome ?? 'Estoque Principal',
+        saldo,
+        custo_medio: Number(r.preco_custo_medio ?? 0),
+        valor_total: Number(r.valor_total ?? 0),
+        classe_abc: r.classe_abc ?? null,
+        reservado,
+        disponivel: saldo - reservado,  // pode ficar negativo — é honesto: prometeu mais do que tem
+      }
+    })
+  }, [curva, locais, reservas])
 
   const saldoFiltrado = useMemo(() => {
     const q = filtroSaldoProduto.trim().toLowerCase()
     return saldoRows.filter((r) => {
-      if (filtroSaldoSomenteComSaldo && r.saldo <= 0) return false
+      // Bloco D · "só com saldo" ainda mostra o que tem reserva (físico 0 + reservado = furo a ver)
+      if (filtroSaldoSomenteComSaldo && r.saldo <= 0 && r.reservado <= 0) return false
       if (filtroSaldoLocal && r.local_id !== filtroSaldoLocal) return false
       if (q) {
         const hay = `${r.produto_nome} ${r.produto_codigo ?? ''}`.toLowerCase()
@@ -560,7 +579,9 @@ function EstoqueInner() {
     const skusComSaldo = saldoRows.filter((r) => r.saldo > 0).length
     const skusZerados = saldoRows.filter((r) => r.saldo <= 0).length
     const valorImobilizado = saldoRows.reduce((s, r) => s + r.valor_total, 0)
-    return { totalSku, skusComSaldo, skusZerados, valorImobilizado }
+    // Bloco D · quantos SKUs têm peça reservada em OS pronta/entregue não faturada
+    const skusReservados = saldoRows.filter((r) => r.reservado > 0).length
+    return { totalSku, skusComSaldo, skusZerados, valorImobilizado, skusReservados }
   }, [saldoRows])
 
   // F2.1 · ref_tipos unicos pro filtro de movimentacoes
@@ -669,6 +690,7 @@ function EstoqueInner() {
           filtroEstoque={filtroEstoque} setFiltroEstoque={setFiltroEstoque}
           page={produtosSrvPage} setPage={setProdutosSrvPage} pageSize={PRODUTOS_PAGE_SIZE}
           buscando={filtroBusca.trim().length >= 2}
+          reservas={reservas}
           onSelect={setProdutoSel}
         />
       ) : tab === 'movimentacoes' ? (
@@ -744,6 +766,7 @@ function EstoqueInner() {
       {produtoSel && (
         <DrawerProduto
           produto={produtoSel}
+          reservado={reservas[produtoSel.id] ?? 0}
           movimentacoes={movimentacoesDoProduto}
           locaisPorId={locaisPorId}
           onClose={() => setProdutoSel(null)}
@@ -811,13 +834,14 @@ function TabLocais({ locais, onEdit, onDelete, canCreate, onCreate }: { locais: 
   )
 }
 
-function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, page, setPage, pageSize, buscando, onSelect }: {
+function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, page, setPage, pageSize, buscando, reservas, onSelect }: {
   rows: Produto[]; total: number; loading: boolean; categorias: string[];
   filtroBusca: string; setFiltroBusca: (v: string) => void;
   filtroCategoria: string; setFiltroCategoria: (v: string) => void;
   filtroEstoque: 'todos' | 'baixo' | 'zero' | 'excedente'; setFiltroEstoque: (v: 'todos' | 'baixo' | 'zero' | 'excedente') => void;
   page: number; setPage: (n: number) => void; pageSize: number;
   buscando: boolean;
+  reservas: Record<string, number>;  // Bloco D · produto_id → reservado
   onSelect: (p: Produto) => void;
 }) {
   // FIX-PRODUTOS-BUSCA-SERVERSIDE-v1 · paginacao real (sem teto cego de 500)
@@ -860,9 +884,9 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1080 }}>
               <thead style={{ background: C.cream }}>
-                <tr><Th>Código</Th><Th>Nome</Th><Th>Categoria</Th><Th>Unid.</Th><Th align="right">Estoque</Th><Th align="right">Mín/Máx</Th><Th align="right">Custo médio</Th><Th align="right">Valor estoque</Th><Th>Status</Th></tr>
+                <tr><Th>Código</Th><Th>Nome</Th><Th>Categoria</Th><Th>Unid.</Th><Th align="right">Físico</Th><Th align="right">Reservado</Th><Th align="right">Disponível</Th><Th align="right">Mín/Máx</Th><Th align="right">Custo médio</Th><Th align="right">Valor estoque</Th><Th>Status</Th></tr>
               </thead>
               <tbody>
                 {rows.map((p) => {
@@ -872,13 +896,19 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
                   const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
                   const valor = atual * custo
                   const status = atual === 0 ? 'zero' : atual < min ? 'baixo' : (max > 0 && atual > max) ? 'excedente' : 'ok'
+                  // Bloco D · reservado (estado) e disponível = físico − reservado (negativo = furo, em vermelho)
+                  const reservado = Number(reservas[p.id] ?? 0)
+                  const disponivel = atual - reservado
+                  const corDisp = disponivel < 0 ? C.red : reservado > 0 ? C.goldD : C.espresso
                   return (
                     <tr key={p.id} onClick={() => onSelect(p)} style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }} onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                       <Td><span style={{ fontFamily: 'monospace', fontSize: 11 }}>{p.codigo ?? '—'}</span></Td>
                       <Td><span style={{ fontWeight: 600 }}>{p.nome}</span></Td>
                       <Td>{p.categoria ?? '—'}</Td>
                       <Td>{p.unidade ?? '—'}</Td>
-                      <Td align="right"><strong>{fmtNum(atual)}</strong></Td>
+                      <Td align="right"><span>{fmtNum(atual)}</span></Td>
+                      <Td align="right">{reservado > 0 ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(reservado)}</span> : <span style={{ color: C.espressoL }}>—</span>}</Td>
+                      <Td align="right"><strong style={{ color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(disponivel)}</strong></Td>
                       <Td align="right"><span style={{ fontSize: 11, color: C.espressoM }}>{fmtNum(min, 0)} / {max > 0 ? fmtNum(max, 0) : '∞'}</span></Td>
                       <Td align="right">{fmtBRL(custo)}</Td>
                       <Td align="right"><strong>{fmtBRL(valor)}</strong></Td>
@@ -1044,9 +1074,9 @@ function TabSaldo({
 }: {
   rows: { produto_id: string; produto_nome: string; produto_codigo: string | null;
     local_id: string | null; local_nome: string; saldo: number; custo_medio: number; valor_total: number;
-    classe_abc?: 'A' | 'B' | 'C' | null }[];
+    classe_abc?: 'A' | 'B' | 'C' | null; reservado: number; disponivel: number }[];
   total: number;
-  kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; valorImobilizado: number };
+  kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; valorImobilizado: number; skusReservados: number };
   locais: Local[]; produtos: Produto[];
   filtroSaldoProduto: string; setFiltroSaldoProduto: (v: string) => void;
   filtroSaldoLocal: string; setFiltroSaldoLocal: (v: string) => void;
@@ -1058,8 +1088,8 @@ function TabSaldo({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
         <KpiCard label="Valor imobilizado" valor={fmtBRL(kpis.valorImobilizado)} cor={C.gold} destaque />
         <KpiCard label="SKUs com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} />
+        <KpiCard label="SKUs reservados" valor={String(kpis.skusReservados)} cor={C.blue} />
         <KpiCard label="SKUs zerados" valor={String(kpis.skusZerados)} cor={C.amber} />
-        <KpiCard label="Total SKUs" valor={String(kpis.totalSku)} cor={C.espresso} />
       </div>
 
       {/* Filtros */}
@@ -1111,7 +1141,9 @@ function TabSaldo({
                 <tr>
                   <Th>Produto</Th>
                   <Th>Local</Th>
-                  <Th align="right">Saldo</Th>
+                  <Th align="right">Físico</Th>
+                  <Th align="right">Reservado</Th>
+                  <Th align="right">Disponível</Th>
                   <Th align="right">Custo médio</Th>
                   <Th align="right">Valor total</Th>
                   <Th>Classe</Th>
@@ -1120,6 +1152,9 @@ function TabSaldo({
               <tbody>
                 {rows.map((r) => {
                   const corClasse = r.classe_abc === 'A' ? C.gold : r.classe_abc === 'B' ? C.blue : C.espressoM
+                  // Bloco D · disponível = físico − reservado. Só o disponível pode ser vendido.
+                  // Negativo = prometeu mais do que tem (o furo, agora visível) → vermelho.
+                  const corDisp = r.disponivel < 0 ? C.red : r.reservado > 0 ? C.goldD : (r.disponivel > 0 ? C.green : C.espressoL)
                   return (
                     <tr key={`${r.produto_id}|${r.local_id ?? ''}`} style={{ borderTop: `1px solid ${C.borderL}` }} data-testid="saldo-row">
                       <Td>
@@ -1127,7 +1162,9 @@ function TabSaldo({
                         {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
                       </Td>
                       <Td>{r.local_nome}</Td>
-                      <Td align="right"><strong style={{ color: r.saldo > 0 ? C.green : C.espressoL }}>{fmtNum(r.saldo)}</strong></Td>
+                      <Td align="right"><span style={{ color: r.saldo > 0 ? C.espresso : C.espressoL }}>{fmtNum(r.saldo)}</span></Td>
+                      <Td align="right">{r.reservado > 0 ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(r.reservado)}</span> : <span style={{ color: C.espressoL }}>—</span>}</Td>
+                      <Td align="right"><strong style={{ color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(r.disponivel)}</strong></Td>
                       <Td align="right">{r.custo_medio > 0 ? fmtBRL(r.custo_medio) : '—'}</Td>
                       <Td align="right"><strong>{r.valor_total > 0 ? fmtBRL(r.valor_total) : '—'}</strong></Td>
                       <Td>
@@ -1252,11 +1289,14 @@ function TabCurvaABC({ rows }: { rows: CurvaABCRow[] }) {
 // Drawer/Modal
 // ════════════════════════════════════════════════════════════
 
-function DrawerProduto({ produto, movimentacoes, locaisPorId, onClose, onMovimentar }: { produto: Produto; movimentacoes: Movimentacao[]; locaisPorId: Record<string, Local>; onClose: () => void; onMovimentar: () => void }) {
+function DrawerProduto({ produto, reservado, movimentacoes, locaisPorId, onClose, onMovimentar }: { produto: Produto; reservado: number; movimentacoes: Movimentacao[]; locaisPorId: Record<string, Local>; onClose: () => void; onMovimentar: () => void }) {
   const atual = Number(produto.estoque_atual ?? 0)
   const min = Number(produto.estoque_minimo ?? 0)
   const custo = Number(produto.preco_custo_medio ?? produto.preco_custo ?? 0)
   const valor = atual * custo
+  // Bloco D · disponível = físico − reservado; negativo = prometeu mais do que tem
+  const disponivel = atual - reservado
+  const corDisp = disponivel < 0 ? C.red : reservado > 0 ? C.goldD : C.green
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -1280,7 +1320,11 @@ function DrawerProduto({ produto, movimentacoes, locaisPorId, onClose, onMovimen
           </Card>
 
           <Card titulo="Estoque">
-            <Row label="Atual" value={<strong style={{ fontSize: 16, color: atual < min ? C.red : C.green }}>{fmtNum(atual)} {produto.unidade}</strong>} />
+            <Row label="Físico" value={<strong style={{ fontSize: 16, color: atual < min ? C.red : C.espresso }}>{fmtNum(atual)} {produto.unidade}</strong>} />
+            <Row label="Reservado" value={reservado > 0
+              ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(reservado)} {produto.unidade}</span>
+              : <span style={{ color: C.espressoL }}>—</span>} />
+            <Row label="Disponível" value={<strong style={{ fontSize: 16, color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(disponivel)} {produto.unidade}</strong>} />
             <Row label="Mínimo" value={fmtNum(min, 0)} />
             <Row label="Máximo" value={produto.estoque_maximo ? fmtNum(Number(produto.estoque_maximo), 0) : '∞'} />
             <Row label="Valor em estoque" value={<strong style={{ color: C.gold }}>{fmtBRL(valor)}</strong>} />
