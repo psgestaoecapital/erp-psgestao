@@ -266,6 +266,22 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     onChange?.()
   }
 
+  // §2 · lote: marca TODOS os itens ainda "a decidir" como "não movimenta estoque" — por item,
+  // sem RPC nova (reusa fn_nfe_item_set_entra_estoque). Uma nota de uso/consumo vira dois toques.
+  async function marcarRestantesNaoMovimenta() {
+    const restantes = itens.filter((x) => x.entra_estoque == null)
+    if (restantes.length === 0) return
+    setBusy(true); setErro(null); setMsg(null)
+    for (const it of restantes) {
+      const { data, error } = await supabase.rpc('fn_nfe_item_set_entra_estoque', { p_item_id: it.item_id, p_entra: false })
+      const r = data as { ok?: boolean } | null
+      if (error || !r?.ok) { setBusy(false); setErro('Não consegui marcar todos — tente item a item.'); await carregar(); return }
+    }
+    setBusy(false)
+    setMsg(`🚫 ${restantes.length} item(ns) marcados como "não movimenta estoque".`)
+    await carregar(); onChange?.()
+  }
+
   // #11b · dar entrada no estoque (respeita entra_estoque por item; local único resolvido no servidor)
   async function darEntradaEstoque() {
     setAcaoBusy('estoque'); setErro(null); setMsg(null)
@@ -358,9 +374,10 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     return <div className="text-[12px] text-[#3D2314]/55 py-2 italic">Sem itens — nota ainda sem XML completo.</div>
   }
 
-  const casados = itens.filter((x) => x.produto_id).length
-  const naoEstoque = itens.filter((x) => !x.produto_id && x.entra_estoque === false).length
-  const pendentes = itens.length - casados - naoEstoque
+  // §2 · três estados por destino de estoque (linguagem humana)
+  const vaiEstoque = itens.filter((x) => x.entra_estoque === true).length
+  const naoMovimenta = itens.filter((x) => x.entra_estoque === false).length
+  const aDecidir = itens.filter((x) => x.entra_estoque == null).length
 
   return (
     <div className="mt-3 space-y-2">
@@ -368,16 +385,23 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
         <div className="text-[12px] font-medium text-[#3D2314]">
           Conferência de entrada — {itens.length} {itens.length === 1 ? 'item' : 'itens'}
         </div>
-        {casados > 0 && (
-          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8F4DC] text-[#3F7012] font-medium">✅ {casados} no seu estoque</span>
+        {vaiEstoque > 0 && (
+          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8F4DC] text-[#3F7012] font-medium">📦 {vaiEstoque} para o estoque</span>
         )}
-        {pendentes > 0 && (
-          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium">⚠️ {pendentes} para conferir</span>
+        {naoMovimenta > 0 && (
+          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium">🚫 {naoMovimenta} não movimenta(m)</span>
         )}
-        {naoEstoque > 0 && (
-          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium">{naoEstoque} não entra(m)</span>
+        {aDecidir > 0 && (
+          <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium">⚪ {aDecidir} a decidir</span>
         )}
       </div>
+      {/* §2 · lote: uma nota de uso/consumo vira dois toques */}
+      {aDecidir > 0 && (
+        <button type="button" disabled={busy} onClick={() => void marcarRestantesNaoMovimenta()}
+          className="text-[11px] px-3 py-1.5 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium min-h-[36px] disabled:opacity-50 hover:bg-[#5A3520]">
+          🚫 Marcar os {aDecidir} restantes como &quot;não movimenta estoque&quot;
+        </button>
+      )}
       {/* E4 · navegação item a item (viável com 40 itens) */}
       {itens.length > 1 && (
         <div className="flex items-center gap-2 text-[11px] text-[#3D2314]/70">
@@ -466,22 +490,33 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            {/* #11b · toggle "movimenta estoque" por item (override do CFOP) */}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void setEntra(it.item_id, !(it.entra_estoque === true))}
-              title="Define se este item movimenta o estoque na entrada. Clique para alternar."
-              className={
-                it.entra_estoque === true
-                  ? 'text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8F4DC] text-[#3F7012] font-medium hover:brightness-95 disabled:opacity-50'
-                  : it.entra_estoque === false
-                  ? 'text-[10.5px] px-2 py-0.5 rounded-full bg-[#3D2314]/8 text-[#3D2314]/65 font-medium hover:brightness-95 disabled:opacity-50'
-                  : 'text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium hover:brightness-95 disabled:opacity-50'
-              }
-            >
-              {it.entra_estoque === true ? '☑ entra no estoque' : it.entra_estoque === false ? '☐ não entra' : '☐ classificar CFOP'}
-            </button>
+            {/* §2 · três destinos EXPLÍCITOS do item, um toque cada. Linguagem humana (inviolável):
+                nunca "entra_estoque", true/false. "Não movimenta estoque" é um toque, SEM produto. */}
+            <div className="flex items-center gap-1 flex-wrap" role="group" aria-label="Destino do estoque deste item">
+              <button
+                type="button" disabled={busy}
+                onClick={() => void setEntra(it.item_id, true)}
+                aria-pressed={it.entra_estoque === true}
+                title="Este item vai movimentar o estoque — escolha ou crie o produto abaixo."
+                className={
+                  'text-[11px] px-2.5 py-1 rounded-full font-medium min-h-[32px] disabled:opacity-50 ' +
+                  (it.entra_estoque === true ? 'bg-[#3F7012] text-white' : 'bg-[#E8F4DC]/60 text-[#3F7012] hover:brightness-95')
+                }
+              >📦 Vai para o estoque</button>
+              <button
+                type="button" disabled={busy}
+                onClick={() => void setEntra(it.item_id, false)}
+                aria-pressed={it.entra_estoque === false}
+                title="Uso/consumo — não movimenta o estoque. Um toque, sem precisar cadastrar produto."
+                className={
+                  'text-[11px] px-2.5 py-1 rounded-full font-medium min-h-[32px] disabled:opacity-50 ' +
+                  (it.entra_estoque === false ? 'bg-[#3D2314] text-[#FAF7F2]' : 'bg-[#3D2314]/8 text-[#3D2314]/70 hover:brightness-95')
+                }
+              >🚫 Não movimenta estoque</button>
+              {it.entra_estoque == null && (
+                <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium">⚪ a decidir</span>
+              )}
+            </div>
             {chipVinculo(it)}
             {it.vinculo_origem?.startsWith('os:') && (
               <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#E8EEF9] text-[#2F5AA8] font-medium">✓ vinculado à OS</span>
