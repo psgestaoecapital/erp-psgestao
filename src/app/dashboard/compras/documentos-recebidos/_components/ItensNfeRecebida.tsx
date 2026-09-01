@@ -114,7 +114,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
   // NFE-F2 · dados da nota p/ conferência (fornecedor p/ o fator, transp) + parcelas
   const [notaInfo, setNotaInfo] = useState<{ emitente_cnpj: string | null; valor_total: number | null; lancado_pagar: boolean | null } | null>(null)
-  const [parcelas, setParcelas] = useState<{ id: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id: string | null }[]>([])
+  const [parcelas, setParcelas] = useState<{ id: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id: string | null; forma_pagamento: string | null; conta_bancaria_id: string | null; codigo_barras: string | null }[]>([])
+  // §5 · contas bancárias da empresa (para escolher a conta que paga a parcela)
+  const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -138,8 +140,11 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     // NFE-F2 · nota (fornecedor p/ fator, valor p/ parcelas) + parcelas do XML
     const { data: n } = await supabase.from('erp_nfe_recebidas').select('emitente_cnpj, valor_total, lancado_pagar, transportadora, frete_modalidade, peso_bruto').eq('id', nfeId).maybeSingle()
     setNotaInfo(n ? { emitente_cnpj: (n as { emitente_cnpj: string | null }).emitente_cnpj, valor_total: (n as { valor_total: number | null }).valor_total, lancado_pagar: (n as { lancado_pagar: boolean | null }).lancado_pagar } : null)
-    const { data: dups } = await supabase.from('erp_nfe_recebidas_duplicatas').select('id, numero_dup, data_vencimento, valor, pagar_id').eq('nfe_recebida_id', nfeId).order('numero_dup')
+    const { data: dups } = await supabase.from('erp_nfe_recebidas_duplicatas').select('id, numero_dup, data_vencimento, valor, pagar_id, forma_pagamento, conta_bancaria_id, codigo_barras').eq('nfe_recebida_id', nfeId).order('numero_dup')
     setParcelas((dups ?? []) as typeof parcelas)
+    // §5 · contas bancárias ativas da empresa (para o seletor de conta da parcela)
+    const { data: cs } = await supabase.from('erp_banco_contas').select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome')
+    setContas((cs ?? []) as { id: string; nome: string }[])
   }, [nfeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // F1 · E5 · calcula o custo real do item (server) e mostra a memória de cálculo
@@ -692,15 +697,19 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
 
       {/* NFE-F2 · E3 · parcelas (duplicatas do XML) — editar/refazer antes de gerar; a soma tem que bater */}
       {!notaInfo?.lancado_pagar && (
-        <ParcelasBlock parcelas={parcelas} valorNota={notaInfo?.valor_total ?? null}
+        <ParcelasBlock parcelas={parcelas} valorNota={notaInfo?.valor_total ?? null} contas={contas}
           onRefazer={(n, venc) => void refazerParcelas(n, venc)}
           onSalvar={async (lista) => {
             const soma = lista.reduce((s, p) => s + (Number(p.valor) || 0), 0)
             if (Math.abs(soma - (notaInfo?.valor_total ?? 0)) > 0.02) { setMsg(`As parcelas somam R$ ${soma.toLocaleString('pt-BR',{minimumFractionDigits:2})} — precisa bater com o valor da nota.`); return }
-            const { data } = await supabase.rpc('fn_nfe_duplicatas_editar', { p_nfe_id: nfeId, p_parcelas: lista.map((p, i) => ({ numero: String(i + 1), vencimento: p.data_vencimento, valor: p.valor })) })
-            const r = data as { ok?: boolean; erro?: string } | null
+            const { data } = await supabase.rpc('fn_nfe_duplicatas_editar', { p_nfe_id: nfeId, p_parcelas: lista.map((p, i) => ({ numero: String(i + 1), vencimento: p.data_vencimento, valor: p.valor, forma_pagamento: p.forma_pagamento ?? null, conta_bancaria_id: p.conta_bancaria_id ?? null, codigo_barras: p.codigo_barras ?? null })) })
+            const r = data as { ok?: boolean; erro?: string; avisos_codigo_barras?: { parcela: number; codigo_barras_digitos: number }[] } | null
             if (!r?.ok) { setMsg(r?.erro === 'soma_nao_bate' ? 'A soma das parcelas não bate com o valor da nota.' : 'Não consegui salvar as parcelas.'); return }
-            setMsg('Parcelas salvas.'); await carregar()
+            const avisos = r.avisos_codigo_barras ?? []
+            setMsg(avisos.length > 0
+              ? `Parcelas salvas. ⚠️ ${avisos.length} código(s) de barras com dígitos fora de 44/47 — confira.`
+              : 'Parcelas salvas.')
+            await carregar()
           }} />
       )}
 
@@ -749,9 +758,10 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
 
 // NFE-F2 · E3 · bloco de parcelas (duplicatas): editar valor/vencimento, adicionar/remover, refazer N×.
 // A soma tem que bater com o valor da nota — o botão salvar avisa/bloqueia se não bater.
-type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null }
-function ParcelasBlock({ parcelas, valorNota, onRefazer, onSalvar }: {
-  parcelas: Parcela[]; valorNota: number | null
+type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null }
+const FORMAS_PAGTO = ['boleto', 'pix', 'transferencia', 'cartao_credito', 'cartao_debito', 'dinheiro', 'cheque']
+function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
+  parcelas: Parcela[]; valorNota: number | null; contas: { id: string; nome: string }[]
   onRefazer: (num: number, primeiroVenc: string) => void
   onSalvar: (lista: Parcela[]) => void | Promise<void>
 }) {
@@ -773,10 +783,20 @@ function ParcelasBlock({ parcelas, valorNota, onRefazer, onSalvar }: {
       </div>
       <div className="space-y-1">
         {lista.map((p, i) => (
-          <div key={p.id ?? i} className="flex items-center gap-2 text-[11px]">
+          <div key={p.id ?? i} className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
             <span className="text-[#3D2314]/45 w-5">{i + 1}</span>
             <input type="date" value={p.data_vencimento ?? ''} onChange={(e) => patch(i, { data_vencimento: e.target.value })} className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
-            <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
+            <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
+            {/* §5 · forma, conta e código de barras — opcionais; chegam completos no contas a pagar */}
+            <select value={p.forma_pagamento ?? ''} onChange={(e) => patch(i, { forma_pagamento: e.target.value || null })} title="Forma de pagamento" className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314] min-h-[30px]">
+              <option value="">forma…</option>
+              {FORMAS_PAGTO.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+            <select value={p.conta_bancaria_id ?? ''} onChange={(e) => patch(i, { conta_bancaria_id: e.target.value || null })} title="Conta que paga esta parcela" className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314] min-h-[30px]">
+              <option value="">conta…</option>
+              {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+            <input type="text" inputMode="numeric" value={p.codigo_barras ?? ''} onChange={(e) => patch(i, { codigo_barras: e.target.value })} placeholder="código de barras" title="Linha digitável (47) ou arrecadação (44) — avisa se não bater, não bloqueia" className="w-40 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
             <button type="button" onClick={() => setLista((a) => a.filter((_, idx) => idx !== i))} className="text-[#A32D2D] hover:underline">remover</button>
           </div>
         ))}
