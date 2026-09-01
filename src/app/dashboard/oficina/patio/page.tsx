@@ -127,7 +127,7 @@ export default function PatioKanbanPage() {
   const { companyIds } = useCompanyIds()
   const companyId = companyIds.length === 1 ? companyIds[0] : null
   // A1 · "Programados para hoje" — agendamentos do dia que ainda não viraram OS (só exibição).
-  const [programados, setProgramados] = useState<{ id: string; hora_inicio: string | null; cliente_id: string | null; cliente_nome: string | null; responsavel_nome: string | null; dados: { placa?: string; veiculo?: string; modelo?: string } | null }[]>([])
+  const [programados, setProgramados] = useState<{ id: string; data: string | null; hora_inicio: string | null; cliente_id: string | null; cliente_nome: string | null; responsavel_nome: string | null; dados: { placa?: string; veiculo?: string; modelo?: string } | null }[]>([])
   const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · card/labels coerentes por ramo
   // RD-41 · Auxiliar (OPERATOR) → abre a Visão de Execução (sem R$/gerencial).
   const { isOperator } = useAcesso(companyId)
@@ -316,18 +316,28 @@ export default function PatioKanbanPage() {
 
       {erro && <div style={{ background: '#FEE2E2', color: C.vermelho, padding: '8px 12px', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>{erro}</div>}
 
-      {/* A1 · Programados para hoje (agendados que ainda não chegaram/viraram OS) */}
+      {/* Bloco C · Agendados a chegar (hoje + atrasados que ainda não viraram OS). Separado do pátio:
+          aqui é AGENDA (quem ainda não chegou); o pátio abaixo é quem tem recepção e não saiu. */}
       {programados.length > 0 && (
         <div style={{ background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${C.gold}`, borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: C.gold, fontWeight: 700, marginBottom: 6 }}>🗓️ Programados para hoje · {programados.length}</div>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: C.gold, fontWeight: 700, marginBottom: 6 }}>🗓️ Agendados a chegar · {programados.length}</div>
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
             {programados.map((p) => {
               const veic = [p.dados?.placa, p.dados?.veiculo].filter(Boolean).join(' · ')
               return (
                 <div key={p.id} style={{ minWidth: 190, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.espresso }}>{p.hora_inicio ? p.hora_inicio.slice(0, 5) : '—'}</span>
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: C.gold, background: '#FBF4E4', padding: '1px 7px', borderRadius: 999 }}>Aguardando chegada</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.espresso }}>
+                      {p.hora_inicio ? p.hora_inicio.slice(0, 5) : '—'}
+                      {p.data && p.data < new Date().toISOString().slice(0, 10) && (
+                        <span style={{ fontSize: 10, fontWeight: 600, color: C.espressoM, marginLeft: 5 }}>{p.data.slice(8, 10)}/{p.data.slice(5, 7)}</span>
+                      )}
+                    </span>
+                    {p.data && p.data < new Date().toISOString().slice(0, 10) ? (
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#791F1F', background: '#FCEBEB', padding: '1px 7px', borderRadius: 999 }}>Atrasado</span>
+                    ) : (
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: C.gold, background: '#FBF4E4', padding: '1px 7px', borderRadius: 999 }}>Aguardando chegada</span>
+                    )}
                   </div>
                   <div style={{ fontSize: 12.5, color: C.espresso, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.cliente_nome || 'Sem cliente'}</div>
                   {veic && <div style={{ fontSize: 11, color: C.espressoM }}>{veic}</div>}
