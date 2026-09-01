@@ -8,8 +8,9 @@
 //
 // Controlled component: pai mantem `itens` em state · onChange recebe array novo.
 
-import { useId } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Trash2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import ServicoAutocomplete, { type ServicoSelecionado } from '@/components/comum/ServicoAutocomplete'
 
@@ -48,6 +49,8 @@ const C = {
   purple: '#A855F7',
   purpleBg: '#F3E8FF',
   red: '#EF4444',
+  amber: '#BA7517',
+  amberBg: '#FAEEDA',
 }
 
 const inp: React.CSSProperties = {
@@ -76,6 +79,24 @@ function recalc(it: EditorItem): EditorItem {
 
 export default function OrcamentoItensEditor({ companyId, itens, onChange }: Props) {
   const tid = useId()
+
+  // Bloco D · AVISO (não bloqueio, decisão do CEO): mostra quantas unidades do produto estão
+  // comprometidas em OS pronta/entregue não faturada. Fonte única fn_estoque_reservas (esparso:
+  // só produtos com reserva). O operador decide — bloquear com o vínculo ainda incompleto (1 de 414)
+  // travaria o produto errado. Bloqueio entra quando o vínculo significar algo.
+  const [reservas, setReservas] = useState<Record<string, number>>({})
+  useEffect(() => {
+    let vivo = true
+    if (!companyId) { setReservas({}); return }
+    void (async () => {
+      const { data, error } = await supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyId] })
+      if (!vivo || error) return
+      const m: Record<string, number> = {}
+      for (const r of ((data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
+      setReservas(m)
+    })()
+    return () => { vivo = false }
+  }, [companyId])
 
   function atualizar(idx: number, patch: Partial<EditorItem>) {
     const arr = [...itens]
@@ -216,7 +237,20 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
                   onClear={() => limparProduto(i)}
                   testId={`orc-produto-${i}`}
                 />
-              ) : (
+              ) : null}
+              {/* Bloco D · aviso de reserva (não bloqueia a venda — só informa; RD-58: só aparece se houver) */}
+              {it.tipo_item === 'produto' && it.produto_id && (reservas[it.produto_id] ?? 0) > 0 && (
+                <div
+                  data-testid={`orc-reserva-aviso-${i}`}
+                  style={{
+                    fontSize: 10.5, color: C.amber, background: C.amberBg,
+                    border: `1px solid ${C.amber}44`, borderRadius: 6, padding: '5px 8px',
+                  }}
+                >
+                  ⚠️ {Number(reservas[it.produto_id]).toLocaleString('pt-BR')} unidade(s) deste produto comprometida(s) em OS pronta/entregue não faturada — confira o disponível antes de vender.
+                </div>
+              )}
+              {it.tipo_item === 'servico' && (
                 <ServicoAutocomplete
                   companyId={companyId}
                   selecionado={it.servico_id ? {
