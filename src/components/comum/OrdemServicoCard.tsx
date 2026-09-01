@@ -142,7 +142,12 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [reabrindo, setReabrindo] = useState(false)
   const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
   // RD-41 · itens do diagnóstico (peças + serviços). A ficha reabria SEM eles → impresso zerado.
-  const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
+  const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; produto_id?: string | null; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
+  // A2 Path 2 · substituir item texto-livre por peça do estoque (na tela de finalização, sem preço)
+  const [substItem, setSubstItem] = useState<string | null>(null)
+  const [substTermo, setSubstTermo] = useState('')
+  const [substResult, setSubstResult] = useState<Array<{ id: string; nome: string; codigo: string | null; estoque_atual: number | null }>>([])
+  const [substindo, setSubstindo] = useState(false)
   // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
   const [contas, setContas] = useState<Array<{ id: string; nome: string; banco: string | null }>>([])
   const [contaSel, setContaSel] = useState<string>('')
@@ -174,6 +179,29 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     setMsgOk(msg)
     onFlash?.(msg)
     window.setTimeout(() => setMsgOk((m) => (m === msg ? null : m)), 3500)
+  }
+
+  // A2 Path 2 · busca de peça no estoque para substituir um item texto-livre
+  useEffect(() => {
+    const cid = os?.company_id
+    if (!substItem || !cid || substTermo.trim().length < 2) { setSubstResult([]); return }
+    let alive = true
+    const t = setTimeout(() => {
+      void supabase.rpc('fn_oficina_pecas_buscar', { p_company_id: cid, p_termo: substTermo.trim() })
+        .then(({ data }) => { if (alive) setSubstResult((Array.isArray(data) ? data : []) as typeof substResult) })
+    }, 300)
+    return () => { alive = false; clearTimeout(t) }
+  }, [substTermo, substItem, os?.company_id])
+
+  async function substituirPeca(itemId: string, produtoId: string) {
+    setSubstindo(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_diag_item_substituir', { p_diag_item_id: itemId, p_produto_id: produtoId })
+    setSubstindo(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao substituir a peça'); return }
+    setSubstItem(null); setSubstTermo(''); setSubstResult([])
+    flash('Peça vinculada ao estoque ✓')
+    void carregar()
   }
 
   // Form state
@@ -683,16 +711,51 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           {itensDiag.map((it, i) => {
             const qtd = it.quantidade != null && String(it.quantidade) !== '' ? Number(it.quantidade) : 1
             const val = it.subtotal ?? it.preco
+            const ehPeca = it.tipo === 'peca' || it.tipo === 'peça'
+            const pecaLivre = ehPeca && !it.produto_id && !!it.id       // digitada, sem vínculo de estoque
+            const pecaLigada = ehPeca && !!it.produto_id
             return (
-              <div key={it.id ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none', fontSize: 12.5 }}>
-                <span>{it.tipo === 'servico' ? '🔧' : '📦'}</span>
-                <span style={{ flex: 1, minWidth: 0, color: C.espresso, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.descricao || (it.tipo === 'servico' ? 'Serviço' : 'Peça')}</span>
-                <span style={{ color: C.espressoL, whiteSpace: 'nowrap' }}>{qtd.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}×</span>
-                {it.status_item === 'recusado'
-                  ? <span style={{ fontSize: 11, fontWeight: 700, color: C.espressoL }}>recusado</span>
-                  : val != null
-                    ? <span style={{ fontWeight: 700, color: C.espresso, whiteSpace: 'nowrap' }}>{fmtBRL(Number(val))}</span>
-                    : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>precificar</span>}
+              <div key={it.id ?? i} style={{ borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 12.5 }}>
+                  <span>{it.tipo === 'servico' ? '🔧' : '📦'}</span>
+                  <span style={{ flex: 1, minWidth: 0, color: C.espresso, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {it.descricao || (it.tipo === 'servico' ? 'Serviço' : 'Peça')}
+                    {pecaLigada && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#1B3608', background: '#E8F4DC', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>estoque</span>}
+                    {pecaLivre && <span style={{ fontSize: 9.5, fontWeight: 700, color: C.espressoL, background: 'rgba(61,35,20,0.06)', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>texto livre</span>}
+                  </span>
+                  {/* A2 Path 2 · substituir peça digitada por peça do estoque (só antes de faturar) */}
+                  {pecaLivre && !faturada && (
+                    <button type="button" data-testid={`os-item-substituir-${i}`}
+                      onClick={() => { setSubstItem(substItem === it.id ? null : (it.id ?? null)); setSubstTermo(''); setSubstResult([]) }}
+                      style={{ fontSize: 10.5, fontWeight: 700, color: C.gold, background: 'none', border: `1px solid ${C.gold}`, borderRadius: 6, padding: '2px 7px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      🔍 estoque
+                    </button>
+                  )}
+                  <span style={{ color: C.espressoL, whiteSpace: 'nowrap' }}>{qtd.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}×</span>
+                  {it.status_item === 'recusado'
+                    ? <span style={{ fontSize: 11, fontWeight: 700, color: C.espressoL }}>recusado</span>
+                    : val != null
+                      ? <span style={{ fontWeight: 700, color: C.espresso, whiteSpace: 'nowrap' }}>{fmtBRL(Number(val))}</span>
+                      : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>precificar</span>}
+                </div>
+                {substItem === it.id && (
+                  <div style={{ padding: '2px 0 8px 26px' }}>
+                    <input value={substTermo} onChange={(e) => setSubstTermo(e.target.value)} placeholder="Buscar peça no estoque (nome/código)…" autoFocus
+                      style={{ width: '100%', minHeight: 34, padding: '6px 8px', fontSize: 12, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                    {substResult.length > 0 && (
+                      <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto', background: C.white }}>
+                        {substResult.map((p) => (
+                          <button key={p.id} type="button" disabled={substindo} onClick={() => void substituirPeca(it.id as string, p.id)}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 9px', background: 'none', border: 'none', borderBottom: '1px solid rgba(61,35,20,0.06)', cursor: 'pointer', fontSize: 12 }}>
+                            <span style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</span>
+                            <span style={{ color: C.espressoL, marginLeft: 6, fontSize: 11 }}>{p.codigo ? `${p.codigo} · ` : ''}estoque {p.estoque_atual ?? '—'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10.5, color: C.espressoL, marginTop: 4 }}>Substitui só o vínculo de estoque · o preço não muda.</div>
+                  </div>
+                )}
               </div>
             )
           })}
