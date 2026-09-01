@@ -40,3 +40,43 @@ SELECT fn_registrar_handoff(
 
 Tabela: `public.erp_handoff_sessao`. Writer: `public.fn_registrar_handoff(...)`.
 <!-- END:protocolo-sessao -->
+
+<!-- BEGIN:disciplina-migrations -->
+# Disciplina de migrations — NÃO quebre o `deploy-migrations` (o CEO exige)
+
+O pipeline `.github/workflows/deploy-migrations.yml` roda `supabase db push --include-all`
+em todo push na `main`. Ele é o que faz a migration chegar à produção. Se ele fica
+vermelho, **todo merge daqui pra frente vira dívida invisível** — o schema do PR não
+entra em produção e só se descobre por auditoria manual, um caso de cada vez.
+
+## A regra (RD-52 — o ledger não pode mentir nem divergir)
+
+**NUNCA aplique via MCP `apply_migration` uma migration que tem arquivo no repo.**
+O `apply_migration` carimba `supabase_migrations.schema_migrations` com uma versão de
+**horário de aplicação** (ex.: `20260901105139`), que **não bate** com o nome do arquivo
+(`20260901120000_...sql`). Aí o `db push` vê "Remote migration versions not found in local
+migrations directory" e **aborta** — o pipeline fica vermelho. Foi exatamente isso que o
+quebrou em 31/08–01/09/2026 (10 órfãos de SIC-F1/DEMO-F1/NF-e/estoque).
+
+## Como aplicar migration, então
+
+1. **Padrão (preferido):** escreva o arquivo em `supabase/migrations/`, abra PR, **mergeie**.
+   O `deploy-migrations` aplica sozinho no push da `main`. Não toque no banco antes do merge.
+2. **Se precisar aplicar à mão** (hotfix urgente antes do merge): rode o corpo via
+   `execute_sql` e **registre a EXATA versão-de-arquivo** no ledger
+   (`INSERT INTO supabase_migrations.schema_migrations(version,name,statements)` com o
+   timestamp do NOME DO ARQUIVO). **Nunca** deixe o carimbo de horário do `apply_migration`.
+3. **Nada é marcado como aplicado sem ter rodado de verdade.** Um ledger que mente sobre o
+   que foi aplicado é pior que um desalinhado.
+
+## Se o pipeline já estiver vermelho (reconciliação dos órfãos)
+
+Confira antes e depois (o que o `db push` compara), tocando **só** os órfãos recentes —
+nunca as ~800 linhas históricas:
+- **órfão com conteúdo já no banco** e cuja versão-de-arquivo NÃO está no ledger →
+  `UPDATE ... SET version=<versão-do-arquivo> WHERE version=<carimbo-órfão>` (renomeia, preserva o que rodou);
+- **órfão que é duplicata pura** (versão-de-arquivo já registrada) → `DELETE` só do órfão;
+- **verifique no dado que o conteúdo existe** (RD-38) antes de marcar qualquer coisa como aplicada.
+
+O `deploy-migrations` está vermelho? É trabalho AGORA — ele sustenta o processo inteiro.
+<!-- END:disciplina-migrations -->
