@@ -87,8 +87,9 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
       if (passo2?.apuracao_sn != null) setApuracaoSN(String(passo2.apuracao_sn))
       if (passo2?.pct_trib != null) setPctTrib(String(passo2.pct_trib))
       if (passo2?.regime) setRegime(passo2.regime)
-      if (passo3?.valor) setMunicipio(passo3.valor)
-      if (passo3?.aderido != null) setAderidoSelo(passo3.aderido)
+      // Badge de adesão vem SEMPRE do vivo (erp_gov_nfse_municipios via RPC), nunca do valor
+      // persistido no checklist — que fica stale (RD-52: uma fonte só de verdade).
+      if (passo3?.valor) { setMunicipio(passo3.valor); void checarAderencia(passo3.valor) }
       if (passo4?.valor) setInscricaoMunicipal(passo4.valor)
       else if (imAtual) setInscricaoMunicipal(imAtual)
       if (passo5?.serie) setSerie(passo5.serie)
@@ -101,10 +102,14 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   async function checarAderencia(codigo: string) {
     if (!/^\d{7}$/.test(codigo)) { setAderidoSelo(null); return }
     setCheckingAderencia(true)
-    const { data, error } = await supabase.rpc('fn_gov_nfse_municipio_aderiu', { p_codigo: codigo })
+    // param correto é p_codigo_ibge (era p_codigo → a RPC errava sempre e o selo caía em null)
+    const { data, error } = await supabase.rpc('fn_gov_nfse_municipio_aderiu', { p_codigo_ibge: codigo })
     setCheckingAderencia(false)
     if (error) { setAderidoSelo(null); return }
-    setAderidoSelo(Boolean(data))
+    // 3 estados (RD-51): lê o CAMPO aderido do RPC — Boolean(data) era sempre true (data é objeto).
+    // true = aderido · false = não aderido · null = adesão não verificada (não alarma).
+    const r = data as { aderido?: boolean | null } | null
+    setAderidoSelo(r?.aderido ?? null)
   }
 
   const isNacional = provider === 'gov_nfse_nacional'
@@ -175,7 +180,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     if (!c.ok) { setErro(c.erro ?? 'Erro ao salvar'); return }
     setResumo(c)
     const passo3 = c.itens.find((i) => i.passo === 3)
-    if (passo3?.aderido != null) setAderidoSelo(passo3.aderido)
+    if (passo3?.valor) void checarAderencia(passo3.valor)   // re-verifica no vivo, não confia no persistido
     setToast(`✅ ALTEROU a configuração fiscal · ${c.concluidos} de ${c.total} OK`)
     onSalvo?.()
     setTimeout(() => setToast(null), 4000)
@@ -284,6 +289,11 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
               ) : aderidoSelo === false ? (
                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] bg-[#FCEBEB] text-[#791F1F] font-medium">
                   <XCircle size={12} /> não aderido
+                </span>
+              ) : /^\d{7}$/.test(municipio) ? (
+                // NULL = adesão não verificada (RD-51 · desconhecido ≠ não aderido) — badge neutro, não alarma
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] bg-[#F0ECE3] text-[#6B5D4F] font-medium">
+                  adesão não verificada
                 </span>
               ) : null}
             </div>
