@@ -143,6 +143,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
   // RD-41 · itens do diagnóstico (peças + serviços). A ficha reabria SEM eles → impresso zerado.
   const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
+  // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
+  const [contas, setContas] = useState<Array<{ id: string; nome: string; banco: string | null }>>([])
+  const [contaSel, setContaSel] = useState<string>('')
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -157,7 +160,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   async function faturar() {
     if (!os) return
     setFaturando(true); setErro(null); setMsgOk(null)
-    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.id })
+    // OS avulsa: repassa a conta escolhida; OS via pedido ignora (conta vem das parcelas)
+    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.id, p_conta_bancaria_id: contaSel || null })
     setFaturando(false)
     const r = data as { ok?: boolean; erro?: string; valor?: number } | null
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
@@ -279,6 +283,18 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     })()
     return () => { alive = false }
   }, [os?.id, os?.company_id, os?.status])
+
+  // contas ativas da empresa da OS — para escolher o banco da cobrança ao faturar (OS avulsa)
+  useEffect(() => {
+    const cid = os?.company_id
+    if (!cid) { setContas([]); return }
+    let alive = true
+    void (async () => {
+      const { data } = await supabase.from('erp_banco_contas').select('id,nome,banco').eq('company_id', cid).eq('ativo', true).order('nome')
+      if (alive) setContas((data ?? []) as Array<{ id: string; nome: string; banco: string | null }>)
+    })()
+    return () => { alive = false }
+  }, [os?.company_id])
 
   async function abrirOS() {
     setCriando(true)
@@ -734,16 +750,31 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
             ✓ Faturada
           </span>
         ) : podeFaturar ? (
-          <button
-            type="button"
-            onClick={() => void faturar()}
-            disabled={faturando}
-            data-testid="os-faturar"
-            title="Recalcula o total pelos itens e gera o título em Contas a Receber (GE). Não emite NF."
-            style={{ ...btnPri, background: C.gold, color: '#3D2314', opacity: faturando ? 0.6 : 1 }}
-          >
-            {faturando ? 'Gravando…' : '💰 Gravar Financeiro'}
-          </button>
+          <>
+            {/* OS avulsa: banco da cobrança (OS via pedido usa a conta das parcelas) */}
+            {!os.pedido_id && contas.length > 0 && (
+              <select
+                value={contaSel}
+                onChange={(e) => setContaSel(e.target.value)}
+                data-testid="os-faturar-conta"
+                title="Banco que recebe esta cobrança"
+                style={{ minHeight: 44, padding: '0 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', color: '#3D2314' }}
+              >
+                <option value="">Banco da cobrança…</option>
+                {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={() => void faturar()}
+              disabled={faturando}
+              data-testid="os-faturar"
+              title="Recalcula o total pelos itens e gera o título em Contas a Receber (GE). Não emite NF."
+              style={{ ...btnPri, background: C.gold, color: '#3D2314', opacity: faturando ? 0.6 : 1 }}
+            >
+              {faturando ? 'Gravando…' : '💰 Gravar Financeiro'}
+            </button>
+          </>
         ) : null}
         <button
           type="button"
