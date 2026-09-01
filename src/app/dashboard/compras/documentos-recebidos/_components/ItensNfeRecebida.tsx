@@ -190,12 +190,14 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const { data, error } = await supabase.rpc('fn_nfe_recebida_concluir', { p_nfe_id: nfeId })
     setAcaoBusy(null)
     if (error) { setErro(error.message); return }
-    const r = data as { ok?: boolean; erro?: string; faltam?: { item: number; descricao: string }[];
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string;
+      indecisos?: { item: number; descricao: string }[]; sem_produto?: { item: number; descricao: string }[];
       estoque?: { itens_movidos?: number }; financeiro?: { pagar_criadas?: number; valor_total?: number } } | null
     if (!r?.ok) {
       if (r?.erro === 'itens_nao_resolvidos') {
-        const lista = (r.faltam ?? []).map((f) => `#${f.item} ${f.descricao}`).join(' · ')
-        setErro(`Faltam itens para concluir (vincule um produto ou marque "não entra"): ${lista}`)
+        const itens = [...(r.indecisos ?? []), ...(r.sem_produto ?? [])]
+        const lista = itens.map((f) => `#${f.item} ${f.descricao}`).join(' · ')
+        setErro(`${r.mensagem ?? 'Faltam itens para decidir se vão para o estoque.'}${lista ? ' — ' + lista : ''}`)
       } else setErro('Não consegui concluir: ' + (r?.erro ?? 'falhou'))
       return
     }
