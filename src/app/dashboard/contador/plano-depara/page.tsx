@@ -106,7 +106,7 @@ export default function PlanoDeParaPage() {
     setImportando(false)
     const r = data as { ok?: boolean; erro?: string; importadas?: number; casadas_exato?: number; pendentes?: number } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao importar'); return }
-    setMsg(`✅ ${r.importadas ?? 0} conta(s) importada(s) · ${r.casadas_exato ?? 0} casada(s) automaticamente · ${r.pendentes ?? 0} pendente(s) para vincular.`)
+    setMsg(`✅ ${r.importadas ?? 0} conta(s) do contador carregada(s) — o vocabulário fiscal está no sistema. Casar conta a conta com o plano gerencial não é o caminho; a classificação virá das regras por evento.`)
     setTexto('')
     await carregarDepara()
   }
@@ -121,10 +121,24 @@ export default function PlanoDeParaPage() {
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         <FileSpreadsheet size={22} color={C.gold} /> Plano de contas do contador
       </h1>
-      <p style={{ color: C.espM, fontSize: 13, marginTop: 6, marginBottom: 16 }}>
+      <p style={{ color: C.espM, fontSize: 13, marginTop: 6, marginBottom: 12 }}>
         Cole o plano que o contador exporta. O sistema casa cada conta ao plano do PS quando o código bate exatamente;
         o que não casar fica <strong>pendente</strong>, nomeado, para você vincular — nunca uma conta padrão inventada.
       </p>
+
+      {/* Aviso estrutural (RD-38, medição real FC Pisos): os dois planos têm NATUREZAS diferentes.
+          O do PS é gerencial de RESULTADO; o do contador é contábil COMPLETO (com Ativo/Passivo).
+          Casar conta a conta não é o caminho — quase nada corresponde. */}
+      <div style={{ background: C.goldBg, border: `1px solid ${C.gold}44`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: C.esp, display: 'flex', gap: 8 }}>
+        <AlertTriangle size={16} color={C.goldD} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          O plano do PS é <strong>gerencial de resultado</strong> (receitas, custos e despesas por vertical — sem Ativo nem Passivo).
+          O do contador é <strong>contábil completo</strong> (Ativo, Passivo, Resultado). São naturezas diferentes:
+          <strong> casar conta a conta não é o caminho</strong> — quase nada corresponde, e isso é o esperado.
+          Esta tela <strong>carrega as contas do contador</strong> (o vocabulário fiscal); a partida dobrada virá de
+          <strong> regras por tipo de evento</strong> apontando direto para a conta fiscal, não deste vínculo.
+        </span>
+      </div>
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{msg}</div>}
       {erro && <div style={{ background: '#FCEBEB', color: C.red, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
