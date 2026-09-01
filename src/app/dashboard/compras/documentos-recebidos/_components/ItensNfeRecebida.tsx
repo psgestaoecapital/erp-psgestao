@@ -70,6 +70,9 @@ type OSLite = {
   status: string
 }
 
+// Bloco A Path 1 · peça DIGITADA (texto-livre, sem produto) da OS que a NF pode "ensinar"
+type DiagLite = { id: string; descricao: string; quantidade: number | null }
+
 interface SugerirResp {
   ok: boolean
   itens?: Item[]
@@ -103,6 +106,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [buscaOS, setBuscaOS] = useState<string | null>(null)
   const [qOS, setQOS] = useState('')
   const [resOS, setResOS] = useState<OSLite[]>([])
+  // Bloco A Path 1 · 2º passo: escolhida a OS, atribui a NF a uma peça DIGITADA da OS (grava produto_id no diag)
+  const [osSel, setOsSel] = useState<{ itemId: string; os: OSLite } | null>(null)
+  const [diagLivres, setDiagLivres] = useState<DiagLite[]>([])
   // #11b · ações da nota (entrada de estoque / enviar pro financeiro / concluir) + feedback
   const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | 'concluir' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -337,18 +343,36 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     setResOS((data as OSLite[]) ?? [])
   }
 
-  async function vincularOS(itemId: string, osId: string) {
+  // Bloco A Path 1 · escolhida a OS: se a NF tem produto E a OS tem peça digitada, oferece atribuir
+  // a NF a uma dessas peças (grava produto_id no diag → habilita reserva/baixa). Senão, vincula direto.
+  async function escolherOS(it: Item, o: OSLite) {
+    if (!it.produto_id) { await vincularOS(it.item_id, o.id, null); return }
+    const { data } = await supabase
+      .from('erp_os_diagnostico_item')
+      .select('id, descricao, quantidade')
+      .eq('os_id', o.id)
+      .eq('company_id', companyId)
+      .in('tipo', ['peca', 'peça'])
+      .is('produto_id', null)
+      .order('descricao')
+    const livres = (data as DiagLite[]) ?? []
+    if (livres.length === 0) { await vincularOS(it.item_id, o.id, null); return }
+    setOsSel({ itemId: it.item_id, os: o }); setDiagLivres(livres)
+  }
+
+  async function vincularOS(itemId: string, osId: string, diagItemId: string | null) {
     setBusy(true)
     setErro(null)
-    // p_diag_item_id opcional (null): vincula à OS; a peça específica pode ser refinada depois
+    // p_diag_item_id: quando informado e a NF tem produto, a peça digitada da OS herda o produto (Path 1)
     const { data, error } = await supabase.rpc('fn_nfe_item_vincular_os', {
-      p_item_id: itemId, p_os_id: osId, p_diag_item_id: null,
+      p_item_id: itemId, p_os_id: osId, p_diag_item_id: diagItemId,
     })
     setBusy(false)
     if (error) { setErro(error.message); return }
-    const r = data as { ok?: boolean; erro?: string } | null
+    const r = data as { ok?: boolean; erro?: string; diag_vinculado?: boolean } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao vincular à OS'); return }
-    setBuscaOS(null); setQOS(''); setResOS([])
+    if (r.diag_vinculado) setMsg('✅ Peça digitada da OS agora aponta para o produto do estoque — pronta para reserva/baixa.')
+    setBuscaOS(null); setQOS(''); setResOS([]); setOsSel(null); setDiagLivres([])
     await carregar()
     onChange?.()
   }
@@ -670,7 +694,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
                     key={o.id}
                     type="button"
                     disabled={busy}
-                    onClick={() => void vincularOS(it.item_id, o.id)}
+                    onClick={() => void escolherOS(it, o)}
                     className="w-full text-left text-[12px] px-2 py-1 hover:bg-[#2F5AA8]/5 rounded text-[#3D2314] disabled:opacity-50"
                   >
                     <span className="font-medium">{o.numero}</span>{' '}
@@ -683,9 +707,42 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
                   <div className="text-[10.5px] text-[#3D2314]/50 px-2 py-1">Nenhuma OS encontrada.</div>
                 )}
               </div>
+              {/* Bloco A Path 1 · 2º passo: atribuir esta NF a uma peça DIGITADA da OS escolhida */}
+              {osSel?.itemId === it.item_id && (
+                <div className="mt-2 rounded-md bg-[#F3F6FC] border border-[#2F5AA8]/25 p-2">
+                  <div className="text-[11px] text-[#2F5AA8] font-medium">
+                    OS {osSel.os.numero} — qual peça digitada esta nota substitui?
+                  </div>
+                  <div className="text-[10px] text-[#3D2314]/55 mb-1.5">
+                    a peça escolhida passa a apontar para <span className="font-medium">{it.produto_nome ?? 'o produto vinculado'}</span> do estoque · o preço não muda
+                  </div>
+                  <div className="max-h-40 overflow-auto space-y-0.5">
+                    {diagLivres.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void vincularOS(it.item_id, osSel.os.id, d.id)}
+                        className="w-full text-left text-[12px] px-2 py-1 hover:bg-white rounded text-[#3D2314] disabled:opacity-50"
+                      >
+                        🔧 {d.descricao}
+                        {d.quantidade ? <span className="text-[10.5px] text-[#3D2314]/50"> · {Number(d.quantidade).toLocaleString('pt-BR')}×</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void vincularOS(it.item_id, osSel.os.id, null)}
+                    className="text-[10.5px] text-[#3D2314]/60 mt-1 hover:underline disabled:opacity-50"
+                  >
+                    só vincular à OS (sem peça específica)
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
-                onClick={() => { setBuscaOS(null); setQOS(''); setResOS([]) }}
+                onClick={() => { setBuscaOS(null); setQOS(''); setResOS([]); setOsSel(null); setDiagLivres([]) }}
                 className="text-[10.5px] text-[#3D2314]/55 mt-1 hover:underline"
               >
                 Cancelar
