@@ -281,6 +281,8 @@ function ContadorPageInner(){
           <div style={{fontSize:11,color:TXD}}>Portal contábil completo — DRE, Balancete, Razão, Impostos, SPED ECD, Reforma Tributária</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {/* Contábil Fase 1 · de-para do plano do contador (pré-requisito do exportador) */}
+          <a href="/dashboard/contador/plano-depara" title="Importar o plano do contador e montar o de-para de contas" style={{...selSt,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6,fontWeight:600,cursor:"pointer"}}>📒 Plano do contador</a>
           <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
             {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>
