@@ -14,7 +14,7 @@ export interface GovNFSeMunicipioStatus {
   codigo_ibge: string
   nome?: string
   uf?: string
-  aderido: boolean
+  aderido: boolean | null   // 3 estados (RD-51): true=aderido · false=não aderido · null=não verificada
   data_adesao?: string | null
 }
 

@@ -92,7 +92,8 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         const codigo = municipioIbge.replace(/\D/g, '')
         if (codigo.length !== 7) throw new Error('Código IBGE do município (7 dígitos) obrigatório')
         payload.govNfseMunicipioCodigo = codigo
-        payload.govNfseMunicipioAderido = municipioStatus?.aderido ?? false
+        // RD-51: desconhecido (não verificado) fica null, nunca false — a emissão lê o vivo de erp_gov_nfse_municipios.
+        payload.govNfseMunicipioAderido = municipioStatus?.aderido ?? null
       } else if (apiKey.trim()) {
         payload.apiKey = apiKey.trim()
       }
@@ -237,18 +238,20 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
             {municipioStatus && (
               <div
                 className={`mt-2 flex items-start gap-2 text-[12px] p-2.5 rounded-lg border ${
-                  municipioStatus.aderido
+                  municipioStatus.aderido === true
                     ? 'bg-[#E8F4DC] text-[#1B3608] border-[#C0DD97]'
-                    : 'bg-[#FAEEDA] text-[#633806] border-[#E8C387]'
+                    : municipioStatus.aderido === false
+                      ? 'bg-[#FAEEDA] text-[#633806] border-[#E8C387]'
+                      : 'bg-[#F0ECE3] text-[#6B5D4F] border-[#E0D8CC]'
                 }`}
               >
-                {municipioStatus.aderido ? (
+                {municipioStatus.aderido === true ? (
                   <CheckCircle2 size={14} className="flex-shrink-0 mt-0.5" />
                 ) : (
                   <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
                 )}
                 <div>
-                  {municipioStatus.aderido ? (
+                  {municipioStatus.aderido === true ? (
                     <>
                       <strong>{municipioStatus.nome ?? 'Município'}/{municipioStatus.uf ?? '—'}</strong> aderiu ao SN NFS-e
                       {municipioStatus.data_adesao && (
@@ -257,9 +260,14 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
                         </span>
                       )}
                     </>
-                  ) : (
+                  ) : municipioStatus.aderido === false ? (
                     <>
                       <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere Focus NFe
+                    </>
+                  ) : (
+                    // RD-51: desconhecido ≠ não aderido — não alarma, e a emissão checa o cadastro oficial na hora
+                    <>
+                      <strong>{municipioStatus.nome ?? 'Município'}</strong> · adesão não verificada — a emissão consulta o cadastro oficial no momento de emitir
                     </>
                   )}
                 </div>
