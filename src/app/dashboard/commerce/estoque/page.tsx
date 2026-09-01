@@ -132,7 +132,11 @@ type Movimentacao = {
   lote: string | null
   validade: string | null
   observacoes: string | null
-  usuario_nome: string | null
+  usuario_nome: string | null            // §6 · coluna órfã (cópia vazia) — não usar; ver usuario_nome_resolvido
+  usuario_id: string | null
+  produto_nome: string | null            // §6 · resolvido na view v_estoque_movimentacoes
+  produto_codigo: string | null
+  usuario_nome_resolvido: string | null  // §6 · full_name resolvido de usuario_id na leitura
   data_movimento: string | null
 }
 
@@ -266,7 +270,8 @@ function EstoqueInner() {
       supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
       supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
         .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
-      supabase.from('erp_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
+      // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
+      supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
       supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
       supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
     ])
@@ -677,7 +682,7 @@ function EstoqueInner() {
           filtroMovRefTipo={filtroMovRefTipo} setFiltroMovRefTipo={setFiltroMovRefTipo}
           filtroMovInicio={filtroMovInicio} setFiltroMovInicio={setFiltroMovInicio}
           filtroMovFim={filtroMovFim} setFiltroMovFim={setFiltroMovFim}
-          produtosPorId={produtosPorId} locaisPorId={locaisPorId}
+          locaisPorId={locaisPorId}
         />
       ) : tab === 'inventario' ? (
         <TabInventario rows={inventarios} locaisPorId={locaisPorId} onSelect={setInventarioSel} />
@@ -906,7 +911,7 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
   )
 }
 
-function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorId, locaisPorId,
+function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, locaisPorId,
   locais, produtos, refTiposUnicos,
   filtroMovProduto, setFiltroMovProduto, filtroMovLocal, setFiltroMovLocal,
   filtroMovRefTipo, setFiltroMovRefTipo,
@@ -921,7 +926,7 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
   filtroMovRefTipo: string; setFiltroMovRefTipo: (v: string) => void;
   filtroMovInicio: string; setFiltroMovInicio: (v: string) => void;
   filtroMovFim: string; setFiltroMovFim: (v: string) => void;
-  produtosPorId: Record<string, Produto>; locaisPorId: Record<string, Local>;
+  locaisPorId: Record<string, Local>;
 }) {
   function refHref(ref_tipo: string | null, ref_id: string | null): string | null {
     if (!ref_id) return null
@@ -980,14 +985,13 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
               <thead style={{ background: C.cream }}>
-                <tr><Th>Data</Th><Th>Tipo</Th><Th>Produto</Th><Th>Local</Th><Th align="right">Quantidade</Th><Th align="right">Custo un.</Th><Th align="right">Valor total</Th><Th>Origem</Th></tr>
+                <tr><Th>Data</Th><Th>Tipo</Th><Th>Produto</Th><Th>Local</Th><Th align="right">Quantidade</Th><Th align="right">Custo un.</Th><Th align="right">Valor total</Th><Th>Origem</Th><Th>Autor</Th></tr>
               </thead>
               <tbody>
                 {rows.map((m) => {
                   const t = TIPOS_MOV.find((x) => x.value === m.tipo)
                   const sinal = t?.sinal ?? '='
                   const cor = sinal === '+' ? C.green : sinal === '-' ? C.red : C.amber
-                  const prod = produtosPorId[m.produto_id]
                   const local = m.local_id ? locaisPorId[m.local_id] : null
                   const origemHref = refHref(m.ref_tipo ?? null, m.ref_id ?? null)
                   const origemLabel = m.ref_tipo ? `${m.ref_tipo} ${m.ref_numero ?? ''}`.trim() : (m.motivo ?? '—')
@@ -1000,8 +1004,8 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
                         </span>
                       </Td>
                       <Td>
-                        <div style={{ fontWeight: 600 }}>{prod?.nome ?? '—'}</div>
-                        {prod?.codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{prod.codigo}</span>}
+                        <div style={{ fontWeight: 600 }}>{m.produto_nome ?? 'Produto removido'}</div>
+                        {m.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{m.produto_codigo}</span>}
                       </Td>
                       <Td>{local?.nome ?? '—'}</Td>
                       <Td align="right"><strong style={{ color: cor }}>{sinal} {fmtNum(Math.abs(Number(m.quantidade)))}</strong></Td>
@@ -1013,6 +1017,11 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
                         ) : (
                           <span style={{ fontSize: 11, color: C.espressoM }}>{origemLabel}</span>
                         )}
+                      </Td>
+                      <Td>
+                        {m.usuario_id
+                          ? <span style={{ fontSize: 11 }}>{m.usuario_nome_resolvido ?? 'Usuário removido'}</span>
+                          : <span style={{ fontSize: 11, color: C.espressoM }}>—</span>}
                       </Td>
                     </tr>
                   )
