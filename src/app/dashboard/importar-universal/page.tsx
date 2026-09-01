@@ -1,7 +1,8 @@
 'use client'
 import React, { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import ImportLoteXlsxCard from '@/components/importar/ImportLoteXlsxCard'
+// ImportLoteXlsxCard removido da tela (André: a planilha certa é a da migração, unificada com coluna Tipo).
+// RD-30: o componente e a RPC fn_importar_planilha_lote continuam no código; só saíram desta tela.
 import ImportMigracaoFinanceiraCard from '@/components/financeiro/ImportMigracaoFinanceiraCard'
 
 const C = {
@@ -57,7 +58,7 @@ export default function ImportarUniversalPage() {
             Importer Universal
           </h1>
           <p style={{ fontSize: 11, color: 'rgba(250,247,242,0.75)', margin: '2px 0 0' }}>
-            Upload em lote · auto-detecta SIGA / ContaAzul / Omie · vai pro PSGC automaticamente
+            Modelo PS unificado (receitas + despesas na mesma planilha) · vai pro PSGC automaticamente
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -89,13 +90,11 @@ export default function ImportarUniversalPage() {
               companyId={companyId}
               empresaNome={(() => { const c = companies.find((x) => x.id === companyId); return c?.nome_fantasia || c?.nome || c?.razao_social || null })()}
             />
-            <div style={{ height: 16 }} />
-            <ImportLoteXlsxCard companyId={companyId} />
           </>
         )}
 
         <div style={{ background: C.douradoSoft, border: `0.5px solid ${C.dourado}`, borderRadius: 8, padding: '12px 16px', marginTop: 16, fontSize: 12, color: C.espresso, lineHeight: 1.5 }}>
-          <strong>💡 Dica:</strong> A importação em lote suporta XLSX/CSV. Templates prontos no wizard acima evitam erro de mapeamento. Os lançamentos vão direto para o DRE consolidado.
+          <strong>💡 Dica:</strong> Baixe o modelo no bloco acima e preencha na mesma planilha (a coluna <strong>Tipo</strong> separa pagar de receber). Os lançamentos vão direto para o DRE consolidado.
         </div>
       </main>
     </div>
