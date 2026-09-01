@@ -48,8 +48,6 @@ export default function PlanoDeParaPage() {
   const [importando, setImportando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
-  // último resultado do import — para avisar quando o casamento exato vem baixo (planos diferentes)
-  const [ultimoImp, setUltimoImp] = useState<{ importadas: number; casadas: number } | null>(null)
 
   const [linhasDepara, setLinhasDepara] = useState<DeparaLinha[]>([])
   const [totais, setTotais] = useState<{ total: number; pendentes: number; casadas: number } | null>(null)
@@ -108,8 +106,7 @@ export default function PlanoDeParaPage() {
     setImportando(false)
     const r = data as { ok?: boolean; erro?: string; importadas?: number; casadas_exato?: number; pendentes?: number } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao importar'); return }
-    setMsg(`✅ ${r.importadas ?? 0} conta(s) importada(s) · ${r.casadas_exato ?? 0} casada(s) automaticamente · ${r.pendentes ?? 0} pendente(s) para vincular.`)
-    setUltimoImp({ importadas: r.importadas ?? 0, casadas: r.casadas_exato ?? 0 })
+    setMsg(`✅ ${r.importadas ?? 0} conta(s) do contador carregada(s) — o vocabulário fiscal está no sistema. Casar conta a conta com o plano gerencial não é o caminho; a classificação virá das regras por evento.`)
     setTexto('')
     await carregarDepara()
   }
@@ -129,25 +126,21 @@ export default function PlanoDeParaPage() {
         o que não casar fica <strong>pendente</strong>, nomeado, para você vincular — nunca uma conta padrão inventada.
       </p>
 
-      {/* Aviso estrutural (RD-38): o plano do PS é GERENCIAL, o do contador é FISCAL — estruturas diferentes.
-          Sem isto, quem importa acha que a tela quebrou quando quase tudo cai como pendente. */}
+      {/* Aviso estrutural (RD-38, medição real FC Pisos): os dois planos têm NATUREZAS diferentes.
+          O do PS é gerencial de RESULTADO; o do contador é contábil COMPLETO (com Ativo/Passivo).
+          Casar conta a conta não é o caminho — quase nada corresponde. */}
       <div style={{ background: C.goldBg, border: `1px solid ${C.gold}44`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: C.esp, display: 'flex', gap: 8 }}>
         <AlertTriangle size={16} color={C.goldD} style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
-          O plano de contas do PS é <strong>gerencial</strong> (organiza a DRE: receitas, despesas, custos), e o do contador é
-          <strong> fiscal</strong> (Ativo, Passivo, Resultado). As estruturas são diferentes — então <strong>a maioria dos vínculos será manual</strong>.
-          Poucas casarem automaticamente é o <strong>esperado</strong>, não um erro.
+          O plano do PS é <strong>gerencial de resultado</strong> (receitas, custos e despesas por vertical — sem Ativo nem Passivo).
+          O do contador é <strong>contábil completo</strong> (Ativo, Passivo, Resultado). São naturezas diferentes:
+          <strong> casar conta a conta não é o caminho</strong> — quase nada corresponde, e isso é o esperado.
+          Esta tela <strong>carrega as contas do contador</strong> (o vocabulário fiscal); a partida dobrada virá de
+          <strong> regras por tipo de evento</strong> apontando direto para a conta fiscal, não deste vínculo.
         </span>
       </div>
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{msg}</div>}
-      {/* casamento exato baixo → reforça que é a diferença de estrutura, não falha */}
-      {ultimoImp && ultimoImp.importadas > 0 && (ultimoImp.casadas / ultimoImp.importadas) < 0.2 && (
-        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12.5, color: C.esp }}>
-          ⚠️ Só {ultimoImp.casadas} de {ultimoImp.importadas} casaram por código. Isso é a diferença entre o plano gerencial do PS e o
-          plano fiscal do contador — <strong>não é falha</strong>. Vincule os pendentes abaixo, um a um; o sistema aprende e guarda cada vínculo.
-        </div>
-      )}
       {erro && <div style={{ background: '#FCEBEB', color: C.red, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
       {/* ── Importar ── */}
