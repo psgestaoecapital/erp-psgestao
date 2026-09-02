@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -214,6 +215,7 @@ async function auditarBotao(
   let analise: { veredito: string; motivo: string; bloqueado?: boolean; spec_fix_preliminar?: unknown } =
     { veredito: 'BLOQUEADO', motivo: 'Claude falhou' };
   let custoUsd = 0;
+  const modelo = modeloPara('auditoria_jornada');
 
   try {
     const screenshotBase64 = buffer.toString('base64');
@@ -240,7 +242,7 @@ Responda APENAS JSON sem markdown:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: modelo,
         max_tokens: 600,
         messages: [{
           role: 'user',
@@ -252,8 +254,12 @@ Responda APENAS JSON sem markdown:
       }),
     });
     const claudeData = await claudeRes.json();
+    if (!claudeRes.ok || claudeData.error) {
+      await registrarFalhaIA({ endpoint: '/api/gold/auditar-rota', finalidade: 'auditoria_jornada', modelo, status: claudeRes.status, erro: claudeData?.error?.message || 'sem corpo' });
+    }
     const usage = claudeData.usage;
-    if (usage) custoUsd = (usage.input_tokens * 3 + usage.output_tokens * 15) / 1_000_000;
+    // custo com as taxas do modelo default vivo (claude-sonnet-5): US$2/M entrada, US$10/M saída
+    if (usage) custoUsd = (usage.input_tokens * 2 + usage.output_tokens * 10) / 1_000_000;
     const textBlock = (claudeData.content || []).find((c: { type: string }) => c.type === 'text');
     if (textBlock?.text) {
       const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
@@ -279,7 +285,7 @@ Responda APENAS JSON sem markdown:
     tempo_resposta_ms: tempoMs,
     screenshot_url: screenshotUrl,
     claude_analysis_jornada: analise,
-    claude_model_used: 'claude-sonnet-4-20250514',
+    claude_model_used: modelo,
     claude_custo_usd: custoUsd,
     veredito_camada2: veredito2,
     motivo_veredito: analise.motivo || 'sem motivo',

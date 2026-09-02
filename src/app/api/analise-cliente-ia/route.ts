@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -110,6 +111,7 @@ Projeção pros próximos 3 meses.
 Use linguagem profissional mas acessível. Seja específico com números. Se houver poucos dados, diga isso claramente.`;
 
     // Chama Claude API
+    const modelo = modeloPara('consultor');
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -118,7 +120,7 @@ Use linguagem profissional mas acessível. Seja específico com números. Se hou
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: modelo,
         max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -126,6 +128,7 @@ Use linguagem profissional mas acessível. Seja específico com números. Se hou
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text();
+      await registrarFalhaIA({ endpoint: '/api/analise-cliente-ia', finalidade: 'consultor', modelo, status: claudeRes.status, erro: errText, companyId: cliente?.company_id ?? null });
       return NextResponse.json({ error: `Claude API erro: ${claudeRes.status} - ${errText.slice(0, 200)}` }, { status: 500 });
     }
 

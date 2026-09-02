@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { withAuth } from "@/lib/withAuth";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -209,8 +210,12 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
     if (apiKey && alertas.length > 0) {
       try {
         const alertasTxt = alertas.slice(0, 10).map(a => `[${a.severidade}] ${a.titulo}: ${a.descricao}`).join("\n");
-        const aiRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: "Voce e o assistente BPO da PS Gestao. Resuma os alertas do dia em 3-5 linhas, priorizando o que o operador precisa resolver primeiro. Seja direto e pratico.", messages: [{ role: "user", content: `Empresa: ${company.nome_fantasia || company.razao_social}\nAlertas:\n${alertasTxt}\n\nResumo:` }] }) });
+        const modeloBpo = modeloPara('classificacao');
+        const aiRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: modeloBpo, max_tokens: 1000, system: "Voce e o assistente BPO da PS Gestao. Resuma os alertas do dia em 3-5 linhas, priorizando o que o operador precisa resolver primeiro. Seja direto e pratico.", messages: [{ role: "user", content: `Empresa: ${company.nome_fantasia || company.razao_social}\nAlertas:\n${alertasTxt}\n\nResumo:` }] }) });
         const aiData = await aiRes.json();
+        if (!aiRes.ok || aiData?.error) {
+          await registrarFalhaIA({ endpoint: '/api/bpo/executar', finalidade: 'classificacao', modelo: modeloBpo, status: aiRes.status, erro: aiData?.error?.message || 'sem corpo', companyId: company_id });
+        }
         resumoIA = aiData.content?.[0]?.text || "";
       } catch { }
     }

@@ -9,6 +9,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { modeloPara, registrarFalhaIA } from "../_shared/aiModel.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -87,15 +88,17 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
   content.push({ type: "text", text: prompt });
 
   let analysis: any = null; let custoUsd = 0;
+  const modelo = modeloPara("analise_imagem");
   try {
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 1000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model: modelo, max_tokens: 1000, messages: [{ role: "user", content }] }),
       signal: AbortSignal.timeout(45000),
     });
     if (!claudeResponse.ok) {
       const t = await claudeResponse.text();
+      await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: claudeResponse.status, erro: `${claudeResponse.status}: ${t.slice(0, 200)}` });
       return new Response(JSON.stringify({ ok: false, erro: "claude_api", detalhe: `${claudeResponse.status}: ${t.slice(0, 200)}`, analisada: false }), { headers: { "Content-Type": "application/json" } });
     }
     const claudeData = await claudeResponse.json();
@@ -104,9 +107,11 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     analysis = JSON.parse(cleanText);
     const it = claudeData.usage?.input_tokens || 0;
     const ot = claudeData.usage?.output_tokens || 0;
-    custoUsd = (it * 2 / 1_000_000) + (ot * 10 / 1_000_000);  // claude-sonnet-5: $2/M in, $10/M out
+    // custo com as taxas do modelo default vivo (claude-sonnet-5): US$2/M entrada, US$10/M saída
+    custoUsd = (it * 2 / 1_000_000) + (ot * 10 / 1_000_000);
   } catch (err) {
     // qualquer falha na IA: a sugestão segue válida, só sem análise
+    await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: null, erro: String(err).slice(0, 200) });
     return new Response(JSON.stringify({ ok: false, erro: "falha_analise", detalhe: String(err).slice(0, 200), analisada: false }), { headers: { "Content-Type": "application/json" } });
   }
 

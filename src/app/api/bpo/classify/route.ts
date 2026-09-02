@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { withAuth } from "@/lib/withAuth";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -129,9 +130,9 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: modeloPara('classificacao'),
         max_tokens: 4000,
-        system: `Você é um classificador contábil especialista em PMEs brasileiras. 
+        system: `Você é um classificador contábil especialista em PMEs brasileiras.
 Analise cada lançamento e sugira a categoria contábil mais adequada.
 Responda APENAS em JSON, sem markdown, sem explicação fora do JSON.
 Formato: [{"id":1,"categoria":"1.01.01 — Venda de Mercadorias","confianca":95,"justificativa":"Cliente com histórico de compras"}]
@@ -150,6 +151,9 @@ Classifique cada um. Responda APENAS com o JSON array.`
     });
 
     const aiData = await aiResponse.json();
+    if (!aiResponse.ok || aiData?.error) {
+      await registrarFalhaIA({ endpoint: '/api/bpo/classify', finalidade: 'classificacao', modelo: modeloPara('classificacao'), status: aiResponse.status, erro: aiData?.error?.message || JSON.stringify(aiData?.error || 'sem corpo'), companyId: company_id });
+    }
     const aiText = aiData.content?.map((c: any) => c.text || "").join("") || "[]";
 
     // 5. Parse AI suggestions

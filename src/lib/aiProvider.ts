@@ -5,6 +5,8 @@
  * Fallback: Google Gemini 2.0 Flash
  */
 
+import { modeloPara, registrarFalhaIA } from './aiModel'
+
 export interface AIRequest {
   system: string
   prompt: string
@@ -20,6 +22,7 @@ export interface AIResponse {
 
 // ── Anthropic ────────────────────────────────────────────────
 async function callAnthropic(req: AIRequest): Promise<string> {
+  const modelo = modeloPara('geral')
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -28,7 +31,7 @@ async function callAnthropic(req: AIRequest): Promise<string> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: modelo,
       max_tokens: req.maxTokens ?? 2048,
       system: req.system,
       messages: [{ role: 'user', content: req.prompt }],
@@ -38,6 +41,7 @@ async function callAnthropic(req: AIRequest): Promise<string> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
+    await registrarFalhaIA({ endpoint: 'lib/aiProvider', finalidade: 'geral', modelo, status: res.status, erro: err?.error?.message ?? res.statusText })
     throw new Error('Anthropic ' + res.status + ': ' + (err.error?.message ?? res.statusText))
   }
 

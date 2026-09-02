@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,12 +21,17 @@ ${JSON.stringify(kpis, null, 0)}
 Responda APENAS em JSON valido sem markdown:
 {"alertas":[{"icone":"emoji","titulo":"...","desc":"...","acao":"..."}],"oportunidades":[{"icone":"emoji","titulo":"...","desc":"...","acao":"..."}],"cruzamentos":[{"titulo":"...","desc":"...","impacto":"..."}]}`
 
+    const modelo = modeloPara('industrial')
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: modelo, max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
     })
-    if (!response.ok) throw new Error('API ' + response.status)
+    if (!response.ok) {
+      const t = await response.text().catch(() => '')
+      await registrarFalhaIA({ endpoint: '/api/industrial/analyze', finalidade: 'industrial', modelo, status: response.status, erro: t })
+      throw new Error('API ' + response.status)
+    }
     const data = await response.json()
     const text = data.content?.map((c: any) => c.text || '').join('') || '{}'
     const clean = text.replace(/\`\`\`json|\n|\`\`\`/g, '').trim()

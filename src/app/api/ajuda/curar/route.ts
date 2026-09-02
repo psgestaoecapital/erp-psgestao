@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
 
 // Confirma que o chamador é admin ANTES de gastar token de LLM (Pilar 2 + RD-42). Usa o token do
 // usuário e uma RPC admin-gated barata; se não for admin, a RPC devolve ok=false.
@@ -28,7 +29,7 @@ type Contexto = {
 }
 type Item = { artigo_id: string; titulo?: string; rota?: string; area?: string; corpo_atual?: string | null; is_gap?: boolean; contexto?: Contexto | null }
 
-const MODEL = 'claude-sonnet-4-20250514'
+const MODEL = modeloPara('ajuda_cura')
 const MAX_LOTE = 25
 
 function temMaterial(c?: Contexto | null): boolean {
@@ -65,7 +66,11 @@ REGRAS DURAS:
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model: MODEL, max_tokens: 700, system, messages: [{ role: 'user', content: material }] }),
     })
-    if (!resp.ok) return { artigo_id: item.artigo_id, corpo_novo: '', needs_human: true, erro: 'API ' + resp.status }
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '')
+      await registrarFalhaIA({ endpoint: '/api/ajuda/curar', finalidade: 'ajuda_cura', modelo: MODEL, status: resp.status, erro: t })
+      return { artigo_id: item.artigo_id, corpo_novo: '', needs_human: true, erro: 'API ' + resp.status }
+    }
     const data = await resp.json()
     const corpo = (data.content?.map((x: { text?: string }) => x.text || '').join('') || '').trim()
     const needs_human = corpo.includes('[VERIFICAR]') || (!!item.is_gap && !temMaterial(c))
