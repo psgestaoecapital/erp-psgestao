@@ -14,6 +14,9 @@ const OW="#FAF7F2",OWD="#F0EAE0",OWDD="#E5DDC8",
 // Alias retrocompat (tabela DRE / fluxo) · todos apontam pra paleta espresso
 const BG=OW,BG2=OW,BG3=OWD,BD=OWD,TX=ES,TXM=ESL,TXD=ESL;
 
+// Normaliza igual ao fn_remove_acentos do banco (lower + sem acento). O matcher client-side
+// TEM de comparar como o banco compara — senao a tela sugere uma conta e o sistema outra (RD-52).
+const norm=(s:string)=>(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 const fmtR=(v:number)=>v===0?"—":`R$ ${Math.abs(v).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})}`;
 const fmtRFull=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 
@@ -152,7 +155,7 @@ function VisaoMensalPageInner(){
         const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
         const cf=String(r.codigo_cliente_fornecedor||"");const nome=cliMap[cf]||`Cliente ${cf}`;
         const cat=r.codigo_categoria||"";const catN=catMap[cat]||r.descricao_categoria||cat;
-        let lnId="geral";let bestScore=0;for(const ln of lns){const catLow=catN.toLowerCase();let score=0;for(const k of (ln.keywords||[])){if(catLow.includes(k.kw)){score=k.pr;break;}}if(score===0&&ln.nome&&(catLow.includes(ln.nome.toLowerCase())||ln.nome.toLowerCase().includes(catLow)))score=1;if(score>bestScore){bestScore=score;lnId=ln.id;}}
+        let lnId="geral";let bestScore=0;for(const ln of lns){const catLow=norm(catN);let score=0;for(const k of (ln.keywords||[])){if(catLow.includes(norm(k.kw))){score=k.pr;break;}}if(score===0&&ln.nome&&(catLow.includes(norm(ln.nome))||norm(ln.nome).includes(catLow)))score=1;if(score>bestScore){bestScore=score;lnId=ln.id;}}
         if(!recByLn[lnId])recByLn[lnId]={};
         if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
         recByLn[lnId][nome].t+=v;addDia(recByLn[lnId][nome].d,dia,v);
@@ -167,7 +170,7 @@ function VisaoMensalPageInner(){
       const v=Number(r.valor_documento)||0;if(v<=0)continue;
       const dia=parseDia(r.data_previsao||r.data_vencimento||"");if(!dia)continue;
       const nome=r.nome_pessoa||"Cliente";const catN=r.subcategoria||r.categoria||"Outros";
-      let lnId="geral";let bestScore=0;for(const ln of lns){const catLow=catN.toLowerCase();let score=0;for(const k of (ln.keywords||[])){if(catLow.includes(k.kw)){score=k.pr;break;}}if(score===0&&ln.nome&&catLow.includes(ln.nome.toLowerCase()))score=1;if(score>bestScore){bestScore=score;lnId=ln.id;}}
+      let lnId="geral";let bestScore=0;for(const ln of lns){const catLow=norm(catN);let score=0;for(const k of (ln.keywords||[])){if(catLow.includes(norm(k.kw))){score=k.pr;break;}}if(score===0&&ln.nome&&catLow.includes(norm(ln.nome)))score=1;if(score>bestScore){bestScore=score;lnId=ln.id;}}
       if(!recByLn[lnId])recByLn[lnId]={};
       if(!recByLn[lnId][nome])recByLn[lnId][nome]={t:0,d:{},l:{}};
       recByLn[lnId][nome].t+=v;addDia(recByLn[lnId][nome].d,dia,v);
