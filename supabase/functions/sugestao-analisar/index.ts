@@ -91,7 +91,7 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 1000, messages: [{ role: "user", content }] }),
       signal: AbortSignal.timeout(45000),
     });
     if (!claudeResponse.ok) {
@@ -104,7 +104,7 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     analysis = JSON.parse(cleanText);
     const it = claudeData.usage?.input_tokens || 0;
     const ot = claudeData.usage?.output_tokens || 0;
-    custoUsd = (it * 3 / 1_000_000) + (ot * 15 / 1_000_000);
+    custoUsd = (it * 2 / 1_000_000) + (ot * 10 / 1_000_000);  // claude-sonnet-5: $2/M in, $10/M out
   } catch (err) {
     // qualquer falha na IA: a sugestão segue válida, só sem análise
     return new Response(JSON.stringify({ ok: false, erro: "falha_analise", detalhe: String(err).slice(0, 200), analisada: false }), { headers: { "Content-Type": "application/json" } });
