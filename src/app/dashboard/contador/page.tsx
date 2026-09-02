@@ -9,6 +9,9 @@ const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-t
 const BD="var(--ps-border,#E0D8CC)",GO="var(--ps-gold,#C8941A)";
 const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B",P="#8B5CF6",T="#14B8A6";
 
+// Normaliza igual ao fn_remove_acentos do banco (lower + sem acento): o matcher da tela precisa
+// comparar como o banco compara, senao a tela sugere uma linha e o sistema outra (RD-52).
+const norm=(s:string)=>(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 const fmtR=(v:number)=>v===0?"—":`R$ ${Math.abs(v).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtP=(v:number)=>v===0?"—":`${v>0?"+":""}${v.toFixed(1)}%`;
 const STATUS_EXCL=new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
@@ -124,8 +127,8 @@ function ContadorPageInner(){
       if(imp.import_type==="clientes"){const cls=imp.import_data?.clientes_cadastro||[];if(Array.isArray(cls))for(const c of cls){const cod=c.codigo_cliente_omie||c.codigo_cliente||c.codigo;cliMap[String(cod)]=c.nome_fantasia||c.razao_social||c.nome||"";}}
       if(imp.import_type==="categorias"){const cats=imp.import_data?.categoria_cadastro||[];if(Array.isArray(cats))for(const c of cats){const cod=c.codigo||c.cCodigo||"";if(cod)catMap[cod]=c.descricao||c.cDescricao||"";}}
     }
-    const lns=(blData||[]).map((b:any)=>({id:b.id,nome:b.name||b.nome||"",keywords:(b.business_line_keywords||[]).map((k:any)=>({kw:(k.keyword||"").toLowerCase(),pr:k.prioridade||1})).sort((a:any,b:any)=>b.pr-a.pr)}));
-    const matchLinha=(catN:string):string=>{let best="Geral";let bestScore=0;for(const ln of lns){const catLow=catN.toLowerCase();for(const k of ln.keywords){if(catLow.includes(k.kw)&&k.pr>bestScore){bestScore=k.pr;best=ln.nome;}}if(bestScore===0&&ln.nome&&catLow.includes(ln.nome.toLowerCase())){bestScore=1;best=ln.nome;}}return best;};
+    const lns=(blData||[]).map((b:any)=>({id:b.id,nome:b.name||b.nome||"",keywords:(b.business_line_keywords||[]).map((k:any)=>({kw:norm(k.keyword||""),pr:k.prioridade||1})).sort((a:any,b:any)=>b.pr-a.pr)}));
+    const matchLinha=(catN:string):string=>{let best="Geral";let bestScore=0;for(const ln of lns){const catLow=norm(catN);for(const k of ln.keywords){if(catLow.includes(k.kw)&&k.pr>bestScore){bestScore=k.pr;best=ln.nome;}}if(bestScore===0&&ln.nome&&catLow.includes(norm(ln.nome))){bestScore=1;best=ln.nome;}}return best;};
 
     const result:Lanc[]=[];
     if(imports)for(const imp of imports){
