@@ -41,8 +41,11 @@ type Result = {
   url_final_visitada?: string | null;
 };
 
+type BatchOut = { results: Result[]; relaunches: number };
+
 // Captura um LOTE de rotas numa única chamada — o playwright route reusa 1 browser para todas.
-async function captureBatch(rotas: string[], baseUrl: string, secret: string): Promise<Result[]> {
+// relaunches = quantas vezes o browser morreu no meio do lote e foi relançado (telemetria de fragilidade).
+async function captureBatch(rotas: string[], baseUrl: string, secret: string): Promise<BatchOut> {
   try {
     const res = await fetch(`${baseUrl}/api/screen-watcher/playwright`, {
       method: 'POST',
@@ -50,25 +53,29 @@ async function captureBatch(rotas: string[], baseUrl: string, secret: string): P
       body: JSON.stringify({ rotas }),
     });
     const json = await res.json().catch(() => ({} as Record<string, unknown>));
+    const relaunches = Number(json.relaunches) || 0;
     const arr = Array.isArray(json.resultados) ? (json.resultados as Record<string, unknown>[]) : [];
     if (arr.length === 0) {
       // lote inteiro falhou (browser não subiu etc.): marca todas como erro de infra
       const erro = (json.error as string) || `HTTP ${res.status}`;
-      return rotas.map((rota) => ({ rota, success: false, capture_status: 'erro', rota_alcancada: false, error: erro }));
+      return { relaunches, results: rotas.map((rota) => ({ rota, success: false, capture_status: 'erro', rota_alcancada: false, error: erro })) };
     }
-    return arr.map((r) => ({
-      rota: String(r.rota ?? ''),
-      success: r.success === true,
-      capture_status: r.capture_status as string | undefined,
-      rota_alcancada: r.rota_alcancada === true,
-      error: (r.error as string) || (r.motivo as string) || undefined,
-      page_load_ms: r.page_load_ms as number | undefined,
-      screenshot_url: r.screenshot_url as string | undefined,
-      url_final_visitada: (r.url_final_visitada as string) ?? null,
-    }));
+    return {
+      relaunches,
+      results: arr.map((r) => ({
+        rota: String(r.rota ?? ''),
+        success: r.success === true,
+        capture_status: r.capture_status as string | undefined,
+        rota_alcancada: r.rota_alcancada === true,
+        error: (r.error as string) || (r.motivo as string) || undefined,
+        page_load_ms: r.page_load_ms as number | undefined,
+        screenshot_url: r.screenshot_url as string | undefined,
+        url_final_visitada: (r.url_final_visitada as string) ?? null,
+      })),
+    };
   } catch (e: unknown) {
     const erro = e instanceof Error ? e.message : String(e);
-    return rotas.map((rota) => ({ rota, success: false, capture_status: 'erro', rota_alcancada: false, error: erro }));
+    return { relaunches: 0, results: rotas.map((rota) => ({ rota, success: false, capture_status: 'erro', rota_alcancada: false, error: erro })) };
   }
 }
 
@@ -161,7 +168,8 @@ export async function GET(req: Request) {
   const lotes: string[][] = [];
   for (let i = 0; i < rotas.length; i += BATCH_SIZE) lotes.push(rotas.slice(i, i + BATCH_SIZE));
   const porLote = await runWithConcurrency(lotes, (lote) => captureBatch(lote, baseUrl, watcherSecret), MAX_CONCURRENT);
-  const results = porLote.flat();
+  const results = porLote.flatMap((p) => p.results);
+  const relaunches_total = porLote.reduce((acc, p) => acc + p.relaunches, 0);
   const totalMs = Date.now() - startedAt;
 
   // COBERTURA REAL DA AUDITORIA: alcançadas (foto válida) vs não-alcançadas, por motivo.
@@ -181,6 +189,9 @@ export async function GET(req: Request) {
       nao_alcancadas: results.length - alcancadas,
       por_motivo: { redirect_modulo_ausente: nao_alcancada_redirect, nao_carregou, erro },
       pct_alcancada: results.length ? Math.round((alcancadas / results.length) * 100) : 0,
+      // quantas vezes o browser morreu no meio de um lote e foi relançado — se for alto, o serverless
+      // não sustenta nem 1 browser por lote e a obra maior (runtime dedicado) fica justificada no dado.
+      relaunches_browser: relaunches_total,
     },
     success_count,
     error_count,

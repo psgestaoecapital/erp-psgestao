@@ -266,35 +266,59 @@ export async function POST(req: Request) {
     });
   }
 
+  async function abrirBrowser(): Promise<Browser> {
+    const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
+    return playwright.launch({ args: chromium.args, executablePath, headless: true });
+  }
+  // O browser compartilhado pode MORRER no meio do lote (o serverless recicla o processo — visto
+  // em prova: 1ª rota captura, depois todas caem em "Target page, context or browser has been closed").
+  // Quando isso acontece, uma rota não pode levar o lote inteiro junto.
+  const BROWSER_MORTO = /has been closed|context or browser|Browser closed|Connection closed|crashed|Protocol error|Target closed/i;
+
   let browser: Browser | null = null;
+  let relaunches = 0; // telemetria: quão frágil o browser está no serverless (decide se a obra maior é necessária)
   const resultados: Resultado[] = [];
+  const pushErro = (rota: string, msg: string) => resultados.push({
+    rota, rota_base: rota.split('?')[0], screen_id: sanitizePathComponent(rota.split('?')[0]),
+    success: false, capture_status: 'erro', rota_alcancada: false, screenshot_url: null,
+    error: msg, page_load_ms: 0, errors_count: 0, visual_truth: null,
+    url_final_visitada: null, redirect_detectado: false, auth_state: 'desconhecido', login_retentado: false, empresa_id_usada: empresaId,
+  });
   try {
     const sessionPayload = await obterSessionPayload();  // login do bot UMA vez para o lote
-    const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
-    browser = await playwright.launch({ args: chromium.args, executablePath, headless: true });  // browser UMA vez
+    browser = await abrirBrowser();                       // browser UMA vez (relançado só se morrer no meio)
     const cfg: Ctx = { supabase, SAAS_BASE_URL, storageKey, empresaId, sessionPayload, obterSessionPayload };
     for (const rota of rotas) {
       try {
         resultados.push(await capturarRota(browser, cfg, rota));
       } catch (e: unknown) {
-        // rota que estoura não derruba o lote
-        resultados.push({
-          rota, rota_base: rota.split('?')[0], screen_id: sanitizePathComponent(rota.split('?')[0]),
-          success: false, capture_status: 'erro', rota_alcancada: false, screenshot_url: null,
-          error: e instanceof Error ? e.message : String(e), page_load_ms: 0, errors_count: 0, visual_truth: null,
-          url_final_visitada: null, redirect_detectado: false, auth_state: 'desconhecido', login_retentado: false, empresa_id_usada: empresaId,
-        });
+        const msg = e instanceof Error ? e.message : String(e);
+        // Browser morto no meio do lote: RELANÇA e refaz ESTA rota. Pior caso (browser morre a cada
+        // rota) = 1 launch por rota = comportamento antigo, nunca pior; melhor caso = 1 launch pro lote.
+        if (BROWSER_MORTO.test(msg)) {
+          relaunches++;
+          await browser?.close().catch(() => {});
+          try {
+            browser = await abrirBrowser();
+            resultados.push(await capturarRota(browser, cfg, rota));
+            continue;
+          } catch (e2: unknown) {
+            pushErro(rota, `relaunch falhou: ${e2 instanceof Error ? e2.message : String(e2)}`);
+            continue;
+          }
+        }
+        pushErro(rota, msg); // rota que estoura (não por morte do browser) não derruba o lote
       }
     }
   } catch (e: unknown) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e), resultados }, { status: 500 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e), relaunches, resultados }, { status: 500 });
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
 
   // Compat: 1 rota → devolve o objeto no topo (como antes) + em resultados. Lote → só resultados.
   if (resultados.length === 1) {
-    return NextResponse.json({ ...resultados[0], resultados });
+    return NextResponse.json({ ...resultados[0], relaunches, resultados });
   }
-  return NextResponse.json({ success: true, total: resultados.length, resultados });
+  return NextResponse.json({ success: true, total: resultados.length, relaunches, resultados });
 }
