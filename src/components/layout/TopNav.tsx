@@ -157,17 +157,22 @@ export default function TopNav() {
               ) : (
                 <div className="max-h-[60vh] overflow-y-auto">
                   {alertas.map((a) => {
+                    const clicavel = !!a.link_acao
+                    // Sem link → não parece clicável (sem hover, cursor default). Alerta que promete
+                    // tela e não leva a lugar nenhum treina o usuário a não clicar — aqui é honesto:
+                    // informativo, sem afordância de clique.
                     const corpo = (
-                      <div className="px-4 py-2.5 hover:bg-[#3D2314]/4 transition-colors border-b border-[#3D2314]/6 last:border-b-0">
+                      <div className={`px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 last:border-b-0 ${clicavel ? 'hover:bg-[#3D2314]/4 cursor-pointer' : 'cursor-default'}`}>
                         <div className="flex items-center gap-2">
                           <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${a.severidade === 'alta' || a.severidade === 'critica' ? 'bg-[#E24B4A]' : 'bg-[#C8941A]'}`} />
                           <span className="text-[13px] font-medium text-[#3D2314] truncate">{a.titulo || 'Alerta'}</span>
                         </div>
                         {a.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{a.mensagem}</div>}
+                        {!clicavel && <div className="text-[10px] text-[#3D2314]/35 mt-1">— sem tela para abrir</div>}
                       </div>
                     )
-                    return a.link_acao ? (
-                      <Link key={a.id} href={a.link_acao} onClick={() => setSinoAberto(false)}>{corpo}</Link>
+                    return clicavel ? (
+                      <Link key={a.id} href={a.link_acao!} onClick={() => setSinoAberto(false)}>{corpo}</Link>
                     ) : (
                       <div key={a.id}>{corpo}</div>
                     )
