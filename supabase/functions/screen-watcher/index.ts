@@ -3,10 +3,13 @@
 // v2: relaxa secret quando nao configurado (modo dev), captura rotas publicas
 //
 // VERSIONADO no Git em 2026-05-14 via varredura Onda 2 (CEO Gilberto).
-// Antes vivia so no Supabase. Conteudo extraido via mcp get_edge_function
-// versao 4 (slug screen-watcher, id 48924472-6b06-44b5-a698-0212becdb85f,
-// ezbr_sha256 483f31260f3ca419224383f79de018248f6180796738ad5440b8d2c33eb1901a).
-// NAO redeployado nesta operacao — apenas adicionado ao audit trail Git.
+//
+// 03/09/2026 (RD-52 · uma língua só): esta sonda faz fetch de HTML e NÃO tira foto. Antes gravava
+// capture_status em INGLÊS ('success'/'error'/...) na MESMA coluna do capturador playwright, que grava
+// em PORTUGUÊS ('sucesso' = FOTOGRAFOU). Dois vocabulários numa coluna só faziam contadores somarem foto
+// boa como falha. Agora fala PORTUGUÊS e HONESTO: alcançou o HTML → 'html_ok' (NÃO 'sucesso' — não há
+// foto); erros → 'erro'/'timeout'/'nao_encontrada'/'auth_falhou'. (Registrado como pendência: duas
+// origens com propósitos diferentes — foto vs. HTML — talvez não devam dividir a mesma tabela.)
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -66,7 +69,8 @@ Deno.serve(async (req: Request) => {
     const url = `${SAAS_BASE_URL}${rotaResolved}`;
 
     const startTime = Date.now();
-    let status = "success";
+    // 'html_ok' = alcançou e leu o HTML (sem foto). NUNCA 'sucesso' — 'sucesso' é foto tirada (playwright).
+    let status = "html_ok";
     let httpStatus = 0;
     let htmlSize = 0;
     let htmlHash = "";
@@ -96,12 +100,12 @@ Deno.serve(async (req: Request) => {
       httpStatus = response.status;
 
       if (response.status === 404) {
-        status = "404";
+        status = "nao_encontrada";
       } else if (response.status >= 500) {
-        status = "error";
+        status = "erro";
         errorsContent = `HTTP ${response.status}`;
       } else if (response.status >= 400) {
-        status = "auth_failed";
+        status = "auth_falhou";
         errorsContent = `HTTP ${response.status} - faltam secrets de auth`;
       }
 
@@ -117,21 +121,21 @@ Deno.serve(async (req: Request) => {
 
       // Detectar redirect para login (sintomas de auth falhou)
       if (html.includes("login") && (titulo.toLowerCase().includes("login") || html.includes('action="/login"'))) {
-        if (status === "success") {
-          status = "auth_failed";
+        if (status === "html_ok") {
+          status = "auth_falhou";
           errorsContent = "Redirect para login - SCREENSHOT_USER_TOKEN nao configurado ou invalido";
         }
       }
 
       // Detectar Next.js error
       if (html.includes("Application error") || html.includes("Internal Server Error")) {
-        status = "error";
+        status = "erro";
         errorsContent += "; Next.js error boundary";
       }
 
     } catch (err) {
       loadMs = Date.now() - startTime;
-      status = err instanceof DOMException && err.name === "TimeoutError" ? "timeout" : "error";
+      status = err instanceof DOMException && err.name === "TimeoutError" ? "timeout" : "erro";
       errorsContent = String(err).slice(0, 500);
     }
 
@@ -177,10 +181,11 @@ Deno.serve(async (req: Request) => {
       executed_at: inicio.toISOString(),
       duration_ms: totalMs,
       total_screens: resultados.length,
-      success: resultados.filter(r => r.status === "success").length,
-      auth_failed: resultados.filter(r => r.status === "auth_failed").length,
-      errors: resultados.filter(r => r.status === "error").length,
-      not_found: resultados.filter(r => r.status === "404").length,
+      html_ok: resultados.filter(r => r.status === "html_ok").length,
+      auth_falhou: resultados.filter(r => r.status === "auth_falhou").length,
+      erros: resultados.filter(r => r.status === "erro").length,
+      nao_encontrada: resultados.filter(r => r.status === "nao_encontrada").length,
+      timeout: resultados.filter(r => r.status === "timeout").length,
       resultados,
     }, null, 2),
     { headers: { "Content-Type": "application/json" } }
