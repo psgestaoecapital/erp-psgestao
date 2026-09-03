@@ -130,6 +130,10 @@ function Inner() {
         <Card l={`Preço mínimo (margem ${margem}%)`} v={brl(precoMinimo)} sub="antes de impostos — cálculo fiscal é a Onda 4" />
       </div>
 
+      <Bloco titulo="Fotos do veículo">
+        <FotosVeiculo veiculoId={id} companyId={v.company_id} onErro={setErro} onMsg={setMsg} />
+      </Bloco>
+
       <Bloco titulo="Negociação">
         {!venda && !reserva && !['vendido', 'entregue'].includes(v.situacao) && (
           <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginBottom: 8 }}>Sem reserva ou venda. Reserve o veículo ou registre a venda.</div>
@@ -366,6 +370,108 @@ function Card({ l, v, sub, destaque }: { l: string; v: string; sub?: string; des
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM }}>{l}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? C.gold : C.esp, marginTop: 2 }}>{v}</div>
       {sub && <div style={{ fontSize: 10.5, color: C.amber, marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+
+// Fotos do veículo · reusa o padrão da Central de Melhorias (bucket privado + anexo + ordem).
+// Várias fotos, uma principal (aparece no cartão do Pátio), ordem editável. Mobile: capture=environment
+// abre a câmera — o vendedor fotografa no pátio pelo celular. Bucket PRIVADO → URLs assinadas.
+type Foto = { id: string; storage_path: string; principal: boolean; ordem: number }
+function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: string; companyId: string; onErro: (m: string) => void; onMsg: (m: string) => void }) {
+  const [fotos, setFotos] = useState<Foto[]>([])
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('veic_veiculo_foto').select('id, storage_path, principal, ordem').eq('veiculo_id', veiculoId).order('ordem')
+    const list = (data as Foto[]) ?? []
+    setFotos(list)
+    if (list.length) {
+      const { data: signed } = await supabase.storage.from('revenda-veiculos').createSignedUrls(list.map((f) => f.storage_path), 3600)
+      const m: Record<string, string> = {}
+      ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
+      setUrls(m)
+    } else setUrls({})
+  }, [veiculoId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load() }, [load])
+
+  async function uid() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+
+  async function subir(files: FileList | null) {
+    if (!files || !files.length) return
+    setBusy(true)
+    try {
+      const user = await uid()
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
+        const path = `${companyId}/${veiculoId}/${Date.now()}-${i}.${ext}`
+        const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
+        if (upErr) { onErro('Falha no upload: ' + upErr.message); continue }
+        const { data, error } = await supabase.rpc('fn_veic_foto_registrar', { p_veiculo_id: veiculoId, p_storage_path: path, p_user: user })
+        const r = data as { ok?: boolean; erro?: string } | null
+        if (error || !r?.ok) onErro(r?.erro || error?.message || 'Falha ao registrar foto')
+      }
+      onMsg('Foto(s) enviada(s).')
+      await load()
+    } finally { setBusy(false) }
+  }
+
+  async function tornarPrincipal(id: string) {
+    const { data, error } = await supabase.rpc('fn_veic_foto_principal', { p_foto_id: id, p_user: await uid() })
+    if (error || !(data as { ok?: boolean } | null)?.ok) { onErro('Falha ao definir principal'); return }
+    await load()
+  }
+
+  async function mover(idx: number, dir: -1 | 1) {
+    const j = idx + dir
+    if (j < 0 || j >= fotos.length) return
+    const arr = [...fotos]
+    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
+    setFotos(arr.map((f, k) => ({ ...f, ordem: k })))
+    const ordens = arr.map((f, k) => ({ id: f.id, ordem: k }))
+    const { error } = await supabase.rpc('fn_veic_foto_reordenar', { p_veiculo_id: veiculoId, p_ordens: ordens, p_user: await uid() })
+    if (error) { onErro('Falha ao reordenar'); await load() }
+  }
+
+  async function remover(id: string) {
+    const { data, error } = await supabase.rpc('fn_veic_foto_remover', { p_foto_id: id, p_user: await uid() })
+    const r = data as { ok?: boolean; storage_path_removido?: string } | null
+    if (error || !r?.ok) { onErro('Falha ao remover'); return }
+    if (r.storage_path_removido) await supabase.storage.from('revenda-veiculos').remove([r.storage_path_removido])
+    await load()
+  }
+
+  return (
+    <div>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 14px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>
+        {busy ? 'Enviando…' : '📷 Adicionar fotos'}
+        <input type="file" accept="image/*" capture="environment" multiple disabled={busy} onChange={(e) => { void subir(e.target.files); e.currentTarget.value = '' }} style={{ display: 'none' }} />
+      </label>
+      <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Tire pelo celular no pátio. A principal (⭐) aparece no cartão do Pátio. A ordem é argumento de venda.</div>
+      {fotos.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem fotos ainda. Frente, lateral, interior, motor.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginTop: 12 }}>
+          {fotos.map((f, i) => (
+            <div key={f.id} style={{ border: `1px solid ${f.principal ? C.gold : C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, position: 'relative' }}>
+              <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {urls[f.storage_path] ? <img src={urls[f.storage_path]} alt="foto do veículo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 11, color: C.espL }}>carregando…</span>}
+              </div>
+              {f.principal && <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: C.gold, color: C.white }}>⭐ principal</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, background: C.white }}>
+                {!f.principal && <button onClick={() => void tornarPrincipal(f.id)} title="tornar principal" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}>☆</button>}
+                <button onClick={() => void mover(i, -1)} disabled={i === 0} title="mover" style={{ border: 'none', background: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? C.espL : C.esp }}>◀</button>
+                <button onClick={() => void mover(i, 1)} disabled={i === fotos.length - 1} title="mover" style={{ border: 'none', background: 'none', cursor: i === fotos.length - 1 ? 'default' : 'pointer', color: i === fotos.length - 1 ? C.espL : C.esp }}>▶</button>
+                <button onClick={() => void remover(f.id)} title="remover" style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: C.red, fontSize: 13 }}>🗑</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

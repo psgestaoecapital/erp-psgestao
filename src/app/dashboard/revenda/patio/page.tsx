@@ -29,6 +29,7 @@ function Inner() {
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const [rows, setRows] = useState<Veic[]>([])
+  const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({})
   const [filtro, setFiltro] = useState('todos')
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
@@ -37,7 +38,17 @@ function Inner() {
     if (!companyId) { setRows([]); return }
     const { data, error } = await supabase.from('v_veic_patio').select('*').eq('company_id', companyId).order('dias_patio', { ascending: false })
     if (error) { setErro(error.message); return }
-    setRows((data as Veic[]) ?? [])
+    const lista = (data as Veic[]) ?? []
+    setRows(lista)
+    // foto_url guarda o storage_path da principal (bucket privado) — assina para exibir.
+    // Legado eventual em URL pública (http) passa direto.
+    const paths = lista.map((r) => r.foto_url).filter((u): u is string => !!u && !u.startsWith('http'))
+    if (paths.length) {
+      const { data: signed } = await supabase.storage.from('revenda-veiculos').createSignedUrls(paths, 3600)
+      const m: Record<string, string> = {}
+      ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
+      setFotoUrls(m)
+    } else setFotoUrls({})
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -79,8 +90,11 @@ function Inner() {
               <div key={v.id} onClick={() => router.push(`/dashboard/revenda/veiculo/${v.id}`)}
                 style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', cursor: 'pointer' }}>
                 <div style={{ height: 110, background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.espL, fontSize: 12 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {v.foto_url ? <img src={v.foto_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '📷 sem foto'}
+                  {(() => {
+                    const src = v.foto_url ? (v.foto_url.startsWith('http') ? v.foto_url : fotoUrls[v.foto_url]) : null
+                    // eslint-disable-next-line @next/next/no-img-element
+                    return src ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '📷 sem foto'
+                  })()}
                 </div>
                 <div style={{ padding: 12 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{v.modelo || '—'} {v.ano_modelo ? `· ${v.ano_modelo}` : ''}</div>

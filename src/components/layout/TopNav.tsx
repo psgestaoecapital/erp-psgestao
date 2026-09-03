@@ -12,6 +12,15 @@ interface UserResumo {
   iniciais: string
 }
 
+interface Alerta {
+  id: string
+  tipo: string | null
+  titulo: string | null
+  mensagem: string | null
+  severidade: string | null
+  link_acao: string | null
+}
+
 // BRAND-1 · iniciais da empresa quando ela não tem logo (nunca espaço vazio nem imagem quebrada)
 function iniciaisDe(nome: string): string {
   const partes = nome.split(/\s+/).filter(Boolean)
@@ -27,9 +36,12 @@ export default function TopNav() {
   const empresaRow = selInfo.tipo === 'empresa' ? companies.find((c) => c.id === sel) : null
   const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : ''
   const empresaLogo: string | null = (empresaRow?.logo_url as string | undefined) || null
-  const [temNotificacao, setTemNotificacao] = useState(false)
+  const [alertas, setAlertas] = useState<Alerta[]>([])
+  const temNotificacao = alertas.length > 0
+  const [sinoAberto, setSinoAberto] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const sinoRef = useRef<HTMLDivElement>(null)
 
   // fecha o menu da conta ao clicar fora ou apertar Esc
   useEffect(() => {
@@ -40,6 +52,16 @@ export default function TopNav() {
     document.addEventListener('keydown', onEsc)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
   }, [menuAberto])
+
+  // fecha o dropdown do sino ao clicar fora ou apertar Esc
+  useEffect(() => {
+    if (!sinoAberto) return
+    const onDoc = (e: MouseEvent) => { if (sinoRef.current && !sinoRef.current.contains(e.target as Node)) setSinoAberto(false) }
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setSinoAberto(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onEsc)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
+  }, [sinoAberto])
 
   // Logout: encerra a sessão Supabase e volta pro login (raiz `/` é a tela de login).
   // window.location garante estado limpo (zera caches/estados do app).
@@ -59,7 +81,16 @@ export default function TopNav() {
           iniciais: iniciais.toUpperCase() || authUser.email[0].toUpperCase(),
         })
       }
-      if (!ignore) setTemNotificacao(true)
+      // sino real: alertas proativos ABERTOS (erp_alerta_proativo, RLS escopa por empresa).
+      // Antes o sino acendia sempre (setTemNotificacao(true)) e não abria — botão morto com
+      // urgência falsa. Agora o ponto vermelho só aparece se há alerta, e o clique mostra quais.
+      const { data: al } = await supabase
+        .from('erp_alerta_proativo')
+        .select('id, tipo, titulo, mensagem, severidade, link_acao')
+        .eq('resolvido', false).eq('dispensado', false)
+        .order('criado_em', { ascending: false })
+        .limit(12)
+      if (!ignore) setAlertas((al as Alerta[]) ?? [])
     })()
     return () => { ignore = true }
   }, [])
@@ -95,17 +126,51 @@ export default function TopNav() {
             )}
           </div>
         )}
-        <button
-          type="button"
-          aria-label="Notificações"
-          data-testid="bell-notifications"
-          className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
-        >
-          <Bell size={18} />
-          {temNotificacao && (
-            <span className="absolute top-[7px] right-[8px] w-[7px] h-[7px] bg-[#E24B4A] rounded-full ring-[1.5px] ring-[#FAF7F2]" />
+        <div className="relative" ref={sinoRef}>
+          <button
+            type="button"
+            aria-label="Notificações"
+            aria-haspopup="menu"
+            aria-expanded={sinoAberto}
+            data-testid="bell-notifications"
+            onClick={() => setSinoAberto((s) => !s)}
+            className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          >
+            <Bell size={18} />
+            {temNotificacao && (
+              <span className="absolute top-[7px] right-[8px] w-[7px] h-[7px] bg-[#E24B4A] rounded-full ring-[1.5px] ring-[#FAF7F2]" />
+            )}
+          </button>
+          {sinoAberto && (
+            <div role="menu" className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-lg border border-[#3D2314]/10 py-1 z-30">
+              <div className="px-4 py-2.5 border-b border-[#3D2314]/8 text-[10.5px] uppercase tracking-wide text-[#3D2314]/45">
+                Notificações
+              </div>
+              {alertas.length === 0 ? (
+                <div className="px-4 py-6 text-[12.5px] text-[#3D2314]/50 text-center">Nenhuma notificação no momento.</div>
+              ) : (
+                <div className="max-h-[60vh] overflow-y-auto">
+                  {alertas.map((a) => {
+                    const corpo = (
+                      <div className="px-4 py-2.5 hover:bg-[#3D2314]/4 transition-colors border-b border-[#3D2314]/6 last:border-b-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${a.severidade === 'alta' || a.severidade === 'critica' ? 'bg-[#E24B4A]' : 'bg-[#C8941A]'}`} />
+                          <span className="text-[13px] font-medium text-[#3D2314] truncate">{a.titulo || 'Alerta'}</span>
+                        </div>
+                        {a.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{a.mensagem}</div>}
+                      </div>
+                    )
+                    return a.link_acao ? (
+                      <Link key={a.id} href={a.link_acao} onClick={() => setSinoAberto(false)}>{corpo}</Link>
+                    ) : (
+                      <div key={a.id}>{corpo}</div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )}
-        </button>
+        </div>
 
         {user && (
           <div className="relative" ref={menuRef}>
