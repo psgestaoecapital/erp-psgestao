@@ -95,7 +95,11 @@ export async function POST(req: Request) {
 
   let browser: Browser | null = null;
   let screenshotUrl: string | null = null;
-  let captureStatus: 'sucesso' | 'erro' = 'sucesso';
+  // 'rota_nao_alcancada' = a URL final divergiu da pedida (redirect por módulo ausente etc.):
+  //   NÃO fotografa, pois foto de tela errada vira score falso — pior que foto nenhuma.
+  // 'nao_carregou' = a página não assentou (loading infinito): também não fotografa.
+  let captureStatus: 'sucesso' | 'erro' | 'rota_nao_alcancada' | 'nao_carregou' = 'sucesso';
+  let rotaAlcancada = false;
   let errorMsg: string | null = null;
   let errorsCount = 0;
   let visualTruth: VisualTruthResult | null = null;
@@ -204,6 +208,27 @@ export async function POST(req: Request) {
       );
     }
 
+    // FIX screen-watcher · espera a página ASSENTAR antes de fotografar. Muitos scores
+    // baixos eram foto tirada no meio do load (loading infinito, "PSPS" duplicado). Espera
+    // sumir o texto de carregamento E aparecer conteúdo real, com teto de ~7s.
+    async function aguardarConteudo(): Promise<boolean> {
+      for (let i = 0; i < 14; i++) {
+        const ok = await page.evaluate(() => {
+          const t = (document.body?.innerText || '');
+          const txtLen = t.replace(/\s+/g, '').length;
+          // app-shell TRAVADO (os casos do CEO): menu/permissões/empresas não resolveram.
+          // NÃO barra por um "Carregando" de widget isolado numa página cheia.
+          const shellTravado = /verificando permiss|carregando menu|carregando empresas|carregando dados do/i.test(t);
+          const quaseVazia = txtLen < 120;
+          const spinnerDominante = quaseVazia && /carregando|aguarde/i.test(t);
+          return txtLen > 180 && !shellTravado && !spinnerDominante;
+        });
+        if (ok) return true;
+        await page.waitForTimeout(500);
+      }
+      return false;
+    }
+
     await page.goto(urlAlvo, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(800);
 
@@ -247,50 +272,76 @@ export async function POST(req: Request) {
 
     authState = 'autenticado';
 
-    const buffer = await page.screenshot({
-      type: 'jpeg',
-      quality: 75,
-      fullPage: false,
-      clip: { x: 0, y: 0, width: 1280, height: 800 },
-    });
+    // FIX (prioridade do CEO): CONFERE A URL FINAL ANTES DE FOTOGRAFAR. Se a tela final
+    // divergiu da pedida, a rota NÃO foi alcançada (redirect por módulo ausente etc.).
+    // Não fotografa, e ZERA a foto antiga (que também era da tela errada) — assim o painel
+    // diz "não analisada" em vez de mentir com um score. Foto de tela errada é pior que nenhuma.
+    const finalPath = (() => {
+      try { return (new URL(urlFinalVisitada!).pathname.replace(/\/+$/, '')) || '/'; } catch { return ''; }
+    })();
+    const pedidoPath = rotaBase.replace(/\/+$/, '') || '/';
+    rotaAlcancada = finalPath === pedidoPath || finalPath.startsWith(pedidoPath + '/');
 
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const path = `${sanitizePathComponent(rotaBase)}/${ts}.jpg`;
-
-    const { error: errUp } = await supabase.storage
-      .from('system-screenshots')
-      .upload(path, buffer, {
-        contentType: 'image/jpeg',
-        upsert: false,
-      });
-
-    if (errUp) {
-      throw new Error('Upload falhou: ' + errUp.message);
-    }
-
-    const { data: pub } = supabase.storage.from('system-screenshots').getPublicUrl(path);
-    screenshotUrl = pub?.publicUrl ?? null;
-
-    if (screenshotUrl) {
+    if (!rotaAlcancada) {
+      captureStatus = 'rota_nao_alcancada';
+      errorMsg =
+        `Rota não alcançada: pedido ${pedidoPath}, tela final ${finalPath}` +
+        (redirectDetectado ? ' (redirect — provável módulo ausente na empresa do robô)' : '');
+      // não fotografa; limpa a foto antiga (tela errada) para não virar score falso
       await supabase
         .from('system_screens')
-        .update({
-          screenshot_url: screenshotUrl,
-          screenshot_atualizado_em: new Date().toISOString(),
-        })
+        .update({ screenshot_url: null, screenshot_atualizado_em: new Date().toISOString() })
         .eq('id', screenId);
-    }
+    } else if (!(await aguardarConteudo())) {
+      captureStatus = 'nao_carregou';
+      errorMsg = `Página não assentou (loading) em ${rotaBase} — não fotografada para não medir foto no meio do load`;
+      // loading costuma ser transitório: mantém a última foto boa (não sobrescreve nem zera)
+    } else {
+      const buffer = await page.screenshot({
+        type: 'jpeg',
+        quality: 75,
+        fullPage: false,
+        clip: { x: 0, y: 0, width: 1280, height: 800 },
+      });
 
-    try {
-      visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
-      if (visualTruth.regras_executadas + visualTruth.regras_puladas > 0) {
-        console.log(
-          `[visual-truth] ${rotaBase}: ${visualTruth.regras_executadas} executadas, ` +
-            `${visualTruth.alertas_inseridos} alertas, ${visualTruth.regras_puladas} puladas`,
-        );
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const path = `${sanitizePathComponent(rotaBase)}/${ts}.jpg`;
+
+      const { error: errUp } = await supabase.storage
+        .from('system-screenshots')
+        .upload(path, buffer, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
+
+      if (errUp) {
+        throw new Error('Upload falhou: ' + errUp.message);
       }
-    } catch (vtErr) {
-      console.error('[visual-truth] erro nao fatal:', vtErr);
+
+      const { data: pub } = supabase.storage.from('system-screenshots').getPublicUrl(path);
+      screenshotUrl = pub?.publicUrl ?? null;
+
+      if (screenshotUrl) {
+        await supabase
+          .from('system_screens')
+          .update({
+            screenshot_url: screenshotUrl,
+            screenshot_atualizado_em: new Date().toISOString(),
+          })
+          .eq('id', screenId);
+      }
+
+      try {
+        visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
+        if (visualTruth.regras_executadas + visualTruth.regras_puladas > 0) {
+          console.log(
+            `[visual-truth] ${rotaBase}: ${visualTruth.regras_executadas} executadas, ` +
+              `${visualTruth.alertas_inseridos} alertas, ${visualTruth.regras_puladas} puladas`,
+          );
+        }
+      } catch (vtErr) {
+        console.error('[visual-truth] erro nao fatal:', vtErr);
+      }
     }
   } catch (e: unknown) {
     captureStatus = 'erro';
@@ -318,6 +369,8 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
+        capture_status: captureStatus,
+        rota_alcancada: false,
         screen_id: screenId,
         rota: rotaCompleta,
         error: errorMsg,
@@ -332,8 +385,30 @@ export async function POST(req: Request) {
     );
   }
 
+  // Rota não alcançada (redirect por módulo ausente) ou não assentou (loading): NÃO é erro
+  // de servidor, mas NÃO é captura válida — cobertura real conta isto como "não alcançada".
+  if (captureStatus === 'rota_nao_alcancada' || captureStatus === 'nao_carregou') {
+    return NextResponse.json({
+      success: false,
+      capture_status: captureStatus,
+      rota_alcancada: false,
+      screen_id: screenId,
+      rota: rotaCompleta,
+      rota_base: rotaBase,
+      motivo: errorMsg,
+      page_load_ms: pageLoadMs,
+      url_final_visitada: urlFinalVisitada,
+      redirect_detectado: redirectDetectado,
+      auth_state: authState,
+      login_retentado: loginRetentado,
+      empresa_id_usada: empresaId,
+    });
+  }
+
   return NextResponse.json({
     success: true,
+    capture_status: captureStatus,
+    rota_alcancada: true,
     screen_id: screenId,
     rota: rotaCompleta,
     rota_base: rotaBase,
