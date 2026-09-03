@@ -41,7 +41,10 @@ export default function TopNav() {
   const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : ''
   const empresaLogo: string | null = (empresaRow?.logo_url as string | undefined) || null
   const [alertas, setAlertas] = useState<Alerta[]>([])
-  const temNotificacao = alertas.length > 0
+  // Notificações de CHAMADO (Central de Melhorias) — por PESSOA (sugestao_notificacao), não por
+  // empresa. Chamado é conversa entre duas pessoas; o sino soma as duas coisas, separadas.
+  const [notifsChamado, setNotifsChamado] = useState<{ id: string; titulo: string; mensagem: string | null; lida: boolean }[]>([])
+  const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida)
   const [sinoAberto, setSinoAberto] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -101,6 +104,17 @@ export default function TopNav() {
         .order('criado_em', { ascending: false })
         .limit(12)
       if (!ignore) setAlertas((al as Alerta[]) ?? [])
+
+      // Notificações de chamado do próprio usuário (RLS: destinatario_id = auth.uid()).
+      if (authUser?.id) {
+        const { data: nc } = await supabase
+          .from('sugestao_notificacao')
+          .select('id, titulo, mensagem, lida')
+          .eq('destinatario_id', authUser.id)
+          .order('criado_em', { ascending: false })
+          .limit(12)
+        if (!ignore) setNotifsChamado((nc as { id: string; titulo: string; mensagem: string | null; lida: boolean }[]) ?? [])
+      }
     })()
     return () => { ignore = true }
   }, [])
@@ -178,31 +192,52 @@ export default function TopNav() {
               <div className="px-4 py-2.5 border-b border-[#3D2314]/8 text-[10.5px] uppercase tracking-wide text-[#3D2314]/45">
                 Notificações
               </div>
-              {alertas.length === 0 ? (
+              {alertas.length === 0 && notifsChamado.length === 0 ? (
                 <div className="px-4 py-6 text-[12.5px] text-[#3D2314]/50 text-center">Nenhuma notificação no momento.</div>
               ) : (
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {alertas.map((a) => {
-                    const clicavel = !!a.link_acao
-                    // Sem link → não parece clicável (sem hover, cursor default). Alerta que promete
-                    // tela e não leva a lugar nenhum treina o usuário a não clicar — aqui é honesto:
-                    // informativo, sem afordância de clique.
-                    const corpo = (
-                      <div className={`px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 last:border-b-0 ${clicavel ? 'hover:bg-[#3D2314]/4 cursor-pointer' : 'cursor-default'}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${a.severidade === 'alta' || a.severidade === 'critica' ? 'bg-[#E24B4A]' : 'bg-[#C8941A]'}`} />
-                          <span className="text-[13px] font-medium text-[#3D2314] truncate">{a.titulo || 'Alerta'}</span>
-                        </div>
-                        {a.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{a.mensagem}</div>}
-                        {!clicavel && <div className="text-[10px] text-[#3D2314]/35 mt-1">— sem tela para abrir</div>}
-                      </div>
-                    )
-                    return clicavel ? (
-                      <Link key={a.id} href={a.link_acao!} onClick={() => setSinoAberto(false)}>{corpo}</Link>
-                    ) : (
-                      <div key={a.id}>{corpo}</div>
-                    )
-                  })}
+                  {/* Chamados (por PESSOA) — resposta ao SEU chamado. Separado dos alertas do sistema. */}
+                  {notifsChamado.length > 0 && (
+                    <>
+                      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Seus chamados</div>
+                      {notifsChamado.map((n) => (
+                        <Link key={n.id} href="/dashboard/melhorias"
+                          onClick={() => { setSinoAberto(false); void supabase.from('sugestao_notificacao').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id) }}>
+                          <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${n.lida ? 'bg-[#3D2314]/20' : 'bg-[#166534]'}`} />
+                              <span className="text-[13px] font-medium text-[#3D2314] truncate">{n.titulo}</span>
+                            </div>
+                            {n.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{n.mensagem}</div>}
+                          </div>
+                        </Link>
+                      ))}
+                    </>
+                  )}
+                  {/* Alertas do sistema (por EMPRESA) */}
+                  {alertas.length > 0 && (
+                    <>
+                      {notifsChamado.length > 0 && <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Alertas do sistema</div>}
+                      {alertas.map((a) => {
+                        const clicavel = !!a.link_acao
+                        const corpo = (
+                          <div className={`px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 last:border-b-0 ${clicavel ? 'hover:bg-[#3D2314]/4 cursor-pointer' : 'cursor-default'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${a.severidade === 'alta' || a.severidade === 'critica' ? 'bg-[#E24B4A]' : 'bg-[#C8941A]'}`} />
+                              <span className="text-[13px] font-medium text-[#3D2314] truncate">{a.titulo || 'Alerta'}</span>
+                            </div>
+                            {a.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{a.mensagem}</div>}
+                            {!clicavel && <div className="text-[10px] text-[#3D2314]/35 mt-1">— sem tela para abrir</div>}
+                          </div>
+                        )
+                        return clicavel ? (
+                          <Link key={a.id} href={a.link_acao!} onClick={() => setSinoAberto(false)}>{corpo}</Link>
+                        ) : (
+                          <div key={a.id}>{corpo}</div>
+                        )
+                      })}
+                    </>
+                  )}
                 </div>
               )}
             </div>

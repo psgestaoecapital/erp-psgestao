@@ -21,6 +21,7 @@ type Item = {
   id: string; company_id: string | null; empresa: string | null; user_email: string; user_name: string | null
   titulo: string | null; descricao: string; categoria: string | null; prioridade: string; status: string
   rota: string | null; area: string | null; atendente_id: string | null; pr_numero: number | null; resposta: string | null
+  resposta_aprovada: boolean; confirmado_pelo_autor: boolean
   tem_ia: boolean; ia_analise: Record<string, unknown> | null; ia_analisado_em: string | null; n_anexos: number
   created_at: string; dias_aberta: number
 }
@@ -40,13 +41,16 @@ function Inner() {
   const [fCategoria, setFCategoria] = useState('todas')
   const [aberto, setAberto] = useState<string | null>(null)
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
+  const [ehAdmin, setEhAdmin] = useState(false)   // só PS_ADMIN aprova resposta
 
   const carregar = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setAutorizado(false); return }
     setUserId(user.id)
     const { data: u } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
-    const ok = ['PS_ADMIN', 'PS_SUPPORT'].includes((u as { system_role?: string } | null)?.system_role || '')
+    const role = (u as { system_role?: string } | null)?.system_role || ''
+    const ok = ['PS_ADMIN', 'PS_SUPPORT'].includes(role)
+    setEhAdmin(role === 'PS_ADMIN')
     setAutorizado(ok)
     if (!ok) return
     const { data, error } = await supabase.from('v_sugestao_fila').select('*').limit(300)
@@ -92,10 +96,17 @@ function Inner() {
     const ok = await acao(it.id, 'fn_sugestao_status', { p_id: it.id, p_novo: novo, p_user: userId, p_motivo: motivo, p_pr_numero: pr })
     if (ok) setMsg(novo === 'concluida' && !pr ? '⚠️ Concluída sem PR vinculado.' : 'Status atualizado.')
   }
+  // Responder grava RASCUNHO (fn_sugestao_responder): a resposta NÃO chega ao autor até o CEO aprovar.
   async function responder(it: Item) {
-    const resp = window.prompt('Resposta ao usuário:', it.resposta || '') || ''
+    const resp = window.prompt('Resposta ao usuário (fica aguardando aprovação do CEO):', it.resposta || '') || ''
     if (!resp.trim()) return
-    await acao(it.id, 'fn_sugestao_status', { p_id: it.id, p_novo: it.status, p_user: userId, p_motivo: resp, p_pr_numero: null })
+    const ok = await acao(it.id, 'fn_sugestao_responder', { p_id: it.id, p_texto: resp, p_user: userId })
+    if (ok) setMsg('Resposta salva — aguardando aprovação do CEO para chegar ao autor.')
+  }
+  // Aprovar (só PS_ADMIN): libera a resposta ao autor E cria a notificação por pessoa.
+  async function aprovar(it: Item) {
+    const ok = await acao(it.id, 'fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
+    if (ok) setMsg('Resposta aprovada e enviada — o autor foi avisado.')
   }
 
   if (autorizado === null) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>
@@ -162,7 +173,22 @@ function Inner() {
                     ) : <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>não analisada pela IA</div>}
                   </div>
 
-                  {it.resposta && <div style={{ fontSize: 12.5, marginTop: 10, background: C.cream, padding: '7px 9px', borderRadius: 6 }}><b>Resposta do atendente:</b> {it.resposta}</div>}
+                  {it.resposta && (
+                    <div style={{ fontSize: 12.5, marginTop: 10, background: it.resposta_aprovada ? C.greenBg : C.amberBg, border: `1px solid ${it.resposta_aprovada ? '#BFE3C4' : '#F0DDB0'}`, padding: '8px 10px', borderRadius: 8 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: it.resposta_aprovada ? C.green : C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
+                        {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : 'Resposta escrita — aguardando aprovação'}
+                      </div>
+                      <div style={{ color: C.esp }}>{it.resposta}</div>
+                      {!it.resposta_aprovada && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {ehAdmin
+                            ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
+                            : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO (PS_ADMIN) aprova o envio ao autor</span>}
+                          <button onClick={() => void responder(it)} style={btn(C.gold)}>Editar antes de enviar</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {it.pr_numero && <div style={{ fontSize: 12, marginTop: 6, color: C.green }}>vinculado ao PR #{it.pr_numero}</div>}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
