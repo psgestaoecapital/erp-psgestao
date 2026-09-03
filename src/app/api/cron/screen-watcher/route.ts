@@ -26,6 +26,10 @@ type Result = {
   error?: string;
   page_load_ms?: number;
   screenshot_url?: string;
+  // cobertura real da auditoria: a rota foi de fato alcançada e fotografada?
+  capture_status?: string; // 'sucesso' | 'rota_nao_alcancada' | 'nao_carregou' | 'erro'
+  rota_alcancada?: boolean;
+  url_final_visitada?: string | null;
 };
 
 async function captureOne(rota: string, baseUrl: string, secret: string): Promise<Result> {
@@ -43,12 +47,15 @@ async function captureOne(rota: string, baseUrl: string, secret: string): Promis
       rota,
       success: res.ok && json.success === true,
       status: res.status,
-      error: json.error,
+      error: json.error || json.motivo,
       page_load_ms: json.page_load_ms,
       screenshot_url: json.screenshot_url,
+      capture_status: json.capture_status,
+      rota_alcancada: json.rota_alcancada === true,
+      url_final_visitada: json.url_final_visitada ?? null,
     };
   } catch (e: unknown) {
-    return { rota, success: false, error: e instanceof Error ? e.message : String(e) };
+    return { rota, success: false, capture_status: 'erro', rota_alcancada: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -144,12 +151,24 @@ export async function GET(req: Request) {
   );
   const totalMs = Date.now() - startedAt;
 
-  const success_count = results.filter((r) => r.success).length;
+  // COBERTURA REAL DA AUDITORIA: alcançadas (foto válida) vs não-alcançadas, por motivo.
+  const alcancadas = results.filter((r) => r.rota_alcancada === true).length;
+  const nao_alcancada_redirect = results.filter((r) => r.capture_status === 'rota_nao_alcancada').length;
+  const nao_carregou = results.filter((r) => r.capture_status === 'nao_carregou').length;
+  const erro = results.filter((r) => r.capture_status === 'erro' || (!r.capture_status && !r.success)).length;
+  const success_count = alcancadas;
   const error_count = results.length - success_count;
 
   return NextResponse.json({
     success: true,
     total: results.length,
+    // cobertura: quantas rotas foram REALMENTE alcançadas e fotografadas
+    cobertura: {
+      alcancadas,
+      nao_alcancadas: results.length - alcancadas,
+      por_motivo: { redirect_modulo_ausente: nao_alcancada_redirect, nao_carregou, erro },
+      pct_alcancada: results.length ? Math.round((alcancadas / results.length) * 100) : 0,
+    },
     success_count,
     error_count,
     duration_ms: totalMs,
