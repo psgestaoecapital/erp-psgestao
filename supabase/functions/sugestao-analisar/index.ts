@@ -111,9 +111,10 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
   "rota_provavel": "<rota /dashboard/... se der para inferir, senão null>",
   "classificacao": "<bug|melhoria|duvida|erro_dado>",
   "severidade": "<critica|alta|media|baixa>",
-  "proximo_passo": "<próximo passo técnico sugerido>"
+  "proximo_passo": "<próximo passo técnico sugerido>",
+  "erro_assinatura": "<se houver uma MENSAGEM DE ERRO legível na imagem, devolva-a NORMALIZADA para comparação: o CÓDIGO do erro se existir (ex.: E0370, 42501) OU a frase-chave do erro em minúsculas, SEM ids/timestamps/valores específicos (nomes de tabela/coluna podem ficar). Se NÃO houver erro legível, devolva null. Nunca invente.>"
 }
-É PALPITE para orientar o atendente — não é decisão.`;
+É PALPITE para orientar o atendente — não é decisão. A erro_assinatura serve para saber, mecanicamente, se um erro que reaparece é o MESMO ou MUDOU entre tentativas.`;
 
   const content: any[] = [];
   if (anexo?.storage_path) {
@@ -156,11 +157,16 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     return json({ ok: false, erro: "falha_analise", detalhe: String(err).slice(0, 200), analisada: false });
   }
 
-  // grava no alvo certo: a análise da foto nova fica NA MENSAGEM; a do chamado, no chamado.
+  // assinatura de erro normalizada (para comparar entre tentativas: mesmo × mudou). null se ilegível.
+  const erroAssinatura = typeof analysis?.erro_assinatura === "string" && analysis.erro_assinatura.trim()
+    ? analysis.erro_assinatura.trim().slice(0, 300)
+    : null;
+
+  // grava no alvo certo: a análise da foto nova fica NA MENSAGEM (com comparação); a do chamado, no chamado.
   if (mensagemId) {
-    await supabase.rpc("fn_sugestao_msg_ia_registrar", { p_mensagem_id: mensagemId, p_analise: analysis, p_custo: custoUsd });
+    await supabase.rpc("fn_sugestao_msg_ia_registrar", { p_mensagem_id: mensagemId, p_analise: analysis, p_custo: custoUsd, p_erro_assinatura: erroAssinatura });
   } else {
-    await supabase.rpc("fn_sugestao_ia_registrar", { p_id: sugestaoId, p_analise: analysis, p_custo: custoUsd });
+    await supabase.rpc("fn_sugestao_ia_registrar", { p_id: sugestaoId, p_analise: analysis, p_custo: custoUsd, p_erro_assinatura: erroAssinatura });
   }
 
   return json({ ok: true, analisada: true, custo_usd: custoUsd, analise: analysis });
