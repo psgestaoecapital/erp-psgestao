@@ -84,10 +84,16 @@ export default function TopNav() {
       // sino real: alertas proativos ABERTOS (erp_alerta_proativo, RLS escopa por empresa).
       // Antes o sino acendia sempre (setTemNotificacao(true)) e não abria — botão morto com
       // urgência falsa. Agora o ponto vermelho só aparece se há alerta, e o clique mostra quais.
+      // Corte de idade: o sino mostra alertas RECENTES (30 dias), mais novos primeiro. Alerta
+      // aberto há meses não é notificação — é pendência esquecida, e vira ruído que o usuário
+      // aprende a ignorar (o oposto do que queremos depois de consertar as falhas silenciosas).
+      // O lugar de pendência antiga é a tela da área, não o sino.
+      const corte = new Date(Date.now() - 30 * 86400000).toISOString()
       const { data: al } = await supabase
         .from('erp_alerta_proativo')
         .select('id, tipo, titulo, mensagem, severidade, link_acao')
         .eq('resolvido', false).eq('dispensado', false)
+        .gte('criado_em', corte)
         .order('criado_em', { ascending: false })
         .limit(12)
       if (!ignore) setAlertas((al as Alerta[]) ?? [])
