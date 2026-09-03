@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
+import ConversaChamado from '@/components/melhorias/ConversaChamado'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -73,7 +74,8 @@ function Inner() {
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
     if (aberto !== id && !anexosUrl[id]) {
-      const { data } = await supabase.from('sugestao_anexo').select('storage_path, marcacoes').eq('sugestao_id', id).order('ordem')
+      // só os anexos do CHAMADO (mensagem_id NULL) — as fotos de mensagens aparecem na conversa, não aqui
+      const { data } = await supabase.from('sugestao_anexo').select('storage_path, marcacoes').eq('sugestao_id', id).is('mensagem_id', null).order('ordem')
       const list: { url: string; marcacoes: Marca[] }[] = []
       for (const a of (data as { storage_path: string; marcacoes: Marca[] }[] ?? [])) {
         const { data: signed } = await supabase.storage.from('sugestoes-anexos').createSignedUrl(a.storage_path, 3600)
@@ -201,6 +203,10 @@ function Inner() {
                     </select>
                     <button onClick={() => void responder(it)} style={btn(C.gold)}>responder</button>
                   </div>
+
+                  {/* Conversa do chamado: o autor pode mandar foto nova sem encerrar; o PS responde aqui.
+                      A resposta "oficial" (responder → aprovar) continua acima; isto é o ida-e-volta. */}
+                  {userId && <ConversaChamado sugestaoId={it.id} userId={userId} ehSuporte onAfterSend={carregar} />}
                 </div>
               )}
             </div>
