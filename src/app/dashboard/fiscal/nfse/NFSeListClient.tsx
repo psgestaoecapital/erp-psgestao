@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
   Download, FileCode, FileText, ChevronLeft, ChevronRight as ChevR, Plus, RefreshCw,
@@ -94,22 +95,9 @@ export default function NFSeListClient() {
 
   useEffect(() => {
     if (!companyId) return
-    // FIX-NFSE-MODAL-PRODUCAO-v1
-    // producaoDisponivel agora vem direto de erp_fiscal_provider_config.ambiente.
-    // Quando o CEO troca pra 'producao' (UPDATE direto na config), a tela
-    // libera o toggle automaticamente · token e validado server-side dentro
-    // de gov-nfse-emitir (mensagem amigavel se faltar).
-    supabase
-      .from('erp_fiscal_provider_config')
-      .select('ambiente')
-      .eq('company_id', companyId)
-      .eq('provider', 'gov_nfse_nacional')
-      .eq('ativo', true)
-      .maybeSingle()
-      .then(({ data }) => {
-        const amb = (data as { ambiente?: string | null } | null)?.ambiente
-        setProducaoDisponivel(amb === 'producao')
-      })
+    // FIX-NFSE-PRODUCAO-PROVIDER-v2 · lê a config fiscal ATIVA (helper compartilhado). Antes filtrava por
+    // provider='gov_nfse_nacional' (legado, inativo) e travava Produção pra todo mundo — chamado #16.
+    void carregarProducaoDisponivel(companyId).then(setProducaoDisponivel)
   }, [companyId])
 
   const carregar = useCallback(async () => {
