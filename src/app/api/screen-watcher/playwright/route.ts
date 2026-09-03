@@ -252,12 +252,18 @@ export async function POST(req: Request) {
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return NextResponse.json({ error: 'SUPABASE_URL/SERVICE_ROLE_KEY ausentes' }, { status: 500 });
   if (!PLAYWRIGHT_USER_EMAIL || !PLAYWRIGHT_USER_PASSWORD) return NextResponse.json({ error: 'PLAYWRIGHT_USER_EMAIL/PASSWORD ausentes' }, { status: 500 });
 
+  // `supabase` FICA como service_role para storage/db (bypassa RLS). NÃO chamar signInWithPassword nele:
+  // signInWithPassword SETA a sessão no cliente que o chama, trocando o Authorization de service_role
+  // para o JWT do usuário — aí todo upload/insert seguinte iria como o bot-usuário e BATERIA na RLS.
+  // Foi exatamente o "Upload falhou: new row violates row-level security policy" do preview do #1246.
+  // Por isso o login do bot roda num cliente SEPARADO (authClient), deixando `supabase` intocado.
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+  const authClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
   const PROJECT_REF = SUPABASE_URL.replace('https://', '').split('.')[0];
   const storageKey = `sb-${PROJECT_REF}-auth-token`;
 
   async function obterSessionPayload(): Promise<string> {
-    const { data, error } = await supabase.auth.signInWithPassword({ email: PLAYWRIGHT_USER_EMAIL!, password: PLAYWRIGHT_USER_PASSWORD! });
+    const { data, error } = await authClient.auth.signInWithPassword({ email: PLAYWRIGHT_USER_EMAIL!, password: PLAYWRIGHT_USER_PASSWORD! });
     if (error || !data?.session) throw new Error(`Falha login bot: ${error?.message || 'sem session'}`);
     const s = data.session;
     return JSON.stringify({
