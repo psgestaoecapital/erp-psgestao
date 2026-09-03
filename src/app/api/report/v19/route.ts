@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -427,8 +428,9 @@ REGRA FINAL: Gere TODOS os 20 slides sem exceção. Nunca pule. Nunca resuma. Se
     // ═══ CALL CLAUDE (com timeout e retry) ═══
     let data: any = null;
     let lastError = "";
+    const modelo = modeloPara('relatorio');
     const reqBody = JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: modelo,
       max_tokens: 16000,
       system: systemPrompt,
       messages: [{ role: "user", content: `DADOS COMPLETOS — GERE 20 SLIDES EXECUTIVOS V20:\n\n${blocos}` }],
@@ -460,6 +462,7 @@ REGRA FINAL: Gere TODOS os 20 slides sem exceção. Nunca pule. Nunca resuma. Se
 
     if (!data || data.error) {
       const msg = lastError || "Erro desconhecido";
+      await registrarFalhaIA({ endpoint: '/api/report/v19', finalidade: 'relatorio', modelo, status: null, erro: msg, companyId: compIds[0] ?? null });
       let friendly = "";
       if (msg.includes("Overloaded") || msg.includes("overloaded")) friendly = "O servidor de IA está temporariamente sobrecarregado. Aguarde 2-3 minutos e tente novamente.";
       else if (msg.includes("rate")) friendly = "Muitas solicitações. Aguarde 1 minuto.";

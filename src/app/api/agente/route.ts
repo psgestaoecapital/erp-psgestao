@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { withAuth } from "@/lib/withAuth";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -144,7 +145,7 @@ FONTE DOS DADOS:
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: modeloPara('consultor'),
         max_tokens: 2000,
         system: `Você é o PS, o Consultor Digital da PS Gestão e Capital. Você está integrado ao ERP como assistente inteligente.
 
@@ -182,6 +183,9 @@ LINHAS DE NEGÓCIO: ${blSummary}`,
     });
 
     const data = await response.json();
+    if (!response.ok || data?.error) {
+      await registrarFalhaIA({ endpoint: '/api/agente', finalidade: 'consultor', modelo: modeloPara('consultor'), status: response.status, erro: data?.error?.message || JSON.stringify(data?.error || 'sem corpo'), companyId: compIds[0] ?? null });
+    }
     const resposta = data.content?.map((c: any) => c.text || "").join("") || "Desculpe, não consegui processar sua pergunta.";
 
     return NextResponse.json({ success: true, resposta });

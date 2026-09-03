@@ -12,6 +12,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { modeloPara, registrarFalhaIA } from "../_shared/aiModel.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -106,6 +107,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const resultados = [];
+  const modelo = modeloPara("auditoria_tela");
 
   for (const screen of screens) {
     try {
@@ -178,7 +180,7 @@ REGRAS:
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: modelo,
           max_tokens: 2000,
           messages: [{
             role: "user",
@@ -193,6 +195,7 @@ REGRAS:
 
       if (!claudeResponse.ok) {
         const errorText = await claudeResponse.text();
+        await registrarFalhaIA({ endpoint: "insight-auditor", finalidade: "auditoria_tela", modelo, status: claudeResponse.status, erro: `${claudeResponse.status}: ${errorText.slice(0, 200)}` });
         resultados.push({ rota: screen.rota, status: "erro_claude_api", erro: `${claudeResponse.status}: ${errorText.slice(0, 200)}` });
         continue;
       }
@@ -211,7 +214,8 @@ REGRAS:
 
       const inputTokens = claudeData.usage?.input_tokens || 0;
       const outputTokens = claudeData.usage?.output_tokens || 0;
-      const custoUsd = (inputTokens * 3 / 1_000_000) + (outputTokens * 15 / 1_000_000);
+      // custo com as taxas do modelo default vivo (claude-sonnet-5): US$2/M entrada, US$10/M saída
+      const custoUsd = (inputTokens * 2 / 1_000_000) + (outputTokens * 10 / 1_000_000);
 
       const { error: insertError } = await supabase
         .from("system_screens_insights")
@@ -232,7 +236,7 @@ REGRAS:
           prioridade_atacar: analysis.prioridade_atacar ?? "media",
           proximo_passo_sugerido: analysis.proximo_passo_sugerido ?? null,
           claude_analysis_raw: analysis,
-          claude_model_used: "claude-sonnet-4-20250514",
+          claude_model_used: modelo,
           claude_tokens_input: inputTokens,
           claude_tokens_output: outputTokens,
           claude_custo_usd: custoUsd,

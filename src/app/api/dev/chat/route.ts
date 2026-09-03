@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -141,9 +142,10 @@ ${liveContext ? '=== ESTADO ATUAL DO SUPABASE (tempo real) ===\n' + liveContext 
 - Conheca o historico: ERP em producao desde abril/2026, build verde, 30+ tabelas
 `;
 
-    // Try Opus first
-    let model = 'claude-opus-4-20250514';
-    let response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Claude (modelo da finalidade 'dev', fonte única) — antes tentava opus-4/sonnet-4
+    // datados, ambos aposentados (404), então caía direto no Gemini em silêncio.
+    const model = modeloPara('dev');
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -158,27 +160,10 @@ ${liveContext ? '=== ESTADO ATUAL DO SUPABASE (tempo real) ===\n' + liveContext 
       })
     });
 
-    // Fallback to Sonnet if Opus fails (rate limit, not available)
-    if (!response.ok && (response.status === 429 || response.status === 503 || response.status === 400)) {
-      model = 'claude-sonnet-4-20250514';
-      response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 8192,
-          system: systemPrompt,
-          messages
-        })
-      });
-    }
-
-    // Fallback to Gemini if Claude fails entirely
+    // Fallback to Gemini if Claude fails entirely (registra o alarme antes de desviar)
     if (!response.ok) {
+      const errAntes = await response.clone().json().catch(() => ({} as any));
+      await registrarFalhaIA({ endpoint: '/api/dev/chat', finalidade: 'dev', modelo: model, status: response.status, erro: (errAntes as any)?.error?.message || 'sem corpo' });
       const geminiKey = process.env.GOOGLE_AI_API_KEY;
       if (geminiKey) {
         const geminiRes = await fetch(
@@ -209,7 +194,7 @@ ${liveContext ? '=== ESTADO ATUAL DO SUPABASE (tempo real) ===\n' + liveContext 
       model: data.model || model,
       usage: data.usage,
       context_loaded: !!liveContext,
-      fallback: model !== 'claude-opus-4-20250514'
+      fallback: false
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 });

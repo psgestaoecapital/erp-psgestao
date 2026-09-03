@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +52,7 @@ Seja conciso (máximo 400 palavras). Use **negrito** para números e pontos-chav
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: modeloPara('relatorio'),
         max_tokens: 1500,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -59,8 +60,9 @@ Seja conciso (máximo 400 palavras). Use **negrito** para números e pontos-chav
 
     const claudeData = await claudeRes.json();
 
-    if (claudeData.error) {
-      return NextResponse.json({ error: `Erro Claude API: ${claudeData.error.message}` }, { status: 500 });
+    if (!claudeRes.ok || claudeData.error) {
+      await registrarFalhaIA({ endpoint: '/api/report/analyze', finalidade: 'relatorio', modelo: modeloPara('relatorio'), status: claudeRes.status, erro: claudeData?.error?.message || 'sem corpo' });
+      return NextResponse.json({ error: `Erro Claude API: ${claudeData.error?.message || claudeRes.status}` }, { status: 500 });
     }
 
     const analysis = claudeData.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar análise";

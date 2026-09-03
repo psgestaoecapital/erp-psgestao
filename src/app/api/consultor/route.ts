@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { withAuth } from "@/lib/withAuth";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = "force-dynamic";
 export const runtime = 'nodejs';
@@ -239,6 +240,7 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
     }
 
     // ═══ CALL CLAUDE (com retry automático) ═══
+    const modelo = modeloPara('consultor');
     let data: any = null;
     let lastError = "";
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -247,7 +249,7 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
+            model: modelo,
             max_tokens: 8000,
             system: `Você é o Conselheiro Financeiro IA da PS Gestão e Capital. Você tem acesso a TODOS os dados financeiros reais da empresa. Responda como um CFO sênior que conhece profundamente a empresa. Seja direto, use números reais, calcule cenários, e sempre dê uma RECOMENDAÇÃO CLARA no final (FAZER / NÃO FAZER / FAZER COM RESSALVAS). Use emojis para organizar e formatação clara.`,
             messages,
@@ -267,6 +269,7 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
 
     if (!data || data.error) {
       const msg = lastError || "Erro desconhecido";
+      await registrarFalhaIA({ endpoint: '/api/consultor', finalidade: 'consultor', modelo, status: null, erro: msg, companyId });
       let friendly = "";
       if (msg.includes("Overloaded") || msg.includes("overloaded")) friendly = "O servidor de IA está temporariamente sobrecarregado. Tentamos 3 vezes automaticamente. Por favor, aguarde 2-3 minutos e tente novamente.";
       else if (msg.includes("rate")) friendly = "Muitas solicitações em pouco tempo. Aguarde 1 minuto e tente novamente.";
