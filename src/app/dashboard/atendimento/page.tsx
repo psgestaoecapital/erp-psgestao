@@ -25,6 +25,7 @@ type Item = {
   resposta_aprovada: boolean; confirmado_pelo_autor: boolean
   tem_ia: boolean; ia_analise: Record<string, unknown> | null; ia_analisado_em: string | null; n_anexos: number
   created_at: string; dias_aberta: number
+  erro_assinatura: string | null; origem_sugestao_id: string | null; ultimo_erro_comparacao: string | null
 }
 
 export default function AtendimentoPage() {
@@ -154,7 +155,12 @@ function Inner() {
                   </div>
                   <div style={{ fontSize: 12, color: C.espM, marginTop: 4 }}>{it.empresa || 'sem empresa'} · {it.user_name || it.user_email} · {brDate(it.created_at)} · <b>{it.dias_aberta}d aberta</b>{it.n_anexos ? ` · 📎 ${it.n_anexos}` : ''}</div>
                 </div>
-                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#E8EEF9', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.blue, fontWeight: 700 }}>{it.status.replace('_', ' ')}</span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {it.origem_sugestao_id && <span title="desmembrado de outro chamado" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>↳ desmembrado</span>}
+                  {it.ultimo_erro_comparacao === 'mesmo' && <span title="o erro reapareceu igual na última tentativa" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.redBg, color: C.red, fontWeight: 700 }}>erro igual</span>}
+                  {it.ultimo_erro_comparacao === 'mudou' && <span title="o erro mudou entre tentativas" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.greenBg, color: C.green, fontWeight: 700 }}>erro mudou</span>}
+                  <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#E8EEF9', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.blue, fontWeight: 700 }}>{it.status.replace('_', ' ')}</span>
+                </div>
               </div>
 
               <button onClick={() => void abrir(it.id)} style={{ marginTop: 8, border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, padding: 0 }}>{aberto === it.id ? '▲ fechar' : '▼ ver detalhes, foto e IA'}</button>

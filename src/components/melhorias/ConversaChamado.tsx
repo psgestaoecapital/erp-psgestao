@@ -20,7 +20,10 @@ const brDate = (d: string) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-
 type Anexo = { url: string; marcacoes: Marca[] }
 type Msg = {
   id: string; papel: 'autor' | 'ps'; texto: string | null; autor_email: string | null; criado_em: string
-  ia_analise: Record<string, string> | null; anexos: Anexo[]
+  ia_analise: Record<string, string> | null
+  erro_comparacao: 'mesmo' | 'mudou' | 'sem_comparacao' | null
+  erro_assinatura: string | null; erro_assinatura_anterior: string | null
+  anexos: Anexo[]
 }
 
 export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfterSend }: {
@@ -44,7 +47,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
     const { data: sug } = await supabase.from('sugestoes').select('user_id').eq('id', sugestaoId).maybeSingle()
     setAutorChamadoId((sug as { user_id?: string } | null)?.user_id ?? null)
     const { data: rows } = await supabase.from('sugestao_mensagem')
-      .select('id,papel,texto,autor_email,criado_em,ia_analise')
+      .select('id,papel,texto,autor_email,criado_em,ia_analise,erro_comparacao,erro_assinatura,erro_assinatura_anterior')
       .eq('sugestao_id', sugestaoId).order('criado_em', { ascending: true })
     const base = (rows as Omit<Msg, 'anexos'>[] ?? [])
     // anexos das mensagens (foto com marcação) — assina cada URL do bucket privado
@@ -88,6 +91,17 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
     } finally { setEnviando(false) }
   }, [texto, foto, sugestaoId, userId, autorChamadoId, carregar, onAfterSend])
 
+  // Desmembrar (só PS): erro diferente = chamado diferente. Sugerido; quem decide é o atendente.
+  const desmembrar = useCallback(async (mensagemId: string) => {
+    if (!window.confirm('Separar este erro num chamado novo, vinculado a este?')) return
+    const { data, error } = await supabase.rpc('fn_sugestao_desmembrar', { p_mensagem_id: mensagemId, p_user: userId })
+    const r = data as { ok?: boolean; erro?: string; novo_numero?: number } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao desmembrar'); return }
+    setErro(null)
+    await carregar()
+    onAfterSend?.()
+  }, [userId, carregar, onAfterSend])
+
   return (
     <div style={{ marginTop: 10, borderTop: `1px dashed ${C.border}`, paddingTop: 10 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>💬 Conversa do chamado</div>
@@ -112,6 +126,30 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
                       ))}
                     </div>
                   ))}
+                  {/* Comparação de erro (mecânica, os DOIS lados veem): "não funcionou" não esconde progresso */}
+                  {m.erro_comparacao === 'mudou' && (
+                    <div style={{ marginTop: 6, background: C.greenBg, border: '1px solid #BFE3C4', borderRadius: 8, padding: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.green }}>✓ O erro mudou — a correção avançou e apareceu outro</div>
+                      {(m.erro_assinatura_anterior || m.erro_assinatura) && (
+                        <div style={{ fontSize: 10.5, color: C.espM, marginTop: 3 }}>
+                          antes: <b>{m.erro_assinatura_anterior || '—'}</b> → agora: <b>{m.erro_assinatura || '—'}</b>
+                        </div>
+                      )}
+                      {ehSuporte && (
+                        <button onClick={() => void desmembrar(m.id)} style={{ marginTop: 6, background: C.esp, color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+                          Desmembrar em novo chamado
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {m.erro_comparacao === 'mesmo' && (
+                    <div style={{ marginTop: 6, background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 8, padding: 8, fontSize: 11, fontWeight: 700, color: C.red }}>
+                      ⚠️ O erro permanece o mesmo — a correção não pegou
+                    </div>
+                  )}
+                  {m.erro_comparacao === 'sem_comparacao' && (
+                    <div style={{ marginTop: 6, fontSize: 10.5, color: C.espL, fontStyle: 'italic' }}>não consegui comparar o erro (imagem ilegível)</div>
+                  )}
                   {/* IA da foto desta mensagem — SÓ pro PS, sempre rotulada (RD-51) */}
                   {ehSuporte && m.ia_analise && (
                     <div style={{ marginTop: 6, background: '#F3F6FC', border: '1px solid #D8E2F2', borderRadius: 8, padding: 8 }}>
