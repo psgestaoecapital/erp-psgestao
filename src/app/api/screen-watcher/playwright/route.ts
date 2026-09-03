@@ -213,13 +213,17 @@ export async function POST(req: Request) {
     // sumir o texto de carregamento E aparecer conteúdo real, com teto de ~7s.
     async function aguardarConteudo(): Promise<boolean> {
       for (let i = 0; i < 14; i++) {
-        const st = await page.evaluate(() => {
+        const ok = await page.evaluate(() => {
           const t = (document.body?.innerText || '');
-          const carregando = /carregando|verificando permiss|aguarde/i.test(t);
-          const temConteudo = t.replace(/\s+/g, '').length > 180;
-          return { carregando, temConteudo };
+          const txtLen = t.replace(/\s+/g, '').length;
+          // app-shell TRAVADO (os casos do CEO): menu/permissões/empresas não resolveram.
+          // NÃO barra por um "Carregando" de widget isolado numa página cheia.
+          const shellTravado = /verificando permiss|carregando menu|carregando empresas|carregando dados do/i.test(t);
+          const quaseVazia = txtLen < 120;
+          const spinnerDominante = quaseVazia && /carregando|aguarde/i.test(t);
+          return txtLen > 180 && !shellTravado && !spinnerDominante;
         });
-        if (!st.carregando && st.temConteudo) return true;
+        if (ok) return true;
         await page.waitForTimeout(500);
       }
       return false;
