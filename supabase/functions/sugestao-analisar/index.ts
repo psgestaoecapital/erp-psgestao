@@ -6,6 +6,13 @@
 // Regras (SPEC §3): análise é SUGESTÃO, nunca decisão — gravada em ia_analise, separada da resposta
 // do atendente. Teto diário USD 5 (padrão Gold): acima do teto, NÃO chama a IA e NÃO bloqueia o
 // registro. Falha da IA nunca invalida a sugestão.
+//
+// 03/09/2026 — FIX CORS (bug silencioso da 1ª melhoria real do CEO): a tela chama esta função pelo
+// NAVEGADOR (supabase.functions.invoke). Por causa do header Authorization, o browser manda um
+// PREFLIGHT OPTIONS antes do POST. A função não tratava OPTIONS: o preflight caía no corpo, não achava
+// sugestao_id e voltava 400 SEM headers CORS → o navegador BLOQUEAVA o POST. Resultado: a IA nunca era
+// chamada de verdade, e como a função real não rodava, nem o erp_ia_falha registrava (o caso ia_parada
+// dentro da própria Central). Correção: tratar OPTIONS e devolver headers CORS em TODA resposta.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -16,6 +23,16 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const TETO_USD_DIA = Number(Deno.env.get("SUGESTAO_IA_TETO_USD") || "5");
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+// json(): toda resposta leva os headers CORS — senão o navegador bloqueia mesmo um 200.
+function json(obj: unknown, status = 200): Response {
+  return new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+}
+
 function detectMediaType(path: string): "image/jpeg" | "image/png" | "image/webp" {
   const lower = path.toLowerCase().split("?")[0];
   if (lower.endsWith(".png")) return "image/png";
@@ -24,28 +41,31 @@ function detectMediaType(path: string): "image/jpeg" | "image/png" | "image/webp
 }
 
 Deno.serve(async (req: Request) => {
+  // preflight CORS do navegador (por causa do header Authorization do invoke)
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   let body: any = {};
   try { body = await req.json(); } catch { body = {}; }
   const sugestaoId = body.sugestao_id;
   if (!sugestaoId) {
-    return new Response(JSON.stringify({ ok: false, erro: "sugestao_id_obrigatorio" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, erro: "sugestao_id_obrigatorio" }, 400);
   }
   if (!ANTHROPIC_API_KEY) {
     // sem chave, não bloqueia: a sugestão segue válida, só sem análise
-    return new Response(JSON.stringify({ ok: false, erro: "sem_api_key", analisada: false }), { headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, erro: "sem_api_key", analisada: false });
   }
 
   // teto diário (§3): acima do teto, não analisa e não bloqueia
   const { data: gastoHoje } = await supabase.rpc("fn_sugestao_ia_gasto_hoje");
   if (Number(gastoHoje || 0) >= TETO_USD_DIA) {
-    return new Response(JSON.stringify({ ok: false, erro: "teto_diario_atingido", analisada: false, gasto_hoje: gastoHoje }), { headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, erro: "teto_diario_atingido", analisada: false, gasto_hoje: gastoHoje });
   }
 
   // carrega a sugestão + primeiro anexo
   const { data: sug } = await supabase.from("sugestoes").select("id, descricao, categoria, rota, area").eq("id", sugestaoId).maybeSingle();
   if (!sug) {
-    return new Response(JSON.stringify({ ok: false, erro: "sugestao_nao_encontrada" }), { status: 404, headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, erro: "sugestao_nao_encontrada" }, 404);
   }
   const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("sugestao_id", sugestaoId).order("ordem").limit(1);
   const anexo = (anexos || [])[0];
@@ -99,7 +119,7 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     if (!claudeResponse.ok) {
       const t = await claudeResponse.text();
       await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: claudeResponse.status, erro: `${claudeResponse.status}: ${t.slice(0, 200)}` });
-      return new Response(JSON.stringify({ ok: false, erro: "claude_api", detalhe: `${claudeResponse.status}: ${t.slice(0, 200)}`, analisada: false }), { headers: { "Content-Type": "application/json" } });
+      return json({ ok: false, erro: "claude_api", detalhe: `${claudeResponse.status}: ${t.slice(0, 200)}`, analisada: false });
     }
     const claudeData = await claudeResponse.json();
     const responseText = claudeData.content?.[0]?.text || "";
@@ -112,10 +132,10 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
   } catch (err) {
     // qualquer falha na IA: a sugestão segue válida, só sem análise
     await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: null, erro: String(err).slice(0, 200) });
-    return new Response(JSON.stringify({ ok: false, erro: "falha_analise", detalhe: String(err).slice(0, 200), analisada: false }), { headers: { "Content-Type": "application/json" } });
+    return json({ ok: false, erro: "falha_analise", detalhe: String(err).slice(0, 200), analisada: false });
   }
 
   await supabase.rpc("fn_sugestao_ia_registrar", { p_id: sugestaoId, p_analise: analysis, p_custo: custoUsd });
 
-  return new Response(JSON.stringify({ ok: true, analisada: true, custo_usd: custoUsd, analise: analysis }), { headers: { "Content-Type": "application/json" } });
+  return json({ ok: true, analisada: true, custo_usd: custoUsd, analise: analysis });
 });
