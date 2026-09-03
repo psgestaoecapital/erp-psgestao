@@ -378,7 +378,20 @@ export async function POST(req: Request) {
       capture_status: captureStatus,
       captured_at: new Date().toISOString(),
     });
-    if (histErr) console.error('[screen-watcher] history insert falhou:', histErr.message);
+    if (histErr) {
+      console.error('[screen-watcher] history insert falhou:', histErr.message);
+      // GRITA: telemetria que falha não pode sumir de novo. Reusa erp_ia_falha — mesmo caminho de
+      // alerta já ligado (fn_ia_saude_scan sobe 'ia_falhou') — em vez de criar um caminho novo.
+      await supabase.rpc('fn_ia_falha_registrar', {
+        p_runtime: 'next',
+        p_endpoint: 'screen-watcher/history',
+        p_finalidade: 'telemetria',
+        p_modelo: 'n/a',
+        p_status: null,
+        p_erro: 'insert system_screens_history falhou: ' + histErr.message,
+        p_company_id: null,
+      }).then(() => {}, () => {});
+    }
   }
 
   if (captureStatus === 'erro') {
