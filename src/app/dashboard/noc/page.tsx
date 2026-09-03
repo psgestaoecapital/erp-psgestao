@@ -204,6 +204,43 @@ export default function NOCDashboard(){
 
       {/* âââ SISTEMA âââ */}
       {tab==="sistema"&&(<>
+        {(() => {
+          const ia = data?.iaSaude || {};
+          const surfaces = ia.surfaces || [];
+          const alertas = ia.alertasAbertos || [];
+          const falhas = (ia.falhasPorEndpoint || []).filter((f:any)=>(f.abertas||0)>0);
+          return (
+            <Card title={`ð¤ SaÃºde da IA ${alertas.length?`â ${alertas.length} alerta(s) ativo(s)`:"â tudo no ar"}`} color={alertas.length?C.r:C.g}>
+              {alertas.map((a:any,i:number)=>(
+                <div key={i} style={{padding:10,marginBottom:6,background:C.bg3,borderRadius:6,borderLeft:`3px solid ${C.r}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.r}}>{a.titulo}</span>
+                    <span style={{fontSize:9,fontWeight:700,color:C.y}}>{(a.severidade||"").toUpperCase()}</span>
+                  </div>
+                  <div style={{fontSize:10,color:C.txm}}>{a.mensagem}</div>
+                </div>
+              ))}
+              <div style={{fontSize:10,fontWeight:700,color:C.txm,margin:"8px 0 4px"}}>Rodando sozinhas (heartbeat)</div>
+              {surfaces.map((s:any,i:number)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`0.5px solid ${C.bd}`}}>
+                  <span style={{fontSize:11,color:C.tx}}>{s.descricao}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:s.parada?C.r:C.g}}>
+                    {s.parada?`â PARADA (${s.horas_desde_sucesso}h)`:`â ok (${s.horas_desde_sucesso}h)`}
+                  </span>
+                </div>
+              ))}
+              {falhas.length>0&&(<>
+                <div style={{fontSize:10,fontWeight:700,color:C.txm,margin:"8px 0 4px"}}>Endpoints com falha aberta</div>
+                {falhas.map((f:any,i:number)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`0.5px solid ${C.bd}20`}}>
+                    <span style={{fontSize:10,color:C.txm,fontFamily:"monospace"}}>{f.endpoint}</span>
+                    <span style={{fontSize:10,color:C.r}}>{f.abertas} aberta(s) Â· {f.ultimo_status||"?"} Â· {f.ultimo_modelo||""}</span>
+                  </div>
+                ))}
+              </>)}
+            </Card>
+          );
+        })()}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
           <KPI l="ServiÃ§os Ativos" v={`${servicos.filter((s:any)=>s.status==="online"||s.status==="configurado").length}/${servicos.length}`} c={C.g}/>
           <KPI l="Tipos de Import" v={`${r.tiposImport}`} s="Omie + Nibo" c={C.or}/>
