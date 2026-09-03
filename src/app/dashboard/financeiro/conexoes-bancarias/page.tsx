@@ -704,8 +704,13 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
       if (certSenha) await salvar1('certpw', certSenha, `${banco.nome} · senha do cert A1`)
 
       // Cria/atualiza a linha em erp_banco_provider_config.
+      // A ÚNICA constraint única da tabela é (company_id, banco_codigo, ambiente) — o onConflict tem
+      // que bater com ELA, senão o Postgres estoura "there is no unique or exclusion constraint matching
+      // the ON CONFLICT specification" (chamado do Rodrigo, Bradesco). E banco_codigo é NOT NULL, então
+      // precisa ir no payload (sicredi/sicoob já mandam via RPC; este caminho direto tinha esquecido).
       const { error: upErr } = await supabase.from('erp_banco_provider_config').upsert({
         company_id: companyId,
+        banco_codigo: String(banco.codigo),
         provider: banco.sigla,
         ambiente,
         client_id: clientId || null,
@@ -715,7 +720,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         cap_boleto: capBoleto,
         cap_extrato: capExtrato,
         ativo: true,
-      }, { onConflict: 'company_id,provider,ambiente' })
+      }, { onConflict: 'company_id,banco_codigo,ambiente' })
       if (upErr) throw upErr
       onSucesso()
     } catch (e) {
