@@ -30,7 +30,7 @@ const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em anál
 // implementada aparecendo como "não analisada").
 const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'duplicada', 'arquivada', 'implementado']
 
-type Minha = { id: string; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -62,7 +62,7 @@ function Inner() {
     const { data: u } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
     setEhSuporte(['PS_ADMIN', 'PS_SUPPORT'].includes((u as { system_role?: string } | null)?.system_role || ''))
     // Arquivadas saem da lista por padrão (viram consulta via filtro), como o CEO pediu.
-    let q = supabase.from('sugestoes').select('id,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at').eq('user_id', user.id)
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at').eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
     setMinhas(((data as Minha[]) ?? []).map((m) => ({ ...m, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null })))
@@ -183,7 +183,7 @@ function Inner() {
           {minhas.map((m) => (
             <div key={m.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <b style={{ fontSize: 14 }}>{m.titulo || m.descricao.slice(0, 60)}</b>
+                <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
                 <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
               </div>
               <div style={{ fontSize: 12.5, color: C.espM, marginTop: 4 }}>{m.descricao}</div>

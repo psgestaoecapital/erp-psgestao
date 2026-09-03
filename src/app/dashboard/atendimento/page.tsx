@@ -19,7 +19,7 @@ const STATUSES = ['nova', 'em_analise', 'aceita', 'em_desenvolvimento', 'conclui
 const brDate = (d: string) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 type Marca = { tipo: string; x: number; y: number; texto?: string }
 type Item = {
-  id: string; company_id: string | null; empresa: string | null; user_email: string; user_name: string | null
+  id: string; numero: number; company_id: string | null; empresa: string | null; user_email: string; user_name: string | null
   titulo: string | null; descricao: string; categoria: string | null; prioridade: string; status: string
   rota: string | null; area: string | null; atendente_id: string | null; pr_numero: number | null; resposta: string | null
   resposta_aprovada: boolean; confirmado_pelo_autor: boolean
@@ -40,6 +40,7 @@ function Inner() {
   const [fEmpresa, setFEmpresa] = useState('todas')
   const [fStatus, setFStatus] = useState('abertas')
   const [fCategoria, setFCategoria] = useState('todas')
+  const [busca, setBusca] = useState('')   // suporte digita o número (#14) ou parte do título e acha o chamado
   const [aberto, setAberto] = useState<string | null>(null)
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
   const [ehAdmin, setEhAdmin] = useState(false)   // só PS_ADMIN aprova resposta
@@ -62,14 +63,17 @@ function Inner() {
   useEffect(() => { void carregar() }, [carregar])
 
   const empresas = useMemo(() => Array.from(new Set(rows.map((r) => r.empresa).filter(Boolean))) as string[], [rows])
+  // busca: número exato (o suporte digita "14" ou "#14") OU trecho do título/descrição.
+  const buscaLimpa = busca.trim().replace(/^#/, '').toLowerCase()
   const visiveis = useMemo(() => rows
+    .filter((r) => !buscaLimpa || String(r.numero) === buscaLimpa || (r.titulo || '').toLowerCase().includes(buscaLimpa) || r.descricao.toLowerCase().includes(buscaLimpa))
     .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
     .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
     // "abertas" = não-terminais. Inclui os SINÔNIMOS terminais (RD-52: o CHECK aceita concluida×concluido,
     // resolvida×implementado — o filtro precisa conhecer todos, senão um chamado entregue fica "aberto"
     // por 149 dias, como o "Adicionar botão de IA"). A migração unifica o vocabulário; isto é a rede.
     .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada'].includes(r.status) : r.status === fStatus)
-    .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta), [rows, fEmpresa, fCategoria, fStatus])
+    .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta), [rows, fEmpresa, fCategoria, fStatus, buscaLimpa])
 
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
@@ -127,6 +131,7 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título" style={{ ...inp, minWidth: 170 }} />
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={inp}><option value="abertas">abertas</option><option value="todas">todas</option>{STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
         <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
         <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
@@ -144,6 +149,7 @@ function Inner() {
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: it.prioridade === 'critica' || it.prioridade === 'alta' ? C.redBg : C.cream, color: it.prioridade === 'critica' || it.prioridade === 'alta' ? C.red : C.espM, fontWeight: 700 }}>{it.prioridade}</span>
                     <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM }}>{it.categoria || '—'}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: C.gold }}>#{it.numero}</span>
                     <b style={{ fontSize: 14.5 }}>{it.titulo || it.descricao.slice(0, 70)}</b>
                   </div>
                   <div style={{ fontSize: 12, color: C.espM, marginTop: 4 }}>{it.empresa || 'sem empresa'} · {it.user_name || it.user_email} · {brDate(it.created_at)} · <b>{it.dias_aberta}d aberta</b>{it.n_anexos ? ` · 📎 ${it.n_anexos}` : ''}</div>
