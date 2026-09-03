@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Bell, LogOut, Lightbulb, HelpCircle } from 'lucide-react'
 import MobileDrawer from './MobileDrawer'
 import { supabase } from '@/lib/supabase'
@@ -35,6 +36,7 @@ export default function TopNav() {
   // empresa mostra o seu; consolidado/grupo não mostra logo de empresa (não é de uma só).
   const { selInfo, sel, companies } = useCompanyIds()
   const abrirAjuda = useAjuda((s) => s.abrir)
+  const pathname = usePathname()
   const empresaRow = selInfo.tipo === 'empresa' ? companies.find((c) => c.id === sel) : null
   const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : ''
   const empresaLogo: string | null = (empresaRow?.logo_url as string | undefined) || null
@@ -137,7 +139,7 @@ export default function TopNav() {
         {/* Melhorias · registrar dificuldade/sugestão pela própria tela (mobile-first). Estava só via
             WhatsApp; agora é um toque no cabeçalho — leva à Central de Melhorias. */}
         <Link
-          href="/dashboard/melhorias"
+          href={`/dashboard/melhorias?from=${encodeURIComponent(pathname || '')}`}
           aria-label="Central de Melhorias"
           title="Melhorias"
           data-testid="header-melhorias"
