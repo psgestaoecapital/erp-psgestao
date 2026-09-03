@@ -49,6 +49,8 @@ export default function PainelAuditores() {
   const [selecionada, setSelecionada] = useState<Insight | null>(null)
   const [disparando, setDisparando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  // rotas que o robô nunca alcança (módulo não habilitado para o auditor): não ficam em branco.
+  const [naoAuditaveis, setNaoAuditaveis] = useState<{ rota: string; motivo_nao_auditavel: string | null }[]>([])
 
   async function load() {
     setLoading(true)
@@ -61,6 +63,12 @@ export default function PainelAuditores() {
       .order('analisado_em', { ascending: false })
     if (error) setErro(error.message)
     else setInsights((data as Insight[]) ?? [])
+    const { data: na } = await supabase
+      .from('system_screens')
+      .select('rota, motivo_nao_auditavel')
+      .eq('auditavel_robo', false)
+      .order('rota')
+    setNaoAuditaveis((na as { rota: string; motivo_nao_auditavel: string | null }[]) ?? [])
     setLoading(false)
   }
 
@@ -263,6 +271,27 @@ export default function PainelAuditores() {
             </div>
           )}
         </section>
+
+        {!loading && naoAuditaveis.length > 0 && (
+          <section style={{ marginTop: 20 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: COLORS.espresso, marginBottom: 2 }}>
+              Não auditáveis pelo robô ({naoAuditaveis.length})
+            </h2>
+            <p style={{ fontSize: 12, color: COLORS.espressoLight, marginBottom: 10 }}>
+              O auditor não alcança estas telas (módulo não habilitado para a empresa do robô). Não têm score — é limitação conhecida, não tela quebrada.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {naoAuditaveis.map((r) => (
+                <div key={r.rota} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: '#FFFFFF', border: COLORS.border, borderRadius: 8, padding: '8px 12px' }}>
+                  <span style={{ fontSize: 12, fontFamily: 'monospace', color: COLORS.espresso }}>{r.rota}</span>
+                  <span style={{ fontSize: 11, color: COLORS.espressoLight, textAlign: 'right' }}>
+                    {r.motivo_nao_auditavel || 'não auditável — módulo não habilitado para o auditor'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       {selecionada && <ModalDrillDown insight={selecionada} onClose={() => setSelecionada(null)} />}

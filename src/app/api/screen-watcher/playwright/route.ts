@@ -287,10 +287,17 @@ export async function POST(req: Request) {
       errorMsg =
         `Rota não alcançada: pedido ${pedidoPath}, tela final ${finalPath}` +
         (redirectDetectado ? ' (redirect — provável módulo ausente na empresa do robô)' : '');
-      // não fotografa; limpa a foto antiga (tela errada) para não virar score falso
+      // não fotografa; limpa a foto antiga (tela errada) para não virar score falso, e MARCA como
+      // não auditável (o painel mostra "não auditável — módulo não habilitado", não fica em branco).
       await supabase
         .from('system_screens')
-        .update({ screenshot_url: null, screenshot_atualizado_em: new Date().toISOString() })
+        .update({
+          screenshot_url: null,
+          screenshot_atualizado_em: new Date().toISOString(),
+          auditavel_robo: false,
+          motivo_nao_auditavel: 'módulo não habilitado para o auditor (redirect para ' + finalPath + ')',
+          auditabilidade_em: new Date().toISOString(),
+        })
         .eq('id', screenId);
     } else if (!(await aguardarConteudo())) {
       captureStatus = 'nao_carregou';
@@ -327,6 +334,9 @@ export async function POST(req: Request) {
           .update({
             screenshot_url: screenshotUrl,
             screenshot_atualizado_em: new Date().toISOString(),
+            auditavel_robo: true,               // alcançou e fotografou: é auditável
+            motivo_nao_auditavel: null,
+            auditabilidade_em: new Date().toISOString(),
           })
           .eq('id', screenId);
       }
@@ -353,17 +363,23 @@ export async function POST(req: Request) {
   }
 
   const pageLoadMs = Date.now() - startedAt;
-  await supabase.from('system_screens_history').insert({
-    screen_id: screenId,
-    rota: rotaCompleta,
-    screenshot_url: screenshotUrl,
-    errors_count: errorsCount,
-    errors_snapshot: errorMsg,
-    page_load_ms: pageLoadMs,
-    capture_method: 'playwright',
-    capture_status: captureStatus,
-    captured_at: new Date().toISOString(),
-  });
+  // Só grava histórico para tela REAL (screen_id tem FK para system_screens). Rota sem cadastro
+  // usa screenId sintético e violaria a FK — antes o erro era engolido; agora evitamos de vez.
+  // (O CHECK de capture_status foi alinhado ao português na migration 20260903140000.)
+  if (screenRow?.id) {
+    const { error: histErr } = await supabase.from('system_screens_history').insert({
+      screen_id: screenRow.id,
+      rota: rotaCompleta,
+      screenshot_url: screenshotUrl,
+      errors_count: errorsCount,
+      errors_snapshot: errorMsg,
+      page_load_ms: pageLoadMs,
+      capture_method: 'playwright',
+      capture_status: captureStatus,
+      captured_at: new Date().toISOString(),
+    });
+    if (histErr) console.error('[screen-watcher] history insert falhou:', histErr.message);
+  }
 
   if (captureStatus === 'erro') {
     return NextResponse.json(

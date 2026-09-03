@@ -17,7 +17,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min total para orquestrador
 
-const MAX_CONCURRENT = 10;
+// 3, não 10: cada captura sobe um Chromium; a 10 em paralelo no serverless a captura
+// estourava recurso ('Unable to capture screenshot') e 70/127 rotas alcançadas+carregadas
+// falhavam só na foto física. A 3 o número de cobertura fica limpo.
+const MAX_CONCURRENT = 3;
 
 type Result = {
   rota: string;
