@@ -64,7 +64,10 @@ function Inner() {
   const visiveis = useMemo(() => rows
     .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
     .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
-    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'recusada', 'duplicada', 'arquivada'].includes(r.status) : r.status === fStatus)
+    // "abertas" = não-terminais. Inclui os SINÔNIMOS terminais (RD-52: o CHECK aceita concluida×concluido,
+    // resolvida×implementado — o filtro precisa conhecer todos, senão um chamado entregue fica "aberto"
+    // por 149 dias, como o "Adicionar botão de IA"). A migração unifica o vocabulário; isto é a rede.
+    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada'].includes(r.status) : r.status === fStatus)
     .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta), [rows, fEmpresa, fCategoria, fStatus])
 
   async function abrir(id: string) {

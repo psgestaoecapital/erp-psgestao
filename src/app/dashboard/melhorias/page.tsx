@@ -26,7 +26,7 @@ const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em anál
 // status terminais: o trabalho acabou. Não faz sentido o selo "não analisada pela IA" nesses — eles
 // parecem pendentes de processamento quando estão completos (o que confundia, ex.: a do Rodrigo já
 // implementada aparecendo como "não analisada").
-const STATUS_TERMINAL = ['concluida', 'recusada', 'duplicada', 'arquivada', 'implementado']
+const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'duplicada', 'arquivada', 'implementado']
 
 // Marca: coords em PERCENTUAL (0..1). seta = ponto (x,y). retangulo/circulo = CENTRO (x,y) + tamanho (w,h).
 type Ferramenta = 'seta' | 'retangulo' | 'circulo'
