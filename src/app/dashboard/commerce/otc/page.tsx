@@ -23,6 +23,7 @@ import {
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import NFeCard from '@/components/comum/NFeCard'
 
@@ -808,20 +809,12 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
     return () => { alive = false }
   }, [ped.id])
 
-  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · le ambiente do provider fiscal (libera default 'producao' no modal)
+  // FIX-NFSE-PRODUCAO-PROVIDER-v2 · lê a config fiscal ATIVA (helper compartilhado). Antes filtrava por
+  // provider='gov_nfse_nacional' (legado, inativo) e travava Produção pra todo mundo — chamado #16.
   useEffect(() => {
     if (!ped.company_id) return
     let alive = true
-    ;(async () => {
-      const { data } = await supabase
-        .from('erp_fiscal_provider_config')
-        .select('ambiente')
-        .eq('company_id', ped.company_id)
-        .eq('provider', 'gov_nfse_nacional')
-        .eq('ativo', true)
-        .maybeSingle()
-      if (alive) setNfseProducaoDisponivel((data as { ambiente?: string | null } | null)?.ambiente === 'producao')
-    })()
+    void carregarProducaoDisponivel(ped.company_id).then((v) => { if (alive) setNfseProducaoDisponivel(v) })
     return () => { alive = false }
   }, [ped.company_id])
 

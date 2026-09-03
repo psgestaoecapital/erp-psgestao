@@ -149,6 +149,16 @@ export default function NFSeEmitirGovModal({
     onFechar()
   }
 
+  // FIX-NFSE-MODAL-CLIQUE-FORA-v1 · clicar fora do card NÃO pode descartar dados de nota fiscal sem avisar
+  // (chamado #16: "ao clicar fora, o card fecha" → perda de trabalho). Só fecha por clique no overlay se
+  // não houver nada preenchido; havendo, pede confirmação. X e Cancelar continuam fechando direto.
+  function fecharPorOverlay() {
+    if (fase === 'enviando') return
+    const temDados = !!(descricao.trim() || valor.trim() || tomDoc.trim() || tomNome.trim())
+    if (fase === 'form' && temDados && !window.confirm('Descartar os dados preenchidos e fechar?')) return
+    fechar()
+  }
+
   async function emitir() {
     setErroLocal(null)
 
@@ -212,7 +222,7 @@ export default function NFSeEmitirGovModal({
       aria-modal="true"
       data-testid="nfse-emitir-modal"
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4 py-0 sm:py-6"
-      onClick={(e) => { if (e.target === e.currentTarget) fechar() }}
+      onClick={(e) => { if (e.target === e.currentTarget) fecharPorOverlay() }}
     >
       <div className="w-full sm:max-w-lg bg-[#FAF7F2] sm:rounded-xl shadow-xl max-h-full overflow-y-auto">
         <div className="sticky top-0 bg-[#FAF7F2] border-b border-[#3D2314]/10 px-5 py-4 flex items-center justify-between">
