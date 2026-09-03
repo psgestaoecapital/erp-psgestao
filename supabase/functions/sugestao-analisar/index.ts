@@ -13,6 +13,11 @@
 // sugestao_id e voltava 400 SEM headers CORS → o navegador BLOQUEAVA o POST. Resultado: a IA nunca era
 // chamada de verdade, e como a função real não rodava, nem o erp_ia_falha registrava (o caso ia_parada
 // dentro da própria Central). Correção: tratar OPTIONS e devolver headers CORS em TODA resposta.
+//
+// 03/09/2026 — CHAMADO É CONVERSA: além da foto do chamado, agora a IA também analisa a foto de uma
+// MENSAGEM (quando o autor manda foto nova). Passe mensagem_id no corpo → a análise é gravada NA
+// MENSAGEM (fn_sugestao_msg_ia_registrar), não no chamado. O caminho do chamado só olha os anexos SEM
+// mensagem_id (mensagem_id IS NULL) — senão a foto de uma resposta viraria "a foto do chamado".
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -40,6 +45,12 @@ function detectMediaType(path: string): "image/jpeg" | "image/png" | "image/webp
   return "image/jpeg";
 }
 
+function marcacoesTexto(marcacoes: any): string {
+  return Array.isArray(marcacoes) && marcacoes.length
+    ? marcacoes.map((m: any) => `- ${m.tipo} em (${Math.round((m.x ?? 0) * 100)}%, ${Math.round((m.y ?? 0) * 100)}%): ${m.texto || "(sem texto)"}`).join("\n")
+    : "(sem marcações)";
+}
+
 Deno.serve(async (req: Request) => {
   // preflight CORS do navegador (por causa do header Authorization do invoke)
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -48,40 +59,50 @@ Deno.serve(async (req: Request) => {
   let body: any = {};
   try { body = await req.json(); } catch { body = {}; }
   const sugestaoId = body.sugestao_id;
-  if (!sugestaoId) {
-    return json({ ok: false, erro: "sugestao_id_obrigatorio" }, 400);
+  const mensagemId = body.mensagem_id;
+  if (!sugestaoId && !mensagemId) {
+    return json({ ok: false, erro: "sugestao_id_ou_mensagem_id_obrigatorio" }, 400);
   }
   if (!ANTHROPIC_API_KEY) {
     // sem chave, não bloqueia: a sugestão segue válida, só sem análise
     return json({ ok: false, erro: "sem_api_key", analisada: false });
   }
 
-  // teto diário (§3): acima do teto, não analisa e não bloqueia
+  // teto diário (§3): acima do teto, não analisa e não bloqueia. Conta chamado + mensagem (uma fonte).
   const { data: gastoHoje } = await supabase.rpc("fn_sugestao_ia_gasto_hoje");
   if (Number(gastoHoje || 0) >= TETO_USD_DIA) {
     return json({ ok: false, erro: "teto_diario_atingido", analisada: false, gasto_hoje: gastoHoje });
   }
 
-  // carrega a sugestão + primeiro anexo
-  const { data: sug } = await supabase.from("sugestoes").select("id, descricao, categoria, rota, area").eq("id", sugestaoId).maybeSingle();
-  if (!sug) {
-    return json({ ok: false, erro: "sugestao_nao_encontrada" }, 404);
-  }
-  const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("sugestao_id", sugestaoId).order("ordem").limit(1);
-  const anexo = (anexos || [])[0];
+  // Resolve o ALVO: uma mensagem (foto nova) ou o chamado (foto original). Monta descrição + anexo.
+  let descricao = ""; let categoria: string | null = null; let rota: string | null = null; let area: string | null = null;
+  let anexo: { storage_path?: string; marcacoes?: any } | undefined;
 
-  // monta o content da mensagem: texto sempre; imagem quando houver foto
-  const marcacoesTxt = anexo?.marcacoes && Array.isArray(anexo.marcacoes) && anexo.marcacoes.length
-    ? anexo.marcacoes.map((m: any) => `- ${m.tipo} em (${Math.round((m.x ?? 0) * 100)}%, ${Math.round((m.y ?? 0) * 100)}%): ${m.texto || "(sem texto)"}`).join("\n")
-    : "(sem marcações)";
+  if (mensagemId) {
+    const { data: msg } = await supabase.from("sugestao_mensagem").select("id, texto, sugestao_id").eq("id", mensagemId).maybeSingle();
+    if (!msg) return json({ ok: false, erro: "mensagem_nao_encontrada" }, 404);
+    const { data: sug } = await supabase.from("sugestoes").select("descricao, categoria, rota, area").eq("id", (msg as any).sugestao_id).maybeSingle();
+    // a descrição do prompt é a mensagem nova do usuário, com o contexto do chamado
+    descricao = `${(sug as any)?.descricao ? `[Chamado] ${(sug as any).descricao}\n` : ""}[Nova mensagem] ${(msg as any).texto || "(sem texto — enviou só a imagem)"}`;
+    categoria = (sug as any)?.categoria ?? null; rota = (sug as any)?.rota ?? null; area = (sug as any)?.area ?? null;
+    const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("mensagem_id", mensagemId).order("ordem").limit(1);
+    anexo = (anexos || [])[0];
+  } else {
+    const { data: sug } = await supabase.from("sugestoes").select("id, descricao, categoria, rota, area").eq("id", sugestaoId).maybeSingle();
+    if (!sug) return json({ ok: false, erro: "sugestao_nao_encontrada" }, 404);
+    descricao = (sug as any).descricao || ""; categoria = (sug as any).categoria ?? null; rota = (sug as any).rota ?? null; area = (sug as any).area ?? null;
+    // só os anexos do CHAMADO (mensagem_id NULL) — a foto de uma resposta não é a foto do chamado
+    const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("sugestao_id", sugestaoId).is("mensagem_id", null).order("ordem").limit(1);
+    anexo = (anexos || [])[0];
+  }
 
   const prompt = `Você é um Engenheiro de Produto Sênior do SaaS PS Gestão ERP. Um usuário registrou uma dificuldade${anexo ? " e enviou uma foto da tela com marcações" : ""}.
 
-DESCRIÇÃO DO USUÁRIO: ${sug.descricao || "(sem descrição)"}
-CATEGORIA INFORMADA: ${sug.categoria || "(não informada)"}
-ROTA/ÁREA DE ORIGEM: ${sug.rota || "(desconhecida)"} / ${sug.area || "(desconhecida)"}
+DESCRIÇÃO DO USUÁRIO: ${descricao || "(sem descrição)"}
+CATEGORIA INFORMADA: ${categoria || "(não informada)"}
+ROTA/ÁREA DE ORIGEM: ${rota || "(desconhecida)"} / ${area || "(desconhecida)"}
 MARCAÇÕES NA FOTO (coordenadas em % da imagem):
-${marcacoesTxt}
+${marcacoesTexto(anexo?.marcacoes)}
 
 TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
 {
@@ -135,7 +156,12 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     return json({ ok: false, erro: "falha_analise", detalhe: String(err).slice(0, 200), analisada: false });
   }
 
-  await supabase.rpc("fn_sugestao_ia_registrar", { p_id: sugestaoId, p_analise: analysis, p_custo: custoUsd });
+  // grava no alvo certo: a análise da foto nova fica NA MENSAGEM; a do chamado, no chamado.
+  if (mensagemId) {
+    await supabase.rpc("fn_sugestao_msg_ia_registrar", { p_mensagem_id: mensagemId, p_analise: analysis, p_custo: custoUsd });
+  } else {
+    await supabase.rpc("fn_sugestao_ia_registrar", { p_id: sugestaoId, p_analise: analysis, p_custo: custoUsd });
+  }
 
   return json({ ok: true, analisada: true, custo_usd: custoUsd, analise: analysis });
 });
