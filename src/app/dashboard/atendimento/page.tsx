@@ -14,7 +14,7 @@ const C = {
 }
 const inp: React.CSSProperties = { padding: '7px 9px', fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const PRIO_ORD: Record<string, number> = { critica: 0, alta: 1, media: 2, baixa: 3 }
-const STATUSES = ['nova', 'em_analise', 'aceita', 'em_desenvolvimento', 'concluida', 'recusada', 'duplicada']
+const STATUSES = ['nova', 'em_analise', 'aceita', 'em_desenvolvimento', 'concluida', 'recusada', 'duplicada', 'arquivada']
 const brDate = (d: string) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 type Marca = { tipo: string; x: number; y: number; texto?: string }
 type Item = {
@@ -60,7 +60,7 @@ function Inner() {
   const visiveis = useMemo(() => rows
     .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
     .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
-    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'recusada', 'duplicada'].includes(r.status) : r.status === fStatus)
+    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'recusada', 'duplicada', 'arquivada'].includes(r.status) : r.status === fStatus)
     .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta), [rows, fEmpresa, fCategoria, fStatus])
 
   async function abrir(id: string) {
