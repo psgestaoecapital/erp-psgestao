@@ -31,7 +31,7 @@ const STATUS_TERMINAL = ['concluida', 'recusada', 'duplicada', 'arquivada', 'imp
 // Marca: coords em PERCENTUAL (0..1). seta = ponto (x,y). retangulo/circulo = CENTRO (x,y) + tamanho (w,h).
 type Ferramenta = 'seta' | 'retangulo' | 'circulo'
 type Marca = { tipo: Ferramenta; x: number; y: number; w?: number; h?: number; texto?: string }
-type Minha = { id: string; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string }
+type Minha = { id: string; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string }
 
 const FERRAMENTAS: [Ferramenta, string][] = [['seta', '➤ Seta'], ['retangulo', '▭ Retângulo'], ['circulo', '◯ Círculo']]
 
@@ -70,12 +70,29 @@ function Inner() {
     const { data: u } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
     setEhSuporte(['PS_ADMIN', 'PS_SUPPORT'].includes((u as { system_role?: string } | null)?.system_role || ''))
     // Arquivadas saem da lista por padrão (viram consulta via filtro), como o CEO pediu.
-    let q = supabase.from('sugestoes').select('id,titulo,descricao,categoria,status,resposta,ia_analise,created_at').eq('user_id', user.id)
+    let q = supabase.from('sugestoes').select('id,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at').eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
-    setMinhas(((data as Minha[]) ?? []).map((m) => ({ ...m, tem_ia: !!m.ia_analise })))
+    setMinhas(((data as Minha[]) ?? []).map((m) => ({ ...m, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null })))
   }, [verArquivadas])
   useEffect(() => { void carregar() }, [carregar])
+
+  // O AUTOR confirma se a resposta resolveu. Funcionou → concluida; não → reabre com motivo (RD-38:
+  // quem diz que resolveu é quem abriu, não o merge).
+  const confirmar = useCallback(async (id: string, funcionou: boolean) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    let motivo: string | null = null
+    if (!funcionou) {
+      motivo = window.prompt('O que ainda não resolveu? (obrigatório — a equipe volta a mexer)') || ''
+      if (!motivo.trim()) { setErro('Diga o que não resolveu para reabrir.'); return }
+    }
+    const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: motivo })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
+    setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
+    void carregar()
+  }, [carregar])
 
   const escolherFoto = useCallback((fl: File | null) => {
     setFile(fl); setMarcas([]); setDraw(null)
@@ -313,7 +330,19 @@ function Inner() {
                 <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
               </div>
               <div style={{ fontSize: 12.5, color: C.espM, marginTop: 4 }}>{m.descricao}</div>
-              {m.resposta && <div style={{ fontSize: 12, color: C.esp, marginTop: 6, background: C.cream, padding: '6px 8px', borderRadius: 6 }}><b>Resposta:</b> {m.resposta}</div>}
+              {/* A resposta só aparece ao autor DEPOIS de aprovada (§2.1) — em carregar já vem null se não aprovada. */}
+              {m.resposta && (
+                <div style={{ marginTop: 6, background: C.cream, padding: '8px 10px', borderRadius: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.esp, textTransform: 'uppercase', letterSpacing: 0.4 }}>Resposta da equipe PS</div>
+                  <div style={{ fontSize: 12.5, color: C.esp, marginTop: 3, whiteSpace: 'pre-wrap' }}>{m.resposta}</div>
+                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button onClick={() => void confirmar(m.id, true)} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Funcionou ✓</button>
+                      <button onClick={() => void confirmar(m.id, false)} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Ainda não resolveu</button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ fontSize: 10.5, marginTop: 6 }}>
                 {m.tem_ia
                   ? <span style={{ color: C.blue }}>🤖 análise da IA disponível ao atendente</span>
