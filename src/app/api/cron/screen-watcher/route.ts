@@ -17,7 +17,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min total para orquestrador
 
-const MAX_CONCURRENT = 10;
+// Concorrência das capturas Chromium. A 10 em paralelo no serverless a foto estourava recurso
+// ('Unable to capture screenshot') e rotas alcançadas+carregadas falhavam só na captura física.
+// CONFIGURÁVEL sem deploy (mesmo princípio do modelo de IA): se o limite do serverless mudar,
+// ajusta-se SCREEN_WATCHER_CONCURRENCY na env; default vivo = 3.
+const MAX_CONCURRENT = Math.max(1, Number(process.env.SCREEN_WATCHER_CONCURRENCY || '3'));
 
 type Result = {
   rota: string;
