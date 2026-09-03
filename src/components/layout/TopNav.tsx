@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Bell, LogOut } from 'lucide-react'
+import { Bell, LogOut, Lightbulb, HelpCircle } from 'lucide-react'
 import MobileDrawer from './MobileDrawer'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { useAjuda } from '@/lib/stores/ajuda-store'
 
 interface UserResumo {
   email: string
@@ -33,6 +34,7 @@ export default function TopNav() {
   // BRAND-1 · logo da EMPRESA SELECIONADA no topo (troca junto com o seletor). Multi-empresa: cada
   // empresa mostra o seu; consolidado/grupo não mostra logo de empresa (não é de uma só).
   const { selInfo, sel, companies } = useCompanyIds()
+  const abrirAjuda = useAjuda((s) => s.abrir)
   const empresaRow = selInfo.tipo === 'empresa' ? companies.find((c) => c.id === sel) : null
   const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : ''
   const empresaLogo: string | null = (empresaRow?.logo_url as string | undefined) || null
@@ -132,6 +134,28 @@ export default function TopNav() {
             )}
           </div>
         )}
+        {/* Melhorias · registrar dificuldade/sugestão pela própria tela (mobile-first). Estava só via
+            WhatsApp; agora é um toque no cabeçalho — leva à Central de Melhorias. */}
+        <Link
+          href="/dashboard/melhorias"
+          aria-label="Central de Melhorias"
+          title="Melhorias"
+          data-testid="header-melhorias"
+          className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+        >
+          <Lightbulb size={18} />
+        </Link>
+        {/* Ajuda · saiu do FAB flutuante para o cabeçalho (pedido do CEO). Abre o mesmo painel. */}
+        <button
+          type="button"
+          aria-label="Ajuda"
+          title="Ajuda"
+          data-testid="header-ajuda"
+          onClick={() => abrirAjuda()}
+          className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+        >
+          <HelpCircle size={18} />
+        </button>
         <div className="relative" ref={sinoRef}>
           <button
             type="button"
@@ -214,6 +238,20 @@ export default function TopNav() {
               </div>
             )}
           </div>
+        )}
+        {/* Sair · botão explícito e sempre visível no cabeçalho. Antes só existia dentro do menu da
+            conta (o CEO não achava, ainda mais no mobile). Agora é um toque direto. */}
+        {user && (
+          <button
+            type="button"
+            aria-label="Sair"
+            title="Sair"
+            data-testid="header-logout"
+            onClick={() => void sair()}
+            className="w-9 h-9 rounded-lg hover:bg-[#A32D2D]/10 flex items-center justify-center transition-colors text-[#A32D2D]"
+          >
+            <LogOut size={18} />
+          </button>
         )}
       </div>
     </header>

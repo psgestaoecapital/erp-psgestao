@@ -8,6 +8,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAcesso, type PapelGestao } from '@/hooks/useAcesso'
+import { useAjuda } from '@/lib/stores/ajuda-store'
 
 const ESP = '#3D2314', MUT = 'rgba(61,35,20,0.6)', BG = '#FAF7F2', LINE = '#E7DECF', GOLD = '#C8941A', GREEN = '#166534', RED = '#A32D2D'
 
@@ -25,7 +26,11 @@ export default function AjudaWidget() {
   const activeCompany = sel && sel !== 'consolidado' && !sel.startsWith('group_') ? sel : (companyIds.length === 1 ? companyIds[0] : null)
   const { papel } = useAcesso(activeCompany)
 
-  const [aberto, setAberto] = useState(false)
+  // aberto agora vem do store (gatilho é o ícone de Ajuda no cabeçalho, não mais um FAB flutuante).
+  const aberto = useAjuda((s) => s.aberto)
+  const abrir = useAjuda((s) => s.abrir)
+  const fechar = useAjuda((s) => s.fechar)
+  const setAberto = (v: boolean) => (v ? abrir() : fechar())
   const [termo, setTermo] = useState('')
   const [resultados, setResultados] = useState<Resultado[]>([])
   const [buscando, setBuscando] = useState(false)
@@ -120,11 +125,8 @@ export default function AjudaWidget() {
 
   return (
     <>
-      <button type="button" onClick={() => setAberto(true)} aria-label="Ajuda"
-        style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 900, width: 52, height: 52, borderRadius: '50%', border: 'none', background: GOLD, color: '#fff', fontSize: 24, fontWeight: 800, cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,.18)' }}>
-        ?
-      </button>
-
+      {/* O FAB flutuante "?" saiu daqui (pedido do CEO): a Ajuda agora abre pelo ícone do cabeçalho
+          (TopNav → useAjuda.abrir()). O painel abaixo segue igual. */}
       {aberto && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(61,35,20,0.4)', display: 'flex', justifyContent: 'flex-end' }}
           onClick={() => setAberto(false)}>
