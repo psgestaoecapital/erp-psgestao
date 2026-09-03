@@ -87,8 +87,11 @@ export default function NFSeEmitirGovModal({
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
 }: Props) {
-  // FIX-NFSE-MODAL-PRODUCAO-v1 · quando producao esta liberada, default = producao
-  const [ambiente, setAmbiente] = useState<'homologacao' | 'producao'>(producaoDisponivel ? 'producao' : 'homologacao')
+  // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
+  // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
+  // para produção não deveria aparecer": se a empresa já está em produção, perguntar de novo na hora de
+  // emitir é convite a errar (emitir teste achando que valeu, ou o contrário). Derivado, read-only.
+  const ambiente: 'homologacao' | 'producao' = producaoDisponivel ? 'producao' : 'homologacao'
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · seeds vindas do pedido (read-only · usuario pode editar)
   const tomTipoSeed: TomadorTipo = tomadorTipo === 'cpf' ? 'CPF' : 'CNPJ'
   const tomDocSeed = tomadorDocumento ? mascaraDoc(tomadorDocumento, tomTipoSeed) : ''
@@ -118,7 +121,6 @@ export default function NFSeEmitirGovModal({
   // TODO o form quando o modal abre (aberto vira true).
   useEffect(() => {
     if (!aberto) return
-    setAmbiente(producaoDisponivel ? 'producao' : 'homologacao')
     setTomTipo(tomTipoSeed)
     setTomDoc(tomDocSeed)
     setTomNome(tomadorNome ?? '')
@@ -241,35 +243,17 @@ export default function NFSeEmitirGovModal({
         <div className="px-5 py-5 space-y-4">
           {fase !== 'concluido' && (
             <>
-              <div>
-                <label className="block text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide mb-2">
-                  Ambiente
-                </label>
-                <div className="inline-flex rounded-lg border border-[#3D2314]/15 bg-white p-0.5 w-full">
-                  <button
-                    type="button"
-                    onClick={() => setAmbiente('homologacao')}
-                    className={`flex-1 px-3 py-2 rounded-md text-[13px] font-medium transition ${
-                      ambiente === 'homologacao' ? 'bg-[#3D2314] text-[#FAF7F2]' : 'text-[#3D2314]/70'
-                    }`}
-                  >
-                    Homologação
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => producaoDisponivel && setAmbiente('producao')}
-                    disabled={!producaoDisponivel}
-                    title={producaoDisponivel ? 'Emite na Focus produção (real, fiscal)' : 'Aguardando liberação Focus para CNPJ KGF'}
-                    className={`flex-1 px-3 py-2 rounded-md text-[13px] font-medium transition ${
-                      ambiente === 'producao' ? 'bg-[#3D2314] text-[#FAF7F2]' :
-                      producaoDisponivel ? 'text-[#3D2314]/70' :
-                      'text-[#3D2314]/30 cursor-not-allowed'
-                    }`}
-                  >
-                    Produção
-                  </button>
+              {/* Ambiente é READ-ONLY: vem da configuração da empresa, não se escolhe na emissão (chamado #16).
+                  Produção = nota real; Homologação = teste. Trocar em Administração, não aqui. */}
+              {ambiente === 'producao' ? (
+                <div className="rounded-lg border border-[#3B6D11]/25 bg-[#EAF3DE] px-3 py-2 text-[12px] text-[#234D08]">
+                  <span className="font-medium">Ambiente: Produção</span> — esta emissão gera <b>nota fiscal real</b>. Para testar, mude a empresa para Homologação em Administração.
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-lg border border-[#BA7517]/30 bg-[#FAEEDA] px-3 py-2 text-[12px] text-[#5C3B0B]">
+                  <span className="font-medium">Ambiente: Homologação</span> — emissão de <b>teste</b>, não vale como nota fiscal. Para emitir de verdade, configure Produção em Administração.
+                </div>
+              )}
 
               <fieldset className="space-y-3 border-t border-[#3D2314]/10 pt-4">
                 <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">
