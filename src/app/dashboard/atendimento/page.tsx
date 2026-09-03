@@ -178,22 +178,41 @@ function Inner() {
                     ) : <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>não analisada pela IA</div>}
                   </div>
 
-                  {it.resposta && (
-                    <div style={{ fontSize: 12.5, marginTop: 10, background: it.resposta_aprovada ? C.greenBg : C.amberBg, border: `1px solid ${it.resposta_aprovada ? '#BFE3C4' : '#F0DDB0'}`, padding: '8px 10px', borderRadius: 8 }}>
-                      <div style={{ fontSize: 10.5, fontWeight: 700, color: it.resposta_aprovada ? C.green : C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
-                        {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : 'Resposta escrita — aguardando aprovação'}
-                      </div>
-                      <div style={{ color: C.esp }}>{it.resposta}</div>
-                      {!it.resposta_aprovada && (
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                          {ehAdmin
-                            ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
-                            : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO (PS_ADMIN) aprova o envio ao autor</span>}
-                          <button onClick={() => void responder(it)} style={btn(C.gold)}>Editar antes de enviar</button>
+                  {/* Resposta ao autor — SEMPRE visível, nunca escondida quando vazia. O bug do CEO travado:
+                      resposta vem como '' (string vazia) no chamado novo → `it.resposta &&` era falsy → a seção
+                      inteira (com o botão Aprovar) sumia, sem explicar por quê. Três estados honestos:
+                      sem resposta → Responder; rascunho → Aprovar/Editar; aprovada → enviada. Aprovar não
+                      depende de status nem de estar assumido — só de haver resposta escrita (a RPC decide o resto). */}
+                  {(() => {
+                    const temResposta = !!(it.resposta && it.resposta.trim())
+                    if (!temResposta) {
+                      return (
+                        <div style={{ fontSize: 12.5, marginTop: 10, background: C.cream, border: `1px dashed ${C.border}`, padding: '10px 12px', borderRadius: 8 }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Resposta ao autor</div>
+                          <div style={{ color: C.espM }}>Nenhuma resposta escrita ainda. Escreva a resposta — depois o CEO (PS_ADMIN) aprova e ela chega ao autor. <b>Sem resposta escrita não há o que aprovar.</b></div>
+                          <div style={{ marginTop: 8 }}>
+                            <button onClick={() => void responder(it)} style={btn(C.gold)}>Responder ao autor</button>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  )}
+                      )
+                    }
+                    return (
+                      <div style={{ fontSize: 12.5, marginTop: 10, background: it.resposta_aprovada ? C.greenBg : C.amberBg, border: `1px solid ${it.resposta_aprovada ? '#BFE3C4' : '#F0DDB0'}`, padding: '8px 10px', borderRadius: 8 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: it.resposta_aprovada ? C.green : C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
+                          {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : 'Resposta escrita — aguardando aprovação'}
+                        </div>
+                        <div style={{ color: C.esp }}>{it.resposta}</div>
+                        {!it.resposta_aprovada && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {ehAdmin
+                              ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
+                              : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO (PS_ADMIN) aprova o envio ao autor</span>}
+                            <button onClick={() => void responder(it)} style={btn(C.gold)}>Editar antes de enviar</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                   {it.pr_numero && <div style={{ fontSize: 12, marginTop: 6, color: C.green }}>vinculado ao PR #{it.pr_numero}</div>}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -201,7 +220,8 @@ function Inner() {
                     <select value="" onChange={(e) => { if (e.target.value) void mudarStatus(it, e.target.value) }} style={{ ...inp, fontWeight: 700 }}>
                       <option value="">mudar status…</option>{STATUSES.filter((s) => s !== it.status).map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                     </select>
-                    <button onClick={() => void responder(it)} style={btn(C.gold)}>responder</button>
+                    {/* "responder" saiu daqui: agora mora na seção "Resposta ao autor" acima, que é sempre
+                        visível e mostra o estado (sem resposta / rascunho / aprovada) — um único caminho claro. */}
                   </div>
 
                   {/* Conversa do chamado: o autor pode mandar foto nova sem encerrar; o PS responde aqui.
