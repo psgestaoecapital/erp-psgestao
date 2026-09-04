@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
+import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // chamado #20 Fase 2 · NFS-e (serviços) da OS
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 
@@ -809,10 +810,22 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </button>
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
-          <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
-            style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
-            ✓ Faturada · ver na GE →
-          </a>
+          <>
+            <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+              style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+              ✓ Faturada · ver na GE →
+            </a>
+            {/* #20 Fase 2 · financeiro antes da nota (§3): faturada a OS avulsa, libera a NFS-e de serviços.
+                OS via pedido emite pelo fluxo do pedido (DrawerPedido), não aqui. */}
+            {!os.pedido_id && (
+              <EmitirNFSeOSButton
+                osId={os.id}
+                companyId={os.company_id}
+                buttonStyle={btnSec}
+                onEmitida={() => onFlash?.('NFS-e enviada — o status atualiza sozinho em Notas Fiscais.')}
+              />
+            )}
+          </>
         ) : podeFaturar ? (
           !os.pedido_id ? (
             // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
