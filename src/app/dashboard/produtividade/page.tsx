@@ -326,7 +326,10 @@ function VinculoLista({ ctx, alvo, rows, onDel }: { ctx: Ctx; alvo: 'setor' | 'c
             <button type="button" onClick={() => setAberto(aberto === r.id ? null : r.id)} style={{ ...btn(true), background: 'transparent', color: C.blue, border: `1px solid ${C.blue}44`, padding: '3px 9px', fontSize: 11.5 }}>
               🔗 {aberto === r.id ? 'fechar' : 'vínculos'}
             </button>
-            <button onClick={() => onDel(r.id)} title="Remover" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
+            {/* confirma antes de apagar — o × fica ao lado do "vínculos"; sem confirmação um clique
+                errado some com o cadastro (foi o que apagou "Abate"). */}
+            <button onClick={() => { if (window.confirm(`Remover "${String(r.nome)}"? Isso apaga também os vínculos com as bases — não dá para desfazer.`)) onDel(r.id) }}
+              title="Remover" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700, fontSize: 16, padding: '0 4px' }}>×</button>
           </div>
           {aberto === r.id && <VinculoEditor ctx={ctx} alvo={alvo} alvoId={r.id} alvoNome={String(r.nome)} />}
         </div>

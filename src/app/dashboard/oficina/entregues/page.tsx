@@ -157,43 +157,40 @@ export default function EntreguesPage() {
           ))}
         </div>
       ) : modo === 'semnota' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {snTotais && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Tot l="OS sem nota" v={String(snTotais.qtd)} />
-              <Tot l="Valor entregue sem nota" v={brl(snTotais.total_parado)} />
-            </div>
-          )}
-          <p style={{ fontSize: 12, color: ESP60, margin: 0 }}>
-            Entregues sem nota fiscal (nem serviço nem peça), da mais antiga para a mais nova. A entrega não trava por causa da nota — mas aqui é onde a obrigação fiscal ficou pendente. Abra a OS para emitir.
-          </p>
-          {snLinhas.length === 0 ? (
-            <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Tudo que foi entregue tem nota. 🎉</div>
-          ) : snLinhas.map((l) => (
-            <div key={l.os_id} style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: l.dias >= 30 ? '#B45309' : ESP60, fontWeight: 700 }}>🧾 {l.dias} dia(s) sem nota · entregue {fmtDataHora(l.entregue_em)}</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginTop: 2 }}>{l.numero || '—'}</div>
-                <div style={{ fontSize: 12, color: ESP60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.cliente_nome || 'sem cliente'}</div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
-                  {l.tem_servico && <span style={faltaTag}>falta NFS-e (serviço)</span>}
-                  {l.tem_peca && <span style={faltaTag}>falta NF-e (peça)</span>}
-                  {l.faturada
-                    ? <span style={{ ...faltaTag, background: '#EAF3DE', color: OK }}>✓ financeiro feito</span>
-                    : <span style={{ ...faltaTag, background: '#FAEEDA', color: '#B45309' }}>sem financeiro</span>}
-                </div>
+        (() => {
+          // §8.2 · dois problemas diferentes, pessoas diferentes:
+          //  · SEM TÍTULO (não faturada) = cobrança que não existe → financeiro/cobrança.
+          //  · SEM NOTA (faturada, sem documento fiscal) = obrigação fiscal pendente → fiscal.
+          const semTitulo = snLinhas.filter((l) => !l.faturada)
+          const semNota = snLinhas.filter((l) => l.faturada)
+          const soma = (arr: SemNotaLinha[]) => arr.reduce((a, l) => a + (l.total ?? 0), 0)
+          const abrir = (id: string) => router.push(`/dashboard/os?os=${id}`)
+          const Secao = ({ titulo, sub, cor, corBg, linhas }: { titulo: string; sub: string; cor: string; corBg: string; linhas: SemNotaLinha[] }) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ background: corBg, borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: cor }}>{titulo} · {linhas.length}</div>
+                <div style={{ fontSize: 11.5, color: cor, opacity: 0.9 }}>{sub}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: cor, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{brl(soma(linhas))}</div>
               </div>
-              <div style={{ textAlign: 'right', minWidth: 120 }}>
-                <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: (l.total ?? 0) > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{(l.total ?? 0) > 0 ? brl(l.total) : 'sem valor'}</div>
-              </div>
-              <button onClick={() => router.push(`/dashboard/os?os=${l.os_id}`)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '9px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                Abrir OS <ChevronRight size={14} />
-              </button>
+              {linhas.length === 0
+                ? <div style={{ fontSize: 12, color: ESP60, fontStyle: 'italic', padding: '2px 4px' }}>Nada aqui. 🎉</div>
+                : linhas.map((l) => <SemNotaRow key={l.os_id} l={l} onOpen={() => abrir(l.os_id)} />)}
             </div>
-          ))}
-        </div>
+          )
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <p style={{ fontSize: 12, color: ESP60, margin: 0 }}>
+                Entregues sem nota fiscal, da mais antiga para a mais nova. A entrega não trava por causa da nota — mas são <b>dois problemas diferentes</b>: sem título é cobrança que não existe; sem nota (já faturada) é obrigação fiscal pendente. Abra a OS para resolver.
+              </p>
+              {snLinhas.length === 0
+                ? <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Tudo que foi entregue tem nota. 🎉</div>
+                : <>
+                    <Secao titulo="🏷️ Sem título" sub="Entregue e não faturada — cobrança que não existe (financeiro)." cor="#8A4B08" corBg="#FAEEDA" linhas={semTitulo} />
+                    <Secao titulo="🧾 Sem nota fiscal" sub="Faturada, mas sem documento fiscal — obrigação pendente (fiscal)." cor="#791F1F" corBg="#FCEBEB" linhas={semNota} />
+                  </>}
+            </div>
+          )
+        })()
       ) : linhas.length === 0 ? (
         <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Nenhuma entrega no período.</div>
       ) : (
@@ -239,6 +236,29 @@ function Tot({ l, v, small }: { l: string; v: string; small?: boolean }) {
     <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP40, fontWeight: 600 }}>{l}</div>
       <div style={{ fontSize: small ? 14 : 18, fontWeight: 700, color: small ? '#1D4671' : ESP, marginTop: 3, lineHeight: 1.2 }}>{v}</div>
+    </div>
+  )
+}
+// #20 Fase 3b · uma linha da fila "entregue sem nota" (reusada nos dois grupos: sem título × sem nota).
+function SemNotaRow({ l, onOpen }: { l: SemNotaLinha; onOpen: () => void }) {
+  return (
+    <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: l.dias >= 30 ? '#B45309' : ESP60, fontWeight: 700 }}>🧾 {l.dias} dia(s) sem nota · entregue {fmtDataHora(l.entregue_em)}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginTop: 2 }}>{l.numero || '—'}</div>
+        <div style={{ fontSize: 12, color: ESP60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.cliente_nome || 'sem cliente'}</div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
+          {l.tem_servico && <span style={faltaTag}>falta NFS-e (serviço)</span>}
+          {l.tem_peca && <span style={faltaTag}>falta NF-e (peça)</span>}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', minWidth: 120 }}>
+        <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: (l.total ?? 0) > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{(l.total ?? 0) > 0 ? brl(l.total) : 'sem valor'}</div>
+      </div>
+      <button onClick={onOpen} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '9px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        Abrir OS <ChevronRight size={14} />
+      </button>
     </div>
   )
 }
