@@ -180,7 +180,13 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
     if (!nome) setNome(`${natureza === 'despesa' ? 'Despesa' : 'Serviço'} · ${n}`)
   }
 
-  const valorNum = parseFloat(valor) || 0
+  // parse robusto BR: ponto = milhar, vírgula = decimal (sem vírgula, ponto é decimal). Nunca NaN.
+  const valorNum = (() => {
+    const raw = String(valor).replace(/[^\d.,]/g, '')
+    const norm = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw
+    const n = parseFloat(norm)
+    return Number.isFinite(n) ? n : 0
+  })()
   const podeProx = (p: number) => p === 1 ? (clienteNome.trim() !== '' || cliTermo.trim() !== '') : p === 3 ? valorNum > 0 : true
 
   const carregarPreview = useCallback(async () => {
@@ -197,22 +203,32 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
   useEffect(() => { if (passo === 4) void carregarPreview() }, [passo, carregarPreview])
 
   async function criar() {
-    setBusy(true); setMsg(null)
-    const campos = {
-      company_id: empresa, natureza, tipo: 'servico',
-      cliente_id: clienteId, cliente_nome: clienteNome || cliTermo, cliente_cnpj: clienteCnpj,
-      nome: nome || `Recorrência · ${clienteNome || cliTermo}`, descricao,
-      valor_mensal: valorNum, data_inicio: dataInicio, data_fim: dataFim || null,
-      dia_vencimento: parseInt(diaGeracao || '10', 10) || 10, periodicidade, forma_pagamento: forma,
-      tipo_reajuste: reajusteAtivo ? reajIndice : null,
-      reajuste_percentual: reajusteAtivo ? (parseFloat(reajPct) || null) : null,
-      mes_reajuste: reajusteAtivo ? (parseInt(reajMes || '0', 10) || null) : null,
+    setMsg(null)
+    // validações com mensagem (nunca botão morto em silêncio)
+    if (!empresa) { setMsg('Selecione uma empresa específica no topo antes de criar.'); return }
+    if (!(valorNum > 0)) { setMsg('Informe o valor mensal (maior que zero).'); return }
+    setBusy(true)
+    try {
+      const campos = {
+        company_id: empresa, natureza, tipo: 'servico',
+        cliente_id: clienteId, cliente_nome: clienteNome || cliTermo, cliente_cnpj: clienteCnpj,
+        nome: nome || `Recorrência · ${clienteNome || cliTermo}`, descricao,
+        valor_mensal: valorNum, data_inicio: dataInicio, data_fim: dataFim || null,
+        dia_vencimento: parseInt(diaGeracao || '10', 10) || 10, periodicidade, forma_pagamento: forma,
+        tipo_reajuste: reajusteAtivo ? reajIndice : null,
+        reajuste_percentual: reajusteAtivo ? (parseFloat(reajPct) || null) : null,
+        mes_reajuste: reajusteAtivo ? (parseInt(reajMes || '0', 10) || null) : null,
+      }
+      const { data, error } = await supabase.rpc('fn_contrato_recorrencia_criar', { p_campos: campos })
+      const j = data as { ok?: boolean; erro?: string; numero?: string } | null
+      if (error || !j?.ok) { setMsg('Erro ao criar: ' + (error?.message ?? j?.erro ?? 'não foi possível criar a recorrência')); return }
+      onCriado()
+    } catch (e) {
+      // qualquer exceção (rede, runtime) vira mensagem visível — não deixa o botão preso em "Criando…"
+      setMsg('Erro ao criar: ' + ((e as Error)?.message ?? 'falha inesperada'))
+    } finally {
+      setBusy(false)
     }
-    const { data, error } = await supabase.rpc('fn_contrato_recorrencia_criar', { p_campos: campos })
-    setBusy(false)
-    const j = data as { ok?: boolean; erro?: string; numero?: string } | null
-    if (error || !j?.ok) { setMsg('Erro ao criar: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
-    onCriado()
   }
 
   const inp: React.CSSProperties = { width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '9px 10px', fontSize: 13, color: ESP, background: '#fff', fontFamily: 'inherit', boxSizing: 'border-box' }
@@ -277,7 +293,7 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
           {passo === 3 && (
             <div style={{ display: 'grid', gap: 12 }}>
               <div><span style={lbl}>Descrição do serviço</span><input style={inp} value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="ex.: Honorários contábeis · BPO financeiro" /></div>
-              <div><span style={lbl}>Valor mensal (R$)</span><input style={inp} inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="0,00" /></div>
+              <div><span style={lbl}>Valor mensal (R$)</span><input style={inp} inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} placeholder="0,00" /></div>
               <div style={{ background: '#FBF3DE', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '10px 12px', fontSize: 13 }}>Total mensal: <b>{brl(valorNum)}</b> <span style={{ color: MUT, fontSize: 11 }}>(grade de itens múltiplos com margem vem na F2)</span></div>
             </div>
           )}
@@ -313,7 +329,7 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
           <button type="button" onClick={() => passo > 1 ? setPasso(passo - 1) : onClose()} style={{ background: 'transparent', border: `0.5px solid ${LINE}`, color: ESP, borderRadius: 8, padding: '10px 18px', fontSize: 13, cursor: 'pointer' }}>{passo > 1 ? '← Voltar' : 'Cancelar'}</button>
           {passo < 4
             ? <button type="button" disabled={!podeProx(passo)} onClick={() => setPasso(passo + 1)} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: podeProx(passo) ? 'pointer' : 'not-allowed', opacity: podeProx(passo) ? 1 : 0.5 }}>Avançar →</button>
-            : <button type="button" disabled={busy || valorNum <= 0} onClick={() => void criar()} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: busy || valorNum <= 0 ? 0.6 : 1 }}>{busy ? 'Criando…' : 'Criar recorrência'}</button>}
+            : <button type="button" disabled={busy} onClick={() => void criar()} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? 'Criando…' : 'Criar recorrência'}</button>}
         </div>
       </div>
     </div>
