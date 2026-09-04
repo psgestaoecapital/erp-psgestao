@@ -13,11 +13,18 @@ import { useAjuda } from '@/lib/stores/ajuda-store'
 const ESP = '#3D2314', MUT = 'rgba(61,35,20,0.6)', BG = '#FAF7F2', LINE = '#E7DECF', GOLD = '#C8941A', GREEN = '#166534', RED = '#A32D2D'
 
 type Resultado = { artigo_id: string; titulo: string; resumo: string | null; rota_ref: string | null; vertical: string | null; fonte: string; score: number }
-type FonteIA = { artigo_id: string; titulo: string; rota_ref: string | null }
+type FonteIA = { artigo_id: string; titulo: string; rota_ref: string | null; atualizado_em?: string | null }
 type RespostaIA = { ok?: boolean; resposta?: string; fontes?: FonteIA[]; escalar?: boolean; cache?: boolean }
 
 const papelInt = (p: PapelGestao): number =>
   p === 'CLIENT_OWNER' ? 4 : p === 'CLIENT_MANAGER' ? 3 : p === 'CLIENT_OPERATOR' ? 2 : 1
+
+// data do artigo pra tela citar a idade (SPEC §4 defesa 1). Curta (DD/MM/AAAA), tolerante a null.
+const fmtData = (s?: string | null): string | null => {
+  if (!s) return null
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d.toLocaleDateString('pt-BR')
+}
 
 export default function AjudaWidget() {
   const router = useRouter()
@@ -43,6 +50,10 @@ export default function AjudaWidget() {
   const [iaFeedback, setIaFeedback] = useState<'sim' | 'nao' | null>(null)
   const gapRegistrado = React.useRef<string>('')  // evita registrar o mesmo gap 2x
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ponte pro chamado (SPEC §2/§6.5) + reporte de artigo errado (SPEC §4 defesa 2)
+  const [chamadoCriado, setChamadoCriado] = useState(false)
+  const [criandoChamado, setCriandoChamado] = useState(false)
+  const [reportados, setReportados] = useState<Record<string, boolean>>({})
 
   const registrarUso = useCallback((pergunta: string, resolveu: boolean, artigoId?: string | null) => {
     void supabase.rpc('fn_ajuda_registrar_uso', {
@@ -69,7 +80,7 @@ export default function AjudaWidget() {
   }, [activeCompany, pathname, papel, registrarUso])
 
   const onTermo = (v: string) => {
-    setTermo(v); setBuscou(false); setIaResp(null); setIaFeedback(null)   // nova pergunta zera a resposta da IA
+    setTermo(v); setBuscou(false); setIaResp(null); setIaFeedback(null); setChamadoCriado(false)   // nova pergunta zera a resposta da IA
     if (timer.current) clearTimeout(timer.current)
     if (v.trim().length < 2) { setResultados([]); return }
     timer.current = setTimeout(() => { void buscar(v) }, 300)
@@ -79,7 +90,7 @@ export default function AjudaWidget() {
   const responderIA = useCallback(async (q: string) => {
     const t = q.trim()
     if (t.length < 2 || iaLoading) return
-    setIaLoading(true); setIaResp(null); setIaFeedback(null)
+    setIaLoading(true); setIaResp(null); setIaFeedback(null); setChamadoCriado(false)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
@@ -118,10 +129,57 @@ export default function AjudaWidget() {
     registrarUso(termo.trim(), ok, artigoId)
     setToast(ok ? 'Que bom! 👍' : 'Obrigado — vamos melhorar isso.')
   }
-  function falarSuporte() {
-    registrarUso(termo.trim(), false, null)
-    setToast('Sua dúvida foi encaminhada à equipe PS.')
+  // A PONTE (SPEC §2, aceites 4/5): dúvida que a ajuda não resolve vira CHAMADO com a pergunta já
+  // escrita — o usuário não redige de novo. Marcado como 'duvida' pra não poluir a fila de bug/melhoria
+  // (SPEC §1). Usa fn_sugestao_criar, que já existe (RD-26). Exige empresa específica (como a Central).
+  async function abrirChamado() {
+    const q = termo.trim()
+    if (q.length < 2 || criandoChamado) return
+    if (!activeCompany) { setToast('Escolha uma empresa específica no topo para abrir um chamado.'); return }
+    setCriandoChamado(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setToast('Sessão expirada — entre novamente.'); return }
+      const { data, error } = await supabase.rpc('fn_sugestao_criar', {
+        p_company_id: activeCompany,
+        p_sugestao: {
+          tipo: 'duvida', categoria: 'duvida', titulo: q.slice(0, 80),
+          descricao: `${q}\n\n— Encaminhado pela Central de Ajuda: a IA não encontrou um artigo que respondesse.`,
+          prioridade: 'media', rota: pathname, area: null,
+        },
+        p_anexos: [], p_user: user.id,
+      })
+      const r = data as { ok?: boolean; id?: string; erro?: string } | null
+      if (error || !r?.ok || !r.id) { setToast(error?.message || r?.erro || 'Não consegui abrir o chamado.'); return }
+      registrarUso(q, false, null)          // dúvida não resolvida pela ajuda → alimenta a curadoria
+      setChamadoCriado(true)
+      setToast('Chamado aberto — a equipe PS vai responder.')
+    } catch { setToast('Falha ao abrir o chamado.') }
+    finally { setCriandoChamado(false) }
   }
+
+  // "Isso não está certo" (SPEC §4 defesa 2, aceite 7): manda o artigo pra curadoria (needs_human) sem
+  // silenciá-lo. Não afirmamos o que não sustentamos — o time PS revisa.
+  async function reportarArtigo(artigoId: string) {
+    if (reportados[artigoId]) return
+    setReportados((s) => ({ ...s, [artigoId]: true }))
+    const { error } = await supabase.rpc('fn_ajuda_artigo_reportar', {
+      p_artigo_id: artigoId, p_company_id: activeCompany, p_pergunta: termo.trim(), p_rota: pathname, p_papel: papelInt(papel),
+    })
+    setToast(error ? 'Não consegui registrar agora.' : 'Obrigado — mandei pra revisão do time PS.')
+  }
+
+  // CTA da ponte: ou confirma o chamado aberto, ou oferece abrir com a pergunta já escrita.
+  const chamadoCTA = chamadoCriado ? (
+    <div style={{ marginTop: 10, fontSize: 12.5, color: GREEN, fontWeight: 700 }}>
+      ✓ Chamado aberto — acompanhe em <a href="/dashboard/melhorias" style={{ color: GREEN, textDecoration: 'underline' }}>Melhorias</a>.
+    </div>
+  ) : (
+    <button type="button" onClick={abrirChamado} disabled={criandoChamado}
+      style={{ background: ESP, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 700, cursor: criandoChamado ? 'default' : 'pointer', marginTop: 10, opacity: criandoChamado ? 0.6 : 1 }}>
+      {criandoChamado ? 'Abrindo…' : 'Abrir chamado com essa dúvida →'}
+    </button>
+  )
 
   return (
     <>
@@ -163,29 +221,46 @@ export default function AjudaWidget() {
                   {!!iaResp.fontes?.length && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${LINE}` }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Fontes</div>
-                      {iaResp.fontes.map((f) => (
-                        <div key={f.artigo_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontSize: 12.5, color: ESP, flex: 1 }}>{f.titulo}</span>
-                          {f.rota_ref && (
-                            <button type="button" onClick={() => irParaTela(f.rota_ref, f.artigo_id)}
-                              style={{ background: 'none', border: `1px solid ${GOLD}`, color: GOLD, borderRadius: 8, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
-                              Ir para a tela →
+                      {iaResp.fontes.map((f) => {
+                        const data = fmtData(f.atualizado_em)
+                        return (
+                          <div key={f.artigo_id} style={{ marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 12.5, color: ESP, flex: 1 }}>
+                                {f.titulo}
+                                {data && <span style={{ fontSize: 10.5, color: MUT, fontWeight: 400 }}> · atualizado em {data}</span>}
+                              </span>
+                              {f.rota_ref && (
+                                <button type="button" onClick={() => irParaTela(f.rota_ref, f.artigo_id)}
+                                  style={{ background: 'none', border: `1px solid ${GOLD}`, color: GOLD, borderRadius: 8, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+                                  Ir para a tela →
+                                </button>
+                              )}
+                            </div>
+                            <button type="button" onClick={() => reportarArtigo(f.artigo_id)} disabled={!!reportados[f.artigo_id]}
+                              style={{ background: 'none', border: 'none', color: reportados[f.artigo_id] ? MUT : RED, fontSize: 10.5, cursor: reportados[f.artigo_id] ? 'default' : 'pointer', padding: '2px 0', textDecoration: 'underline' }}>
+                              {reportados[f.artigo_id] ? 'enviado pra revisão' : 'isso não está certo'}
                             </button>
-                          )}
-                        </div>
-                      ))}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                   {!iaResp.escalar ? (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-                      <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>Isso ajudou?</span>
-                      <button type="button" onClick={() => avaliarIA(true)} disabled={!!iaFeedback}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, opacity: iaFeedback === 'sim' ? 1 : iaFeedback ? 0.35 : 0.75, color: GREEN }}>👍</button>
-                      <button type="button" onClick={() => avaliarIA(false)} disabled={!!iaFeedback}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, opacity: iaFeedback === 'nao' ? 1 : iaFeedback ? 0.35 : 0.75, color: RED }}>👎</button>
-                    </div>
+                    <>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+                        <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>Isso ajudou?</span>
+                        <button type="button" onClick={() => avaliarIA(true)} disabled={!!iaFeedback}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, opacity: iaFeedback === 'sim' ? 1 : iaFeedback ? 0.35 : 0.75, color: GREEN }}>👍</button>
+                        <button type="button" onClick={() => avaliarIA(false)} disabled={!!iaFeedback}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, opacity: iaFeedback === 'nao' ? 1 : iaFeedback ? 0.35 : 0.75, color: RED }}>👎</button>
+                      </div>
+                      {/* respondeu, mas não ajudou → oferece o chamado (SPEC §2: "não → OFERECE ABRIR CHAMADO") */}
+                      {iaFeedback === 'nao' && chamadoCTA}
+                    </>
                   ) : (
-                    <button type="button" onClick={falarSuporte} style={{ background: ESP, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', marginTop: 10 }}>Falar com o suporte</button>
+                    /* sem artigo: a IA diz que não sabe e já oferece o chamado com a pergunta escrita (aceites 4/5) */
+                    chamadoCTA
                   )}
                 </div>
               )}
@@ -217,8 +292,8 @@ export default function AjudaWidget() {
               {buscou && !buscando && resultados.length === 0 && termo.trim().length >= 2 && (
                 <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 18, textAlign: 'center' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Não encontrei uma resposta pra isso ainda.</div>
-                  <div style={{ fontSize: 12.5, color: MUT, margin: '6px 0 12px' }}>Registramos sua dúvida — a equipe PS vai preparar esse conteúdo.</div>
-                  <button type="button" onClick={falarSuporte} style={{ background: ESP, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Falar com o suporte</button>
+                  <div style={{ fontSize: 12.5, color: MUT, margin: '6px 0 4px' }}>Posso abrir um chamado com a sua pergunta já escrita — a equipe PS responde.</div>
+                  {chamadoCTA}
                 </div>
               )}
 

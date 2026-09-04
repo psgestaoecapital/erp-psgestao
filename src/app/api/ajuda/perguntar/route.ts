@@ -15,8 +15,8 @@ const PRECO_OUT = 5.0 / 1_000_000                // US$/token (Haiku 4.5: $5/Mto
 const K = 5
 const ESCALA = 'Não encontrei isso na ajuda — quer falar com o suporte?'
 
-type Fonte = { artigo_id: string; titulo: string; rota_ref: string | null }
-type Artigo = { artigo_id: string; titulo: string; resumo: string | null; corpo_md: string | null; rota_ref: string | null; vertical: string | null }
+type Fonte = { artigo_id: string; titulo: string; rota_ref: string | null; atualizado_em?: string | null }
+type Artigo = { artigo_id: string; titulo: string; resumo: string | null; corpo_md: string | null; rota_ref: string | null; vertical: string | null; atualizado_em?: string | null }
 
 // LGPD: não cacheia pergunta com dado pessoal identificável (CPF/CNPJ/e-mail/telefone).
 const TEM_DADO_SENSIVEL = (t: string) =>
@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
   const ctx = ctxData as { ok?: boolean; erro?: string; resultados?: Artigo[] } | null
   if (ctx?.ok === false) return NextResponse.json({ error: ctx.erro ?? 'sem acesso' }, { status: 403 })
   const artigos = ctx?.resultados ?? []
-  const fontes: Fonte[] = artigos.map((a) => ({ artigo_id: a.artigo_id, titulo: a.titulo, rota_ref: a.rota_ref }))
+  // atualizado_em vai junto pra tela citar a DATA do artigo (SPEC §4 defesa 1: "o usuário julga a idade").
+  const fontes: Fonte[] = artigos.map((a) => ({ artigo_id: a.artigo_id, titulo: a.titulo, rota_ref: a.rota_ref, atualizado_em: a.atualizado_em ?? null }))
 
   // Sem cobertura → escala (RD-51: não inventa; não chama o LLM). Telemetria com escalou=true.
   if (artigos.length === 0) {
@@ -72,10 +73,8 @@ export async function POST(req: NextRequest) {
     const { data: cData } = await sb.rpc('fn_ajuda_cache_obter', { p_company_id: companyId, p_hash: hash, p_papel: papel })
     const c = cData as { hit?: boolean; resposta?: string; artigos_ref?: Fonte[] } | null
     if (c?.hit) {
-      void sb.rpc('fn_ajuda_llm_registrar', {
-        p_company_id: companyId, p_pergunta: pergunta, p_cache_hit: true, p_escalou: false,
-        p_modelo: MODEL, p_tokens_in: null, p_tokens_out: null, p_custo: 0, p_artigos_ref: c.artigos_ref ?? fontes, p_rota: rota, p_papel: papel,
-      })
+      // hit de cache NÃO chama LLM e NÃO grava em erp_ajuda_llm_log (aceite 6: repetir a pergunta não
+      // faz o log crescer). O log é registro de CHAMADA de LLM; o uso é capturado no 👍/👎 da tela.
       return NextResponse.json({ ok: true, resposta: c.resposta, fontes: c.artigos_ref ?? fontes, escalar: false, cache: true })
     }
   }
