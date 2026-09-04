@@ -14,6 +14,11 @@ interface EmitirNFeBody {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo de emissao (a partir do pedido)
   pedidoId?: string
+  // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
+  // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
+  osId?: string
+  justificativaDivergencia?: string
+  valorEsperadoOs?: number
   // Override de ambiente · SO desce pra homologacao (anti-engano em service.ts)
   ambiente?: 'homologacao' | 'producao'
   manual?: {
@@ -117,6 +122,19 @@ export const POST = withAuth(async (req: NextRequest) => {
       await supabaseAdmin
         .from('erp_nfe_emitidas')
         .update({ pedido_id: body.pedidoId })
+        .eq('id', registroId)
+    }
+
+    // chamado #20 Fase 3 · vincula a nota à OS e persiste a justificativa da divergência de valor
+    // (§8.1) no registro — recuperável meses depois ("por que a NF saiu menor que a OS?").
+    if (registroId && body.osId) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({
+          os_id: body.osId,
+          justificativa_divergencia: body.justificativaDivergencia?.trim() || null,
+          valor_esperado_os: body.valorEsperadoOs ?? null,
+        })
         .eq('id', registroId)
     }
 
