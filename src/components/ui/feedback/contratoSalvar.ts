@@ -44,6 +44,19 @@ export const MENSAGEM_ERRO: Record<string, string> = {
   ja_conciliado: 'Movimento já conciliado. Desvincule antes de ignorar.',
   nao_ignorado: 'Este item não está ignorado.',
   sem_ids: 'Selecione ao menos um item.',
+  // Revenda de veículos — guardas dos formulários (custo/reserva/venda/foto)
+  veiculo_nao_encontrado: 'Veículo não encontrado — pode já ter sido removido.',
+  valor_invalido: 'Informe um valor maior que zero.',
+  categoria_obrigatoria: 'Escolha a categoria do custo.',
+  descricao_obrigatoria: 'Descreva o custo (ex.: "troca de pneus").',
+  vencimento_obrigatorio_para_titulo: 'Para gerar o título, informe o vencimento.',
+  cliente_obrigatorio: 'Informe o nome do cliente.',
+  sinal_invalido_para_titulo: 'Para lançar o sinal em contas a receber, informe um valor maior que zero.',
+  valor_venda_invalido: 'Informe o valor da venda (maior que zero).',
+  ja_reservado: 'Este veículo já tem uma reserva ativa.',
+  veiculo_ja_vendido: 'Este veículo já foi vendido.',
+  veiculo_indisponivel: 'Este veículo não está disponível para venda.',
+  storage_path_obrigatorio: 'Falha ao anexar a foto. Tente enviar de novo.',
 }
 
 // "Faltou preencher X" — validação de campo no cliente, ANTES de chamar a RPC.

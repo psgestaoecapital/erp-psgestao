@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -243,24 +244,36 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
 function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
   const [f, setF] = useState({ cliente_nome: '', valor_sinal: '', forma_sinal: 'pix', reservado_ate: '', gerar: true })
   const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
+  const sinalNum = Number(String(f.valor_sinal).replace(',', '.'))
+  const sinalOk = !f.gerar || (f.valor_sinal.trim() !== '' && Number.isFinite(sinalNum) && sinalNum > 0)
+  const podeEnviar = !!f.cliente_nome.trim() && sinalOk && !busy
   async function salvar() {
+    setErro(null); setCampo(null)
+    if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
+    if (!sinalOk) { setErro('Para lançar o sinal em contas a receber, informe um valor maior que zero.'); setCampo('valor_sinal'); return }
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase.rpc('fn_veic_reserva_criar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
-      p_reserva: { cliente_nome: f.cliente_nome.trim() || null, valor_sinal: f.valor_sinal ? Number(f.valor_sinal) : null, forma_sinal: f.forma_sinal, reservado_ate: f.reservado_ate || null },
+      p_reserva: { cliente_nome: f.cliente_nome.trim() || null, valor_sinal: f.valor_sinal ? sinalNum : null, forma_sinal: f.forma_sinal, reservado_ate: f.reservado_ate || null },
       p_gerar_receber: f.gerar, p_user: user?.id ?? null,
     })
     setBusy(false)
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'ja_reservado' ? 'Este veículo já tem uma reserva ativa.' : (error?.message || r?.erro || 'Falha')); return }
+    const r = data as { ok?: boolean; erro?: string; campo?: string } | null
+    if (error || !r?.ok) {
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return
+    }
     onSaved()
   }
   return (
     <Modal titulo="Reservar veículo" onClose={onClose}>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente" style={{ ...inp, gridColumn: '1 / -1' }} />
-        <input value={f.valor_sinal} onChange={(e) => setF({ ...f, valor_sinal: e.target.value })} placeholder="valor do sinal" style={inp} />
+        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente *" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'cliente_nome' ? 'x' : null) }} />
+        <input value={f.valor_sinal} onChange={(e) => setF({ ...f, valor_sinal: e.target.value })} placeholder="valor do sinal" inputMode="decimal" style={{ ...inp, ...estiloBordaInput(campo === 'valor_sinal' ? 'x' : null) }} />
         <select value={f.forma_sinal} onChange={(e) => setF({ ...f, forma_sinal: e.target.value })} style={inp}>
           <option value="pix">pix</option><option value="dinheiro">dinheiro</option><option value="cartao">cartão</option><option value="transferencia">transferência</option>
         </select>
@@ -271,7 +284,7 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Reservar'}</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Reservar'}</button>
       </div>
     </Modal>
   )
@@ -281,8 +294,16 @@ function VendaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { compan
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
   const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
   const descontoEmbutido = (Number(troca.valor_troca) || 0) - (Number(troca.valor_avaliacao) || 0)
+  const vvNum = Number(String(f.valor_venda).replace(',', '.'))
+  const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
+  const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
   async function salvar() {
+    setErro(null); setCampo(null)
+    if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
+    if (!vvOk) { setErro('Informe o valor da venda (maior que zero).'); setCampo('valor_venda'); return }
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
     const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
@@ -299,16 +320,20 @@ function VendaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { compan
       p_user: user?.id ?? null,
     })
     setBusy(false)
-    const r = data as { ok?: boolean; erro?: string; situacao?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'veiculo_indisponivel' ? `Veículo indisponível (${r?.situacao}).` : (error?.message || r?.erro || 'Falha')); return }
+    const r = data as { ok?: boolean; erro?: string; situacao?: string; campo?: string } | null
+    if (error || !r?.ok) {
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return
+    }
     onSaved()
   }
   return (
     <Modal titulo="Registrar venda" onClose={onClose}>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente" style={inp} />
+        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente *" style={{ ...inp, ...estiloBordaInput(campo === 'cliente_nome' ? 'x' : null) }} />
         <input value={f.vendedor_nome} onChange={(e) => setF({ ...f, vendedor_nome: e.target.value })} placeholder="vendedor" style={inp} />
-        <input value={f.valor_venda} onChange={(e) => setF({ ...f, valor_venda: e.target.value })} placeholder="valor da venda" style={{ ...inp, gridColumn: '1 / -1' }} />
+        <input value={f.valor_venda} onChange={(e) => setF({ ...f, valor_venda: e.target.value })} placeholder="valor da venda *" inputMode="decimal" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
@@ -341,39 +366,60 @@ function VendaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { compan
 
       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
-        <button disabled={busy || !f.valor_venda} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy || !f.valor_venda ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy || !f.valor_venda ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Registrar venda'}</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Registrar venda'}</button>
       </div>
     </Modal>
   )
 }
 
+// NovoCusto · valida ANTES de enviar (valor>0, categoria, descrição). O erro nunca chega ao banco;
+// se algum escapar, é traduzido pelo catálogo (contratoSalvar) e aparece AQUI, ao lado do campo —
+// nunca no topo da ficha e nunca o texto cru do Postgres. Bug de produção Alliance (04/09).
 function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved: () => void; onErro: (m: string) => void }) {
-  const [f, setF] = useState({ categoria: 'despachante', valor: '', fornecedor_nome: '', data_custo: '', gerar: false, vencimento: '' })
+  const vazio = { categoria: 'despachante', valor: '', descricao: '', fornecedor_nome: '', data_custo: '', gerar: false, vencimento: '' }
+  const [f, setF] = useState(vazio)
   const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
+  const valorNum = Number(String(f.valor).replace(',', '.'))
+  const valorOk = f.valor.trim() !== '' && Number.isFinite(valorNum) && valorNum > 0
+  const podeEnviar = valorOk && !!f.categoria.trim() && !!f.descricao.trim() && (!f.gerar || !!f.vencimento) && !busy
   async function salvar() {
+    setErro(null); setCampo(null)
+    if (!valorOk) { setErro('Informe um valor maior que zero.'); setCampo('valor'); return }
+    if (!f.descricao.trim()) { setErro('Descreva o custo (ex.: "troca de pneus").'); setCampo('descricao'); return }
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase.rpc('fn_veic_custo_salvar', {
       p_veiculo_id: veiculoId,
-      p_custo: { categoria: f.categoria, valor: Number(f.valor), fornecedor_nome: f.fornecedor_nome.trim() || null, data_custo: f.data_custo || null },
+      p_custo: { categoria: f.categoria, valor: valorNum, descricao: f.descricao.trim(), fornecedor_nome: f.fornecedor_nome.trim() || null, data_custo: f.data_custo || null },
       p_gerar_pagar: f.gerar, p_vencimento: f.gerar ? (f.vencimento || null) : null, p_user: user?.id ?? null,
     })
     setBusy(false)
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'vencimento_obrigatorio_para_titulo' ? 'Para gerar título, informe o vencimento.' : (error?.message || 'Falha')); return }
-    setF({ categoria: 'despachante', valor: '', fornecedor_nome: '', data_custo: '', gerar: false, vencimento: '' }); onSaved()
+    const r = data as { ok?: boolean; erro?: string; campo?: string } | null
+    if (error || !r?.ok) {
+      // erro de transporte (raro) vai pro topo; erro de regra é traduzido e mostrado aqui, no campo
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return
+    }
+    setF(vazio); onSaved()
   }
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-      <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={inp}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
-      <input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="valor" style={{ ...inp, width: 100 }} />
-      <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 140 }} />
-      <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />
-      <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <input type="checkbox" checked={f.gerar} onChange={(e) => setF({ ...f, gerar: e.target.checked })} /> gerar título em contas a pagar
-      </label>
-      {f.gerar && <label style={{ fontSize: 11, color: C.espM }}>venc.<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 4 }} /></label>}
-      <button disabled={!f.valor || busy} onClick={() => void salvar()} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: f.valor && !busy ? C.gold : C.espL, color: C.white, fontWeight: 700, cursor: f.valor && !busy ? 'pointer' : 'not-allowed' }}>+ Custo</button>
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={{ ...inp, ...estiloBordaInput(campo === 'categoria' ? 'x' : null) }}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
+        <input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="valor *" inputMode="decimal" style={{ ...inp, width: 90, ...estiloBordaInput(campo === 'valor' ? 'x' : null) }} />
+        <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170, ...estiloBordaInput(campo === 'descricao' ? 'x' : null) }} />
+        <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
+        <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />
+        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" checked={f.gerar} onChange={(e) => setF({ ...f, gerar: e.target.checked })} /> gerar título em contas a pagar
+        </label>
+        {f.gerar && <label style={{ fontSize: 11, color: C.espM }}>venc.<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 4, ...estiloBordaInput(campo === 'vencimento' ? 'x' : null) }} /></label>}
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: podeEnviar ? C.gold : C.espL, color: C.white, fontWeight: 700, cursor: podeEnviar ? 'pointer' : 'not-allowed' }}>{busy ? 'Salvando…' : '+ Custo'}</button>
+      </div>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erro}</div>}
+      <div style={{ fontSize: 10.5, color: C.espL, marginTop: 4 }}>* valor, categoria e descrição são obrigatórios.</div>
     </div>
   )
 }
