@@ -254,6 +254,11 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Soma das contas (cada uma na sua data)</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.saldo_composto)}</b></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: COLORS.cinza, marginTop: 4 }}><span>Saldo gerencial que o sistema mostra hoje</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.saldo_gerencial_atual)}</span></div>
+                {Math.abs((c.saldo_composto ?? 0) - (c.saldo_gerencial_atual ?? 0)) > 0.01 && (
+                  <div style={{ fontSize: 11, color: COLORS.cinza, marginTop: 6, lineHeight: 1.4 }}>
+                    Os dois podem diferir: o <b>gerencial</b> remove a janela dupla (dupla contagem por data); a <b>soma por conta</b> rateia só o que tem conta identificada — o resto fica no bloco &ldquo;sem conta atribuída&rdquo;.
+                  </div>
+                )}
               </div>
             </>
           )}
