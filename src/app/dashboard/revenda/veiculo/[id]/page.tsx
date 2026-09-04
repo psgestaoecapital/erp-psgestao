@@ -17,7 +17,8 @@ const brDate = (d: string) => d ? String(d).slice(0, 10).split('-').reverse().jo
 const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
 const CATS = ['aquisicao', 'documentacao', 'despachante', 'preparacao', 'peca', 'mao_de_obra', 'debito_assumido', 'frete', 'comissao', 'outro']
 
-type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; ano_modelo: number | null; cor: string | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null }
+type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null }
+type Compl = { fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
 type Custo = { id: string; categoria: string; descricao: string | null; valor: number; fornecedor_nome: string | null; data_custo: string; entra_base_fiscal: boolean | null; pagar_id: string | null }
 type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
 type Reserva = { id: string; cliente_nome: string | null; valor_sinal: number | null; reservado_ate: string | null; situacao: string; receber_id: string | null }
@@ -35,6 +36,7 @@ function Inner() {
   const [eventos, setEventos] = useState<Evento[]>([])
   const [reserva, setReserva] = useState<Reserva | null>(null)
   const [venda, setVenda] = useState<Venda | null>(null)
+  const [compl, setCompl] = useState<Compl | null>(null)
   const [margem, setMargem] = useState(20)
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -46,17 +48,20 @@ function Inner() {
     if (ve) { setErro(ve.message); return }
     setV(vd as Veic | null)
     const comp = (vd as Veic | null)?.company_id
-    const [cs, es, cfg, rs, vs] = await Promise.all([
+    const [cs, es, cfg, rs, vs, cp] = await Promise.all([
       supabase.from('veic_custo').select('*').eq('veiculo_id', id).is('deleted_at', null).order('data_custo'),
       supabase.from('veic_veiculo_evento').select('*').eq('veiculo_id', id).order('data_evento', { ascending: false }),
       comp ? supabase.from('veic_config').select('margem_alvo_pct').eq('company_id', comp).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('veic_reserva').select('id,cliente_nome,valor_sinal,reservado_ate,situacao,receber_id').eq('veiculo_id', id).eq('situacao', 'ativa').is('deleted_at', null).order('created_at', { ascending: false }).limit(1),
       supabase.from('veic_venda').select('id,cliente_nome,valor_venda,desconto_embutido_troca,valor_entrada,valor_financiado,banco_nome,retorno_banco,situacao').eq('veiculo_id', id).is('deleted_at', null).neq('situacao', 'cancelada').order('created_at', { ascending: false }).limit(1),
+      // completude (fiscais_faltantes + sugestão de ano) vem da MESMA regra do pátio (v_veic_patio)
+      supabase.from('v_veic_patio').select('fiscais_faltantes,sugestao_ano_chassi').eq('id', id).maybeSingle(),
     ])
     setCustos((cs.data as Custo[]) ?? [])
     setEventos((es.data as Evento[]) ?? [])
     setReserva(((rs.data as Reserva[]) ?? [])[0] ?? null)
     setVenda(((vs.data as Venda[]) ?? [])[0] ?? null)
+    setCompl((cp.data as Compl | null) ?? null)
     const m = (cfg.data as { margem_alvo_pct?: number } | null)?.margem_alvo_pct
     if (m != null) setMargem(Number(m))
   }, [id])
@@ -136,6 +141,11 @@ function Inner() {
         <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
         <Card l={`Preço mínimo (margem ${margem}%)`} v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(precoMinimo) : 'não calcula'} sub={v.valor_aquisicao && v.valor_aquisicao > 0 ? 'antes de impostos — cálculo fiscal é a Onda 4' : 'informe a aquisição primeiro'} />
       </div>
+
+      <Bloco titulo="Dados do veículo">
+        <DadosVeiculo v={v} faltantes={compl?.fiscais_faltantes ?? null} sugestaoAno={compl?.sugestao_ano_chassi ?? null}
+          onSaved={() => { setMsg('Dados do veículo atualizados.'); void carregar() }} onErro={setErro} />
+      </Bloco>
 
       <Bloco titulo="Fotos do veículo">
         <FotosVeiculo veiculoId={id} companyId={v.company_id} onErro={setErro} onMsg={setMsg} />
@@ -377,6 +387,61 @@ function Card({ l, v, sub, destaque }: { l: string; v: string; sub?: string; des
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM }}>{l}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? C.gold : C.esp, marginTop: 2 }}>{v}</div>
       {sub && <div style={{ fontSize: 10.5, color: C.amber, marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+
+// Dados do veículo · completude "nível 2" (SPEC Onda 3B parte 1). Nomeia o que falta SEM afirmar
+// "não emite" (veicProd é do 0km; usado é decisão do contador — Opção 1 do CEO, RD-58). A sugestão
+// de ano vem do chassi (VIN pos.10) e é SEMPRE confirmada pelo usuário — nada é gravado sozinho (§6.4).
+const COMBS = ['gasolina', 'etanol', 'flex', 'diesel', 'gnv', 'elétrico', 'híbrido']
+function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic; faltantes: string[] | null; sugestaoAno: number | null; onSaved: () => void; onErro: (m: string) => void }) {
+  const num = (n: number | null) => (n == null ? '' : String(n))
+  const [f, setF] = useState({
+    marca: v.marca ?? '', modelo: v.modelo ?? '', versao: v.versao ?? '', cor: v.cor ?? '',
+    combustivel: v.combustivel ?? '', potencia_cv: num(v.potencia_cv), cilindradas: num(v.cilindradas),
+    portas: num(v.portas), cambio: v.cambio ?? '', ano_fabricacao: num(v.ano_fabricacao),
+    ano_modelo: num(v.ano_modelo), renavam: v.renavam ?? '',
+  })
+  const [busy, setBusy] = useState(false)
+  const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
+  async function salvar() {
+    setBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: v.id, p_dados: f, p_user: user?.id ?? null })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao salvar'); return }
+    onSaved()
+  }
+  const F = (k: keyof typeof f, ph: string, w?: number) => (
+    <input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w }} />
+  )
+  return (
+    <div>
+      {(faltantes?.length ?? 0) > 0 && (
+        <div style={{ background: '#EEF3FB', border: `1px solid ${C.blue}44`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, color: '#1E3A6B', lineHeight: 1.5 }}>
+          🚙 <b>Faltam dados do veículo:</b> {faltantes!.join(', ')}. <span style={{ color: C.espM }}>Necessário para veículo novo; para usado, a confirmar com o contador (item 6.1). Preencha abaixo.</span>
+        </div>
+      )}
+      {anoSugerido && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.amberBg, borderRadius: 8, padding: '5px 10px', marginBottom: 10, fontSize: 12, color: '#8A4B08' }}>
+          💡 sugestão pelo chassi: ano <b>{sugestaoAno}</b>
+          <button onClick={() => setF({ ...f, ano_modelo: f.ano_modelo || String(sugestaoAno), ano_fabricacao: f.ano_fabricacao || String(sugestaoAno) })}
+            style={{ border: `1px solid ${C.amber}`, background: C.white, color: C.amber, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>usar</button>
+          <span style={{ color: C.espL }}>(você confirma — não grava sozinho)</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {F('marca', 'marca', 130)}{F('modelo', 'modelo', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
+        <select value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+          <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {F('potencia_cv', 'potência (cv)', 100)}{F('cilindradas', 'cilindradas', 100)}{F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
+        {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
+      </div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar).</div>
     </div>
   )
 }
