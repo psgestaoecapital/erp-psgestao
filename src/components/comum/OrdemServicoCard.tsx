@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
+import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 
@@ -149,8 +150,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [substResult, setSubstResult] = useState<Array<{ id: string; nome: string; codigo: string | null; estoque_atual: number | null }>>([])
   const [substindo, setSubstindo] = useState(false)
   // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
-  const [contas, setContas] = useState<Array<{ id: string; nome: string; banco: string | null }>>([])
-  const [contaSel, setContaSel] = useState<string>('')
+  const [receitaAberta, setReceitaAberta] = useState(false)   // #20 §2.4 · form de receita a partir da OS
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -166,12 +166,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (!os) return
     setFaturando(true); setErro(null); setMsgOk(null)
     // OS avulsa: repassa a conta escolhida; OS via pedido ignora (conta vem das parcelas)
-    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.id, p_conta_bancaria_id: contaSel || null })
+    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.id, p_conta_bancaria_id: null })
     setFaturando(false)
     const r = data as { ok?: boolean; erro?: string; valor?: number } | null
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
     const v = r?.valor != null ? ` — R$ ${Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
     flash(`Financeiro gravado ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
+    void carregar()
+  }
+
+  // #20 §2.4 · "Gerar financeiro" (OS avulsa): o form de receita cria o(s) título(s) com forma de
+  // pagamento/parcelas; aqui só VINCULO à OS + baixa de estoque/snapshot (fn_os_vincular_financeiro).
+  async function vincularFinanceiro(receberId: string) {
+    if (!os) return
+    const { data, error } = await supabase.rpc('fn_os_vincular_financeiro', { p_os_id: os.id, p_receber_id: receberId })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Financeiro criado, mas falhou ao vincular à OS. Confira em Contas a Receber.'); return }
+    flash('Financeiro lançado ✓ vinculado à OS. Veja em Financeiro → Contas a Receber.')
     void carregar()
   }
 
@@ -311,18 +322,6 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     })()
     return () => { alive = false }
   }, [os?.id, os?.company_id, os?.status])
-
-  // contas ativas da empresa da OS — para escolher o banco da cobrança ao faturar (OS avulsa)
-  useEffect(() => {
-    const cid = os?.company_id
-    if (!cid) { setContas([]); return }
-    let alive = true
-    void (async () => {
-      const { data } = await supabase.from('erp_banco_contas').select('id,nome,banco').eq('company_id', cid).eq('ativo', true).order('nome')
-      if (alive) setContas((data ?? []) as Array<{ id: string; nome: string; banco: string | null }>)
-    })()
-    return () => { alive = false }
-  }, [os?.company_id])
 
   async function abrirOS() {
     setCriando(true)
@@ -809,35 +808,37 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           🖨️ {entregue ? 'Reimprimir OS' : 'Imprimir OS'}
         </button>
         {faturada ? (
-          <span data-testid="os-faturada" style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>
-            ✓ Faturada
-          </span>
+          // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
+          <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+            style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+            ✓ Faturada · ver na GE →
+          </a>
         ) : podeFaturar ? (
-          <>
-            {/* OS avulsa: banco da cobrança (OS via pedido usa a conta das parcelas) */}
-            {!os.pedido_id && contas.length > 0 && (
-              <select
-                value={contaSel}
-                onChange={(e) => setContaSel(e.target.value)}
-                data-testid="os-faturar-conta"
-                title="Banco que recebe esta cobrança"
-                style={{ minHeight: 44, padding: '0 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', color: '#3D2314' }}
-              >
-                <option value="">Banco da cobrança…</option>
-                {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
-              </select>
-            )}
+          !os.pedido_id ? (
+            // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
+            // pré-preenchido com cliente e valor da OS — chamado #20 §2.4. Não emite NF.
+            <button
+              type="button"
+              onClick={() => setReceitaAberta(true)}
+              data-testid="os-faturar"
+              title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
+              style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
+            >
+              💰 Gerar Financeiro
+            </button>
+          ) : (
+            // OS via pedido: o financeiro vem das parcelas do pedido (fn_os_faturar → fn_faturar)
             <button
               type="button"
               onClick={() => void faturar()}
               disabled={faturando}
               data-testid="os-faturar"
-              title="Recalcula o total pelos itens e gera o título em Contas a Receber (GE). Não emite NF."
+              title="Gera o título em Contas a Receber (GE) pelas parcelas do pedido. Não emite NF."
               style={{ ...btnPri, background: C.gold, color: '#3D2314', opacity: faturando ? 0.6 : 1 }}
             >
               {faturando ? 'Gravando…' : '💰 Gravar Financeiro'}
             </button>
-          </>
+          )
         ) : null}
         <button
           type="button"
@@ -859,6 +860,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           erro={erroExcluir}
           onConfirm={(motivo) => void excluir(motivo)}
           onClose={() => { if (!excluindo) { setExcluirAberto(false); setErroExcluir(null) } }}
+        />
+      )}
+
+      {/* #20 §2.4 · "Gerar financeiro": form de receita completo, pré-preenchido com cliente e valor da OS.
+          Ao salvar, o receber é vinculado à OS (fn_os_vincular_financeiro) e a ficha recarrega. */}
+      {os && (
+        <NovaReceitaModal
+          companyId={os.company_id}
+          aberto={receitaAberta}
+          onFechar={() => setReceitaAberta(false)}
+          onSucesso={(receberId) => void vincularFinanceiro(receberId)}
+          initial={{
+            clienteId: os.cliente_id ?? undefined,
+            clienteNome: os.cliente_nome ?? undefined,
+            valor: os.total != null ? String(os.total) : undefined,
+            descricao: `${os.numero} — ${os.defeito_relatado?.trim() || 'serviço'}`,
+          }}
         />
       )}
     </div>

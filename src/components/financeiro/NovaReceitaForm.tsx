@@ -41,12 +41,14 @@ interface NovaReceitaFormProps {
   companyId: string
   onSucesso?: (receitaId: string) => void
   onCancelar?: () => void
+  // Pré-preenchimento (ex.: "Gerar financeiro" a partir da OS, chamado #20 §2.4). Opcional.
+  initial?: { clienteId?: string; clienteNome?: string; valor?: string; descricao?: string }
 }
 
 const exibirNomeCliente = (c: Cliente) =>
   c.nome_fantasia || c.razao_social || 'Sem nome'
 
-export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: NovaReceitaFormProps) {
+export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, initial }: NovaReceitaFormProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   // Conciliacao: quando vem ?origem_conciliacao=<mov_id>, esta receita nasce
@@ -59,10 +61,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar }: No
   const [contas, setContas] = useState<ContaBancaria[]>([])
   const [centros, setCentros] = useState<CentroCusto[]>([])
 
-  const [clienteId, setClienteId] = useState('')
-  const [clienteNome, setClienteNome] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [valor, setValor] = useState('')
+  const [clienteId, setClienteId] = useState(initial?.clienteId ?? '')
+  const [clienteNome, setClienteNome] = useState(initial?.clienteNome ?? '')
+  const [descricao, setDescricao] = useState(initial?.descricao ?? '')
+  const [valor, setValor] = useState(initial?.valor ?? '')
   const [dataRecebimento, setDataRecebimento] = useState(
     new Date().toISOString().split('T')[0],
   )
