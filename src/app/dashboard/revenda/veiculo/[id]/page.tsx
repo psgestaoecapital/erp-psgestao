@@ -123,11 +123,18 @@ function Inner() {
         </label>
       </div>
 
+      {/* Alliance · veículo sem custo de aquisição não pode passar como completo (margem/preço mínimo
+          não calculam). Não bloqueia a entrada rápida no pátio — só não finge que está pronto. */}
+      {!(v.valor_aquisicao && v.valor_aquisicao > 0) && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, padding: '10px 12px', margin: '14px 0 0', fontSize: 12.5, color: '#8A4B08', lineHeight: 1.5 }}>
+          ⚠️ <b>Sem custo de aquisição</b> — sem ele a <b>margem e o preço mínimo não calculam</b>{v.ano_modelo ? '' : ', e o ano não está informado (a base fiscal de PIS/COFINS depende dele)'}. Informe na entrada do veículo. A entrada rápida no pátio é ok — só ainda não está completa.
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, margin: '14px 0' }}>
         <Card l="Entrada" v={brDate(v.data_entrada)} />
-        <Card l="Aquisição" v={brl(v.valor_aquisicao ?? 0)} />
-        <Card l="Custo acumulado" v={brl(custoAcumulado)} destaque />
-        <Card l={`Preço mínimo (margem ${margem}%)`} v={brl(precoMinimo)} sub="antes de impostos — cálculo fiscal é a Onda 4" />
+        <Card l="Aquisição" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(v.valor_aquisicao) : 'sem custo'} />
+        <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
+        <Card l={`Preço mínimo (margem ${margem}%)`} v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(precoMinimo) : 'não calcula'} sub={v.valor_aquisicao && v.valor_aquisicao > 0 ? 'antes de impostos — cálculo fiscal é a Onda 4' : 'informe a aquisição primeiro'} />
       </div>
 
       <Bloco titulo="Fotos do veículo">
