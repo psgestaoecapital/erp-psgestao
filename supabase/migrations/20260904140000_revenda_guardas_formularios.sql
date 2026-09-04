@@ -120,11 +120,18 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'erro', 'valor_venda_invalido', 'campo', 'valor_venda'); END IF;
 
   IF p_troca IS NOT NULL AND jsonb_typeof(p_troca) = 'object' AND p_troca <> '{}'::jsonb THEN
-    v_troca_val := (p_troca->>'valor_troca')::numeric;
-    v_aval := (p_troca->>'valor_avaliacao')::numeric;
+    -- parse seguro dos valores da troca (não-numérico não estoura o cast)
+    BEGIN v_troca_val := NULLIF(btrim(p_troca->>'valor_troca'),'')::numeric; EXCEPTION WHEN others THEN v_troca_val := NULL; END;
+    BEGIN v_aval := NULLIF(btrim(p_troca->>'valor_avaliacao'),'')::numeric; EXCEPTION WHEN others THEN v_aval := NULL; END;
     v_desc := COALESCE(v_troca_val,0) - COALESCE(v_aval,0);
-    v_troca_chassi := NULLIF(p_troca->>'chassi','');
+    v_troca_chassi := NULLIF(btrim(p_troca->>'chassi'),'');
   END IF;
+
+  -- o usado da troca entra em veic_veiculo (chassi UNIQUE por empresa). Se já existe no pátio,
+  -- avisa ANTES de inserir a venda — senão a venda gravava e a troca estourava 23505 cru.
+  IF v_troca_chassi IS NOT NULL AND EXISTS (
+      SELECT 1 FROM veic_veiculo WHERE company_id = p_company_id AND chassi = v_troca_chassi AND deleted_at IS NULL) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'troca_chassi_ja_cadastrado', 'campo', 'troca_chassi'); END IF;
 
   INSERT INTO veic_venda (company_id, veiculo_id, proposta_id, cliente_id, cliente_nome, cliente_doc,
       data_venda, valor_venda, desconto_embutido_troca, valor_entrada, valor_financiado, banco_nome,
@@ -201,4 +208,49 @@ BEGIN
     UPDATE veic_veiculo SET foto_url = p_storage_path, updated_at = now(), updated_by = p_user WHERE id = p_veiculo_id;
   END IF;
   RETURN jsonb_build_object('ok', true, 'id', v_id, 'principal', v_qtd = 0);
+END $function$;
+
+-- ============================================================================
+-- PROPOSTA — sem UI hoje, mas guardada por consistência: cliente obrigatório + parse
+-- seguro dos valores (nenhum cast não-numérico estoura). O usado da troca aqui vai para
+-- veic_proposta_troca (não veic_veiculo) — sem risco de chassi duplicado nesta etapa.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_veic_proposta_criar(p_company_id uuid, p_veiculo_id uuid, p_proposta jsonb, p_troca jsonb, p_user uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_comp uuid; v_prop uuid; v_cli text := NULLIF(btrim(p_proposta->>'cliente_nome'),'');
+        v_pedido numeric; v_negociado numeric; v_desconto numeric;
+        t_ano_fab int; t_ano_mod int; t_km numeric; t_troca numeric; t_aval numeric;
+BEGIN
+  SELECT company_id INTO v_comp FROM veic_veiculo WHERE id = p_veiculo_id AND deleted_at IS NULL;
+  IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'erro', 'veiculo_nao_encontrado'); END IF;
+  IF NOT (v_comp IN (SELECT get_user_company_ids()) OR is_admin()) OR v_comp <> p_company_id THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
+  IF v_cli IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'cliente_obrigatorio', 'campo', 'cliente_nome'); END IF;
+
+  BEGIN v_pedido    := NULLIF(btrim(p_proposta->>'valor_pedido'),'')::numeric;    EXCEPTION WHEN others THEN RETURN jsonb_build_object('ok', false, 'erro', 'valor_invalido', 'campo', 'valor_pedido'); END;
+  BEGIN v_negociado := NULLIF(btrim(p_proposta->>'valor_negociado'),'')::numeric; EXCEPTION WHEN others THEN RETURN jsonb_build_object('ok', false, 'erro', 'valor_invalido', 'campo', 'valor_negociado'); END;
+  BEGIN v_desconto  := NULLIF(btrim(p_proposta->>'desconto'),'')::numeric;        EXCEPTION WHEN others THEN v_desconto := NULL; END;
+
+  INSERT INTO veic_proposta (company_id, veiculo_id, cliente_id, cliente_nome, cliente_doc,
+      valor_pedido, valor_negociado, desconto, validade_ate, vendedor_nome, observacao, situacao, created_by)
+  VALUES (p_company_id, p_veiculo_id, NULLIF(p_proposta->>'cliente_id','')::uuid, v_cli,
+      p_proposta->>'cliente_doc', v_pedido, v_negociado, v_desconto, NULLIF(p_proposta->>'validade_ate','')::date,
+      p_proposta->>'vendedor_nome', p_proposta->>'observacao',
+      COALESCE(NULLIF(p_proposta->>'situacao',''), 'aberta'), p_user)
+  RETURNING id INTO v_prop;
+
+  IF p_troca IS NOT NULL AND jsonb_typeof(p_troca) = 'object' AND p_troca <> '{}'::jsonb THEN
+    BEGIN t_ano_fab := NULLIF(btrim(p_troca->>'ano_fabricacao'),'')::int; EXCEPTION WHEN others THEN t_ano_fab := NULL; END;
+    BEGIN t_ano_mod := NULLIF(btrim(p_troca->>'ano_modelo'),'')::int;     EXCEPTION WHEN others THEN t_ano_mod := NULL; END;
+    BEGIN t_km      := NULLIF(btrim(p_troca->>'km'),'')::numeric;         EXCEPTION WHEN others THEN t_km := NULL; END;
+    BEGIN t_troca   := NULLIF(btrim(p_troca->>'valor_troca'),'')::numeric; EXCEPTION WHEN others THEN t_troca := NULL; END;
+    BEGIN t_aval    := NULLIF(btrim(p_troca->>'valor_avaliacao'),'')::numeric; EXCEPTION WHEN others THEN t_aval := NULL; END;
+    INSERT INTO veic_proposta_troca (company_id, proposta_id, chassi, placa, marca, modelo,
+        ano_fabricacao, ano_modelo, km, valor_troca, valor_avaliacao)
+    VALUES (p_company_id, v_prop, NULLIF(btrim(p_troca->>'chassi'),''), NULLIF(p_troca->>'placa',''),
+        p_troca->>'marca', p_troca->>'modelo', t_ano_fab, t_ano_mod, t_km, t_troca, t_aval);
+  END IF;
+
+  RETURN jsonb_build_object('ok', true, 'id', v_prop);
 END $function$;

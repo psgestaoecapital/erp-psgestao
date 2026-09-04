@@ -54,6 +54,7 @@ export const MENSAGEM_ERRO: Record<string, string> = {
   sinal_invalido_para_titulo: 'Para lançar o sinal em contas a receber, informe um valor maior que zero.',
   valor_venda_invalido: 'Informe o valor da venda (maior que zero).',
   ja_reservado: 'Este veículo já tem uma reserva ativa.',
+  troca_chassi_ja_cadastrado: 'O veículo da troca já está no pátio (chassi já cadastrado).',
   veiculo_ja_vendido: 'Este veículo já foi vendido.',
   veiculo_indisponivel: 'Este veículo não está disponível para venda.',
   storage_path_obrigatorio: 'Falha ao anexar a foto. Tente enviar de novo.',

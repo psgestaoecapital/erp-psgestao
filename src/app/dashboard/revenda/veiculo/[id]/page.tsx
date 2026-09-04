@@ -351,7 +351,7 @@ function VendaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { compan
       {troca.on && (
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <input value={troca.chassi} onChange={(e) => setTroca({ ...troca, chassi: e.target.value })} placeholder="chassi do usado (p/ entrar no estoque)" style={{ ...inp, gridColumn: '1 / -1' }} />
+            <input value={troca.chassi} onChange={(e) => setTroca({ ...troca, chassi: e.target.value })} placeholder="chassi do usado (p/ entrar no estoque)" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'troca_chassi' ? 'x' : null) }} />
             <input value={troca.modelo} onChange={(e) => setTroca({ ...troca, modelo: e.target.value })} placeholder="modelo" style={{ ...inp, gridColumn: '1 / -1' }} />
             <input value={troca.valor_troca} onChange={(e) => setTroca({ ...troca, valor_troca: e.target.value })} placeholder="valor dado na troca" style={inp} />
             <input value={troca.valor_avaliacao} onChange={(e) => setTroca({ ...troca, valor_avaliacao: e.target.value })} placeholder="valor de avaliação (quanto vale)" style={inp} />
