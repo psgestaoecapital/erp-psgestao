@@ -23,6 +23,8 @@ type Totais = { qtd: number; custo_total: number; custo_pecas: number; custo_mo:
 // "Dinheiro esquecido" · OS entregues NÃO faturadas por idade (fn_oficina_a_faturar)
 type AFaturarLinha = { os_id: string; numero: string | null; cliente_nome: string | null; placa: string | null; entregue_em: string | null; total: number; dias: number }
 type AFaturarTotais = { qtd: number; soma_total: number; mais_antiga_dias: number; sem_valor: number }
+// #20 Fase 3b · OS entregues SEM nota fiscal (nem NFS-e nem NF-e) — onde a obrigação fiscal parou
+type SemNotaLinha = { os_id: string; numero: string | null; cliente_nome: string | null; total: number | null; entregue_em: string | null; dias: number; faturada: boolean; tem_servico: boolean; tem_peca: boolean }
 
 export default function EntreguesPage() {
   const router = useRouter()
@@ -36,9 +38,11 @@ export default function EntreguesPage() {
   const [dataFim, setDataFim] = useState(isoDaysAgo(0))
   const [busca, setBusca] = useState('')
   // modo: histórico por período OU "a faturar" (entregues não faturadas por idade — dinheiro esquecido)
-  const [modo, setModo] = useState<'historico' | 'afaturar'>('historico')
+  const [modo, setModo] = useState<'historico' | 'afaturar' | 'semnota'>('historico')
   const [afLinhas, setAfLinhas] = useState<AFaturarLinha[]>([])
   const [afTotais, setAfTotais] = useState<AFaturarTotais | null>(null)
+  const [snLinhas, setSnLinhas] = useState<SemNotaLinha[]>([])
+  const [snTotais, setSnTotais] = useState<{ qtd: number; total_parado: number } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) return
@@ -49,6 +53,14 @@ export default function EntreguesPage() {
       const r = data as { ok?: boolean; erro?: string; linhas?: AFaturarLinha[]; totais?: AFaturarTotais } | null
       if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
       setAfLinhas(r.linhas ?? []); setAfTotais(r.totais ?? null)
+      return
+    }
+    if (modo === 'semnota') {
+      const { data, error } = await supabase.rpc('fn_os_entregue_sem_nota', { p_company_id: companyId })
+      setLoading(false)
+      const r = data as { ok?: boolean; erro?: string; itens?: SemNotaLinha[]; total_parado?: number; qtd?: number } | null
+      if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
+      setSnLinhas(r.itens ?? []); setSnTotais({ qtd: r.qtd ?? 0, total_parado: r.total_parado ?? 0 })
       return
     }
     const { data, error } = await supabase.rpc('fn_oficina_entregues_listar', {
@@ -80,6 +92,7 @@ export default function EntreguesPage() {
       <div style={{ display: 'inline-flex', gap: 4, marginBottom: 12, background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 4 }}>
         <button onClick={() => setModo('historico')} style={segBtn(modo === 'historico')}>Histórico</button>
         <button onClick={() => setModo('afaturar')} style={segBtn(modo === 'afaturar')}>💰 A faturar</button>
+        <button onClick={() => setModo('semnota')} style={segBtn(modo === 'semnota')}>🧾 Sem nota</button>
       </div>
 
       {/* Filtros (só no histórico por período) */}
@@ -143,6 +156,44 @@ export default function EntreguesPage() {
             </div>
           ))}
         </div>
+      ) : modo === 'semnota' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {snTotais && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+              <Tot l="OS sem nota" v={String(snTotais.qtd)} />
+              <Tot l="Valor entregue sem nota" v={brl(snTotais.total_parado)} />
+            </div>
+          )}
+          <p style={{ fontSize: 12, color: ESP60, margin: 0 }}>
+            Entregues sem nota fiscal (nem serviço nem peça), da mais antiga para a mais nova. A entrega não trava por causa da nota — mas aqui é onde a obrigação fiscal ficou pendente. Abra a OS para emitir.
+          </p>
+          {snLinhas.length === 0 ? (
+            <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Tudo que foi entregue tem nota. 🎉</div>
+          ) : snLinhas.map((l) => (
+            <div key={l.os_id} style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: l.dias >= 30 ? '#B45309' : ESP60, fontWeight: 700 }}>🧾 {l.dias} dia(s) sem nota · entregue {fmtDataHora(l.entregue_em)}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginTop: 2 }}>{l.numero || '—'}</div>
+                <div style={{ fontSize: 12, color: ESP60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.cliente_nome || 'sem cliente'}</div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
+                  {l.tem_servico && <span style={faltaTag}>falta NFS-e (serviço)</span>}
+                  {l.tem_peca && <span style={faltaTag}>falta NF-e (peça)</span>}
+                  {l.faturada
+                    ? <span style={{ ...faltaTag, background: '#EAF3DE', color: OK }}>✓ financeiro feito</span>
+                    : <span style={{ ...faltaTag, background: '#FAEEDA', color: '#B45309' }}>sem financeiro</span>}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', minWidth: 120 }}>
+                <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: (l.total ?? 0) > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{(l.total ?? 0) > 0 ? brl(l.total) : 'sem valor'}</div>
+              </div>
+              <button onClick={() => router.push(`/dashboard/os?os=${l.os_id}`)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '9px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                Abrir OS <ChevronRight size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
       ) : linhas.length === 0 ? (
         <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Nenhuma entrega no período.</div>
       ) : (
@@ -182,6 +233,7 @@ export default function EntreguesPage() {
 const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', fontSize: 13, borderRadius: 8, border: `1px solid ${LINE}`, background: WHITE, color: ESP, boxSizing: 'border-box' }
 const lbl: React.CSSProperties = { fontSize: 11, color: ESP60, display: 'block', marginBottom: 3 }
 const segBtn = (ativo: boolean): React.CSSProperties => ({ padding: '7px 14px', fontSize: 12.5, fontWeight: 700, borderRadius: 8, border: 'none', cursor: 'pointer', background: ativo ? GOLD : 'transparent', color: ativo ? WHITE : ESP60 })
+const faltaTag: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#FCEBEB', color: '#791F1F' }
 function Tot({ l, v, small }: { l: string; v: string; small?: boolean }) {
   return (
     <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>

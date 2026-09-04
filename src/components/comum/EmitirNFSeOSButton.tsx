@@ -197,7 +197,12 @@ export default function EmitirNFSeOSButton({
         companyId={companyId}
         aberto={modalAberto}
         onFechar={() => setModalAberto(false)}
-        onEmitida={() => { setModalAberto(false); setPrep(null); onEmitida?.() }}
+        onEmitida={(providerReference) => {
+          // #20 Fase 3b · liga a NFS-e recém-emitida à OS (por provider_reference), pós-emissão e sem
+          // tocar a edge — é o que tira a OS da fila "entregue sem nota".
+          if (providerReference) void supabase.rpc('fn_os_nfse_vincular', { p_os_id: osId, p_provider_reference: providerReference })
+          setModalAberto(false); setPrep(null); onEmitida?.()
+        }}
         producaoDisponivel={producao}
         tomadorDocumento={prep?.tomador?.documento}
         tomadorTipo={prep?.tomador?.tipo}
