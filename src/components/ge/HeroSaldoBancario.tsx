@@ -191,8 +191,8 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
 // Composição do saldo (chamados #23 Julia / #25 Jordana) — explica de onde vem o número:
 // por conta, saldo inicial (na SUA data) + recebido − pago = saldo. E mostra a DATA que o cálculo
 // USA hoje — se divergir da data da conta, a própria tela mostra o bug (fix per-conta vem depois).
-type CompConta = { nome: string; saldo_inicial: number; data_saldo_inicial: string | null; data_diverge_do_calculo: boolean; recebido: number; pago: number; saldo: number }
-type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; saldo_composto: number; saldo_gerencial_atual: number }
+type CompConta = { nome: string; saldo_inicial: number; data_saldo_inicial: string | null; data_diverge_do_calculo: boolean; tem_assinatura?: boolean; janela_subtraida?: number; recebido: number; pago: number; saldo: number }
+type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; saldo_composto: number; total_janela_subtraida?: number; saldo_gerencial_atual: number }
 const dBR = (s: string | null) => s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—'
 
 function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
@@ -234,6 +234,11 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                       {' · '}<span style={{ color: COLORS.vermelho }}>− {fmt(a.pago)} pago</span>
                       {' = '}<b>{fmt(a.saldo)}</b>
                     </div>
+                    {!!a.janela_subtraida && Math.abs(a.janela_subtraida) > 0.005 && (
+                      <div style={{ fontSize: 11.5, color: COLORS.ambar, marginTop: 4, background: COLORS.ambarSoft, borderRadius: 6, padding: '4px 8px' }}>
+                        🔻 janela dupla removida do saldo: <b>{fmt(a.janela_subtraida)}</b> — recebimentos/pagamentos entre {dBR(c.data_efetiva_calculo_atual)} e {dBR(a.data_saldo_inicial)} que já estão dentro do saldo inicial desta conta.
+                      </div>
+                    )}
                   </div>
                 ))}
                 {(c.sem_conta.recebido > 0 || c.sem_conta.pago > 0) && (
@@ -244,6 +249,9 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                 )}
               </div>
               <div style={{ borderTop: `1px solid ${COLORS.linha}`, marginTop: 12, paddingTop: 10, fontSize: 13 }}>
+                {!!c.total_janela_subtraida && Math.abs(c.total_janela_subtraida) > 0.005 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: COLORS.ambar, marginBottom: 4 }}><span>🔻 janela dupla removida (não conta 2×)</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.total_janela_subtraida)}</b></div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Soma das contas (cada uma na sua data)</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.saldo_composto)}</b></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: COLORS.cinza, marginTop: 4 }}><span>Saldo gerencial que o sistema mostra hoje</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.saldo_gerencial_atual)}</span></div>
               </div>
