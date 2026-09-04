@@ -131,6 +131,115 @@ function Chips({ rows, label, onDel }: { rows: Row[]; label: (r: Row) => React.R
   )
 }
 
+// ─────────── SUGESTÃO A PARTIR DO PONTO ───────────
+// Puxa setores/cargos do ponto eletrônico (ind_ponto_colaborador) com contagem de gente.
+// NÃO filtra nada (RH/TI/Comercial aparecem — quem decide é quem cadastra). Duplicata provável
+// é MARCADA, nunca fundida. Já cadastrado vem desmarcado e travado.
+type ItemSug = { nome: string; pessoas: number; ja_cadastrado: boolean; possivel_duplicata_de?: string | null }
+function SugerirDoPonto({ ctx, rpc, tabela, jaExistentes, onAdd }: { ctx: Ctx; rpc: string; tabela: string; jaExistentes: number; onAdd: () => void }) {
+  const [aberto, setAberto] = useState(false)
+  const [itens, setItens] = useState<ItemSug[] | null>(null)
+  const [sel, setSel] = useState<Record<string, boolean>>({})
+  const [busy, setBusy] = useState(false)
+
+  async function abrir() {
+    setAberto(true); setBusy(true); setItens(null)
+    const { data, error } = await supabase.rpc(rpc, { p_company_id: ctx.companyId, p_plant_id: ctx.plantId })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; itens?: ItemSug[] } | null
+    if (error || !r?.ok) { ctx.flashErr(error?.message || (r?.erro === 'sem_acesso' ? 'Sem acesso.' : r?.erro) || 'Falha ao buscar do ponto'); setAberto(false); return }
+    const its = r.itens ?? []
+    setItens(its)
+    const s: Record<string, boolean> = {}; its.forEach((it) => { s[it.nome] = !it.ja_cadastrado })
+    setSel(s)
+  }
+  const selecionados = (itens ?? []).filter((it) => sel[it.nome] && !it.ja_cadastrado)
+  async function adicionar() {
+    if (selecionados.length === 0) return
+    setBusy(true)
+    const payloads = selecionados.map((it, i) => ({ company_id: ctx.companyId, plant_id: ctx.plantId, nome: it.nome, ...(tabela === 'prod_setor' ? { ordem: jaExistentes + i + 1 } : {}) }))
+    const { error } = await supabase.from(tabela).insert(payloads)
+    setBusy(false)
+    if (error) { ctx.flashErr(error.message); return }
+    ctx.flash(`${payloads.length} adicionado(s) do ponto.`); setAberto(false); setItens(null); onAdd()
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => aberto ? setAberto(false) : void abrir()}
+        style={{ ...btn(true), background: C.blue, padding: '6px 12px', fontSize: 12 }}>👥 Sugerir do ponto</button>
+      {aberto && (
+        <div style={{ marginTop: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+          {busy && !itens ? <div style={{ fontSize: 12, color: C.espM }}>Buscando no ponto…</div>
+            : (itens && itens.length === 0) ? <div style={{ fontSize: 12, color: C.espM }}>O ponto desta planta não tem cadastro para sugerir.</div>
+            : itens && (
+            <>
+              <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 8 }}>
+                Do ponto eletrônico, com quantas pessoas em cada. RH, TI e Comercial também aparecem — quem decide é você. Duplicata provável fica marcada, nunca fundida sozinha.
+              </div>
+              <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {itens.map((it) => (
+                  <label key={it.nome} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 4px', opacity: it.ja_cadastrado ? 0.55 : 1 }}>
+                    <input type="checkbox" disabled={it.ja_cadastrado} checked={!!sel[it.nome] && !it.ja_cadastrado} onChange={(e) => setSel((p) => ({ ...p, [it.nome]: e.target.checked }))} />
+                    <span style={{ flex: 1 }}>{it.nome}</span>
+                    <span style={{ fontSize: 10.5, color: C.espM }}>{it.pessoas} pessoa{it.pessoas === 1 ? '' : 's'}</span>
+                    {it.ja_cadastrado && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.greenBg, color: C.green }}>já cadastrado</span>}
+                    {it.possivel_duplicata_de && <span title={`Parece o mesmo que "${it.possivel_duplicata_de}"`} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.amberBg, color: C.amber }}>possível duplicata de “{it.possivel_duplicata_de}”</span>}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button type="button" disabled={busy || selecionados.length === 0} style={btn(!busy && selecionados.length > 0)} onClick={() => void adicionar()}>
+                  {busy ? 'Adicionando…' : `Adicionar ${selecionados.length} selecionado(s)`}
+                </button>
+                <button type="button" onClick={() => setAberto(false)} style={{ ...btn(true), background: 'transparent', color: C.espM, border: `1px solid ${C.border}` }}>Fechar</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+// Horários que a equipe bate o ponto — INFORMAÇÃO, não sugestão de turno (jornada individual ≠ turno de planta).
+function HorariosPonto({ ctx }: { ctx: Ctx }) {
+  const [aberto, setAberto] = useState(false)
+  const [itens, setItens] = useState<{ horario: string; ocorrencias: number }[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  async function abrir() {
+    setAberto(true); setBusy(true); setItens(null)
+    const { data, error } = await supabase.rpc('fn_prod_horarios_frequentes_ponto', { p_company_id: ctx.companyId, p_plant_id: ctx.plantId })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; itens?: { horario: string; ocorrencias: number }[] } | null
+    if (error || !r?.ok) { ctx.flashErr(error?.message || r?.erro || 'Falha'); setAberto(false); return }
+    setItens(r.itens ?? [])
+  }
+  return (
+    <>
+      <button type="button" onClick={() => aberto ? setAberto(false) : void abrir()} style={{ ...btn(true), background: 'transparent', color: C.blue, border: `1px solid ${C.blue}55`, padding: '6px 12px', fontSize: 12 }}>🕒 Horários do ponto (informação)</button>
+      {aberto && (
+        <div style={{ marginTop: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 8 }}>
+            Quando a equipe bate a <b>entrada</b>, por frequência (balde de 5 min). É <b>jornada individual</b>, não turno de planta — serve pra você definir os turnos acima com base na realidade, não pra virar turno sozinho.
+          </div>
+          {busy && !itens ? <div style={{ fontSize: 12, color: C.espM }}>Lendo o ponto…</div>
+            : (itens && itens.length === 0) ? <div style={{ fontSize: 12, color: C.espM }}>Sem marcações para mostrar.</div>
+            : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {(itens ?? []).map((h) => (
+                <span key={h.horario} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.cream, borderRadius: 999, padding: '4px 10px', fontSize: 12.5 }}>
+                  <b>{h.horario}</b> <span style={{ color: C.espM, fontSize: 11 }}>{h.ocorrencias.toLocaleString('pt-BR')}×</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 // ─────────── PARÂMETROS ───────────
 function Parametros({ ctx }: { ctx: Ctx }) {
   const setores = useLista('prod_setor', ctx, 'ordem')
@@ -163,15 +272,19 @@ function Parametros({ ctx }: { ctx: Ctx }) {
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <input value={nsetor} onChange={(e) => setNsetor(e.target.value)} placeholder="ex.: Abate, Desossa" style={{ ...inp, flex: '1 1 200px' }} />
           <button disabled={!nsetor.trim()} style={btn(!!nsetor.trim())} onClick={async () => { if (await inserir('prod_setor', ctx, { nome: nsetor.trim(), ordem: setores.rows.length + 1 })) { setNsetor(''); void setores.carregar() } }}>+ Setor</button>
+          <SugerirDoPonto ctx={ctx} rpc="fn_prod_sugerir_setores" tabela="prod_setor" jaExistentes={setores.rows.length} onAdd={() => void setores.carregar()} />
         </div>
         <Chips rows={setores.rows} label={(r) => <>{String(r.nome)}</>} onDel={async (id) => { await remover('prod_setor', ctx, id); void setores.carregar() }} />
       </Bloco>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
         <Bloco titulo="Cargos">
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={ncargo} onChange={(e) => setNcargo(e.target.value)} placeholder="ex.: Operador" style={{ ...inp, flex: 1 }} />
             <button disabled={!ncargo.trim()} style={btn(!!ncargo.trim())} onClick={async () => { if (await inserir('prod_cargo', ctx, { nome: ncargo.trim() })) { setNcargo(''); void cargos.carregar() } }}>+</button>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <SugerirDoPonto ctx={ctx} rpc="fn_prod_sugerir_cargos" tabela="prod_cargo" jaExistentes={cargos.rows.length} onAdd={() => void cargos.carregar()} />
           </div>
           <Chips rows={cargos.rows} label={(r) => <>{String(r.nome)}</>} onDel={async (id) => { await remover('prod_cargo', ctx, id); void cargos.carregar() }} />
         </Bloco>
@@ -181,6 +294,16 @@ function Parametros({ ctx }: { ctx: Ctx }) {
             <input value={uc} onChange={(e) => setUc(e.target.value)} placeholder="código (kg, cabeca…)" style={{ ...inp, flex: '1 1 120px' }} />
             <input value={un} onChange={(e) => setUn(e.target.value)} placeholder="nome" style={{ ...inp, flex: '1 1 120px' }} />
             <button disabled={!uc.trim() || !un.trim()} style={btn(!!uc.trim() && !!un.trim())} onClick={async () => { if (await inserir('prod_unidade_medida', ctx, { codigo: uc.trim(), nome: un.trim(), e_padrao_planta: uc.trim() === 'kg' })) { setUc(''); setUn(''); void unidades.carregar() } }}>+</button>
+          </div>
+          {/* Unidades não vêm do ponto — conjunto padrão (kg é o padrão da planta). Idempotente. */}
+          <div style={{ marginBottom: 10 }}>
+            <button type="button" style={{ ...btn(true), background: C.blue, padding: '6px 12px', fontSize: 12 }}
+              onClick={async () => {
+                const { data, error } = await supabase.rpc('fn_prod_unidades_semear_padrao', { p_company_id: ctx.companyId, p_plant_id: ctx.plantId })
+                const r = data as { ok?: boolean; erro?: string; inseridas?: number } | null
+                if (error || !r?.ok) { ctx.flashErr(error?.message || r?.erro || 'Falha'); return }
+                ctx.flash(r.inseridas ? `${r.inseridas} unidade(s) padrão adicionada(s).` : 'Conjunto padrão já estava completo.'); void unidades.carregar()
+              }}>📦 Conjunto padrão (kg, cabeça, PC, GC, caixa, ton, m³, L, m)</button>
           </div>
           <Chips rows={unidades.rows} label={(r) => <><b>{String(r.codigo)}</b> {String(r.nome)}{r.e_padrao_planta ? ' ⭐' : ''}</>} onDel={async (id) => { await remover('prod_unidade_medida', ctx, id); void unidades.carregar() }} />
         </Bloco>
@@ -202,6 +325,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
             <input type="time" value={tf} onChange={(e) => setTf(e.target.value)} style={inp} />
             <button disabled={!tuc.trim()} style={btn(!!tuc.trim())} onClick={async () => { if (await inserir('ind_turnos', ctx, { codigo: tuc.trim(), nome: tun.trim() || tuc.trim(), inicio: ti || null, fim: tf || null, ativo: true })) { setTuc(''); setTun(''); setTi(''); setTf(''); void turnos.carregar() } }}>+</button>
           </div>
+          <div style={{ marginBottom: 10 }}><HorariosPonto ctx={ctx} /></div>
           <Chips rows={turnos.rows} label={(r) => <><b>{String(r.codigo ?? '—')}</b> {r.inicio ? `${String(r.inicio).slice(0, 5)}–${String(r.fim ?? '').slice(0, 5)}` : ''}</>} onDel={async (id) => { await remover('ind_turnos', ctx, id); void turnos.carregar() }} />
         </Bloco>
       </div>
