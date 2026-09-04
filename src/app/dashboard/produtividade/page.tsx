@@ -240,6 +240,101 @@ function HorariosPonto({ ctx }: { ctx: Ctx }) {
   )
 }
 
+// ─────────── VÍNCULO SETOR/CARGO ↔ FONTE ───────────
+// Setor/cargo NÃO é texto, é VÍNCULO. Um setor do PS agrupa vários nomes de cada base (ponto,
+// produção). A tela mostra o que CADA FONTE tem, com contagem, e o usuário marca. O nome do sistema
+// ("ATAK") aparece só como rótulo da fonte — nunca em nome de coluna/tabela/função.
+type Fonte = { id: string; tipo: 'ponto' | 'producao'; nome: string }
+type ChaveFonte = { chave: string; contagem: number; vinculado_a: string | null }
+const rotuloFonte = (f: Fonte) => (f.tipo === 'producao' ? 'Base da produção' : 'Base do ponto') + ` · ${f.nome}`
+
+function VinculoEditor({ ctx, alvo, alvoId, alvoNome, onMudou }: { ctx: Ctx; alvo: 'setor' | 'cargo'; alvoId: string; alvoNome: string; onMudou?: () => void }) {
+  const [fontes, setFontes] = useState<Fonte[]>([])
+  const [chaves, setChaves] = useState<Record<string, ChaveFonte[]>>({})
+  const [busy, setBusy] = useState(true)
+  const tabela = alvo === 'setor' ? 'prod_setor_vinculo' : 'prod_cargo_vinculo'
+  const idCol = alvo === 'setor' ? 'setor_id' : 'cargo_id'
+
+  const carregar = useCallback(async () => {
+    setBusy(true)
+    const { data: fs } = await supabase.from('prod_fonte_dados').select('id,tipo,nome').eq('company_id', ctx.companyId).eq('plant_id', ctx.plantId).eq('ativo', true)
+    const lista = ((fs as Fonte[]) ?? []).filter((f) => (alvo === 'setor' ? true : f.tipo === 'ponto'))
+    const map: Record<string, ChaveFonte[]> = {}
+    for (const f of lista) {
+      const { data } = await supabase.rpc('fn_prod_fonte_chaves', { p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_fonte_id: f.id, p_alvo: alvo })
+      const r = data as { ok?: boolean; itens?: ChaveFonte[] } | null
+      map[f.id] = r?.ok ? (r.itens ?? []) : []
+    }
+    setFontes(lista); setChaves(map); setBusy(false)
+  }, [ctx.companyId, ctx.plantId, alvo])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function toggle(f: Fonte, k: ChaveFonte) {
+    const meu = k.vinculado_a === alvoNome
+    if (!meu && k.vinculado_a) return // já é de outro setor/cargo — não rouba (UNIQUE protege)
+    if (meu) {
+      await supabase.from(tabela).delete().eq('fonte_id', f.id).eq('chave', k.chave).eq(idCol, alvoId)
+    } else {
+      const { error } = await supabase.from(tabela).insert({ company_id: ctx.companyId, plant_id: ctx.plantId, [idCol]: alvoId, fonte_id: f.id, chave: k.chave, rotulo: k.chave })
+      if (error) { ctx.flashErr(error.message); return }
+    }
+    await carregar(); onMudou?.()
+  }
+
+  if (busy) return <div style={{ fontSize: 12, color: C.espM, padding: '6px 2px' }}>Carregando bases…</div>
+  if (fontes.length === 0) return <div style={{ fontSize: 12, color: C.espL, padding: '6px 2px' }}>Nenhuma base de dados cadastrada para esta planta.</div>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 2px 2px' }}>
+      {fontes.map((f) => (
+        <div key={f.id}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: f.tipo === 'producao' ? C.gold : C.blue, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 4 }}>{rotuloFonte(f)}</div>
+          {(chaves[f.id] ?? []).length === 0 ? <div style={{ fontSize: 11.5, color: C.espL }}>Sem chaves nesta base.</div> : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {(chaves[f.id] ?? []).map((k) => {
+                const meu = k.vinculado_a === alvoNome
+                const doOutro = !!k.vinculado_a && !meu
+                return (
+                  <button key={k.chave} type="button" disabled={doOutro} onClick={() => void toggle(f, k)}
+                    title={doOutro ? `Já vinculado a "${k.vinculado_a}"` : meu ? 'Clique para desvincular' : 'Clique para vincular a este setor'}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 999, padding: '3px 9px', fontSize: 12,
+                      border: `1px solid ${meu ? C.green : C.border}`, background: meu ? C.greenBg : doOutro ? C.cream : C.white,
+                      color: doOutro ? C.espL : C.esp, cursor: doOutro ? 'not-allowed' : 'pointer' }}>
+                    {meu ? '✓ ' : ''}{k.chave} <span style={{ color: C.espM, fontSize: 10 }}>{k.contagem.toLocaleString('pt-BR')}</span>
+                    {doOutro && <span style={{ color: C.amber, fontSize: 10 }}>→ {k.vinculado_a}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Lista de setores/cargos com editor de vínculo por linha (substitui os chips simples).
+function VinculoLista({ ctx, alvo, rows, onDel }: { ctx: Ctx; alvo: 'setor' | 'cargo'; rows: Row[]; onDel: (id: string) => void }) {
+  const [aberto, setAberto] = useState<string | null>(null)
+  if (rows.length === 0) return <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>Nada cadastrado ainda.</div>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {rows.map((r) => (
+        <div key={r.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ flex: 1, fontSize: 13 }}>{String(r.nome)}</span>
+            <button type="button" onClick={() => setAberto(aberto === r.id ? null : r.id)} style={{ ...btn(true), background: 'transparent', color: C.blue, border: `1px solid ${C.blue}44`, padding: '3px 9px', fontSize: 11.5 }}>
+              🔗 {aberto === r.id ? 'fechar' : 'vínculos'}
+            </button>
+            <button onClick={() => onDel(r.id)} title="Remover" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
+          </div>
+          {aberto === r.id && <VinculoEditor ctx={ctx} alvo={alvo} alvoId={r.id} alvoNome={String(r.nome)} />}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─────────── PARÂMETROS ───────────
 function Parametros({ ctx }: { ctx: Ctx }) {
   const setores = useLista('prod_setor', ctx, 'ordem')
@@ -274,7 +369,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
           <button disabled={!nsetor.trim()} style={btn(!!nsetor.trim())} onClick={async () => { if (await inserir('prod_setor', ctx, { nome: nsetor.trim(), ordem: setores.rows.length + 1 })) { setNsetor(''); void setores.carregar() } }}>+ Setor</button>
           <SugerirDoPonto ctx={ctx} rpc="fn_prod_sugerir_setores" tabela="prod_setor" jaExistentes={setores.rows.length} onAdd={() => void setores.carregar()} />
         </div>
-        <Chips rows={setores.rows} label={(r) => <>{String(r.nome)}</>} onDel={async (id) => { await remover('prod_setor', ctx, id); void setores.carregar() }} />
+        <VinculoLista ctx={ctx} alvo="setor" rows={setores.rows} onDel={async (id) => { await remover('prod_setor', ctx, id); void setores.carregar() }} />
       </Bloco>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
@@ -286,7 +381,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
           <div style={{ marginBottom: 10 }}>
             <SugerirDoPonto ctx={ctx} rpc="fn_prod_sugerir_cargos" tabela="prod_cargo" jaExistentes={cargos.rows.length} onAdd={() => void cargos.carregar()} />
           </div>
-          <Chips rows={cargos.rows} label={(r) => <>{String(r.nome)}</>} onDel={async (id) => { await remover('prod_cargo', ctx, id); void cargos.carregar() }} />
+          <VinculoLista ctx={ctx} alvo="cargo" rows={cargos.rows} onDel={async (id) => { await remover('prod_cargo', ctx, id); void cargos.carregar() }} />
         </Bloco>
 
         <Bloco titulo="Unidades de medida (kg é o padrão do abate)">
