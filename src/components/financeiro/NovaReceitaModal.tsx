@@ -7,6 +7,7 @@ interface NovaReceitaModalProps {
   aberto: boolean
   onFechar: () => void
   onSucesso?: (receitaId: string) => void
+  initial?: { clienteId?: string; clienteNome?: string; valor?: string; descricao?: string }
 }
 
 export default function NovaReceitaModal({
@@ -14,6 +15,7 @@ export default function NovaReceitaModal({
   aberto,
   onFechar,
   onSucesso,
+  initial,
 }: NovaReceitaModalProps) {
   if (!aberto) return null
 
@@ -45,6 +47,7 @@ export default function NovaReceitaModal({
       >
         <NovaReceitaForm
           companyId={companyId}
+          initial={initial}
           onSucesso={(id) => {
             onSucesso?.(id)
             onFechar()
