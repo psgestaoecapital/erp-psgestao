@@ -59,6 +59,7 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
   const router = useRouter()
   const [d, setD] = useState<Saldos | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showComp, setShowComp] = useState(false)
 
   useEffect(() => {
     if (!companyId) return
@@ -138,8 +139,13 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
             {fmt(d.gerencial.total)}
           </div>
           <div style={{ fontSize: 11.5, color: COLORS.cinza, marginTop: 8 }}>saldo inicial + títulos liquidados</div>
+          <button type="button" onClick={() => setShowComp(true)}
+            style={{ marginTop: 8, fontSize: 11.5, fontWeight: 600, color: COLORS.espresso, background: 'transparent', border: `1px solid ${COLORS.linha}`, borderRadius: 8, padding: '4px 10px', cursor: 'pointer' }}>
+            🔍 Como é composto?
+          </button>
         </div>
       </div>
+      {showComp && <SaldoComposicaoModal companyId={companyId} onClose={() => setShowComp(false)} />}
 
       {/* Faixa de diferença — só quando há extrato importado (guarda anti-ruído) */}
       {d.tem_extrato && d.diferenca && temLeitura && (
@@ -178,6 +184,75 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Composição do saldo (chamados #23 Julia / #25 Jordana) — explica de onde vem o número:
+// por conta, saldo inicial (na SUA data) + recebido − pago = saldo. E mostra a DATA que o cálculo
+// USA hoje — se divergir da data da conta, a própria tela mostra o bug (fix per-conta vem depois).
+type CompConta = { nome: string; saldo_inicial: number; data_saldo_inicial: string | null; data_diverge_do_calculo: boolean; recebido: number; pago: number; saldo: number }
+type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; saldo_composto: number; saldo_gerencial_atual: number }
+const dBR = (s: string | null) => s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—'
+
+function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
+  const [c, setC] = useState<Composicao | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let ignore = false
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_saldo_composicao', { p_company_ids: [companyId] })
+      if (!ignore) { setC(data as Composicao); setLoading(false) }
+    })()
+    return () => { ignore = true }
+  }, [companyId])
+  const algumaDiverge = !!c?.contas?.some((x) => x.data_diverge_do_calculo && x.saldo_inicial > 0)
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 20, width: 'min(620px,100%)', maxHeight: '90vh', overflowY: 'auto', color: COLORS.espresso }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>Como o saldo é composto</div>
+        <div style={{ fontSize: 12.5, color: COLORS.cinza, marginBottom: 14 }}>Por conta: saldo inicial (na data dele) + recebido − pago = saldo. É assim que o número do topo é calculado.</div>
+        {loading ? <div style={{ fontSize: 13, color: COLORS.cinza }}>Carregando…</div>
+          : !c?.ok ? <div style={{ fontSize: 13, color: COLORS.cinza }}>Sem dados de saldo para esta empresa.</div>
+          : (
+            <>
+              {algumaDiverge && (
+                <div style={{ background: COLORS.ambarSoft, border: `1px solid #F0DCB0`, borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, color: COLORS.ambar, lineHeight: 1.5 }}>
+                  ⚠️ O cálculo de hoje usa a data <b>{dBR(c.data_efetiva_calculo_atual)}</b> para <b>todas</b> as contas (a mais antiga). As contas marcadas 🔶 têm data própria diferente — os recebimentos entre uma data e outra entram em duplicidade. É o que faz o saldo não bater.
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {c.contas.map((a) => (
+                  <div key={a.nome} style={{ border: `1px solid ${COLORS.linha}`, borderRadius: 10, padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {a.nome}
+                      {a.data_diverge_do_calculo && a.saldo_inicial > 0 && <span title="data própria diferente da usada no cálculo" style={{ fontSize: 11 }}>🔶</span>}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.85)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+                      {fmt(a.saldo_inicial)} <span style={{ color: COLORS.cinza }}>em {dBR(a.data_saldo_inicial)}</span>
+                      {' · '}<span style={{ color: COLORS.verde }}>+ {fmt(a.recebido)} recebido</span>
+                      {' · '}<span style={{ color: COLORS.vermelho }}>− {fmt(a.pago)} pago</span>
+                      {' = '}<b>{fmt(a.saldo)}</b>
+                    </div>
+                  </div>
+                ))}
+                {(c.sem_conta.recebido > 0 || c.sem_conta.pago > 0) && (
+                  <div style={{ border: `1px dashed ${COLORS.linha}`, borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: COLORS.cinza }}>
+                    <b>Sem conta atribuída</b> · + {fmt(c.sem_conta.recebido)} recebido · − {fmt(c.sem_conta.pago)} pago
+                    <div style={{ fontSize: 11, marginTop: 2 }}>Títulos liquidados sem conta bancária definida — não dá pra atribuir a uma conta.</div>
+                  </div>
+                )}
+              </div>
+              <div style={{ borderTop: `1px solid ${COLORS.linha}`, marginTop: 12, paddingTop: 10, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Soma das contas (cada uma na sua data)</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.saldo_composto)}</b></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: COLORS.cinza, marginTop: 4 }}><span>Saldo gerencial que o sistema mostra hoje</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(c.saldo_gerencial_atual)}</span></div>
+              </div>
+            </>
+          )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: COLORS.espresso, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Fechar</button>
+        </div>
+      </div>
     </div>
   )
 }
