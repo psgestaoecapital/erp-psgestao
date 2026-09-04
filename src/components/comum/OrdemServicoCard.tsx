@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
 import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // chamado #20 Fase 2 · NFS-e (serviços) da OS
+import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'   // chamado #20 Fase 3 · NF-e (peças) da OS
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 
@@ -818,12 +819,21 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
             {/* #20 Fase 2 · financeiro antes da nota (§3): faturada a OS avulsa, libera a NFS-e de serviços.
                 OS via pedido emite pelo fluxo do pedido (DrawerPedido), não aqui. */}
             {!os.pedido_id && (
-              <EmitirNFSeOSButton
-                osId={os.id}
-                companyId={os.company_id}
-                buttonStyle={btnSec}
-                onEmitida={() => onFlash?.('NFS-e enviada — o status atualiza sozinho em Notas Fiscais.')}
-              />
+              <>
+                <EmitirNFSeOSButton
+                  osId={os.id}
+                  companyId={os.company_id}
+                  buttonStyle={btnSec}
+                  onEmitida={() => onFlash?.('NFS-e enviada — o status atualiza sozinho em Notas Fiscais.')}
+                />
+                {/* #20 Fase 3 · NF-e de peça (produto). Só peça de catálogo com NCM entra; texto livre fica de fora. */}
+                <EmitirNFeOSButton
+                  osId={os.id}
+                  companyId={os.company_id}
+                  buttonStyle={btnSec}
+                  onEmitida={() => onFlash?.('NF-e enviada — o status atualiza sozinho em Notas Fiscais.')}
+                />
+              </>
             )}
           </>
         ) : podeFaturar ? (
