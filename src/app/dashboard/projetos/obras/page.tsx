@@ -42,6 +42,7 @@ export default function ObrasPage() {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState('')
   const [obraAberta, setObraAberta] = useState<Obra | null>(null)
+  const [obraFiscal, setObraFiscal] = useState<Obra | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -116,13 +117,13 @@ export default function ObrasPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
               {aba === 'principais' ? (
                 <>
-                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} />
-                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} />
+                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
                 </>
               ) : (
                 <>
-                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} />
-                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} />
+                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
                 </>
               )}
             </div>
@@ -130,23 +131,24 @@ export default function ObrasPage() {
         )}
       </div>
       {obraAberta && <EscopoModal obra={obraAberta} onClose={() => setObraAberta(null)} onChanged={() => void carregar()} />}
+      {obraFiscal && <FiscalObraModal obra={obraFiscal} onClose={() => setObraFiscal(null)} onSaved={() => void carregar()} />}
     </div>
   )
 }
 
-function Coluna({ titulo, cor, obras, onStatus, busy, onAbrir }: { titulo: string; cor: string; obras: Obra[]; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void }) {
+function Coluna({ titulo, cor, obras, onStatus, busy, onAbrir, onFiscal }: { titulo: string; cor: string; obras: Obra[]; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
   return (
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: cor, fontWeight: 700, marginBottom: 8 }}>{titulo} · {obras.length}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {obras.length === 0 ? <div style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>—</div> :
-          obras.map((o) => <ObraCard key={o.id} o={o} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} />)}
+          obras.map((o) => <ObraCard key={o.id} o={o} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
       </div>
     </div>
   )
 }
 
-function ObraCard({ o, onStatus, busy, onAbrir }: { o: Obra; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void }) {
+function ObraCard({ o, onStatus, busy, onAbrir, onFiscal }: { o: Obra; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
   const st = ST[o.status] ?? { label: o.status, cor: MUT }
   const local = [o.cidade, o.uf].filter(Boolean).join('/')
   return (
@@ -175,6 +177,9 @@ function ObraCard({ o, onStatus, busy, onAbrir }: { o: Obra; onStatus: (o: Obra,
         <Link href={`/dashboard/projetos/obras/${o.id}/linha-do-tempo?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }}>
           Linha do tempo
         </Link>
+        <button onClick={() => onFiscal(o)} title="CNO e endereço para a NFS-e de construção (E0370)" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }}>
+          🧾 Dados fiscais
+        </button>
         {(PROXIMOS[o.status] ?? []).map((p) => (
           <button key={p.s} onClick={() => onStatus(o, p.s)} disabled={busy}
             style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: busy ? 'default' : 'pointer', border: `1px solid ${LINE}`, background: p.s === 'concluida' ? '#EAF5EE' : '#FFF', color: p.s === 'cancelada' ? VERM : ESP, opacity: busy ? 0.5 : 1 }}>
@@ -319,6 +324,89 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
                 </table>
               </div>
             )}
+        </div>
+      </div>
+    </div>
+  )
+}
+// #18 · Dados fiscais da obra (CNO/endereço) — o que a NFS-e de construção precisa (E0370). A nota
+// aponta pra obra; corrigir aqui corrige a próxima nota. CNO OU código municipal basta.
+function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ endereco: '', numero_endereco: '', bairro: '', cidade: '', uf: '', cep: '', codigo_ibge_municipio: '', cno: '', art: '', codigo_obra_municipal: '' })
+  const [carregando, setCarregando] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    void supabase.rpc('fn_obra_fiscal_obter', { p_obra_id: obra.id }).then(({ data }) => {
+      if (!alive) return
+      const r = data as Record<string, string | null> | null
+      if (r?.ok) setF((p) => ({ ...p,
+        endereco: r.endereco ?? '', numero_endereco: r.numero_endereco ?? '', bairro: r.bairro ?? '',
+        cidade: r.cidade ?? '', uf: r.uf ?? '', cep: r.cep ?? '', codigo_ibge_municipio: r.codigo_ibge_municipio ?? '',
+        cno: r.cno ?? '', art: r.art ?? '', codigo_obra_municipal: r.codigo_obra_municipal ?? '' }))
+      setCarregando(false)
+    })
+    return () => { alive = false }
+  }, [obra.id]) // eslint-disable-line react-hooks/set-state-in-effect
+  const temId = !!(f.cno.trim() || f.codigo_obra_municipal.trim())
+  const endOk = !!(f.endereco.trim() && f.cep.trim() && f.codigo_ibge_municipio.trim())
+  async function salvar() {
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_obra_salvar_fiscal', {
+      p_obra_id: obra.id, p_endereco: f.endereco, p_numero_endereco: f.numero_endereco, p_bairro: f.bairro,
+      p_cidade: f.cidade, p_uf: f.uf, p_cep: f.cep, p_codigo_ibge_municipio: f.codigo_ibge_municipio,
+      p_cno: f.cno, p_art: f.art, p_codigo_obra_municipal: f.codigo_obra_municipal,
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro ?? error?.message ?? 'falha ao salvar')); return }
+    onSaved(); onClose()
+  }
+  const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff', width: '100%', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { fontSize: 10.5, color: MUT, fontWeight: 600, display: 'block', marginBottom: 3 }
+  const campo = (label: string, k: keyof typeof f, ph = '') => (
+    <label style={{ display: 'block' }}><span style={lbl}>{label}</span>
+      <input style={inp} value={f[k]} placeholder={ph} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
+  )
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '4vh 12px', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 640 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0' }}>
+          <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{obra.numero} · Dados fiscais da obra</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <div style={{ fontSize: 12, color: MUT, marginBottom: 12, lineHeight: 1.5 }}>
+            Estes dados vão na <b>NFS-e de construção</b> (exigência E0370 do Fisco). A nota aponta para a obra — corrigir aqui corrige a próxima nota. <b>CNO ou código de obra municipal</b> é obrigatório.
+          </div>
+          {carregando ? <div style={{ padding: 20, textAlign: 'center', color: MUT }}>Carregando…</div> : (
+            <>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Identificação da obra</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 14 }}>
+                {campo('CNO (Cadastro Nacional de Obras)', 'cno', 'ex.: 12.345.67890/12')}
+                {campo('Código de obra municipal (se o município usar)', 'codigo_obra_municipal')}
+                {campo('ART / RRT (opcional)', 'art')}
+              </div>
+              {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12 }}>⚠️ Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</div>}
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Endereço da obra</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 6 }}>
+                {campo('Logradouro', 'endereco')}
+                {campo('Número', 'numero_endereco')}
+                {campo('Bairro', 'bairro')}
+                {campo('Cidade', 'cidade')}
+                {campo('UF', 'uf', 'PR')}
+                {campo('CEP', 'cep')}
+                {campo('Código IBGE do município', 'codigo_ibge_municipio', 'ex.: 4127700')}
+              </div>
+              {!endOk && <div style={{ fontSize: 11.5, color: '#B45309', margin: '8px 0 0' }}>⚠️ Logradouro, CEP e código IBGE são exigidos pelo leiaute da NFS-e nacional.</div>}
+              {msg && <div style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: '8px 10px', fontSize: 12, marginTop: 12 }}>{msg}</div>}
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={() => void salvar()} disabled={busy} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: GOLD, color: '#fff', fontWeight: 700, fontSize: 13, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? 'Salvando…' : 'Salvar dados fiscais'}</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
