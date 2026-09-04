@@ -11,14 +11,14 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
-  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
 }
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
 const semColor = (s: string) => s === 'verde' ? { c: C.green, bg: C.greenBg } : s === 'amarelo' ? { c: C.amber, bg: C.amberBg } : { c: C.red, bg: C.redBg }
 
-type Veic = { id: string; chassi: string; placa: string | null; modelo: string | null; ano_modelo: number | null; situacao: string; dias_patio: number; custo_acumulado: number; semaforo: string; foto_url: string | null }
+type Veic = { id: string; chassi: string; placa: string | null; modelo: string | null; ano_modelo: number | null; situacao: string; dias_patio: number; custo_acumulado: number; semaforo: string; foto_url: string | null; tem_custo: boolean; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
 
 export default function PatioPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -31,6 +31,7 @@ function Inner() {
   const [rows, setRows] = useState<Veic[]>([])
   const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({})
   const [filtro, setFiltro] = useState('todos')
+  const [compl, setCompl] = useState('todos') // completude: todos | sem_custo | sem_dados
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
 
@@ -53,7 +54,14 @@ function Inner() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
-  const visiveis = useMemo(() => filtro === 'todos' ? rows : rows.filter((r) => r.situacao === filtro), [rows, filtro])
+  const visiveis = useMemo(() => rows.filter((r) =>
+    (filtro === 'todos' || r.situacao === filtro) &&
+    (compl === 'todos'
+      || (compl === 'sem_custo' && !r.tem_custo)
+      || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0))
+  ), [rows, filtro, compl])
+  const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
+  const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
 
@@ -64,17 +72,31 @@ function Inner() {
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🚗 Comércio · Revenda</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Pátio de veículos</h1>
         </div>
-        <button onClick={() => setNovo(true)} style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer' }}>+ Novo veículo</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {(nSemDados > 0 || nSemCusto > 0) && (
+            <a href="/dashboard/revenda/completar" style={{ padding: '9px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
+              🧩 Completar dados{nSemDados ? ` (${nSemDados})` : ''}
+            </a>
+          )}
+          <button onClick={() => setNovo(true)} style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer' }}>+ Novo veículo</button>
+        </div>
       </div>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 14px' }}>Dias parados e custo acumulado são calculados na hora — nunca gravados. Semáforo pelas faixas da empresa.</p>
 
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
           <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={inp}>
             <option value="todos">todas</option>
             {SIT.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: C.espM }}>Completude&nbsp;
+          <select value={compl} onChange={(e) => setCompl(e.target.value)} style={inp}>
+            <option value="todos">todas</option>
+            <option value="sem_custo">sem custo de aquisição{nSemCusto ? ` (${nSemCusto})` : ''}</option>
+            <option value="sem_dados">sem dados do veículo{nSemDados ? ` (${nSemDados})` : ''}</option>
           </select>
         </label>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s) · ordenado por dias parados</span>
@@ -103,9 +125,17 @@ function Inner() {
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700 }}>● {v.dias_patio} dia(s)</span>
                     <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>{v.situacao.replace('_', ' ')}</span>
                   </div>
-                  {v.custo_acumulado > 0
+                  {/* Selo 1 · custo (margem). Selo 2 · dados do veículo — nomeia o que falta,
+                      NUNCA afirma "não emite" (veicProd é do 0km; usado é decisão do contador). */}
+                  {v.tem_custo
                     ? <div style={{ marginTop: 8, fontSize: 12, color: C.espM }}>custo acumulado <b style={{ color: C.esp }}>{brl(v.custo_acumulado)}</b></div>
                     : <div style={{ marginTop: 8, fontSize: 11, color: '#8A4B08', background: '#FAEEDA', borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}>⚠️ sem custo de aquisição — margem não calcula</div>}
+                  {(v.fiscais_faltantes?.length ?? 0) > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 10.5, color: C.blue, background: '#EEF3FB', borderRadius: 6, padding: '4px 8px', lineHeight: 1.35 }}
+                      title="Necessário para veículo novo; para usado, a confirmar com o contador">
+                      🚙 faltam dados do veículo: {v.fiscais_faltantes!.join(', ')}
+                    </div>
+                  )}
                 </div>
               </div>
             )
