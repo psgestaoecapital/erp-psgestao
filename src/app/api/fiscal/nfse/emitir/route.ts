@@ -16,6 +16,9 @@ interface EmitirNFSeBody {
   erpReceberId?: string
   // receber-nfse-seletor-servico-v1
   servicoId?: string
+  // chamado #18 · E0370: serviço de construção aponta para a obra (endereço/CNO vêm dela). Fase A usa
+  // pra trava (bloqueia sem obra/CNO); Fase B leva o grupo de obra ao XML.
+  obraId?: string
   manual?: {
     descricaoServico: string
     valorServicos: number
@@ -83,6 +86,7 @@ export const POST = withAuth(async (req: NextRequest) => {
       const { data, error } = await supabaseAdmin.rpc('fn_receber_nfse_dados', {
         p_receber_id: body.erpReceberId,
         p_servico_id: body.servicoId,
+        p_obra_id: body.obraId ?? null,
       })
       if (error) {
         return NextResponse.json({ ok: false, mensagem: error.message }, { status: 400 })
