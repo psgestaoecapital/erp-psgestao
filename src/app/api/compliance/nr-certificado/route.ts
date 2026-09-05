@@ -60,5 +60,13 @@ export const POST = withAuth(async (req: NextRequest) => {
   const anterior = (pres as { certificado_url?: string | null }).certificado_url
   if (anterior && anterior !== path) await sb.storage.from(BUCKET).remove([anterior]).catch(() => {})
 
-  return NextResponse.json({ ok: true, path })
+  // ponte #27: o certificado vira documento na ficha do funcionário (se o treinamento tiver tipo
+  // de documento vinculado). Falha aqui NÃO invalida o upload — o certificado já está gravado.
+  let documento: unknown = null
+  try {
+    const { data: sync } = await sb.rpc('fn_nr_sincronizar_documento', { p_presenca_id: presencaId })
+    documento = sync
+  } catch { /* sync best-effort; o anexo do certificado permanece válido */ }
+
+  return NextResponse.json({ ok: true, path, documento })
 }) as unknown as (req: NextRequest) => Promise<NextResponse>

@@ -14,7 +14,11 @@ const C = {
   ink: '#1a1a1a', green: '#2d6a3e', greenBg: '#e8f3ec', amber: '#8a6a10', amberBg: '#fdf4e0',
   red: '#a02020', redBg: '#fce8e8', gray: '#6b6b6b',
 }
-type Tipo = { id: string; nr_codigo: string | null; nome: string; carga_horaria: number | null; validade_meses: number | null; reciclagem_meses: number | null; obrigatorio: boolean; ativo: boolean; turmas: number }
+type Tipo = { id: string; nr_codigo: string | null; nome: string; carga_horaria: number | null; validade_meses: number | null; reciclagem_meses: number | null; obrigatorio: boolean; ativo: boolean; turmas: number
+  // ponte #27 · mesclado de fn_nr_tipos_config_listar
+  tipo_documento_id?: string | null; tipo_documento_nome?: string | null; gera_documento?: boolean; alerta?: string | null; certificados_sem_documento?: number }
+type DocTipo = { id: string; nome: string }
+type CfgTipo = { tipo_id: string; tipo_documento_id: string | null; tipo_documento_nome: string | null; gera_documento: boolean; alerta: string | null; certificados_sem_documento: number }
 type Turma = { id: string; tipo_id: string; nr_codigo: string | null; tipo_nome: string; data_realizacao: string | null; instrutor: string | null; carga_horaria: number | null; local: string | null; status: string; observacao: string | null; presentes: number; com_certificado: number }
 type MatrizItem = { funcionario_id: string; funcionario: string; cargo: string | null; setor: string | null; nr_codigo: string | null; tipo_nome: string; data_realizacao: string | null; validade_ate: string | null; dias_para_vencer: number | null; tem_certificado: boolean; status: string }
 type Func = { id: string; nome_completo: string; cargo: string | null; setor: string | null }
@@ -27,6 +31,15 @@ const semaforo: Record<string, { c: string; bg: string; label: string }> = {
   sem_validade: { c: C.gray, bg: '#eee', label: 'Sem validade' },
 }
 const fmtData = (s: string | null) => s ? new Date(s + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
+// #27 · badge honesto do que o certificado da turma gera na ficha do funcionário (lê o `alerta` da RPC)
+function docBadge(t: Tipo): { c: string; bg: string; label: string } {
+  switch (t.alerta) {
+    case 'nao_gera_documento': return { c: C.amber, bg: C.amberBg, label: 'Não gera documento na ficha — configure o tipo' }
+    case 'sem_validade': return { c: C.amber, bg: C.amberBg, label: 'Sem validade — ficará fora dos alertas de vencimento' }
+    case 'validade_do_tipo_documento': return { c: C.gray, bg: '#eee', label: 'Validade herdada do tipo de documento' }
+    default: return { c: C.green, bg: C.greenBg, label: t.tipo_documento_nome ? `Gera: ${t.tipo_documento_nome}` : 'Gera documento na ficha' }
+  }
+}
 
 export default function TreinamentosNRPage() {
   const { sel, selInfo, loading: loadingCia } = useCompanyIds()
@@ -63,14 +76,25 @@ export default function TreinamentosNRPage() {
 // ─────────────────────────────────────────── Aba Tipos ───────────────────────────────────────────
 function AbaTipos({ companyId }: { companyId: string }) {
   const [tipos, setTipos] = useState<Tipo[]>([])
+  const [docTipos, setDocTipos] = useState<DocTipo[]>([])   // #27 · opções de tipo de documento (ficha)
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<Partial<Tipo> | null>(null)
   const [erro, setErro] = useState('')
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    try { const r = await rpc<{ tipos: Tipo[] }>('fn_nr_tipo_listar', { p_company_id: companyId }); setTipos(r.tipos || []) }
-    catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
+    try {
+      const [r, cfg, { data: dt }] = await Promise.all([
+        rpc<{ tipos: Tipo[] }>('fn_nr_tipo_listar', { p_company_id: companyId }),
+        rpc<{ tipos: CfgTipo[] }>('fn_nr_tipos_config_listar', { p_company_id: companyId }),
+        supabase.from('compliance_tipos_documento').select('id, nome').eq('categoria', 'funcionario').eq('ativo', true).order('nome'),
+      ])
+      const byId = new Map((cfg.tipos || []).map(c => [c.tipo_id, c]))
+      setTipos((r.tipos || []).map(t => { const c = byId.get(t.id)
+        return { ...t, tipo_documento_id: c?.tipo_documento_id ?? null, tipo_documento_nome: c?.tipo_documento_nome ?? null,
+                 gera_documento: c?.gera_documento ?? false, alerta: c?.alerta ?? null, certificados_sem_documento: c?.certificados_sem_documento ?? 0 } }))
+      setDocTipos((dt as DocTipo[]) || [])
+    } catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
   }, [companyId])
   useEffect(() => { void carregar() }, [carregar])
 
@@ -78,11 +102,13 @@ function AbaTipos({ companyId }: { companyId: string }) {
     if (!edit) return
     setErro('')
     try {
-      await rpc('fn_nr_tipo_salvar', { p_company_id: companyId, p_payload: {
+      // #27 · salva o tipo e (encadeado) vincula o tipo de documento gerado na ficha do funcionário.
+      const saved = await rpc<{ id: string }>('fn_nr_tipo_salvar', { p_company_id: companyId, p_payload: {
         id: edit.id ?? null, nr_codigo: edit.nr_codigo ?? '', nome: edit.nome ?? '',
         carga_horaria: edit.carga_horaria ?? null, validade_meses: edit.validade_meses ?? null,
         reciclagem_meses: edit.reciclagem_meses ?? null, obrigatorio: edit.obrigatorio ?? false,
       } })
+      if (saved?.id) await rpc('fn_nr_tipo_vincular_documento', { p_company_id: companyId, p_tipo_id: saved.id, p_tipo_documento_id: edit.tipo_documento_id || null })
       setEdit(null); void carregar()
     } catch (e) { setErro((e as Error).message) }
   }
@@ -114,6 +140,15 @@ function AbaTipos({ companyId }: { companyId: string }) {
                   {t.carga_horaria ? `${t.carga_horaria}h · ` : ''}{t.validade_meses ? `validade ${t.validade_meses} meses` : 'sem validade'}
                   {t.reciclagem_meses ? ` · reciclagem ${t.reciclagem_meses} meses` : ''} · {t.turmas} turma(s)
                 </div>
+                {/* #27 · badges honestos (RD-51): o que o certificado da turma gera na ficha do funcionário */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                  {(() => { const b = docBadge(t); return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: b.bg, color: b.c, borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{b.label}</span> })()}
+                  {(t.certificados_sem_documento ?? 0) > 0 && (
+                    <span style={{ background: C.amberBg, color: C.amber, borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
+                      {t.certificados_sem_documento} certificado(s) ainda não estão na ficha
+                    </span>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <IconBtn title="Editar" onClick={() => setEdit(t)}><Pencil size={15} /></IconBtn>
@@ -135,6 +170,14 @@ function AbaTipos({ companyId }: { companyId: string }) {
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5, color: C.espresso, cursor: 'pointer', marginTop: 4 }}>
             <input type="checkbox" checked={edit.obrigatorio ?? false} onChange={e => setEdit({ ...edit, obrigatorio: e.target.checked })} /> Obrigatório
           </label>
+          {/* #27 · vínculo explícito: ao anexar o certificado da turma, gera este documento na ficha do funcionário */}
+          <Campo label="Documento gerado na ficha do funcionário">
+            <select style={inp()} value={edit.tipo_documento_id ?? ''} onChange={e => setEdit({ ...edit, tipo_documento_id: e.target.value || null })}>
+              <option value="">Não gera documento na ficha</option>
+              {docTipos.map(d => <option key={d.id} value={d.id}>{d.nome}</option>)}
+            </select>
+            <div style={{ fontSize: 11.5, color: C.gray, marginTop: 4 }}>Ao anexar o certificado de uma turma deste treinamento, o documento nasce na ficha do funcionário (aba Documentos). Vazio = não gera.</div>
+          </Campo>
           {erro && <div style={erroBox()}>{erro}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
             <BtnGhost onClick={() => setEdit(null)}>Cancelar</BtnGhost>
@@ -260,6 +303,7 @@ function PresencaPanel({ companyId, turma, onClose }: { companyId: string; turma
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
+  const [msgAnexo, setMsgAnexo] = useState<{ tipo: 'ok' | 'aviso'; texto: string } | null>(null)   // #27
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -289,6 +333,12 @@ function PresencaPanel({ companyId, turma, onClose }: { companyId: string; turma
       const fd = new FormData(); fd.append('file', file); fd.append('company_id', companyId); fd.append('presenca_id', presencaId)
       const res = await authFetch('/api/compliance/nr-certificado', { method: 'POST', body: fd })
       const j = await res.json(); if (!res.ok || !j.ok) throw new Error(j.error || 'falha no upload')
+      // #27 · a ponte devolve se o certificado virou documento na ficha (e por quê, quando não)
+      const d = j.documento as { ok?: boolean; gerou?: boolean; acao?: string; motivo?: string; nr_codigo?: string } | null
+      if (d?.ok === false) setMsgAnexo({ tipo: 'aviso', texto: 'Certificado anexado, mas houve erro ao gerar o documento na ficha. A equipe PS foi avisada.' })
+      else if (d?.gerou) setMsgAnexo({ tipo: 'ok', texto: d.acao === 'alterou' ? 'Certificado anexado — documento atualizado na ficha do funcionário.' : 'Certificado anexado — documento criado na ficha do funcionário.' })
+      else if (d?.motivo === 'tipo_documento_nao_vinculado') setMsgAnexo({ tipo: 'aviso', texto: `Certificado anexado. Não gerou documento na ficha: o treinamento ${d.nr_codigo ?? ''} ainda não tem tipo de documento configurado (aba Tipos).` })
+      else setMsgAnexo({ tipo: 'ok', texto: 'Certificado anexado.' })
       await carregar()
     } catch (e) { alert((e as Error).message) } finally { setUploading(null) }
   }
@@ -317,6 +367,9 @@ function PresencaPanel({ companyId, turma, onClose }: { companyId: string; turma
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
             <Btn onClick={salvarPresenca} disabled={salvando}>{salvando ? <Loader2 size={14} className="spin" /> : <ClipboardCheck size={14} />} Salvar presença ({sel.size})</Btn>
           </div>
+          {msgAnexo && (
+            <div style={{ background: msgAnexo.tipo === 'ok' ? C.greenBg : C.amberBg, color: msgAnexo.tipo === 'ok' ? C.green : C.amber, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{msgAnexo.texto}</div>
+          )}
           {presencas.filter(p => p.presente).length > 0 && (
             <div>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: C.espresso, marginBottom: 6 }}>Certificados</div>
