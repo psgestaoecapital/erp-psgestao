@@ -26,6 +26,8 @@ type Item = {
   tem_ia: boolean; ia_analise: Record<string, unknown> | null; ia_analisado_em: string | null; n_anexos: number
   created_at: string; dias_aberta: number
   erro_assinatura: string | null; origem_sugestao_id: string | null; ultimo_erro_comparacao: string | null
+  resposta_origem: string | null; resposta_redigida_por: string | null; resposta_aprovada_por: string | null
+  redator_nome: string | null; aprovador_nome: string | null
 }
 
 export default function AtendimentoPage() {
@@ -214,6 +216,12 @@ function Inner() {
                           {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : 'Resposta escrita — aguardando aprovação'}
                         </div>
                         <div style={{ color: C.esp }}>{it.resposta}</div>
+                        {/* quem REDIGIU × quem APROVOU — o CEO precisa ver o que está aprovando e quem escreveu;
+                            o texto chega ao autor como do aprovador, mas o registro guarda os dois (RD-51/RD-58). */}
+                        <div style={{ fontSize: 10.5, color: C.espM, marginTop: 6 }}>
+                          Rascunho escrito {it.resposta_origem === 'assistente' ? <b>pelo assistente (IA)</b> : it.redator_nome ? <>por <b>{it.redator_nome}</b></> : 'manualmente'}
+                          {it.resposta_aprovada && it.aprovador_nome ? <> · aprovado por <b>{it.aprovador_nome}</b></> : ''}
+                        </div>
                         {!it.resposta_aprovada && (
                           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                             {ehAdmin
