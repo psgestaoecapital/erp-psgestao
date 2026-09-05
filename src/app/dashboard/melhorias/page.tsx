@@ -43,6 +43,8 @@ function Inner() {
   // rota #5: se o usuário chegou pelo ícone do cabeçalho, a rota anterior vem no ?from — assim ele
   // não precisa explicar onde estava. Fallback: a própria tela de melhorias.
   const rotaOrigem = (searchParams.get('from') || '').trim() || '/dashboard/melhorias'
+  // deep link do e-mail de aviso: /dashboard/melhorias?n=<numero> abre direto no chamado (rola + destaca)
+  const focoNumero = (searchParams.get('n') || '').trim()
 
   const [f, setF] = useState({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' })
   const [foto, setFoto] = useState<FotoSel>(null)
@@ -54,6 +56,7 @@ function Inner() {
   const [ehSuporte, setEhSuporte] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
+  const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
 
   const carregar = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -68,6 +71,17 @@ function Inner() {
     setMinhas(((data as Minha[]) ?? []).map((m) => ({ ...m, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null })))
   }, [verArquivadas])
   useEffect(() => { void carregar() }, [carregar])
+
+  // chegou pelo link do e-mail (?n=): rola até o chamado e o destaca por alguns segundos.
+  useEffect(() => {
+    if (!focoNumero || !minhas.length) return
+    const el = document.getElementById('chamado-' + focoNumero)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setFoco(focoNumero)
+    const t = setTimeout(() => setFoco(null), 4000)
+    return () => clearTimeout(t)
+  }, [focoNumero, minhas])
 
   // O AUTOR confirma se a resposta resolveu. Funcionou → concluida; não → reabre com motivo (RD-38:
   // quem diz que resolveu é quem abriu, não o merge). É AÇÃO SEPARADA da conversa — mandar foto nova
@@ -181,7 +195,7 @@ function Inner() {
       {minhas.length === 0 ? <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>{verArquivadas ? 'Nenhuma sugestão arquivada.' : 'Você ainda não abriu nenhuma.'}</div> : (
         <div style={{ display: 'grid', gap: 8 }}>
           {minhas.map((m) => (
-            <div key={m.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+            <div key={m.id} id={`chamado-${m.numero}`} style={{ background: C.white, border: `1px solid ${foco === String(m.numero) ? C.gold : C.border}`, borderRadius: 10, padding: 12, boxShadow: foco === String(m.numero) ? `0 0 0 2px ${C.gold}` : 'none', transition: 'box-shadow .3s, border-color .3s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
                 <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
