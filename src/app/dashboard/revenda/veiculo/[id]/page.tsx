@@ -85,14 +85,16 @@ function Inner() {
   useEffect(() => { void carregar() }, [carregar])
 
   // Composição real do negócio: só existe quando há venda. RPC de leitura (fn_veic_venda_composicao).
-  // setComp só é chamado dentro do .then (nunca síncrono no corpo do efeito).
+  // setComp só é chamado dentro do IIFE async (nunca síncrono no corpo do efeito).
   useEffect(() => {
     const vid = venda?.id
     let vivo = true
-    const carga: Promise<(Composicao & { ok?: boolean }) | null> = vid
-      ? supabase.rpc('fn_veic_venda_composicao', { p_venda_id: vid }).then(({ data }) => data as (Composicao & { ok?: boolean }) | null)
-      : Promise.resolve(null)
-    void carga.then((r) => { if (vivo) setComp(r && r.ok !== false ? r : null) })
+    void (async () => {
+      const r = vid
+        ? ((await supabase.rpc('fn_veic_venda_composicao', { p_venda_id: vid })).data as (Composicao & { ok?: boolean }) | null)
+        : null
+      if (vivo) setComp(r && r.ok !== false ? r : null)
+    })()
     return () => { vivo = false }
   }, [venda?.id])
 
