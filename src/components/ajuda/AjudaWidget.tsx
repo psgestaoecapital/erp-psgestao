@@ -40,6 +40,7 @@ export default function AjudaWidget() {
   const setAberto = (v: boolean) => (v ? abrir() : fechar())
   const [termo, setTermo] = useState('')
   const [resultados, setResultados] = useState<Resultado[]>([])
+  const [modo, setModo] = useState<string | null>(null)  // #28: 'preciso' | 'ampliado' | 'vazio' — tela avisa quando afrouxou
   const [buscando, setBuscando] = useState(false)
   const [buscou, setBuscou] = useState(false)
   const [feedback, setFeedback] = useState<Record<string, 'sim' | 'nao'>>({})
@@ -64,23 +65,25 @@ export default function AjudaWidget() {
 
   const buscar = useCallback(async (q: string) => {
     const t = q.trim()
-    if (t.length < 2) { setResultados([]); setBuscou(false); return }
+    if (t.length < 2) { setResultados([]); setBuscou(false); setModo(null); return }
     setBuscando(true)
     const { data } = await supabase.rpc('fn_ajuda_buscar', {
       p_company_id: activeCompany, p_termo: t, p_rota_atual: pathname, p_papel: papelInt(papel),
     })
-    const r = data as { ok?: boolean; resultados?: Resultado[] } | null
+    const r = data as { ok?: boolean; modo?: string; resultados?: Resultado[] } | null
     const lista = r?.ok ? (r.resultados ?? []) : []
-    setResultados(lista); setBuscando(false); setBuscou(true)
-    // gap (RD-51): busca sem resposta → registra pra curadoria (uma vez por termo).
-    if (lista.length === 0 && gapRegistrado.current !== t.toLowerCase()) {
+    setResultados(lista); setModo(r?.ok ? (r.modo ?? null) : null); setBuscando(false); setBuscou(true)
+    // §4.1: registra TODA pergunta (uma vez por termo), resolveu=false de saída — inclusive quando
+    // acha algo. Vira 'true' num novo evento quando o usuário abre um artigo / marca 👍 (RD-51/#28:
+    // sem isso não existe fila de gaps real, e ninguém vê que o acervo está invisível).
+    if (gapRegistrado.current !== t.toLowerCase()) {
       gapRegistrado.current = t.toLowerCase()
       registrarUso(t, false, null)
     }
   }, [activeCompany, pathname, papel, registrarUso])
 
   const onTermo = (v: string) => {
-    setTermo(v); setBuscou(false); setIaResp(null); setIaFeedback(null); setChamadoCriado(false)   // nova pergunta zera a resposta da IA
+    setTermo(v); setBuscou(false); setModo(null); setIaResp(null); setIaFeedback(null); setChamadoCriado(false)   // nova pergunta zera a resposta da IA
     if (timer.current) clearTimeout(timer.current)
     if (v.trim().length < 2) { setResultados([]); return }
     timer.current = setTimeout(() => { void buscar(v) }, 300)
@@ -262,6 +265,14 @@ export default function AjudaWidget() {
                     /* sem artigo: a IA diz que não sabe e já oferece o chamado com a pergunta escrita (aceites 4/5) */
                     chamadoCTA
                   )}
+                </div>
+              )}
+
+              {/* §4.2 · badge honesto: no modo ampliado a busca afrouxou (OR sobre os lexemas). O usuário
+                  precisa saber que estes são os mais PRÓXIMOS, não um casamento exato (RD-51/58, #28). */}
+              {modo === 'ampliado' && resultados.length > 0 && (
+                <div style={{ background: '#FBF3E2', border: `1px solid ${GOLD}`, borderRadius: 10, padding: '9px 12px', marginBottom: 10, fontSize: 12.5, color: ESP }}>
+                  Não achei nada exato. Estes são os artigos mais próximos:
                 </div>
               )}
 
