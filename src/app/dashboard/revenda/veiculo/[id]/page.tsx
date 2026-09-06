@@ -225,6 +225,8 @@ function Inner() {
 
       <VistoriaBloco veiculoId={id} />
 
+      <PrecificacaoBloco veiculoId={id} />
+
       <Bloco titulo="Custos no chassi">
         <NovoCusto veiculoId={id} onSaved={() => { setMsg('Custo lançado.'); void carregar() }} onErro={setErro} />
         {custos.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Nenhum custo ainda.</div> : (
@@ -561,6 +563,41 @@ function VistoriaBloco({ veiculoId }: { veiculoId: string }) {
         <div>
           <div style={{ fontSize: 13, color: C.esp }}>Vistoria <b>em andamento</b> — {st.avaliados ?? 0} de {st.total ?? 80} itens.</div>
           <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Continuar ({st.avaliados ?? 0} de {st.total ?? 80}) →</a>
+        </div>
+      )}
+    </Bloco>
+  )
+}
+
+// Onda 6A · seção Precificação na ficha. Sem preço → "não precificado" que ensina; com preço → mostra.
+function PrecificacaoBloco({ veiculoId }: { veiculoId: string }) {
+  const [st, setSt] = useState<{ loading: boolean; preco_venda?: number | null; preco_minimo?: number | null; precificado_em?: string | null }>({ loading: true })
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('veic_veiculo').select('preco_venda, preco_minimo, precificado_em').eq('id', veiculoId).maybeSingle()
+      if (!vivo) return
+      const r = data as { preco_venda: number | null; preco_minimo: number | null; precificado_em: string | null } | null
+      setSt({ loading: false, preco_venda: r?.preco_venda ?? null, preco_minimo: r?.preco_minimo ?? null, precificado_em: r?.precificado_em ?? null })
+    })()
+    return () => { vivo = false }
+  }, [veiculoId])
+  const rota = `/dashboard/revenda/veiculo/${veiculoId}/precificacao`
+  if (st.loading) return null
+  return (
+    <Bloco titulo="Precificação">
+      {st.preco_venda == null ? (
+        <div>
+          <div style={{ fontSize: 12.5, color: C.espM, lineHeight: 1.5 }}>Este veículo ainda não foi precificado — ninguém definiu por quanto ele sai.</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Precificar →</a>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Preço de venda</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.preco_venda)}</div></div>
+            {st.preco_minimo != null && <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Piso</div><div style={{ fontSize: 15, fontWeight: 700 }}>{brl(st.preco_minimo)}</div></div>}
+          </div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.blue, fontSize: 13, textDecoration: 'none' }}>ver / reprecificar →</a>
         </div>
       )}
     </Bloco>
