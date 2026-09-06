@@ -223,6 +223,8 @@ function Inner() {
 
       {comp && <ComposicaoBloco comp={comp} margemAlvo={margem} />}
 
+      <VistoriaBloco veiculoId={id} />
+
       <Bloco titulo="Custos no chassi">
         <NovoCusto veiculoId={id} onSaved={() => { setMsg('Custo lançado.'); void carregar() }} onErro={setErro} />
         {custos.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Nenhum custo ainda.</div> : (
@@ -507,6 +509,61 @@ function Card({ l, v, sub, destaque }: { l: string; v: string; sub?: string; des
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? C.gold : C.esp, marginTop: 2 }}>{v}</div>
       {sub && <div style={{ fontSize: 10.5, color: C.amber, marginTop: 2 }}>{sub}</div>}
     </div>
+  )
+}
+
+// Onda 5B · seção Vistoria na ficha (§4). Estados: sem vistoria / em andamento / concluída.
+// Auto-carrega a última vistoria do veículo (RLS por company_id). setSt só dentro do async (nunca síncrono).
+function VistoriaBloco({ veiculoId }: { veiculoId: string }) {
+  const [st, setSt] = useState<{ loading: boolean; situacao?: string; total?: number; avaliados?: number; previsao?: number; reparo?: number; troca?: number; fotosOk?: number; fotosObrig?: number }>({ loading: true })
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data: vs } = await supabase.from('insp_vistoria').select('id,situacao,previsao_total').eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId).neq('situacao', 'cancelada').order('iniciada_em', { ascending: false }).limit(1)
+      const row = ((vs as { id: string; situacao: string; previsao_total: number }[]) ?? [])[0]
+      if (!row) { if (vivo) setSt({ loading: false }); return }
+      const { data: j } = await supabase.rpc('fn_insp_vistoria_obter', { p_vistoria_id: row.id })
+      const r = j as { ok?: boolean; itens_total?: number; itens_avaliados?: number; vistoria?: { previsao_total?: number }; regioes?: { foto_obrigatoria: boolean; tem_foto: boolean; itens: { estado: string | null }[] }[] } | null
+      if (!vivo) return
+      if (!r?.ok) { setSt({ loading: false, situacao: row.situacao, previsao: row.previsao_total }); return }
+      const its = (r.regioes ?? []).flatMap((x) => x.itens)
+      setSt({
+        loading: false, situacao: row.situacao, total: r.itens_total, avaliados: r.itens_avaliados,
+        previsao: r.vistoria?.previsao_total ?? row.previsao_total,
+        reparo: its.filter((i) => i.estado === 'reparo').length, troca: its.filter((i) => i.estado === 'troca').length,
+        fotosOk: (r.regioes ?? []).filter((x) => x.foto_obrigatoria && x.tem_foto).length,
+        fotosObrig: (r.regioes ?? []).filter((x) => x.foto_obrigatoria).length,
+      })
+    })()
+    return () => { vivo = false }
+  }, [veiculoId])
+
+  const rota = `/dashboard/revenda/veiculo/${veiculoId}/vistoria`
+  if (st.loading) return null
+  return (
+    <Bloco titulo="Vistoria">
+      {!st.situacao ? (
+        <div>
+          <div style={{ fontSize: 12.5, color: C.espM, lineHeight: 1.5 }}>Este veículo ainda não foi vistoriado. A vistoria é o que faz o custo aparecer.</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Iniciar vistoria →</a>
+        </div>
+      ) : st.situacao === 'concluida' ? (
+        <div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Previsão de gastos</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.previsao ?? 0)}</div></div>
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Cobertura</div><div style={{ fontSize: 16, fontWeight: 700 }}>{st.avaliados} de {st.total} itens{(st.total ?? 0) > (st.avaliados ?? 0) ? <span style={{ color: C.amber, fontSize: 11, fontWeight: 400 }}> · {(st.total ?? 0) - (st.avaliados ?? 0)} não avaliados</span> : null}</div></div>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.espM, marginTop: 8 }}>{st.reparo} em reparo · {st.troca} em troca · fotos {st.fotosOk}/{st.fotosObrig} regiões</div>
+          <div style={{ fontSize: 11.5, color: C.espL, marginTop: 6 }}>A previsão alimenta a precificação. O custo em Contas a Pagar nasce quando o gasto acontece (lançar como custo — Onda 9).</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.blue, fontSize: 13, textDecoration: 'none' }}>ver detalhes da vistoria →</a>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: 13, color: C.esp }}>Vistoria <b>em andamento</b> — {st.avaliados ?? 0} de {st.total ?? 80} itens.</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Continuar ({st.avaliados ?? 0} de {st.total ?? 80}) →</a>
+        </div>
+      )}
+    </Bloco>
   )
 }
 
