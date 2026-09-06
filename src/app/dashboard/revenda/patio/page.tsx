@@ -31,7 +31,8 @@ function Inner() {
   const [rows, setRows] = useState<Veic[]>([])
   const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({})
   const [filtro, setFiltro] = useState('todos')
-  const [compl, setCompl] = useState('todos') // completude: todos | sem_custo | sem_dados
+  const [compl, setCompl] = useState('todos') // completude: todos | sem_custo | sem_dados | sem_vistoria
+  const [comVistoria, setComVistoria] = useState<Set<string>>(new Set()) // Onda 5B: ids com vistoria (não cancelada)
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
 
@@ -50,6 +51,9 @@ function Inner() {
       ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
       setFotoUrls(m)
     } else setFotoUrls({})
+    // Onda 5B: quais veículos já têm vistoria (badge "sem vistoria" nos demais)
+    const { data: vst } = await supabase.from('insp_vistoria').select('alvo_id').eq('company_id', companyId).eq('alvo_tabela', 'veic_veiculo').neq('situacao', 'cancelada')
+    setComVistoria(new Set(((vst as { alvo_id: string }[]) ?? []).map((x) => x.alvo_id)))
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -58,10 +62,12 @@ function Inner() {
     (filtro === 'todos' || r.situacao === filtro) &&
     (compl === 'todos'
       || (compl === 'sem_custo' && !r.tem_custo)
-      || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0))
-  ), [rows, filtro, compl])
+      || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0)
+      || (compl === 'sem_vistoria' && !comVistoria.has(r.id)))
+  ), [rows, filtro, compl, comVistoria])
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
+  const nSemVistoria = useMemo(() => rows.filter((r) => !comVistoria.has(r.id)).length, [rows, comVistoria])
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
 
@@ -97,6 +103,7 @@ function Inner() {
             <option value="todos">todas</option>
             <option value="sem_custo">sem custo de aquisição{nSemCusto ? ` (${nSemCusto})` : ''}</option>
             <option value="sem_dados">sem dados do veículo{nSemDados ? ` (${nSemDados})` : ''}</option>
+            <option value="sem_vistoria">sem vistoria{nSemVistoria ? ` (${nSemVistoria})` : ''}</option>
           </select>
         </label>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s) · ordenado por dias parados</span>
@@ -124,6 +131,7 @@ function Inner() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700 }}>● {v.dias_patio} dia(s)</span>
                     <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>{v.situacao.replace('_', ' ')}</span>
+                    {!comVistoria.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>sem vistoria</span>}
                   </div>
                   {/* Selo 1 · custo (margem). Selo 2 · dados do veículo — nomeia o que falta,
                       NUNCA afirma "não emite" (veicProd é do 0km; usado é decisão do contador). */}
