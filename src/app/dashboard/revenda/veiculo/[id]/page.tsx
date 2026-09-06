@@ -24,6 +24,20 @@ type Custo = { id: string; categoria: string; descricao: string | null; valor: n
 type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
 type Reserva = { id: string; cliente_nome: string | null; valor_sinal: number | null; reservado_ate: string | null; situacao: string; receber_id: string | null }
 type Venda = { id: string; cliente_nome: string | null; valor_venda: number | null; desconto_embutido_troca: number | null; valor_entrada: number | null; valor_financiado: number | null; banco_nome: string | null; retorno_banco: number | null; situacao: string }
+// Onda 1 · composição real do negócio (fn_veic_venda_composicao). As duas margens, badge de incerteza honesto.
+type UsadoRecebido = { placa: string | null; marca: string | null; modelo: string | null; entrou_no_estoque_por: number | null }
+type Composicao = {
+  venda_id: string; valor_venda: number | null; valor_aquisicao: number | null; custos_lancados: number; custo_total: number
+  sobrepreco_troca: number | null; usado_recebido: UsadoRecebido | null
+  financiamento: { entrada: number | null; financiado: number | null; banco: string | null; retorno_banco: number | null }
+  margem_aparente: number; margem_real: number; margem_aparente_pct: number | null; margem_real_pct: number | null
+  dias_em_estoque: number | null; tem_nota: boolean; incerteza: string | null
+}
+const INCERTEZA_BADGE: Record<string, string> = {
+  troca_sem_avaliacao_sobrepreco_desconhecido: 'Sobrepreço desconhecido — avaliação do usado não informada',
+  veiculo_sem_valor_de_aquisicao: 'Sem valor de aquisição — margem não calculável',
+  nenhum_custo_lancado_neste_veiculo: 'Nenhum custo lançado — a margem pode estar otimista',
+}
 
 export default function FichaPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -38,6 +52,7 @@ function Inner() {
   const [reserva, setReserva] = useState<Reserva | null>(null)
   const [venda, setVenda] = useState<Venda | null>(null)
   const [compl, setCompl] = useState<Compl | null>(null)
+  const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -68,6 +83,20 @@ function Inner() {
   }, [id])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
+
+  // Composição real do negócio: só existe quando há venda. RPC de leitura (fn_veic_venda_composicao).
+  // setComp só é chamado dentro do IIFE async (nunca síncrono no corpo do efeito).
+  useEffect(() => {
+    const vid = venda?.id
+    let vivo = true
+    void (async () => {
+      const r = vid
+        ? ((await supabase.rpc('fn_veic_venda_composicao', { p_venda_id: vid })).data as (Composicao & { ok?: boolean }) | null)
+        : null
+      if (vivo) setComp(r && r.ok !== false ? r : null)
+    })()
+    return () => { vivo = false }
+  }, [venda?.id])
 
   const custoAcumulado = useMemo(() => (v?.valor_aquisicao ?? 0) + custos.reduce((s, c) => s + (Number(c.valor) || 0), 0), [v, custos])
   const precoMinimo = useMemo(() => custoAcumulado * (1 + margem / 100), [custoAcumulado, margem])
@@ -192,6 +221,8 @@ function Inner() {
         )}
       </Bloco>
 
+      {comp && <ComposicaoBloco comp={comp} margemAlvo={margem} />}
+
       <Bloco titulo="Custos no chassi">
         <NovoCusto veiculoId={id} onSaved={() => { setMsg('Custo lançado.'); void carregar() }} onErro={setErro} />
         {custos.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Nenhum custo ainda.</div> : (
@@ -225,7 +256,7 @@ function Inner() {
       </Bloco>
 
       {modal === 'reserva' && v && <ReservaModal companyId={v.company_id} veiculoId={id} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Veículo reservado.'); void carregar() }} onErro={setErro} />}
-      {modal === 'venda' && v && <VendaModal companyId={v.company_id} veiculoId={id} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Venda registrada.'); void carregar() }} onErro={setErro} />}
+      {modal === 'venda' && v && <VendaModal companyId={v.company_id} veiculoId={id} custoTotal={custoAcumulado} margemAlvo={margem} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Venda registrada.'); void carregar() }} onErro={setErro} />}
     </div>
   )
 }
@@ -290,12 +321,27 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
   )
 }
 
-function VendaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
+function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
+  // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
+  // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
+  const n = (s: string): number => Number(String(s).replace(',', '.')) || 0
+  const vendaN = n(f.valor_venda)
+  const retornoN = n(f.retorno_banco)
+  const trocaValPreenchido = troca.on && troca.valor_troca.trim() !== ''
+  const avalPreenchida = troca.valor_avaliacao.trim() !== ''
+  // sobrepreço só existe com os DOIS valores; sem avaliação é desconhecido (não zero) — RD-51/58
+  const sobrepreco: number | null = trocaValPreenchido && avalPreenchida ? n(troca.valor_troca) - n(troca.valor_avaliacao) : null
+  const trocaSemAval = trocaValPreenchido && !avalPreenchida
+  const margemAparente = vendaN - custoTotal
+  const margemReal = vendaN - (sobrepreco ?? 0) - custoTotal + retornoN
+  const pct = (m: number): number | null => custoTotal > 0 ? Math.round((m / custoTotal * 100) * 100) / 100 : null
+  const realPct = pct(margemReal)
+  const abaixoMeta = realPct != null && realPct < margemAlvo
   const descontoEmbutido = (Number(troca.valor_troca) || 0) - (Number(troca.valor_avaliacao) || 0)
   const vvNum = Number(String(f.valor_venda).replace(',', '.'))
   const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
@@ -361,6 +407,33 @@ function VendaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { compan
               ? `Desconto embutido na venda: ${brl(descontoEmbutido)}. O usado entra no estoque pelo valor de avaliação (${brl(Number(troca.valor_avaliacao) || 0)}), não pelo valor dado — assim as duas margens ficam certas.`
               : 'O usado entra no estoque pelo valor de avaliação. Se o valor dado for maior, a diferença vira desconto embutido na venda.'}
           </div>
+        </div>
+      )}
+
+      {/* §3.2 · simulador ao vivo — as duas margens antes de fechar */}
+      {trocaSemAval && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8, padding: '8px 11px', marginTop: 12, fontSize: 12, color: '#8A4B08' }}>
+          ⚠️ Sem a avaliação do usado não é possível saber a margem real deste negócio.
+        </div>
+      )}
+      {vendaN > 0 && (
+        <div style={{ background: C.cream, borderRadius: 10, padding: 12, marginTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Margem antes de fechar</div>
+          {custoTotal > 0 ? (
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <div>
+                <div style={{ fontSize: 10, color: C.espM }}>aparente</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.espM }}>{pct(margemAparente)}% <span style={{ fontSize: 11, fontWeight: 400 }}>{brl(margemAparente)}</span></div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.gold }}>real {sobrepreco == null && troca.on ? '(sem avaliação)' : ''}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: abaixoMeta ? C.red : C.green }}>{realPct}% <span style={{ fontSize: 11, fontWeight: 400, color: C.espM }}>{brl(margemReal)}</span></div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: C.amber }}>⚠️ Veículo sem custo de aquisição — a margem não é calculável.</div>
+          )}
+          {abaixoMeta && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>Margem real abaixo da meta ({margemAlvo}%) — este negócio precisa de aprovação.</div>}
         </div>
       )}
 
@@ -433,6 +506,71 @@ function Card({ l, v, sub, destaque }: { l: string; v: string; sub?: string; des
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM }}>{l}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? C.gold : C.esp, marginTop: 2 }}>{v}</div>
       {sub && <div style={{ fontSize: 10.5, color: C.amber, marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+
+// Composição real do negócio · Onda 1. Mostra as DUAS margens (aparente × real), o sobrepreço da troca
+// e o valor pelo qual o usado entrou no estoque. Badge honesto de incerteza (RD-51/58). A margem real
+// abaixo da meta sinaliza aprovação — sinal visual; a alçada formal ainda não existe (fora do escopo).
+function LinhaComp({ label, valor, sinal = '', destaque }: { label: string; valor: number | null; sinal?: '' | '−' | '+'; destaque?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0', color: destaque ? C.esp : C.espM }}>
+      <span>{label}</span>
+      <span style={{ fontFamily: 'monospace', fontWeight: destaque ? 700 : 400 }}>{sinal}{brl(valor ?? 0)}</span>
+    </div>
+  )
+}
+function ComposicaoBloco({ comp, margemAlvo }: { comp: Composicao; margemAlvo: number }) {
+  const abaixoMeta = comp.margem_real_pct != null && comp.margem_real_pct < margemAlvo
+  const badge = comp.incerteza ? (INCERTEZA_BADGE[comp.incerteza] ?? comp.incerteza) : null
+  const u = comp.usado_recebido
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Composição real do negócio</div>
+      {badge && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8, padding: '7px 10px', marginBottom: 10, fontSize: 12, color: '#8A4B08' }}>⚠️ {badge}</div>
+      )}
+      <div style={{ borderBottom: `1px solid ${C.cream}`, paddingBottom: 6, marginBottom: 8 }}>
+        <LinhaComp label="Venda" valor={comp.valor_venda} destaque />
+        <LinhaComp label="Aquisição" valor={comp.valor_aquisicao} sinal="−" />
+        <LinhaComp label={comp.custos_lancados > 0 ? 'Custos lançados' : 'Custos lançados (nenhum)'} valor={comp.custos_lancados} sinal="−" />
+        {comp.sobrepreco_troca != null && <LinhaComp label="Sobrepreço na troca" valor={comp.sobrepreco_troca} sinal="−" />}
+        {!!comp.financiamento.retorno_banco && <LinhaComp label="Retorno do banco" valor={comp.financiamento.retorno_banco} sinal="+" />}
+      </div>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <div>
+          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM }}>Margem aparente</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.espM }}>{comp.margem_aparente_pct != null ? `${comp.margem_aparente_pct}%` : brl(comp.margem_aparente)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.gold }}>Margem real ← a verdadeira</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: abaixoMeta ? C.red : C.green }}>{comp.margem_real_pct != null ? `${comp.margem_real_pct}%` : brl(comp.margem_real)} <span style={{ fontSize: 12, fontWeight: 400, color: C.espM }}>{brl(comp.margem_real)}</span></div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.espL, marginTop: 8 }}>
+        {comp.dias_em_estoque != null && <span>{comp.dias_em_estoque} dia(s) em estoque</span>}
+        {!comp.tem_nota && <span style={{ color: C.amber }}> · ⚠️ sem nota fiscal</span>}
+      </div>
+      {u && (
+        <div style={{ background: '#FBF7EF', border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginTop: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.esp }}>Usado recebido{u.placa ? ` — ${u.placa}` : ''}{u.modelo ? ` · ${u.marca ?? ''} ${u.modelo}` : ''}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}>
+            <span style={{ color: C.espM }}>Entrou no estoque por</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{u.entrou_no_estoque_por != null ? brl(u.entrou_no_estoque_por) : 'avaliação não informada'}</span>
+          </div>
+          {comp.sobrepreco_troca != null && comp.sobrepreco_troca > 0 && (
+            <div style={{ fontSize: 11.5, color: '#8A4B08', marginTop: 6, lineHeight: 1.5 }}>
+              Você deu {brl(comp.sobrepreco_troca)} a mais no usado para fechar. Isso é desconto, não avaliação. O usado entra no estoque pelo valor de avaliação — o que ele realmente vale.
+            </div>
+          )}
+        </div>
+      )}
+      {abaixoMeta && (
+        <div style={{ background: C.redBg, border: `1px solid ${C.red}44`, borderRadius: 8, padding: '7px 10px', marginTop: 10, fontSize: 12, color: C.red }}>
+          Margem real ({comp.margem_real_pct}%) abaixo da meta ({margemAlvo}%). Este negócio precisa de aprovação.
+        </div>
+      )}
     </div>
   )
 }
