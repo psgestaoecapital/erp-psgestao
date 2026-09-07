@@ -33,10 +33,19 @@ SELECT public.fn_vincular_modulo_aos_planos('revenda_demanda');
 -- ------------------------------------------------------------
 -- BLOCO 2 · alinhar o badge ao que se sabe (RD-51/58)
 --   percentual_pronto era NOT NULL — o SPEC pediu NULL ("nao medimos", nunca 0). Relaxa a constraint
---   antes: NULL e o honesto; nenhum componente de tela le percentual_pronto (so uma edge function,
---   que apenas o interpola em texto), entao NULL nao quebra a UI.
+--   antes: NULL e o honesto; nenhum componente de src/ le percentual_pronto — so a edge function
+--   insight-auditor, ajustada neste PR para tratar NULL ("nao medido") sem quebrar.
+--   Aprovado pelo CEO com 3 condicoes: manter o default 0 (nenhuma das 418 linhas muda de valor),
+--   edge function tratando NULL, e a convencao documentada no COMMENT abaixo.
 -- ------------------------------------------------------------
 ALTER TABLE public.feature_catalog ALTER COLUMN percentual_pronto DROP NOT NULL;
+-- condicao 1: mantem o default 0 (ja era 0). DROP NOT NULL nao mexe no default nem nos valores;
+-- as 160 features 'previsto' seguem com 0. Reforcado explicito para nao haver duvida.
+ALTER TABLE public.feature_catalog ALTER COLUMN percentual_pronto SET DEFAULT 0;
+
+-- condicao 3: documenta a convencao — sem isso 0 vira ambiguo ("nao comecou" vs "nao sabemos")
+COMMENT ON COLUMN public.feature_catalog.percentual_pronto IS
+  'Completude da feature: NULL = nao medido; 0 = previsto, nao iniciado; 1-99 = parcial; 100 = pronto e auditado.';
 
 UPDATE public.feature_catalog
    SET status = 'parcial',
