@@ -53,20 +53,22 @@ CREATE POLICY veic_procura_rw ON public.veic_procura FOR ALL
   WITH CHECK (company_id IN (SELECT get_user_company_ids()) OR is_admin());
 
 -- ------------------------------------------------------------
--- 3.1 · abre oportunidade a partir de um veiculo do patio.
---       REUSA fn_crm_oportunidade_obter_ou_criar (nao cria funil paralelo) e grava veic_interesse_id.
+-- 3.1 · abre oportunidade a partir de um veiculo do patio. Grava no funil da GE (nao cria funil paralelo).
+--       UMA oportunidade POR VEICULO de interesse: reusa a oportunidade aberta do cliente SO se for do
+--       MESMO veiculo, ou se ainda estiver sem veiculo (aí preenche). Se ele ja tem uma aberta de OUTRO
+--       veiculo, cria uma NOVA (com a placa no titulo) — nunca sobrescreve o interesse anterior.
 --       cliente: {cliente_id} existente, ou {nome, contato} para criar inline.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_veic_oportunidade_abrir(p_veiculo_id uuid, p_cliente jsonb, p_user uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_comp uuid; v_vec record; v_cli uuid; v_titulo text; v_op uuid; v_aval uuid;
+  v_comp uuid; v_vec record; v_cli uuid; v_titulo text; v_op uuid; v_aval uuid; v_novo boolean := false;
 BEGIN
   v_comp := public.fn_veic_acesso(p_veiculo_id);
   IF v_comp IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
 
-  SELECT id, marca, modelo, ano_modelo INTO v_vec FROM veic_veiculo WHERE id = p_veiculo_id AND deleted_at IS NULL;
+  SELECT id, marca, modelo, ano_modelo, placa INTO v_vec FROM veic_veiculo WHERE id = p_veiculo_id AND deleted_at IS NULL;
   IF v_vec.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'veiculo_nao_encontrado'); END IF;
 
   -- resolve o cliente: usa o informado, ou cria inline (nome + contato)
@@ -83,22 +85,49 @@ BEGIN
       RETURN jsonb_build_object('ok', false, 'erro', 'cliente_de_outra_empresa'); END IF;
   END IF;
 
+  -- titulo com a placa (ou o ano se nao houver placa) — ajuda a distinguir carros do mesmo modelo
   v_titulo := COALESCE(NULLIF(btrim(p_cliente->>'titulo'),''),
-    btrim(COALESCE(v_vec.marca,'') || ' ' || COALESCE(v_vec.modelo,''))
-      || CASE WHEN v_vec.ano_modelo IS NOT NULL THEN ' ' || v_vec.ano_modelo::text ELSE '' END);
-  v_titulo := NULLIF(v_titulo, '');
-
-  -- o funil e o da GE (etapas, semaforo, historico, desempenho continuam sendo os dela)
-  v_op := public.fn_crm_oportunidade_obter_ou_criar(v_cli, v_titulo);
+    NULLIF(btrim(
+      btrim(COALESCE(v_vec.marca,'') || ' ' || COALESCE(v_vec.modelo,''))
+      || CASE WHEN NULLIF(btrim(v_vec.placa),'') IS NOT NULL THEN ' ' || v_vec.placa
+              WHEN v_vec.ano_modelo IS NOT NULL THEN ' ' || v_vec.ano_modelo::text ELSE '' END), ''),
+    'Interesse em veiculo');
 
   v_aval := NULLIF(p_cliente->>'veic_avaliacao_id','')::uuid;
-  UPDATE erp_crm_oportunidade
-     SET veic_interesse_id = p_veiculo_id,
-         veic_avaliacao_id = COALESCE(v_aval, veic_avaliacao_id),
-         updated_at = now()
-   WHERE id = v_op;
 
-  RETURN jsonb_build_object('ok', true, 'oportunidade_id', v_op, 'cliente_id', v_cli, 'veiculo_id', p_veiculo_id);
+  -- 1) ja existe oportunidade aberta do cliente PARA ESTE veiculo -> reusa
+  SELECT id INTO v_op FROM erp_crm_oportunidade
+   WHERE cliente_id = v_cli AND deleted_at IS NULL AND etapa NOT IN ('ganho','perdido')
+     AND veic_interesse_id = p_veiculo_id
+   ORDER BY created_at DESC LIMIT 1;
+
+  -- 2) senao, oportunidade aberta ainda SEM veiculo -> preenche (nao sobrescreve outro carro)
+  IF v_op IS NULL THEN
+    SELECT id INTO v_op FROM erp_crm_oportunidade
+     WHERE cliente_id = v_cli AND deleted_at IS NULL AND etapa NOT IN ('ganho','perdido')
+       AND veic_interesse_id IS NULL
+     ORDER BY created_at DESC LIMIT 1;
+    IF v_op IS NOT NULL THEN
+      UPDATE erp_crm_oportunidade SET veic_interesse_id = p_veiculo_id, updated_at = now() WHERE id = v_op;
+    END IF;
+  END IF;
+
+  -- 3) senao, cria uma NOVA (uma oportunidade por veiculo de interesse) no funil da GE
+  IF v_op IS NULL THEN
+    INSERT INTO erp_crm_oportunidade (company_id, cliente_id, titulo, etapa, origem, veic_interesse_id, created_by)
+    VALUES (v_comp, v_cli, v_titulo, 'prospeccao', 'revenda', p_veiculo_id, p_user)
+    RETURNING id INTO v_op;
+    v_novo := true;
+  END IF;
+
+  -- avaliacao (troca), quando informada, sem apagar a existente
+  IF v_aval IS NOT NULL THEN
+    UPDATE erp_crm_oportunidade SET veic_avaliacao_id = v_aval, updated_at = now()
+     WHERE id = v_op AND veic_avaliacao_id IS DISTINCT FROM v_aval;
+  END IF;
+
+  RETURN jsonb_build_object('ok', true, 'oportunidade_id', v_op, 'cliente_id', v_cli,
+    'veiculo_id', p_veiculo_id, 'nova', v_novo);
 END $function$;
 
 -- ------------------------------------------------------------
