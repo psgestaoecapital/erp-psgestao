@@ -142,7 +142,7 @@ TELA ANALISADA:
 
 FEATURES ESPERADAS NESTA TELA (do Manual Vivo):
 ${featuresEsperadas.length > 0 ? featuresEsperadas.map((f: any, i: number) =>
-  `${i+1}. ${f.feature_id} - ${f.titulo} (status: ${f.status_atual} ${f.percentual_pronto}%)
+  `${i+1}. ${f.feature_id} - ${f.titulo} (status: ${f.status_atual}${f.percentual_pronto != null ? ` ${f.percentual_pronto}%` : ` — nao medido`})
      ${f.objetivo_final ? `Objetivo: ${f.objetivo_final}` : ''}
      ${f.elementos_ui_esperados ? `UI esperada: ${JSON.stringify(f.elementos_ui_esperados)}` : ''}`
 ).join("\n") : "NENHUMA feature mapeada para esta rota ainda. Avalie pela area + titulo + conteudo visual."}
