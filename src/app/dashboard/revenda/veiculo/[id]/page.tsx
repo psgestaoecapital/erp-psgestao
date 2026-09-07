@@ -227,6 +227,8 @@ function Inner() {
 
       {comp && <ComposicaoBloco comp={comp} margemAlvo={margem} />}
 
+      <InteressadosBloco veiculoId={id} companyId={v.company_id} veiculoLabel={`${v.marca || ''} ${v.modelo || ''}`.trim()} onMsg={setMsg} onErro={setErro} />
+
       <VistoriaBloco veiculoId={id} />
 
       <PreparacaoBloco veiculoId={id} companyId={v.company_id} onMsg={setMsg} onErro={setErro} onChange={() => void carregar()} />
@@ -785,6 +787,133 @@ function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: s
       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Onda 10 · bloco "Interessados" na ficha (§4.1). Estende o CRM da GE: mostra as oportunidades
+// abertas com veic_interesse_id = este carro. Vazio = "ninguém demonstrou interesse ainda" (não "0 leads").
+type Interessado = { oportunidade_id: string; cliente: string; contato: string | null; etapa: string; valor_estimado: number | null; responsavel_nome: string | null; dias_na_etapa: number }
+const ETAPA_LABEL: Record<string, string> = {
+  prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita', orcando: 'Orçando',
+  proposta_enviada: 'Proposta enviada', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido',
+}
+function waLink(contato: string, msg: string) {
+  const d = contato.replace(/\D/g, '')
+  return `https://wa.me/${d.length <= 11 ? '55' + d : d}?text=${encodeURIComponent(msg)}`
+}
+
+function InteressadosBloco({ veiculoId, companyId, veiculoLabel, onMsg, onErro }: { veiculoId: string; companyId: string; veiculoLabel: string; onMsg: (m: string) => void; onErro: (m: string) => void }) {
+  const [st, setSt] = useState<{ loading: boolean; total: number; lista: Interessado[] }>({ loading: true, total: 0, lista: [] })
+  const [modal, setModal] = useState(false)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_veic_interessados', { p_veiculo_id: veiculoId })
+      if (!vivo) return
+      const r = data as { ok?: boolean; total?: number; interessados?: Interessado[] } | null
+      setSt({ loading: false, total: r?.total ?? 0, lista: r?.ok ? (r.interessados ?? []) : [] })
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, tick])
+  if (st.loading) return null
+  return (
+    <Bloco titulo={`Interessados${st.total ? ` · ${st.total}` : ''}`}>
+      {st.lista.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Ninguém demonstrou interesse ainda.</div>
+      ) : (
+        <div>
+          {st.lista.map((i) => (
+            <div key={i.oportunidade_id} style={{ borderTop: `1px solid ${C.cream}`, padding: '9px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 160 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{i.cliente}</div>
+                <div style={{ fontSize: 11.5, color: C.espM }}>
+                  <span style={{ fontWeight: 700, color: C.gold }}>{ETAPA_LABEL[i.etapa] ?? i.etapa.replace('_', ' ')}</span>
+                  {' · '}{i.dias_na_etapa} {i.dias_na_etapa === 1 ? 'dia' : 'dias'} na etapa
+                </div>
+              </div>
+              {i.contato && <span style={{ fontSize: 12, color: C.espM, fontFamily: 'monospace' }}>{i.contato}</span>}
+              {i.contato && <a href={waLink(i.contato, `Olá! Sobre o ${veiculoLabel || 'veículo'} que você tem interesse…`)} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#128C7E', textDecoration: 'none', border: '1px solid #128C7E', borderRadius: 7, padding: '4px 10px' }}>WhatsApp</a>}
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={() => setModal(true)} style={{ marginTop: 12, background: C.gold, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>+ Registrar interesse</button>
+      {modal && <RegistrarInteresseModal veiculoId={veiculoId} companyId={companyId} onClose={() => setModal(false)}
+        onSaved={(nome, temProcura) => { setModal(false); onMsg(`CRIOU o interesse de ${nome}${temProcura ? ' · e registrou a procura sem estoque' : ''}.`); setTick((t) => t + 1) }} onErro={onErro} />}
+    </Bloco>
+  )
+}
+
+// Registra o interesse neste carro (abre oportunidade no funil da GE via fn_veic_oportunidade_abrir).
+// E, no mesmo formulário (§4.4), opcionalmente registra o que o cliente procura e a loja não tem —
+// o único momento em que essa informação existe (depois se perde).
+function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErro }: { veiculoId: string; companyId: string; onClose: () => void; onSaved: (nome: string, temProcura: boolean) => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ nome: '', contato: '' })
+  const [proc, setProc] = useState({ on: false, marca: '', modelo: '', ano_min: '', ano_max: '', valor_ate: '', cambio: '' })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const procOk = !proc.on || !!proc.marca.trim() || !!proc.modelo.trim()
+  const podeEnviar = !!f.nome.trim() && procOk && !busy
+  async function salvar() {
+    setErro(null)
+    if (!f.nome.trim()) { setErro('Informe o nome do interessado.'); return }
+    if (proc.on && !proc.marca.trim() && !proc.modelo.trim()) { setErro('Para registrar a procura, informe ao menos marca ou modelo.'); return }
+    setBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const uid = user?.id ?? null
+    const { data, error } = await supabase.rpc('fn_veic_oportunidade_abrir', {
+      p_veiculo_id: veiculoId,
+      p_cliente: { nome: f.nome.trim(), contato: f.contato.trim() || null },
+      p_user: uid,
+    })
+    const r = data as { ok?: boolean; erro?: string; oportunidade_id?: string } | null
+    if (error || !r?.ok) { setBusy(false); onErro(error?.message || r?.erro || 'Falha ao registrar o interesse.'); return }
+    if (proc.on && (proc.marca.trim() || proc.modelo.trim())) {
+      await supabase.rpc('fn_veic_procura_registrar', {
+        p_company_id: companyId,
+        p_dados: {
+          oportunidade_id: r.oportunidade_id, cliente_nome: f.nome.trim(), contato: f.contato.trim() || null,
+          marca: proc.marca.trim() || null, modelo: proc.modelo.trim() || null,
+          ano_min: proc.ano_min || null, ano_max: proc.ano_max || null, valor_ate: proc.valor_ate || null, cambio: proc.cambio.trim() || null,
+        },
+        p_user: uid,
+      })
+    }
+    setBusy(false)
+    onSaved(f.nome.trim(), proc.on && (!!proc.marca.trim() || !!proc.modelo.trim()))
+  }
+  return (
+    <Modal titulo="Registrar interesse" onClose={onClose}>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} placeholder="nome do cliente *" style={{ ...inp, gridColumn: '1 / -1' }} />
+        <input value={f.contato} onChange={(e) => setF({ ...f, contato: e.target.value })} placeholder="telefone / WhatsApp" inputMode="tel" style={{ ...inp, gridColumn: '1 / -1' }} />
+      </div>
+      <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>Abre uma oportunidade no funil do CRM com este carro como interesse.</div>
+
+      <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '14px 0 4px', fontWeight: 700 }}>
+        <input type="checkbox" checked={proc.on} onChange={(e) => setProc({ ...proc, on: e.target.checked })} /> O cliente procura algo que não está no pátio
+      </label>
+      {proc.on && (
+        <div style={{ background: C.cream, borderRadius: 10, padding: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input value={proc.marca} onChange={(e) => setProc({ ...proc, marca: e.target.value })} placeholder="marca" style={inp} />
+            <input value={proc.modelo} onChange={(e) => setProc({ ...proc, modelo: e.target.value })} placeholder="modelo" style={inp} />
+            <input value={proc.ano_min} onChange={(e) => setProc({ ...proc, ano_min: e.target.value })} placeholder="ano de" inputMode="numeric" style={inp} />
+            <input value={proc.ano_max} onChange={(e) => setProc({ ...proc, ano_max: e.target.value })} placeholder="ano até" inputMode="numeric" style={inp} />
+            <input value={proc.valor_ate} onChange={(e) => setProc({ ...proc, valor_ate: e.target.value })} placeholder="até R$" inputMode="decimal" style={inp} />
+            <input value={proc.cambio} onChange={(e) => setProc({ ...proc, cambio: e.target.value })} placeholder="câmbio (opcional)" style={inp} />
+          </div>
+          <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Vira demanda em &quot;O que comprar&quot; — a procura que a loja não atendeu.</div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Registrar'}</button>
       </div>
     </Modal>
   )

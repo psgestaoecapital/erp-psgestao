@@ -35,6 +35,7 @@ function Inner() {
   const [comVistoria, setComVistoria] = useState<Set<string>>(new Set()) // Onda 5B: ids com vistoria (não cancelada)
   const [precificados, setPrecificados] = useState<Set<string>>(new Set()) // Onda 6A: ids com preco_venda definido
   const [emPreparacao, setEmPreparacao] = useState<Set<string>>(new Set()) // Onda 9: ids com OS de preparação aberta
+  const [interessados, setInteressados] = useState<Map<string, number>>(new Map()) // Onda 10: veiculo -> nº de oportunidades abertas
   const [resumoFiscal, setResumoFiscal] = useState<{ total: number; aptos: number; pendentes: number } | null>(null) // Onda 0
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
@@ -68,6 +69,11 @@ function Inner() {
     const { data: prep } = await supabase.rpc('fn_veic_preparacao_listar', { p_company_id: companyId, p_veiculo_id: null })
     const pl = prep as { ok?: boolean; os?: { veiculo_id: string; concluida: boolean }[] } | null
     setEmPreparacao(new Set((pl?.ok ? (pl.os ?? []) : []).filter((o) => !o.concluida).map((o) => o.veiculo_id)))
+    // Onda 10: nº de interessados (oportunidades abertas) por veículo — carro parado com muitos interessados é sinal de preço
+    const { data: ops } = await supabase.from('erp_crm_oportunidade').select('veic_interesse_id').eq('company_id', companyId).is('deleted_at', null).not('veic_interesse_id', 'is', null).not('etapa', 'in', '(ganho,perdido)')
+    const mp = new Map<string, number>()
+    ;((ops as { veic_interesse_id: string }[]) ?? []).forEach((o) => mp.set(o.veic_interesse_id, (mp.get(o.veic_interesse_id) ?? 0) + 1))
+    setInteressados(mp)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -104,6 +110,9 @@ function Inner() {
               🧩 Completar dados{nSemDados ? ` (${nSemDados})` : ''}
             </a>
           )}
+          <a href="/dashboard/revenda/demanda" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
+            🏆 O que comprar
+          </a>
           <a href="/dashboard/revenda/preparacao" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
             🔧 Preparação{nEmPreparacao ? ` (${nEmPreparacao})` : ''}
           </a>
@@ -169,6 +178,7 @@ function Inner() {
                     {emPreparacao.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }} title="Veículo com OS de preparação aberta — não deve ir ao anúncio até concluir">🔧 em preparação</span>}
                     {!comVistoria.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>sem vistoria</span>}
                     {!precificados.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>não precificado</span>}
+                    {(interessados.get(v.id) ?? 0) > 0 && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#FDF7E8', color: C.gold, fontWeight: 700 }} title="Oportunidades abertas com este carro. Muitos interessados + parado há tempo = sinal de preço.">❤ {interessados.get(v.id)} interessado{(interessados.get(v.id) ?? 0) > 1 ? 's' : ''}</span>}
                     {/* Onda 0: badge fiscal — pronto para nota (verde) ou faltam N campos (âmbar) */}
                     {(v.fiscais_faltantes?.length ?? 0) === 0
                       ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.greenBg, color: C.green, fontWeight: 700 }}>pronto para nota</span>
