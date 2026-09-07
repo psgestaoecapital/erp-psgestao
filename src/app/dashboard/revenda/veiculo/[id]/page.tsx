@@ -54,6 +54,7 @@ function Inner() {
   const [compl, setCompl] = useState<Compl | null>(null)
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
+  const [fiscalKey, setFiscalKey] = useState(0) // Onda 0: força recarregar a barra de completude após salvar dados
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [modal, setModal] = useState<'reserva' | 'venda' | null>(null)
@@ -172,9 +173,11 @@ function Inner() {
         <Card l={`Preço mínimo (margem ${margem}%)`} v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(precoMinimo) : 'não calcula'} sub={v.valor_aquisicao && v.valor_aquisicao > 0 ? 'antes de impostos — cálculo fiscal é a Onda 4' : 'informe a aquisição primeiro'} />
       </div>
 
+      <CompletudeFiscalBloco veiculoId={id} refreshKey={fiscalKey} />
+
       <Bloco titulo="Dados do veículo">
         <DadosVeiculo v={v} faltantes={compl?.fiscais_faltantes ?? null} sugestaoAno={compl?.sugestao_ano_chassi ?? null}
-          onSaved={() => { setMsg('Dados do veículo atualizados.'); void carregar() }} onErro={setErro} />
+          onSaved={() => { setMsg('Dados do veículo atualizados.'); setFiscalKey((k) => k + 1); void carregar() }} onErro={setErro} />
       </Bloco>
 
       <Bloco titulo="Fotos do veículo">
@@ -604,6 +607,66 @@ function PrecificacaoBloco({ veiculoId }: { veiculoId: string }) {
   )
 }
 
+// Onda 0 · barra de completude fiscal. Mostra o que falta pra emitir nota (fn_veic_completude_fiscal).
+// Chips clicáveis rolam até o campo no formulário de Dados. RD-51: falta é falta, nunca traço/zero;
+// só os 7 campos fiscais contam; renavam/KM/placa vêm em linha separada e neutra (não são bloqueio).
+type CompletudeFiscal = { ok?: boolean; apto_nota?: boolean; faltantes?: string[]; preenchidos?: number; total?: number; outros_vazios?: string[] }
+const CAMPO_ID_FISCAL: Record<string, string> = {
+  'cor': 'campo-cor', 'combustível': 'campo-combustivel', 'potência': 'campo-potencia_cv',
+  'cilindradas': 'campo-cilindradas', 'ano de fabricação': 'campo-ano_fabricacao', 'ano do modelo': 'campo-ano_modelo',
+}
+function CompletudeFiscalBloco({ veiculoId, refreshKey }: { veiculoId: string; refreshKey: number }) {
+  const [cf, setCf] = useState<CompletudeFiscal | null>(null)
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_veic_completude_fiscal', { p_veiculo_id: veiculoId })
+      const r = data as (CompletudeFiscal & { ok?: boolean }) | null
+      if (vivo) setCf(r && r.ok !== false ? r : null)
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, refreshKey])
+  if (!cf) return null
+  const irCampo = (fal: string) => {
+    const el = document.getElementById(CAMPO_ID_FISCAL[fal])
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLInputElement | HTMLSelectElement).focus?.() }
+  }
+  const preenchidos = cf.preenchidos ?? 0, total = cf.total ?? 7
+  const outros = cf.outros_vazios ?? []
+  if (cf.apto_nota) {
+    return (
+      <div style={{ background: C.greenBg, border: `1px solid ${C.green}55`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.green }}>✅ Pronto para emitir nota</div>
+        <div style={{ fontSize: 12, color: C.espM, marginTop: 2 }}>Os {total} campos fiscais estão preenchidos.</div>
+        {outros.length > 0 && <div style={{ fontSize: 11.5, color: C.espL, marginTop: 6 }}>Fora da nota, mas em branco: {outros.join(' · ')}</div>}
+      </div>
+    )
+  }
+  return (
+    <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#8A4B08', textTransform: 'uppercase', letterSpacing: 0.4 }}>Pronto para emitir nota</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+        <div style={{ flex: 1, height: 8, background: '#EFDFC5', borderRadius: 999, overflow: 'hidden' }}>
+          <div style={{ width: `${total ? (preenchidos / total * 100) : 0}%`, height: '100%', background: C.amber }} />
+        </div>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08', whiteSpace: 'nowrap' }}>{preenchidos} de {total} campos</span>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 12.5, color: '#8A4B08' }}>
+        Faltam:
+        <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', marginLeft: 6 }}>
+          {(cf.faltantes ?? []).map((f) => (
+            <button key={f} onClick={() => irCampo(f)} disabled={!CAMPO_ID_FISCAL[f]}
+              style={{ background: C.white, border: `1px solid ${C.amber}`, color: '#8A4B08', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: CAMPO_ID_FISCAL[f] ? 'pointer' : 'default' }}>
+              {f}{CAMPO_ID_FISCAL[f] ? ' ↧' : ''}
+            </button>
+          ))}
+        </span>
+      </div>
+      {outros.length > 0 && <div style={{ fontSize: 11.5, color: C.espL, marginTop: 8, borderTop: `1px solid ${C.amber}33`, paddingTop: 6 }}>Fora da nota, mas em branco: {outros.join(' · ')}</div>}
+    </div>
+  )
+}
+
 // Composição real do negócio · Onda 1. Mostra as DUAS margens (aparente × real), o sobrepreço da troca
 // e o valor pelo qual o usado entrou no estoque. Badge honesto de incerteza (RD-51/58). A margem real
 // abaixo da meta sinaliza aprovação — sinal visual; a alçada formal ainda não existe (fora do escopo).
@@ -693,7 +756,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     onSaved()
   }
   const F = (k: keyof typeof f, ph: string, w?: number) => (
-    <input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w }} />
+    <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w }} />
   )
   return (
     <div>
@@ -712,7 +775,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         {F('marca', 'marca', 130)}{F('modelo', 'modelo', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
-        <select value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+        <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
           <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         {F('potencia_cv', 'potência (cv)', 100)}{F('cilindradas', 'cilindradas', 100)}{F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}

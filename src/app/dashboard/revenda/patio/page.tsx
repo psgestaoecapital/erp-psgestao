@@ -34,6 +34,7 @@ function Inner() {
   const [compl, setCompl] = useState('todos') // completude: todos | sem_custo | sem_dados | sem_vistoria
   const [comVistoria, setComVistoria] = useState<Set<string>>(new Set()) // Onda 5B: ids com vistoria (não cancelada)
   const [precificados, setPrecificados] = useState<Set<string>>(new Set()) // Onda 6A: ids com preco_venda definido
+  const [resumoFiscal, setResumoFiscal] = useState<{ total: number; aptos: number; pendentes: number } | null>(null) // Onda 0
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
 
@@ -58,6 +59,10 @@ function Inner() {
     // Onda 6A: quais já têm preço de venda (badge "não precificado" nos demais)
     const { data: prc } = await supabase.from('veic_veiculo').select('id').eq('company_id', companyId).is('deleted_at', null).not('preco_venda', 'is', null)
     setPrecificados(new Set(((prc as { id: string }[]) ?? []).map((x) => x.id)))
+    // Onda 0: resumo de completude fiscal (contador "X de Y prontos para nota")
+    const { data: rf } = await supabase.rpc('fn_veic_completude_resumo', { p_company_id: companyId })
+    const rr = rf as { ok?: boolean; total?: number; aptos?: number; pendentes?: number } | null
+    setResumoFiscal(rr?.ok ? { total: rr.total ?? 0, aptos: rr.aptos ?? 0, pendentes: rr.pendentes ?? 0 } : null)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -68,7 +73,9 @@ function Inner() {
       || (compl === 'sem_custo' && !r.tem_custo)
       || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0)
       || (compl === 'sem_vistoria' && !comVistoria.has(r.id))
-      || (compl === 'nao_precificado' && !precificados.has(r.id)))
+      || (compl === 'nao_precificado' && !precificados.has(r.id))
+      || (compl === 'pronto_nota' && (r.fiscais_faltantes?.length ?? 0) === 0)
+      || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0))
   ), [rows, filtro, compl, comVistoria, precificados])
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
@@ -111,10 +118,20 @@ function Inner() {
             <option value="sem_dados">sem dados do veículo{nSemDados ? ` (${nSemDados})` : ''}</option>
             <option value="sem_vistoria">sem vistoria{nSemVistoria ? ` (${nSemVistoria})` : ''}</option>
             <option value="nao_precificado">não precificado{nNaoPrecificado ? ` (${nNaoPrecificado})` : ''}</option>
+            <option value="pronto_nota">pronto para nota{resumoFiscal ? ` (${resumoFiscal.aptos})` : ''}</option>
+            <option value="faltam_nota">faltam campos p/ nota{resumoFiscal ? ` (${resumoFiscal.pendentes})` : ''}</option>
           </select>
         </label>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s) · ordenado por dias parados</span>
       </div>
+
+      {/* Onda 0: contador de completude fiscal (toque aplica o filtro dos pendentes) */}
+      {resumoFiscal && resumoFiscal.total > 0 && (
+        <button onClick={() => setCompl(compl === 'faltam_nota' ? 'todos' : 'faltam_nota')}
+          style={{ display: 'block', width: '100%', textAlign: 'left', background: resumoFiscal.pendentes > 0 ? C.amberBg : C.greenBg, border: `1px solid ${resumoFiscal.pendentes > 0 ? C.amber : C.green}55`, borderRadius: 10, padding: '9px 12px', marginBottom: 12, cursor: 'pointer', fontSize: 13, color: resumoFiscal.pendentes > 0 ? '#8A4B08' : C.green }}>
+          <b>{resumoFiscal.aptos} de {resumoFiscal.total}</b> prontos para emitir nota{resumoFiscal.pendentes > 0 ? ` · toque para ver os ${resumoFiscal.pendentes} pendentes` : ' ✅'}
+        </button>
+      )}
 
       {visiveis.length === 0 ? (
         <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Nenhum veículo no pátio. Cadastre o primeiro.</div>
@@ -140,6 +157,10 @@ function Inner() {
                     <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>{v.situacao.replace('_', ' ')}</span>
                     {!comVistoria.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>sem vistoria</span>}
                     {!precificados.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>não precificado</span>}
+                    {/* Onda 0: badge fiscal — pronto para nota (verde) ou faltam N campos (âmbar) */}
+                    {(v.fiscais_faltantes?.length ?? 0) === 0
+                      ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.greenBg, color: C.green, fontWeight: 700 }}>pronto para nota</span>
+                      : <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>faltam {v.fiscais_faltantes!.length} campos</span>}
                   </div>
                   {/* Selo 1 · custo (margem). Selo 2 · dados do veículo — nomeia o que falta,
                       NUNCA afirma "não emite" (veicProd é do 0km; usado é decisão do contador). */}
