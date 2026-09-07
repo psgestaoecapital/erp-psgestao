@@ -199,17 +199,17 @@ function ConfigEncargos({ companyId, cfg, onSaved, onErro }: { companyId: string
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
-    // upsert preservando o semáforo (Onda 1) se já existir; defaults sensatos na primeira vez
-    const { error } = await supabase.from('veic_config').upsert({
-      company_id: companyId,
-      semaforo_verde_ate_dias: cfg?.semaforo_verde_ate_dias ?? 30,
-      semaforo_amarelo_ate_dias: cfg?.semaforo_amarelo_ate_dias ?? 60,
-      margem_alvo_pct: numOrNull(mg) ?? cfg?.margem_alvo_pct ?? 20,
-      impostos_venda_pct: numOrNull(imp), comissao_venda_pct: numOrNull(com), provisao_garantia_pct: numOrNull(gar),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'company_id' })
+    // escrita por RPC com guard de tenant (padrão da vertical). A RPC faz upsert e preserva
+    // o semáforo (Onda 1) e a margem existentes; vazio nos encargos = NULL ("não configurado").
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data } = await supabase.rpc('fn_veic_config_salvar', {
+      p_company_id: companyId,
+      p_dados: { impostos_venda_pct: imp, comissao_venda_pct: com, provisao_garantia_pct: gar, margem_alvo_pct: mg },
+      p_user: user?.id ?? null,
+    })
     setBusy(false)
-    if (error) { onErro('Falha ao configurar: ' + error.message); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao configurar encargos.')); return }
     onSaved()
   }
   const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: 9, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }
