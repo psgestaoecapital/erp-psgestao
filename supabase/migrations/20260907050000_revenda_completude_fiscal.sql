@@ -71,7 +71,7 @@ END $function$;
 -- Idempotente: so insere o que ainda nao existe (screen_id + botao_label).
 -- ------------------------------------------------------------
 INSERT INTO gold_screen_buttons (screen_id, rota, botao_label, botao_selector_css, destino_esperado_rota, destino_esperado_descricao, prioridade, tipo, cadastrado_por)
-SELECT x.screen_id, x.rota, x.botao_label, x.selector, x.destino, x.desc, x.prioridade, x.tipo, 'code_web'
+SELECT x.screen_id, x.rota, x.botao_label, x.selector, x.destino, x.descr, x.prioridade, x.tipo, 'code_web'
 FROM (VALUES
   ('S.revenda.patio','/dashboard/revenda/patio','+ Novo veículo','button:has-text("+ Novo veículo")',NULL,'Abre o modal de cadastro de novo veículo','critico','acao'),
   ('S.revenda.patio','/dashboard/revenda/patio','Completar dados','a:has-text("Completar dados")','/dashboard/revenda/completar','Vai para a tela de completar dados dos veículos','normal','navegacao'),
@@ -84,5 +84,5 @@ FROM (VALUES
   ('S.revenda.vendas','/dashboard/revenda/vendas','ver veículo','button:has-text("ver veículo")','/dashboard/revenda/veiculo/[id]','Vai para a ficha do veículo da venda','normal','navegacao'),
   ('S.revenda.vendas','/dashboard/revenda/vendas','marcar entregue','button:has-text("marcar entregue")',NULL,'Marca a venda como entregue','critico','acao'),
   ('S.revenda.vendas','/dashboard/revenda/vendas','cancelar','button:has-text("cancelar")',NULL,'Cancela a venda','normal','acao')
-) AS x(screen_id, rota, botao_label, selector, destino, desc, prioridade, tipo)
+) AS x(screen_id, rota, botao_label, selector, destino, descr, prioridade, tipo)
 WHERE NOT EXISTS (SELECT 1 FROM gold_screen_buttons g WHERE g.screen_id = x.screen_id AND g.botao_label = x.botao_label);
