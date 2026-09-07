@@ -58,6 +58,7 @@ function Inner() {
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [modal, setModal] = useState<'reserva' | 'venda' | null>(null)
+  const [lancarPagar, setLancarPagar] = useState<Custo | null>(null) // Onda 9: lançar conta a pagar de um custo já existente
 
   const carregar = useCallback(async () => {
     if (!id) return
@@ -249,7 +250,8 @@ function Inner() {
                     ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.greenBg, color: C.green }}>entra na base fiscal</span>
                     : <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>fora da base</span>}
                 {c.pagar_id && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#E8EEF9', color: C.blue }}>tem título</span>}
-                <button onClick={() => void excluirCusto(c.id)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontSize: 12 }}>excluir</button>
+                {!c.pagar_id && <button onClick={() => setLancarPagar(c)} style={{ marginLeft: 'auto', border: `1px solid ${C.blue}`, background: C.white, color: C.blue, borderRadius: 7, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>lançar conta a pagar</button>}
+                <button onClick={() => void excluirCusto(c.id)} style={{ marginLeft: c.pagar_id ? 'auto' : 8, border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontSize: 12 }}>excluir</button>
               </div>
             ))}
           </div>
@@ -264,6 +266,7 @@ function Inner() {
         ))}
       </Bloco>
 
+      {lancarPagar && <LancarPagarModal custo={lancarPagar} onClose={() => setLancarPagar(null)} onSaved={(venc) => { setLancarPagar(null); setMsg(`Conta a pagar lançada (vencimento ${brDate(venc)}).`); void carregar() }} onErro={setErro} />}
       {modal === 'reserva' && v && <ReservaModal companyId={v.company_id} veiculoId={id} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Veículo reservado.'); void carregar() }} onErro={setErro} />}
       {modal === 'venda' && v && <VendaModal companyId={v.company_id} veiculoId={id} custoTotal={custoAcumulado} margemAlvo={margem} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Venda registrada.'); void carregar() }} onErro={setErro} />}
     </div>
@@ -449,6 +452,50 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
         <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Registrar venda'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Onda 9 · lançar conta a pagar de um custo JÁ existente (ação separada, deliberada — veto ao gerar_pagar
+// automático). Pede fornecedor + vencimento; vencimento é obrigatório para o título (regra da GE), e é o
+// usuário quem define a data — nunca a conclusão da OS (que nasceria vencida). Chama fn_veic_custo_gerar_pagar.
+function LancarPagarModal({ custo, onClose, onSaved, onErro }: { custo: Custo; onClose: () => void; onSaved: (vencimento: string) => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ fornecedor_nome: custo.fornecedor_nome ?? '', vencimento: '' })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const podeEnviar = !!f.vencimento && !busy
+  async function salvar() {
+    setErro(null)
+    if (!f.vencimento) { setErro('Informe o vencimento — o título precisa de uma data para nascer certo na GE.'); return }
+    setBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_veic_custo_gerar_pagar', {
+      p_custo_id: custo.id,
+      p_dados: { fornecedor_nome: f.fornecedor_nome.trim() || null, vencimento: f.vencimento },
+      p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean } | null
+    if (error || !r?.ok) {
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(r?.erro === 'vencimento_obrigatorio_para_titulo' ? 'Informe o vencimento.' : mensagemDeResultado(r)); return
+    }
+    onSaved(f.vencimento)
+  }
+  return (
+    <Modal titulo="Lançar conta a pagar" onClose={onClose}>
+      <div style={{ fontSize: 12.5, color: C.espM, marginBottom: 10, lineHeight: 1.5 }}>
+        Custo <b>{custo.categoria.replace('_', ' ')}</b> de <b>{brl(custo.valor)}</b>{custo.descricao ? ` · ${custo.descricao}` : ''}. Vira um título em <b>Contas a Pagar</b> da GE.
+      </div>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'grid', gap: 8 }}>
+        <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={inp} />
+        <label style={{ fontSize: 12, color: C.espM }}>vencimento *<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 6, ...estiloBordaInput(erro && !f.vencimento ? 'x' : null) }} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Lançando…' : 'Lançar título'}</button>
       </div>
     </Modal>
   )
@@ -647,7 +694,7 @@ function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { ve
     if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao concluir a OS.'); return }
     if (r.ja_lancado) onMsg(`OS ${os.numero} já estava lançada — nenhum custo duplicado.`)
     else if (r.sem_custo) onMsg(`OS ${os.numero} concluída (sem valor lançado — nenhum custo criado).`)
-    else onMsg(`OS ${os.numero} concluída. CRIOU o custo de ${brl(r.valor ?? 0)} no veículo.`)
+    else onMsg(`OS ${os.numero} concluída. CRIOU o custo de ${brl(r.valor ?? 0)} no veículo. A conta a pagar é opcional: lance em "Custos no chassi" quando tiver fornecedor e vencimento.`)
     setTick((t) => t + 1); onChange()
   }
 
