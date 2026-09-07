@@ -228,6 +228,8 @@ function Inner() {
 
       <VistoriaBloco veiculoId={id} />
 
+      <PreparacaoBloco veiculoId={id} companyId={v.company_id} onMsg={setMsg} onErro={setErro} onChange={() => void carregar()} />
+
       <PrecificacaoBloco veiculoId={id} />
 
       <Bloco titulo="Custos no chassi">
@@ -604,6 +606,140 @@ function PrecificacaoBloco({ veiculoId }: { veiculoId: string }) {
         </div>
       )}
     </Bloco>
+  )
+}
+
+// Onda 9 · seção Preparação na ficha (§4.1/§4.2). Reusa erp_os (não recria módulo de serviços):
+// confronto previsto (vistoria) × realizado (OS), abre OS a partir do veículo, concluir vira custo [→GE].
+type PrepOS = { os_id: string; numero: string; status: string; prioridade: string; descricao_servico: string | null; tecnico_nome: string | null; data_abertura: string | null; data_prevista: string | null; data_conclusao: string | null; dias_corridos: number | null; total: number; coluna: string; concluida: boolean; custo_id: string | null }
+type Confronto = { ok: boolean; status: string; previsto?: number; itens_previstos?: number; realizado?: number; em_andamento?: number; desvio_valor?: number; desvio_pct?: number; os_abertas?: number; os_concluidas?: number }
+
+function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { veiculoId: string; companyId: string; onMsg: (m: string) => void; onErro: (m: string) => void; onChange: () => void }) {
+  const [conf, setConf] = useState<Confronto | null>(null)
+  const [oss, setOss] = useState<PrepOS[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const [c, l] = await Promise.all([
+        supabase.rpc('fn_veic_preparacao_confronto', { p_veiculo_id: veiculoId }),
+        supabase.rpc('fn_veic_preparacao_listar', { p_company_id: companyId, p_veiculo_id: veiculoId }),
+      ])
+      if (!vivo) return
+      setConf((c.data as Confronto) ?? null)
+      const ld = l.data as { ok?: boolean; os?: PrepOS[] } | null
+      setOss(ld?.ok ? (ld.os ?? []) : [])
+      setLoading(false)
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, companyId, tick])
+
+  async function concluir(os: PrepOS) {
+    setBusy(os.os_id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_veic_preparacao_concluir', { p_os_id: os.os_id, p_user: user?.id ?? null })
+    setBusy(null)
+    const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean; valor?: number; sem_custo?: boolean } | null
+    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao concluir a OS.'); return }
+    if (r.ja_lancado) onMsg(`OS ${os.numero} já estava lançada — nenhum custo duplicado.`)
+    else if (r.sem_custo) onMsg(`OS ${os.numero} concluída (sem valor lançado — nenhum custo criado).`)
+    else onMsg(`OS ${os.numero} concluída. CRIOU o custo de ${brl(r.valor ?? 0)} no veículo.`)
+    setTick((t) => t + 1); onChange()
+  }
+
+  if (loading) return null
+  const semPrev = !conf || conf.status === 'sem_previsao'
+  const prevZero = conf?.status === 'previsao_zero'
+  const temPrev = !!conf && !semPrev && !prevZero
+  const desvio = conf?.desvio_valor ?? 0
+
+  return (
+    <Bloco titulo="Preparação">
+      <div style={{ display: 'grid', gap: 4, fontSize: 13, maxWidth: 460 }}>
+        {temPrev && (
+          <Linha l="A vistoria previu" v={brl(conf!.previsto ?? 0)} nota={`${conf!.itens_previstos ?? 0} ${(conf!.itens_previstos ?? 0) === 1 ? 'item' : 'itens'}`} cor={C.esp} />
+        )}
+        <Linha l="Em andamento" v={brl(conf?.em_andamento ?? 0)} nota={`${conf?.os_abertas ?? 0} OS`} cor={C.espM} />
+        <Linha l="Já realizado" v={brl(conf?.realizado ?? 0)} nota={`${conf?.os_concluidas ?? 0} OS ✓`} cor={C.green} />
+        {temPrev && (
+          <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4, paddingTop: 4 }}>
+            <Linha l="Desvio até agora" v={`${desvio > 0 ? '+' : ''}${brl(desvio)}`} nota={`${(conf!.desvio_pct ?? 0) > 0 ? '+' : ''}${conf!.desvio_pct ?? 0}%`} cor={desvio > 0 ? C.red : C.green} bold />
+          </div>
+        )}
+      </div>
+      {semPrev && <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Sem vistoria — não há previsão para comparar. A OS não depende da vistoria; a comparação sim.</div>}
+      {prevZero && <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>A vistoria não previu itens de reparo/troca — nada a comparar.</div>}
+
+      <button onClick={() => setModal(true)} style={{ marginTop: 12, background: C.gold, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>Abrir OS de preparação</button>
+
+      {oss.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {oss.map((os) => (
+            <div key={os.os_id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, borderTop: `1px solid ${C.cream}`, padding: '8px 0' }}>
+              <b style={{ fontFamily: 'monospace' }}>{os.numero}</b>
+              <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: os.concluida ? C.greenBg : C.amberBg, color: os.concluida ? C.green : C.amber, fontWeight: 700 }}>{os.status.replace('_', ' ')}</span>
+              <span style={{ color: C.espM }}>{brl(os.total)}</span>
+              {os.dias_corridos != null && <span style={{ color: C.espL, fontSize: 11 }}>{os.dias_corridos} dia(s)</span>}
+              {os.custo_id
+                ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#E8EEF9', color: C.blue }}>custo lançado</span>
+                : <button disabled={busy === os.os_id} onClick={() => void concluir(os)} style={{ marginLeft: 'auto', border: `1px solid ${C.green}`, background: C.white, color: C.green, borderRadius: 7, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: busy === os.os_id ? 'wait' : 'pointer' }}>{busy === os.os_id ? '…' : 'concluir → vira custo'}</button>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && <PreparacaoModal veiculoId={veiculoId} onClose={() => setModal(false)} onErro={onErro} onSaved={(numero) => { setModal(false); onMsg(`CRIOU a OS de preparação ${numero}.`); setTick((t) => t + 1); onChange() }} />}
+    </Bloco>
+  )
+}
+
+function Linha({ l, v, nota, cor, bold }: { l: string; v: string; nota?: string; cor?: string; bold?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <span style={{ color: C.espM, minWidth: 150 }}>{l}</span>
+      <span style={{ fontWeight: bold ? 700 : 600, color: cor ?? C.esp, fontSize: bold ? 15 : 13 }}>{v}</span>
+      {nota && <span style={{ color: C.espL, fontSize: 11 }}>{nota}</span>}
+    </div>
+  )
+}
+
+function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: string; onClose: () => void; onSaved: (numero: string) => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ descricao_servico: '', prioridade: 'normal', data_prevista: '' })
+  const [busy, setBusy] = useState(false)
+  async function salvar() {
+    setBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_veic_preparacao_abrir', {
+      p_veiculo_id: veiculoId,
+      p_dados: { descricao_servico: f.descricao_servico.trim() || null, prioridade: f.prioridade, data_prevista: f.data_prevista || null },
+      p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; numero?: string } | null
+    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao abrir a OS.'); return }
+    onSaved(r.numero ?? '')
+  }
+  return (
+    <Modal titulo="Abrir OS de preparação" onClose={onClose}>
+      <div style={{ fontSize: 12, color: C.espM, marginBottom: 10, lineHeight: 1.5 }}>Placa, marca, modelo, ano, KM e chassi já vêm do veículo. Se houver vistoria concluída, os itens em reparo/troca entram como sugestão na descrição.</div>
+      <textarea value={f.descricao_servico} onChange={(e) => setF({ ...f, descricao_servico: e.target.value })} placeholder="descrição do serviço (opcional — se vazio, usa os itens da vistoria)" rows={3} style={{ ...inp, width: '100%', resize: 'vertical' }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, color: C.espM }}>prioridade&nbsp;
+          <select value={f.prioridade} onChange={(e) => setF({ ...f, prioridade: e.target.value })} style={inp}>
+            <option value="baixa">baixa</option><option value="normal">normal</option><option value="alta">alta</option><option value="urgente">urgente</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: C.espM }}>prazo&nbsp;<input type="date" value={f.data_prevista} onChange={(e) => setF({ ...f, data_prevista: e.target.value })} style={inp} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+      </div>
+    </Modal>
   )
 }
 

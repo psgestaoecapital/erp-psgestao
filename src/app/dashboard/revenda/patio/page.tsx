@@ -34,6 +34,7 @@ function Inner() {
   const [compl, setCompl] = useState('todos') // completude: todos | sem_custo | sem_dados | sem_vistoria
   const [comVistoria, setComVistoria] = useState<Set<string>>(new Set()) // Onda 5B: ids com vistoria (não cancelada)
   const [precificados, setPrecificados] = useState<Set<string>>(new Set()) // Onda 6A: ids com preco_venda definido
+  const [emPreparacao, setEmPreparacao] = useState<Set<string>>(new Set()) // Onda 9: ids com OS de preparação aberta
   const [resumoFiscal, setResumoFiscal] = useState<{ total: number; aptos: number; pendentes: number } | null>(null) // Onda 0
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
@@ -63,6 +64,10 @@ function Inner() {
     const { data: rf } = await supabase.rpc('fn_veic_completude_resumo', { p_company_id: companyId })
     const rr = rf as { ok?: boolean; total?: number; aptos?: number; pendentes?: number } | null
     setResumoFiscal(rr?.ok ? { total: rr.total ?? 0, aptos: rr.aptos ?? 0, pendentes: rr.pendentes ?? 0 } : null)
+    // Onda 9: veículos com OS de preparação AINDA aberta (badge "em preparação" + trava do anúncio na Onda 13)
+    const { data: prep } = await supabase.rpc('fn_veic_preparacao_listar', { p_company_id: companyId, p_veiculo_id: null })
+    const pl = prep as { ok?: boolean; os?: { veiculo_id: string; concluida: boolean }[] } | null
+    setEmPreparacao(new Set((pl?.ok ? (pl.os ?? []) : []).filter((o) => !o.concluida).map((o) => o.veiculo_id)))
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -75,12 +80,14 @@ function Inner() {
       || (compl === 'sem_vistoria' && !comVistoria.has(r.id))
       || (compl === 'nao_precificado' && !precificados.has(r.id))
       || (compl === 'pronto_nota' && (r.fiscais_faltantes?.length ?? 0) === 0)
+      || (compl === 'em_preparacao_os' && emPreparacao.has(r.id))
       || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0))
-  ), [rows, filtro, compl, comVistoria, precificados])
+  ), [rows, filtro, compl, comVistoria, precificados, emPreparacao])
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
   const nSemVistoria = useMemo(() => rows.filter((r) => !comVistoria.has(r.id)).length, [rows, comVistoria])
   const nNaoPrecificado = useMemo(() => rows.filter((r) => !precificados.has(r.id)).length, [rows, precificados])
+  const nEmPreparacao = useMemo(() => rows.filter((r) => emPreparacao.has(r.id)).length, [rows, emPreparacao])
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
 
@@ -97,6 +104,9 @@ function Inner() {
               🧩 Completar dados{nSemDados ? ` (${nSemDados})` : ''}
             </a>
           )}
+          <a href="/dashboard/revenda/preparacao" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
+            🔧 Preparação{nEmPreparacao ? ` (${nEmPreparacao})` : ''}
+          </a>
           <button onClick={() => setNovo(true)} style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer' }}>+ Novo veículo</button>
         </div>
       </div>
@@ -118,6 +128,7 @@ function Inner() {
             <option value="sem_dados">sem dados do veículo{nSemDados ? ` (${nSemDados})` : ''}</option>
             <option value="sem_vistoria">sem vistoria{nSemVistoria ? ` (${nSemVistoria})` : ''}</option>
             <option value="nao_precificado">não precificado{nNaoPrecificado ? ` (${nNaoPrecificado})` : ''}</option>
+            <option value="em_preparacao_os">em preparação (OS aberta){nEmPreparacao ? ` (${nEmPreparacao})` : ''}</option>
             <option value="pronto_nota">pronto para nota{resumoFiscal ? ` (${resumoFiscal.aptos})` : ''}</option>
             <option value="faltam_nota">faltam campos p/ nota{resumoFiscal ? ` (${resumoFiscal.pendentes})` : ''}</option>
           </select>
@@ -155,6 +166,7 @@ function Inner() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700 }}>● {v.dias_patio} dia(s)</span>
                     <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>{v.situacao.replace('_', ' ')}</span>
+                    {emPreparacao.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }} title="Veículo com OS de preparação aberta — não deve ir ao anúncio até concluir">🔧 em preparação</span>}
                     {!comVistoria.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>sem vistoria</span>}
                     {!precificados.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>não precificado</span>}
                     {/* Onda 0: badge fiscal — pronto para nota (verde) ou faltam N campos (âmbar) */}
