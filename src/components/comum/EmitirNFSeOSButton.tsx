@@ -213,6 +213,7 @@ export default function EmitirNFSeOSButton({
         codigoLC116={servico?.codigo_lc116 ?? undefined}
         aliquotaIss={servico?.aliquota_iss ?? undefined}
         valorServicos={prep?.valor_servicos}
+        servicoId={servico?.id}
       />
     </>
   )

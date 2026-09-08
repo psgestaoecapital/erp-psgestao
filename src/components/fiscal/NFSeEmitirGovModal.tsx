@@ -41,7 +41,16 @@ interface Props {
   codigoLC116?: string
   aliquotaIss?: number
   valorServicos?: number
+  // #32 fase 2 · contexto da trava de emissão. Sem servicoId nada muda (validação pulada).
+  servicoId?: string
+  issNoLocalPrestacao?: boolean
+  obraId?: string
+  municipioPrestacaoIbge?: string   // vindo da obra, pré-preenchido e editável
+  municipioPrestacaoLabel?: string  // ex.: "vindo da obra 0042 · Marau/RS"
 }
+
+type Municipio = { codigo_ibge: string; nome_municipio: string; uf: string }
+type Bloqueio = { codigo: string; mensagem: string; acao?: string; onde?: string }
 
 function soDigitos(s: string): string {
   return s.replace(/\D/g, '')
@@ -86,6 +95,7 @@ export default function NFSeEmitirGovModal({
   companyId, aberto, onFechar, onEmitida, producaoDisponivel = false,
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
+  servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
 }: Props) {
   // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
   // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
@@ -114,6 +124,14 @@ export default function NFSeEmitirGovModal({
   const [fase, setFase] = useState<Fase>('form')
   const [resultado, setResultado] = useState<EmitirResp | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+  // #32 fase 2 · local da execução (só quando iss_no_local) + bloqueios da porta única
+  const [munIbge, setMunIbge] = useState(municipioPrestacaoIbge ?? '')
+  const [munLabel, setMunLabel] = useState(municipioPrestacaoLabel ?? '')
+  const [munBusca, setMunBusca] = useState('')
+  const [munResultados, setMunResultados] = useState<Municipio[]>([])
+  const [bloqueios, setBloqueios] = useState<Bloqueio[]>([])
+  const [podeEmitir, setPodeEmitir] = useState(true)
+  const [validando, setValidando] = useState(false)
 
   // FIX-O3B-NFSE-MODAL-SEED-v1
   // useState so roda no mount · se o pai renderiza com aberto=false antes
@@ -131,8 +149,47 @@ export default function NFSeEmitirGovModal({
     setFase('form')
     setResultado(null)
     setErroLocal(null)
+    setMunIbge(municipioPrestacaoIbge ?? '')
+    setMunLabel(municipioPrestacaoLabel ?? '')
+    setMunBusca(''); setMunResultados([]); setBloqueios([]); setPodeEmitir(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
+
+  // #32 fase 2 · a PORTA ÚNICA: valida no banco (obra + ISS) e mostra os bloqueios. Roda ao abrir e
+  // quando muda o município. Só quando há servico_id (emissão de catálogo); sem ele, nada a validar.
+  useEffect(() => {
+    if (!aberto || !servicoId) { setBloqueios([]); setPodeEmitir(true); return }
+    let vivo = true
+    setValidando(true)
+    void (async () => {
+      try {
+        const { data } = await supabase.rpc('fn_nfse_validar_emissao', {
+          p_company_id: companyId,
+          p_dados: { servico_id: servicoId, obra_id: obraId ?? null, municipio_prestacao_ibge: munIbge || null },
+        })
+        if (!vivo) return
+        const v = data as { pode_emitir?: boolean; bloqueios?: Bloqueio[] } | null
+        setBloqueios(v?.bloqueios ?? [])
+        setPodeEmitir(v?.pode_emitir !== false)
+      } finally {
+        if (vivo) setValidando(false)
+      }
+    })()
+    return () => { vivo = false }
+  }, [aberto, servicoId, obraId, munIbge, companyId])
+
+  // busca de município da execução (só relevante quando iss_no_local)
+  useEffect(() => {
+    const q = munBusca.trim()
+    if (q.length < 2) { setMunResultados([]); return }
+    let vivo = true
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('erp_gov_nfse_municipios')
+        .select('codigo_ibge,nome_municipio,uf').ilike('nome_municipio', `${q}%`).order('nome_municipio').limit(15)
+      if (vivo) setMunResultados((data ?? []) as Municipio[])
+    }, 250)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [munBusca])
 
   if (!aberto) return null
 
@@ -168,12 +225,18 @@ export default function NFSeEmitirGovModal({
     if (!descricao.trim()) { setErroLocal('Informe a descrição do serviço.'); return }
     if (!isFinite(valorNum) || valorNum <= 0) { setErroLocal('Valor deve ser maior que zero.'); return }
     if (!codigoTrib.trim()) { setErroLocal('Informe o código de tributação ISS.'); return }
+    // #32 · a trava: não deixa nem tentar enquanto houver bloqueio (o servidor barra de novo).
+    if (servicoId && !podeEmitir) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
 
     const aliquotaNum = Number(aliquota.replace(',', '.')) || 0
 
     const body: Record<string, unknown> = {
       company_id: companyId,
       teste_homologacao: ambiente === 'homologacao',
+      // #32 · contexto da trava do servidor: o município da execução e a alíquota saem do banco.
+      servico_id: servicoId,
+      obra_id: obraId,
+      municipio_prestacao_ibge: munIbge || undefined,
       servico: {
         descricao: descricao.trim(),
         valor: valorNum,
@@ -332,6 +395,55 @@ export default function NFSeEmitirGovModal({
                 </label>
               </fieldset>
 
+              {/* #32 · Local da execução — quando o serviço tem ISS no local da prestação. Aparece
+                  pela prop OU quando a própria porta pediu município (independe da fiação do chamador). */}
+              {(issNoLocalPrestacao || bloqueios.some((b) => b.codigo === 'municipio_prestacao_ausente' || b.codigo === 'aliquota_iss_desconhecida')) && (
+                <fieldset className="space-y-2 border-t border-[#3D2314]/10 pt-4">
+                  <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">Local da execução do serviço</legend>
+                  {munIbge ? (
+                    <div className="flex items-center justify-between bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]">
+                      <span>{munLabel || `IBGE ${munIbge}`}</span>
+                      <button type="button" className="text-[#3D2314]/50 hover:text-[#3D2314] text-[12px]"
+                        onClick={() => { setMunIbge(''); setMunLabel(''); setMunBusca('') }}>trocar</button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input value={munBusca} onChange={(e) => setMunBusca(e.target.value)} placeholder="digite o município onde o serviço foi prestado…"
+                        className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                      {munResultados.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-[#3D2314]/15 rounded-md shadow-lg">
+                          {munResultados.map((m) => (
+                            <button key={m.codigo_ibge} type="button"
+                              onClick={() => { setMunIbge(m.codigo_ibge); setMunLabel(`${m.nome_municipio}/${m.uf}`); setMunResultados([]); setMunBusca('') }}
+                              className="block w-full text-left px-3 py-2 text-[13px] text-[#3D2314] hover:bg-[#FAF7F2]">
+                              {m.nome_municipio}/{m.uf} <span className="text-[#3D2314]/45">· {m.codigo_ibge}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {obraId && munLabel && <div className="text-[11px] text-[#3D2314]/55">Vindo da obra — editável se o canteiro for outro.</div>}
+                </fieldset>
+              )}
+
+              {/* #32 · bloqueios da porta única — cada um leva ao lugar de resolver */}
+              {servicoId && bloqueios.length > 0 && (
+                <div className="rounded-md border border-[#C94544] bg-[#FCEBEB] px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-[12.5px] font-medium text-[#791F1F] mb-1.5">
+                    <AlertCircle size={14} /> Esta nota não pode ser emitida ainda
+                  </div>
+                  <ul className="space-y-1.5">
+                    {bloqueios.map((b, i) => (
+                      <li key={i} className="text-[12px] text-[#791F1F]">
+                        • {b.mensagem}{b.acao ? <span className="text-[#3D2314]/60"> — {b.acao}{b.onde ? ` (${b.onde})` : ''}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {servicoId && validando && <div className="text-[11px] text-[#3D2314]/50">Verificando obra e alíquota…</div>}
+
               {erroLocal && (
                 <div className="flex items-start gap-2 bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-md px-3 py-2 text-[12px] text-[#791F1F]">
                   <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
@@ -351,7 +463,8 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando'}
+                  disabled={fase === 'enviando' || validando || (!!servicoId && !podeEmitir)}
+                  title={(!!servicoId && !podeEmitir) ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
                 >

@@ -28,6 +28,12 @@ interface Payload {
   company_id: string
   teste_homologacao?: boolean
   nfse_emitida_id?: string
+  // #32 fase 2 · contexto para a trava do servidor (fn_nfse_validar_emissao). Opcionais: sem
+  // servico_id a validacao e pulada (emissao avulsa sem servico de catalogo), comportamento antigo.
+  servico_id?: string
+  obra_id?: string
+  municipio_prestacao_ibge?: string
+  data_emissao?: string
   servico: {
     descricao: string
     valor: number
@@ -110,7 +116,47 @@ Deno.serve(async (req: Request) => {
     })
   }
 
+  // #32 fase 2 · TRAVA DO SERVIDOR (ultima barreira). A validacao no front e conveniencia; esta e a
+  // trava — nao contornavel por chamada direta. So valida quando ha servico_id (servico de catalogo).
+  // Alem de barrar, e daqui que sai a aliquota de ISS (do resolver, nunca chutada) e o municipio da
+  // prestacao, quando o servico e "ISS no local da prestacao".
+  let aliqOverride: number | null = null
+  let prestacaoIbge: string | null = null
+  let prestacaoNome: string | null = null
+  let prestacaoUf: string | null = null
+  let issFonte: string | null = null
   try {
+    if (p.servico_id) {
+      const { data: val } = await sb.rpc("fn_nfse_validar_emissao", {
+        p_company_id: p.company_id,
+        p_dados: {
+          servico_id: p.servico_id,
+          obra_id: p.obra_id ?? null,
+          municipio_prestacao_ibge: p.municipio_prestacao_ibge ?? null,
+          data_emissao: p.data_emissao ?? null,
+        },
+      })
+      const v = val as {
+        pode_emitir?: boolean; bloqueios?: unknown[]
+        iss?: { ok?: boolean; aliquota?: number | string; fonte?: string }
+        municipio_prestacao_ibge?: string | null
+      } | null
+      if (v && v.pode_emitir === false) {
+        return respond(422, { ok: false, erro: "emissao_bloqueada", bloqueios: v.bloqueios ?? [] })
+      }
+      if (v?.iss?.ok) {
+        aliqOverride = typeof v.iss.aliquota === "number" ? v.iss.aliquota : Number(v.iss.aliquota)
+        issFonte = v.iss.fonte ?? null
+        prestacaoIbge = v.municipio_prestacao_ibge ?? null
+      }
+    }
+    if (prestacaoIbge) {
+      const { data: mun } = await sb.from("erp_gov_nfse_municipios")
+        .select("nome_municipio, uf").eq("codigo_ibge", prestacaoIbge).maybeSingle()
+      prestacaoNome = (mun as { nome_municipio?: string } | null)?.nome_municipio ?? null
+      prestacaoUf = (mun as { uf?: string } | null)?.uf ?? null
+    }
+
     // 1. Config gov.br nacional + empresa (inclui nomes de secrets Focus por empresa)
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : "producao"
     const { data: cfg } = await sb
@@ -204,7 +250,13 @@ Deno.serve(async (req: Request) => {
         ambiente,
         status: "processando",
         valor_servicos: p.servico.valor,
-        aliquota_iss: p.servico.aliquota_iss ?? 5,
+        // #32: aliquota do resolver (local da prestacao) quando houver; senao a do servico.
+        aliquota_iss: aliqOverride ?? (p.servico.aliquota_iss ?? 5),
+        // #32: onde o servico foi prestado + de onde veio a aliquota (procedencia, RD-51).
+        municipio_prestacao_ibge: prestacaoIbge,
+        municipio_prestacao_nome: prestacaoNome,
+        municipio_prestacao_uf: prestacaoUf,
+        iss_fonte_aliquota: issFonte,
         descricao_servico: p.servico.descricao,
         codigo_servico: p.servico.codigo_tributacao_nacional_iss,
         tomador_cnpj: (p.tomador?.cpf_cnpj?.length === 14) ? p.tomador.cpf_cnpj : null,
@@ -223,7 +275,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // 5. Payload Focus NFe (NFS-e Nacional)
-    const aliqIss = p.servico.aliquota_iss ?? 5
+    // #32: quando o ISS e no local da prestacao, a aliquota vem do resolver (aliqOverride).
+    const aliqIss = aliqOverride ?? (p.servico.aliquota_iss ?? 5)
     const valorIss = round2(p.servico.valor * aliqIss / 100)
     const focusPayload: Record<string, unknown> = {
       // FEAT-NFSE-NUMERACAO-v1 · serie/numero atomicos (antes era hardcoded 1/1)
@@ -237,7 +290,8 @@ Deno.serve(async (req: Request) => {
       // (fonte: erp_fiscal_provider_config.opcao_simples_nacional · KGF=3)
       codigo_opcao_simples_nacional: (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3,
       regime_especial_tributacao: 0,    // 0 = Nenhum
-      codigo_municipio_prestacao: Number(muniIbge),
+      // #32: o municipio da PRESTACAO (local da execucao) quando houver — nao mais sempre o emissor.
+      codigo_municipio_prestacao: Number(prestacaoIbge ?? muniIbge),
       codigo_tributacao_nacional_iss: p.servico.codigo_tributacao_nacional_iss,
       descricao_servico: p.servico.descricao,
       valor_servico: p.servico.valor,
