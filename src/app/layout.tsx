@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import PwaBootstrap from "@/components/pwa/PwaBootstrap";
+import ChunkReloadGuard from "@/components/pwa/ChunkReloadGuard";
 
 export const metadata: Metadata = {
   title: "PS Gestão e Capital — ERP Inteligente",
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR">
       <body>
         {children}
+        <ChunkReloadGuard />
         <PwaBootstrap />
       </body>
     </html>

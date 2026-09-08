@@ -1,6 +1,13 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  // Build-id exposto ao cliente (mesma fonte do service worker: SHA do commit). Inlined no
+  // bundle -> a guarda anti-loop do ChunkReloadGuard chaveia por ele: muda a cada deploy (novo
+  // deploy libera um reload de recuperacao) e nao muda no mesmo build (chunk sumido nao insiste).
+  env: {
+    NEXT_PUBLIC_BUILD_ID:
+      process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || 'dev',
+  },
   // playwright-core + chromium-min sao binarios nativos —
   // nao podem ser bundlados pelo Turbopack (PR M.A.7.5.2)
   serverExternalPackages: ['playwright-core', '@sparticuz/chromium-min'],
