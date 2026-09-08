@@ -486,7 +486,73 @@ async function remover(tabela: string, ctx: Ctx, id: string): Promise<boolean> {
   ctx.flash('EXCLUIU.'); return true
 }
 
-function CadastroSimples({ ctx, tabela, titulo, order, placeholder, onMudou }: { ctx: Ctx; tabela: string; titulo: string; order: string; placeholder: string; onMudou: () => void }) {
+// Sugere setores/cargos do ponto eletronico (fn_prod_sugerir_*). Mostra quantos vem e quantos ja
+// estao; multi-selecao (o usuario marca quais quer); ja cadastrado aparece MARCADO e travado —
+// nunca some da lista (senao o usuario nao entende por que "sumiu" um setor que ele viu).
+type ItemSug = { nome: string; pessoas: number; ja_cadastrado: boolean; possivel_duplicata_de?: string | null }
+function SugerirDoPonto({ ctx, rpc, tabela, sugLabel, jaExistentes, onAdd }: { ctx: Ctx; rpc: string; tabela: string; sugLabel: string; jaExistentes: number; onAdd: () => Promise<void> }) {
+  const [aberto, setAberto] = useState(false)
+  const [itens, setItens] = useState<ItemSug[] | null>(null)
+  const [sel, setSel] = useState<Record<string, boolean>>({})
+  const [busy, setBusy] = useState(false)
+  async function abrir() {
+    setAberto(true); setBusy(true); setItens(null)
+    const { data, error } = await supabase.rpc(rpc, { p_company_id: ctx.companyId, p_plant_id: ctx.plantId })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; itens?: ItemSug[] } | null
+    if (error || !r?.ok) { ctx.flashErr(error?.message || (r?.erro === 'sem_acesso' ? 'Sem acesso.' : r?.erro) || 'Falha ao buscar do ponto'); setAberto(false); return }
+    const its = r.itens ?? []
+    setItens(its)
+    const s: Record<string, boolean> = {}; its.forEach((it) => { if (!it.ja_cadastrado) s[it.nome] = true }) // pre-marca os novos; o usuario desmarca RH/TI etc.
+    setSel(s)
+  }
+  const selecionados = (itens ?? []).filter((it) => !it.ja_cadastrado && sel[it.nome])
+  const jaCad = (itens ?? []).filter((it) => it.ja_cadastrado).length
+  async function adicionar() {
+    if (selecionados.length === 0) return
+    setBusy(true)
+    const payloads = selecionados.map((it, i) => ({ company_id: ctx.companyId, plant_id: ctx.plantId, nome: it.nome, ...(tabela === 'prod_setor' ? { ordem: jaExistentes + i + 1 } : {}) }))
+    const { error } = await supabase.from(tabela).insert(payloads)
+    setBusy(false)
+    if (error) { ctx.flashErr(error.message); return }
+    ctx.flash(`CRIOU ${payloads.length} ${sugLabel} do ponto.`); setAberto(false); setItens(null); await onAdd()
+  }
+  return (
+    <>
+      <button type="button" onClick={() => aberto ? setAberto(false) : void abrir()} style={{ ...btn(true), background: C.blue, padding: '5px 10px', fontSize: 11.5 }}>👥 Sugerir do ponto</button>
+      {aberto && (
+        <div style={{ marginTop: 8, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+          {busy && !itens ? <div style={{ fontSize: 12, color: C.espM }}>Buscando no ponto…</div>
+            : (itens && itens.length === 0) ? <div style={{ fontSize: 12, color: C.espM }}>O ponto desta planta não tem {sugLabel} para sugerir.</div>
+            : itens && (
+            <>
+              <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 8 }}>
+                <b>{itens.length}</b> {sugLabel} no ponto · <b>{jaCad}</b> já cadastrado(s). RH, TI e Comercial também aparecem — quem decide é você. Duplicata provável fica marcada.
+              </div>
+              <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {itens.map((it) => (
+                  <label key={it.nome} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 4px', opacity: it.ja_cadastrado ? 0.6 : 1 }}>
+                    <input type="checkbox" disabled={it.ja_cadastrado} checked={it.ja_cadastrado ? true : !!sel[it.nome]} onChange={(e) => setSel((p) => ({ ...p, [it.nome]: e.target.checked }))} />
+                    <span style={{ flex: 1 }}>{it.nome}</span>
+                    <span style={{ fontSize: 10.5, color: C.espM }}>{it.pessoas} pessoa{it.pessoas === 1 ? '' : 's'}</span>
+                    {it.ja_cadastrado && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.greenBg, color: C.green }}>já cadastrado</span>}
+                    {it.possivel_duplicata_de && <span title={`Parece o mesmo que "${it.possivel_duplicata_de}"`} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.amberBg, color: C.amber }}>possível duplicata</span>}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button type="button" disabled={busy || selecionados.length === 0} style={btn(!busy && selecionados.length > 0)} onClick={() => void adicionar()}>{busy ? 'Adicionando…' : `Adicionar ${selecionados.length} selecionado(s)`}</button>
+                <button type="button" onClick={() => setAberto(false)} style={{ ...btn(true), background: 'transparent', color: C.espM, border: `1px solid ${C.border}` }}>Fechar</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+function CadastroSimples({ ctx, tabela, titulo, order, placeholder, onMudou, rpcSugestao, sugLabel, dica }: { ctx: Ctx; tabela: string; titulo: string; order: string; placeholder: string; onMudou: () => void; rpcSugestao?: string; sugLabel?: string; dica?: string }) {
   const { rows, carregar } = useLista(tabela, ctx, order)
   const [novo, setNovo] = useState('')
   const [edit, setEdit] = useState<{ id: string; nome: string } | null>(null)
@@ -513,6 +579,8 @@ function CadastroSimples({ ctx, tabela, titulo, order, placeholder, onMudou }: {
           if (await inserir(tabela, ctx, payload, `Já existe um item chamado "${nome}".`)) { setNovo(''); await carregar(); onMudou() }
         }}>+</button>
       </div>
+      {rpcSugestao && <div style={{ marginBottom: 8 }}><SugerirDoPonto ctx={ctx} rpc={rpcSugestao} tabela={tabela} sugLabel={sugLabel ?? 'itens'} jaExistentes={rows.length} onAdd={async () => { await carregar(); onMudou() }} /></div>}
+      {dica && <div style={{ fontSize: 11, color: C.espM, marginBottom: 8, lineHeight: 1.4 }}>{dica}</div>}
       {rows.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>Nada cadastrado.</div> : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {rows.map((r) => (
@@ -557,10 +625,10 @@ function Avancado({ ctx, onMudou }: { ctx: Ctx; onMudou: () => Promise<void> }) 
   const md = () => { void onMudou() }
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 10 }}>
-      <CadastroSimples ctx={ctx} tabela="prod_setor" titulo="Setores" order="ordem" placeholder="ex.: Abate, Desossa" onMudou={md} />
-      <CadastroSimples ctx={ctx} tabela="prod_cargo" titulo="Cargos" order="nome" placeholder="ex.: Operador" onMudou={md} />
+      <CadastroSimples ctx={ctx} tabela="prod_setor" titulo="Setores" order="ordem" placeholder="ex.: Abate, Desossa" rpcSugestao="fn_prod_sugerir_setores" sugLabel="setores" onMudou={md} />
+      <CadastroSimples ctx={ctx} tabela="prod_cargo" titulo="Cargos" order="nome" placeholder="ex.: Operador" rpcSugestao="fn_prod_sugerir_cargos" sugLabel="cargos" onMudou={md} />
       <CadastroSimples ctx={ctx} tabela="prod_unidade_medida" titulo="Unidades de medida" order="codigo" placeholder="código (kg, cabeca…)" onMudou={md} />
-      <CadastroSimples ctx={ctx} tabela="prod_categoria_produto" titulo="Categorias de produto" order="ordem" placeholder="ex.: Abate, Miúdos" onMudou={md} />
+      <CadastroSimples ctx={ctx} tabela="prod_categoria_produto" titulo="Categorias de produto" order="ordem" placeholder="ex.: Abate, Miúdos" dica="Não há base de produtos para sugerir ainda. Cadastre o que precisa medir separado no mesmo setor — ex.: Abate, Miúdos, Dianteiro, Traseiro." onMudou={md} />
     </div>
   )
 }
