@@ -379,10 +379,11 @@ export default function FiscalConfigClient() {
         </div>
       )}
 
-      {/* #segurança · certificado no formato antigo de senha (base64) → reenvio migra p/ o Vault.
-          Aparece só enquanto senha_vault_id for nula; some sozinho depois de migrado. */}
-      {state.certificado && !state.certificado.senha_vault_id && (
-        <CertMigrarSenhaBanner certificadoId={state.certificado.id} onMigrado={carregar} />
+      {/* #segurança · trocar a senha do certificado (renovação ou decisão do cliente). A migração
+          das senhas antigas para o Vault é feita in-place pela migration — aqui sobra só o caso
+          legítimo de troca, recolhido por padrão para não virar ruído. */}
+      {state.certificado && (
+        <CertTrocarSenhaCard certificadoId={state.certificado.id} onSalvo={carregar} />
       )}
 
       <CertificadoUploadCard
@@ -435,16 +436,16 @@ export default function FiscalConfigClient() {
   )
 }
 
-// #segurança · S1 · migrar a senha do certificado (formato antigo base64) para o Vault. O usuário
-// reenvia a senha; fn_certificado_senha_salvar grava no Vault e apaga a antiga. A senha nunca é
-// lida do banco pelo front — só digitada aqui e enviada à RPC. São 6 certs, 6 reenvios; o aviso
-// some sozinho quando senha_vault_id fica preenchida.
-function CertMigrarSenhaBanner({ certificadoId, onMigrado }: { certificadoId: string; onMigrado: () => void }) {
+// #segurança · trocar a senha do certificado (renovação / decisão do cliente). fn_certificado_senha_salvar
+// grava no Vault e apaga qualquer resquício antigo. A senha nunca é lida do banco pelo front — só
+// digitada aqui e enviada à RPC. Recolhido por padrão (o caso comum é não mexer).
+function CertTrocarSenhaCard({ certificadoId, onSalvo }: { certificadoId: string; onSalvo: () => void }) {
+  const [aberto, setAberto] = useState(false)
   const [senha, setSenha] = useState('')
   const [mostrar, setMostrar] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  async function migrar() {
+  async function salvar() {
     if (!senha.trim()) { setMsg('Informe a senha do certificado.'); return }
     setSalvando(true); setMsg(null)
     try {
@@ -453,42 +454,46 @@ function CertMigrarSenhaBanner({ certificadoId, onMigrado }: { certificadoId: st
       })
       if (error) throw error
       const j = data as { ok?: boolean; erro?: string } | null
-      if (!j?.ok) { setMsg('Erro: ' + (j?.erro ?? 'não foi possível migrar')); return }
-      setSenha(''); onMigrado()   // recarrega → senha_vault_id preenchido → o aviso some
+      if (!j?.ok) { setMsg('Erro: ' + (j?.erro ?? 'não foi possível salvar')); return }
+      setSenha(''); setMsg('Senha atualizada no cofre seguro.'); onSalvo()
     } catch (e) {
-      setMsg('Erro ao migrar: ' + (e as Error).message)
+      setMsg('Erro ao salvar: ' + (e as Error).message)
     } finally { setSalvando(false) }
   }
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => setAberto(true)}
+        className="text-left text-[12px] text-[#3D2314]/60 hover:text-[#C8941A] px-1">
+        🔑 Trocar senha do certificado
+      </button>
+    )
+  }
   return (
-    <div className="bg-[#FBF4E4] border border-[#C8941A]/50 rounded-xl px-4 py-3">
-      <div className="flex items-start gap-2">
-        <AlertCircle className="text-[#8A5A00] flex-shrink-0 mt-0.5" size={16} />
-        <div className="flex-1 min-w-0">
-          <div className="text-[12.5px] font-medium text-[#5C3B0B]">Este certificado usa o formato antigo de senha</div>
-          <div className="text-[11.5px] text-[#5C3B0B]/80 mt-0.5 leading-snug">
-            Reenvie a senha do certificado para migrá-la para o cofre seguro (Vault). A senha deixa de
-            ficar guardada em texto — este aviso some depois de migrada.
-          </div>
-          <div className="mt-2 flex items-center gap-2 flex-wrap">
-            <input
-              type={mostrar ? 'text' : 'password'}
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              placeholder="senha do certificado"
-              autoComplete="off"
-              className="bg-white border border-[#3D2314]/15 rounded-md px-3 py-1.5 text-[13px] text-[#3D2314] w-56"
-            />
-            <button type="button" onClick={() => setMostrar((v) => !v)} className="text-[11.5px] text-[#5C3B0B]/70 hover:text-[#5C3B0B]">
-              {mostrar ? 'ocultar' : 'mostrar'}
-            </button>
-            <button type="button" onClick={() => void migrar()} disabled={salvando || !senha.trim()}
-              className="px-3 py-1.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[12.5px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center gap-1.5">
-              {salvando ? <><Loader2 size={13} className="animate-spin" /> Migrando…</> : 'Migrar para o Vault'}
-            </button>
-          </div>
-          {msg && <div className={`text-[11.5px] mt-1.5 ${msg.startsWith('Erro') ? 'text-[#A32D2D]' : 'text-[#3F7012]'}`}>{msg}</div>}
-        </div>
+    <div className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3">
+      <div className="text-[12.5px] font-medium text-[#3D2314]">Trocar senha do certificado</div>
+      <div className="text-[11.5px] text-[#3D2314]/70 mt-0.5 leading-snug">
+        A senha vai direto para o cofre seguro (Vault) — não fica guardada em texto.
       </div>
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <input
+          type={mostrar ? 'text' : 'password'}
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          placeholder="nova senha do certificado"
+          autoComplete="off"
+          className="bg-white border border-[#3D2314]/15 rounded-md px-3 py-1.5 text-[13px] text-[#3D2314] w-56"
+        />
+        <button type="button" onClick={() => setMostrar((v) => !v)} className="text-[11.5px] text-[#3D2314]/60 hover:text-[#3D2314]">
+          {mostrar ? 'ocultar' : 'mostrar'}
+        </button>
+        <button type="button" onClick={() => void salvar()} disabled={salvando || !senha.trim()}
+          className="px-3 py-1.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[12.5px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center gap-1.5">
+          {salvando ? <><Loader2 size={13} className="animate-spin" /> Salvando…</> : 'Salvar senha'}
+        </button>
+        <button type="button" onClick={() => { setAberto(false); setSenha(''); setMsg(null) }}
+          className="text-[11.5px] text-[#3D2314]/50 hover:text-[#3D2314]">cancelar</button>
+      </div>
+      {msg && <div className={`text-[11.5px] mt-1.5 ${msg.startsWith('Erro') ? 'text-[#A32D2D]' : 'text-[#3F7012]'}`}>{msg}</div>}
     </div>
   )
 }
