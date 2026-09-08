@@ -41,8 +41,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       try {
         const res = await fetch(req)
-        const c = await caches.open(CACHE)
-        c.put(req, res.clone())
+        // So cacheia resposta OK: cachear 404/erro faria o proximo load servir o mesmo 404
+        // guardado (chunk sumido pos-deploy nunca se recuperava). FIX-CHUNK-RELOAD.
+        if (res.ok) { const c = await caches.open(CACHE); c.put(req, res.clone()) }
         return res
       } catch {
         return (await caches.match(req))
@@ -62,8 +63,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       try {
         const res = await fetch(req)
-        const c = await caches.open(CACHE)
-        c.put(req, res.clone())
+        // So cacheia resposta OK (mesmo motivo do handler de navegacao): um chunk /_next/ que
+        // deu 404 pos-deploy nunca pode ficar guardado, senao o reload cai no mesmo 404.
+        if (res.ok) { const c = await caches.open(CACHE); c.put(req, res.clone()) }
         return res
       } catch {
         return (await caches.match(req)) || Response.error()
