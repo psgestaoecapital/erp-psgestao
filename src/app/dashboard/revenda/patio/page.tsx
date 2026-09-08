@@ -5,7 +5,7 @@
 // chassi (placa opcional). Dias e custo são DERIVADOS (view v_veic_patio) — nunca coluna.
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -26,12 +26,14 @@ export default function PatioPage() {
 
 function Inner() {
   const router = useRouter()
+  const sp = useSearchParams()
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const [rows, setRows] = useState<Veic[]>([])
   const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({})
-  const [filtro, setFiltro] = useState('todos')
-  const [compl, setCompl] = useState('todos') // completude: todos | sem_custo | sem_dados | sem_vistoria
+  // Onda 7: o painel do dono linka pra ca ja filtrado (?filtro=entregue, ?compl=sem_foto, ...).
+  const [filtro, setFiltro] = useState(sp.get('filtro') || 'todos')
+  const [compl, setCompl] = useState(sp.get('compl') || 'todos') // completude: todos | sem_custo | sem_dados | sem_vistoria | sem_foto | ...
   const [comVistoria, setComVistoria] = useState<Set<string>>(new Set()) // Onda 5B: ids com vistoria (não cancelada)
   const [precificados, setPrecificados] = useState<Set<string>>(new Set()) // Onda 6A: ids com preco_venda definido
   const [emPreparacao, setEmPreparacao] = useState<Set<string>>(new Set()) // Onda 9: ids com OS de preparação aberta
@@ -84,6 +86,7 @@ function Inner() {
       || (compl === 'sem_custo' && !r.tem_custo)
       || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0)
       || (compl === 'sem_vistoria' && !comVistoria.has(r.id))
+      || (compl === 'sem_foto' && !r.foto_url)
       || (compl === 'nao_precificado' && !precificados.has(r.id))
       || (compl === 'pronto_nota' && (r.fiscais_faltantes?.length ?? 0) === 0)
       || (compl === 'em_preparacao_os' && emPreparacao.has(r.id))
@@ -92,6 +95,7 @@ function Inner() {
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
   const nSemVistoria = useMemo(() => rows.filter((r) => !comVistoria.has(r.id)).length, [rows, comVistoria])
+  const nSemFoto = useMemo(() => rows.filter((r) => !r.foto_url).length, [rows])
   const nNaoPrecificado = useMemo(() => rows.filter((r) => !precificados.has(r.id)).length, [rows, precificados])
   const nEmPreparacao = useMemo(() => rows.filter((r) => emPreparacao.has(r.id)).length, [rows, emPreparacao])
 
@@ -136,6 +140,7 @@ function Inner() {
             <option value="sem_custo">sem custo de aquisição{nSemCusto ? ` (${nSemCusto})` : ''}</option>
             <option value="sem_dados">sem dados do veículo{nSemDados ? ` (${nSemDados})` : ''}</option>
             <option value="sem_vistoria">sem vistoria{nSemVistoria ? ` (${nSemVistoria})` : ''}</option>
+            <option value="sem_foto">sem foto{nSemFoto ? ` (${nSemFoto})` : ''}</option>
             <option value="nao_precificado">não precificado{nNaoPrecificado ? ` (${nNaoPrecificado})` : ''}</option>
             <option value="em_preparacao_os">em preparação (OS aberta){nEmPreparacao ? ` (${nEmPreparacao})` : ''}</option>
             <option value="pronto_nota">pronto para nota{resumoFiscal ? ` (${resumoFiscal.aptos})` : ''}</option>
