@@ -53,9 +53,12 @@ type RetSimples = { item_id?: string; remessa?: number; descricao?: string | nul
 type RetAutoResp = {
   ok: boolean; erro?: string; confirmado?: boolean
   casados?: RetCasado[]; agendados?: RetSimples[]; nao_casados?: RetSimples[]; rejeitados?: RetSimples[]; ja_pagos?: RetSimples[]
-  qtd_casados?: number; qtd_agendados?: number; qtd_nao_casados?: number
-  resumo?: { total: number; pagos: number; agendados?: number; rejeitados: number; ja_pagos: number; erros: number; nao_casados: number }
+  nao_reconhecidos?: RetSimples[]   // #29: banco devolveu código que o sistema não conhece — NUNCA liquida
+  qtd_casados?: number; qtd_agendados?: number; qtd_nao_casados?: number; qtd_nao_reconhecidos?: number
+  resumo?: { total: number; pagos: number; agendados?: number; rejeitados: number; ja_pagos: number; erros: number; nao_casados: number; nao_reconhecidos?: number }
 }
+// #29: fila de revisão — títulos cujo retorno o banco mandou com código não reconhecido (não baixaram).
+type FilaNaoRec = { id: string; valor: number; descricao: string | null; remessa: number | null; ocorrencia: string | null; motivo: string | null }
 
 export default function RemessaPagamentoPage() {
   const { selInfo, sel } = useCompanyIds()
@@ -88,6 +91,7 @@ export default function RemessaPagamentoPage() {
   const [impConfirmado, setImpConfirmado] = useState(false)
   // Gestão da remessa: lista + extrato (ver/imprimir/cancelar/remover item)
   const [remessas, setRemessas] = useState<RemessaLista[]>([])
+  const [naoRec, setNaoRec] = useState<FilaNaoRec[]>([])   // #29: fila de itens não reconhecidos (revisão)
   const [extrato, setExtrato] = useState<ExtratoResp | null>(null)
   const [extratoRem, setExtratoRem] = useState<RemessaLista | null>(null)
   const [gestBusy, setGestBusy] = useState(false)
@@ -173,6 +177,18 @@ export default function RemessaPagamentoPage() {
     // lista das remessas geradas (gestão: extrato / cancelar / remover item)
     const { data: rems } = await supabase.rpc('fn_remessa_listar', { p_company_id: companyId, p_limit: 40 })
     setRemessas((rems as RemessaLista[] | null) ?? [])
+
+    // #29 · fila de revisão: itens que o retorno trouxe com código NÃO reconhecido — não baixaram, o título
+    // voltou ao status anterior e precisa de olho humano. Fica visível no topo até ser resolvido.
+    const { data: nrec } = await supabase.from('erp_remessa_pagamento_item')
+      .select('id, valor, ocorrencia_retorno, remocao_motivo, erp_pagar(descricao), erp_remessa_pagamento!inner(numero_sequencial, company_id)')
+      .eq('status_item', 'nao_reconhecido').eq('erp_remessa_pagamento.company_id', companyId)
+      .order('created_at', { ascending: false })
+    setNaoRec(((nrec ?? []) as unknown as Array<{ id: string; valor: number; ocorrencia_retorno: string | null; remocao_motivo: string | null; erp_pagar: { descricao: string | null } | null; erp_remessa_pagamento: { numero_sequencial: number | null } | null }>).map((r) => ({
+      id: r.id, valor: r.valor, descricao: r.erp_pagar?.descricao ?? null,
+      remessa: r.erp_remessa_pagamento?.numero_sequencial ?? null,
+      ocorrencia: r.ocorrencia_retorno, motivo: r.remocao_motivo,
+    })))
     setLoading(false)
   }, [companyId])
 
@@ -491,6 +507,27 @@ export default function RemessaPagamentoPage() {
 
         {msg && <div style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
 
+        {/* #29 · FILA DE REVISÃO — retornos com código que o sistema não reconhece. Não baixaram: o título
+            voltou ao status anterior e espera decisão humana. Fica sempre no topo até ser resolvido. */}
+        {naoRec.length > 0 && (
+          <div style={{ margin: '0 0 12px', borderRadius: 10, background: '#FBEAEA', border: `1px solid ${VERM}`, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 12px', color: VERM, fontSize: 12.5, fontWeight: 800 }}>
+              ⚠ {naoRec.length} retorno(s) NÃO reconhecido(s) — o banco devolveu um código que o sistema não conhece.
+              Nada foi baixado; o(s) título(s) voltou/voltaram ao status anterior. Confira com o banco antes de dar por pago.
+            </div>
+            <div>
+              {naoRec.map((n, i) => (
+                <div key={n.id} style={{ padding: '7px 12px', borderTop: `0.5px solid ${VERM}33`, fontSize: 12, background: i % 2 ? '#FBEAEA' : '#FDF2F2' }}>
+                  <span style={{ color: ESP, fontWeight: 700 }}>{n.descricao || '—'}</span>
+                  <span style={{ color: MUT }}> · remessa Nº {n.remessa ?? '—'}{n.ocorrencia ? ` · oc ${n.ocorrencia}` : ''} · </span>
+                  <span style={{ color: ESP, fontWeight: 700 }}>{brl(Math.round((n.valor ?? 0) * 100))}</span>
+                  {n.motivo && <span style={{ color: VERM }}> — {n.motivo}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {semDv && (
           <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FBF4E4', border: `0.5px solid ${GOLD}`, fontSize: 12.5, color: ESP }}>
             <b>Falta o DV da agência</b> (cooperativa {cfg.cooperativa}). Confirme com o {labelBanco} e informe para gerar o arquivo:
@@ -768,6 +805,7 @@ export default function RemessaPagamentoPage() {
                   {(impResumo.resumo.agendados ?? 0) > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#EEF2FB', color: '#2F5AA8', fontWeight: 700 }}>{impResumo.resumo.agendados} {impConfirmado ? 'agendados' : 'a agendar'}</span>}
                   {impResumo.resumo.ja_pagos > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.ja_pagos} já baixados</span>}
                   {impResumo.resumo.rejeitados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.rejeitados} rejeitados</span>}
+                  {(impResumo.resumo.nao_reconhecidos ?? 0) > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: VERM, color: '#FFF', fontWeight: 800 }}>{impResumo.resumo.nao_reconhecidos} não reconhecidos</span>}
                   {impResumo.resumo.erros > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: '#FBEAEA', color: VERM, fontWeight: 700 }}>{impResumo.resumo.erros} c/ erro</span>}
                   {impResumo.resumo.nao_casados > 0 && <span style={{ padding: '3px 8px', borderRadius: 6, background: BG, color: MUT, fontWeight: 700 }}>{impResumo.resumo.nao_casados} não casados</span>}
                 </div>
@@ -776,6 +814,26 @@ export default function RemessaPagamentoPage() {
                 {impResumo.resumo.rejeitados > 0 && (
                   <div style={{ marginTop: 10, padding: '9px 12px', borderRadius: 8, background: '#FBEAEA', border: `1px solid ${VERM}`, color: VERM, fontSize: 12.5, fontWeight: 700 }}>
                     ⚠ {impResumo.resumo.rejeitados} título(s) rejeitado(s) pelo banco — {impConfirmado ? 'voltaram ao status anterior' : 'voltarão ao status anterior'}. Veja os motivos abaixo.
+                  </div>
+                )}
+
+                {/* #29 · NÃO reconhecidos — o banco devolveu código fora do mapa. NUNCA liquidam: o título volta
+                    ao status anterior e vai pra fila de revisão. Nunca marcar como pago sem conferir com o banco. */}
+                {(impResumo.resumo.nao_reconhecidos ?? 0) > 0 && (
+                  <div style={{ marginTop: 10, padding: '9px 12px', borderRadius: 8, background: VERM, border: `1px solid ${VERM}`, color: '#FFF', fontSize: 12.5, fontWeight: 800 }}>
+                    ⚠ {impResumo.resumo.nao_reconhecidos} retorno(s) com código que o sistema NÃO reconhece — {impConfirmado ? 'não foram baixados e o título voltou ao status anterior' : 'não serão baixados; o título volta ao status anterior'}. Confira com o banco antes de dar por pago.
+                  </div>
+                )}
+                {(impResumo.nao_reconhecidos ?? []).length > 0 && (
+                  <div style={{ marginTop: 8, border: `1px solid ${VERM}`, borderRadius: 8, overflow: 'hidden' }}>
+                    {(impResumo.nao_reconhecidos ?? []).map((d, i) => (
+                      <div key={d.item_id ?? i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
+                        <span style={{ padding: '1px 6px', borderRadius: 5, background: VERM, color: '#FFF', fontWeight: 800, fontSize: 11 }}>Não reconhecido</span>
+                        <span style={{ color: ESP, fontWeight: 600 }}> {d.descricao || brl(Math.round((d.valor ?? 0) * 100))}</span>
+                        {d.remessa != null && <span style={{ color: MUT }}> · remessa Nº {d.remessa}</span>}
+                        <span style={{ color: VERM }}> — {d.motivo}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -841,12 +899,13 @@ export default function RemessaPagamentoPage() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               <button onClick={() => setImpOpen(false)} disabled={impBusy} style={btnGhost}>{impConfirmado ? 'Fechar' : 'Cancelar'}</button>
-              {impResumo?.ok && !impConfirmado && ((impResumo.resumo?.pagos ?? 0) + (impResumo.resumo?.agendados ?? 0) + (impResumo.resumo?.rejeitados ?? 0)) > 0 && (
+              {impResumo?.ok && !impConfirmado && ((impResumo.resumo?.pagos ?? 0) + (impResumo.resumo?.agendados ?? 0) + (impResumo.resumo?.rejeitados ?? 0) + (impResumo.resumo?.nao_reconhecidos ?? 0)) > 0 && (
                 <button onClick={confirmarImportar} disabled={impBusy} style={btnPrimary}>
                   {impBusy ? 'Aplicando…' : `Confirmar (${[
                     (impResumo.resumo?.pagos ?? 0) > 0 ? `${impResumo.resumo?.pagos} baixar` : '',
                     (impResumo.resumo?.agendados ?? 0) > 0 ? `${impResumo.resumo?.agendados} agendar` : '',
                     (impResumo.resumo?.rejeitados ?? 0) > 0 ? `${impResumo.resumo?.rejeitados} rejeitar` : '',
+                    (impResumo.resumo?.nao_reconhecidos ?? 0) > 0 ? `${impResumo.resumo?.nao_reconhecidos} revisar` : '',
                   ].filter(Boolean).join(' · ')})`}
                 </button>
               )}
