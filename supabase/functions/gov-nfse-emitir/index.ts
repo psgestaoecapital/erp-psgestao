@@ -241,6 +241,11 @@ Deno.serve(async (req: Request) => {
     console.log("emitir.numero_consumido", { ref, serie: nfseSerie, numero: nfseNumero })
 
     // 4. Cria erp_nfse_emitidas row (status=processando)
+    // #32: a aliquota (do resolver quando ISS no local, senao a do servico) e o ISS calculado —
+    // computados ANTES do insert para gravar valor_iss na nossa nota (bug: antes so ia no DPS).
+    const aliqIss = aliqOverride ?? (p.servico.aliquota_iss ?? 5)
+    const valorIss = round2(p.servico.valor * aliqIss / 100)
+
     let nfseId = p.nfse_emitida_id
     if (!nfseId) {
       const { data: row, error } = await sb.from("erp_nfse_emitidas").insert({
@@ -251,7 +256,9 @@ Deno.serve(async (req: Request) => {
         status: "processando",
         valor_servicos: p.servico.valor,
         // #32: aliquota do resolver (local da prestacao) quando houver; senao a do servico.
-        aliquota_iss: aliqOverride ?? (p.servico.aliquota_iss ?? 5),
+        aliquota_iss: aliqIss,
+        // valor_iss agora GRAVADO (o mesmo que vai no DPS/XML) — antes ficava nulo na nossa tabela.
+        valor_iss: valorIss,
         // #32: onde o servico foi prestado + de onde veio a aliquota (procedencia, RD-51).
         municipio_prestacao_ibge: prestacaoIbge,
         municipio_prestacao_nome: prestacaoNome,
@@ -274,10 +281,7 @@ Deno.serve(async (req: Request) => {
       nfseId = row.id
     }
 
-    // 5. Payload Focus NFe (NFS-e Nacional)
-    // #32: quando o ISS e no local da prestacao, a aliquota vem do resolver (aliqOverride).
-    const aliqIss = aliqOverride ?? (p.servico.aliquota_iss ?? 5)
-    const valorIss = round2(p.servico.valor * aliqIss / 100)
+    // 5. Payload Focus NFe (NFS-e Nacional) — aliqIss/valorIss já computados acima (antes do insert).
     const focusPayload: Record<string, unknown> = {
       // FEAT-NFSE-NUMERACAO-v1 · serie/numero atomicos (antes era hardcoded 1/1)
       serie_rps: nfseSerie,
