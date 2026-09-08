@@ -16,6 +16,10 @@ const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1
 const brl = (v: number | null) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type Item = { marca: string | null; modelo: string | null; procuras: number; demanda: boolean; ano_min: number | null; ano_max: number | null; valor_ate: number | null; estoque_qtd: number; estoque_preco_min: number | null }
+type MarcaGrupo = { nome: string; n: number; capital: number; dias_medio: number | null; sem_marca: boolean }
+type SugestaoGrafia = { grafias: string[]; veiculos: number; placas: string[] }
+type VendaModelo = { modelo: string; qtd: number; afirma_media: boolean; dias_medio: number | null; margem_media: number | null }
+type Resumo = { ok: boolean; total_veiculos: number; capital: number; marcas: MarcaGrupo[]; sugestoes_grafia: SugestaoGrafia[]; vendas_total: number; vendas_por_modelo: VendaModelo[] }
 
 export default function DemandaPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -25,18 +29,24 @@ function Inner() {
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const [itens, setItens] = useState<Item[]>([])
+  const [resumo, setResumo] = useState<Resumo | null>(null)
   const [dias, setDias] = useState(90)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [modal, setModal] = useState(false)
 
   const carregar = useCallback(async () => {
-    if (!companyId) { setItens([]); setLoading(false); return }
+    if (!companyId) { setItens([]); setResumo(null); setLoading(false); return }
     setLoading(true)
-    const { data, error } = await supabase.rpc('fn_veic_demanda_nao_atendida', { p_company_id: companyId, p_dias: dias })
-    if (error) { setErro(error.message); setLoading(false); return }
-    const r = data as { ok?: boolean; itens?: Item[] } | null
-    setItens(r?.ok ? (r.itens ?? []) : [])
+    const [d, r] = await Promise.all([
+      supabase.rpc('fn_veic_demanda_nao_atendida', { p_company_id: companyId, p_dias: dias }),
+      supabase.rpc('fn_veic_patio_resumo', { p_company_id: companyId }),
+    ])
+    if (d.error) { setErro(d.error.message); setLoading(false); return }
+    const dr = d.data as { ok?: boolean; itens?: Item[] } | null
+    setItens(dr?.ok ? (dr.itens ?? []) : [])
+    const rr = r.data as Resumo | null
+    setResumo(rr?.ok ? rr : null)
     setLoading(false)
   }, [companyId, dias])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -67,37 +77,117 @@ function Inner() {
 
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, margin: '12px 0' }} onClick={() => setErro(null)}>{erro}</div>}
 
-      <div style={{ marginTop: 16 }}>
-        {loading ? (
-          <div style={{ color: C.espM, fontSize: 13 }}>Carregando…</div>
-        ) : itens.length === 0 ? (
-          <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>
-            Nenhuma procura registrada neste período. Registre o que os clientes pedem e não encontram — é o que vira decisão de compra.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {itens.map((i, ix) => (
-              <div key={ix} style={{ background: C.white, border: `1px solid ${i.demanda ? C.gold + '66' : C.border}`, borderLeft: `4px solid ${i.demanda ? C.gold : C.border}`, borderRadius: 12, padding: '12px 14px' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{[i.marca, i.modelo].filter(Boolean).join(' ') || 'Sem descrição'}</div>
-                  {faixaAno(i) && <span style={{ fontSize: 12.5, color: C.espM }}>{faixaAno(i)}</span>}
-                  {i.valor_ate != null && <span style={{ fontSize: 12.5, color: C.espM }}>até {brl(i.valor_ate)}</span>}
-                  <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: i.demanda ? C.gold : C.espM }}>{i.procuras} procura{i.procuras > 1 ? 's' : ''}</span>
-                </div>
-                <div style={{ fontSize: 12.5, marginTop: 6, color: i.estoque_qtd === 0 ? C.red : C.green }}>
-                  {i.estoque_qtd === 0
-                    ? 'Você não tem nenhum no pátio'
-                    : `Você tem ${i.estoque_qtd}${i.estoque_preco_min != null ? ` · anunciado ${brl(i.estoque_preco_min)}` : ' (nenhum precificado)'}`}
-                </div>
-                {!i.demanda && <div style={{ fontSize: 11, color: C.espL, marginTop: 4, fontStyle: 'italic' }}>caso isolado — 1 procura só; ainda não é padrão de demanda</div>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div style={{ color: C.espM, fontSize: 13, marginTop: 16 }}>Carregando…</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
+          {/* ordem: procuras primeiro quando houver; senão pátio + histórico primeiro (a tela nunca abre vazia) */}
+          {itens.length > 0 && <ProcurasBloco itens={itens} faixaAno={faixaAno} />}
+          {resumo && <PatioBloco r={resumo} />}
+          {resumo && <VendasBloco r={resumo} />}
+          {itens.length === 0 && (
+            <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '24px 16px', textAlign: 'center' }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>Nenhuma procura registrada ainda.</div>
+              <div style={{ fontSize: 12.5, color: C.espM, lineHeight: 1.55, margin: '6px auto 0', maxWidth: 480 }}>Quando um cliente procurar um carro que você não tem, registre aqui. Depois de algumas, esta tela mostra o que vale a pena comprar.</div>
+              <button onClick={() => setModal(true)} style={{ marginTop: 12, padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>+ Registrar procura</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {modal && <ProcuraModal companyId={companyId} onClose={() => setModal(false)} onSaved={() => { setModal(false); void carregar() }} onErro={setErro} />}
     </div>
+  )
+}
+
+function Bloco({ titulo, sub, children }: { titulo: string; sub?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espM, fontWeight: 700 }}>{titulo}</div>
+      {sub && <div style={{ fontSize: 13, fontWeight: 700, margin: '2px 0 8px' }}>{sub}</div>}
+      <div style={{ marginTop: sub ? 0 : 8 }}>{children}</div>
+    </div>
+  )
+}
+
+// Procuras — o que já estava previsto (fn_veic_demanda_nao_atendida), cruzado com o pátio
+function ProcurasBloco({ itens, faixaAno }: { itens: Item[]; faixaAno: (i: Item) => string }) {
+  return (
+    <Bloco titulo="Procuras" sub="Demanda que você não atendeu">
+      <div style={{ display: 'grid', gap: 10 }}>
+        {itens.map((i, ix) => (
+          <div key={ix} style={{ border: `1px solid ${i.demanda ? C.gold + '66' : C.border}`, borderLeft: `4px solid ${i.demanda ? C.gold : C.border}`, borderRadius: 10, padding: '11px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{[i.marca, i.modelo].filter(Boolean).join(' ') || 'Sem descrição'}</div>
+              {faixaAno(i) && <span style={{ fontSize: 12.5, color: C.espM }}>{faixaAno(i)}</span>}
+              {i.valor_ate != null && <span style={{ fontSize: 12.5, color: C.espM }}>até {brl(i.valor_ate)}</span>}
+              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: i.demanda ? C.gold : C.espM }}>{i.procuras} procura{i.procuras > 1 ? 's' : ''}</span>
+            </div>
+            <div style={{ fontSize: 12.5, marginTop: 6, color: i.estoque_qtd === 0 ? C.red : C.green }}>
+              {i.estoque_qtd === 0 ? 'Você não tem nenhum no pátio' : `Você tem ${i.estoque_qtd}${i.estoque_preco_min != null ? ` · anunciado ${brl(i.estoque_preco_min)}` : ' (nenhum precificado)'}`}
+            </div>
+            {!i.demanda && <div style={{ fontSize: 11, color: C.espL, marginTop: 4, fontStyle: 'italic' }}>caso isolado — 1 procura só; ainda não é padrão de demanda</div>}
+          </div>
+        ))}
+      </div>
+    </Bloco>
+  )
+}
+
+// Seu pátio hoje — o que já se tem (fn_veic_patio_resumo). Grupos por marca LITERAL (número é fato).
+// Sugestões de grafia (trigram) aparecem como AVISO separado acima — se a heurística errar, erra no aviso.
+function PatioBloco({ r }: { r: Resumo }) {
+  return (
+    <Bloco titulo="Seu pátio hoje" sub={`${r.total_veiculos} veículos · ${brl(r.capital)} parados`}>
+      {/* avisos de grafia (heurística) — separados dos números */}
+      {(r.sugestoes_grafia ?? []).map((s, ix) => (
+        <div key={ix} style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8, padding: '9px 11px', marginBottom: 8, fontSize: 12, color: '#8A4B08', lineHeight: 1.5 }}>
+          ⚠️ <b>{s.grafias.length} grafias parecem ser a mesma marca</b> ({s.grafias.join(' · ')}) — <b>{s.veiculos} veículos</b> no total. Padronize no cadastro.
+          {s.placas.length > 0 && <div style={{ fontSize: 11, color: C.espM, marginTop: 3, fontFamily: 'monospace' }}>{s.placas.join(' · ')}</div>}
+          <a href="/dashboard/revenda/patio" style={{ display: 'inline-block', marginTop: 4, fontSize: 11.5, color: C.blue, textDecoration: 'none', fontWeight: 700 }}>ver no pátio →</a>
+        </div>
+      ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
+        {r.marcas.map((m, ix) => (
+          <div key={ix} style={{ border: `1px solid ${m.sem_marca ? C.amber + '66' : C.border}`, borderRadius: 9, padding: '8px 10px', background: m.sem_marca ? C.amberBg : C.white }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{m.nome}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: C.esp }}>{m.n}</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.espM, marginTop: 2 }}>{brl(m.capital)}{m.dias_medio != null ? ` · ${m.dias_medio} dias médios` : ''}</div>
+            {m.sem_marca && <div style={{ fontSize: 10.5, color: '#8A4B08', marginTop: 4, fontWeight: 600 }}>⚠️ {m.n} veículo(s) sem marca cadastrada</div>}
+          </div>
+        ))}
+      </div>
+    </Bloco>
+  )
+}
+
+// O que você já vendeu — histórico por modelo (fn_veic_patio_resumo). <2 vendas não afirma média.
+function VendasBloco({ r }: { r: Resumo }) {
+  return (
+    <Bloco titulo="O que você já vendeu">
+      {r.vendas_por_modelo.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Nenhuma venda registrada ainda.</div>
+      ) : r.vendas_total < 2 ? (
+        <div style={{ fontSize: 12.5, color: C.espM }}>{r.vendas_total} venda registrada — ainda sem histórico para comparar.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {r.vendas_por_modelo.map((v, ix) => (
+            <div key={ix} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderTop: ix ? `1px solid ${C.cream}` : 'none', padding: '6px 0', fontSize: 13 }}>
+              <span style={{ fontWeight: 700, minWidth: 150 }}>{v.modelo}</span>
+              <span style={{ color: C.espM }}>{v.qtd} venda{v.qtd > 1 ? 's' : ''}</span>
+              {v.afirma_media ? (
+                <>
+                  {v.dias_medio != null && <span style={{ color: C.espM }}>· {v.dias_medio} dias até vender</span>}
+                  {v.margem_media != null && <span style={{ marginLeft: 'auto', fontWeight: 700, color: v.margem_media >= 0 ? C.green : C.red }}>margem média {brl(v.margem_media)}</span>}
+                </>
+              ) : <span style={{ color: C.espL, fontStyle: 'italic' }}>· 1 venda só — sem média</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </Bloco>
   )
 }
 
