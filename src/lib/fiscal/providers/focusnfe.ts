@@ -330,16 +330,22 @@ export class FocusNFeProvider implements FiscalProvider {
         : req.finalidade === 'complementar' ? 2
           : req.finalidade === 'ajuste' ? 3 : 4
 
-    // fiscal-devolucao-compra-v1: grupo NFref · refNFe com chave 44 digitos
+    // fiscal-devolucao-compra-v1: grupo NFref · refNFe com chave 44 digitos.
+    // FIX-NFE-NFREF-v1: a API Focus espera 'notas_referenciadas' com a chave interna
+    // 'chave_nfe' (mesma convencao de chave_nfe das RESPOSTAS Focus neste arquivo,
+    // linha ~522). O nome antigo ('nfes_referenciadas'/'chave') NAO existe na Focus:
+    // era aceito no HTTP, ignorado, e a nota saia SEM o grupo NFref. Devolucao com
+    // finalidade_emissao=4 sem a nota referenciada e invalida (glosa na 1a fiscalizacao).
+    // Sintoma: 0 notas com finalidade='devolucao' emitidas ate hoje (nunca exercitado).
     const chaveRef = req.chaveReferenciada?.replace(/\D/g, '')
-    const nfesReferenciadas = chaveRef && chaveRef.length === 44
-      ? [{ chave: chaveRef }]
+    const notasReferenciadas = chaveRef && chaveRef.length === 44
+      ? [{ chave_nfe: chaveRef }]
       : undefined
 
     const payload = {
       natureza_operacao: req.naturezaOperacao,
       finalidade_emissao: finalidadeNum,
-      ...(nfesReferenciadas ? { nfes_referenciadas: nfesReferenciadas } : {}),
+      ...(notasReferenciadas ? { notas_referenciadas: notasReferenciadas } : {}),
       modalidade_frete: 9,
       // FIX-NFE-SERIE-PAYLOAD-v1
       // Sem este campo, Focus numerava na sua serie padrao (1) ·
