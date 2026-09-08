@@ -241,6 +241,14 @@ Deno.serve(async (req: Request) => {
     console.log("emitir.numero_consumido", { ref, serie: nfseSerie, numero: nfseNumero })
 
     // 4. Cria erp_nfse_emitidas row (status=processando)
+    // #32: Simples Nacional (opcao 2 MEI / 3 ME/EPP) NAO destaca ISS na NFS-e — o imposto vai no DAS;
+    // aliquota e valor de ISS sao 0 no documento. Empresa NAO-Simples (Lucro Real/Presumido, ex.: FC
+    // Pisos) MANTEM o ISS destacado, com a aliquota do resolver (#1306). O regime decide, nao o operador.
+    const opcaoSN = (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3
+    const isSimples = opcaoSN === 2 || opcaoSN === 3
+    const aliqIss = isSimples ? 0 : (aliqOverride ?? (p.servico.aliquota_iss ?? 5))
+    const valorIss = isSimples ? 0 : round2(p.servico.valor * aliqIss / 100)
+
     let nfseId = p.nfse_emitida_id
     if (!nfseId) {
       const { data: row, error } = await sb.from("erp_nfse_emitidas").insert({
@@ -250,8 +258,8 @@ Deno.serve(async (req: Request) => {
         ambiente,
         status: "processando",
         valor_servicos: p.servico.valor,
-        // #32: aliquota do resolver (local da prestacao) quando houver; senao a do servico.
-        aliquota_iss: aliqOverride ?? (p.servico.aliquota_iss ?? 5),
+        // #32: Simples -> 0 (ISS no DAS); nao-Simples -> aliquota do resolver/servico.
+        aliquota_iss: aliqIss,
         // #32: onde o servico foi prestado + de onde veio a aliquota (procedencia, RD-51).
         municipio_prestacao_ibge: prestacaoIbge,
         municipio_prestacao_nome: prestacaoNome,
@@ -274,10 +282,7 @@ Deno.serve(async (req: Request) => {
       nfseId = row.id
     }
 
-    // 5. Payload Focus NFe (NFS-e Nacional)
-    // #32: quando o ISS e no local da prestacao, a aliquota vem do resolver (aliqOverride).
-    const aliqIss = aliqOverride ?? (p.servico.aliquota_iss ?? 5)
-    const valorIss = round2(p.servico.valor * aliqIss / 100)
+    // 5. Payload Focus NFe (NFS-e Nacional) — aliqIss/valorIss ja computados acima (0 no Simples).
     const focusPayload: Record<string, unknown> = {
       // FEAT-NFSE-NUMERACAO-v1 · serie/numero atomicos (antes era hardcoded 1/1)
       serie_rps: nfseSerie,
@@ -306,7 +311,6 @@ Deno.serve(async (req: Request) => {
     //   percentual_total_tributos_simples_nacional (=pTotTribSN no XML),
     //   parametrizado em erp_fiscal_provider_config.percentual_total_tributos_sn.
     //   Focus auto-preenche indTotTrib=1 + totTrib quando esse campo vem.
-    const opcaoSN = (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3
     const pTotTribSN = (cfg as { percentual_total_tributos_sn?: number | string | null }).percentual_total_tributos_sn
     if ((opcaoSN === 2 || opcaoSN === 3) && pTotTribSN != null) {
       focusPayload.percentual_total_tributos_simples_nacional = Number(pTotTribSN)
