@@ -277,17 +277,19 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       return { company_id, ok: false, erro: "cnpj_empresa_ausente" }
     }
 
-    // Paginação OFFSET/VERSÃO. Diagnóstico v17 provou: envelope = array de até 100 + header
-    // x-total-count (env=arr:100 hdr:x-total-count). A Focus /v2/nfes_recebidas ignora
-    // ?ultimo_nsu, então o cursor NSU nunca andava e ficava sempre na 1ª página (junho).
-    // A doc da Focus (endpoint análogo de recebidas) pagina por um cursor de VERSÃO lido do
-    // header x-max-version. Como o nome exato do param de avanço não está 100% provado, avançamos
-    // pelos DOIS cursores plausíveis ao mesmo tempo (offset por contagem + versao pelo x-max-version):
-    // a Focus honra o que reconhece e ignora o resto. Um stall-guard (página sem chave nova) encerra
-    // se nenhum avançar — sem loop 20x nem reprocessar. Fix 2 (fornecedor/número) segue em normalizar.
+    // Paginação por OFFSET. Diagnóstico v17 provou: envelope = array de até 100 + header
+    // x-total-count (env=arr:100 hdr:x-total-count). A Focus /v2/nfes_recebidas ignora ?ultimo_nsu
+    // (o cursor NSU nunca andava, ficava na 1ª página). O que ela HONRA é ?offset (contagem) — foi
+    // por ele que o cursor avançou. FIX-DFE-CURSOR-v1: paginamos SÓ por offset (o ?versao fixado no
+    // x-max-version global prendia num conjunto fixo e disparava o stall-guard), e RETOMAMOS do
+    // ultimo_nsu (offset alcançado) a cada run — antes reiniciava em 0 e relia o mesmo lote.
+    // Um stall-guard (página sem chave nova) encerra se não avançar. Fix normalizar segue à parte.
     const PAGE = 100
-    let offset = 0
-    let versao = 0
+    // FIX-DFE-CURSOR-v1 · RETOMAR do checkpoint. Antes offset iniciava em 0 a cada run e, com o
+    // LOOP_CAP e o stall-guard, cada execucao so cobria os primeiros lotes e regravava o mesmo
+    // ultimo_nsu — relendo o mesmo lote para sempre (KGF travado em 400/1198 desde 21/08). Agora
+    // comeca de onde parou (ultimo_nsu). PS Gestao (6 docs, 1 pagina) nunca sofreu.
+    let offset = Math.max(0, Number(job.ultimo_nsu) || 0)
     let total = 0
     const vistas = new Set<string>()   // chaves já vistas NESTE run (stall-guard de paginação)
     let totalRecebidas = 0
@@ -306,7 +308,9 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
       const qs = new URLSearchParams()
       qs.set("cnpj", cnpjLimpo)
       if (offset > 0) qs.set("offset", String(offset))
-      if (versao > 0) { qs.set("versao", String(versao)); qs.set("version", String(versao)) }
+      // FIX-DFE-CURSOR-v1 · paginar SO por offset. O ?versao antes era fixado no x-max-version GLOBAL
+      // (ex.: 8423), o que prendia a Focus num conjunto fixo a partir da 2a pagina e disparava o
+      // stall-guard. offset e o cursor real (x-total-count e contagem; ele avancou as paginas).
       const url = `${focusBase(ambiente)}/v2/nfes_recebidas?${qs.toString()}`
 
       let r: Response
@@ -374,10 +378,6 @@ async function processarEmpresa(job: EmpresaJob): Promise<ResultadoEmpresa> {
           company_id, ambiente, iter, status: r.status, envDbg,
         }))
       }
-      // Avança o cursor de versão pelo header (se a Focus for version-cursor).
-      const xMaxVer = Number(r.headers.get("x-max-version") ?? "0")
-      if (Number.isFinite(xMaxVer) && xMaxVer > versao) versao = xMaxVer
-
       const lista = extrairLista(envelope)
       totalRecebidas += lista.length
 
