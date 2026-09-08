@@ -31,6 +31,10 @@ const CORS_HEADERS = {
 const FOCUS_BASE = "https://api.focusnfe.com.br"
 const BATCH_LIMIT = 30
 const THROTTLE_MS = 2000
+// Teto de tentativas: depois disso a nota para de ser reenfileirada (o XML nunca vem
+// da SEFAZ — o fornecedor precisa mandar o arquivo). Vira situacao='precisa_xml' na tela,
+// com o botao Subir XML (#1314). Precisa bater com o c_teto de fn_nfe_recebidas_listar.
+const TETO_TENTATIVAS = 20
 
 function respond(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -172,6 +176,7 @@ Deno.serve(async (req: Request) => {
     .from("erp_nfe_recebidas")
     .select("id, company_id, chave_acesso, status_manifestacao, lancar_ao_completar, xml_tentativas")
     .eq("status", "aguardando_xml")
+    .lt("xml_tentativas", TETO_TENTATIVAS)   // para de reenfileirar as que estouraram o teto
     .order("ultima_tentativa_xml", { ascending: true, nullsFirst: true })
     .limit(BATCH_LIMIT)
   if (payloadCompanyId) q = q.eq("company_id", payloadCompanyId)
