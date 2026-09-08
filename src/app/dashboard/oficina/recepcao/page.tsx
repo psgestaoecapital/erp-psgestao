@@ -562,7 +562,7 @@ export default function RecepcaoPage() {
         open={cadAberto}
         onClose={() => setCadAberto(false)}
         title="Cadastrar cliente"
-        subtitle={`Documento ${clienteCnpj || docDigits} — sem sair da recepção`}
+        subtitle="Cadastre o cliente sem sair da recepção"
         footer={<>
           <button type="button" onClick={() => setCadAberto(false)} style={btnGhost}>Cancelar</button>
           <button type="button" onClick={() => void salvarCadastro()} disabled={cadSalvando} style={{ ...btnGold, opacity: cadSalvando ? 0.6 : 1 }}>
