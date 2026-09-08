@@ -486,6 +486,144 @@ async function remover(tabela: string, ctx: Ctx, id: string): Promise<boolean> {
   ctx.flash('EXCLUIU.'); return true
 }
 
+// ─────────── CATEGORIAS DE PRODUTO · agrupamento a partir do ATAK ───────────
+// O usuario cria a categoria (ex.: "Miudos") e ESCOLHE quais DESC_PRODUTO_EST entram. O sistema
+// lista os produtos mais frequentes por dominio (com a contagem) — mas NAO decide: o dominio do
+// ATAK reflete a consulta do Jian, nao o produto (miudos_5quarto traz "FEMEA PARA ABATE"). Um
+// produto em UMA categoria (fn_prod_categoria_item_atribuir MOVE, nao duplica).
+type CatRow = { id: string; nome: string }
+type AtakItem = { descricao: string; ocorrencias: number; categoria_id: string | null; categoria_nome: string | null }
+type CatItem = { id: string; categoria_id: string; descricao: string; dominio: string | null }
+
+function CategoriasProdutos({ ctx, onMudou }: { ctx: Ctx; onMudou: () => void }) {
+  const [cats, setCats] = useState<CatRow[]>([])
+  const [itens, setItens] = useState<CatItem[]>([])
+  const [novo, setNovo] = useState('')
+  const [abertoCat, setAbertoCat] = useState<string | null>(null)
+  const [edit, setEdit] = useState<{ id: string; nome: string } | null>(null)
+  const carregar = useCallback(async () => {
+    const [{ data: c }, { data: i }] = await Promise.all([
+      supabase.from('prod_categoria_produto').select('id, nome').eq('company_id', ctx.companyId).eq('plant_id', ctx.plantId).order('ordem').order('nome'),
+      supabase.from('prod_categoria_item').select('id, categoria_id, descricao, dominio').eq('company_id', ctx.companyId).eq('plant_id', ctx.plantId).order('descricao'),
+    ])
+    setCats((c as CatRow[]) ?? []); setItens((i as CatItem[]) ?? [])
+  }, [ctx.companyId, ctx.plantId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+  const itensDe = (catId: string) => itens.filter((x) => x.categoria_id === catId)
+  async function criar() {
+    const nome = novo.trim(); if (!nome) return
+    if (await inserir('prod_categoria_produto', ctx, { nome }, `Já existe uma categoria "${nome}".`)) { setNovo(''); await carregar(); onMudou() }
+  }
+  async function excluirCat(id: string, nome: string) {
+    const { count: nPost } = await supabase.from('prod_posto').select('id', { count: 'exact', head: true }).eq('company_id', ctx.companyId).eq('categoria_produto_id', id)
+    const partes = [nPost ? `${nPost} posto(s)` : null, itensDe(id).length ? `${itensDe(id).length} produto(s) agrupado(s)` : null].filter(Boolean)
+    const aviso = partes.length ? `\n\n⚠️ Afeta: ${partes.join(', ')}. Os produtos agrupados serão desvinculados.` : ''
+    if (window.confirm(`Excluir a categoria "${nome}"?${aviso}`) && await remover('prod_categoria_produto', ctx, id)) { await carregar(); onMudou() }
+  }
+  async function removerItem(id: string) {
+    const { data } = await supabase.rpc('fn_prod_categoria_item_remover', { p_item_id: id, p_user: null })
+    if ((data as { ok?: boolean } | null)?.ok) { await carregar() } else ctx.flashErr('Falha ao remover o produto.')
+  }
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, gridColumn: '1 / -1' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Categorias de produto</div>
+      <div style={{ fontSize: 11, color: C.espM, marginBottom: 8 }}>Agrupe os produtos do ATAK — ex.: crie “Miúdos” e escolha quais entram. O domínio do ATAK não é categoria; você decide.</div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <input value={novo} onChange={(e) => setNovo(e.target.value)} placeholder="nova categoria (ex.: Miúdos)" style={{ ...inp, maxWidth: 260 }} />
+        <button disabled={!novo.trim()} style={btn(!!novo.trim())} onClick={() => void criar()}>+</button>
+      </div>
+      {cats.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>Nenhuma categoria ainda.</div> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {cats.map((cat) => (
+            <div key={cat.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {edit?.id === cat.id ? (
+                  <>
+                    <input value={edit.nome} onChange={(e) => setEdit({ id: cat.id, nome: e.target.value })} style={{ ...inp, width: 140, padding: '2px 6px' }} autoFocus />
+                    <button onClick={async () => { if (edit.nome.trim() && await renomear('prod_categoria_produto', ctx, cat.id, edit.nome.trim())) { setEdit(null); await carregar(); onMudou() } }} style={{ border: 'none', background: 'none', color: C.green, cursor: 'pointer', fontWeight: 700 }}>✓</button>
+                    <button onClick={() => setEdit(null)} style={{ border: 'none', background: 'none', color: C.espM, cursor: 'pointer' }}>×</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{cat.nome} <span style={{ color: C.espM, fontWeight: 400, fontSize: 11.5 }}>· {itensDe(cat.id).length} produto(s)</span></span>
+                    <button onClick={() => setAbertoCat(abertoCat === cat.id ? null : cat.id)} style={{ ...btn(true), background: 'transparent', color: C.blue, border: `1px solid ${C.blue}44`, padding: '3px 9px', fontSize: 11.5 }}>{abertoCat === cat.id ? 'fechar' : '📦 produtos'}</button>
+                    <button onClick={() => setEdit({ id: cat.id, nome: cat.nome })} title="Renomear" style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 11 }}>✎</button>
+                    <button onClick={() => void excluirCat(cat.id, cat.nome)} title="Excluir" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
+                  </>
+                )}
+              </div>
+              {itensDe(cat.id).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+                  {itensDe(cat.id).map((it) => (
+                    <span key={it.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.cream, borderRadius: 999, padding: '2px 6px 2px 9px', fontSize: 11.5 }}>
+                      {it.descricao}
+                      <button onClick={() => void removerItem(it.id)} title="Tirar da categoria" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {abertoCat === cat.id && <AtakPicker ctx={ctx} categoriaId={cat.id} onMudou={async () => { await carregar(); onMudou() }} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AtakPicker({ ctx, categoriaId, onMudou }: { ctx: Ctx; categoriaId: string; onMudou: () => Promise<void> }) {
+  const [dominios, setDominios] = useState<{ dominio: string; produtos: number }[]>([])
+  const [dominio, setDominio] = useState('')
+  const [itens, setItens] = useState<AtakItem[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const carregarDominios = useCallback(async () => {
+    const { data } = await supabase.rpc('fn_prod_atak_produtos', { p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_dominio: null, p_limit: null })
+    const r = data as { ok?: boolean; dominios?: { dominio: string; produtos: number }[] } | null
+    setDominios(r?.ok ? (r.dominios ?? []) : [])
+  }, [ctx.companyId, ctx.plantId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarDominios() }, [carregarDominios])
+  async function carregarItens(d: string) {
+    setDominio(d); setItens(null); if (!d) return
+    setBusy(true)
+    const { data } = await supabase.rpc('fn_prod_atak_produtos', { p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_dominio: d, p_limit: 60 })
+    setBusy(false)
+    setItens((data as { ok?: boolean; itens?: AtakItem[] } | null)?.ok ? ((data as { itens?: AtakItem[] }).itens ?? []) : [])
+  }
+  async function atribuir(descricao: string) {
+    const { data } = await supabase.rpc('fn_prod_categoria_item_atribuir', { p_categoria_id: categoriaId, p_descricao: descricao, p_dominio: dominio, p_user: null })
+    if (!(data as { ok?: boolean } | null)?.ok) { ctx.flashErr('Falha ao agrupar o produto.'); return }
+    await carregarItens(dominio); await onMudou()
+  }
+  return (
+    <div style={{ marginTop: 8, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+      <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>Produtos do ATAK, por frequência. Clique pra pôr nesta categoria. Já agrupado mostra onde está. ⚠️ O domínio (ex.: “miudos_5quarto”) reflete a consulta, não o produto — confira antes.</div>
+      <select value={dominio} onChange={(e) => void carregarItens(e.target.value)} style={{ ...inp, width: 'auto', marginBottom: 8 }}>
+        <option value="">escolha um domínio…</option>
+        {dominios.map((d) => <option key={d.dominio} value={d.dominio}>{d.dominio} ({d.produtos} produtos)</option>)}
+      </select>
+      {busy ? <div style={{ fontSize: 12, color: C.espM }}>Buscando…</div>
+        : itens && (itens.length === 0 ? <div style={{ fontSize: 12, color: C.espM }}>Sem produtos neste domínio.</div> : (
+        <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {itens.map((it) => {
+            const meu = it.categoria_id === categoriaId
+            const doOutro = !!it.categoria_id && !meu
+            return (
+              <div key={it.descricao} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 4px' }}>
+                <span style={{ flex: 1 }}>{it.descricao}</span>
+                <span style={{ fontSize: 10.5, color: C.espM }}>{it.ocorrencias.toLocaleString('pt-BR')}×</span>
+                {meu ? <span style={{ fontSize: 10.5, padding: '1px 7px', borderRadius: 999, background: C.greenBg, color: C.green }}>nesta categoria</span>
+                  : <button onClick={() => void atribuir(it.descricao)} style={{ ...btn(true), padding: '2px 9px', fontSize: 11.5, background: doOutro ? C.amber : C.gold }}>{doOutro ? `mover de "${it.categoria_nome}"` : '+ pôr aqui'}</button>}
+              </div>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function CadastroSimples({ ctx, tabela, titulo, order, placeholder, onMudou }: { ctx: Ctx; tabela: string; titulo: string; order: string; placeholder: string; onMudou: () => void }) {
   const { rows, carregar } = useLista(tabela, ctx, order)
   const [novo, setNovo] = useState('')
@@ -560,7 +698,7 @@ function Avancado({ ctx, onMudou }: { ctx: Ctx; onMudou: () => Promise<void> }) 
       <CadastroSimples ctx={ctx} tabela="prod_setor" titulo="Setores" order="ordem" placeholder="ex.: Abate, Desossa" onMudou={md} />
       <CadastroSimples ctx={ctx} tabela="prod_cargo" titulo="Cargos" order="nome" placeholder="ex.: Operador" onMudou={md} />
       <CadastroSimples ctx={ctx} tabela="prod_unidade_medida" titulo="Unidades de medida" order="codigo" placeholder="código (kg, cabeca…)" onMudou={md} />
-      <CadastroSimples ctx={ctx} tabela="prod_categoria_produto" titulo="Categorias de produto" order="ordem" placeholder="ex.: Abate, Miúdos" onMudou={md} />
+      <CategoriasProdutos ctx={ctx} onMudou={md} />
     </div>
   )
 }
