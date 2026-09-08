@@ -27,6 +27,7 @@ export interface Servico {
   cnae_secundario: string | null
   tipo_tributacao: string | null
   aliquota_iss: number | null
+  iss_no_local_prestacao: boolean | null
   iss_retido: boolean | null
   valor_unitario: number | null
   pct_desconto: number | null
@@ -79,6 +80,9 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   const [cnaeSec, setCnaeSec] = useState(servico?.cnae_secundario ?? '')
   const [tipoTrib, setTipoTrib] = useState(servico?.tipo_tributacao ?? 'tributavel_municipio')
   const [aliqIss, setAliqIss] = useState(String(servico?.aliquota_iss ?? '0'))
+  // #32 · ISS no local da prestação (LC 116 art. 3o). Quando true, a alíquota vem do município da
+  // execução (não deste campo fixo) — o campo de alíquota some para não mentir.
+  const [issLocal, setIssLocal] = useState(!!servico?.iss_no_local_prestacao)
   const [issRetido, setIssRetido] = useState(!!servico?.iss_retido)
   const [valorUnit, setValorUnit] = useState(String(servico?.valor_unitario ?? '0'))
   const [pctDesc, setPctDesc] = useState(String(servico?.pct_desconto ?? '0'))
@@ -198,7 +202,8 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
         cnae: cnae.trim() || null,
         cnae_secundario: cnaeSec.trim() || null,
         tipo_tributacao: tipoTrib || null,
-        aliquota_iss: num(aliqIss),
+        aliquota_iss: issLocal ? 0 : num(aliqIss),
+        iss_no_local_prestacao: issLocal,
         iss_retido: issRetido,
         valor_unitario: num(valorUnit),
         pct_desconto: num(pctDesc),
@@ -327,8 +332,31 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
                   ]}
                 />
               </div>
+              {/* #32 · onde o ISS é devido — define de onde vem a alíquota */}
+              <div className="rounded-lg border border-[#E7DECF] p-3">
+                <div className="text-[12px] font-medium text-[#3D2314] mb-2">Onde o ISS é devido?</div>
+                <label className="flex items-start gap-2 cursor-pointer mb-1.5">
+                  <input type="radio" name="iss_local" className="mt-0.5" checked={!issLocal} onChange={() => setIssLocal(false)} />
+                  <span className="text-[12.5px] text-[#3D2314]">No município da minha empresa <span className="text-[#3D2314]/55">— alíquota fixa aqui</span></span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" name="iss_local" className="mt-0.5" checked={issLocal} onChange={() => setIssLocal(true)} />
+                  <span className="text-[12.5px] text-[#3D2314]">No município onde o serviço é prestado <span className="text-[#3D2314]/55">— alíquota vem do local</span></span>
+                </label>
+                <p className="text-[11px] mt-2 text-[#3D2314]/55 leading-relaxed">
+                  ⓘ Construção civil, limpeza e vigilância têm ISS no local da prestação (LC 116/2003, art. 3º).
+                  Na dúvida, confirme com o contador.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <Campo label="Alíquota ISS (%)" value={aliqIss} onChange={setAliqIss} placeholder="5" />
+                {issLocal ? (
+                  <div className="col-span-2 flex items-start gap-2 p-2.5 rounded-lg bg-[#FBF4E4] border border-[#C8941A]/40 text-[12px] text-[#3D2314]">
+                    A alíquota deste serviço vem do <b>município da execução</b>, no momento de faturar — cadastre-a em
+                    <b> Configurações → Fiscal → ISS por município</b>. Sem alíquota cadastrada, a nota não é emitida.
+                  </div>
+                ) : (
+                  <Campo label="Alíquota ISS (%)" value={aliqIss} onChange={setAliqIss} placeholder="5" />
+                )}
                 <CampoCheck label="ISS retido na fonte" checked={issRetido} onChange={setIssRetido} />
                 <Campo label="Valor unitário (R$)" value={valorUnit} onChange={setValorUnit} placeholder="0,00" />
                 <Campo label="% Desconto" value={pctDesc} onChange={setPctDesc} placeholder="0" />
