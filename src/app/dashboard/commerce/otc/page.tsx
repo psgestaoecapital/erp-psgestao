@@ -852,6 +852,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
       codigoLC116: primeiro.codigo_lc116 ?? undefined,
       aliquotaIss: Number(primeiro.aliquota_iss ?? 0),
       valorServicos: Number(nfseDados.valor_servicos ?? 0),
+      servicoId: primeiro.servico_id ?? undefined,
     }
   }, [nfseDados])
 
@@ -1125,6 +1126,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
         codigoLC116={nfseSeed?.codigoLC116}
         aliquotaIss={nfseSeed?.aliquotaIss}
         valorServicos={nfseSeed?.valorServicos}
+        servicoId={nfseSeed?.servicoId}
         onFechar={() => setNfseModalAberto(false)}
         onEmitida={async (providerReference?: string) => {
           setNfseModalAberto(false)
