@@ -40,7 +40,7 @@ type FluxoCompleto = {
   postos: Posto[]; contexto: { ponto: number; producao: string[] }; sugestoes_turno: Sugestao[];
   listas: { cargos: Opt[]; unidades: Opt[]; tipos: Opt[]; categorias: Opt[]; turnos: (Opt & { inicio: string | null; fim: string | null })[] }
 }
-type Prontidao = { ok: boolean; pronto_para_medir: boolean; falta: string[]; tem: { setores_com_vinculo: number; postos: number; quadros: number; dias_com_ponto: number; vinculos_ponto: number; producao_chaves: string[]; fluxos: number } }
+type Prontidao = { ok: boolean; pronto_para_medir: boolean; falta: string[]; tem: { setores_com_vinculo: number; postos: number; quadros: number; dias_com_ponto: number; datas_distintas: number; vinculos_ponto: number; producao_chaves: string[]; fluxos: number } }
 
 export default function ProdutividadePage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -57,7 +57,7 @@ function Inner() {
   const [pront, setPront] = useState<Prontidao | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
-  const [avancado, setAvancado] = useState(false)
+  const [configAberto, setConfigAberto] = useState(false)
   const [salAberto, setSalAberto] = useState(false)
   const [novoFluxo, setNovoFluxo] = useState(false)
 
@@ -136,6 +136,7 @@ function Inner() {
           </select>
         </label>
         <button onClick={() => setNovoFluxo(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo fluxo</button>
+        <button onClick={() => setConfigAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>⚙ Cadastros</button>
       </div>
 
       {fluxos.length === 0 ? (
@@ -158,14 +159,6 @@ function Inner() {
         <div style={{ fontSize: 13, color: C.espM, padding: 20 }}>Carregando o fluxo…</div>
       )}
 
-      {/* Configuracao avancada */}
-      <div style={{ marginTop: 24 }}>
-        <button onClick={() => setAvancado((v) => !v)} style={{ background: 'none', border: 'none', color: C.espM, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: '6px 0' }}>
-          ⚙ Setores, cargos e unidades · configuração avançada {avancado ? '▲' : '▼'}
-        </button>
-        {avancado && plantId && <Avancado ctx={{ companyId, plantId, flash, flashErr }} onMudou={recarregar} />}
-      </div>
-
       {/* Salario base (custo por posto) */}
       <div style={{ marginTop: 10 }}>
         <button onClick={() => setSalAberto((v) => !v)} style={{ background: 'none', border: 'none', color: C.espM, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: '6px 0' }}>
@@ -175,6 +168,7 @@ function Inner() {
       </div>
 
       {novoFluxo && plantId && <NovoFluxoModal companyId={companyId} plantId={plantId} onClose={() => setNovoFluxo(false)} onSaved={(id) => { setNovoFluxo(false); setFluxoId(id); void carregarPlanta() }} onErro={flashErr} />}
+      {configAberto && plantId && <ConfigModal ctx={{ companyId, plantId, flash, flashErr }} onClose={() => setConfigAberto(false)} onMudou={recarregar} />}
     </div>
   )
 }
@@ -185,7 +179,7 @@ function FaixaProntidao({ pront }: { pront: Prontidao }) {
   const temFrase = [
     t.vinculos_ponto > 0 ? `${t.vinculos_ponto} vínculo(s) de ponto` : null,
     t.producao_chaves.length > 0 ? `produção ${t.producao_chaves.join(', ')}` : null,
-    t.dias_com_ponto > 0 ? `${t.dias_com_ponto.toLocaleString('pt-BR')} dias de ponto coletados` : null,
+    t.dias_com_ponto > 0 ? `${t.dias_com_ponto.toLocaleString('pt-BR')} dias de ponto em ${(t.datas_distintas ?? 0).toLocaleString('pt-BR')} datas` : null,
   ].filter(Boolean).join(', ')
   return (
     <div style={{ background: ok ? C.greenBg : C.amberBg, border: `1px solid ${ok ? C.green : C.amber}55`, borderRadius: 12, padding: '11px 14px', fontSize: 13, color: ok ? C.green : '#8A4B08' }}>
@@ -239,7 +233,8 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   posto?: Posto; novo?: boolean; fc: FluxoCompleto; companyId: string; plantId: string; setor_id: string;
   flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>
 }) {
-  const [r, setR] = useState<Rascunho>(() => rascunhoDe(posto))
+  // linha nova ja abre com a entrada mais comum do ponto (o turno vem pronto — SPEC §3).
+  const [r, setR] = useState<Rascunho>(() => { const b = rascunhoDe(posto); if (novo && !b.hora_entrada && fc.sugestoes_turno[0]) b.hora_entrada = fc.sugestoes_turno[0].horario; return b })
   const [mais, setMais] = useState(false)
   const [turnoOpen, setTurnoOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -279,7 +274,7 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
       return
     }
     flash(res.criou ? `CRIOU o posto nº ${res.numero}.` : 'ALTEROU a linha.')
-    if (novo) setR(rascunhoDe()) // limpa a linha de adicionar
+    if (novo) setR(() => { const b = rascunhoDe(); if (fc.sugestoes_turno[0]) b.hora_entrada = fc.sugestoes_turno[0].horario; return b }) // limpa e re-sugere
     setDirty(false); setTurnoOpen(false); await onMudou()
   }
 
@@ -303,7 +298,13 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   }
 
   const cellSel: React.CSSProperties = { ...inp, padding: '5px 6px', fontSize: 12.5 }
-  const turnoLabel = r.hora_entrada ? `${r.hora_entrada}${r.hora_saida ? `–${r.hora_saida}` : ''}` : (r.turno_id ? (fc.listas.turnos.find((t) => t.id === r.turno_id)?.codigo ?? 'turno') : '—')
+  // Turno: horario salvo/editado > sugestao do ponto (muted) > "sem historico". NUNCA so um traço.
+  const topSug = fc.sugestoes_turno[0]
+  const temHorario = !!(r.hora_entrada || r.turno_id)
+  const sugerindo = !temHorario && !!topSug
+  const turnoLabel = temHorario
+    ? (r.hora_entrada ? `${r.hora_entrada}${r.hora_saida ? `–${r.hora_saida}` : ''}` : (fc.listas.turnos.find((t) => t.id === r.turno_id)?.codigo ?? 'turno'))
+    : (topSug ? `${topSug.horario} · ${topSug.ocorrencias.toLocaleString('pt-BR')}d` : 'sem histórico')
 
   return (
     <>
@@ -318,7 +319,9 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
           </select>
         </Td>
         <Td>
-          <button type="button" onClick={() => setTurnoOpen((v) => !v)} style={{ ...cellSel, textAlign: 'left', cursor: 'pointer', background: C.white }}>
+          <button type="button" onClick={() => setTurnoOpen((v) => !v)}
+            title={sugerindo ? 'Entrada mais comum no ponto — clique para aceitar ou editar' : (!temHorario ? 'Sem histórico de ponto para este setor' : 'Turno e horário')}
+            style={{ ...cellSel, textAlign: 'left', cursor: 'pointer', background: C.white, color: temHorario ? C.esp : (sugerindo ? C.blue : C.espL), fontStyle: temHorario ? 'normal' : 'italic' }}>
             {turnoLabel} {turnoOpen ? '▲' : '▾'}
           </button>
         </Td>
@@ -488,6 +491,17 @@ function CadastroSimples({ ctx, tabela, titulo, order, placeholder, onMudou }: {
   const [novo, setNovo] = useState('')
   const [edit, setEdit] = useState<{ id: string; nome: string } | null>(null)
   const campo = tabela === 'prod_unidade_medida' || tabela === 'prod_tipo_posto' ? 'codigo' : 'nome'
+  // aviso do que quebra ANTES de apagar (RD-55): conta os postos/fluxos/salarios que apontam pro item.
+  async function contarDeps(id: string): Promise<string> {
+    const q = (t: string, col: string) => supabase.from(t).select('id', { count: 'exact', head: true }).eq('company_id', ctx.companyId).eq(col, id)
+    const p: string[] = []
+    const push = (n: number | null, lbl: string) => { if (n) p.push(`${n} ${lbl}`) }
+    if (tabela === 'prod_setor') { const [a, b] = await Promise.all([q('prod_posto', 'setor_id'), q('prod_fluxo', 'setor_id')]); push(a.count, 'posto(s)'); push(b.count, 'fluxo(s)') }
+    else if (tabela === 'prod_cargo') { const [a, b] = await Promise.all([q('prod_posto', 'cargo_id'), q('prod_salario_base', 'cargo_id')]); push(a.count, 'posto(s)'); push(b.count, 'salário(s) por cargo') }
+    else if (tabela === 'prod_unidade_medida') { const [a, b] = await Promise.all([q('prod_posto', 'unidade_medida_id'), q('prod_fluxo', 'unidade_entrada_id')]); push(a.count, 'posto(s)'); push(b.count, 'fluxo(s)') }
+    else if (tabela === 'prod_categoria_produto') { const a = await q('prod_posto', 'categoria_produto_id'); push(a.count, 'posto(s)') }
+    return p.join(', ')
+  }
   return (
     <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{titulo}</div>
@@ -513,13 +527,28 @@ function CadastroSimples({ ctx, tabela, titulo, order, placeholder, onMudou }: {
                 <>
                   <span>{String(r[campo] ?? r.nome)}</span>
                   <button onClick={() => setEdit({ id: r.id, nome: String(r.nome ?? r[campo] ?? '') })} title="Renomear" style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 11 }}>✎</button>
-                  <button onClick={async () => { if (window.confirm(`Excluir "${String(r[campo] ?? r.nome)}"?`) && await remover(tabela, ctx, r.id)) { await carregar(); onMudou() } }} title="Excluir" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
+                  <button onClick={async () => { const deps = await contarDeps(r.id); const aviso = deps ? `\n\n⚠️ Está vinculado a: ${deps}. A exclusão será bloqueada até remover o vínculo.` : ''; if (window.confirm(`Excluir "${String(r[campo] ?? r.nome)}"?${aviso}`) && await remover(tabela, ctx, r.id)) { await carregar(); onMudou() } }} title="Excluir" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
                 </>
               )}
             </span>
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function ConfigModal({ ctx, onClose, onMudou }: { ctx: Ctx; onClose: () => void; onMudou: () => Promise<void> }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '30px 16px', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.bg, borderRadius: 12, padding: 18, width: 'min(780px,100%)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Cadastros da planta</div>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', color: C.espM, cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 6px' }}>Setores, cargos, unidades e categorias. Renomeie no ✎; ao excluir, o sistema avisa o que está vinculado antes.</div>
+        <Avancado ctx={ctx} onMudou={onMudou} />
+      </div>
     </div>
   )
 }
