@@ -132,6 +132,9 @@ export default function NFSeEmitirGovModal({
   const [bloqueios, setBloqueios] = useState<Bloqueio[]>([])
   const [podeEmitir, setPodeEmitir] = useState(true)
   const [validando, setValidando] = useState(false)
+  // #32 · regime da empresa: no Simples Nacional o ISS vai no DAS e a NFS-e não destaca —
+  // o campo de alíquota some (a edge grava 0). Não-Simples (Lucro Real/Presumido) mantém o campo.
+  const [empresaSimples, setEmpresaSimples] = useState(false)
 
   // FIX-O3B-NFSE-MODAL-SEED-v1
   // useState so roda no mount · se o pai renderiza com aberto=false antes
@@ -177,6 +180,22 @@ export default function NFSeEmitirGovModal({
     })()
     return () => { vivo = false }
   }, [aberto, servicoId, obraId, munIbge, companyId])
+
+  // #32 · descobre o regime (Simples x não-Simples) da empresa ao abrir, p/ decidir se o ISS é
+  // destacado. Simples (opção 2 MEI / 3 ME/EPP) → ISS no DAS, campo de alíquota some.
+  useEffect(() => {
+    if (!aberto || !companyId) return
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('erp_fiscal_provider_config')
+        .select('opcao_simples_nacional').eq('company_id', companyId)
+        .eq('provider', 'gov_nfse_nacional').eq('ativo', true).maybeSingle()
+      if (!vivo) return
+      const op = (data as { opcao_simples_nacional?: number | null } | null)?.opcao_simples_nacional
+      setEmpresaSimples(op === 2 || op === 3)
+    })()
+    return () => { vivo = false }
+  }, [aberto, companyId])
 
   // busca de município da execução (só relevante quando iss_no_local)
   useEffect(() => {
@@ -372,16 +391,24 @@ export default function NFSeEmitirGovModal({
                       className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
                     />
                   </label>
-                  <label className="block">
-                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota ISS (%)</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={aliquota}
-                      onChange={(e) => setAliquota(e.target.value)}
-                      className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
-                    />
-                  </label>
+                  {empresaSimples ? (
+                    <div className="flex items-end">
+                      <p className="text-[11px] text-[#3D2314]/55 leading-snug pb-1">
+                        <b>Simples Nacional:</b> ISS recolhido no DAS — não destacado na nota.
+                      </p>
+                    </div>
+                  ) : (
+                    <label className="block">
+                      <span className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota ISS (%)</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={aliquota}
+                        onChange={(e) => setAliquota(e.target.value)}
+                        className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
+                      />
+                    </label>
+                  )}
                 </div>
                 <label className="block">
                   <span className="block text-[11px] text-[#3D2314]/60 mb-1">Código tributação nacional ISS</span>
