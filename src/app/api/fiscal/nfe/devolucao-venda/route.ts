@@ -57,8 +57,10 @@ export const POST = withAuth(async (req: NextRequest) => {
       )
     }
 
-    // Valida quantidades nao excedem o vendido
+    // Valida quantidades nao excedem o vendido E captura o valor unitario vendido POR item.
+    // valorUnitPorProduto espelha a venda original de CADA item (nao o primeiro da nota).
     const itensVenda = Array.isArray(nfeVenda.itens) ? nfeVenda.itens as Array<Record<string, unknown>> : []
+    const valorUnitPorProduto = new Map<string, number>()
     for (const itDev of body.itens) {
       if (!itDev.produtoId || !(itDev.quantidade > 0)) {
         return NextResponse.json(
@@ -90,8 +92,11 @@ export const POST = withAuth(async (req: NextRequest) => {
             { status: 400 }
           )
         }
+        // Valor unitario ESPELHA a venda original DESTE item (chave: produtoId)
+        const v = itemOriginal.valorUnitario ?? itemOriginal.valor_unitario
+        if (typeof v === 'number') valorUnitPorProduto.set(itDev.produtoId, v)
       }
-      // Se nao bateu codigo, deixa o builder validar
+      // Se nao bateu codigo, deixa o builder cair no preco atual do produto
     }
 
     const chaveVenda = nfeVenda.chave.replace(/\D/g, '')
@@ -100,12 +105,10 @@ export const POST = withAuth(async (req: NextRequest) => {
     const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it) => ({
       produtoId: it.produtoId,
       quantidade: Number(it.quantidade),
-      // tenta puxar valor unitario do item original via codigo
-      valorUnitarioOverride: (() => {
-        const orig = itensVenda.find((i) => i.codigo)
-        const v = orig?.valorUnitario ?? orig?.valor_unitario
-        return typeof v === 'number' ? v : undefined
-      })(),
+      // valor unitario do ITEM correspondente na venda original (fix: antes pegava
+      // o primeiro item da nota p/ todos os itens -> valores errados em nota multi-item).
+      // Sem correspondencia, undefined -> o builder usa o preco atual do produto.
+      valorUnitarioOverride: valorUnitPorProduto.get(it.produtoId),
       // TODO PARAMETRO_CONFIRMAR_COM_CONTADOR: CFOP devolucao entrada 1202/2202
       cfopOverride: it.cfopOverride ?? '1202',
     }))
