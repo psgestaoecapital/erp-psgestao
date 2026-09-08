@@ -13,6 +13,7 @@ import { Inbox, Loader2, RefreshCw, Search, FileText, AlertCircle, PowerOff, Pow
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { ItensNfeRecebida } from './_components/ItensNfeRecebida'
+import { UploadXmlRecebidaButton } from '@/components/fiscal/UploadXmlRecebidaButton'
 
 interface Linha {
   id: string
@@ -529,6 +530,8 @@ export default function DocumentosRecebidosPage() {
             >
               <RefreshCw size={14} /> Sincronizar manifestação
             </button>
+            {/* nfe-recebida-upload-xml · sobe o XML do fornecedor sem esperar a SEFAZ (cria a nota se preciso) */}
+            <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
             <button
               type="button"
               onClick={() => void buscarAgora()}
