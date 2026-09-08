@@ -29,6 +29,8 @@ interface Linha {
   lancado_pagar: boolean
   qtd_itens: number
   qtd_duplicatas: number
+  situacao?: string
+  xml_tentativas?: number
 }
 
 interface ListaResp {
@@ -719,6 +721,18 @@ export default function DocumentosRecebidosPage() {
                           <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314]/8 text-[#3D2314]/60 font-medium">
                             Recusada
                           </span>
+                        ) : n.status === 'aguardando_xml' && n.situacao === 'precisa_xml' ? (
+                          // Teto de tentativas estourado: a SEFAZ não liberou o XML. Peça ao fornecedor e suba (#1314).
+                          <>
+                            <span
+                              className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#C94544]/40 text-[#A32D2D] font-medium bg-[#FCEBEB]"
+                              title="A SEFAZ não liberou o XML depois de muitas tentativas. Peça o arquivo ao fornecedor e suba aqui — a nota completa na hora."
+                            >
+                              <AlertCircle size={11} />
+                              Precisa de ação
+                            </span>
+                            <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
+                          </>
                         ) : n.status === 'aguardando_xml' ? (
                           <span
                             className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-[#BA7517]/30 text-[#BA7517] font-medium bg-[#FAEEDA]"
