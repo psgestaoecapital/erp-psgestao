@@ -26,6 +26,9 @@ interface CertificadoRow {
   validade_fim: string | null
   criado_em: string | null
   status: string | null
+  // #segurança · referência do segredo no Vault. NULL = senha ainda no formato antigo (base64),
+  // precisa reenvio p/ migrar. A senha em si nunca vem ao front.
+  senha_vault_id: string | null
 }
 
 interface ConfigRow {
@@ -216,7 +219,7 @@ export default function FiscalConfigClient() {
         supabase
           .from('erp_certificados_a1')
           .select(
-            'id, razao_social_certificado, cnpj_certificado, validade_inicio, validade_fim, criado_em, status'
+            'id, razao_social_certificado, cnpj_certificado, validade_inicio, validade_fim, criado_em, status, senha_vault_id'
           )
           .eq('company_id', sel.id)
           .eq('status', 'ativo')
@@ -376,6 +379,12 @@ export default function FiscalConfigClient() {
         </div>
       )}
 
+      {/* #segurança · certificado no formato antigo de senha (base64) → reenvio migra p/ o Vault.
+          Aparece só enquanto senha_vault_id for nula; some sozinho depois de migrado. */}
+      {state.certificado && !state.certificado.senha_vault_id && (
+        <CertMigrarSenhaBanner certificadoId={state.certificado.id} onMigrado={carregar} />
+      )}
+
       <CertificadoUploadCard
         companyId={state.companyId!}
         certificadoAtual={state.certificado as unknown as Record<string, unknown> | null}
@@ -421,6 +430,64 @@ export default function FiscalConfigClient() {
           Focus NFe
         </a>{' '}
         (terceirizado · pago · útil pra prefeituras não aderidas ao gov.br).
+      </div>
+    </div>
+  )
+}
+
+// #segurança · S1 · migrar a senha do certificado (formato antigo base64) para o Vault. O usuário
+// reenvia a senha; fn_certificado_senha_salvar grava no Vault e apaga a antiga. A senha nunca é
+// lida do banco pelo front — só digitada aqui e enviada à RPC. São 6 certs, 6 reenvios; o aviso
+// some sozinho quando senha_vault_id fica preenchida.
+function CertMigrarSenhaBanner({ certificadoId, onMigrado }: { certificadoId: string; onMigrado: () => void }) {
+  const [senha, setSenha] = useState('')
+  const [mostrar, setMostrar] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function migrar() {
+    if (!senha.trim()) { setMsg('Informe a senha do certificado.'); return }
+    setSalvando(true); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_certificado_senha_salvar', {
+        p_certificado_id: certificadoId, p_senha: senha,
+      })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string } | null
+      if (!j?.ok) { setMsg('Erro: ' + (j?.erro ?? 'não foi possível migrar')); return }
+      setSenha(''); onMigrado()   // recarrega → senha_vault_id preenchido → o aviso some
+    } catch (e) {
+      setMsg('Erro ao migrar: ' + (e as Error).message)
+    } finally { setSalvando(false) }
+  }
+  return (
+    <div className="bg-[#FBF4E4] border border-[#C8941A]/50 rounded-xl px-4 py-3">
+      <div className="flex items-start gap-2">
+        <AlertCircle className="text-[#8A5A00] flex-shrink-0 mt-0.5" size={16} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-medium text-[#5C3B0B]">Este certificado usa o formato antigo de senha</div>
+          <div className="text-[11.5px] text-[#5C3B0B]/80 mt-0.5 leading-snug">
+            Reenvie a senha do certificado para migrá-la para o cofre seguro (Vault). A senha deixa de
+            ficar guardada em texto — este aviso some depois de migrada.
+          </div>
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <input
+              type={mostrar ? 'text' : 'password'}
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="senha do certificado"
+              autoComplete="off"
+              className="bg-white border border-[#3D2314]/15 rounded-md px-3 py-1.5 text-[13px] text-[#3D2314] w-56"
+            />
+            <button type="button" onClick={() => setMostrar((v) => !v)} className="text-[11.5px] text-[#5C3B0B]/70 hover:text-[#5C3B0B]">
+              {mostrar ? 'ocultar' : 'mostrar'}
+            </button>
+            <button type="button" onClick={() => void migrar()} disabled={salvando || !senha.trim()}
+              className="px-3 py-1.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[12.5px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center gap-1.5">
+              {salvando ? <><Loader2 size={13} className="animate-spin" /> Migrando…</> : 'Migrar para o Vault'}
+            </button>
+          </div>
+          {msg && <div className={`text-[11.5px] mt-1.5 ${msg.startsWith('Erro') ? 'text-[#A32D2D]' : 'text-[#3F7012]'}`}>{msg}</div>}
+        </div>
       </div>
     </div>
   )
