@@ -46,7 +46,7 @@ function Inner() {
   }, [companyId])
 
   const flash = useCallback((m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }, [])
-  const flashErr = useCallback((m: string) => { setErro(m); window.setTimeout(() => setErro(null), 6000) }, [])
+  const flashErr = useCallback((m: string) => { setErro(m); setMsg(null); try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* jsdom/sem window: banner ainda aparece */ } window.setTimeout(() => setErro(null), 6000) }, [])
   const ctx = useMemo<Ctx>(() => ({ companyId: companyId ?? '', plantId: plantId ?? '', flash, flashErr }), [companyId, plantId, flash, flashErr])
 
   if (!companyId) return <Aviso texto="Selecione uma empresa específica no topo — o cadastro é por planta." />
@@ -98,9 +98,28 @@ function useLista(tabela: string, ctx: Ctx, order = 'created_at') {
   return { rows, carregar }
 }
 
-async function inserir(tabela: string, ctx: Ctx, payload: Record<string, unknown>): Promise<boolean> {
+// Violacao de UNIQUE (Postgres 23505 / 409 do PostgREST). insert sem .select() ainda devolve o
+// erro — antes ele virava a mensagem crua do banco (ou nada visivel, com o banner fora da tela),
+// e "o botao nao fazia nada".
+function ehDuplicado(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  return error.code === '23505' || /duplicate key|already exists|unique constraint/i.test(error.message ?? '')
+}
+// Pre-validacao contra a lista JA carregada em tela: evita o round-trip e da retorno na hora.
+// Comparacao exata + trim, espelhando o UNIQUE do banco (case-sensitive) — nao bloqueia o que o
+// banco aceitaria.
+function jaExiste(rows: Row[], campo: string, valor: string): boolean {
+  const v = valor.trim()
+  return rows.some((r) => String(r[campo] ?? '').trim() === v)
+}
+function checarDup(rows: Row[], campo: string, valor: string, msg: string, ctx: Ctx): boolean {
+  if (jaExiste(rows, campo, valor)) { ctx.flashErr(msg); return true }
+  return false
+}
+
+async function inserir(tabela: string, ctx: Ctx, payload: Record<string, unknown>, msgDup?: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).insert({ company_id: ctx.companyId, plant_id: ctx.plantId, ...payload })
-  if (error) { ctx.flashErr(error.message); return false }
+  if (error) { ctx.flashErr(ehDuplicado(error) && msgDup ? msgDup : error.message); return false }
   ctx.flash('Salvo.'); return true
 }
 async function remover(tabela: string, ctx: Ctx, id: string) {
@@ -369,7 +388,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
       <Bloco titulo="Setores (na ordem da linha)">
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <input value={nsetor} onChange={(e) => setNsetor(e.target.value)} placeholder="ex.: Abate, Desossa" style={{ ...inp, flex: '1 1 200px' }} />
-          <button disabled={!nsetor.trim()} style={btn(!!nsetor.trim())} onClick={async () => { if (await inserir('prod_setor', ctx, { nome: nsetor.trim(), ordem: setores.rows.length + 1 })) { setNsetor(''); void setores.carregar() } }}>+ Setor</button>
+          <button disabled={!nsetor.trim()} style={btn(!!nsetor.trim())} onClick={async () => { const nome = nsetor.trim(); const m = `Já existe um setor chamado "${nome}". Use outro nome.`; if (checarDup(setores.rows, 'nome', nome, m, ctx)) return; if (await inserir('prod_setor', ctx, { nome, ordem: setores.rows.length + 1 }, m)) { setNsetor(''); void setores.carregar() } }}>+ Setor</button>
           <SugerirDoPonto ctx={ctx} rpc="fn_prod_sugerir_setores" tabela="prod_setor" jaExistentes={setores.rows.length} onAdd={() => void setores.carregar()} />
         </div>
         <VinculoLista ctx={ctx} alvo="setor" rows={setores.rows} onDel={async (id) => { await remover('prod_setor', ctx, id); void setores.carregar() }} />
@@ -379,7 +398,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
         <Bloco titulo="Cargos">
           <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={ncargo} onChange={(e) => setNcargo(e.target.value)} placeholder="ex.: Operador" style={{ ...inp, flex: 1 }} />
-            <button disabled={!ncargo.trim()} style={btn(!!ncargo.trim())} onClick={async () => { if (await inserir('prod_cargo', ctx, { nome: ncargo.trim() })) { setNcargo(''); void cargos.carregar() } }}>+</button>
+            <button disabled={!ncargo.trim()} style={btn(!!ncargo.trim())} onClick={async () => { const nome = ncargo.trim(); const m = `Já existe um cargo chamado "${nome}". Use outro nome.`; if (checarDup(cargos.rows, 'nome', nome, m, ctx)) return; if (await inserir('prod_cargo', ctx, { nome }, m)) { setNcargo(''); void cargos.carregar() } }}>+</button>
           </div>
           <div style={{ marginBottom: 10 }}>
             <SugerirDoPonto ctx={ctx} rpc="fn_prod_sugerir_cargos" tabela="prod_cargo" jaExistentes={cargos.rows.length} onAdd={() => void cargos.carregar()} />
@@ -391,7 +410,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={uc} onChange={(e) => setUc(e.target.value)} placeholder="código (kg, cabeca…)" style={{ ...inp, flex: '1 1 120px' }} />
             <input value={un} onChange={(e) => setUn(e.target.value)} placeholder="nome" style={{ ...inp, flex: '1 1 120px' }} />
-            <button disabled={!uc.trim() || !un.trim()} style={btn(!!uc.trim() && !!un.trim())} onClick={async () => { if (await inserir('prod_unidade_medida', ctx, { codigo: uc.trim(), nome: un.trim(), e_padrao_planta: uc.trim() === 'kg' })) { setUc(''); setUn(''); void unidades.carregar() } }}>+</button>
+            <button disabled={!uc.trim() || !un.trim()} style={btn(!!uc.trim() && !!un.trim())} onClick={async () => { const codigo = uc.trim(); const m = `Já existe uma unidade com o código "${codigo}". Use outro código.`; if (checarDup(unidades.rows, 'codigo', codigo, m, ctx)) return; if (await inserir('prod_unidade_medida', ctx, { codigo, nome: un.trim(), e_padrao_planta: codigo === 'kg' }, m)) { setUc(''); setUn(''); void unidades.carregar() } }}>+</button>
           </div>
           {/* Unidades não vêm do ponto — conjunto padrão (kg é o padrão da planta). Idempotente. */}
           <div style={{ marginBottom: 10 }}>
@@ -410,7 +429,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
             <select value={tc} onChange={(e) => setTc(e.target.value)} style={inp}><option value="manual">manual</option><option value="misto">misto</option><option value="automatico">automático</option></select>
             <input value={tn} onChange={(e) => setTn(e.target.value)} placeholder="nome" style={{ ...inp, flex: 1 }} />
-            <button disabled={!tn.trim()} style={btn(!!tn.trim())} onClick={async () => { if (await inserir('prod_tipo_posto', ctx, { codigo: tc, nome: tn.trim() })) { setTn(''); void tipos.carregar() } }}>+</button>
+            <button disabled={!tn.trim()} style={btn(!!tn.trim())} onClick={async () => { const m = `Já existe um tipo de posto "${tc}". Cada planta tem um por código (manual/misto/automático) — edite ou remova o existente.`; if (checarDup(tipos.rows, 'codigo', tc, m, ctx)) return; if (await inserir('prod_tipo_posto', ctx, { codigo: tc, nome: tn.trim() }, m)) { setTn(''); void tipos.carregar() } }}>+</button>
           </div>
           <Chips rows={tipos.rows} label={(r) => <><b>{String(r.codigo)}</b> {String(r.nome)}</>} onDel={async (id) => { await remover('prod_tipo_posto', ctx, id); void tipos.carregar() }} />
         </Bloco>
@@ -421,7 +440,7 @@ function Parametros({ ctx }: { ctx: Ctx }) {
             <input value={tun} onChange={(e) => setTun(e.target.value)} placeholder="nome" style={{ ...inp, flex: '1 1 100px' }} />
             <input type="time" value={ti} onChange={(e) => setTi(e.target.value)} style={inp} />
             <input type="time" value={tf} onChange={(e) => setTf(e.target.value)} style={inp} />
-            <button disabled={!tuc.trim()} style={btn(!!tuc.trim())} onClick={async () => { if (await inserir('ind_turnos', ctx, { codigo: tuc.trim(), nome: tun.trim() || tuc.trim(), inicio: ti || null, fim: tf || null, ativo: true })) { setTuc(''); setTun(''); setTi(''); setTf(''); void turnos.carregar() } }}>+</button>
+            <button disabled={!tuc.trim()} style={btn(!!tuc.trim())} onClick={async () => { const codigo = tuc.trim(); const m = `Já existe um turno com o código "${codigo}". Use outro código.`; if (checarDup(turnos.rows, 'codigo', codigo, m, ctx)) return; if (await inserir('ind_turnos', ctx, { codigo, nome: tun.trim() || codigo, inicio: ti || null, fim: tf || null, ativo: true }, m)) { setTuc(''); setTun(''); setTi(''); setTf(''); void turnos.carregar() } }}>+</button>
           </div>
           <div style={{ marginBottom: 10 }}><HorariosPonto ctx={ctx} /></div>
           <Chips rows={turnos.rows} label={(r) => <><b>{String(r.codigo ?? '—')}</b> {r.inicio ? `${String(r.inicio).slice(0, 5)}–${String(r.fim ?? '').slice(0, 5)}` : ''}</>} onDel={async (id) => { await remover('ind_turnos', ctx, id); void turnos.carregar() }} />
