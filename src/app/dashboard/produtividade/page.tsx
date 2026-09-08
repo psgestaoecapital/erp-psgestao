@@ -58,6 +58,7 @@ function Inner() {
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [avancado, setAvancado] = useState(false)
+  const [salAberto, setSalAberto] = useState(false)
   const [novoFluxo, setNovoFluxo] = useState(false)
 
   const flash = useCallback((m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }, [])
@@ -163,6 +164,14 @@ function Inner() {
           ⚙ Setores, cargos e unidades · configuração avançada {avancado ? '▲' : '▼'}
         </button>
         {avancado && plantId && <Avancado ctx={{ companyId, plantId, flash, flashErr }} onMudou={recarregar} />}
+      </div>
+
+      {/* Salario base (custo por posto) */}
+      <div style={{ marginTop: 10 }}>
+        <button onClick={() => setSalAberto((v) => !v)} style={{ background: 'none', border: 'none', color: C.espM, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: '6px 0' }}>
+          💰 Salário base — para custo por posto (da folha ou manual) {salAberto ? '▲' : '▼'}
+        </button>
+        {salAberto && plantId && <SalarioBase ctx={{ companyId, plantId, flash, flashErr }} />}
       </div>
 
       {novoFluxo && plantId && <NovoFluxoModal companyId={companyId} plantId={plantId} onClose={() => setNovoFluxo(false)} onSaved={(id) => { setNovoFluxo(false); setFluxoId(id); void carregarPlanta() }} onErro={flashErr} />}
@@ -523,6 +532,129 @@ function Avancado({ ctx, onMudou }: { ctx: Ctx; onMudou: () => Promise<void> }) 
       <CadastroSimples ctx={ctx} tabela="prod_cargo" titulo="Cargos" order="nome" placeholder="ex.: Operador" onMudou={md} />
       <CadastroSimples ctx={ctx} tabela="prod_unidade_medida" titulo="Unidades de medida" order="codigo" placeholder="código (kg, cabeca…)" onMudou={md} />
       <CadastroSimples ctx={ctx} tabela="prod_categoria_produto" titulo="Categorias de produto" order="ordem" placeholder="ex.: Abate, Miúdos" onMudou={md} />
+    </div>
+  )
+}
+
+// ─────────── SALARIO BASE (§2-bis) ───────────
+// A folha traz o PAGO no mes (oscila com HE/faltas/rescisao) — nao o salario base. Por isso a
+// folha SUGERE (fn_prod_salario_sugerir_da_folha, so leitura), o humano CONFIRMA (fn_prod_salario_salvar).
+// A fonte SEMPRE aparece ao lado do valor (RD-51). Por pessoa (elo = matricula) ou por cargo (estimativa).
+type SalSug = { matricula: number; nome: string; sugerido: number; competencias: { competencia: string; remuneracao: number }[]; variacao_pct: number | null; aviso: boolean }
+type SalRow = Row & { funcionario_id: string | null; cargo_id: string | null; matricula: number | null; valor: number; fonte: string; competencia_ref: string | null; compliance_funcionarios?: { nome_completo?: string } | null; prod_cargo?: { nome?: string } | null }
+const brl = (v: unknown) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const mesBr = (d: string) => d ? d.slice(0, 7).split('-').reverse().join('/') : ''
+
+function SalarioBase({ ctx }: { ctx: Ctx }) {
+  const [rows, setRows] = useState<SalRow[]>([])
+  const [cargos, setCargos] = useState<Opt[]>([])
+  const [comps, setComps] = useState<string[]>([])
+  const [comp, setComp] = useState('')
+  const [sug, setSug] = useState<SalSug[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [manualCargo, setManualCargo] = useState({ cargo_id: '', valor: '', fonte: 'manual' })
+
+  const carregar = useCallback(async () => {
+    const [{ data: sal }, { data: cg }, { data: fc }] = await Promise.all([
+      supabase.from('prod_salario_base').select('*, compliance_funcionarios(nome_completo), prod_cargo(nome)').eq('company_id', ctx.companyId).is('vigencia_fim', null).order('criado_em', { ascending: false }),
+      supabase.from('prod_cargo').select('id, nome').eq('company_id', ctx.companyId).eq('plant_id', ctx.plantId).order('nome'),
+      supabase.from('folha_competencia').select('competencia').eq('company_id', ctx.companyId).order('competencia', { ascending: false }),
+    ])
+    setRows((sal as SalRow[]) ?? [])
+    setCargos((cg as Opt[]) ?? [])
+    const uniq = Array.from(new Set(((fc as { competencia: string }[]) ?? []).map((x) => x.competencia)))
+    setComps(uniq); setComp((prev) => prev || uniq[0] || '')
+  }, [ctx.companyId, ctx.plantId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function sugerir() {
+    if (!comp) return
+    setBusy(true); setSug(null)
+    const { data, error } = await supabase.rpc('fn_prod_salario_sugerir_da_folha', { p_company_id: ctx.companyId, p_competencia: comp })
+    setBusy(false)
+    const r = data as { ok?: boolean; itens?: SalSug[] } | null
+    if (error || !r?.ok) { ctx.flashErr(error?.message || 'Falha ao buscar da folha.'); return }
+    setSug(r.itens ?? [])
+  }
+  async function salvar(dados: Record<string, unknown>): Promise<boolean> {
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_prod_salario_salvar', { p_dados: { company_id: ctx.companyId, plant_id: ctx.plantId, ...dados }, p_user: user?.id ?? null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { ctx.flashErr(r?.erro === 'sem_alvo' ? 'Sem cadastro de funcionário para esta matrícula — use o salário por cargo.' : r?.erro === 'valor_invalido' ? 'Valor inválido.' : (error?.message || 'Falha ao salvar salário.')); return false }
+    ctx.flash('CRIOU salário base.'); await carregar(); return true
+  }
+  async function excluir(id: string) {
+    if (!window.confirm('Excluir este salário base?')) return
+    const { error } = await supabase.from('prod_salario_base').delete().eq('id', id)
+    if (error) { ctx.flashErr(error.message); return }
+    ctx.flash('EXCLUIU.'); await carregar()
+  }
+  const jaTem = (mat: number) => rows.some((r) => r.matricula === mat)
+
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginTop: 10 }}>
+      <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 10 }}>
+        A folha traz o <b>pago no mês</b> (oscila com hora extra, faltas, rescisão) — <b>não</b> o salário base. Por isso a folha <b>sugere</b>, você <b>confirma</b>. A fonte fica sempre ao lado do valor.
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <label style={{ fontSize: 12, color: C.espM }}>Competência&nbsp;
+          <select value={comp} onChange={(e) => setComp(e.target.value)} style={{ ...inp, width: 'auto' }}>
+            {comps.length === 0 && <option value="">— sem folha —</option>}
+            {comps.map((c) => <option key={c} value={c}>{mesBr(c)}</option>)}
+          </select>
+        </label>
+        <button type="button" disabled={busy || !comp} onClick={() => void sugerir()} style={{ ...btn(!busy && !!comp), background: C.blue, padding: '6px 12px', fontSize: 12 }}>{busy ? 'Buscando…' : '📄 Sugerir da folha'}</button>
+      </div>
+      {sug && (
+        <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 12 }}>
+          {sug.length === 0 ? <div style={{ padding: 12, fontSize: 12, color: C.espM }}>Sem folha nesta competência.</div>
+            : sug.map((s) => <SugLinha key={s.matricula} s={s} jaTem={jaTem(s.matricula)} comp={comp} onSalvar={salvar} />)}
+        </div>
+      )}
+      <div style={{ background: C.bg, borderRadius: 8, padding: 10, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Salário por cargo <span style={{ fontWeight: 400, color: C.espM }}>— estimativa, enquanto não há alocação nominal</span></div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select value={manualCargo.cargo_id} onChange={(e) => setManualCargo({ ...manualCargo, cargo_id: e.target.value })} style={{ ...inp, width: 'auto' }}><option value="">cargo…</option>{cargos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+          <input value={manualCargo.valor} onChange={(e) => setManualCargo({ ...manualCargo, valor: e.target.value })} placeholder="R$ base" inputMode="decimal" style={{ ...inp, width: 110 }} />
+          <select value={manualCargo.fonte} onChange={(e) => setManualCargo({ ...manualCargo, fonte: e.target.value })} style={{ ...inp, width: 'auto' }}><option value="manual">digitado</option><option value="acordo_coletivo">acordo coletivo</option></select>
+          <button type="button" disabled={!manualCargo.cargo_id || !manualCargo.valor} style={btn(!!manualCargo.cargo_id && !!manualCargo.valor)} onClick={async () => { if (await salvar({ cargo_id: manualCargo.cargo_id, valor: manualCargo.valor, fonte: manualCargo.fonte })) setManualCargo({ cargo_id: '', valor: '', fonte: 'manual' }) }}>+ Salvar por cargo</button>
+        </div>
+      </div>
+      {rows.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>Nenhum salário base cadastrado.</div> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {rows.map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderBottom: `1px solid ${C.cream}`, padding: '4px 0' }}>
+              <span style={{ flex: 1 }}>{r.funcionario_id ? (r.compliance_funcionarios?.nome_completo ?? `matrícula ${r.matricula ?? '—'}`) : `cargo: ${r.prod_cargo?.nome ?? '—'}`}</span>
+              <b>{brl(r.valor)}</b>
+              <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: r.fonte === 'folha' ? C.greenBg : C.cream, color: r.fonte === 'folha' ? C.green : C.espM }}>
+                {r.fonte === 'folha' ? `folha ${mesBr(r.competencia_ref ?? '')}` : r.fonte === 'acordo_coletivo' ? 'acordo coletivo' : 'digitado'}
+              </span>
+              <button onClick={() => void excluir(r.id)} title="Excluir" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SugLinha({ s, jaTem, comp, onSalvar }: { s: SalSug; jaTem: boolean; comp: string; onSalvar: (d: Record<string, unknown>) => Promise<boolean> }) {
+  const [manual, setManual] = useState('')
+  return (
+    <div style={{ padding: '7px 10px', borderBottom: `1px solid ${C.cream}`, opacity: jaTem ? 0.6 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, fontSize: 12.5, flex: '1 1 160px' }}>{s.nome} <span style={{ color: C.espM, fontWeight: 400 }}>· mat. {s.matricula}</span></span>
+        {s.competencias.map((c) => <span key={c.competencia} style={{ fontSize: 11, color: C.espM }}>{mesBr(c.competencia)} {brl(c.remuneracao)}</span>)}
+      </div>
+      {s.aviso && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ variação de {s.variacao_pct}% — a folha traz o pago, não o base</div>}
+      {jaTem ? <div style={{ fontSize: 11, color: C.green, marginTop: 4 }}>✓ já tem salário base</div> : (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+          <button type="button" style={{ ...btn(true), padding: '4px 10px', fontSize: 12 }} onClick={() => void onSalvar({ matricula: String(s.matricula), valor: String(s.sugerido), fonte: 'folha', competencia_ref: comp })}>usar {brl(s.sugerido)}</button>
+          <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="outro valor" inputMode="decimal" style={{ ...inp, width: 100, padding: '4px 7px' }} />
+          {manual && <button type="button" style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '4px 8px', fontSize: 12 }} onClick={() => void onSalvar({ matricula: String(s.matricula), valor: manual, fonte: 'manual', competencia_ref: comp })}>digitar</button>}
+        </div>
+      )}
     </div>
   )
 }

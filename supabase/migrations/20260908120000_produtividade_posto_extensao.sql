@@ -346,3 +346,118 @@ BEGIN
     'tem', jsonb_build_object('setores_com_vinculo', v_svinc, 'postos', v_postos, 'quadros', v_quadros,
        'dias_com_ponto', v_dias, 'vinculos_ponto', v_vponto, 'producao_chaves', v_prod, 'fluxos', v_fluxos));
 END $function$;
+
+-- ============================================================
+-- 2-bis · Salario base — da folha primeiro, manual so onde faltar (decisao do CEO 08/09).
+--   Remuneracao paga (folha_competencia.remuneracao) != salario base: o valor pago oscila com HE,
+--   faltas, adicionais e rescisao. Por isso a folha SUGERE, o humano CONFIRMA, e a variacao entre
+--   competencias vira aviso. A fonte SEMPRE aparece na tela junto do valor (RD-51).
+--   O elo folha<->funcionario e a MATRICULA (o CPF nao bate: 0 matches em ago/2026; matricula: 154).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.prod_salario_base (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id     uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  plant_id       uuid REFERENCES public.industrial_plants(id) ON DELETE CASCADE,
+  funcionario_id uuid REFERENCES public.compliance_funcionarios(id) ON DELETE CASCADE,
+  cargo_id       uuid REFERENCES public.prod_cargo(id) ON DELETE CASCADE,
+  matricula      integer,
+  cpf            text,
+  valor          numeric NOT NULL,
+  fonte          text NOT NULL,          -- folha | manual | acordo_coletivo
+  competencia_ref date,                  -- de qual competencia veio, quando fonte='folha'
+  vigencia_inicio date NOT NULL DEFAULT CURRENT_DATE,
+  vigencia_fim   date,
+  observacao     text,
+  criado_em      timestamptz NOT NULL DEFAULT now(),
+  criado_por     uuid,
+  CONSTRAINT prod_salario_fonte_chk CHECK (fonte IN ('folha','manual','acordo_coletivo')),
+  CONSTRAINT prod_salario_alvo_chk CHECK ((funcionario_id IS NOT NULL) OR (cargo_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS ix_prod_salario_vigente
+  ON public.prod_salario_base (company_id) WHERE vigencia_fim IS NULL;
+COMMENT ON TABLE public.prod_salario_base IS
+  'Salario base por pessoa OU por cargo, com vigencia e fonte declarada. '
+  'Por cargo serve para estimar custo antes de haver alocacao nominal.';
+COMMENT ON COLUMN public.prod_salario_base.fonte IS
+  'folha = veio de folha_competencia · manual = digitado · acordo_coletivo = piso da categoria. '
+  'A fonte SEMPRE aparece na tela junto do valor (RD-51).';
+ALTER TABLE public.prod_salario_base ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS prod_salario_base_rw ON public.prod_salario_base;
+CREATE POLICY prod_salario_base_rw ON public.prod_salario_base FOR ALL
+  USING (company_id IN (SELECT get_user_company_ids()) OR is_admin())
+  WITH CHECK (company_id IN (SELECT get_user_company_ids()) OR is_admin());
+
+-- fn_prod_salario_sugerir_da_folha · NAO grava. Por pessoa, a remuneracao das ultimas 3
+--   competencias <= p_competencia e a variacao entre elas, para o RH decidir. Variacao > 10% =
+--   aviso (sinal de HE/adicional/rescisao no pago — nao e o base). Importar 172 remuneracoes como
+--   salario base seria inventar o numero de 172 pessoas de uma vez.
+CREATE OR REPLACE FUNCTION public.fn_prod_salario_sugerir_da_folha(p_company_id uuid, p_competencia date)
+ RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v jsonb;
+BEGIN
+  IF NOT (p_company_id IN (SELECT get_user_company_ids()) OR is_admin()) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
+  WITH base AS (
+    SELECT matricula, nome, cpf, competencia, remuneracao,
+           row_number() OVER (PARTITION BY matricula ORDER BY competencia DESC) AS rn
+      FROM folha_competencia
+     WHERE company_id = p_company_id AND competencia <= p_competencia AND matricula IS NOT NULL
+       -- so quem esta PRESENTE na competencia de referencia (equipe atual, nao quem ja saiu);
+       -- o sugerido passa a ser sempre o mes de referencia, nao um mes antigo de ex-funcionario.
+       AND matricula IN (SELECT matricula FROM folha_competencia
+                          WHERE company_id = p_company_id AND competencia = p_competencia AND matricula IS NOT NULL)
+  ), ult3 AS (SELECT * FROM base WHERE rn <= 3),
+  agg AS (
+    SELECT matricula,
+           max(nome) FILTER (WHERE rn = 1) AS nome,
+           max(cpf)  FILTER (WHERE rn = 1) AS cpf,
+           max(remuneracao) FILTER (WHERE rn = 1) AS sugerido,
+           min(remuneracao) AS rmin, max(remuneracao) AS rmax,
+           jsonb_agg(jsonb_build_object('competencia', competencia, 'remuneracao', remuneracao) ORDER BY competencia DESC) AS comps
+      FROM ult3 GROUP BY matricula
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'matricula', matricula, 'nome', nome, 'cpf', cpf, 'sugerido', sugerido, 'competencias', comps,
+      'variacao_pct', CASE WHEN rmin > 0 THEN round(100.0 * (rmax - rmin) / rmin) ELSE NULL END,
+      'aviso', (rmin > 0 AND (rmax - rmin) / rmin > 0.10)
+    ) ORDER BY nome), '[]'::jsonb) INTO v FROM agg;
+  RETURN jsonb_build_object('ok', true, 'competencia_ref', p_competencia, 'total', jsonb_array_length(v), 'itens', v);
+END $function$;
+
+-- fn_prod_salario_salvar · grava o salario base DEPOIS que o humano confirma (a folha nunca grava
+--   sozinha). Resolve funcionario_id pela MATRICULA (o elo real); aceita funcionario_id/cargo_id
+--   explicitos. Sem alvo (nem funcionario nem cargo) => erro tratado. Fecha a vigencia anterior do
+--   mesmo alvo e abre a nova. A fonte fica registrada com o valor.
+CREATE OR REPLACE FUNCTION public.fn_prod_salario_salvar(p_dados jsonb, p_user uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_comp uuid := NULLIF(p_dados->>'company_id','')::uuid; v_func uuid := NULLIF(p_dados->>'funcionario_id','')::uuid;
+  v_cargo uuid := NULLIF(p_dados->>'cargo_id','')::uuid; v_mat text := NULLIF(btrim(coalesce(p_dados->>'matricula','')),'');
+  v_valor numeric := NULLIF(p_dados->>'valor','')::numeric; v_fonte text := coalesce(p_dados->>'fonte','manual'); v_id uuid;
+BEGIN
+  IF v_comp IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'company_obrigatoria'); END IF;
+  IF NOT (v_comp IN (SELECT get_user_company_ids()) OR is_admin()) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
+  IF v_valor IS NULL OR v_valor <= 0 THEN RETURN jsonb_build_object('ok', false, 'erro', 'valor_invalido'); END IF;
+  IF v_fonte NOT IN ('folha','manual','acordo_coletivo') THEN RETURN jsonb_build_object('ok', false, 'erro', 'fonte_invalida'); END IF;
+
+  -- resolve funcionario pela matricula quando nao veio explicito
+  IF v_func IS NULL AND v_mat IS NOT NULL THEN
+    SELECT id INTO v_func FROM compliance_funcionarios WHERE company_id = v_comp AND matricula = v_mat LIMIT 1;
+  END IF;
+  IF v_func IS NULL AND v_cargo IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'sem_alvo'); END IF;  -- sem funcionario nem cargo, o CHECK barraria
+
+  -- fecha a vigencia anterior aberta do mesmo alvo (pessoa ou cargo)
+  UPDATE prod_salario_base SET vigencia_fim = CURRENT_DATE - 1
+   WHERE company_id = v_comp AND vigencia_fim IS NULL
+     AND ((v_func IS NOT NULL AND funcionario_id = v_func) OR (v_func IS NULL AND cargo_id = v_cargo));
+
+  INSERT INTO prod_salario_base (company_id, plant_id, funcionario_id, cargo_id, matricula, cpf, valor, fonte, competencia_ref, criado_por)
+  VALUES (v_comp, NULLIF(p_dados->>'plant_id','')::uuid, v_func, CASE WHEN v_func IS NULL THEN v_cargo ELSE NULL END,
+          NULLIF(p_dados->>'matricula','')::int, NULLIF(p_dados->>'cpf',''), v_valor, v_fonte,
+          NULLIF(p_dados->>'competencia_ref','')::date, p_user)
+  RETURNING id INTO v_id;
+  RETURN jsonb_build_object('ok', true, 'id', v_id, 'alvo', CASE WHEN v_func IS NOT NULL THEN 'funcionario' ELSE 'cargo' END);
+END $function$;
