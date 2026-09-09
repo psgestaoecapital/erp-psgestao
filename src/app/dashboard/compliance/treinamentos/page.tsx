@@ -402,6 +402,7 @@ function AbaMatriz({ companyId }: { companyId: string }) {
   const [itens, setItens] = useState<MatrizItem[]>([])
   const [loading, setLoading] = useState(true)
   const [soVencer, setSoVencer] = useState(false)
+  const [fSetor, setFSetor] = useState('')   // #42 (Karoline) · filtro por setor — auditar treinamentos do setor
 
   useEffect(() => {
     (async () => {
@@ -411,16 +412,29 @@ function AbaMatriz({ companyId }: { companyId: string }) {
     })()
   }, [companyId])
 
-  const filtrados = useMemo(() => soVencer ? itens.filter(i => i.status === 'vencido' || i.status === 'a_vencer') : itens, [itens, soVencer])
+  // setores presentes na matriz (para o filtro #42). Ordenados; ignora nulos.
+  const setores = useMemo(() => Array.from(new Set(itens.map(i => i.setor).filter((s): s is string => !!s))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [itens])
+  const filtrados = useMemo(() => itens.filter(i =>
+    (!soVencer || i.status === 'vencido' || i.status === 'a_vencer') &&
+    (!fSetor || i.setor === fSetor),
+  ), [itens, soVencer, fSetor])
 
   if (loading) return <Load />
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ fontSize: 13, color: C.gray }}>{filtrados.length} registro(s)</div>
-        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: C.espresso, cursor: 'pointer' }}>
-          <input type="checkbox" checked={soVencer} onChange={e => setSoVencer(e.target.checked)} /> Só vencidos / a vencer
-        </label>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          {setores.length > 0 && (
+            <select value={fSetor} onChange={e => setFSetor(e.target.value)} style={inp()} title="Filtrar por setor">
+              <option value="">Todos os setores</option>
+              {setores.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: C.espresso, cursor: 'pointer' }}>
+            <input type="checkbox" checked={soVencer} onChange={e => setSoVencer(e.target.checked)} /> Só vencidos / a vencer
+          </label>
+        </div>
       </div>
       {filtrados.length === 0 ? (
         <Vazio titulo="Sem registros" texto={soVencer ? 'Nenhum treinamento vencido ou a vencer.' : 'Nenhuma presença em turma realizada ainda. Marque presenças nas turmas.'} />
