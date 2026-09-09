@@ -40,12 +40,18 @@ export interface NFeBuilderInput {
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
   const { data: emp, error: empErr } = await supabaseAdmin
     .from('companies')
-    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal')
+    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario')
     .eq('id', input.companyId)
     .maybeSingle()
   if (empErr || !emp) {
     throw new FiscalError('PAYLOAD_INVALIDO', 'Empresa emitente nao encontrada')
   }
+  // ehSimples: emitente do Simples Nacional usa CSOSN no ICMS (nao CST). Quando o produto nao
+  // tem os campos fiscais preenchidos, caimos no default do REGIME (nao no do produto ou da nota
+  // original — a nota original e do fornecedor, regime normal/CST, que um emitente Simples NAO
+  // pode usar). Sem isto o grupo <imposto> nao sai e a SEFAZ rejeita com 620 "Expected is (imposto)".
+  const ehSimples = String((emp as { regime_tributario?: string }).regime_tributario ?? '')
+    .toLowerCase().includes('simples')
   if (!emp.inscricao_estadual) {
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
@@ -193,10 +199,22 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       valorTotal,
       cest: prod.cest ?? undefined,
       origem: prod.origem ?? '0',
-      icms: { cst: prod.cst_icms ?? undefined, aliquota: prod.aliquota_icms ?? undefined },
+      // Grupo <imposto> SEMPRE presente (SEFAZ 620). Produto sem campo fiscal cai no default do
+      // regime do EMITENTE. Simples: ICMS CSOSN 102 + PIS/COFINS CST 04 — a convencao dos proprios
+      // produtos configurados do KGF (auditado). Produto ja configurado: usa o dele (sem mudanca).
+      icms: {
+        cst: prod.cst_icms ?? (ehSimples ? '102' : undefined),
+        aliquota: prod.aliquota_icms ?? undefined,
+      },
       ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
-      pis: { cst: prod.cst_pis ?? undefined, aliquota: prod.aliquota_pis ?? undefined },
-      cofins: { cst: prod.cst_cofins ?? undefined, aliquota: prod.aliquota_cofins ?? undefined },
+      pis: {
+        cst: prod.cst_pis ?? (ehSimples ? '04' : undefined),
+        aliquota: prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
+      },
+      cofins: {
+        cst: prod.cst_cofins ?? (ehSimples ? '04' : undefined),
+        aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
+      },
     }
   })
 
