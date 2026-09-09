@@ -375,6 +375,7 @@ function Animais({
   const [erro, setErro] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
   const [sel, setSel] = useState<Set<string>>(new Set())
+  const [selecionandoTodos, setSelecionandoTodos] = useState(false)
   const [acao, setAcao] = useState<null | Acao>(null)
   const [contagensCat, setContagensCat] = useState<Record<string, number>>({})
   const [totalRebanho, setTotalRebanho] = useState<number>(0)
@@ -528,6 +529,39 @@ function Animais({
   }
   const limparSel = () => setSel(new Set())
 
+  // "Selecionar todos" = TODOS os filtrados (respeita categoria/lote/piquete/busca), NAO so a pagina
+  // atual (PAGE_SIZE=200). No print: filtro Piquete 1 mostrando 14 de 867 -> seleciona os 14, nunca
+  // os 867. Reconsulta so os ids (mesma query da tela/exportar), pois a tela so tem a pagina visivel.
+  async function selecionarTodosFiltrados() {
+    // OFFLINE: filtra o snapshot no cliente (mesmos filtros da tela).
+    if (!online) {
+      const q = buscaDebounced.toLowerCase()
+      const ids = snapAnimais.filter((a) =>
+        (fCat === 'todos' || a.categoria === fCat) &&
+        (fLote === 'todos' || a.lote_id === fLote) &&
+        (fPiq === 'todos' || a.area_atual_id === fPiq) &&
+        (!q || (a.identificacao ?? '').toLowerCase().includes(q)),
+      ).map((a) => a.id)
+      setSel(new Set(ids))
+      return
+    }
+    setSelecionandoTodos(true); setErro(null)
+    try {
+      let q = supabase.from('erp_pec_animal')
+        .select('id')
+        .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
+      if (fCat !== 'todos') q = q.eq('categoria', fCat)
+      if (fLote !== 'todos') q = q.eq('lote_id', fLote)
+      if (fPiq !== 'todos') q = q.eq('area_atual_id', fPiq)
+      if (buscaDebounced) { const like = `%${buscaDebounced}%`; q = q.or(`identificacao.ilike.${like},sisbov.ilike.${like}`) }
+      const { data, error } = await q.limit(5000)
+      if (error) { setErro(error.message); return }
+      setSel(new Set((data ?? []).map((r) => (r as { id: string }).id)))
+    } finally {
+      setSelecionandoTodos(false)
+    }
+  }
+
   const inp = 'rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]'
   const Card = ({ label, value }: { label: string; value: number }) => (
     <div className="rounded-2xl p-3 sm:p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
@@ -577,6 +611,25 @@ function Animais({
         <button onClick={() => abrirAcao({ tipo: 'novo' })} disabled={!online} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: online ? 1 : 0.5 }}>+ Novo animal</button>
       </div>
 
+      {/* Mobile: "selecionar todos" — no desktop isso é o checkbox do cabeçalho da tabela.
+          Respeita o filtro ativo (categoria/lote/piquete/busca): marca os {total} filtrados, nunca
+          o rebanho inteiro. A barra de ação em lote aparece logo abaixo quando há seleção. */}
+      <div className="md:hidden flex items-center justify-between gap-2 rounded-xl px-3 py-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+        <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: ESP }}>
+          <input
+            type="checkbox"
+            className="w-5 h-5"
+            checked={total > 0 && sel.size >= total}
+            disabled={total === 0 || selecionandoTodos}
+            onChange={(e) => { if (e.target.checked) void selecionarTodosFiltrados(); else limparSel() }}
+          />
+          {selecionandoTodos ? 'Selecionando…' : `Selecionar todos${total > 0 ? ` (${total})` : ''}`}
+        </label>
+        {sel.size > 0 && (
+          <span className="text-xs font-semibold" style={{ color: GOLD }}>{sel.size} selecionado(s)</span>
+        )}
+      </div>
+
       {sel.size > 0 && (
         <div className="flex flex-wrap gap-2 items-center rounded-xl p-2" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}` }}>
           <span className="text-xs font-semibold" style={{ color: ESP }}>{sel.size} selecionado(s)</span>
@@ -592,7 +645,7 @@ function Animais({
         <table className="w-full text-sm">
           <thead className="text-xs" style={{ background: BG, color: ESP60 }}>
             <tr>
-              <th className="p-2 text-center w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === filtrados.length} onChange={(e) => setSel(e.target.checked ? new Set(filtrados.map((a) => a.id)) : new Set())} /></th>
+              <th className="p-2 text-center w-8"><input type="checkbox" title={total > 0 ? `Selecionar todos os ${total} filtrados` : 'Selecionar todos'} checked={total > 0 && sel.size >= total} disabled={total === 0 || selecionandoTodos} onChange={(e) => { if (e.target.checked) void selecionarTodosFiltrados(); else limparSel() }} /></th>
               <th className="text-left p-2">Identificação</th>
               <th className="text-left p-2">Categoria</th>
               <th className="text-left p-2">Sexo</th>
