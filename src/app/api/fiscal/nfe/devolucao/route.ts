@@ -16,6 +16,9 @@ interface DevolucaoBody {
   itens: NFeBuilderItemInput[]
   naturezaOperacao?: string
   ambiente?: 'homologacao' | 'producao'
+  // devolucao-icms-espelho: CSOSN da devolucao (editavel na tela, default = config da empresa).
+  // Aplicado a cada item que tem ICMS a devolver (base/valor espelhados da entrada).
+  csosnIcms?: string
 }
 
 export const POST = withAuth(async (req: NextRequest) => {
@@ -81,6 +84,23 @@ export const POST = withAuth(async (req: NextRequest) => {
       ieDest = String(notaCompra?.emitente_ie ?? '').replace(/\D/g, '')
     }
 
+    // CSOSN da devolucao: editavel na tela (body.csosnIcms) -> config da empresa -> 900. Injetado em
+    // cada item que traz ICMS a devolver (base/valor espelhados da entrada). CSOSN 900 permite informar
+    // o ICMS no Simples; hardcoded viraria erro fiscal, entao e configuravel (RD do CEO 09/09).
+    const { data: cfgDevol } = await supabaseAdmin
+      .from('erp_fiscal_provider_config')
+      .select('csosn_devolucao')
+      .eq('company_id', body.companyId)
+      .eq('provider', 'focusnfe')
+      .eq('ativo', true)
+      .maybeSingle()
+    const csosnDevol = (body.csosnIcms || (cfgDevol as { csosn_devolucao?: string } | null)?.csosn_devolucao || '900').trim()
+    const itensComCsosn: NFeBuilderItemInput[] = body.itens.map((it) =>
+      it.icmsOverride
+        ? { ...it, icmsOverride: { ...it.icmsOverride, csosn: it.icmsOverride.csosn ?? csosnDevol } }
+        : it,
+    )
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       manual: {
@@ -102,7 +122,7 @@ export const POST = withAuth(async (req: NextRequest) => {
               }
             : undefined,
         },
-        itens: body.itens,
+        itens: itensComCsosn,
         naturezaOperacao: body.naturezaOperacao ?? 'Devolução de compra',
         finalidade: 'devolucao',
         chaveReferenciada: chaveCompra,
