@@ -64,6 +64,7 @@ export default function DevolucaoCompraClient() {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string } | null>(null)
+  const [processandoMsg, setProcessandoMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const cid = resolveCompanyId()
@@ -179,7 +180,7 @@ export default function DevolucaoCompraClient() {
   async function emitir() {
     if (!podeEnviar) return
     if (!confirm(`EMITIR NF-e de devolução para ${itens.length} item(ns)?\n\nCFOP / CST devem espelhar a entrada (validar com contador antes de produção).`)) return
-    setEnviando(true); setErro(null); setSucesso(null)
+    setEnviando(true); setErro(null); setSucesso(null); setProcessandoMsg(null)
     try {
       const resp = await authFetch('/api/fiscal/nfe/devolucao', {
         method: 'POST',
@@ -198,8 +199,24 @@ export default function DevolucaoCompraClient() {
         }),
       })
       const json = await resp.json()
+
+      // A Focus é ASSÍNCRONA: no envio ela costuma devolver 'processando' (a SEFAZ ainda não
+      // autorizou/rejeitou). Isso NÃO é falha — consultamos o resultado final e mostramos o
+      // motivo real. Antes, 'processando' virava "Falha ao emitir devolução" e o motivo (que
+      // chega segundos depois pelo webhook) nunca aparecia na tela.
+      if (resp.ok && json?.processando && json?.nfeId) {
+        setProcessandoMsg(json?.mensagem ?? 'NF-e enviada — processando na SEFAZ…')
+        await aguardarResultado(String(json.nfeId))
+        setEnviando(false)
+        return
+      }
       if (!resp.ok || json?.ok === false) {
-        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir devolução')
+        // Sempre com motivo — nunca um "Falha" seco. Mostra o que a SEFAZ/Focus devolveu.
+        setErro(
+          json?.mensagem
+            ?? json?.motivoRejeicao
+            ?? (json?.status ? `Devolução ${json.status} (SEFAZ não informou o motivo)` : 'Falha ao emitir devolução')
+        )
         setEnviando(false)
         return
       }
@@ -210,6 +227,34 @@ export default function DevolucaoCompraClient() {
       setErro((e as Error)?.message ?? 'Erro ao emitir')
       setEnviando(false)
     }
+  }
+
+  // Consulta o resultado final de uma NF-e que voltou 'processando'. A Focus autoriza/rejeita de
+  // forma assíncrona; o webhook grava status + motivo em erp_nfe_emitidas segundos depois. Aqui
+  // fazemos poll do próprio registro (RLS por empresa) e surfamos autorização OU o motivo da SEFAZ.
+  async function aguardarResultado(nfeId: string) {
+    for (let tentativa = 0; tentativa < 12; tentativa++) {
+      await new Promise((r) => setTimeout(r, 2500))
+      const { data } = await supabase
+        .from('erp_nfe_emitidas')
+        .select('status, motivo_rejeicao, numero, chave')
+        .eq('id', nfeId)
+        .maybeSingle()
+      const st = (data?.status as string | undefined) ?? undefined
+      if (st === 'autorizada') {
+        setProcessandoMsg(null)
+        setSucesso({ numero: String(data?.numero ?? '?'), chave: (data?.chave as string | null) ?? undefined })
+        alert(`EMITIU NF-e de devolução de compra nº ${data?.numero ?? '?'}.`)
+        return
+      }
+      if (st === 'rejeitada' || st === 'denegada') {
+        setProcessandoMsg(null)
+        setErro((data?.motivo_rejeicao as string | null) ?? `Devolução ${st} pela SEFAZ (sem motivo informado)`)
+        return
+      }
+    }
+    // Ainda processando após ~30s: deixa claro que NÃO falhou, só está demorando.
+    setProcessandoMsg('A SEFAZ ainda está processando. Atualize a página em instantes para ver a autorização ou o motivo da rejeição (a nota fica na lista de NF-e emitidas).')
   }
 
   function resetar() {
@@ -255,6 +300,13 @@ export default function DevolucaoCompraClient() {
         <div className="mb-4 p-3 bg-[#E7F4EC] border border-[#1B873F]/40 rounded-lg text-[12.5px] text-[#1B873F]">
           ✓ EMITIU NF-e de devolução de compra nº <strong>{sucesso.numero}</strong>
           {sucesso.chave && <div className="font-mono text-[10.5px] mt-1 text-[#1B873F]/85 break-all">chave: {sucesso.chave}</div>}
+        </div>
+      )}
+
+      {processandoMsg && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/50 rounded-lg text-[12.5px] text-[#7A5A0B] flex items-start gap-2">
+          <Loader2 size={14} className="animate-spin flex-shrink-0 mt-0.5" />
+          <span>{processandoMsg}</span>
         </div>
       )}
 
