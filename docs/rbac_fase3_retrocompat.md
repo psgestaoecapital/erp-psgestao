@@ -10,6 +10,42 @@
 
 ---
 
+## 0 · Por que a Fase 3 existe — o caso de negócio (reposicionamento aprovado pelo CEO, 09/09)
+
+> **A Fase 3 deixa de ser "a tela para de decidir" e passa a ser "o banco começa a decidir".**
+> É a fase que justifica o RBAC inteiro.
+
+**O achado que reposiciona a fase (varredura 09/09, origem chamado O4 do KGF):** o enforcement de
+papel **no write path praticamente não existe hoje**. Das **580 RPCs de escrita `SECURITY DEFINER`**
+(que ignoram a RLS — o guard interno é a única defesa):
+
+| Checagem | Qtd | % |
+|---|---:|---:|
+| Checam `tenant_user_roles.role` | **14** | 2,4% |
+| Só pertencimento à empresa (`get_user_company_ids`/`user_company_ids`) | **253** | 44% |
+| Só `is_admin` | 26 | 4,5% |
+| Sem guard reconhecível (teto por heurística) | 287 | 49% |
+
+**Consequência:** `fn_os_criar` e `fn_oficina_recepcao_criar` não checarem papel **não é bug de
+oficina** — é a regra. Qualquer `CLIENT_VIEWER` de qualquer empresa (revenda, hub, industrial,
+financeiro) provavelmente **escreve onde o papel dele diria "só leitura"**. As 253 que checam
+explicitamente **só pertencimento** já provam sozinhas que é sistêmico (a amostra dos 287 muda o
+número, não a decisão — fica para dimensionar a migração quando a Fase 3 estiver desenhada).
+
+**Por que a correção mora na Fase 3, não em 580 patches:** corrigir função a função é
+inmanutenível e diverge com o tempo. A decisão de acesso tem que **morar num lugar só** —
+`fn_acesso_efetivo` (que a Fase 3 transforma em decisor, §1–§4 abaixo) — e os write paths
+**consultarem essa decisão** (diretamente, ou via RLS keyed nela). O `acessos` (subgrupo × nível,
+com `nivel` como teto) é exatamente o contrato que um write path precisa para perguntar
+"este usuário pode `editar`/`aprovar` neste subgrupo?" antes de gravar.
+
+> **Ordem, então:** primeiro `fn_acesso_efetivo` vira decisor **de forma aditiva** (§1–§4), e
+> **só depois** os write paths passam a consultá-lo — o mesmo princípio de "migrar antes de
+> remover" que rege toda esta fase. A migração dos ~580 write paths para consultar a decisão é
+> trabalho da Fase 3 (ou de uma sub-onda dela), dimensionado com a amostra guardada.
+
+---
+
 ## 1 · O erro do §14 como estava escrito
 
 O §14 reescreve `fn_acesso_efetivo(user, company)` para **DECIDIR** (retornar `acessos` + `decidido`)
