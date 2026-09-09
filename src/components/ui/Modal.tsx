@@ -22,12 +22,18 @@ export default function Modal({ open, onClose, title, subtitle, children, footer
   const cardRef = useRef<HTMLDivElement>(null)
   const prevFocus = useRef<Element | null>(null)
 
+  // onClose costuma ser uma arrow inline no pai (nova identidade a cada render). Guardamos numa ref
+  // para o efeito abaixo NÃO depender dela — senão a cada tecla o pai re-renderiza, o efeito faz
+  // cleanup e devolve o foco ao elemento anterior (prevFocus), fechando o teclado no tablet.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+
   useEffect(() => {
     if (!open) return
     prevFocus.current = document.activeElement
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden' // scroll-lock
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() } // Esc = Cancelar
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current() } // Esc = Cancelar
     document.addEventListener('keydown', onKey)
     // foco inicial no diálogo (acessibilidade); retorna ao elemento anterior no unmount
     const t = setTimeout(() => cardRef.current?.focus(), 0)
@@ -37,7 +43,8 @@ export default function Modal({ open, onClose, title, subtitle, children, footer
       clearTimeout(t)
       if (prevFocus.current instanceof HTMLElement) prevFocus.current.focus()
     }
-  }, [open, onClose])
+    // Só [open]: abrir/fechar. NÃO re-executa a cada render do pai (ver onCloseRef acima).
+  }, [open])
 
   if (!open) return null
 
