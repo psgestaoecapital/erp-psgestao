@@ -385,6 +385,17 @@ function ModalNovo({ companyId, dataDefault, onClose, onCriou }: { companyId: st
           <Campo l="Fim"><input type="time" value={f.hf} onChange={(e) => set('hf', e.target.value)} style={inp} /></Campo>
         </div>
         <Campo l="Observação"><textarea value={f.obs} onChange={(e) => set('obs', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} /></Campo>
+        {/* Aviso (nao bloqueio · decisao do CEO 09/09): sem placa E sem cliente do cadastro, a chegada
+            nao casa sozinha com a OS (o auto-vinculo usa placa, e o fallback usa cliente_id). Placa
+            NUNCA e obrigatoria (torneria/usinagem nao tem veiculo) — por isso e aviso, nao trava. */}
+        {!f.placa.trim() && !clienteId && (
+          <div style={{ marginTop: 4, padding: '8px 10px', borderRadius: 8, background: '#FBF1DE',
+            border: `0.5px solid ${GOLD}`, color: ESP, fontSize: 12, lineHeight: 1.4 }}>
+            ⚠️ Sem placa e sem cliente do cadastro, este agendamento <b>não vai casar sozinho</b> com a
+            OS quando o veículo chegar — vai precisar ser vinculado na mão. Informe a placa ou escolha o
+            cliente na lista para o vínculo automático. (Pode agendar assim mesmo.)
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button onClick={onClose} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={busy} style={btnPrim}>{busy ? 'Salvando…' : 'Agendar'}</button>
