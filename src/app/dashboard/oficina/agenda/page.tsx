@@ -45,6 +45,7 @@ export default function OficinaAgendaPage() {
   const [erro, setErro] = useState('')
   const [msg, setMsg] = useState('')
   const [novo, setNovo] = useState(false)
+  const [editAg, setEditAg] = useState<Ag | null>(null)
 
   const range = useMemo(() => {
     if (modo === 'dia') return { de: iso(ref), ate: iso(ref) }
@@ -64,9 +65,18 @@ export default function OficinaAgendaPage() {
 
   async function mudarStatus(a: Ag, s: string) {
     setMsg('')
-    const { error } = await supabase.rpc('fn_agendamento_mudar_status', { p_id: a.id, p_status: s })
+    let motivo: string | null = null
+    if (s === 'cancelado') {
+      const m = window.prompt(`Cancelar o agendamento${a.cliente_nome ? ` de ${a.cliente_nome}` : ''}?\n\nMotivo (opcional):`, '')
+      if (m === null) return               // desistiu do cancelamento
+      motivo = m.trim() || null
+    } else if (s === 'nao_compareceu') {
+      if (!confirm(`Marcar como "Não compareceu"${a.cliente_nome ? ` — ${a.cliente_nome}` : ''}?\n\nDiferente de cancelar: o cliente não avisou.`)) return
+    }
+    const { error } = await supabase.rpc('fn_agendamento_mudar_status', { p_id: a.id, p_status: s, p_motivo: motivo })
     if (error) { setMsg('Erro: ' + error.message); return }
-    const verbo = s === 'confirmado' ? 'CONFIRMOU' : s === 'concluido' ? 'CONCLUIU' : s === 'em_atendimento' ? 'INICIOU' : 'ATUALIZOU'
+    const verbo = s === 'confirmado' ? 'CONFIRMOU' : s === 'concluido' ? 'CONCLUIU' : s === 'em_atendimento' ? 'INICIOU'
+      : s === 'cancelado' ? 'CANCELOU' : s === 'nao_compareceu' ? 'marcou NÃO COMPARECEU em' : 'ATUALIZOU'
     setMsg(`${verbo} o agendamento${a.cliente_nome ? ` de ${a.cliente_nome}` : ''}.`)
     void carregar()
   }
@@ -116,7 +126,7 @@ export default function OficinaAgendaPage() {
             {semHora(range.de).length > 0 && (
               <div style={{ padding: '8px 12px', borderBottom: `0.5px solid ${BG}` }}>
                 <div style={{ fontSize: 10.5, color: MUT, marginBottom: 4 }}>SEM HORÁRIO</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{semHora(range.de).map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} />)}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{semHora(range.de).map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} />)}</div>
               </div>
             )}
             {HORAS.map((h) => {
@@ -124,7 +134,7 @@ export default function OficinaAgendaPage() {
               return (
                 <div key={h} style={{ display: 'grid', gridTemplateColumns: '54px 1fr', borderTop: `0.5px solid ${BG}`, minHeight: 40 }}>
                   <div style={{ fontSize: 11, color: MUT, padding: '8px 10px', borderRight: `0.5px solid ${BG}` }}>{String(h).padStart(2, '0')}:00</div>
-                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>{its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} />)}</div>
+                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>{its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} />)}</div>
                 </div>
               )
             })}
@@ -136,7 +146,7 @@ export default function OficinaAgendaPage() {
               return (
                 <div key={dia} style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 8, minHeight: 120 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: ESP, marginBottom: 6, textTransform: 'capitalize' }}>{fmtDiaCurto(dia)}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{its.length === 0 ? <span style={{ fontSize: 11, color: MUT }}>—</span> : its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} compact />)}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{its.length === 0 ? <span style={{ fontSize: 11, color: MUT }}>—</span> : its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} compact />)}</div>
                 </div>
               )
             })}
@@ -145,13 +155,15 @@ export default function OficinaAgendaPage() {
       </div>
 
       {novo && companyId && <ModalNovo companyId={companyId} dataDefault={modo === 'dia' ? range.de : iso(new Date())} onClose={() => setNovo(false)} onCriou={(m) => { setNovo(false); setMsg(m); void carregar() }} />}
+      {editAg && companyId && <ModalEditar companyId={companyId} ag={editAg} onClose={() => setEditAg(null)} onSalvou={(m) => { setEditAg(null); setMsg(m); void carregar() }} />}
     </div>
   )
 }
 
-function Card({ a, onStatus, compact }: { a: Ag; onStatus: (a: Ag, s: string) => void; compact?: boolean }) {
+function Card({ a, onStatus, onEditar, compact }: { a: Ag; onStatus: (a: Ag, s: string) => void; onEditar?: (a: Ag) => void; compact?: boolean }) {
   const st = ST[a.status] ?? ST.agendado
   const veic = [a.dados?.placa, a.dados?.veiculo].filter(Boolean).join(' · ')
+  const podeEditar = a.status === 'agendado' || a.status === 'confirmado'
   return (
     <div style={{ background: st.bg, border: `0.5px solid ${LINE}`, borderLeft: `3px solid ${st.cor}`, borderRadius: 8, padding: '6px 9px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
@@ -161,8 +173,11 @@ function Card({ a, onStatus, compact }: { a: Ag; onStatus: (a: Ag, s: string) =>
       <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.cliente_nome || a.titulo || 'Sem cliente'}</div>
       {veic && <div style={{ fontSize: 11, color: MUT }}>{veic}</div>}
       {!compact && a.responsavel_nome && <div style={{ fontSize: 10.5, color: MUT }}>👤 {a.responsavel_nome}</div>}
-      {!compact && (ACOES[a.status] ?? []).length > 0 && (
+      {!compact && ((ACOES[a.status] ?? []).length > 0 || (podeEditar && onEditar)) && (
         <div style={{ display: 'flex', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
+          {podeEditar && onEditar && (
+            <button onClick={() => onEditar(a)} style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#FFF', color: ESP }}>Editar</button>
+          )}
           {(ACOES[a.status] ?? []).map((ac) => (
             <button key={ac.s} onClick={() => onStatus(a, ac.s)} style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#FFF', color: ac.s === 'cancelado' || ac.s === 'nao_compareceu' ? VERM : ESP }}>{ac.l}</button>
           ))}
@@ -373,6 +388,76 @@ function ModalNovo({ companyId, dataDefault, onClose, onCriou }: { companyId: st
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button onClick={onClose} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={busy} style={btnPrim}>{busy ? 'Salvando…' : 'Agendar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+// Editar agendamento (chamado 3) — mesmos campos do Novo, pré-preenchidos, via fn_agendamento_editar.
+// cliente_id só muda se o operador escolher do cadastro (onPick); editar só o nome preserva o vínculo.
+function ModalEditar({ companyId, ag, onClose, onSalvou }: { companyId: string; ag: Ag; onClose: () => void; onSalvou: (msg: string) => void }) {
+  const [f, setF] = useState({
+    cliente: ag.cliente_nome ?? '', placa: ag.dados?.placa ?? '', veiculo: ag.dados?.veiculo ?? '',
+    data: ag.data, hi: ag.hora_inicio ? ag.hora_inicio.slice(0, 5) : '', hf: ag.hora_fim ? ag.hora_fim.slice(0, 5) : '',
+    obs: ag.observacao ?? '',
+  })
+  const [clienteId, setClienteId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }))
+
+  const buscarClientes = useCallback(async (termo: string): Promise<ItemCliente[]> => {
+    const orf = orFiltroClienteBusca(termo, 'cpf_cnpj')
+    if (!orf) return []
+    const { data } = await supabase.from('erp_clientes').select('id, nome_fantasia, razao_social')
+      .eq('company_id', companyId).eq('ativo', true).or(orf).limit(8)
+    return (data ?? []).map((c) => ({ id: c.id as string, nome: (c.nome_fantasia || c.razao_social || '(sem nome)') as string }))
+  }, [companyId])
+
+  async function salvar() {
+    if (!f.cliente.trim() && !f.placa.trim()) { setErr('Informe ao menos o cliente ou a placa.'); return }
+    setBusy(true); setErr('')
+    const { data, error } = await supabase.rpc('fn_agendamento_editar', {
+      p_id: ag.id, p_data: f.data || null, p_hora_inicio: f.hi || null, p_hora_fim: f.hf || null,
+      p_cliente_id: clienteId, p_cliente_nome: f.cliente.trim() || null,
+      p_placa: f.placa.trim() || null, p_veiculo: f.veiculo.trim() || null, p_observacao: f.obs,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) {
+      setErr(r?.erro === 'ja_virou_os' ? 'Este agendamento já virou OS — não dá para editar pela agenda.'
+        : (error?.message || r?.erro || 'Falha ao salvar')); return
+    }
+    onSalvou(`ATUALIZOU o agendamento${f.cliente ? ` de ${f.cliente}` : ''}.`)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 20, width: '100%', maxWidth: 440, border: `0.5px solid ${LINE}`, maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 12px' }}>Editar agendamento</h3>
+        {err && <div style={{ padding: '7px 10px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+        <Campo l="Cliente">
+          <AutoBusca<ItemCliente>
+            value={f.cliente}
+            onText={(v) => { set('cliente', v); setClienteId(null) }}
+            onPick={(it) => { set('cliente', it.nome); setClienteId(it.id) }}
+            buscar={buscarClientes} rotulo={(it) => it.nome}
+            placeholder="Nome do cliente (busca no cadastro)"
+          />
+        </Campo>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 8 }}>
+          <Campo l="Placa (opcional)"><input value={f.placa} onChange={(e) => set('placa', e.target.value.toUpperCase())} placeholder="ABC1D23" style={inp} /></Campo>
+          <Campo l="Veículo (opcional)"><input value={f.veiculo} onChange={(e) => set('veiculo', e.target.value)} placeholder="Compass 2017" style={inp} /></Campo>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8 }}>
+          <Campo l="Data"><input type="date" value={f.data} onChange={(e) => set('data', e.target.value)} style={inp} /></Campo>
+          <Campo l="Início"><input type="time" value={f.hi} onChange={(e) => set('hi', e.target.value)} style={inp} /></Campo>
+          <Campo l="Fim"><input type="time" value={f.hf} onChange={(e) => set('hf', e.target.value)} style={inp} /></Campo>
+        </div>
+        <Campo l="Observação"><textarea value={f.obs} onChange={(e) => set('obs', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} /></Campo>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+          <button onClick={onClose} style={btnGhost}>Cancelar</button>
+          <button onClick={salvar} disabled={busy} style={btnPrim}>{busy ? 'Salvando…' : 'Salvar'}</button>
         </div>
       </div>
     </div>
