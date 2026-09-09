@@ -907,10 +907,16 @@ function AcaoModal({
         onDone(); return
       }
 
+      // UM grupo_id por operacao em lote: mover/morte de N animais pela tela e UMA operacao.
+      // Sem isto cada animal virava um lancamento solto (grupo_id null) e nao dava para estornar
+      // a operacao inteira de uma vez — foi o que travou o estorno dos 93 do Piquete 6.
+      const grupoMov = alvos.length > 0
+        ? (globalThis.crypto?.randomUUID?.() ?? null)
+        : null
       for (const id of alvos) {
         const params: Record<string, unknown> = {
           p_company_id: companyId, p_propriedade_id: propriedadeId,
-          p_animal_id: id, p_data: hoje,
+          p_animal_id: id, p_data: hoje, p_grupo_id: grupoMov,
         }
         if (acao.tipo === 'mover') {
           params.p_tipo = 'transferencia'

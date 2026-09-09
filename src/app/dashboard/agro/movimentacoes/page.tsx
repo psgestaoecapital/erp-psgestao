@@ -46,8 +46,13 @@ export default function MovimentacoesPage() {
   const [tipo, setTipo] = useState('')
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
+  const [fLote, setFLote] = useState('')          // filtro por lote (server-side)
+  const [fPiqOrig, setFPiqOrig] = useState('')    // filtro por piquete de origem (client-side, por nome)
+  const [fPiqDest, setFPiqDest] = useState('')    // filtro por piquete de destino (client-side, por nome)
   const [incluirEstornadas, setIncluirEstornadas] = useState(true)
   const [lista, setLista] = useState<Mov[]>([])
+  const [lotes, setLotes] = useState<{ id: string; codigo: string }[]>([])
+  const [piquetes, setPiquetes] = useState<{ id: string; nome: string }[]>([])
   const [carregando, setCarregando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -60,15 +65,38 @@ export default function MovimentacoesPage() {
     setCarregando(true)
     const { data } = await supabase.rpc('fn_pec_movimentacoes_listar', {
       p_company_id: companyId, p_propriedade_id: propriedadeId, p_tipo: tipo || null,
-      p_de: de || null, p_ate: ate || null, p_incluir_estornadas: incluirEstornadas,
+      p_de: de || null, p_ate: ate || null, p_lote_id: fLote || null, p_incluir_estornadas: incluirEstornadas,
     })
     const r = data as { ok?: boolean; movimentacoes?: Mov[] } | null
     setLista(r?.ok ? (r.movimentacoes ?? []) : [])
     setCarregando(false)
-  }, [companyId, propriedadeId, tipo, de, ate, incluirEstornadas])
+  }, [companyId, propriedadeId, tipo, de, ate, fLote, incluirEstornadas])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
+
+  // Lotes e piquetes da propriedade para os filtros (piquete de origem/destino, lote).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!companyId || !propriedadeId) { setLotes([]); setPiquetes([]); return }
+    let alive = true
+    void (async () => {
+      const [l, p] = await Promise.all([
+        supabase.from('erp_pec_lote').select('id,codigo').eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
+        supabase.from('erp_pec_area').select('id,nome').eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('tipo', 'piquete').eq('ativo', true).order('nome'),
+      ])
+      if (!alive) return
+      setLotes((l.data ?? []) as { id: string; codigo: string }[])
+      setPiquetes((p.data ?? []) as { id: string; nome: string }[])
+    })()
+    return () => { alive = false }
+  }, [companyId, propriedadeId])
+
+  // Piquete de origem/destino filtram por NOME (o listar devolve os nomes das áreas), no cliente.
+  const listaFiltrada = lista.filter((m) =>
+    (!fPiqOrig || m.area_origem === fPiqOrig) &&
+    (!fPiqDest || m.area_destino === fPiqDest),
+  )
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
 
   const abrir = async (m: Mov) => {
@@ -96,17 +124,33 @@ export default function MovimentacoesPage() {
         </select>
         <label style={{ fontSize: 12, color: MUT }}>de <input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inStyle} /></label>
         <label style={{ fontSize: 12, color: MUT }}>até <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inStyle} /></label>
+        <select value={fPiqOrig} onChange={(e) => setFPiqOrig(e.target.value)} style={selStyle} title="Piquete de origem">
+          <option value="">Origem · todos</option>
+          {piquetes.map((p) => <option key={p.id} value={p.nome}>De: {p.nome}</option>)}
+        </select>
+        <select value={fPiqDest} onChange={(e) => setFPiqDest(e.target.value)} style={selStyle} title="Piquete de destino">
+          <option value="">Destino · todos</option>
+          {piquetes.map((p) => <option key={p.id} value={p.nome}>Para: {p.nome}</option>)}
+        </select>
+        <select value={fLote} onChange={(e) => setFLote(e.target.value)} style={selStyle} title="Lote">
+          <option value="">Lote · todos</option>
+          {lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo}</option>)}
+        </select>
         <label style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 5 }}>
           <input type="checkbox" checked={incluirEstornadas} onChange={(e) => setIncluirEstornadas(e.target.checked)} /> mostrar estornadas
         </label>
+        {(fPiqOrig || fPiqDest || fLote || tipo || de || ate) && (
+          <button type="button" onClick={() => { setTipo(''); setDe(''); setAte(''); setFLote(''); setFPiqOrig(''); setFPiqDest('') }}
+            style={{ ...selStyle, cursor: 'pointer', color: GOLD }}>limpar filtros</button>
+        )}
       </div>
 
       {carregando && <div style={{ fontSize: 13, color: MUT }}>carregando…</div>}
-      {!carregando && lista.length === 0 && <div style={{ fontSize: 14, color: MUT, padding: 24, textAlign: 'center' }}>Nenhuma movimentação no filtro.</div>}
+      {!carregando && listaFiltrada.length === 0 && <div style={{ fontSize: 14, color: MUT, padding: 24, textAlign: 'center' }}>Nenhuma movimentação no filtro.</div>}
 
       {/* lista (cards mobile-first) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {lista.map((m) => {
+        {listaFiltrada.map((m) => {
           const origemDestino = [m.lote_origem || m.area_origem, m.lote_destino || m.area_destino].filter(Boolean).join(' → ')
           return (
             <button key={m.grupo_id} type="button" onClick={() => void abrir(m)}
