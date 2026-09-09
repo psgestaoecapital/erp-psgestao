@@ -47,9 +47,10 @@ interface OSRow {
   modelo: string | null
   status: string
   data_abertura: string | null
-  total: number | null
-  titulos_gerados: boolean | null
-  lancamento_id: string | null
+  total: number | null            // null quando quem le e OFICINA_MECANICO (trava no banco)
+  titulos_gerados?: boolean | null
+  lancamento_id?: string | null
+  faturada?: boolean | null       // status devolvido pela RPC (nao e valor)
 }
 
 interface Cliente {
@@ -112,16 +113,19 @@ export default function OSMecanicoPage() {
   const carregar = useCallback(async () => {
     if (!companyIdAtiva) { setOss([]); setLoading(false); return }
     setLoading(true)
-    const { data, error } = await supabase
-      .from('erp_os')
-      .select('id, company_id, numero, cliente_nome, equipamento, placa, modelo, status, data_abertura, total, titulos_gerados, lancamento_id')
-      .eq('company_id', companyIdAtiva)
-      .eq('excluida', verExcluidas)
-      .order('created_at', { ascending: false })
-      .limit(200)
-    if (error) setErro(error.message)
+    // fn_oficina_os_listar espelha a query e aplica a trava de valor NO BANCO:
+    // OFICINA_MECANICO recebe total=null (nao ha coluna de valor no payload). Ver migration
+    // 20260909270000. (Residuo declarado: a RLS ainda deixa erp_os.total passar por PostgREST
+    // direto — endurecimento e a onda A, erp_contexto_projeto 72fcbdcf.)
+    const { data, error } = await supabase.rpc('fn_oficina_os_listar', {
+      p_company_id: companyIdAtiva,
+      p_excluidas: verExcluidas,
+      p_limit: 200,
+    })
+    const r = data as { ok?: boolean; erro?: string; itens?: OSRow[] } | null
+    if (error || r?.ok === false) setErro(error?.message || r?.erro || 'Falha ao carregar OS')
     // Runtime guard defense-in-depth: dropa qualquer linha divergente
-    const safe = ((data ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
+    const safe = ((r?.itens ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
     setOss(safe)
     setLoading(false)
   }, [companyIdAtiva, verExcluidas])
@@ -178,7 +182,7 @@ export default function OSMecanicoPage() {
     setOsAberta(id)
   }
 
-  const faturadaDe = (o: OSRow) => Boolean(o.titulos_gerados) || o.lancamento_id != null
+  const faturadaDe = (o: OSRow) => o.faturada ?? (Boolean(o.titulos_gerados) || o.lancamento_id != null)
 
   async function excluirOS(motivo: string) {
     if (!osExcluir) return
