@@ -32,6 +32,9 @@ interface ItemDevol {
   quantidade: number
   valorUnitarioOverride?: number
   cfopOverride: string
+  // devolucao-icms-espelho: ICMS por item, pre-preenchido da nota original e editavel.
+  icmsBase?: number       // base de calculo do ICMS
+  icmsAliquota?: number   // aliquota do ICMS (%)
 }
 
 function resolveCompanyId(): string | null {
@@ -61,6 +64,10 @@ export default function DevolucaoCompraClient() {
   const [natureza, setNatureza] = useState('Devolução de compra')
   const [itens, setItens] = useState<ItemDevol[]>([])
   const [produtoBusca, setProdutoBusca] = useState('')
+  // devolucao-icms-espelho: CSOSN da devolucao (default da config da empresa, editavel) e o mapa de
+  // tributos da nota de compra original por produto (pre-preenchimento espelhado).
+  const [csosnDevol, setCsosnDevol] = useState('900')
+  const [tributosMap, setTributosMap] = useState<Record<string, { base?: number; aliquota?: number }>>({})
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string } | null>(null)
@@ -74,6 +81,48 @@ export default function DevolucaoCompraClient() {
     }
     setCompanyId(cid)
   }, [])
+
+  // devolucao-icms-espelho: CSOSN default da empresa (editavel na tela antes de emitir).
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    void supabase.from('erp_fiscal_provider_config').select('csosn_devolucao')
+      .eq('company_id', companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      .then(({ data }) => { if (alive && (data as { csosn_devolucao?: string } | null)?.csosn_devolucao) setCsosnDevol((data as { csosn_devolucao: string }).csosn_devolucao) })
+    return () => { alive = false }
+  }, [companyId])
+
+  // devolucao-icms-espelho: ao ter a chave (44 digitos), busca os tributos da nota de compra original
+  // e monta o mapa por produto (base/aliquota do ICMS) para pre-preencher os itens.
+  const chaveDig = chaveCompra.replace(/\D/g, '')
+  useEffect(() => {
+    if (!companyId || chaveDig.length !== 44) { setTributosMap({}); return }
+    let alive = true
+    void supabase.rpc('fn_nfe_devolucao_tributos', { p_company_id: companyId, p_chave: chaveDig })
+      .then(({ data }) => {
+        if (!alive) return
+        const r = data as { ok?: boolean; itens?: Array<{ produto_id: string | null; codigo_produto: string | null; icms?: { base?: number; aliquota?: number } | null }> } | null
+        if (!r?.ok) { setTributosMap({}); return }
+        const m: Record<string, { base?: number; aliquota?: number }> = {}
+        for (const it of r.itens ?? []) {
+          const icms = it.icms ?? undefined
+          if (it.produto_id) m[it.produto_id] = { base: icms?.base ?? undefined, aliquota: icms?.aliquota ?? undefined }
+        }
+        setTributosMap(m)
+      })
+    return () => { alive = false }
+  }, [companyId, chaveDig])
+
+  // Pre-preenche o ICMS dos itens que ainda nao tem, quando o mapa de tributos chega (nao sobrescreve
+  // o que o operador ja editou).
+  useEffect(() => {
+    if (Object.keys(tributosMap).length === 0) return
+    setItens((arr) => arr.map((it) => {
+      if (it.icmsBase != null || it.icmsAliquota != null) return it
+      const t = tributosMap[it.produtoId]
+      return t ? { ...it, icmsBase: t.base, icmsAliquota: t.aliquota } : it
+    }))
+  }, [tributosMap])
 
   useEffect(() => {
     if (!companyId) return
@@ -145,6 +194,7 @@ export default function DevolucaoCompraClient() {
   }, [companyId, recebidaId])
 
   function adicionarItem(prod: Produto) {
+    const t = tributosMap[prod.id]   // ICMS espelhado da nota original, se houver
     setItens((arr) => [
       ...arr,
       {
@@ -153,6 +203,8 @@ export default function DevolucaoCompraClient() {
         quantidade: 1,
         valorUnitarioOverride: prod.preco_venda ?? 0,
         cfopOverride: '5202',
+        icmsBase: t?.base,
+        icmsAliquota: t?.aliquota,
       },
     ])
     setProdutoBusca('')
@@ -190,12 +242,20 @@ export default function DevolucaoCompraClient() {
           fornecedorId,
           chaveCompra: chaveLimpa,
           naturezaOperacao: natureza,
-          itens: itens.map((it) => ({
-            produtoId: it.produtoId,
-            quantidade: Number(it.quantidade),
-            valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
-            cfopOverride: it.cfopOverride.trim() || '5202',
-          })),
+          csosnIcms: csosnDevol.trim() || '900',
+          itens: itens.map((it) => {
+            const base = it.icmsBase != null ? Number(it.icmsBase) : undefined
+            const aliq = it.icmsAliquota != null ? Number(it.icmsAliquota) : undefined
+            // valor = base × aliq/100 (espelho); so manda o grupo ICMS quando ha base a devolver.
+            const valor = base != null && aliq != null ? Math.round(base * aliq) / 100 : undefined
+            return {
+              produtoId: it.produtoId,
+              quantidade: Number(it.quantidade),
+              valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
+              cfopOverride: it.cfopOverride.trim() || '5202',
+              ...(base != null ? { icmsOverride: { base, aliquota: aliq, valor } } : {}),
+            }
+          }),
         }),
       })
       const json = await resp.json()
@@ -286,7 +346,7 @@ export default function DevolucaoCompraClient() {
       </div>
 
       <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[11.5px] text-[#3D2314]/85 leading-snug">
-        <strong>Atenção (Pilar 1):</strong> CFOP, CST/CSOSN e CEST devem espelhar a NF-e de compra para devolver o mesmo imposto creditado. Padrão sugerido: <strong>5202</strong> (dentro do estado) ou <strong>6202</strong> (fora). Se a compra teve ICMS-ST, use <strong>5411/6411</strong>. Validar com contador antes de produção.
+        <strong>Atenção (Pilar 1):</strong> a devolução espelha a NF-e de compra. Ao colar a chave, <strong>base e alíquota do ICMS são pré-preenchidas por item</strong> a partir da nota original (editáveis abaixo) — é o que devolve o crédito ao fornecedor. CFOP sugerido: <strong>5202</strong> (dentro do estado) / <strong>6202</strong> (fora); ICMS-ST use <strong>5411/6411</strong>. O <strong>CSOSN</strong> vem do cadastro da empresa (900 = informa o ICMS). Confira os valores com o contador antes de emitir.
       </div>
 
       {prefillMsg && (
@@ -338,6 +398,17 @@ export default function DevolucaoCompraClient() {
               onChange={(e) => setNatureza(e.target.value)}
               className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]"
             />
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-[#3D2314]/70 mb-1">CSOSN da devolução (ICMS)</label>
+            <input
+              type="text"
+              value={csosnDevol}
+              onChange={(e) => setCsosnDevol(e.target.value.replace(/\D/g, '').slice(0, 3))}
+              className="w-full px-3 py-2 text-[13px] font-mono border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]"
+            />
+            <div className="text-[10.5px] mt-1 text-[#3D2314]/55">Padrão da empresa. <strong>900</strong> = informa o ICMS a devolver (Simples). Confirme com o contador.</div>
           </div>
 
           <div className="sm:col-span-2">
@@ -404,6 +475,8 @@ export default function DevolucaoCompraClient() {
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase tracking-wide">Qtd</th>
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase tracking-wide">Vlr Unit (R$)</th>
                   <th className="px-2 py-1.5 text-left text-[10.5px] text-[#3D2314]/65 uppercase tracking-wide">CFOP</th>
+                  <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase tracking-wide" title="Base de cálculo do ICMS (espelho da entrada)">Base ICMS</th>
+                  <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase tracking-wide" title="Alíquota do ICMS (%)">ICMS %</th>
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase tracking-wide">Subtotal</th>
                   <th className="px-2 py-1.5"></th>
                 </tr>
@@ -438,6 +511,26 @@ export default function DevolucaoCompraClient() {
                           className="w-16 px-2 py-1 text-[12px] font-mono border border-[#3D2314]/15 rounded"
                         />
                       </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={it.icmsBase ?? ''}
+                          placeholder="—"
+                          onChange={(e) => atualizarItem(idx, { icmsBase: e.target.value === '' ? undefined : Number(e.target.value) })}
+                          className="w-24 px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
+                          title="Base de cálculo do ICMS a devolver (espelho da nota de compra)"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={it.icmsAliquota ?? ''}
+                          placeholder="—"
+                          onChange={(e) => atualizarItem(idx, { icmsAliquota: e.target.value === '' ? undefined : Number(e.target.value) })}
+                          className="w-16 px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
+                          title="Alíquota do ICMS (%)"
+                        />
+                      </td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(subtotal)}</td>
                       <td className="px-2 py-1.5">
                         <button
@@ -455,7 +548,7 @@ export default function DevolucaoCompraClient() {
               </tbody>
               <tfoot>
                 <tr className="border-t border-[#3D2314]/15 bg-[#FAF7F2]">
-                  <td colSpan={4} className="px-2 py-2 text-right text-[#3D2314]/65 text-[11.5px] font-medium uppercase">Total</td>
+                  <td colSpan={6} className="px-2 py-2 text-right text-[#3D2314]/65 text-[11.5px] font-medium uppercase">Total</td>
                   <td className="px-2 py-2 text-right tabular-nums text-[#3D2314] font-semibold">{fmtBRL(totalItens)}</td>
                   <td></td>
                 </tr>

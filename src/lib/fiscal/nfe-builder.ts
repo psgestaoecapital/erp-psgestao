@@ -9,6 +9,10 @@ export interface NFeBuilderItemInput {
   descontoUnitario?: number
   // fiscal-devolucao-compra-v1: CFOP override por item (devolucao usa 5202/6202)
   cfopOverride?: string
+  // devolucao-icms-espelho: ICMS por item espelhando a nota de compra original (devolve o credito).
+  // csosn = codigo do Simples (config csosn_devolucao, default 900); base/aliquota/valor da entrada.
+  // Quando presente, tem prioridade sobre o default do regime.
+  icmsOverride?: { csosn?: string; base?: number; aliquota?: number; valor?: number; modBc?: string }
 }
 
 export interface NFeBuilderInput {
@@ -204,10 +208,21 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       // Grupo <imposto> SEMPRE presente (SEFAZ 620). Produto sem campo fiscal cai no default do
       // regime do EMITENTE. Simples: ICMS CSOSN 102 + PIS/COFINS CST 04 — a convencao dos proprios
       // produtos configurados do KGF (auditado). Produto ja configurado: usa o dele (sem mudanca).
-      icms: {
-        cst: prod.cst_icms ?? (ehSimples ? '102' : undefined),
-        aliquota: prod.aliquota_icms ?? undefined,
-      },
+      // devolucao-icms-espelho: se veio ICMS espelhado da nota original (it.icmsOverride), ele MANDA
+      // (CSOSN configuravel + base/aliquota/valor da entrada -> devolve o credito). Senao, o default:
+      // produto configurado, ou o do regime (Simples: CSOSN 102). base/valor so saem no espelho.
+      icms: it.icmsOverride
+        ? {
+            cst: it.icmsOverride.csosn ?? prod.cst_icms ?? (ehSimples ? '900' : undefined),
+            aliquota: it.icmsOverride.aliquota ?? prod.aliquota_icms ?? undefined,
+            base: it.icmsOverride.base,
+            valor: it.icmsOverride.valor,
+            modBc: it.icmsOverride.modBc ?? '1',
+          }
+        : {
+            cst: prod.cst_icms ?? (ehSimples ? '102' : undefined),
+            aliquota: prod.aliquota_icms ?? undefined,
+          },
       ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
       pis: {
         cst: prod.cst_pis ?? (ehSimples ? '04' : undefined),

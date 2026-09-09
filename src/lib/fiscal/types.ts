@@ -75,7 +75,9 @@ export interface NFeProdutoItem {
   valorTotal: number
   cest?: string
   origem?: string
-  icms?: { cst?: string; aliquota?: number; valor?: number }
+  // cst carrega CST (regime normal) OU CSOSN (Simples). base/modBc/valor sao usados na devolucao
+  // (espelho da entrada): CSOSN 900 + icms_base_calculo/icms_aliquota/icms_valor devolvem o credito.
+  icms?: { cst?: string; aliquota?: number; base?: number; valor?: number; modBc?: string }
   ipi?: { cst?: string; aliquota?: number; valor?: number }
   pis?: { cst?: string; aliquota?: number; valor?: number }
   cofins?: { cst?: string; aliquota?: number; valor?: number }
