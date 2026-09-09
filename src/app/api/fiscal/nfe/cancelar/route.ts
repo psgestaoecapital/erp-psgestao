@@ -49,11 +49,17 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
-    // Identificador para a Focus: prioriza chave (44 digitos), fallback pra provider_reference
-    const referenciaFocus = nfe.chave?.trim() || nfe.provider_reference?.trim()
+    // Identificador para a Focus: a Focus indexa a nota pela REF que demos na emissao
+    // (provider_reference, ex.: 'nfe-1788974163147'), NAO pela chave de acesso. Alem disso a chave e
+    // gravada com prefixo 'NFe' (ex.: 'NFe4226...'), que a Focus nao reconhece como referencia. Com a
+    // ordem antiga (chave primeiro) o DELETE /v2/nfe/{NFe...} voltava 404 -> o cancelamento NAO chegava
+    // na SEFAZ e a nota ficava VALIDA. Prioriza a provider_reference; a chave so-digitos (sem 'NFe') e
+    // fallback. Auditado: todas as notas autorizadas tem provider_reference (0 sem).
+    const chaveDigitos = (nfe.chave ?? '').replace(/\D/g, '')
+    const referenciaFocus = nfe.provider_reference?.trim() || (chaveDigitos.length === 44 ? chaveDigitos : '')
     if (!referenciaFocus) {
       return NextResponse.json(
-        { ok: false, mensagem: 'NFe sem chave nem provider_reference · sem como identificar na Focus' },
+        { ok: false, mensagem: 'NFe sem provider_reference nem chave valida · sem como identificar na Focus' },
         { status: 422 }
       )
     }
