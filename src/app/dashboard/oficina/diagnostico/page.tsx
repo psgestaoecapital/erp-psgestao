@@ -45,6 +45,13 @@ type ItemLaudo = {
 }
 type Resumo = { total_aprovado: number; total_geral: number; qtd_aprovados: number; qtd_pendentes: number; qtd_recusados: number }
 const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+// #40: quantidade digitada -> numero (aceita virgula). Vazio/invalido = 0.
+const parseQtd = (q?: string | null) => { const n = parseFloat(String(q ?? '1').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 0 }
+// #40: subtotal AO VIVO da linha = qtd x preco unitario. O subtotal/preco do servidor so
+// atualiza no salvar; sem isto, mudar a qtd (ex.: 8 litros) mostrava o valor UNITARIO (it.preco).
+const subCalc = (it: { preco?: number | null; quantidade?: string | null }): number | null =>
+  it.preco != null ? parseQtd(it.quantidade) * it.preco : null
 type OSLinha = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null; status: string; defeito_relatado: string | null; tem_laudo?: boolean }
 type Tempario = { id: string; codigo: string | null; nome: string; tempo_padrao_h: number | null }
 type Peca = { id: string; codigo: string | null; nome: string; marca: string | null; unidade: string | null; preco_venda: number | null; estoque_atual: number | null; status_estoque: string | null }
@@ -403,7 +410,7 @@ export default function DiagnosticoPage() {
                     <span style={{ fontSize: 11, fontWeight: 700, color: ESP60 }}>recusado</span>
                   ) : it.preco != null ? (
                     <span style={{ fontSize: 13, fontWeight: 800, color: it.status_item === 'aprovado' ? OK : GOLD, whiteSpace: 'nowrap' }}>
-                      {brl(it.subtotal ?? it.preco)}{it.status_item === 'aprovado' ? ' ✓' : it.status_item === 'pendente' ? ' · aguardando' : ''}
+                      {brl(subCalc(it) ?? it.subtotal ?? it.preco)}{it.status_item === 'aprovado' ? ' ✓' : it.status_item === 'pendente' ? ' · aguardando' : ''}
                     </span>
                   ) : null}
                   <button onClick={() => delItem(i)} style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 4 }}><Trash2 size={16} /></button>
