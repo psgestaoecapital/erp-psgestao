@@ -9,6 +9,9 @@ import CapacidadeIdealModal, { type Forrageira } from '@/components/agro/Capacid
 // slug pra compor nome de arquivo com o filtro ativo (piquete/lote/categoria)
 const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
+// data curta pt-BR (ficha do piquete)
+const fmtDia = (s: string | null | undefined) => s ? new Date(s + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
+
 // Estado de conexao (navigator.onLine + eventos) — pra PWA offline (Fase A).
 function useOnline(): boolean {
   const [online, setOnline] = useState(true)
@@ -1202,6 +1205,23 @@ function fmtIdade(m: number | null | undefined): string {
   return r ? `${a}a ${r}m` : `${a}a`
 }
 
+// Ficha do piquete (P2 · SPEC Ficha do Piquete) — historico de ocupacao + indicadores derivados
+// de movimentacao (fn_pec_piquete_ficha). Peso/custo vem null com aviso (RD-51).
+type FichaPassagem = {
+  grupo_id: string; entrada: string; ultima_saida: string | null; dias: number
+  animais: number; ainda_no_piquete: number; saidas_parciais: { data: string; n: number }[] | null; parcial: boolean
+}
+type FichaPiquete = {
+  ok?: boolean
+  passagens?: FichaPassagem[]
+  indicadores?: {
+    permanencia_media_dias: number | null; rotacoes: number; taxa_ocupacao_pct: number | null
+    lotacao_media_cabecas_ha: number | null; dias_descanso: number
+    gmd_kg_dia: number | null; custo_periodo: number | null
+  }
+  avisos?: { pesagem: string; custo: string }
+}
+
 function Piquetes({
   companyId, propriedadeId, piquetes, contagem, onReload,
 }: {
@@ -1212,8 +1232,12 @@ function Piquetes({
   const [det, setDet] = useState<PiqDet | null>(null)
   const [detLoading, setDetLoading] = useState(false)
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
+  const [ficha, setFicha] = useState<FichaPiquete | null>(null)
   const abrirDrawer = async (p: Piquete) => {
-    setDrawer({ id: p.id, nome: p.nome }); setDet(null); setDetLoading(true); setAbertos(new Set())
+    setDrawer({ id: p.id, nome: p.nome }); setDet(null); setDetLoading(true); setAbertos(new Set()); setFicha(null)
+    // Ficha (historico de ocupacao + indicadores) em paralelo — nao bloqueia a lista de animais.
+    void supabase.rpc('fn_pec_piquete_ficha', { p_company_id: companyId, p_area_id: p.id })
+      .then(({ data }) => setFicha((data as FichaPiquete) ?? null))
     const { data, error } = await supabase.rpc('fn_pec_piquete_animais', { p_company_id: companyId, p_area_id: p.id })
     if (error) setDet({ ok: false, erro: error.message })
     else {
@@ -1363,6 +1387,57 @@ function Piquetes({
                       <b>{c.qtd}</b> {c.categoria}
                     </span>
                   ))}
+                </div>
+              )}
+
+              {/* Ficha do piquete (P2): indicadores + historico de ocupacao. Peso/custo com aviso (RD-51). */}
+              {ficha?.ok && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {[
+                      { l: 'Permanência média', v: ficha.indicadores?.permanencia_media_dias, u: 'dias' },
+                      { l: 'Rotações', v: ficha.indicadores?.rotacoes, u: '' },
+                      { l: 'Taxa de ocupação', v: ficha.indicadores?.taxa_ocupacao_pct, u: '%' },
+                      { l: 'Lotação média', v: ficha.indicadores?.lotacao_media_cabecas_ha, u: 'cab/ha' },
+                      { l: 'Dias de descanso', v: ficha.indicadores?.dias_descanso, u: 'dias' },
+                    ].map((k) => (
+                      <div key={k.l} className="rounded-xl p-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+                        <div className="text-sm font-bold" style={{ color: ESP }}>{k.v == null ? '—' : `${k.v}${k.u ? ' ' + k.u : ''}`}</div>
+                        <div className="text-[10px] uppercase tracking-wide" style={{ color: ESP60 }}>{k.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* RD-51: ausência de dado NÃO vira zero — diz que falta o dado */}
+                  <div className="rounded-xl p-2.5 text-[11px] leading-relaxed" style={{ background: '#FBF3E0', border: `1px solid ${GOLD}`, color: '#7A5A0B' }}>
+                    <div>📏 {ficha.avisos?.pesagem ?? 'GMD e ganho por hectare: sem pesagens registradas.'}</div>
+                    <div>💰 {ficha.avisos?.custo ?? 'Custo e margem por hectare: sem custos lançados.'}</div>
+                  </div>
+                  {(ficha.passagens?.length ?? 0) > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: ESP60 }}>Histórico de ocupação</div>
+                      <div className="space-y-2">
+                        {(ficha.passagens ?? []).map((pas) => (
+                          <div key={pas.grupo_id} className="rounded-xl p-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold" style={{ color: ESP }}>{pas.animais} {pas.animais === 1 ? 'animal' : 'animais'}</span>
+                              <span className="text-xs font-semibold" style={{ color: GOLD }}>{pas.dias} {pas.dias === 1 ? 'dia' : 'dias'}</span>
+                            </div>
+                            <div className="text-xs mt-1" style={{ color: ESP60 }}>
+                              entrou {fmtDia(pas.entrada)}
+                              {pas.ainda_no_piquete > 0 ? ` · ${pas.ainda_no_piquete} ainda no piquete` : ''}
+                              {pas.ultima_saida ? ` · última saída ${fmtDia(pas.ultima_saida)}` : ''}
+                            </div>
+                            {(pas.saidas_parciais?.length ?? 0) > 0 && (
+                              <div className="text-[11px] mt-1" style={{ color: ESP60 }}>
+                                {(pas.saidas_parciais ?? []).map((s) => `${s.n} saíram em ${fmtDia(s.data)}`).join(' · ')}
+                                {pas.ainda_no_piquete > 0 ? ` · ${pas.ainda_no_piquete} seguem aqui` : ''}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
