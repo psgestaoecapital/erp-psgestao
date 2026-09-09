@@ -8,6 +8,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjustarValoresModal from './AjustarValoresModal'
 
 type Natureza = 'credito' | 'debito' | string
 type LancamentoTabela = 'erp_pagar' | 'erp_receber'
@@ -64,10 +65,13 @@ export default function PickerTituloExistenteModal({
   const [busca, setBusca] = useState('')
   const [selecionado, setSelecionado] = useState<Candidato | null>(null)
   const [aplicando, setAplicando] = useState(false)
+  // #37: justificativa (vai como p_motivo p/ liberar o match de baixa confiança) + botão Ajustar valores
+  const [motivo, setMotivo] = useState('')
+  const [ajustarAberto, setAjustarAberto] = useState(false)
 
   useEffect(() => {
     if (!open || !companyId || !movimentoId) return
-    setSelecionado(null); setErro(null); setLoading(true)
+    setSelecionado(null); setErro(null); setMotivo(''); setLoading(true)
     // Janela +/- dias em torno da data do movimento
     const d = new Date(movimentoData + 'T00:00:00Z')
     const de = new Date(d); de.setUTCDate(de.getUTCDate() - dias)
@@ -142,6 +146,7 @@ export default function PickerTituloExistenteModal({
         p_lancamento_id: selecionado.id,
         p_operador_id: user?.id ?? null,
         p_origem: 'manual_reverso',
+        p_motivo: motivo.trim() || null,   // #37: justifica o match de baixa confiança (score < 70)
       })
       if (error) { setErro(error.message); return }
       const first = Array.isArray(data) ? data[0] : data
@@ -162,6 +167,7 @@ export default function PickerTituloExistenteModal({
   if (!open) return null
 
   return (
+    <>
     <div
       role="dialog"
       aria-modal="true"
@@ -297,29 +303,65 @@ export default function PickerTituloExistenteModal({
         </div>
 
         {/* Rodape */}
-        <div style={{ padding: '14px 20px', borderTop: '0.5px solid rgba(61,35,20,0.15)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ marginRight: 'auto', fontSize: 11, color: 'rgba(61,35,20,0.55)' }}>
-            {selecionado && Math.abs(selecionado.diff_valor) >= 0.01 && (
-              <>Diferença: <strong>{fmtBRL(Math.abs(selecionado.diff_valor))}</strong> — o título ficará como <strong>parcial</strong>.</>
-            )}
+        <div style={{ padding: '14px 20px', borderTop: '0.5px solid rgba(61,35,20,0.15)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* #37: valor diferente do banco → justificar (libera o match de baixa confiança) OU ajustar valores */}
+          {selecionado && Math.abs(selecionado.diff_valor) >= 0.01 && (
+            <div style={{ background: '#FBF4E4', border: '0.5px solid rgba(200,148,26,0.4)', borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontSize: 12, color: '#3D2314', marginBottom: 6 }}>
+                Diferença de <strong>{fmtBRL(Math.abs(selecionado.diff_valor))}</strong> entre o título e o banco. Conciliando assim, o título fica <strong>parcial</strong>.
+              </div>
+              <textarea
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                placeholder="Justificativa (obrigatória quando os valores não batem — ex.: recebimento parcial, taxa bancária)"
+                rows={2}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 12, background: '#FFFFFF', color: '#3D2314', resize: 'vertical' }}
+              />
+              <button
+                type="button" onClick={() => setAjustarAberto(true)}
+                style={{ marginTop: 6, background: 'transparent', color: '#A77A12', border: '0.5px solid rgba(200,148,26,0.5)', padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Ajustar valores (juros / desconto / parcial)…
+              </button>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+            <button
+              type="button" onClick={onClose} disabled={aplicando}
+              style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '8px 16px', borderRadius: 6, fontSize: 13, cursor: aplicando ? 'not-allowed' : 'pointer' }}
+            >Cancelar</button>
+            <button
+              type="button" onClick={aplicar} disabled={!selecionado || aplicando}
+              style={{
+                background: (!selecionado || aplicando) ? 'rgba(200,148,26,0.4)' : '#C8941A',
+                color: '#3D2314', border: 'none', padding: '8px 20px',
+                borderRadius: 6, fontSize: 13, fontWeight: 600,
+                cursor: (!selecionado || aplicando) ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {aplicando ? 'Vinculando...' : 'CONCILIAR (baixa automática)'}
+            </button>
           </div>
-          <button
-            type="button" onClick={onClose} disabled={aplicando}
-            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '8px 16px', borderRadius: 6, fontSize: 13, cursor: aplicando ? 'not-allowed' : 'pointer' }}
-          >Cancelar</button>
-          <button
-            type="button" onClick={aplicar} disabled={!selecionado || aplicando}
-            style={{
-              background: (!selecionado || aplicando) ? 'rgba(200,148,26,0.4)' : '#C8941A',
-              color: '#3D2314', border: 'none', padding: '8px 20px',
-              borderRadius: 6, fontSize: 13, fontWeight: 600,
-              cursor: (!selecionado || aplicando) ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {aplicando ? 'Vinculando...' : 'CONCILIAR (baixa automática)'}
-          </button>
         </div>
       </div>
     </div>
+
+      {/* #37: ajustar valores do título (juros/desconto/parcial) direto da busca manual — mesmo modal da sugestão (RD-26).
+          Renderizado FORA do backdrop do picker (fragmento) para o clique dentro dele não fechar o picker. */}
+      {selecionado && (
+        <AjustarValoresModal
+          open={ajustarAberto}
+          onClose={() => setAjustarAberto(false)}
+          onSucesso={() => { setAjustarAberto(false) }}
+          onConciliado={() => { setAjustarAberto(false); onSucesso(); onClose() }}
+          movimentoId={movimentoId}
+          lancamentoId={selecionado.id}
+          tipo={tabela === 'erp_pagar' ? 'pagar' : 'receber'}
+          valorOriginal={selecionado.valor}
+          valorBanco={movimentoValor}
+          descricao={selecionado.descricao ?? undefined}
+        />
+      )}
+    </>
   )
 }
