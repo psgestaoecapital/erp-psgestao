@@ -23,6 +23,8 @@ interface NFeRow {
   valor_icms: number | null
   valor_ipi: number | null
   natureza_operacao: string | null
+  finalidade: string | null
+  chave_referenciada: string | null
   status: string
   motivo_rejeicao: string | null
   protocolo: string | null
@@ -84,6 +86,7 @@ export default function NFeListClient() {
   const [erro, setErro] = useState<string | null>(null)
   const [pagina, setPagina] = useState(1)
   const [statusFiltro, setStatusFiltro] = useState<string>('')
+  const [finalidadeFiltro, setFinalidadeFiltro] = useState<string>('')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [busca, setBusca] = useState('')
@@ -192,6 +195,7 @@ export default function NFeListClient() {
         p_data_inicio: dataInicio || null,
         p_data_fim: dataFim || null,
         p_busca: buscaSubmit || null,
+        p_finalidade: finalidadeFiltro || null,
         p_limit: PAGE_SIZE,
         p_offset: (pagina - 1) * PAGE_SIZE,
       })
@@ -204,7 +208,7 @@ export default function NFeListClient() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, statusFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey])
+  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -249,6 +253,7 @@ export default function NFeListClient() {
 
   function resetFiltros() {
     setStatusFiltro('')
+    setFinalidadeFiltro('')
     setDataInicio('')
     setDataFim('')
     setBusca('')
@@ -320,6 +325,20 @@ export default function NFeListClient() {
                 <option value="rejeitada">Rejeitada</option>
                 <option value="cancelada">Cancelada</option>
                 <option value="denegada">Denegada</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Finalidade</label>
+              <select
+                value={finalidadeFiltro}
+                onChange={(e) => { setFinalidadeFiltro(e.target.value); setPagina(1) }}
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
+              >
+                <option value="">Todas</option>
+                <option value="normal">Venda / normal</option>
+                <option value="devolucao">Devolução</option>
+                <option value="complementar">Complementar</option>
+                <option value="ajuste">Ajuste</option>
               </select>
             </div>
             <div>
@@ -437,7 +456,17 @@ export default function NFeListClient() {
                                 </div>
                                 <div>
                                   <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Natureza da operação</div>
-                                  <div className="text-[#3D2314] mt-0.5">{row.natureza_operacao ?? '—'}</div>
+                                  <div className="text-[#3D2314] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                    {row.finalidade && row.finalidade !== 'normal' && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#FBF3E0', color: '#7A5A0B' }}>
+                                        {row.finalidade === 'devolucao' ? 'DEVOLUÇÃO' : row.finalidade === 'complementar' ? 'COMPLEMENTAR' : row.finalidade === 'ajuste' ? 'AJUSTE' : String(row.finalidade).toUpperCase()}
+                                      </span>
+                                    )}
+                                    <span>{row.natureza_operacao ?? '—'}</span>
+                                  </div>
+                                  {row.finalidade === 'devolucao' && row.chave_referenciada && (
+                                    <div className="text-[10px] text-[#3D2314]/45 mt-0.5 break-all">ref: {row.chave_referenciada}</div>
+                                  )}
                                 </div>
                                 <div>
                                   <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Impostos / Valor</div>
