@@ -6,7 +6,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-export type PapelGestao = 'CLIENT_OWNER' | 'CLIENT_MANAGER' | 'CLIENT_OPERATOR' | 'CLIENT_VIEWER' | null
+export type PapelGestao =
+  | 'CLIENT_OWNER' | 'CLIENT_MANAGER' | 'CLIENT_OPERATOR' | 'CLIENT_VIEWER'
+  | 'OFICINA_DONO' | 'OFICINA_MECANICO'
+  | null
 
 export function useAcesso(companyId: string | null) {
   const [papel, setPapel] = useState<PapelGestao>(null)
@@ -35,5 +38,8 @@ export function useAcesso(companyId: string | null) {
     isOperator: papel === 'CLIENT_OPERATOR',
     isGerencial: papel === 'CLIENT_OWNER' || papel === 'CLIENT_MANAGER',
     isViewer: papel === 'CLIENT_VIEWER',
+    // Papeis da vertical Oficina (por empresa, tenant_user_roles).
+    isDono: papel === 'OFICINA_DONO',
+    isMecanico: papel === 'OFICINA_MECANICO',
   }
 }

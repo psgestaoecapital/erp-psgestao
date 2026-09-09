@@ -56,6 +56,19 @@ const OFICINA_COTACOES_OWNER_MODULO: SidebarModuleNode = {
   matchPaths: ['/dashboard/commerce/compras'],
 }
 
+// B.3 · na área Oficina, o OFICINA_DONO (tenant_user_roles) ganha o atalho "Usuários da
+// Oficina" — a tela onde ele convida MECÂNICO (fn_acessos_convidar_pessoa). Mesmo padrão por
+// papel dos atalhos acima; o gate mora no front (único lugar que já lê tenant_user_roles) e,
+// no backend, fn_acessos_pode_gerir + o escopo do dono (só concede OFICINA_MECANICO).
+const OFICINA_USUARIOS_DONO_MODULO: SidebarModuleNode = {
+  id: 'oficina-usuarios-dono',
+  label: 'Usuários da Oficina',
+  href: '/dashboard/oficina/usuarios',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/oficina/usuarios'],
+}
+
 export type SidebarModoFonte = 'hardcoded' | 'rpc' | 'rpc-empty' | 'rpc-error'
 
 interface RpcRow {
@@ -240,6 +253,8 @@ export function useSidebarModulos(): State {
   // checkAuth de /dashboard/admin: scoped = isOwner && !isSystemAdmin). Se sim,
   // o rodape ganha o atalho "Usuarios & Acessos". Pilar 2: operador/viewer nao entram.
   const [ownerAtalho, setOwnerAtalho] = useState(false)
+  // B.3 · dono da OFICINA (papel por empresa) ganha o atalho "Usuários da Oficina".
+  const [oficinaDono, setOficinaDono] = useState(false)
   // badge-so-ps · o badge de estado (Pronto/Parcial/Previsto) e dado interno da PS.
   // Cliente nunca ve. So system_role='PS_ADMIN' recebe o badge no menu.
   const [isPS, setIsPS] = useState(false)
@@ -262,6 +277,27 @@ export function useSidebarModulos(): State {
     })()
     return () => { alive = false }
   }, [])
+
+  // B.3 · OFICINA_DONO desta empresa? (papel por empresa → filtra por companyId)
+  useEffect(() => {
+    if (!companyId) { setOficinaDono(false); return }
+    let alive = true
+    void (async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!alive) return
+      if (!user) { setOficinaDono(false); return }
+      const { data } = await supabase
+        .from('tenant_user_roles')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .eq('company_id', companyId)
+        .eq('role', 'OFICINA_DONO')
+        .eq('is_active', true)
+        .limit(1)
+      if (alive) setOficinaDono(!!(data && data.length > 0))
+    })()
+    return () => { alive = false }
+  }, [companyId])
 
   // Resolve area atual (cascata: ?area= > persistida > path > primeira permitida > GE)
   const { areas } = useAreasVisiveis(companyId)
@@ -406,6 +442,11 @@ export function useSidebarModulos(): State {
   if (areaSlugRpc === 'oficina' && ownerAtalho
     && !modulos.some((m) => m.href?.startsWith('/dashboard/commerce/compras') || m.items?.some((s) => s.href?.startsWith('/dashboard/commerce/compras')))) {
     modulos.push(OFICINA_COTACOES_OWNER_MODULO)
+  }
+  // B.3 · na área Oficina, o OFICINA_DONO ganha o atalho "Usuários da Oficina" (convidar mecânico).
+  if (areaSlugRpc === 'oficina' && oficinaDono
+    && !modulos.some((m) => m.href === '/dashboard/oficina/usuarios' || m.items?.some((s) => s.href === '/dashboard/oficina/usuarios'))) {
+    modulos.push(OFICINA_USUARIOS_DONO_MODULO)
   }
   return { modulos, loading: false, mode: 'rpc' }
 }
