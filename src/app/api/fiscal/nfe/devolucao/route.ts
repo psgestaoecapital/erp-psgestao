@@ -52,7 +52,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     // Busca o fornecedor (vira destinatario da NF-e de devolucao)
     const { data: forn, error: errForn } = await supabaseAdmin
       .from('erp_fornecedores')
-      .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, logradouro, numero, complemento, bairro, cidade, uf, cep')
+      .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, ie, email, logradouro, numero, complemento, bairro, cidade, uf, cep')
       .eq('id', body.fornecedorId)
       .eq('company_id', body.companyId)
       .maybeSingle()
@@ -67,6 +67,20 @@ export const POST = withAuth(async (req: NextRequest) => {
     const docForn = String(forn.cnpj_cpf ?? forn.cpf_cnpj ?? '').replace(/\D/g, '')
     const ehCnpj = docForn.length === 14
 
+    // IE do destinatario (contribuinte). SEFAZ rejeita a devolucao sem ela ("IE do destinatario
+    // nao informada"). Fonte 1: cadastro do fornecedor. Fonte 2 (fallback, auto-cura): a IE do
+    // emitente na propria NF-e de compra referenciada — o XML de entrada guardou emitente_ie.
+    let ieDest = String(forn.ie ?? '').replace(/\D/g, '')
+    if (!ieDest) {
+      const { data: notaCompra } = await supabaseAdmin
+        .from('erp_nfe_recebidas')
+        .select('emitente_ie')
+        .eq('company_id', body.companyId)
+        .eq('chave_acesso', chaveCompra)
+        .maybeSingle()
+      ieDest = String(notaCompra?.emitente_ie ?? '').replace(/\D/g, '')
+    }
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       manual: {
@@ -74,6 +88,7 @@ export const POST = withAuth(async (req: NextRequest) => {
           razaoSocial: forn.razao_social ?? forn.nome_fantasia ?? 'Fornecedor',
           cnpj: ehCnpj ? docForn : undefined,
           cpf: !ehCnpj ? docForn : undefined,
+          inscricaoEstadual: ieDest || undefined,
           email: forn.email ?? undefined,
           endereco: forn.logradouro
             ? {
@@ -170,11 +185,24 @@ export const POST = withAuth(async (req: NextRequest) => {
       } catch { estoqueEstornado = false }
     }
 
+    // Mensagem sempre presente — a Focus e ASSINCRONA: no POST costuma voltar 'processando'
+    // (ok:false, sem motivo ainda), e a rejeicao/autorizacao real chega depois pelo webhook.
+    // Sem isto a tela mostrava so "Falha ao emitir devolucao" e engolia o motivo (o erro existia
+    // e ninguem via). Agora o motivo/estado vai explicito; o front consulta o resultado final.
+    const mensagem =
+      resposta.status === 'processando'
+        ? 'NF-e enviada a SEFAZ. Processando a autorizacao — o resultado aparece em instantes.'
+        : resposta.status === 'rejeitada' || resposta.status === 'denegada'
+          ? (resposta.motivoRejeicao ?? 'Rejeitada pela SEFAZ (sem motivo informado)')
+          : resposta.motivoRejeicao ?? undefined
+
     return NextResponse.json({
       ok: resposta.ok,
       nfeId: registroId,
       estoqueEstornado,
       status: resposta.status,
+      mensagem,
+      processando: resposta.status === 'processando',
       numero: resposta.numero,
       chave: resposta.chave,
       xmlUrl: resposta.xmlUrl,

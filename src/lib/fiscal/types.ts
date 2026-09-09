@@ -94,6 +94,10 @@ export interface NFeRequest {
     cnpj?: string
     cpf?: string
     razaoSocial: string
+    // Inscricao Estadual do destinatario. Obrigatoria quando ele e contribuinte de ICMS
+    // (ex.: devolucao de compra a um fornecedor/distribuidor) — sem ela a SEFAZ rejeita
+    // "IE do destinatario nao informada". Ausente/vazia => tratado como nao contribuinte.
+    inscricaoEstadual?: string
     email?: string
     endereco?: EnderecoFiscal
   }

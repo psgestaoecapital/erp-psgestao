@@ -342,6 +342,9 @@ export class FocusNFeProvider implements FiscalProvider {
       ? [{ chave_nfe: chaveRef }]
       : undefined
 
+    // IE do destinatario (so digitos). Se vazia, destinatario e tratado como nao contribuinte (9).
+    const ieDestinatario = req.destinatario.inscricaoEstadual?.replace(/\D/g, '') || undefined
+
     const payload = {
       natureza_operacao: req.naturezaOperacao,
       finalidade_emissao: finalidadeNum,
@@ -364,7 +367,11 @@ export class FocusNFeProvider implements FiscalProvider {
       cpf_destinatario: req.destinatario.cpf,
       nome_destinatario: req.destinatario.razaoSocial,
       email_destinatario: req.destinatario.email,
-      indicador_inscricao_estadual_destinatario: 9,
+      // FIX-NFE-IE-DESTINATARIO-v1 · SEFAZ rejeita "IE do destinatario nao informada" numa
+      // devolucao a fornecedor contribuinte (Impave/KGF, 09/09). indIEDest: 1=contribuinte (manda
+      // a IE), 9=nao contribuinte (sem IE). Com IE presente -> 1 + inscricao_estadual_destinatario.
+      indicador_inscricao_estadual_destinatario: ieDestinatario ? 1 : 9,
+      ...(ieDestinatario ? { inscricao_estadual_destinatario: ieDestinatario } : {}),
       logradouro_destinatario: req.destinatario.endereco?.logradouro,
       numero_destinatario: req.destinatario.endereco?.numero,
       bairro_destinatario: req.destinatario.endereco?.bairro,

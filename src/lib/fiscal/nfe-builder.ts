@@ -21,6 +21,8 @@ export interface NFeBuilderInput {
       razaoSocial: string
       cnpj?: string
       cpf?: string
+      // IE do destinatario (contribuinte ICMS · ex.: fornecedor na devolucao de compra)
+      inscricaoEstadual?: string
       email?: string
       endereco?: NFeRequest['destinatario']['endereco']
     }
