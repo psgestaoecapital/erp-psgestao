@@ -13,7 +13,8 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import FotoMarcador, { type FotoSel, type Marca } from '@/components/melhorias/FotoMarcador'
+import { type Marca } from '@/components/melhorias/FotoMarcador'
+import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
 
@@ -47,7 +48,7 @@ function Inner() {
   const focoNumero = (searchParams.get('n') || '').trim()
 
   const [f, setF] = useState({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' })
-  const [foto, setFoto] = useState<FotoSel>(null)
+  const [fotos, setFotos] = useState<FotoItem[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -117,17 +118,6 @@ function Inner() {
     void carregar()
   }, [carregar])
 
-  // COLAR (Ctrl+V) em qualquer lugar do formulário → vira a foto do anexo (mesmo destino do FotoMarcador).
-  const onPasteFoto = useCallback((e: React.ClipboardEvent) => {
-    const item = Array.from(e.clipboardData?.items || []).find((it) => it.type.startsWith('image/'))
-    if (!item) return
-    const blob = item.getAsFile(); if (!blob) return
-    e.preventDefault()
-    const ext = (blob.type.split('/')[1] || 'png').split('+')[0]
-    setFoto({ file: new File([blob], `print-${Date.now()}.${ext}`, { type: blob.type }), marcas: [] })
-    setMsg('Print colado. Marque onde está o problema.')
-  }, [])
-
   async function enviar() {
     if (!companyId) { setErro('Selecione uma empresa específica no topo.'); return }
     if (!f.descricao.trim()) { setErro('Descreva a dificuldade.'); return }
@@ -136,11 +126,12 @@ function Inner() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setErro('Sessão expirada.'); setBusy(false); return }
 
-      let anexos: { storage_path: string; marcacoes: Marca[] }[] = []
-      if (foto) {
-        const path = await uploadFotoSugestao(foto.file, user.id).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
+      // ordem da lista = ordem em sugestao_anexo.ordem (o servidor itera o array em sequência).
+      const anexos: { storage_path: string; marcacoes: Marca[] }[] = []
+      for (const ft of fotos) {
+        const path = await uploadFotoSugestao(ft.file, user.id).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
         if (path === null) { setBusy(false); return }
-        anexos = [{ storage_path: path, marcacoes: foto.marcas }]
+        anexos.push({ storage_path: path, marcacoes: ft.marcas })
       }
 
       const { data, error } = await supabase.rpc('fn_sugestao_criar', {
@@ -155,7 +146,7 @@ function Inner() {
       // dispara a IA sem bloquear (se falhar, a sugestão continua válida)
       void supabase.functions.invoke('sugestao-analisar', { body: { sugestao_id: r.id } }).catch(() => {})
 
-      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFoto(null)
+      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([])
       setMsg('Sugestão registrada. A IA vai analisar em instantes.'); void carregar()
     } finally { setBusy(false) }
   }
@@ -163,8 +154,7 @@ function Inner() {
   const podeEnviar = useMemo(() => !!companyId && !!f.descricao.trim() && !busy, [companyId, f.descricao, busy])
 
   return (
-    <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}
-      onPaste={onPasteFoto}>
+    <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>💡 Central de Melhorias</div>
@@ -195,11 +185,11 @@ function Inner() {
           </label>
         </div>
         <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
-        <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} onPaste={onPasteFoto} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (pode colar um print com Ctrl+V aqui)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
+        <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
 
-        {/* Foto + marcação: componente compartilhado (mesma peça do compositor de resposta) */}
+        {/* Fotos + marcação: lista (até 10). Colar/arrastar/escolher ACRESCENTA, na ordem. */}
         <div style={{ marginTop: 12 }}>
-          <FotoMarcador value={foto} onChange={setFoto} />
+          <FotosChamado value={fotos} onChange={setFotos} />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
