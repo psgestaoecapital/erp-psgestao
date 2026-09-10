@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
-import FotoMarcador, { type FotoSel, type Marca } from './FotoMarcador'
+import { type Marca } from './FotoMarcador'
+import FotosChamado, { type FotoItem } from './FotosChamado'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', white: '#FFFFFF', cream: '#F0ECE3',
@@ -35,7 +36,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [carregando, setCarregando] = useState(true)
   const [texto, setTexto] = useState('')
-  const [foto, setFoto] = useState<FotoSel>(null)
+  const [fotos, setFotos] = useState<FotoItem[]>([])
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [autorChamadoId, setAutorChamadoId] = useState<string | null>(null)
@@ -66,15 +67,16 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   useEffect(() => { if (msgs.length) setTimeout(() => fimRef.current?.scrollIntoView({ block: 'nearest' }), 40) }, [msgs.length])
 
   const enviar = useCallback(async () => {
-    if (!texto.trim() && !foto) { setErro('Escreva uma mensagem ou anexe uma foto.'); return }
+    if (!texto.trim() && !fotos.length) { setErro('Escreva uma mensagem ou anexe uma foto.'); return }
     setEnviando(true); setErro(null)
     try {
-      let anexos: { storage_path: string; marcacoes: Marca[] }[] = []
-      if (foto) {
+      // ordem da lista = sugestao_anexo.ordem (o servidor itera o array em sequência).
+      const anexos: { storage_path: string; marcacoes: Marca[] }[] = []
+      for (const ft of fotos) {
         // pasta = autor do chamado (os dois lados leem). Fallback pro próprio uid se ainda não carregou.
-        const path = await uploadFotoSugestao(foto.file, autorChamadoId ?? userId).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
+        const path = await uploadFotoSugestao(ft.file, autorChamadoId ?? userId).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
         if (path === null) { setEnviando(false); return }
-        anexos = [{ storage_path: path, marcacoes: foto.marcas }]
+        anexos.push({ storage_path: path, marcacoes: ft.marcas })
       }
       const { data, error } = await supabase.rpc('fn_sugestao_mensagem_enviar', {
         p_sugestao_id: sugestaoId, p_user: userId, p_texto: texto.trim() || null, p_anexos: anexos,
@@ -85,11 +87,11 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
       if (r.tem_foto && r.mensagem_id) {
         void supabase.functions.invoke('sugestao-analisar', { body: { mensagem_id: r.mensagem_id } }).catch(() => {})
       }
-      setTexto(''); setFoto(null)
+      setTexto(''); setFotos([])
       await carregar()
       onAfterSend?.()
     } finally { setEnviando(false) }
-  }, [texto, foto, sugestaoId, userId, autorChamadoId, carregar, onAfterSend])
+  }, [texto, fotos, sugestaoId, userId, autorChamadoId, carregar, onAfterSend])
 
   // Desmembrar (só PS): erro diferente = chamado diferente. Sugerido; quem decide é o atendente.
   const desmembrar = useCallback(async (mensagemId: string) => {
@@ -172,11 +174,11 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
         <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte ? 'Responder ao autor…' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical' }} />
         <div style={{ marginTop: 8 }}>
-          <FotoMarcador value={foto} onChange={setFoto} compact />
+          <FotosChamado value={fotos} onChange={setFotos} compact />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-          <button disabled={enviando || (!texto.trim() && !foto)} onClick={() => void enviar()}
-            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: (enviando || (!texto.trim() && !foto)) ? C.espL : C.gold, color: '#fff', fontWeight: 700, cursor: (enviando || (!texto.trim() && !foto)) ? 'not-allowed' : 'pointer', fontSize: 12.5 }}>
+          <button disabled={enviando || (!texto.trim() && !fotos.length)} onClick={() => void enviar()}
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: (enviando || (!texto.trim() && !fotos.length)) ? C.espL : C.gold, color: '#fff', fontWeight: 700, cursor: (enviando || (!texto.trim() && !fotos.length)) ? 'not-allowed' : 'pointer', fontSize: 12.5 }}>
             {enviando ? 'Enviando…' : 'Enviar mensagem'}
           </button>
         </div>

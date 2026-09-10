@@ -23,10 +23,13 @@ export type FotoSel = { file: File; marcas: Marca[] } | null
 
 const FERRAMENTAS: [Ferramenta, string][] = [['seta', '➤ Seta'], ['retangulo', '▭ Retângulo'], ['circulo', '◯ Círculo']]
 
-export default function FotoMarcador({ value, onChange, compact = false }: {
+export default function FotoMarcador({ value, onChange, compact = false, hideAcquire = false }: {
   value: FotoSel
   onChange: (v: FotoSel) => void
   compact?: boolean
+  // hideAcquire: usado dentro da lista (FotosChamado) — a AQUISIÇÃO (colar/arrastar/escolher/trocar)
+  // é da lista, não desta peça. Aqui fica só a marcação da imagem ativa. Não forka (RD-52): mesma peça.
+  hideAcquire?: boolean
 }) {
   const marcas = value?.marcas ?? []
   const [tool, setTool] = useState<Ferramenta>('seta')
@@ -57,6 +60,7 @@ export default function FotoMarcador({ value, onChange, compact = false }: {
 
   // COLAR (Ctrl+V) dentro da área: pega a primeira imagem do clipboard.
   const onPaste = useCallback((e: React.ClipboardEvent) => {
+    if (hideAcquire) return // dentro da lista, colar ACRESCENTA na lista (tratado pelo FotosChamado)
     const item = Array.from(e.clipboardData?.items || []).find((it) => it.type.startsWith('image/'))
     if (!item) return
     const blob = item.getAsFile()
@@ -64,7 +68,7 @@ export default function FotoMarcador({ value, onChange, compact = false }: {
     e.preventDefault()
     const ext = (blob.type.split('/')[1] || 'png').split('+')[0]
     escolherFoto(new File([blob], `print-${Date.now()}.${ext}`, { type: blob.type }))
-  }, [escolherFoto])
+  }, [escolherFoto, hideAcquire])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false)
@@ -104,7 +108,7 @@ export default function FotoMarcador({ value, onChange, compact = false }: {
 
   return (
     <div onPaste={onPaste}>
-      {!preview && (
+      {!preview && !hideAcquire && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
@@ -141,7 +145,7 @@ export default function FotoMarcador({ value, onChange, compact = false }: {
               {tool === 'seta' ? 'toque onde está o problema' : 'arraste sobre a área'} · {marcas.length} marcação(ões)
               {marcas.length > 0 && <button type="button" onClick={() => setMarcas(() => [])} style={{ marginLeft: 6, border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontSize: 11 }}>limpar</button>}
             </span>
-            <button type="button" onClick={() => escolherFoto(null)} style={{ border: 'none', background: 'none', color: C.espL, cursor: 'pointer', fontSize: 11 }}>trocar imagem</button>
+            {!hideAcquire && <button type="button" onClick={() => escolherFoto(null)} style={{ border: 'none', background: 'none', color: C.espL, cursor: 'pointer', fontSize: 11 }}>trocar imagem</button>}
           </div>
 
           <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', userSelect: 'none' }}>
