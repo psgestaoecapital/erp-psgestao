@@ -26,6 +26,8 @@ interface NFeRow {
   natureza_operacao: string | null
   finalidade: string | null
   chave_referenciada: string | null
+  origem_tipo: string | null
+  origem_id: string | null
   status: string
   motivo_rejeicao: string | null
   protocolo: string | null
@@ -89,6 +91,13 @@ const fmtChave = (c: string | null) => {
   return c.replace(/(\d{4})(?=\d)/g, '$1 ')
 }
 
+// origem da nota (#18): de onde ela nasceu — a nº 9 (devolução de compra) deixa de ser invisível.
+const ORIGEM_ROTULO: Record<string, string> = {
+  os: 'Ordem de serviço', obra: 'Obra', pedido: 'Pedido', venda: 'Venda',
+  devolucao_compra: 'Devolução de compra', avulsa: 'Avulsa',
+}
+const rotuloOrigem = (t: string | null) => (t ? (ORIGEM_ROTULO[t] ?? t) : '—')
+
 export default function NFeListClient() {
   const router = useRouter()
   const [reabrindo, setReabrindo] = useState<string | null>(null)
@@ -101,6 +110,8 @@ export default function NFeListClient() {
   const [pagina, setPagina] = useState(1)
   const [statusFiltro, setStatusFiltro] = useState<string>('')
   const [finalidadeFiltro, setFinalidadeFiltro] = useState<string>('')
+  // rejeitada é tentativa, não documento fiscal → escondida por padrão (decisão do CEO)
+  const [ocultarRejeitadas, setOcultarRejeitadas] = useState<boolean>(true)
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [busca, setBusca] = useState('')
@@ -212,6 +223,7 @@ export default function NFeListClient() {
         p_finalidade: finalidadeFiltro || null,
         p_limit: PAGE_SIZE,
         p_offset: (pagina - 1) * PAGE_SIZE,
+        p_ocultar_rejeitadas: statusFiltro === 'rejeitada' ? false : ocultarRejeitadas,
       })
       if (error) throw error
       const rows = (data ?? []) as NFeRow[]
@@ -222,7 +234,7 @@ export default function NFeListClient() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey])
+  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey, ocultarRejeitadas])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -365,6 +377,12 @@ export default function NFeListClient() {
                 <option value="cancelada">Cancelada</option>
                 <option value="denegada">Denegada</option>
               </select>
+              {/* rejeitada = tentativa, não documento fiscal → escondida por padrão */}
+              <label className="mt-2 flex items-center gap-1.5 text-[11px] text-[#3D2314]/70 cursor-pointer">
+                <input type="checkbox" checked={!ocultarRejeitadas} disabled={statusFiltro === 'rejeitada'}
+                  onChange={(e) => { setOcultarRejeitadas(!e.target.checked); setPagina(1) }} />
+                Mostrar rejeitadas (tentativas)
+              </label>
             </div>
             <div>
               <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Finalidade</label>
@@ -505,6 +523,9 @@ export default function NFeListClient() {
                                   </div>
                                   {row.finalidade === 'devolucao' && row.chave_referenciada && (
                                     <div className="text-[10px] text-[#3D2314]/45 mt-0.5 break-all">ref: {row.chave_referenciada}</div>
+                                  )}
+                                  {row.origem_tipo && (
+                                    <div className="text-[10px] text-[#3D2314]/55 mt-0.5">origem: <b className="text-[#3D2314]/75">{rotuloOrigem(row.origem_tipo)}</b></div>
                                   )}
                                 </div>
                                 <div>
