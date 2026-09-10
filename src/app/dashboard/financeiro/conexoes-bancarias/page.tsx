@@ -413,17 +413,30 @@ export default function ConexoesBancariasPage() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        {bancoInfo && (
+                        {/* chamado #14 (Rodrigo/Bradesco): "Continuar configuração" ABRE o formulário editável
+                            (ConectarBancoModal), onde os campos são preenchíveis. Antes era um link para o
+                            Assistente, cujos campos são um PREVIEW desabilitado — o Rodrigo lia como "campos
+                            bloqueados". Continuar a configuração = terminar de preencher as credenciais aqui. */}
+                        {bancoInfo ? (
                           <button
                             type="button"
                             onClick={() => setEditando({ banco: bancoInfo, cfg })}
+                            title="Abre o formulário para preencher/alterar as credenciais e salvar (cifradas no Vault)"
                             style={{
                               background: GOLD, color: '#3D2314', border: 'none',
                               padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
                               cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
                             }}>
-                            ✏️ Editar/Reconfigurar
+                            ✏️ Continuar configuração
                           </button>
+                        ) : (
+                          <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
+                            background: GOLD, color: '#3D2314',
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                            🧭 Continuar configuração
+                          </Link>
                         )}
                         <button
                           type="button"
@@ -436,12 +449,15 @@ export default function ConexoesBancariasPage() {
                           }}>
                           🧾 Dados CNAB
                         </button>
-                        <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
-                          background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
-                          padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                          textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
-                        }}>
-                          🧭 Continuar configuração
+                        <Link
+                          href="/dashboard/financeiro/conexoes-bancarias/assistente"
+                          title="Guia de leitura: o que pedir ao banco e como testar (não é onde você preenche as credenciais)"
+                          style={{
+                            background: 'transparent', color: ESP60, border: `1px solid ${LINE}`,
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          🧭 Roteiro (guia)
                         </Link>
                       </div>
                     </div>
@@ -722,6 +738,17 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         ativo: true,
       }, { onConflict: 'company_id,banco_codigo,ambiente' })
       if (upErr) throw upErr
+      // chamado #14 (Rodrigo/Bradesco): o upsert acima NÃO seta estado_conexao, então a config recém-salva
+      // ficava eternamente "Status não iniciado" (print do Rodrigo 08/09) e presa em "Em configuração".
+      // Avança FORWARD-ONLY para 'recebido' (= "credenciais recebidas"): sai de "não iniciado" mas NÃO
+      // vira "conectado" (isso exige homologado/produção). Nunca rebaixa homologacao/homologado/producao
+      // (RD-51: a badge não mente nem pra mais nem pra menos; RD-53: não mexe na config que já funciona).
+      await supabase.from('erp_banco_provider_config')
+        .update({ estado_conexao: 'recebido' })
+        .eq('company_id', companyId)
+        .eq('banco_codigo', String(banco.codigo))
+        .eq('ambiente', ambiente)
+        .or('estado_conexao.is.null,estado_conexao.eq.nao_iniciado')
       onSucesso()
     } catch (e) {
       setErro((e as Error).message)
@@ -838,6 +865,13 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
               Sincronizar extrato
             </label>
           </div>
+          {/* chamado #14: o Rodrigo perguntou "como faço os testes de conexão?" (04/09). Resposta honesta na
+              própria tela — bancos fora da escada automática (hoje só Sicoob/Sicredi) não têm ping. */}
+          {!['sicoob', 'sicredi'].includes(banco.sigla) && (
+            <div style={{ background: '#FEF3C7', border: `0.5px solid rgba(200,148,26,0.4)`, color: '#7A5A0F', borderRadius: 6, padding: '9px 11px', fontSize: 11, lineHeight: 1.45 }}>
+              ℹ️ O {banco.nome} ainda não tem <b>teste automático de conexão</b>. Depois de <b>salvar</b>, as credenciais ficam guardadas no Vault (cifradas) e são validadas na <b>primeira emissão de boleto ou sincronização de extrato</b>. Se algo falhar ali, o erro aparece com o que fazer — você não precisa &quot;continuar&quot; em nenhuma outra tela.
+            </div>
+          )}
           {erro && <div style={{ background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
         </div>
 
