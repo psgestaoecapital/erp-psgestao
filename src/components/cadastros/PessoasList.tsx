@@ -39,7 +39,7 @@ export default function PessoasList({ companyId, tipo }: Props) {
     setLoading(true)
     const { data } = await supabase
       .from(tabela)
-      .select('id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags')
+      .select('id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome_fantasia')

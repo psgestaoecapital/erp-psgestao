@@ -27,6 +27,8 @@ export interface NFeBuilderInput {
       cpf?: string
       // IE do destinatario (contribuinte ICMS · ex.: fornecedor na devolucao de compra)
       inscricaoEstadual?: string
+      // indIEDest declarado: 1=contribuinte · 2=isento · 9=nao contribuinte (ver types.ts)
+      indicadorIE?: 1 | 2 | 9
       email?: string
       endereco?: NFeRequest['destinatario']['endereco']
     }

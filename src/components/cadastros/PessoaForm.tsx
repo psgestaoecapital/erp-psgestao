@@ -25,6 +25,9 @@ export interface Pessoa {
   razao_social: string | null
   cnpj_cpf: string | null
   tipo_pessoa: 'PF' | 'PJ' | null
+  ie?: string | null
+  inscricao_municipal?: string | null
+  contribuinte_icms?: 'contribuinte' | 'isento' | 'nao_contribuinte' | null
   email: string | null
   telefone: string | null
   whatsapp?: string | null
@@ -83,6 +86,9 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
   const [cnpjCpf, setCnpjCpf] = useState(pessoa?.cnpj_cpf ?? '')
   const [nomeFantasia, setNomeFantasia] = useState(pessoa?.nome_fantasia ?? '')
   const [razaoSocial, setRazaoSocial] = useState(pessoa?.razao_social ?? '')
+  const [ie, setIe] = useState(pessoa?.ie ?? '')
+  const [inscricaoMunicipal, setInscricaoMunicipal] = useState(pessoa?.inscricao_municipal ?? '')
+  const [contribuinteIcms, setContribuinteIcms] = useState<'' | 'contribuinte' | 'isento' | 'nao_contribuinte'>(pessoa?.contribuinte_icms ?? '')
   const [email, setEmail] = useState(pessoa?.email ?? '')
   const [telefone, setTelefone] = useState(pessoa?.telefone ?? '')
   const [whatsapp, setWhatsapp] = useState(pessoa?.whatsapp ?? '')
@@ -217,6 +223,11 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       razao_social: razaoSocial.trim() || null,
       cnpj_cpf: cnpjLimpo || null,
       tipo_pessoa: tipoPessoa,
+      // Dados fiscais (NF-e destinatário): IE, IM e o indicador de contribuinte ICMS.
+      // "isento" (indIEDest=2) é escolha declarada; sem IE (NULL) é dado ausente — não confundir.
+      ie: onlyDigits(ie) || null,
+      inscricao_municipal: inscricaoMunicipal.trim() || null,
+      contribuinte_icms: contribuinteIcms || null,
       email: email.trim() || null,
       telefone: telefone.trim() || null,
       whatsapp: whatsapp.trim() || null,
@@ -328,6 +339,31 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
               <input value={razaoSocial} onChange={(e) => setRazaoSocial(e.target.value)} style={inputStyle} />
             </Campo>
           )}
+
+          {/* Dados fiscais (NF-e): IE, IM e indicador de contribuinte. Sem a IE a SEFAZ rejeita a
+              devolução/venda a contribuinte ("IE do destinatário não informada"). "Isento" é escolha
+              declarada; deixar sem IE é dado ausente — o indicador separa os dois. */}
+          <div style={{ marginTop: 8, padding: '12px 14px', background: '#FFFFFF', borderRadius: 8, border: '0.5px solid rgba(61,35,20,0.15)' }}>
+            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, fontWeight: 700 }}>
+              Dados fiscais (NF-e)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Campo label="Inscrição Estadual" hint="Contribuinte de ICMS tem IE. Isento / não contribuinte deixa em branco.">
+                <input value={ie} onChange={(e) => setIe(e.target.value)} placeholder="só números" style={inputStyle} />
+              </Campo>
+              <Campo label="Inscrição Municipal">
+                <input value={inscricaoMunicipal} onChange={(e) => setInscricaoMunicipal(e.target.value)} style={inputStyle} />
+              </Campo>
+            </div>
+            <Campo label="Contribuinte de ICMS" hint="Define o indicador da NF-e (indIEDest). “Isento” é diferente de deixar sem IE.">
+              <select value={contribuinteIcms} onChange={(e) => setContribuinteIcms(e.target.value as typeof contribuinteIcms)} style={inputStyle}>
+                <option value="">— não declarado</option>
+                <option value="contribuinte">Contribuinte (tem IE)</option>
+                <option value="isento">Isento de inscrição</option>
+                <option value="nao_contribuinte">Não contribuinte</option>
+              </select>
+            </Campo>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Campo label="E-mail">
