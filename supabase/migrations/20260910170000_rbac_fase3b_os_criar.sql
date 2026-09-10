@@ -41,8 +41,15 @@ BEGIN
 
   -- FASE 3b · RBAC aperta SÓ onde foi configurado. Sem papel → legado (não mexe). Com papel → exige
   -- 'editar'/'aprovar' em 'operacao' pra abrir OS. Narrowing: papel que dá 'aprovar' num 'ver' vira 'ver'.
+  -- BYPASS (decisão do CEO): o DONO da empresa cliente (papel_gestao=CLIENT_OWNER) e o ADMIN da PS
+  -- (is_admin) passam POR CIMA do gate — respondem pela empresa/plataforma e não podem ser barrados de
+  -- abrir OS. Isso mantém a regra-mãe: aperta onde foi configurado, nunca em cima de quem manda.
+  -- Ex.: supervisoradm@ (Fabiane) é CLIENT_OWNER com papel 'ind_ger_administrativo' (sem 'operacao') —
+  -- sem o bypass seria barrada de abrir OS na própria empresa.
   v_dec := public.fn_acesso_efetivo(auth.uid(), p_company_id);
-  IF COALESCE((v_dec -> 'decidido' ->> 'tem_papel')::boolean, false) THEN
+  IF COALESCE((v_dec -> 'decidido' ->> 'tem_papel')::boolean, false)
+     AND (v_dec ->> 'papel_gestao') IS DISTINCT FROM 'CLIENT_OWNER'
+     AND NOT public.is_admin() THEN
     v_op := v_dec -> 'acessos' ->> 'operacao';
     IF v_op IS NULL OR v_op NOT IN ('editar','aprovar') THEN
       RETURN jsonb_build_object('ok', false, 'erro',
