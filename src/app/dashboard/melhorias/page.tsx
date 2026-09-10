@@ -30,7 +30,7 @@ const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em anál
 // implementada aparecendo como "não analisada").
 const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'duplicada', 'arquivada', 'implementado']
 
-type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -64,11 +64,18 @@ function Inner() {
     setUserId(user.id)
     const { data: u } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
     setEhSuporte(['PS_ADMIN', 'PS_SUPPORT'].includes((u as { system_role?: string } | null)?.system_role || ''))
+    // "Minhas sugestões" é por AUTOR (user_id), sem filtro de empresa — a RLS já permite ver as próprias
+    // (user_id = auth.uid()), então papel de plataforma vê tudo que abriu nas 10 empresas. Mostramos de
+    // QUAL empresa é cada uma (embed companies) — inclusive as antigas sem empresa (viram "Sem empresa").
     // Arquivadas saem da lista por padrão (viram consulta via filtro), como o CEO pediu.
-    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at').eq('user_id', user.id)
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,companies(nome_fantasia,razao_social)').eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
-    setMinhas(((data as Minha[]) ?? []).map((m) => ({ ...m, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null })))
+    type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
+    setMinhas(((data as Row[]) ?? []).map(({ companies, ...m }) => {
+      const co = Array.isArray(companies) ? companies[0] : companies
+      return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
+    }))
   }, [verArquivadas])
   useEffect(() => { void carregar() }, [carregar])
 
@@ -200,6 +207,8 @@ function Inner() {
                 <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
                 <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
               </div>
+              {/* de qual empresa é o chamado (útil pra papel de plataforma, que abre nas 10 empresas) */}
+              <div style={{ fontSize: 10.5, color: m.empresa ? C.espL : C.amber, marginTop: 2 }}>🏢 {m.empresa || 'Sem empresa (chamado antigo)'}</div>
               <div style={{ fontSize: 12.5, color: C.espM, marginTop: 4 }}>{m.descricao}</div>
               {/* A resposta só aparece ao autor DEPOIS de aprovada (§2.1) — em carregar já vem null se não aprovada. */}
               {m.resposta && (
