@@ -53,13 +53,14 @@ function Inner() {
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [fEmpresa, setFEmpresa] = useState('todas')
-  const [fStatus, setFStatus] = useState('abertas')
+  // ABAS por estado (decisão do CEO): "Aguardando o autor" sai da fila principal — chamado entregue não é
+  // chamado aberto. A busca (nº/título) ignora a aba e varre tudo.
+  const [aba, setAba] = useState<EstadoFila>('precisa_mim')
   const [fCategoria, setFCategoria] = useState('todas')
   const [busca, setBusca] = useState('')   // suporte digita o número (#14) ou parte do título e acha o chamado
   const [aberto, setAberto] = useState<string | null>(null)
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
   const [ehAdmin, setEhAdmin] = useState(false)   // PS_ADMIN / PS_ADMIN_CVM aprovam resposta
-  const [soPrecisaMim, setSoPrecisaMim] = useState(false)   // filtro rápido "só o que depende de mim"
   const [respExpandida, setRespExpandida] = useState<string | null>(null)   // "ver completa" da resposta no card
 
   const carregar = useCallback(async () => {
@@ -87,16 +88,11 @@ function Inner() {
     .filter((r) => !buscaLimpa || String(r.numero) === buscaLimpa || (r.titulo || '').toLowerCase().includes(buscaLimpa) || r.descricao.toLowerCase().includes(buscaLimpa))
     .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
     .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
-    // "abertas" = não-terminais. Inclui os SINÔNIMOS terminais (RD-52: o CHECK aceita concluida×concluido,
-    // resolvida×implementado — o filtro precisa conhecer todos, senão um chamado entregue fica "aberto"
-    // por 149 dias, como o "Adicionar botão de IA"). A migração unifica o vocabulário; isto é a rede.
-    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !TERMINAIS.includes(r.status) : r.status === fStatus)
-    .filter((r) => !soPrecisaMim || estadoFila(r) === 'precisa_mim')
-    // "Precisa de mim" SEMPRE no topo; depois prioridade e idade.
-    .sort((a, b) => {
-      const pa = estadoFila(a) === 'precisa_mim' ? 0 : 1, pb = estadoFila(b) === 'precisa_mim' ? 0 : 1
-      return pa - pb || (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta
-    }), [rows, fEmpresa, fCategoria, fStatus, buscaLimpa, soPrecisaMim])
+    // aba = estado da fila. Buscando (nº/título) varre TODAS as abas; senão, mostra só a aba atual.
+    .filter((r) => buscaLimpa ? true : estadoFila(r) === aba)
+    // dentro da aba: prioridade e idade.
+    .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta),
+    [rows, fEmpresa, fCategoria, aba, buscaLimpa])
 
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
@@ -147,10 +143,18 @@ function Inner() {
   }
   // Contadores dos 3 estados sobre a fila inteira (o que o CEO precisa ver ao abrir a tela).
   const cont = useMemo(() => {
-    let precisa = 0, semConf = 0, emCurso = 0
-    for (const r of rows) { const e = estadoFila(r); if (e === 'precisa_mim') precisa++; else if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++ }
-    return { precisa, semConf, emCurso }
+    let precisa = 0, semConf = 0, emCurso = 0, terminal = 0
+    for (const r of rows) { const e = estadoFila(r); if (e === 'precisa_mim') precisa++; else if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else terminal++ }
+    return { precisa, semConf, emCurso, terminal }
   }, [rows])
+
+  // Encerrar sem confirmação (item 4, decisão do CEO): só aprovados há +7 dias sem confirmar.
+  async function encerrarSemConfirmacao(it: Item) {
+    const motivo = window.prompt(`Encerrar o #${it.numero} SEM confirmação do autor (ele sumiu há ${diasDesde(it.resposta_aprovada_em)} dias). Motivo (fica registrado):`) || ''
+    if (!motivo.trim()) return
+    const ok = await acao(it.id, 'fn_sugestao_encerrar_sem_confirmacao', { p_id: it.id, p_user: userId, p_motivo: motivo })
+    if (ok) setMsg(`#${it.numero} encerrado sem confirmação — registrado que o autor não confirmou.`)
+  }
 
   if (autorizado === null) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>
   if (!autorizado) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Esta é a fila do time de atendimento (PS). Você não tem acesso.</div>
@@ -161,34 +165,29 @@ function Inner() {
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Fila de Melhorias</h1>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>Todas as empresas numa fila só, por prioridade e idade. A leitura da IA é palpite — a decisão é sua.</p>
 
-      {/* Painel: os 3 estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"). */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => setSoPrecisaMim(true)} title="Filtrar só o que depende de você"
-          style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 14px', borderRadius: 10, border: `1px solid ${cont.precisa > 0 ? '#F0DDB0' : C.border}`, background: cont.precisa > 0 ? C.amberBg : C.white, color: cont.precisa > 0 ? C.amber : C.espM, fontSize: 13, fontWeight: 700 }}>
-          ⏳ Precisa de mim <span style={{ fontSize: 16, fontWeight: 800 }}>{cont.precisa}</span>
-        </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: '1px solid #D2DEF2', background: '#EAF0FA', color: C.blue, fontSize: 13, fontWeight: 700 }}>
-          📤 Enviado, sem confirmação <span style={{ fontSize: 16, fontWeight: 800 }}>{cont.semConf}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: C.cream, color: C.espM, fontSize: 13, fontWeight: 700 }}>
-          🔵 Em curso <span style={{ fontSize: 16, fontWeight: 800 }}>{cont.emCurso}</span>
-        </div>
+      {/* ABAS por estado — "quem trabalha" vê só o que é dela; entregue (aguardando o autor) sai da fila. */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
+        {([
+          ['precisa_mim', '⏳ Precisa de mim', cont.precisa],
+          ['em_curso', '🔵 Em curso', cont.emCurso],
+          ['sem_confirmacao', '📤 Aguardando o autor', cont.semConf],
+          ['terminal', '✓ Concluídas', cont.terminal],
+        ] as [EstadoFila, string, number][]).map(([k, label, n]) => (
+          <button key={k} type="button" onClick={() => setAba(k)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', padding: '9px 15px', border: 'none', background: 'transparent', borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 13, fontWeight: aba === k ? 800 : 600, color: aba === k ? C.esp : C.espM }}>
+            {label} <span style={{ fontSize: 12, fontWeight: 800, padding: '1px 8px', borderRadius: 999, background: aba === k ? C.gold : C.cream, color: aba === k ? '#fff' : C.espM }}>{n}</span>
+          </button>
+        ))}
       </div>
 
       {msg && <div style={{ background: C.amberBg, color: C.amber, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setMsg(null)}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título" style={{ ...inp, minWidth: 170 }} />
-        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={inp}><option value="abertas">abertas</option><option value="todas">todas</option>{STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, minWidth: 220 }} />
         <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
         <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
-        <button type="button" onClick={() => setSoPrecisaMim((v) => !v)}
-          title="Mostrar só os chamados com resposta escrita esperando você aprovar"
-          style={{ fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${soPrecisaMim ? C.gold : C.border}`, background: soPrecisaMim ? C.amberBg : C.white, color: soPrecisaMim ? C.amber : C.espM }}>
-          {soPrecisaMim ? '✓ ' : ''}só o que depende de mim
-        </button>
-        <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{visiveis.length} na fila</span>
+        <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{buscaLimpa ? `${visiveis.length} encontrado(s)` : `${visiveis.length} nesta aba`}</span>
       </div>
 
       {visiveis.length === 0 ? <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Fila vazia.</div> : (
@@ -249,7 +248,13 @@ function Inner() {
                   <div style={{ fontSize: 12.5, color: C.blue, fontWeight: 600 }}>
                     📤 Resposta enviada — aguardando confirmação do autor há <b>{diasDesde(it.resposta_aprovada_em)} dia(s)</b>.
                   </div>
-                  <button onClick={() => void reenviar(it)} style={btn(C.blue)}>Reenviar aviso</button>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => void reenviar(it)} style={btn(C.blue)}>Reenviar aviso</button>
+                    {/* +7 dias sem confirmar: só o CEO encerra, com motivo. Não automático. */}
+                    {ehAdmin && diasDesde(it.resposta_aprovada_em) > 7 && (
+                      <button onClick={() => void encerrarSemConfirmacao(it)} style={btn(C.red)} title="Autor sumiu há mais de 7 dias — encerrar registrando que não houve confirmação">Encerrar sem confirmação</button>
+                    )}
+                  </div>
                 </div>
               )}
 
