@@ -25,6 +25,8 @@ const C = {
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const CATS = [['bug', '🐞 Bug'], ['melhoria', '💡 Melhoria'], ['duvida', '❓ Dúvida'], ['erro_dado', '📊 Erro de dado']]
 const PRIOS = ['baixa', 'media', 'alta', 'critica']
+// data ABSOLUTA (dd/mm hh:mm) ao lado do número — "há N horas" não serve pra achar um chamado.
+const quando = (iso: string | null) => { try { return iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '' } catch { return '' } }
 const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em análise', aceita: 'Aceita', em_desenvolvimento: 'Em desenvolvimento', concluida: 'Concluída', recusada: 'Recusada', duplicada: 'Duplicada', arquivada: 'Arquivada', implementado: 'Implementado' }
 // status terminais: o trabalho acabou. Não faz sentido o selo "não analisada pela IA" nesses — eles
 // parecem pendentes de processamento quando estão completos (o que confundia, ex.: a do Rodrigo já
@@ -208,7 +210,7 @@ function Inner() {
           {minhas.map((m) => (
             <div key={m.id} id={`chamado-${m.numero}`} style={{ background: C.white, border: `1px solid ${foco === String(m.numero) ? C.gold : C.border}`, borderRadius: 10, padding: 12, boxShadow: foco === String(m.numero) ? `0 0 0 2px ${C.gold}` : 'none', transition: 'box-shadow .3s, border-color .3s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
+                <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> <span style={{ fontWeight: 600, fontSize: 11.5, color: C.espM }}>· {quando(m.created_at)}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
                 <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
               </div>
               {/* de qual empresa é o chamado (útil pra papel de plataforma, que abre nas 10 empresas) */}
