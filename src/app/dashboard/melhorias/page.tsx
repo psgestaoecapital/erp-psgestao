@@ -54,6 +54,7 @@ function Inner() {
   const [minhas, setMinhas] = useState<Minha[]>([])
   const [verArquivadas, setVerArquivadas] = useState(false)
   const [ehSuporte, setEhSuporte] = useState(false)
+  const [pendentesFila, setPendentesFila] = useState(0)   // rascunhos esperando aprovação (papel de plataforma)
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
@@ -63,7 +64,15 @@ function Inner() {
     if (!user) return
     setUserId(user.id)
     const { data: u } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
-    setEhSuporte(['PS_ADMIN', 'PS_SUPPORT'].includes((u as { system_role?: string } | null)?.system_role || ''))
+    // PS_ADMIN_CVM é papel de plataforma (trabalha nas 10 empresas) — enxerga a fila de atendimento como PS_ADMIN.
+    const sup = ['PS_ADMIN', 'PS_SUPPORT', 'PS_ADMIN_CVM'].includes((u as { system_role?: string } | null)?.system_role || '')
+    setEhSuporte(sup)
+    if (sup) {
+      // quantos rascunhos estão esperando aprovação (para o atalho mostrar o número sem precisar abrir a fila)
+      const { count } = await supabase.from('sugestoes').select('id', { count: 'exact', head: true })
+        .not('resposta', 'is', null).eq('resposta_aprovada', false).not('status', 'in', '(arquivada,concluida)')
+      setPendentesFila(count ?? 0)
+    }
     // "Minhas sugestões" é por AUTOR (user_id), sem filtro de empresa — a RLS já permite ver as próprias
     // (user_id = auth.uid()), então papel de plataforma vê tudo que abriu nas 10 empresas. Mostramos de
     // QUAL empresa é cada uma (embed companies) — inclusive as antigas sem empresa (viram "Sem empresa").
@@ -161,7 +170,12 @@ function Inner() {
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>💡 Central de Melhorias</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Registrar uma dificuldade</h1>
         </div>
-        {ehSuporte && <a href="/dashboard/atendimento" style={{ fontSize: 13, color: C.white, background: C.esp, padding: '8px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 700 }}>Ir para a fila de atendimento →</a>}
+        {ehSuporte && (
+          <a href="/dashboard/atendimento" style={{ fontSize: 13, color: C.white, background: C.esp, padding: '8px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            Ir para a fila de atendimento →
+            {pendentesFila > 0 && <span title="rascunhos esperando você aprovar" style={{ background: C.gold, color: C.esp, borderRadius: 999, padding: '1px 8px', fontSize: 12, fontWeight: 800 }}>{pendentesFila} p/ aprovar</span>}
+          </a>
+        )}
       </div>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 4px' }}>Cole um print (Ctrl+V), arraste a imagem ou use a câmera — marque onde está o problema e descreva. A foto é opcional. Nada some — vira uma sugestão que a gente trabalha até concluir.</p>
       {rotaOrigem !== '/dashboard/melhorias' && (
