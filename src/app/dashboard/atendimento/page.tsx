@@ -27,8 +27,20 @@ type Item = {
   created_at: string; dias_aberta: number
   erro_assinatura: string | null; origem_sugestao_id: string | null; ultimo_erro_comparacao: string | null
   resposta_origem: string | null; resposta_redigida_por: string | null; resposta_aprovada_por: string | null
+  resposta_aprovada_em: string | null
   redator_nome: string | null; aprovador_nome: string | null
 }
+
+// Três estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"):
+const TERMINAIS = ['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada']
+type EstadoFila = 'precisa_mim' | 'sem_confirmacao' | 'em_curso' | 'terminal'
+const estadoFila = (it: { status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean }): EstadoFila => {
+  if (TERMINAIS.includes(it.status)) return 'terminal'
+  if (it.resposta && it.resposta.trim() && !it.resposta_aprovada) return 'precisa_mim'          // ⏳ depende do CEO
+  if (it.resposta_aprovada && !it.confirmado_pelo_autor) return 'sem_confirmacao'               // 📤 esperando o autor
+  return 'em_curso'                                                                             // 🔵 sem resposta ainda
+}
+const diasDesde = (iso: string | null) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : 0
 
 export default function AtendimentoPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -46,7 +58,9 @@ function Inner() {
   const [busca, setBusca] = useState('')   // suporte digita o número (#14) ou parte do título e acha o chamado
   const [aberto, setAberto] = useState<string | null>(null)
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
-  const [ehAdmin, setEhAdmin] = useState(false)   // só PS_ADMIN aprova resposta
+  const [ehAdmin, setEhAdmin] = useState(false)   // PS_ADMIN / PS_ADMIN_CVM aprovam resposta
+  const [soPrecisaMim, setSoPrecisaMim] = useState(false)   // filtro rápido "só o que depende de mim"
+  const [respExpandida, setRespExpandida] = useState<string | null>(null)   // "ver completa" da resposta no card
 
   const carregar = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -76,10 +90,13 @@ function Inner() {
     // "abertas" = não-terminais. Inclui os SINÔNIMOS terminais (RD-52: o CHECK aceita concluida×concluido,
     // resolvida×implementado — o filtro precisa conhecer todos, senão um chamado entregue fica "aberto"
     // por 149 dias, como o "Adicionar botão de IA"). A migração unifica o vocabulário; isto é a rede.
-    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada'].includes(r.status) : r.status === fStatus)
-    .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta), [rows, fEmpresa, fCategoria, fStatus, buscaLimpa])
-  // quantos rascunhos estão esperando aprovação do CEO (resposta escrita, ainda não enviada ao autor)
-  const aguardandoAprovacao = useMemo(() => rows.filter((r) => (r.resposta || '').trim() && !r.resposta_aprovada && !['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada'].includes(r.status)).length, [rows])
+    .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !TERMINAIS.includes(r.status) : r.status === fStatus)
+    .filter((r) => !soPrecisaMim || estadoFila(r) === 'precisa_mim')
+    // "Precisa de mim" SEMPRE no topo; depois prioridade e idade.
+    .sort((a, b) => {
+      const pa = estadoFila(a) === 'precisa_mim' ? 0 : 1, pb = estadoFila(b) === 'precisa_mim' ? 0 : 1
+      return pa - pb || (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta
+    }), [rows, fEmpresa, fCategoria, fStatus, buscaLimpa, soPrecisaMim])
 
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
@@ -123,6 +140,17 @@ function Inner() {
     const ok = await acao(it.id, 'fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
     if (ok) setMsg('Resposta aprovada e enviada — o autor foi avisado.')
   }
+  // Reenvia o aviso para os aprovados que o autor ainda não confirmou (os que ficam "no limbo").
+  async function reenviar(it: Item) {
+    const ok = await acao(it.id, 'fn_sugestao_reenviar_aviso', { p_id: it.id, p_user: userId })
+    if (ok) setMsg('Aviso reenviado ao autor (notificação criada; o e-mail dispara quando o Resend estiver configurado).')
+  }
+  // Contadores dos 3 estados sobre a fila inteira (o que o CEO precisa ver ao abrir a tela).
+  const cont = useMemo(() => {
+    let precisa = 0, semConf = 0, emCurso = 0
+    for (const r of rows) { const e = estadoFila(r); if (e === 'precisa_mim') precisa++; else if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++ }
+    return { precisa, semConf, emCurso }
+  }, [rows])
 
   if (autorizado === null) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>
   if (!autorizado) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Esta é a fila do time de atendimento (PS). Você não tem acesso.</div>
@@ -131,7 +159,21 @@ function Inner() {
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>📥 Atendimento</div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Fila de Melhorias</h1>
-      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 14px' }}>Todas as empresas numa fila só, por prioridade e idade. A leitura da IA é palpite — a decisão é sua.</p>
+      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>Todas as empresas numa fila só, por prioridade e idade. A leitura da IA é palpite — a decisão é sua.</p>
+
+      {/* Painel: os 3 estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"). */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => setSoPrecisaMim(true)} title="Filtrar só o que depende de você"
+          style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 14px', borderRadius: 10, border: `1px solid ${cont.precisa > 0 ? '#F0DDB0' : C.border}`, background: cont.precisa > 0 ? C.amberBg : C.white, color: cont.precisa > 0 ? C.amber : C.espM, fontSize: 13, fontWeight: 700 }}>
+          ⏳ Precisa de mim <span style={{ fontSize: 16, fontWeight: 800 }}>{cont.precisa}</span>
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: '1px solid #D2DEF2', background: '#EAF0FA', color: C.blue, fontSize: 13, fontWeight: 700 }}>
+          📤 Enviado, sem confirmação <span style={{ fontSize: 16, fontWeight: 800 }}>{cont.semConf}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: C.cream, color: C.espM, fontSize: 13, fontWeight: 700 }}>
+          🔵 Em curso <span style={{ fontSize: 16, fontWeight: 800 }}>{cont.emCurso}</span>
+        </div>
+      </div>
 
       {msg && <div style={{ background: C.amberBg, color: C.amber, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setMsg(null)}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
@@ -141,18 +183,20 @@ function Inner() {
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={inp}><option value="abertas">abertas</option><option value="todas">todas</option>{STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
         <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
         <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <button type="button" onClick={() => setSoPrecisaMim((v) => !v)}
+          title="Mostrar só os chamados com resposta escrita esperando você aprovar"
+          style={{ fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${soPrecisaMim ? C.gold : C.border}`, background: soPrecisaMim ? C.amberBg : C.white, color: soPrecisaMim ? C.amber : C.espM }}>
+          {soPrecisaMim ? '✓ ' : ''}só o que depende de mim
+        </button>
         <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{visiveis.length} na fila</span>
-        {aguardandoAprovacao > 0 && (
-          <span title="Respostas já escritas esperando o CEO aprovar para chegarem ao autor" style={{ fontSize: 12, color: C.amber, background: C.amberBg, border: '1px solid #F0DDB0', padding: '3px 10px', borderRadius: 999, fontWeight: 700, alignSelf: 'center' }}>
-            ⏳ {aguardandoAprovacao} aguardando aprovação
-          </span>
-        )}
       </div>
 
       {visiveis.length === 0 ? <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Fila vazia.</div> : (
         <div style={{ display: 'grid', gap: 10 }}>
           {visiveis.map((it) => {
             const ia = it.ia_analise as Record<string, string> | null
+            const est = estadoFila(it)
+            const respPreview = (it.resposta || '').trim()
             return (
             <div key={it.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -169,9 +213,45 @@ function Inner() {
                   {it.origem_sugestao_id && <span title="desmembrado de outro chamado" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>↳ desmembrado</span>}
                   {it.ultimo_erro_comparacao === 'mesmo' && <span title="o erro reapareceu igual na última tentativa" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.redBg, color: C.red, fontWeight: 700 }}>erro igual</span>}
                   {it.ultimo_erro_comparacao === 'mudou' && <span title="o erro mudou entre tentativas" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.greenBg, color: C.green, fontWeight: 700 }}>erro mudou</span>}
-                  <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#E8EEF9', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.blue, fontWeight: 700 }}>{it.status.replace('_', ' ')}</span>
+                  {est === 'precisa_mim' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.amberBg, color: C.amber, border: '1px solid #F0DDB0', fontWeight: 800 }}>⏳ Precisa de mim</span>}
+                  {est === 'sem_confirmacao' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#EAF0FA', color: C.blue, border: '1px solid #D2DEF2', fontWeight: 800 }}>📤 Sem confirmação</span>}
+                  {est === 'em_curso' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 800 }}>🔵 Em curso</span>}
+                  <span title="status interno" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#EFEBE4', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.espL, fontWeight: 600 }}>{it.status.replace('_', ' ')}</span>
                 </div>
               </div>
+
+              {/* ⏳ Precisa de mim: a resposta redigida + Aprovar/Editar DIRETO no card (sem abrir). O texto aparece
+                  para você ler antes — nunca aprovar às cegas. */}
+              {est === 'precisa_mim' && (
+                <div style={{ marginTop: 10, background: C.amberBg, border: '1px solid #F0DDB0', borderRadius: 10, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 5 }}>
+                    Resposta redigida {it.resposta_origem === 'assistente' ? '(assistente/IA)' : it.redator_nome ? `(por ${it.redator_nome})` : ''} — esperando você
+                  </div>
+                  <div style={{ fontSize: 13, color: C.esp, whiteSpace: 'pre-wrap' }}>
+                    {(respExpandida === it.id || respPreview.length <= 200) ? respPreview : respPreview.slice(0, 200) + '… '}
+                    {respPreview.length > 200 && (
+                      <button onClick={() => setRespExpandida(respExpandida === it.id ? null : it.id)} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, padding: 0, fontWeight: 700 }}>
+                        {respExpandida === it.id ? ' ver menos' : 'ver completa'}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {ehAdmin
+                      ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
+                      : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO aprova o envio ao autor</span>}
+                    <button onClick={() => void responder(it)} style={btn(C.gold)}>Editar antes de aprovar</button>
+                  </div>
+                </div>
+              )}
+              {/* 📤 Enviado, sem confirmação: há quantos dias, e um botão para reenviar o aviso (cobrar o autor). */}
+              {est === 'sem_confirmacao' && (
+                <div style={{ marginTop: 10, background: '#EAF0FA', border: '1px solid #D2DEF2', borderRadius: 10, padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 12.5, color: C.blue, fontWeight: 600 }}>
+                    📤 Resposta enviada — aguardando confirmação do autor há <b>{diasDesde(it.resposta_aprovada_em)} dia(s)</b>.
+                  </div>
+                  <button onClick={() => void reenviar(it)} style={btn(C.blue)}>Reenviar aviso</button>
+                </div>
+              )}
 
               <button onClick={() => void abrir(it.id)} style={{ marginTop: 8, border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, padding: 0 }}>{aberto === it.id ? '▲ fechar' : '▼ ver detalhes, foto e IA'}</button>
 
