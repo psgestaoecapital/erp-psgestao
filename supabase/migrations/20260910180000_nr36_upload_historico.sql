@@ -220,6 +220,95 @@ $function$;
 
 GRANT EXECUTE ON FUNCTION public.fn_nr36_resolver_nomes(uuid,text[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_pode_subir(uuid) TO authenticated;
+
+-- ============================================================
+-- 10 · PAUSA EM ABERTO (fim nulo). Ajuste CIRÚRGICO do motor (decisão do CEO — ajustar um caso não é
+-- recriar). Uma pausa em andamento NÃO soma minutos e NÃO conta como zero. "Não há registro" e "há
+-- registro em aberto" são coisas diferentes — a segunda FAVORECE a empresa (prova que a pausa começou).
+-- ============================================================
+
+-- status próprio: em_aberto é derivado de fim nulo (não pode divergir). ind_ponto_pausa está vazia → sem custo.
+ALTER TABLE public.ind_ponto_pausa
+  ADD COLUMN IF NOT EXISTS em_aberto boolean GENERATED ALWAYS AS (fim IS NULL) STORED;
+COMMENT ON COLUMN public.ind_ponto_pausa.em_aberto IS
+  'Pausa em andamento (sem registro de retorno). Nao soma minutos e nao conta como zero na apuracao.';
+
+-- fn_nr36_apurar · CIRÚRGICO: (1) "tem realizado" passa a exigir pausa FECHADA; (2) o realizado soma só
+-- pausas fechadas; (3) pessoa/dia SÓ com pausa em aberto → aguardando_realizado (nunca nao_cumprida);
+-- (4) mista → soma as fechadas e sinaliza a aberta no 'detalhe'. Todo o resto é IDÊNTICO ao original.
+CREATE OR REPLACE FUNCTION public.fn_nr36_apurar(p_company_id uuid, p_dt_ini date, p_dt_fim date)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_tem_pausas boolean; v_linhas int;
+BEGIN
+  PERFORM public.fn_nr36_assert(p_company_id);
+  -- há REALIZADO (pausa FECHADA) no período? Só aberta não é realizado — é aguardando.
+  SELECT EXISTS (SELECT 1 FROM public.ind_ponto_pausa WHERE company_id = p_company_id
+                  AND data BETWEEN p_dt_ini AND p_dt_fim AND fim IS NOT NULL) INTO v_tem_pausas;
+
+  INSERT INTO public.nr36_pausa_apurada (company_id, colaborador_id, cpf, data, tipo, jornada_seg, devido_min, realizado_min, diferenca_min, status, detalhe, apurado_em)
+  SELECT d.company_id, c.id, d.cpf, d.data, e.tipo, d.worked_seconds,
+    public.fn_nr36_devido_min(e.tipo, d.worked_seconds, r.parametros) AS devido,
+    CASE WHEN NOT v_tem_pausas THEN NULL
+         WHEN (COALESCE(pz.tem_fechada,false)=false AND COALESCE(pz.tem_aberta,false)=true) THEN NULL
+         ELSE COALESCE(pz.min_fechado, 0) END AS realizado,
+    CASE WHEN NOT v_tem_pausas THEN NULL
+         WHEN (COALESCE(pz.tem_fechada,false)=false AND COALESCE(pz.tem_aberta,false)=true) THEN NULL
+         ELSE COALESCE(pz.min_fechado, 0) - public.fn_nr36_devido_min(e.tipo, d.worked_seconds, r.parametros) END AS diff,
+    CASE
+      WHEN NOT v_tem_pausas THEN 'aguardando_realizado'
+      WHEN (COALESCE(pz.tem_fechada,false)=false AND COALESCE(pz.tem_aberta,false)=true) THEN 'aguardando_realizado'
+      WHEN COALESCE(pz.min_fechado,0) >= public.fn_nr36_devido_min(e.tipo, d.worked_seconds, r.parametros) THEN 'cumprida'
+      WHEN COALESCE(pz.min_fechado,0) > 0 THEN 'parcial'
+      ELSE 'nao_cumprida'
+    END AS status,
+    CASE WHEN COALESCE(pz.tem_aberta,false)
+         THEN jsonb_build_object('pausa_aberta', true, 'aberta_inicio', pz.aberta_inicio)
+         ELSE NULL END AS detalhe,
+    now()
+  FROM public.nr36_funcionario_elegivel e
+  JOIN public.ind_ponto_colaborador c ON c.id = e.colaborador_id
+  JOIN public.nr36_pausa_regra r ON r.company_id = e.company_id AND r.tipo = e.tipo AND r.ativo
+  JOIN public.ind_ponto_dia d ON d.company_id = e.company_id AND d.cpf = c.cpf AND d.data BETWEEN p_dt_ini AND p_dt_fim AND COALESCE(d.worked_seconds,0) > 0
+  LEFT JOIN LATERAL (
+    SELECT (sum(pp.duracao_seg) FILTER (WHERE pp.fim IS NOT NULL) / 60)::int AS min_fechado,
+           bool_or(pp.fim IS NOT NULL) AS tem_fechada,
+           bool_or(pp.fim IS NULL)     AS tem_aberta,
+           min(pp.inicio) FILTER (WHERE pp.fim IS NULL) AS aberta_inicio
+    FROM public.ind_ponto_pausa pp
+    WHERE pp.company_id = d.company_id AND pp.cpf = d.cpf AND pp.data = d.data
+      AND (pp.tipo IS NULL OR pp.tipo = e.tipo)) pz ON true
+  WHERE e.company_id = p_company_id AND e.ativo
+  ON CONFLICT (company_id, cpf, data, tipo) DO UPDATE SET
+    jornada_seg = EXCLUDED.jornada_seg, devido_min = EXCLUDED.devido_min, realizado_min = EXCLUDED.realizado_min,
+    diferenca_min = EXCLUDED.diferenca_min, status = EXCLUDED.status, detalhe = EXCLUDED.detalhe,
+    colaborador_id = EXCLUDED.colaborador_id, apurado_em = now();
+  GET DIAGNOSTICS v_linhas = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true, 'linhas', v_linhas, 'tem_realizado', v_tem_pausas,
+    'aviso', CASE WHEN v_tem_pausas THEN NULL
+                  ELSE 'Realizado indisponível no período (nenhuma pausa FECHADA importada). Mostra só o DEVIDO — não prova concessão.' END);
+END $function$;
+
+-- fn_nr36_relatorio_prova · acrescenta a pausa em aberto ao documento: "iniciada às HH:MM, sem registro
+-- de retorno" é informação (favorece a empresa), não omissão. Resto idêntico.
+CREATE OR REPLACE FUNCTION public.fn_nr36_relatorio_prova(p_company_id uuid, p_cpf text, p_dt_ini date, p_dt_fim date)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v jsonb; v_col jsonb; v_tem boolean; v_aberta boolean; BEGIN
+  PERFORM public.fn_nr36_assert(p_company_id);
+  SELECT to_jsonb(c) INTO v_col FROM (SELECT nome, cpf, funcao, departamento, matricula FROM public.ind_ponto_colaborador WHERE company_id=p_company_id AND cpf=p_cpf LIMIT 1) c;
+  SELECT EXISTS (SELECT 1 FROM public.ind_ponto_pausa WHERE company_id=p_company_id AND cpf=p_cpf AND fim IS NOT NULL) INTO v_tem;
+  SELECT EXISTS (SELECT 1 FROM public.ind_ponto_pausa WHERE company_id=p_company_id AND cpf=p_cpf AND fim IS NULL
+                  AND data BETWEEN p_dt_ini AND p_dt_fim) INTO v_aberta;
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('data', ap.data, 'tipo', ap.tipo, 'jornada_seg', ap.jornada_seg,
+      'devido_min', ap.devido_min, 'realizado_min', ap.realizado_min, 'status', ap.status,
+      'pausa_aberta', COALESCE((ap.detalhe->>'pausa_aberta')::boolean, false),
+      'aberta_inicio', ap.detalhe->>'aberta_inicio') ORDER BY ap.data, ap.tipo), '[]'::jsonb)
+    INTO v FROM public.nr36_pausa_apurada ap WHERE ap.company_id=p_company_id AND ap.cpf=p_cpf AND ap.data BETWEEN p_dt_ini AND p_dt_fim;
+  RETURN jsonb_build_object('ok', true, 'colaborador', v_col, 'tem_realizado', v_tem, 'tem_pausa_aberta', v_aberta,
+    'periodo', jsonb_build_object('ini',p_dt_ini,'fim',p_dt_fim), 'linhas', v);
+END $function$;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_upload_registrar(uuid,text,text,text,bigint,text,date,date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_upload_processar(uuid,jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_upload_listar(uuid,date,date) TO authenticated;
