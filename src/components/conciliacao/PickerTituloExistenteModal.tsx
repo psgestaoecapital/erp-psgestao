@@ -22,6 +22,7 @@ type Candidato = {
   valor_pago: number | null
   data_vencimento: string
   status: string
+  forma_pagamento: string | null
   diff_valor: number
   diff_dias: number
   score: number
@@ -63,6 +64,9 @@ export default function PickerTituloExistenteModal({
   const [erro, setErro] = useState<string | null>(null)
   const [dias, setDias] = useState(30)
   const [busca, setBusca] = useState('')
+  // #45 (Jordana): depósito agrupado (boleto/cartão) cobre vários títulos — filtrar por forma de
+  // pagamento estreita a lista pra achar os componentes do agrupado sem caçar título a título.
+  const [formaFiltro, setFormaFiltro] = useState('')
   const [selecionado, setSelecionado] = useState<Candidato | null>(null)
   const [aplicando, setAplicando] = useState(false)
   // #37: justificativa (vai como p_motivo p/ liberar o match de baixa confiança) + botão Ajustar valores
@@ -82,7 +86,7 @@ export default function PickerTituloExistenteModal({
     // Aliasa a coluna certa por tabela (senão: column erp_receber.nome_pessoa does not exist).
     const colNome = tabela === 'erp_receber' ? 'cliente_nome' : 'fornecedor_nome'
     supabase.from(tabela)
-      .select(`id, descricao, nome_pessoa:${colNome}, numero_documento, valor, valor_pago, data_vencimento, status`)
+      .select(`id, descricao, nome_pessoa:${colNome}, numero_documento, valor, valor_pago, data_vencimento, status, forma_pagamento`)
       .eq('company_id', companyId)
       .in('status', ['aberto', 'vencido', 'parcial'])
       .gte('data_vencimento', iso(de))
@@ -96,6 +100,7 @@ export default function PickerTituloExistenteModal({
           id: string; descricao: string | null; nome_pessoa: string | null
           numero_documento: string | null; valor: number
           valor_pago: number | null; data_vencimento: string; status: string
+          forma_pagamento: string | null
         }
         const rows = (data ?? []) as Row[]
         const lista: Candidato[] = rows.map((r) => {
@@ -110,6 +115,7 @@ export default function PickerTituloExistenteModal({
             id: r.id, descricao: r.descricao, nome_pessoa: r.nome_pessoa,
             numero_documento: r.numero_documento, valor: Number(r.valor),
             valor_pago: r.valor_pago, data_vencimento: r.data_vencimento, status: r.status,
+            forma_pagamento: r.forma_pagamento,
             diff_valor, diff_dias, score: scoreValor + scoreData,
           }
         }).sort((a, b) => {
@@ -121,14 +127,22 @@ export default function PickerTituloExistenteModal({
       })
   }, [open, companyId, movimentoId, movimentoData, dias, tabela, movimentoValor])
 
+  // #45 · formas de pagamento presentes nos candidatos (só o que existe na janela — dropdown honesto)
+  const formasDisponiveis = useMemo(() => {
+    const s = new Set<string>()
+    for (const c of candidatos) { const f = (c.forma_pagamento ?? '').trim(); if (f) s.add(f) }
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [candidatos])
+
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    if (!q) return candidatos
     return candidatos.filter((c) => {
+      if (formaFiltro && (c.forma_pagamento ?? '').trim() !== formaFiltro) return false
+      if (!q) return true
       const hay = `${c.descricao ?? ''} ${c.nome_pessoa ?? ''} ${c.numero_documento ?? ''}`.toLowerCase()
       return hay.includes(q)
     })
-  }, [candidatos, busca])
+  }, [candidatos, busca, formaFiltro])
 
   const matchExato = useMemo(
     () => candidatos.find((c) => Math.abs(c.diff_valor) < 0.01) ?? null,
@@ -220,6 +234,15 @@ export default function PickerTituloExistenteModal({
             <option value={60}>± 60 dias</option>
             <option value={180}>± 180 dias</option>
           </select>
+          {/* #45 · filtro por forma de pagamento (só aparece quando há formas na janela) */}
+          {formasDisponiveis.length > 0 && (
+            <select value={formaFiltro} onChange={(e) => setFormaFiltro(e.target.value)}
+              aria-label="Filtrar por forma de pagamento"
+              style={{ padding: '6px 10px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 12, background: '#FFFFFF', color: '#3D2314' }}>
+              <option value="">Toda forma de pagamento</option>
+              {formasDisponiveis.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          )}
           {matchExato && (
             <span style={{ fontSize: 11, background: '#DCFCE7', color: '#16A34A', padding: '2px 8px', borderRadius: 999, fontWeight: 600 }}>
               🎯 valor exato encontrado
@@ -290,6 +313,7 @@ export default function PickerTituloExistenteModal({
                         <strong>{c.descricao ?? '—'}</strong>
                         {c.nome_pessoa && <> · {c.nome_pessoa}</>}
                         {c.numero_documento && <> · nº {c.numero_documento}</>}
+                        {c.forma_pagamento && <> · {c.forma_pagamento}</>}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', fontWeight: 600 }}>
