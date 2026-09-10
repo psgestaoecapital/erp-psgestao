@@ -80,6 +80,7 @@ function AbaTipos({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<Partial<Tipo> | null>(null)
   const [erro, setErro] = useState('')
+  const [msg, setMsg] = useState('')  // #27+#42 · confirmação do retro-sync ao vincular documento
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -100,7 +101,7 @@ function AbaTipos({ companyId }: { companyId: string }) {
 
   const salvar = async () => {
     if (!edit) return
-    setErro('')
+    setErro(''); setMsg('')
     try {
       // #27 · salva o tipo e (encadeado) vincula o tipo de documento gerado na ficha do funcionário.
       const saved = await rpc<{ id: string }>('fn_nr_tipo_salvar', { p_company_id: companyId, p_payload: {
@@ -108,8 +109,17 @@ function AbaTipos({ companyId }: { companyId: string }) {
         carga_horaria: edit.carga_horaria ?? null, validade_meses: edit.validade_meses ?? null,
         reciclagem_meses: edit.reciclagem_meses ?? null, obrigatorio: edit.obrigatorio ?? false,
       } })
-      if (saved?.id) await rpc('fn_nr_tipo_vincular_documento', { p_company_id: companyId, p_tipo_id: saved.id, p_tipo_documento_id: edit.tipo_documento_id || null })
+      // #27+#42 · ao vincular, o backend retro-sincroniza os certificados já anexados deste treinamento
+      // (caem nas fichas na hora, sem re-upload). Mostramos quantos foram.
+      let sincronizados = 0
+      if (saved?.id) {
+        const vinc = await rpc<{ sincronizados?: number }>('fn_nr_tipo_vincular_documento', { p_company_id: companyId, p_tipo_id: saved.id, p_tipo_documento_id: edit.tipo_documento_id || null })
+        sincronizados = vinc?.sincronizados ?? 0
+      }
       setEdit(null); void carregar()
+      if (sincronizados > 0) {
+        setMsg(`${sincronizados} certificado(s) já anexado(s) foram enviados para a ficha dos funcionários (aba Documentos).`)
+      }
     } catch (e) { setErro((e as Error).message) }
   }
   const excluir = async (t: Tipo) => {
@@ -124,6 +134,12 @@ function AbaTipos({ companyId }: { companyId: string }) {
         <div style={{ fontSize: 13, color: C.gray }}>{tipos.length} tipo(s) cadastrado(s)</div>
         <Btn onClick={() => setEdit({ obrigatorio: false })}><Plus size={15} /> Incluir treinamento</Btn>
       </div>
+      {msg && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#EAF3DE', color: '#234D08', border: '1px solid #B7D89A', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 12 }}>
+          <span>{msg}</span>
+          <button onClick={() => setMsg('')} style={{ border: 'none', background: 'transparent', color: '#234D08', cursor: 'pointer', fontSize: 16, lineHeight: 1 }} aria-label="Fechar">×</button>
+        </div>
+      )}
       {loading ? <Load /> : tipos.length === 0 ? (
         <Vazio titulo="Nenhum treinamento cadastrado" texto="Cadastre o primeiro tipo de treinamento (ex.: NR-35 · Trabalho em Altura)." />
       ) : (
