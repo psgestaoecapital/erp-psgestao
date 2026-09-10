@@ -11,8 +11,9 @@ const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
   ink: '#1a1a1a', green: '#2d6a3e', gray: '#6b6b6b', red: '#a02020', redBg: '#fce8e8',
 }
-type CatItem = { tipo_documento_id: string; nome: string; grupo: string | null; base_legal: string | null; validade_dias_padrao: number | null; obrigatorio: boolean; codigo_esocial: string | null; marcado: boolean }
+type CatItem = { tipo_documento_id: string; nome: string; grupo: string | null; base_legal: string | null; validade_dias_padrao: number | null; obrigatorio: boolean; codigo_esocial: string | null; marcado: boolean; exigido_id: string | null; escopo_funcao: string | null; escopo_setor_id: string | null }
 type CustomItem = { exigido_id: string; nome_custom: string; obrigatorio: boolean; validade_dias: number | null; alertar_dias_antes: number | null; aplica_a: string }
+type Setor = { setor: string; setor_id: string }
 
 export default function DocumentosExigidosPage() {
   const { sel, selInfo, loading } = useCompanyIds()
@@ -39,6 +40,8 @@ export default function DocumentosExigidosPage() {
 function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funcionario' | 'prestador' | 'funcionario_terceiro' }) {
   const [catalogo, setCatalogo] = useState<CatItem[]>([])
   const [custom, setCustom] = useState<CustomItem[]>([])
+  const [cargos, setCargos] = useState<string[]>([])
+  const [setores, setSetores] = useState<Setor[]>([])
   const [loading, setLoading] = useState(true)
   const [novoCustom, setNovoCustom] = useState<{ nome: string; obrigatorio: boolean; validade_dias: string } | null>(null)
   const [erro, setErro] = useState('')
@@ -52,9 +55,30 @@ function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funciona
   }, [companyId, aplicaA])
   useEffect(() => { void carregar() }, [carregar])
 
+  // cargos/setores da empresa alimentam o escopo por cargo/setor de cada documento
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await rpc<{ cargos: string[]; setores: Setor[] }>('fn_compliance_cargos_setores', { p_company_id: companyId })
+        setCargos(r.cargos || []); setSetores(r.setores || [])
+      } catch { /* seletor de escopo fica vazio, não bloqueia a tela */ }
+    })()
+  }, [companyId])
+
+  // salva o escopo (cargo/setor) de um documento exigido; funcao/setor_id null = vale pra todos
+  const salvarEscopo = async (item: CatItem, funcao: string | null, setorId: string | null) => {
+    if (!item.exigido_id) return
+    setCatalogo(cs => cs.map(c => c.tipo_documento_id === item.tipo_documento_id ? { ...c, escopo_funcao: funcao, escopo_setor_id: setorId } : c))
+    try { await rpc('fn_compliance_exigido_escopo_salvar', { p_company_id: companyId, p_exigido_id: item.exigido_id, p_funcao: funcao, p_setor_id: setorId }) }
+    catch (e) { alert((e as Error).message); void carregar() }
+  }
+
   const toggle = async (item: CatItem, on: boolean) => {
     setCatalogo(cs => cs.map(c => c.tipo_documento_id === item.tipo_documento_id ? { ...c, marcado: on } : c))
-    try { await rpc('fn_compliance_exigido_toggle', { p_company_id: companyId, p_tipo_id: item.tipo_documento_id, p_aplica_a: aplicaA, p_on: on }) }
+    try {
+      await rpc('fn_compliance_exigido_toggle', { p_company_id: companyId, p_tipo_id: item.tipo_documento_id, p_aplica_a: aplicaA, p_on: on })
+      void carregar() // recarrega p/ pegar o exigido_id (necessário p/ definir o escopo cargo/setor)
+    }
     catch (e) { alert((e as Error).message); void carregar() }
   }
   const salvarCustom = async () => {
@@ -103,13 +127,18 @@ function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funciona
           <div style={{ fontSize: 11.5, fontWeight: 800, color: C.gold, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>{g}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 6 }}>
             {catalogo.filter(c => (c.grupo || 'Outros') === g).map(item => (
-              <label key={item.tipo_documento_id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#fff', border: `1px solid ${item.marcado ? C.gold : C.borderLt}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={item.marcado} onChange={e => toggle(item, e.target.checked)} style={{ marginTop: 2 }} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: C.espresso, fontSize: 13.5 }}>{item.nome}</div>
-                  <div style={{ fontSize: 11, color: C.gray }}>{item.base_legal || '—'}{item.codigo_esocial ? ` · eSocial ${item.codigo_esocial}` : ''}{item.validade_dias_padrao ? ` · validade ${item.validade_dias_padrao}d` : ''}</div>
-                </div>
-              </label>
+              <div key={item.tipo_documento_id} style={{ background: '#fff', border: `1px solid ${item.marcado ? C.gold : C.borderLt}`, borderRadius: 10, padding: '10px 12px' }}>
+                <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={item.marcado} onChange={e => toggle(item, e.target.checked)} style={{ marginTop: 2 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, color: C.espresso, fontSize: 13.5 }}>{item.nome}</div>
+                    <div style={{ fontSize: 11, color: C.gray }}>{item.base_legal || '—'}{item.codigo_esocial ? ` · eSocial ${item.codigo_esocial}` : ''}{item.validade_dias_padrao ? ` · validade ${item.validade_dias_padrao}d` : ''}</div>
+                  </div>
+                </label>
+                {item.marcado && item.exigido_id && (
+                  <EscopoControl item={item} cargos={cargos} setores={setores} onSalvar={salvarEscopo} />
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -136,6 +165,30 @@ function Selecao({ companyId, aplicaA }: { companyId: string; aplicaA: 'funciona
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Escopo por cargo/setor de um documento exigido. Vazio nos dois = vale pra todos (aperta só onde configurar).
+function EscopoControl({ item, cargos, setores, onSalvar }: {
+  item: CatItem; cargos: string[]; setores: Setor[]
+  onSalvar: (item: CatItem, funcao: string | null, setorId: string | null) => void
+}) {
+  const restrito = !!(item.escopo_funcao || item.escopo_setor_id)
+  const escSel: React.CSSProperties = { border: `1px solid ${C.borderLt}`, borderRadius: 6, padding: '3px 6px', fontSize: 11.5, color: C.ink, background: C.offwhite, maxWidth: 160 }
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${C.borderLt}`, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: restrito ? C.gold : C.gray }}>{restrito ? 'Aplica só a:' : 'Aplica a: todos'}</span>
+      <select value={item.escopo_funcao ?? ''} onChange={e => onSalvar(item, e.target.value || null, item.escopo_setor_id)} style={escSel} title="Cargo">
+        <option value="">todos os cargos</option>
+        {cargos.map(c => <option key={c} value={c}>{c}</option>)}
+        {item.escopo_funcao && !cargos.includes(item.escopo_funcao) && <option value={item.escopo_funcao}>{item.escopo_funcao}</option>}
+      </select>
+      <select value={item.escopo_setor_id ?? ''} onChange={e => onSalvar(item, item.escopo_funcao, e.target.value || null)} style={escSel} title="Setor">
+        <option value="">todos os setores</option>
+        {setores.map(s => <option key={s.setor_id} value={s.setor_id}>{s.setor}</option>)}
+      </select>
+      {restrito && <button type="button" onClick={() => onSalvar(item, null, null)} style={{ border: 'none', background: 'none', color: C.gray, cursor: 'pointer', fontSize: 11 }}>limpar</button>}
     </div>
   )
 }
