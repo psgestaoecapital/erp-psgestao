@@ -26,6 +26,8 @@ interface NFeRow {
   natureza_operacao: string | null
   finalidade: string | null
   chave_referenciada: string | null
+  origem_tipo: string | null
+  origem_id: string | null
   status: string
   motivo_rejeicao: string | null
   protocolo: string | null
@@ -88,6 +90,13 @@ const fmtChave = (c: string | null) => {
   // 44 digitos · agrupa de 4 em 4 pra leitura
   return c.replace(/(\d{4})(?=\d)/g, '$1 ')
 }
+
+// origem da nota (#18): de onde ela nasceu — a nº 9 (devolução de compra) deixa de ser invisível.
+const ORIGEM_ROTULO: Record<string, string> = {
+  os: 'Ordem de serviço', obra: 'Obra', pedido: 'Pedido', venda: 'Venda',
+  devolucao_compra: 'Devolução de compra', avulsa: 'Avulsa',
+}
+const rotuloOrigem = (t: string | null) => (t ? (ORIGEM_ROTULO[t] ?? t) : '—')
 
 export default function NFeListClient() {
   const router = useRouter()
@@ -505,6 +514,9 @@ export default function NFeListClient() {
                                   </div>
                                   {row.finalidade === 'devolucao' && row.chave_referenciada && (
                                     <div className="text-[10px] text-[#3D2314]/45 mt-0.5 break-all">ref: {row.chave_referenciada}</div>
+                                  )}
+                                  {row.origem_tipo && (
+                                    <div className="text-[10px] text-[#3D2314]/55 mt-0.5">origem: <b className="text-[#3D2314]/75">{rotuloOrigem(row.origem_tipo)}</b></div>
                                   )}
                                 </div>
                                 <div>
