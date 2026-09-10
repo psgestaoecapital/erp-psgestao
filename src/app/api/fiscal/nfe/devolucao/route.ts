@@ -19,6 +19,13 @@ interface DevolucaoBody {
   // devolucao-icms-espelho: CSOSN da devolucao (editavel na tela, default = config da empresa).
   // Aplicado a cada item que tem ICMS a devolver (base/valor espelhados da entrada).
   csosnIcms?: string
+  // Lei Kandir: o FRETE entra na base do ICMS. A devolucao precisa declarar frete/seguro/outras/desconto
+  // para o total (vNF) bater com a base do ICMS (ex.: produtos 370 + frete 55 = total 425 = base ICMS).
+  frete?: number
+  seguro?: number
+  outrasDespesas?: number
+  desconto?: number
+  modalidadeFrete?: number
 }
 
 export const POST = withAuth(async (req: NextRequest) => {
@@ -126,6 +133,10 @@ export const POST = withAuth(async (req: NextRequest) => {
         naturezaOperacao: body.naturezaOperacao ?? 'Devolução de compra',
         finalidade: 'devolucao',
         chaveReferenciada: chaveCompra,
+        totais: {
+          frete: body.frete, seguro: body.seguro, outrasDespesas: body.outrasDespesas,
+          desconto: body.desconto, modalidadeFrete: body.modalidadeFrete,
+        },
       },
     })
 
@@ -135,6 +146,10 @@ export const POST = withAuth(async (req: NextRequest) => {
     const resposta = await svc.emitirNFe(nfeReq)
 
     const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+    // total da nota = produtos + frete + seguro + outras − desconto (tem que bater com a base do ICMS)
+    const frete = Number(body.frete ?? 0), seguro = Number(body.seguro ?? 0)
+    const outras = Number(body.outrasDespesas ?? 0), descontoNota = Number(body.desconto ?? 0)
+    const valorTotalNota = Number((valorProdutos + frete + seguro + outras - descontoNota).toFixed(2))
     const dadosRegistro = {
       chave: resposta.chave,
       numero: resposta.numero,
@@ -142,7 +157,7 @@ export const POST = withAuth(async (req: NextRequest) => {
       protocolo: resposta.protocolo,
       natureza_operacao: nfeReq.naturezaOperacao,
       finalidade: nfeReq.finalidade,
-      valor_total: valorProdutos,
+      valor_total: valorTotalNota,
       valor_produtos: valorProdutos,
       emitente_cnpj: nfeReq.emitente.cnpj,
       emitente_razao_social: nfeReq.emitente.razaoSocial,

@@ -112,6 +112,16 @@ export interface NFeRequest {
   // fiscal-devolucao-compra-v1: chave 44 digitos da NF-e original
   // (usado em finalidade='devolucao'/'ajuste' · grupo NFref/refNFe)
   chaveReferenciada?: string
+  // Totais que compõem o valor da nota ALÉM dos produtos. Lei Kandir: o FRETE entra na base do ICMS,
+  // então a devolução precisa declará-los para o total (vNF) bater com a base do ICMS. Ex.: produtos
+  // 370 + frete 55 = total 425 = base ICMS. total = produtos + frete + seguro + outras − desconto.
+  totais?: {
+    frete?: number
+    seguro?: number
+    outrasDespesas?: number
+    desconto?: number
+    modalidadeFrete?: number   // 0 CIF · 1 FOB · 2 por conta de terceiros · 3/4 próprio · 9 sem frete
+  }
 }
 
 export interface NFeResponse {
