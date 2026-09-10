@@ -54,8 +54,9 @@ function Inner() {
     setUserId(user.id)
     const { data: u } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
     const role = (u as { system_role?: string } | null)?.system_role || ''
-    const ok = ['PS_ADMIN', 'PS_SUPPORT'].includes(role)
-    setEhAdmin(role === 'PS_ADMIN')
+    // PS_ADMIN_CVM é papel de plataforma (trabalha nas 10 empresas) — vê a fila e aprova, como PS_ADMIN.
+    const ok = ['PS_ADMIN', 'PS_SUPPORT', 'PS_ADMIN_CVM'].includes(role)
+    setEhAdmin(['PS_ADMIN', 'PS_ADMIN_CVM'].includes(role))
     setAutorizado(ok)
     if (!ok) return
     const { data, error } = await supabase.from('v_sugestao_fila').select('*').limit(300)
@@ -77,6 +78,8 @@ function Inner() {
     // por 149 dias, como o "Adicionar botão de IA"). A migração unifica o vocabulário; isto é a rede.
     .filter((r) => fStatus === 'todas' ? true : fStatus === 'abertas' ? !['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada'].includes(r.status) : r.status === fStatus)
     .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta), [rows, fEmpresa, fCategoria, fStatus, buscaLimpa])
+  // quantos rascunhos estão esperando aprovação do CEO (resposta escrita, ainda não enviada ao autor)
+  const aguardandoAprovacao = useMemo(() => rows.filter((r) => (r.resposta || '').trim() && !r.resposta_aprovada && !['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada'].includes(r.status)).length, [rows])
 
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
@@ -139,6 +142,11 @@ function Inner() {
         <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
         <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
         <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{visiveis.length} na fila</span>
+        {aguardandoAprovacao > 0 && (
+          <span title="Respostas já escritas esperando o CEO aprovar para chegarem ao autor" style={{ fontSize: 12, color: C.amber, background: C.amberBg, border: '1px solid #F0DDB0', padding: '3px 10px', borderRadius: 999, fontWeight: 700, alignSelf: 'center' }}>
+            ⏳ {aguardandoAprovacao} aguardando aprovação
+          </span>
+        )}
       </div>
 
       {visiveis.length === 0 ? <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Fila vazia.</div> : (
