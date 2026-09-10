@@ -68,6 +68,13 @@ export default function DevolucaoCompraClient() {
   // tributos da nota de compra original por produto (pre-preenchimento espelhado).
   const [csosnDevol, setCsosnDevol] = useState('900')
   const [tributosMap, setTributosMap] = useState<Record<string, { base?: number; aliquota?: number }>>({})
+  // Lei Kandir: o FRETE entra na base do ICMS. A devolução precisa declarar frete/seguro/outras/desconto
+  // (pré-preenchidos da nota de compra, editáveis) para o TOTAL bater com a base do ICMS.
+  const [frete, setFrete] = useState(0)
+  const [seguro, setSeguro] = useState(0)
+  const [outras, setOutras] = useState(0)
+  const [descontoNota, setDescontoNota] = useState(0)
+  const [modalidadeFrete, setModalidadeFrete] = useState<number>(9)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string } | null>(null)
@@ -156,13 +163,20 @@ export default function DevolucaoCompraClient() {
     void (async () => {
       const { data: rec } = await supabase
         .from('erp_nfe_recebidas')
-        .select('id, chave_acesso, fornecedor_id')
+        .select('id, chave_acesso, fornecedor_id, valor_frete, valor_seguro, valor_outras, valor_desconto, frete_modalidade')
         .eq('id', recebidaId)
         .eq('company_id', companyId)
         .maybeSingle()
       if (!rec) { setPrefillMsg('Nota recebida não encontrada para pré-preencher.'); return }
       if (rec.chave_acesso) setChaveCompra(maskChave(String(rec.chave_acesso)))
       if (rec.fornecedor_id) setFornecedorId(String(rec.fornecedor_id))
+      // pré-preenche os valores que compõem o total (o operador confere/edita antes de emitir)
+      setFrete(Number(rec.valor_frete ?? 0))
+      setSeguro(Number(rec.valor_seguro ?? 0))
+      setOutras(Number(rec.valor_outras ?? 0))
+      setDescontoNota(Number(rec.valor_desconto ?? 0))
+      // modalidade da nota (0 CIF · 1 FOB · …); se a nota veio sem, mas há frete, assume CIF (0) — senão sem frete (9)
+      setModalidadeFrete(rec.frete_modalidade != null ? Number(rec.frete_modalidade) : (Number(rec.valor_frete ?? 0) > 0 ? 0 : 9))
 
       const { data: its } = await supabase
         .from('erp_nfe_recebidas_itens')
@@ -226,6 +240,10 @@ export default function DevolucaoCompraClient() {
     : []
 
   const totalItens = itens.reduce((s, it) => s + (it.valorUnitarioOverride ?? 0) * it.quantidade, 0)
+  // total da nota = produtos + frete + seguro + outras − desconto (tem que bater com a base do ICMS)
+  const totalNota = Number((totalItens + frete + seguro + outras - descontoNota).toFixed(2))
+  // base total do ICMS informada nos itens (para o operador ver se BATE com o total)
+  const baseIcmsTotal = Number(itens.reduce((s, it) => s + (it.icmsBase != null ? Number(it.icmsBase) : 0), 0).toFixed(2))
   const chaveLimpa = chaveCompra.replace(/\D/g, '')
   const podeEnviar = !!companyId && !!fornecedorId && chaveLimpa.length === 44 && itens.length > 0 && !enviando
 
@@ -243,6 +261,8 @@ export default function DevolucaoCompraClient() {
           chaveCompra: chaveLimpa,
           naturezaOperacao: natureza,
           csosnIcms: csosnDevol.trim() || '900',
+          // Lei Kandir: frete/seguro/outras/desconto compõem o total e a base do ICMS.
+          frete, seguro, outrasDespesas: outras, desconto: descontoNota, modalidadeFrete,
           itens: itens.map((it) => {
             const base = it.icmsBase != null ? Number(it.icmsBase) : undefined
             const aliq = it.icmsAliquota != null ? Number(it.icmsAliquota) : undefined
@@ -411,6 +431,44 @@ export default function DevolucaoCompraClient() {
             <div className="text-[10.5px] mt-1 text-[#3D2314]/55">Padrão da empresa. <strong>900</strong> = informa o ICMS a devolver (Simples). Confirme com o contador.</div>
           </div>
 
+          {/* Lei Kandir: o frete entra na base do ICMS → a devolução precisa declarar estes valores para o
+              total bater com a base. Pré-preenchidos da nota de compra, editáveis. */}
+          <div className="sm:col-span-2 rounded-lg border border-[#C8941A]/30 bg-[#FBF4E4] p-3">
+            <div className="text-[11px] font-semibold text-[#3D2314] mb-2">Valores que compõem o total <span className="font-normal text-[#3D2314]/60">(o frete entra na base do ICMS — Lei Kandir)</span></div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <label className="block text-[10.5px] text-[#3D2314]/70">Frete
+                <input type="number" step="0.01" min="0" value={frete} onChange={(e) => setFrete(Number(e.target.value) || 0)} className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Seguro
+                <input type="number" step="0.01" min="0" value={seguro} onChange={(e) => setSeguro(Number(e.target.value) || 0)} className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Outras desp.
+                <input type="number" step="0.01" min="0" value={outras} onChange={(e) => setOutras(Number(e.target.value) || 0)} className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Desconto
+                <input type="number" step="0.01" min="0" value={descontoNota} onChange={(e) => setDescontoNota(Number(e.target.value) || 0)} className="w-full mt-1 px-2 py-1.5 text-[13px] text-right tabular-nums border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+              </label>
+              <label className="block text-[10.5px] text-[#3D2314]/70">Modalidade frete
+                <select value={modalidadeFrete} onChange={(e) => setModalidadeFrete(Number(e.target.value))} className="w-full mt-1 px-2 py-1.5 text-[12px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]">
+                  <option value={0}>0 · CIF (emitente)</option>
+                  <option value={1}>1 · FOB (destinatário)</option>
+                  <option value={2}>2 · terceiros</option>
+                  <option value={3}>3 · próprio (remetente)</option>
+                  <option value={4}>4 · próprio (destinatário)</option>
+                  <option value={9}>9 · sem frete</option>
+                </select>
+              </label>
+            </div>
+            <div className="text-[11px] mt-2 text-[#3D2314]/75">
+              Total da devolução: <strong className="tabular-nums">{fmtBRL(totalNota)}</strong> = produtos {fmtBRL(totalItens)} + frete {fmtBRL(frete)} + seguro {fmtBRL(seguro)} + outras {fmtBRL(outras)} − desconto {fmtBRL(descontoNota)}.
+              {baseIcmsTotal > 0 && (
+                <span className={Math.abs(baseIcmsTotal - totalNota) <= 0.01 ? 'text-[#166534] font-semibold' : 'text-[#B42318] font-semibold'}>
+                  {' '}· Base ICMS informada: {fmtBRL(baseIcmsTotal)} — {Math.abs(baseIcmsTotal - totalNota) <= 0.01 ? 'bate ✓' : 'NÃO bate com o total ✗'}
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="sm:col-span-2">
             <label className="block text-[11px] text-[#3D2314]/70 mb-1">
               Chave da NF-e de compra (44 dígitos) *
@@ -548,7 +606,7 @@ export default function DevolucaoCompraClient() {
               </tbody>
               <tfoot>
                 <tr className="border-t border-[#3D2314]/15 bg-[#FAF7F2]">
-                  <td colSpan={6} className="px-2 py-2 text-right text-[#3D2314]/65 text-[11.5px] font-medium uppercase">Total</td>
+                  <td colSpan={6} className="px-2 py-2 text-right text-[#3D2314]/65 text-[11.5px] font-medium uppercase">Subtotal produtos</td>
                   <td className="px-2 py-2 text-right tabular-nums text-[#3D2314] font-semibold">{fmtBRL(totalItens)}</td>
                   <td></td>
                 </tr>

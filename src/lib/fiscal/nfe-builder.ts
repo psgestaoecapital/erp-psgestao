@@ -35,6 +35,8 @@ export interface NFeBuilderInput {
     finalidade?: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
     // fiscal-devolucao-compra-v1: chave 44 digitos da NFe original
     chaveReferenciada?: string
+    // frete/seguro/outras/desconto + modalidade (compõem o total e a base do ICMS — Lei Kandir)
+    totais?: NFeRequest['totais']
   }
   overrides?: {
     itens: NFeBuilderItemInput[]
@@ -255,5 +257,6 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario,
     itens: itensNFe,
     chaveReferenciada: input.manual?.chaveReferenciada,
+    totais: input.manual?.totais,
   }
 }

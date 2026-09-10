@@ -349,7 +349,14 @@ export class FocusNFeProvider implements FiscalProvider {
       natureza_operacao: req.naturezaOperacao,
       finalidade_emissao: finalidadeNum,
       ...(notasReferenciadas ? { notas_referenciadas: notasReferenciadas } : {}),
-      modalidade_frete: 9,
+      // Frete/seguro/outras/desconto (Lei Kandir: o frete entra na base do ICMS). Sem declarar o frete, o
+      // total (vNF=produtos) ficava MENOR que a base do ICMS (com frete) e a SEFAZ rejeitava. Só saem quando
+      // informados; modalidade_frete default 9 (sem frete) quando não vem da nota.
+      modalidade_frete: req.totais?.modalidadeFrete ?? 9,
+      ...(req.totais?.frete ? { valor_frete: req.totais.frete } : {}),
+      ...(req.totais?.seguro ? { valor_seguro: req.totais.seguro } : {}),
+      ...(req.totais?.outrasDespesas ? { valor_outras_despesas: req.totais.outrasDespesas } : {}),
+      ...(req.totais?.desconto ? { desconto: req.totais.desconto } : {}),
       // FIX-NFE-SERIE-PAYLOAD-v1
       // Sem este campo, Focus numerava na sua serie padrao (1) ·
       // colidia com numeracao Omie historica → rejeicao SEFAZ 539
