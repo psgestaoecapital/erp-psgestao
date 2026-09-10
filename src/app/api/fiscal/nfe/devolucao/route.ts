@@ -169,6 +169,11 @@ export const POST = withAuth(async (req: NextRequest) => {
     const frete = Number(body.frete ?? 0), seguro = Number(body.seguro ?? 0)
     const outras = Number(body.outrasDespesas ?? 0), descontoNota = Number(body.desconto ?? 0)
     const valorTotalNota = Number((valorProdutos + frete + seguro + outras - descontoNota).toFixed(2))
+    // ICMS/IPI totais da nota = soma do que cada item traz (espelho da entrada na devolucao). Sem gravar
+    // isso, a tela de NF-e emitidas mostrava "ICMS: —" mesmo com base/aliquota digitadas (o item ia com
+    // icms.valor, mas o total valor_icms/valor_ipi ficava nulo). fn_registrar_nfe_emitida ja le do p_dados.
+    const valorIcms = Number(nfeReq.itens.reduce((acc, i) => acc + Number(i.icms?.valor ?? 0), 0).toFixed(2))
+    const valorIpi = Number(nfeReq.itens.reduce((acc, i) => acc + Number(i.ipi?.valor ?? 0), 0).toFixed(2))
     const dadosRegistro = {
       chave: resposta.chave,
       numero: resposta.numero,
@@ -178,6 +183,9 @@ export const POST = withAuth(async (req: NextRequest) => {
       finalidade: nfeReq.finalidade,
       valor_total: valorTotalNota,
       valor_produtos: valorProdutos,
+      valor_icms: valorIcms,
+      valor_ipi: valorIpi,
+      valor_frete: frete,
       emitente_cnpj: nfeReq.emitente.cnpj,
       emitente_razao_social: nfeReq.emitente.razaoSocial,
       emitente_inscricao_estadual: nfeReq.emitente.inscricaoEstadual,

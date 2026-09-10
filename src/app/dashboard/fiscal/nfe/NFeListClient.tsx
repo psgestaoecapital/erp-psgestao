@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
@@ -71,6 +72,17 @@ const fmtData = (iso: string | null) => {
   }
 }
 
+// data + hora — pra rejeição não parecer "de agora" quando é de outro dia (Jordana viu rejeição
+// antiga e achou que tinha tentado de novo). Mostra quando a tentativa foi feita.
+const fmtDataHora = (iso: string | null) => {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return '—'
+  }
+}
+
 const fmtChave = (c: string | null) => {
   if (!c) return '—'
   // 44 digitos · agrupa de 4 em 4 pra leitura
@@ -78,6 +90,8 @@ const fmtChave = (c: string | null) => {
 }
 
 export default function NFeListClient() {
+  const router = useRouter()
+  const [reabrindo, setReabrindo] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [erroEmpresa, setErroEmpresa] = useState<string | null>(null)
   const [lista, setLista] = useState<NFeRow[]>([])
@@ -249,6 +263,31 @@ export default function NFeListClient() {
   function aplicarBusca() {
     setBuscaSubmit(busca.trim())
     setPagina(1)
+  }
+
+  // "Corrigir e reenviar" uma NF-e rejeitada (mesmo padrão do #1356 para NFS-e). Devolução: reabre a
+  // tela de devolução PRÉ-PREENCHIDA a partir da nota de compra referenciada (mesma prefill do
+  // recebida_id) — o usuário conserta o que a SEFAZ recusou e reenvia, sem refazer a nota inteira.
+  // A rejeitada continua no histórico.
+  async function corrigirEReenviar(row: NFeRow) {
+    if (row.finalidade !== 'devolucao' || !row.chave_referenciada) return
+    setReabrindo(row.id)
+    try {
+      const { data } = await supabase
+        .from('erp_nfe_recebidas')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('chave_acesso', row.chave_referenciada)
+        .maybeSingle()
+      const recebidaId = (data as { id?: string } | null)?.id
+      if (!recebidaId) {
+        alert('Não encontrei a nota de compra original para pré-preencher. Abra a devolução pela chave referenciada.')
+        return
+      }
+      router.push(`/dashboard/fiscal/nfe/devolucao?recebida_id=${recebidaId}`)
+    } finally {
+      setReabrindo(null)
+    }
   }
 
   function resetFiltros() {
@@ -482,12 +521,26 @@ export default function NFeListClient() {
                                 )}
                                 {row.motivo_rejeicao && (
                                   <div className="sm:col-span-2">
-                                    <div className="text-[10.5px] text-[#791F1F] uppercase tracking-[0.5px]">Motivo rejeição</div>
+                                    <div className="text-[10.5px] text-[#791F1F] uppercase tracking-[0.5px]">
+                                      Motivo rejeição · tentativa de {fmtDataHora(row.criado_em ?? row.data_emissao)}
+                                    </div>
                                     <div className="text-[#791F1F] mt-0.5">{row.motivo_rejeicao}</div>
                                   </div>
                                 )}
                               </div>
-                              <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex gap-2 mt-3 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                                {row.status === 'rejeitada' && row.finalidade === 'devolucao' && row.chave_referenciada && (
+                                  <button
+                                    type="button"
+                                    onClick={() => corrigirEReenviar(row)}
+                                    disabled={reabrindo === row.id}
+                                    data-testid="nfe-corrigir-reenviar"
+                                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50"
+                                  >
+                                    {reabrindo === row.id ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />}
+                                    Corrigir e reenviar
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => baixar(row, 'xml')}
