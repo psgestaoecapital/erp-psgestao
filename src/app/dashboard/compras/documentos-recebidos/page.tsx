@@ -174,6 +174,21 @@ export default function DocumentosRecebidosPage() {
     void carregar()
   }
 
+  // Teto de tentativas estourado, mas o XML pode ter sido liberado desde então (fornecedor emitiu, ou
+  // ciência dada): zera o contador para o worker voltar a buscar no próximo ciclo. (Dar ciência já zera
+  // sozinho via trigger; este botão é o reforço manual ao lado do "Precisa de ação".)
+  async function retentarXml(nfeId: string) {
+    if (!empresaUnica) return
+    setPuxando((p) => ({ ...p, [nfeId]: true })); setErro(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_retentar_xml', { p_nfe_id: nfeId })
+    setPuxando((p) => ({ ...p, [nfeId]: false }))
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro('Não consegui reiniciar a busca do XML: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
+    setToast('Busca reiniciada — o XML (itens) chega no próximo ciclo da SEFAZ (até 30 min).')
+    setTimeout(() => setToast(null), 6000)
+    void carregar()
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void carregar()
@@ -731,6 +746,16 @@ export default function DocumentosRecebidosPage() {
                               <AlertCircle size={11} />
                               Precisa de ação
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => void retentarXml(n.id)}
+                              disabled={!!puxando[n.id]}
+                              title="Reinicia a busca automática do XML na SEFAZ (zera as tentativas). Use quando o fornecedor já emitiu o XML ou após dar ciência — o XML chega no próximo ciclo (até 30 min)."
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#BA7517]/40 text-[#A77A12] font-medium hover:bg-[#FBF3E0] disabled:opacity-50"
+                            >
+                              {puxando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <RotateCcw size={11} />}
+                              Tentar novamente
+                            </button>
                             <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
                           </>
                         ) : n.status === 'aguardando_xml' ? (
