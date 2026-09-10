@@ -1,8 +1,10 @@
 -- ============================================================
 -- Fiscal · Origem da nota (chamado #18, decisões §6 do CEO) — fundação da "uma porta"
 -- ============================================================
--- A nota passa a guardar origem_tipo + origem_id: é o que costura a nota à vertical E ao Fiscal SEM
--- duplicar, e resolve a NF-e nº 9 do KGF (devolução de compra AUTORIZADA e invisível por não ter âncora).
+-- A nota passa a guardar origem_tipo + origem_id: é o que permite SABER DE ONDE a nota veio, FILTRAR por
+-- origem, e costurar a nota à vertical E ao Fiscal SEM duplicar. (Correção do CEO: origem NÃO é "fazer
+-- aparecer" — a NF-e nº 9 do KGF já aparece em NFes Emitidas; ela só não surge nas telas ancoradas em
+-- pedido/conta a receber. O origem_tipo resolve a proveniência e o filtro, não uma invisibilidade.)
 -- Decisões do CEO:
 --  §6.2 origem_tipo com CHECK nos 6 valores que já existem (não vira texto livre; vertical nova acrescenta).
 --  §6.3 backfill derivado das colunas que JÁ EXISTEM. As 4 colunas antigas NÃO são removidas (RD-30) —
@@ -61,10 +63,14 @@ UPDATE public.erp_nfe_emitidas SET
 WHERE origem_tipo IS NULL;
 
 -- ------------------------------------------------------------
--- fn_listar_nfes_emitidas · devolve origem_tipo/origem_id (a tela do Fiscal passa a mostrar a origem —
--- e a nº 9 aparece com origem_tipo='devolucao_compra'). Só ACRESCENTA colunas ao retorno (aditivo).
+-- fn_listar_nfes_emitidas · (1) devolve origem_tipo/origem_id (a tela do Fiscal passa a mostrar de onde a
+-- nota veio); (2) esconde REJEITADAS por padrão — nota rejeitada é TENTATIVA, não documento fiscal
+-- (pergunta do CEO). Quem quiser vê passando p_ocultar_rejeitadas=false OU filtrando status='rejeitada'.
+-- Muda o RETURNS TABLE (novas colunas) e a assinatura (novo param) → precisa DROP antes do CREATE
+-- (CREATE OR REPLACE não altera tipo de retorno nem adiciona parâmetro).
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_listar_nfes_emitidas(p_company_id uuid, p_status text DEFAULT NULL::text, p_data_inicio date DEFAULT NULL::date, p_data_fim date DEFAULT NULL::date, p_busca text DEFAULT NULL::text, p_finalidade text DEFAULT NULL::text, p_limit integer DEFAULT 50, p_offset integer DEFAULT 0)
+DROP FUNCTION IF EXISTS public.fn_listar_nfes_emitidas(uuid, text, date, date, text, text, integer, integer);
+CREATE OR REPLACE FUNCTION public.fn_listar_nfes_emitidas(p_company_id uuid, p_status text DEFAULT NULL::text, p_data_inicio date DEFAULT NULL::date, p_data_fim date DEFAULT NULL::date, p_busca text DEFAULT NULL::text, p_finalidade text DEFAULT NULL::text, p_limit integer DEFAULT 50, p_offset integer DEFAULT 0, p_ocultar_rejeitadas boolean DEFAULT true)
  RETURNS TABLE(id uuid, numero text, serie text, chave text, data_emissao timestamp with time zone, destinatario_razao_social text, destinatario_cnpj text, destinatario_cpf text, valor_total numeric, valor_icms numeric, valor_ipi numeric, natureza_operacao text, finalidade text, chave_referenciada text, status text, motivo_rejeicao text, protocolo text, xml_url text, danfe_url text, xml_storage_path text, danfe_storage_path text, provider_reference text, criado_em timestamp with time zone, origem_tipo text, origem_id uuid, total_geral bigint)
  LANGUAGE sql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
@@ -72,6 +78,8 @@ AS $function$
     SELECT * FROM erp_nfe_emitidas n
     WHERE n.company_id = p_company_id
       AND (p_status IS NULL OR n.status = p_status)
+      -- rejeitada = tentativa, não documento: escondida por padrão (a menos que o usuário peça)
+      AND (NOT p_ocultar_rejeitadas OR p_status = 'rejeitada' OR n.status <> 'rejeitada')
       AND (p_finalidade IS NULL OR n.finalidade = p_finalidade)
       AND (p_data_inicio IS NULL OR n.data_emissao >= p_data_inicio::timestamptz)
       AND (p_data_fim IS NULL OR n.data_emissao <= (p_data_fim + 1)::timestamptz)

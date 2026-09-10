@@ -110,6 +110,8 @@ export default function NFeListClient() {
   const [pagina, setPagina] = useState(1)
   const [statusFiltro, setStatusFiltro] = useState<string>('')
   const [finalidadeFiltro, setFinalidadeFiltro] = useState<string>('')
+  // rejeitada é tentativa, não documento fiscal → escondida por padrão (decisão do CEO)
+  const [ocultarRejeitadas, setOcultarRejeitadas] = useState<boolean>(true)
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [busca, setBusca] = useState('')
@@ -221,6 +223,7 @@ export default function NFeListClient() {
         p_finalidade: finalidadeFiltro || null,
         p_limit: PAGE_SIZE,
         p_offset: (pagina - 1) * PAGE_SIZE,
+        p_ocultar_rejeitadas: statusFiltro === 'rejeitada' ? false : ocultarRejeitadas,
       })
       if (error) throw error
       const rows = (data ?? []) as NFeRow[]
@@ -231,7 +234,7 @@ export default function NFeListClient() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey])
+  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey, ocultarRejeitadas])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -374,6 +377,12 @@ export default function NFeListClient() {
                 <option value="cancelada">Cancelada</option>
                 <option value="denegada">Denegada</option>
               </select>
+              {/* rejeitada = tentativa, não documento fiscal → escondida por padrão */}
+              <label className="mt-2 flex items-center gap-1.5 text-[11px] text-[#3D2314]/70 cursor-pointer">
+                <input type="checkbox" checked={!ocultarRejeitadas} disabled={statusFiltro === 'rejeitada'}
+                  onChange={(e) => { setOcultarRejeitadas(!e.target.checked); setPagina(1) }} />
+                Mostrar rejeitadas (tentativas)
+              </label>
             </div>
             <div>
               <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Finalidade</label>
