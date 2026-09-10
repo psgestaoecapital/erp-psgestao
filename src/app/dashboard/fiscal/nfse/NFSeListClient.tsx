@@ -86,6 +86,13 @@ export default function NFSeListClient() {
   const [emitirAberto, setEmitirAberto] = useState(false)
   const [consultando, setConsultando] = useState<string | null>(null)
   const [producaoDisponivel, setProducaoDisponivel] = useState(false)
+  // #30 (Rodrigo): nota rejeitada precisa poder ser corrigida e reenviada. Guardamos as seeds da nota
+  // rejeitada pra reabrir o modal de emissão já preenchido (o usuário conserta o que a prefeitura recusou).
+  const [reemitir, setReemitir] = useState<null | {
+    tomadorDocumento?: string; tomadorTipo?: 'cpf' | 'cnpj'; tomadorNome?: string; tomadorEmail?: string
+    descricaoServico?: string; valorServicos?: number; codigoServicoMunicipio?: string; aliquotaIss?: number
+  }>(null)
+  const [preparandoReenvio, setPreparandoReenvio] = useState<string | null>(null)
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -166,6 +173,40 @@ export default function NFSeListClient() {
   function aplicarBusca() {
     setBuscaSubmit(busca.trim())
     setPagina(1)
+  }
+
+  // #30 (Rodrigo): "corrigir e reenviar" uma NFS-e rejeitada. A listagem não traz código de serviço,
+  // alíquota nem e-mail do tomador — busco só esses no registro (RLS tenant_isolation por empresa) e
+  // reabro o modal de emissão com tudo pré-preenchido. O usuário conserta o que a prefeitura recusou
+  // (o motivo aparece logo acima do botão) e reenvia — gera uma nova emissão; a rejeitada fica no
+  // histórico. Sem retrabalho de redigitar a nota inteira.
+  async function corrigirEReenviar(row: NFSeRow) {
+    setPreparandoReenvio(row.id)
+    try {
+      const { data } = await supabase
+        .from('erp_nfse_emitidas')
+        .select('codigo_servico, aliquota_iss, tomador_email')
+        .eq('id', row.id)
+        .maybeSingle()
+      const extra = (data ?? {}) as {
+        codigo_servico?: string | null; aliquota_iss?: number | null; tomador_email?: string | null
+      }
+      const cnpj = (row.tomador_cnpj ?? '').replace(/\D/g, '')
+      const cpf = (row.tomador_cpf ?? '').replace(/\D/g, '')
+      setReemitir({
+        tomadorDocumento: cnpj || cpf || undefined,
+        tomadorTipo: cnpj ? 'cnpj' : cpf ? 'cpf' : undefined,
+        tomadorNome: row.tomador_razao_social ?? undefined,
+        tomadorEmail: extra.tomador_email ?? undefined,
+        descricaoServico: row.descricao_servico ?? undefined,
+        valorServicos: row.valor_servicos ?? undefined,
+        codigoServicoMunicipio: extra.codigo_servico ?? undefined,
+        aliquotaIss: extra.aliquota_iss ?? undefined,
+      })
+      setEmitirAberto(true)
+    } finally {
+      setPreparandoReenvio(null)
+    }
   }
 
   async function consultarStatus(recordId: string) {
@@ -283,7 +324,7 @@ export default function NFSeListClient() {
               )}
               <button
                 type="button"
-                onClick={() => setEmitirAberto(true)}
+                onClick={() => { setReemitir(null); setEmitirAberto(true) }}
                 data-testid="nfse-nova"
                 className="inline-flex items-center gap-2 bg-[#C8941A] hover:bg-[#B07F12] text-[#3D2314] font-medium text-[13px] px-4 py-2.5 rounded-md shadow-sm"
               >
@@ -297,9 +338,17 @@ export default function NFSeListClient() {
           <NFSeEmitirGovModal
             companyId={companyId}
             aberto={emitirAberto}
-            onFechar={() => setEmitirAberto(false)}
+            onFechar={() => { setEmitirAberto(false); setReemitir(null) }}
             onEmitida={() => { setPagina(1); carregar() }}
             producaoDisponivel={producaoDisponivel}
+            tomadorDocumento={reemitir?.tomadorDocumento}
+            tomadorTipo={reemitir?.tomadorTipo}
+            tomadorNome={reemitir?.tomadorNome}
+            tomadorEmail={reemitir?.tomadorEmail}
+            descricaoServico={reemitir?.descricaoServico}
+            valorServicos={reemitir?.valorServicos}
+            codigoServicoMunicipio={reemitir?.codigoServicoMunicipio}
+            aliquotaIss={reemitir?.aliquotaIss}
           />
         )}
 
@@ -474,7 +523,25 @@ export default function NFSeListClient() {
                                   </div>
                                 )}
                               </div>
-                              <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex gap-2 mt-3 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                                {row.status === 'rejeitada' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => corrigirEReenviar(row)}
+                                    disabled={preparandoReenvio === row.id}
+                                    data-testid="nfse-corrigir-reenviar"
+                                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50"
+                                  >
+                                    {preparandoReenvio === row.id ? (
+                                      <Loader2 size={12} className="animate-spin" />
+                                    ) : (
+                                      <RefreshCw size={12} />
+                                    )}
+                                    Corrigir e reenviar
+                                  </button>
+                                )}
+                                {/* nota rejeitada não tem XML/PDF (nunca foi autorizada) — só o reenvio */}
+                                {row.status !== 'rejeitada' && (
                                 <button
                                   type="button"
                                   onClick={() => baixar(row, 'xml')}
@@ -489,6 +556,8 @@ export default function NFSeListClient() {
                                   )}
                                   XML
                                 </button>
+                                )}
+                                {row.status !== 'rejeitada' && (
                                 <button
                                   type="button"
                                   onClick={() => baixar(row, 'pdf')}
@@ -503,6 +572,7 @@ export default function NFSeListClient() {
                                   )}
                                   PDF
                                 </button>
+                                )}
                               </div>
                             </td>
                           </tr>
