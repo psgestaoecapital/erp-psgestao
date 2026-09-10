@@ -491,9 +491,16 @@ export class FocusNFeProvider implements FiscalProvider {
     if (justificativa.length < 15) {
       throw new FiscalError('PAYLOAD_INVALIDO', 'Justificativa de cancelamento exige minimo 15 caracteres')
     }
+    // O cancelamento de NF-e na Focus (/v2/nfe) espera a justificativa no CORPO (JSON).
+    // Enviando so na query string, o corpo vai vazio e a Focus responde
+    // "Recebida requisicao vazia quando eram esperados dados" -> a nota NAO e cancelada
+    // (era o caso da NF-e nº8 KGF: 0 NF-e canceladas historicamente). Mantemos a query
+    // string por compatibilidade e passamos tambem o corpo. (A NFS-e usa outro endpoint e
+    // aceita so a query string, por isso o cancelamento de NFS-e ja funcionava.)
     const data = await this.request<FocusNFeNFeResponse>(
       'DELETE',
-      `/v2/nfe/${encodeURIComponent(chave)}?justificativa=${encodeURIComponent(justificativa)}`
+      `/v2/nfe/${encodeURIComponent(chave)}?justificativa=${encodeURIComponent(justificativa)}`,
+      { justificativa }
     )
     return this.mapFocusNFeResponse(chave, data)
   }
