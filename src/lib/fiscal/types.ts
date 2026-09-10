@@ -100,6 +100,10 @@ export interface NFeRequest {
     // (ex.: devolucao de compra a um fornecedor/distribuidor) — sem ela a SEFAZ rejeita
     // "IE do destinatario nao informada". Ausente/vazia => tratado como nao contribuinte.
     inscricaoEstadual?: string
+    // indIEDest declarado no cadastro: 1=contribuinte (manda a IE) · 2=isento de inscricao
+    // (declarado, SEM numero de IE) · 9=nao contribuinte. "isento" != "sem IE": um e escolha,
+    // o outro e ausencia de dado. Quando ausente, o provider deriva de ter IE (1) ou nao (9).
+    indicadorIE?: 1 | 2 | 9
     email?: string
     endereco?: EnderecoFiscal
   }

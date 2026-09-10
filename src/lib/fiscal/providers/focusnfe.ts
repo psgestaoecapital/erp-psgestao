@@ -368,6 +368,10 @@ export class FocusNFeProvider implements FiscalProvider {
 
     // IE do destinatario (so digitos). Se vazia, destinatario e tratado como nao contribuinte (9).
     const ieDestinatario = req.destinatario.inscricaoEstadual?.replace(/\D/g, '') || undefined
+    // indIEDest: usa o INDICADOR declarado no cadastro quando houver (1 contribuinte / 2 isento /
+    // 9 nao contribuinte); senao deriva de ter IE. "isento" (2) e "nao contribuinte" (9) NAO mandam
+    // numero de IE — so o contribuinte (1) manda. Isento declarado != sem IE (dado ausente).
+    const indIEDest: 1 | 2 | 9 = req.destinatario.indicadorIE ?? (ieDestinatario ? 1 : 9)
 
     // FIX-NFE-FRETE-RATEIO-v1 · rateia frete/seguro/outras pelos itens (proporcional ao valor; resíduo
     // no último) pra a soma dos itens bater com o total da nota. Só quando o total é informado.
@@ -408,8 +412,8 @@ export class FocusNFeProvider implements FiscalProvider {
       // FIX-NFE-IE-DESTINATARIO-v1 · SEFAZ rejeita "IE do destinatario nao informada" numa
       // devolucao a fornecedor contribuinte (Impave/KGF, 09/09). indIEDest: 1=contribuinte (manda
       // a IE), 9=nao contribuinte (sem IE). Com IE presente -> 1 + inscricao_estadual_destinatario.
-      indicador_inscricao_estadual_destinatario: ieDestinatario ? 1 : 9,
-      ...(ieDestinatario ? { inscricao_estadual_destinatario: ieDestinatario } : {}),
+      indicador_inscricao_estadual_destinatario: indIEDest,
+      ...(indIEDest === 1 && ieDestinatario ? { inscricao_estadual_destinatario: ieDestinatario } : {}),
       logradouro_destinatario: req.destinatario.endereco?.logradouro,
       numero_destinatario: req.destinatario.endereco?.numero,
       bairro_destinatario: req.destinatario.endereco?.bairro,

@@ -62,7 +62,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     // Busca o fornecedor (vira destinatario da NF-e de devolucao)
     const { data: forn, error: errForn } = await supabaseAdmin
       .from('erp_fornecedores')
-      .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, ie, email, logradouro, numero, complemento, bairro, cidade, uf, cep')
+      .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, ie, contribuinte_icms, email, logradouro, numero, complemento, bairro, cidade, uf, cep')
       .eq('id', body.fornecedorId)
       .eq('company_id', body.companyId)
       .maybeSingle()
@@ -91,6 +91,24 @@ export const POST = withAuth(async (req: NextRequest) => {
       ieDest = String(notaCompra?.emitente_ie ?? '').replace(/\D/g, '')
     }
 
+    // indIEDest declarado no cadastro: contribuinte(1)/isento(2)/nao_contribuinte(9). undefined = nao declarado.
+    const indMap: Record<string, 1 | 2 | 9> = { contribuinte: 1, isento: 2, nao_contribuinte: 9 }
+    const indicadorIE = indMap[String((forn as { contribuinte_icms?: string | null }).contribuinte_icms ?? '')]
+
+    // TRAVA (principio do #32: nao emitir sabendo que vai falhar). Sem IE (nem no cadastro nem na nota de
+    // compra) E sem declaracao de isento/nao-contribuinte, a SEFAZ rejeita "IE do destinatario nao
+    // informada". Barra ANTES de emitir e manda completar o cadastro — em vez de gastar uma rejeicao.
+    if (!ieDest && indicadorIE !== 2 && indicadorIE !== 9) {
+      return NextResponse.json({
+        ok: false,
+        erro: 'destinatario_sem_ie',
+        fornecedorId: forn.id,
+        mensagem: 'Fornecedor sem Inscrição Estadual. Se é contribuinte de ICMS, informe a IE no cadastro; '
+          + 'se é isento ou não contribuinte, declare isso no campo "Contribuinte ICMS". '
+          + 'Sem isso a SEFAZ rejeita a devolução ("IE do destinatário não informada").',
+      }, { status: 422 })
+    }
+
     // CSOSN da devolucao: editavel na tela (body.csosnIcms) -> config da empresa -> 900. Injetado em
     // cada item que traz ICMS a devolver (base/valor espelhados da entrada). CSOSN 900 permite informar
     // o ICMS no Simples; hardcoded viraria erro fiscal, entao e configuravel (RD do CEO 09/09).
@@ -116,6 +134,7 @@ export const POST = withAuth(async (req: NextRequest) => {
           cnpj: ehCnpj ? docForn : undefined,
           cpf: !ehCnpj ? docForn : undefined,
           inscricaoEstadual: ieDest || undefined,
+          indicadorIE,
           email: forn.email ?? undefined,
           endereco: forn.logradouro
             ? {
