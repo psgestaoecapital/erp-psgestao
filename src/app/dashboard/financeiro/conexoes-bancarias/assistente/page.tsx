@@ -209,16 +209,25 @@ export default function AssistenteConexaoPage() {
                   <div style={{ fontSize: 10, color: ESP60 }}>Vem: scopes · ambiente · carteira · conta. 🔒 Nunca vem: certificado, senha, apikey.</div>
                 </div>
               )}
+              {/* chamado #14 (Rodrigo/Bradesco): deixar EXPLÍCITO que estes campos são um MODELO (preview) do
+                  que pedir ao banco — não é aqui que se digita. Os inputs abaixo são desabilitados de
+                  propósito (RD-53: o assistente só lê/cria; o segredo é salvo com segurança na tela Conectar).
+                  Antes, sem esse aviso, o preview desabilitado era lido como "campos bloqueados". */}
+              <div style={{ background: BG, border: `1px solid ${LINE}`, borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{ fontSize: 12.5, color: ESP, fontWeight: 700, marginBottom: 4 }}>👇 Abaixo é um <u>modelo</u> — a lista do que pedir ao banco.</div>
+                <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Estes campos ficam <b>propositalmente desabilitados aqui</b> (é só uma referência). Para <b>preencher e salvar</b> as credenciais com segurança (Vault), abra a tela Conectar:</div>
+                <Link href="/dashboard/financeiro/conexoes-bancarias" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: GOLD, color: '#fff', padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>✏️ Preencher / editar credenciais do {man.nome} →</Link>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
                 {(man.campos ?? []).filter((c) => !(man.campos_ausentes ?? []).includes(c.id)).map((c) => (
                   <div key={c.id}>
                     <div style={{ fontSize: 11, color: ESP60 }}>{c.label}{c.secret ? ' 🔒' : ''}</div>
-                    <input disabled placeholder={c.exemplo ? `ex.: ${c.exemplo}` : c.tipo === 'arquivo' ? 'anexar .pfx (na tela Conectar)' : ''} style={{ width: '100%', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12, background: '#faf8f4' }} />
+                    <input disabled title="Campo apenas ilustrativo — preencha na tela Conectar" placeholder={c.exemplo ? `ex.: ${c.exemplo}` : c.tipo === 'arquivo' ? 'anexar .pfx (na tela Conectar)' : ''} style={{ width: '100%', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12, background: '#faf8f4' }} />
                     {c.helper && <small style={{ fontSize: 10, color: ESP60, display: 'block', marginTop: 2 }}>{c.helper}</small>}
                   </div>
                 ))}
               </div>
-              <div style={{ fontSize: 11, color: ESP60, marginTop: 8 }}>Para salvar o certificado/segredo com segurança (Vault), use <Link href="/dashboard/financeiro/conexoes-bancarias" style={{ color: GOLD }}>Conectar → {man.nome}</Link>. Os campos ausentes deste banco nem aparecem aqui.</div>
+              <div style={{ fontSize: 11, color: ESP60, marginTop: 8 }}>Os campos ausentes deste banco nem aparecem aqui.</div>
             </Card>
 
             {/* ③ TESTAR — a escada honesta (BLOCO 6: teste real) */}
