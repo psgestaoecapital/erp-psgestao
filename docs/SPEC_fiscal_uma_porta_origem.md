@@ -21,17 +21,20 @@ quem opera prepara, o núcleo executa o ato fiscal/financeiro.
   ancorada no pedido). Emissão real acontece por `/api/fiscal/nfse/emitir`.
 - **A nota já tem âncoras, mas ESPALHADAS:** `erp_nfse_emitidas` tem `pedido_id`, `os_id`, `obra_id`
   (colunas separadas); `erp_nfe_emitidas` tem `pedido_id`, `os_id`, `erp_receber_id`,
-  `chave_referenciada`. **Não há uma origem unificada** — por isso a **nº 9** (devolução de compra
-  avulsa, autorizada) fica **invisível**: nenhuma âncora de pedido/receber aponta pra ela.
+  `chave_referenciada`. **Não há uma origem unificada.** (Correção do CEO: a **nº 9** NÃO estava
+  invisível — ela **aparece** em NFes Emitidas; o que falta é **saber de onde ela veio** e **filtrar**
+  por isso. Ela só não surge nas telas ancoradas em pedido/conta a receber, porque nenhuma âncora dessas
+  aponta pra ela.)
 - **Sem campo de CNO** (Cadastro Nacional de Obras) na nota.
 
 ## 3. Proposta
 
 ### 3.1 Uma porta
 Só `/dashboard/fiscal/*` **emite**. `/dashboard/services/nfse` e `/dashboard/commerce/otc`
-**deixam de emitir** — passam a **preparar**: montam os dados e **abrem a porta fiscal
-pré-preenchida** (ou enfileiram pra ela). A vertical continua **vendo** sua nota (via origem, §3.2),
-mas o **ato** de emitir é um só, no Fiscal.
+**deixam de emitir** — passam a **preparar**: o botão "Faturar" **redireciona** direto pra porta
+fiscal **pré-preenchida** (decisão do CEO §6.1: **redireciona, não fila** — fila cria um estado a mais
+pra alguém esquecer). A vertical continua **vendo** sua nota (via origem, §3.2), mas o **ato** de
+emitir é um só, no Fiscal.
 
 ### 3.2 Origem da nota (o que costura tudo sem duplicar)
 A nota guarda **`origem_tipo` + `origem_id`**:
@@ -43,10 +46,10 @@ origem_id   = id da entidade de origem (NULL quando avulsa)
 
 - Unifica os `pedido_id`/`os_id`/`obra_id` de hoje (migração de dados: backfill de `origem_tipo/id`
   a partir das colunas existentes; elas viram derivadas/legado, não se apaga nada — RD-30).
-- Faz a nota aparecer **na tela da vertical E no Fiscal sem duplicar** (a vertical filtra por
-  `origem_tipo/origem_id`; o Fiscal lista todas).
-- **Resolve a nº 9:** devolução de compra avulsa recebe `origem_tipo='devolucao_compra'` (ou
-  `avulsa`), passando a ser encontrável — some a "nota autorizada invisível".
+- Faz a nota ser **filtrável na vertical E no Fiscal sem duplicar** (a vertical filtra por
+  `origem_tipo/origem_id`; o Fiscal lista todas e mostra a origem).
+- **Serve a nº 9 pela razão certa:** a devolução de compra recebe `origem_tipo='devolucao_compra'` —
+  não pra "fazer aparecer" (ela já aparece), mas pra dizer **de onde veio** e permitir filtrar/rastrear.
 
 ### 3.3 O CNO mora na NOTA, sempre
 - **Com obra:** o CNO vem **pré-preenchido da obra**, editável.
@@ -78,8 +81,8 @@ das verticais perdem o botão "emitir" e ganham "preparar / enviar pro Fiscal".
 - Unificação NF-e × NFS-e num único emissor (cada modelo tem sua porta dentro de `/dashboard/fiscal/*`).
 
 ## 8. Plano de prova (quando construir)
-- ROLLBACK: nota de cada `origem_tipo` aparece na vertical certa E no Fiscal, sem duplicar;
-  nº 9 (devolucao_compra/avulsa) passa a ser encontrável.
+- ROLLBACK: nota de cada `origem_tipo` filtrável na vertical certa E no Fiscal, sem duplicar;
+  a nº 9 recebe `origem_tipo='devolucao_compra'` (provado: já é assim após o backfill do PR #1373).
 - Sem regressão: notas antigas (com `pedido_id/os_id/obra_id`) recebem `origem_tipo/id` no backfill
   e continuam visíveis onde já apareciam.
 - CNO: com obra pré-preenche e edita; sem obra digita; emissão sem Projetos funciona.
