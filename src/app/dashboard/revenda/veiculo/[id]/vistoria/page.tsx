@@ -143,7 +143,11 @@ function Inner() {
   async function uploadFoto(rg: Regiao, file: File) {
     if (!vistoriaId || !companyId) return
     const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
-    const path = `vistorias/${companyId}/${vistoriaId}/${rg.regiao_id}/${Date.now()}.${ext}`
+    // Storage RLS do bucket (revenda-veiculos) exige o company_id como PRIMEIRO segmento do path
+    // (split_part(name,'/',1) IN get_user_company_ids) — as políticas veic_foto_* de 2026-09-03.
+    // O path antigo começava por 'vistorias/' → a policy negava o INSERT e a foto NUNCA subia
+    // (#21/#22/#33 do Fábio: "não sobe a foto no pátio"). company_id primeiro reusa a policy provada.
+    const path = `${companyId}/vistorias/${vistoriaId}/${rg.regiao_id}/${Date.now()}.${ext}`
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
     if (upErr) { setErro('Falha no upload da foto: ' + upErr.message); return }
     const { data: j } = await supabase.rpc('fn_insp_foto_registrar', { p_vistoria_id: vistoriaId, p_regiao_id: rg.regiao_id, p_storage_path: path, p_legenda: rg.foto_rotulo, p_user: await userId() })
