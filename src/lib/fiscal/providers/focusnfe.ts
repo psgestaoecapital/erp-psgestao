@@ -322,6 +322,30 @@ export class FocusNFeProvider implements FiscalProvider {
     }
   }
 
+  // FIX-NFE-FRETE-RATEIO-v1 (#1351 mandava só o total): a SEFAZ exige que a soma do frete/seguro/
+  // outras dos ITENS bata com o total da nota (ICMSTot). Sem ratear, o total ia com valor e os itens
+  // com 0 → "Total do Frete difere do somatório dos itens" (devolução 111040 da Jordana, 10/09).
+  // Rateia proporcional ao valor de cada item; o RESÍDUO de centavos vai no último (fecha exato).
+  // Genérico: 1 item recebe o total inteiro; N itens, proporcional. Soma == total sempre.
+  private ratearValor(total: number, pesos: number[]): number[] {
+    const n = pesos.length
+    if (n === 0) return []
+    const totalCent = Math.round(total * 100)
+    if (totalCent === 0) return pesos.map(() => 0)
+    const somaPesos = pesos.reduce((a, b) => a + b, 0)
+    const out: number[] = []
+    let acumulado = 0
+    for (let i = 0; i < n - 1; i++) {
+      const parcela = somaPesos > 0
+        ? Math.round(totalCent * (pesos[i] / somaPesos))
+        : Math.round(totalCent / n)
+      out.push(parcela)
+      acumulado += parcela
+    }
+    out.push(totalCent - acumulado) // resíduo no último → soma bate exatamente com o total
+    return out.map((c) => c / 100)
+  }
+
   // GE-F5 NFe produto
   async emitirNFe(req: NFeRequest): Promise<NFeResponse> {
     const referencia = `nfe-${Date.now()}`
@@ -344,6 +368,13 @@ export class FocusNFeProvider implements FiscalProvider {
 
     // IE do destinatario (so digitos). Se vazia, destinatario e tratado como nao contribuinte (9).
     const ieDestinatario = req.destinatario.inscricaoEstadual?.replace(/\D/g, '') || undefined
+
+    // FIX-NFE-FRETE-RATEIO-v1 · rateia frete/seguro/outras pelos itens (proporcional ao valor; resíduo
+    // no último) pra a soma dos itens bater com o total da nota. Só quando o total é informado.
+    const pesosItens = req.itens.map((i) => i.valorTotal)
+    const freteItem = req.totais?.frete ? this.ratearValor(req.totais.frete, pesosItens) : null
+    const seguroItem = req.totais?.seguro ? this.ratearValor(req.totais.seguro, pesosItens) : null
+    const outrasItem = req.totais?.outrasDespesas ? this.ratearValor(req.totais.outrasDespesas, pesosItens) : null
 
     const payload = {
       natureza_operacao: req.naturezaOperacao,
@@ -416,6 +447,10 @@ export class FocusNFeProvider implements FiscalProvider {
         pis_aliquota_porcentual: item.pis?.aliquota,
         cofins_situacao_tributaria: item.cofins?.cst,
         cofins_aliquota_porcentual: item.cofins?.aliquota,
+        // FIX-NFE-FRETE-RATEIO-v1 · frete/seguro/outras rateados por item (soma = total da nota)
+        ...(freteItem ? { valor_frete: freteItem[idx] } : {}),
+        ...(seguroItem ? { valor_seguro: seguroItem[idx] } : {}),
+        ...(outrasItem ? { valor_outras_despesas: outrasItem[idx] } : {}),
       })),
     }
 
