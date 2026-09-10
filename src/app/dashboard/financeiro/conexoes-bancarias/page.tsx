@@ -94,6 +94,37 @@ function providerCanonico(sigla: string, amb: Ambiente): string {
   return `banco_${sigla}_${amb === 'producao' ? 'prod' : 'homolog'}`
 }
 
+// chamado #14 · Teste de conexão. Histórico do último teste por config (erp_banco_teste_conexao).
+type UltimoTeste = {
+  status: string
+  cert_status: string | null
+  cert_expira_em: string | null
+  auth_ok: boolean | null
+  erro: string | null
+  testado_em: string
+  testado_por_email: string | null
+}
+// Resposta da rota /api/banco/testar-conexao.
+type RespTeste = {
+  ok?: boolean
+  status?: string
+  erro?: string | null
+  auth_ok?: boolean | null
+  cert?: { status?: string; dias_para_vencer?: number | null; not_after?: string | null } | null
+}
+// Monta a frase pro usuário a partir da resposta — mostra o erro REAL do banco quando falha.
+function montarTextoTeste(j: RespTeste): string {
+  if (j?.status === 'erro') return j.erro || 'Falhou (sem detalhe do banco).'
+  const partes: string[] = []
+  if (j?.auth_ok) partes.push('autenticou no banco')
+  const cs = j?.cert?.status
+  if (cs === 'ok') partes.push('certificado válido')
+  else if (cs === 'expirando') partes.push(`certificado vence em ${j?.cert?.dias_para_vencer ?? '?'} dia(s)`)
+  else if (cs === 'vencido') partes.push('certificado VENCIDO')
+  if (partes.length === 0) return j?.erro || 'Sem detalhes.'
+  return `Conectou — ${partes.join(' · ')}. Nada foi emitido nem enviado.`
+}
+
 export default function ConexoesBancariasPage() {
   const { companyIds } = useCompanyIds()
   const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
@@ -106,6 +137,7 @@ export default function ConexoesBancariasPage() {
   const [syncing, setSyncing] = useState<string | null>(null)
   const [testando, setTestando] = useState<string | null>(null)
   const [testeResultado, setTesteResultado] = useState<Record<string, { ok: boolean; texto: string }>>({})
+  const [ultimosTestes, setUltimosTestes] = useState<Record<string, UltimoTeste>>({})   // chamado #14: último teste por config
   const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
   // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
   const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
@@ -114,7 +146,7 @@ export default function ConexoesBancariasPage() {
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     setLoading(true); setErro(null)
-    const [cfgRes, contasRes] = await Promise.all([
+    const [cfgRes, contasRes, testesRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
         .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
         .eq('company_id', empresaUnica)
@@ -122,10 +154,22 @@ export default function ConexoesBancariasPage() {
       supabase.from('erp_banco_contas')
         .select('id, nome, banco')
         .eq('company_id', empresaUnica),
+      // chamado #14: último teste de conexão por config (mais recente primeiro)
+      supabase.from('erp_banco_teste_conexao')
+        .select('provider_config_id, status, cert_status, cert_expira_em, auth_ok, erro, testado_em, testado_por_email')
+        .eq('company_id', empresaUnica)
+        .order('testado_em', { ascending: false }),
     ])
     if (cfgRes.error) setErro(cfgRes.error.message)
     else setConfigs((cfgRes.data ?? []) as ProviderConfig[])
     if (!contasRes.error) setContas((contasRes.data ?? []) as BancoConta[])
+    if (!testesRes.error) {
+      const mapa: Record<string, UltimoTeste> = {}
+      for (const row of (testesRes.data ?? []) as (UltimoTeste & { provider_config_id: string | null })[]) {
+        if (row.provider_config_id && !mapa[row.provider_config_id]) mapa[row.provider_config_id] = row
+      }
+      setUltimosTestes(mapa)
+    }
     setLoading(false)
   }, [empresaUnica])
 
@@ -151,25 +195,25 @@ export default function ConexoesBancariasPage() {
     finally { setSyncing(null) }
   }
 
-  // Bancos com rota de "Testar conexão" (ping por sessão). Cresce conforme os adapters.
-  const PING_PROVIDERS = new Set(['sicredi'])
-
-  const testarConexao = async (cfg: ProviderConfig, sigla: string) => {
+  // chamado #14 · Teste de conexão GENÉRICO (Sicoob, Sicredi, Bradesco e qualquer banco): valida o
+  // certificado + autentica no banco (leitura, não escreve nada). Erro REAL do banco + histórico.
+  const testarConexao = async (cfg: ProviderConfig) => {
     setTestando(cfg.id); setErro(null); setMsg(null)
     setTesteResultado((m) => { const n = { ...m }; delete n[cfg.id]; return n })
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const r = await fetch(`/api/banco/${sigla}/ping`, {
+      const r = await fetch('/api/banco/testar-conexao', {
         method: 'POST', credentials: 'include',
         headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
-        body: JSON.stringify({ company_id: cfg.company_id, ambiente: cfg.ambiente }),
+        body: JSON.stringify({ company_id: cfg.company_id, provider_config_id: cfg.id }),
       })
-      const j = await r.json()
-      if (j.ok && j.autenticou) {
-        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: true, texto: `Conectou — autenticou em ${cfg.ambiente}` } }))
-      } else {
+      const j = (await r.json().catch(() => ({}))) as RespTeste
+      if (!r.ok && !j.status) {
         setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: j.erro || `Falhou (HTTP ${r.status})` } }))
+      } else {
+        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: j.status === 'ok' || j.status === 'parcial', texto: montarTextoTeste(j) } }))
       }
+      await carregar()   // recarrega o "último teste"
     } catch (e) {
       setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: (e as Error).message } }))
     } finally { setTestando(null) }
@@ -203,6 +247,44 @@ export default function ConexoesBancariasPage() {
       case 'homologacao':  return { texto: 'em homologação',          fundo: '#DBEAFE', cor: '#1E40AF' }
       default:             return { texto: 'não conectado',           fundo: '#F3F4F6', cor: '#6B7280' }
     }
+  }
+
+  // chamado #14 · botão + feedback do Teste de conexão (reusado nos cards "conectados" e "em configuração")
+  const botaoTestar = (cfg: ProviderConfig) => (
+    <button
+      type="button"
+      onClick={() => testarConexao(cfg)}
+      disabled={testando === cfg.id}
+      title="Valida o certificado e autentica no banco (leitura — NÃO emite boleto nem envia remessa)"
+      style={{
+        background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+        padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+        cursor: testando === cfg.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+      }}>
+      🔌 {testando === cfg.id ? 'Testando…' : 'Testar conexão'}
+    </button>
+  )
+  const feedbackTeste = (cfg: ProviderConfig) => {
+    const r = testeResultado[cfg.id]
+    if (r) {
+      return (
+        <div style={{
+          fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, maxWidth: 300, textAlign: 'right',
+          background: r.ok ? '#DCFCE7' : '#FEE2E2', color: r.ok ? '#166534' : '#B91C1C',
+        }}>
+          {r.ok ? '✅ ' : '❌ '}{r.texto}
+        </div>
+      )
+    }
+    const ult = ultimosTestes[cfg.id]
+    if (!ult) return null
+    const q = ult.status === 'ok' ? '✅ ok' : ult.status === 'parcial' ? '⚠️ atenção' : '❌ falhou'
+    const cor = ult.status === 'erro' ? '#B91C1C' : ult.status === 'parcial' ? '#7A5A0F' : ESP60
+    return (
+      <div style={{ fontSize: 10, color: cor, textAlign: 'right', maxWidth: 300 }}>
+        Último teste: {fmtData(ult.testado_em)} · {q}{ult.testado_por_email ? ` · ${ult.testado_por_email}` : ''}
+      </div>
+    )
   }
 
   return (
@@ -331,20 +413,7 @@ export default function ConexoesBancariasPage() {
                           }}>
                           🧾 Dados CNAB
                         </button>
-                        {bancoInfo && PING_PROVIDERS.has(bancoInfo.sigla) && cfg.ativo && (
-                          <button
-                            type="button"
-                            onClick={() => testarConexao(cfg, bancoInfo.sigla)}
-                            disabled={testando === cfg.id}
-                            style={{
-                              background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
-                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                              cursor: testando === cfg.id ? 'wait' : 'pointer',
-                              display: 'inline-flex', alignItems: 'center', gap: 4,
-                            }}>
-                            🔌 {testando === cfg.id ? 'Testando…' : 'Testar conexão'}
-                          </button>
-                        )}
+                        {cfg.ativo && botaoTestar(cfg)}
                         {cfg.cap_extrato && cfg.ativo && (
                           <button
                             type="button"
@@ -362,15 +431,7 @@ export default function ConexoesBancariasPage() {
                           </button>
                         )}
                       </div>
-                      {testeResultado[cfg.id] && (
-                        <div style={{
-                          fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, maxWidth: 280, textAlign: 'right',
-                          background: testeResultado[cfg.id].ok ? '#DCFCE7' : '#FEE2E2',
-                          color: testeResultado[cfg.id].ok ? '#166534' : '#B91C1C',
-                        }}>
-                          {testeResultado[cfg.id].ok ? '✅ ' : '❌ '}{testeResultado[cfg.id].texto}
-                        </div>
-                      )}
+                      {feedbackTeste(cfg)}
                     </div>
                   </div>
                 )
@@ -412,7 +473,8 @@ export default function ConexoesBancariasPage() {
                           {cfg.conta && `conta ${cfg.conta}`}{cfg.convenio ? ` · conv ${cfg.convenio}` : ''}
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         {/* chamado #14 (Rodrigo/Bradesco): "Continuar configuração" ABRE o formulário editável
                             (ConectarBancoModal), onde os campos são preenchíveis. Antes era um link para o
                             Assistente, cujos campos são um PREVIEW desabilitado — o Rodrigo lia como "campos
@@ -459,6 +521,9 @@ export default function ConexoesBancariasPage() {
                           }}>
                           🧭 Roteiro (guia)
                         </Link>
+                        {botaoTestar(cfg)}
+                        </div>
+                        {feedbackTeste(cfg)}
                       </div>
                     </div>
                   )
