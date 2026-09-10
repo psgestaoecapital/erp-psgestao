@@ -20,6 +20,8 @@ type Cliente = {
   nome_fantasia: string
   razao_social: string | null
   cpf_cnpj: string | null
+  cidade: string | null
+  uf: string | null
 }
 
 type Categoria = {
@@ -47,6 +49,9 @@ interface NovaReceitaFormProps {
 
 const exibirNomeCliente = (c: Cliente) =>
   c.nome_fantasia || c.razao_social || 'Sem nome'
+// #36: busca tolerante — minúsculas + sem acento, para casar "BRF"/"Seara" em qualquer posição do nome.
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const cidadeUf = (c: Cliente) => [c.cidade, c.uf].filter(Boolean).join('/')
 
 export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, initial }: NovaReceitaFormProps) {
   const router = useRouter()
@@ -63,6 +68,20 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
   const [clienteId, setClienteId] = useState(initial?.clienteId ?? '')
   const [clienteNome, setClienteNome] = useState(initial?.clienteNome ?? '')
+  const [clienteBusca, setClienteBusca] = useState('')   // #36: texto digitado na busca de cliente
+  const [clienteAberto, setClienteAberto] = useState(false)
+  // #36: busca por CNPJ e por QUALQUER posição do nome/cidade (não só início). A lista já vem completa
+  // do banco (sem limit), então filtramos client-side. Ex.: "BRF" acha os 22, "Seara" os 14.
+  const clientesFiltrados = useMemo(() => {
+    const t = norm(clienteBusca.trim())
+    const td = clienteBusca.replace(/\D/g, '')
+    if (!t) return clientes.slice(0, 50)
+    return clientes.filter((c) => {
+      const nome = norm(`${c.nome_fantasia || ''} ${c.razao_social || ''} ${cidadeUf(c)}`)
+      const doc = (c.cpf_cnpj || '').replace(/\D/g, '')
+      return nome.includes(t) || (td.length >= 2 && doc.includes(td))
+    }).slice(0, 50)
+  }, [clientes, clienteBusca])
   const [descricao, setDescricao] = useState(initial?.descricao ?? '')
   const [valor, setValor] = useState(initial?.valor ?? '')
   const [dataRecebimento, setDataRecebimento] = useState(
@@ -119,7 +138,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   async function recarregarClientes(): Promise<Cliente[]> {
     const { data } = await supabase
       .from('erp_clientes')
-      .select('id, nome_fantasia, razao_social, cpf_cnpj')
+      .select('id, nome_fantasia, razao_social, cpf_cnpj, cidade, uf')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome_fantasia')
@@ -204,7 +223,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       const [cli, cats, bcs, ccs] = await Promise.all([
         supabase
           .from('erp_clientes')
-          .select('id, nome_fantasia, razao_social, cpf_cnpj')
+          .select('id, nome_fantasia, razao_social, cpf_cnpj, cidade, uf')
           .eq('company_id', companyId)
           .eq('ativo', true)
           .order('nome_fantasia'),
@@ -549,22 +568,35 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
           <Campo label="De quem você vai receber?">
             <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
-              <select
-                value={clienteId}
-                onChange={(e) => {
-                  setClienteId(e.target.value)
-                  const c = clientes.find((x) => x.id === e.target.value)
-                  setClienteNome(c ? exibirNomeCliente(c) : '')
-                }}
-                style={{ ...inputStyle, flex: '1 1 180px', minWidth: 0 }}
-              >
-                <option value="">— sem cliente cadastrado —</option>
-                {clientes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {exibirNomeCliente(c)}
-                  </option>
-                ))}
-              </select>
+              {/* #36: busca de cliente por CNPJ e por QUALQUER posição do nome/cidade (combobox), com CNPJ + cidade/UF ao lado. */}
+              <div style={{ position: 'relative', flex: '1 1 180px', minWidth: 0 }}>
+                <input
+                  type="text"
+                  value={clienteId ? clienteNome : clienteBusca}
+                  onChange={(e) => { setClienteBusca(e.target.value); setClienteId(''); setClienteNome(''); setClienteAberto(true) }}
+                  onFocus={() => setClienteAberto(true)}
+                  onBlur={() => setTimeout(() => setClienteAberto(false), 150)}
+                  placeholder="Buscar por nome, CNPJ ou cidade…"
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+                {clienteAberto && (
+                  <div style={{ position: 'absolute', zIndex: 30, top: '100%', left: 0, right: 0, marginTop: 2, maxHeight: 260, overflowY: 'auto', background: '#fff', border: '1px solid #E0D8CC', borderRadius: 8, boxShadow: '0 6px 18px rgba(61,35,20,0.12)' }}>
+                    <div onMouseDown={() => { setClienteId(''); setClienteNome(''); setClienteBusca(''); setClienteAberto(false) }}
+                      style={{ padding: '8px 10px', fontSize: 12.5, color: '#6B5D4F', cursor: 'pointer' }}>— sem cliente cadastrado —</div>
+                    {clientesFiltrados.length === 0 && (
+                      <div style={{ padding: '8px 10px', fontSize: 12, color: '#9C8E80' }}>Nenhum cliente encontrado para “{clienteBusca}”.</div>
+                    )}
+                    {clientesFiltrados.map((c) => (
+                      <div key={c.id}
+                        onMouseDown={() => { setClienteId(c.id); setClienteNome(exibirNomeCliente(c)); setClienteBusca(''); setClienteAberto(false) }}
+                        style={{ padding: '7px 10px', cursor: 'pointer', borderTop: '1px solid #F0ECE3' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>{exibirNomeCliente(c)}</div>
+                        <div style={{ fontSize: 11, color: '#6B5D4F' }}>{[c.cpf_cnpj || 'sem CNPJ', cidadeUf(c) || 'sem cidade'].join(' · ')}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setClienteModal({ modo: 'novo' })}
