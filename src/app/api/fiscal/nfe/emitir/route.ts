@@ -67,6 +67,11 @@ export const POST = withAuth(async (req: NextRequest) => {
     const resposta = await svc.emitirNFe(nfeReq)
 
     const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+    // ICMS/IPI totais = soma do que cada item traz. Sem isso, a tela de NF-e emitidas mostrava
+    // "ICMS: —" nas notas NORMAIS (mesma lacuna que o #1361 fechou só na devolução). A RPC
+    // fn_registrar_nfe_emitida já lê valor_icms/valor_ipi do p_dados.
+    const valorIcms = Number(nfeReq.itens.reduce((acc, i) => acc + Number(i.icms?.valor ?? 0), 0).toFixed(2))
+    const valorIpi = Number(nfeReq.itens.reduce((acc, i) => acc + Number(i.ipi?.valor ?? 0), 0).toFixed(2))
 
     const dadosRegistro = {
       chave: resposta.chave,
@@ -77,6 +82,8 @@ export const POST = withAuth(async (req: NextRequest) => {
       finalidade: nfeReq.finalidade,
       valor_total: valorProdutos,
       valor_produtos: valorProdutos,
+      valor_icms: valorIcms,
+      valor_ipi: valorIpi,
       emitente_cnpj: nfeReq.emitente.cnpj,
       emitente_razao_social: nfeReq.emitente.razaoSocial,
       emitente_inscricao_estadual: nfeReq.emitente.inscricaoEstadual,
