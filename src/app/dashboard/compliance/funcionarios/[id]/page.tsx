@@ -7,6 +7,7 @@ import { authFetch } from '@/lib/authFetch'
 import { fmtData, fmtDataHora } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
+import MarcarDocsPessoa from './MarcarDocsPessoa'
 
 type Matriz = {
   tipo_documento_id: string | null
@@ -120,6 +121,9 @@ export default function FuncionarioDetalhePage() {
 
         {tab === 'dados' && funcionario && (
           <AbaDados funcionario={funcionario} onSaved={carregar} />
+        )}
+        {tab === 'documentos' && funcionario && (
+          <MarcarDocsPessoa companyId={funcionario.company_id} funcionarioId={funcionario.id} onChanged={carregar} />
         )}
         {tab === 'documentos' && (
           <AbaDocumentos
