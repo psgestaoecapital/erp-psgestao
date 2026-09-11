@@ -93,6 +93,7 @@ interface Lote {
   total_movimentos: number | null
   total_conciliados: number | null
   total_pendentes: number | null
+  total_ignorados: number | null
   created_at: string | null
 }
 
@@ -300,7 +301,7 @@ export default function InboxPage() {
     if (!empresaUnica) return
     const { data } = await supabase
       .from('conciliacao_lote')
-      .select('id,nome,tipo,periodo_inicio,periodo_fim,total_movimentos,total_conciliados,total_pendentes,created_at')
+      .select('id,nome,tipo,periodo_inicio,periodo_fim,total_movimentos,total_conciliados,total_pendentes,total_ignorados,created_at')
       .eq('company_id', empresaUnica)
       .order('created_at', { ascending: false })
     const lst = (data ?? []) as Lote[]
@@ -792,12 +793,16 @@ export default function InboxPage() {
   const conciliadosLote = loteSelId
     ? conciliados.filter((c) => c.lote_id === loteSelId)
     : conciliados
+  // #60: "resolvido" = conciliado + ignorado (ignorado é decisão tomada, não pendência).
+  // O contador e a % devem fechar em N/N quando não há pendentes — antes só contava conciliados.
+  const totConc = loteSel?.total_conciliados ?? conciliadosLote.length
+  const totIgn = loteSel?.total_ignorados ?? ignorados.length
+  const totResolv = totConc + totIgn
   const pctFech = loteSel && loteSel.total_movimentos
-    ? Math.round(100 * (loteSel.total_conciliados ?? 0) / loteSel.total_movimentos)
+    ? Math.round(100 * totResolv / loteSel.total_movimentos)
     : 0
   // fix-conciliacao-pendentes-filtro-lote-v1: contadores por lote, nao global
   const totPend = loteSel?.total_pendentes ?? items.length
-  const totConc = loteSel?.total_conciliados ?? conciliadosLote.length
   // Camada1/Fatia1 (08/07): indicadores aditivos da conciliacao
   const valorPendente = items.reduce((s, i) => s + Math.abs(Number(i.valor) || 0), 0)      // item 1
   const qtdReceb = items.filter((i) => i.natureza === 'credito').length                     // item 4
@@ -879,7 +884,7 @@ export default function InboxPage() {
               {lotesDoTipo.length === 0 && <option value="">Nenhum lote {tipoExtrato === 'bancario' ? 'bancário' : 'de cartão'} importado</option>}
               {lotesDoTipo.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.nome ?? '(sem nome)'} — {l.total_conciliados ?? 0}/{l.total_movimentos ?? 0} ok
+                  {l.nome ?? '(sem nome)'} — {(l.total_conciliados ?? 0) + (l.total_ignorados ?? 0)}/{l.total_movimentos ?? 0} ok
                 </option>
               ))}
             </select>
@@ -891,7 +896,9 @@ export default function InboxPage() {
                   {loteSel.periodo_inicio && <> · {fmtDate(loteSel.periodo_inicio)} a {fmtDate(loteSel.periodo_fim)}</>}
                 </div>
                 <div style={{ fontSize: 12, color: '#3D2314', marginTop: 4 }}>
-                  <b style={{ color: '#C8941A' }}>{loteSel.total_conciliados ?? 0}</b> de {loteSel.total_movimentos ?? 0} conciliados
+                  {/* #60: resolvidos = conciliados + ignorados (ignorado é decisão, não pendência) */}
+                  <b style={{ color: '#C8941A' }}>{totResolv}</b> de {loteSel.total_movimentos ?? 0} resolvidos
+                  {totIgn > 0 && <> ({totConc} conciliados + {totIgn} ignorados)</>}
                   {(loteSel.total_pendentes ?? 0) > 0
                     ? <> · faltam <b>{loteSel.total_pendentes}</b></>
                     : <> · ✅ extrato fechado</>}
