@@ -227,8 +227,11 @@ function AbaImportar({ companyId }: { companyId: string }) {
     if (!f) return
     setBusy(true)
     try {
-      const rows = await parseArquivo(f)
-      if (rows.length === 0) { setParseErro('Não consegui ler linhas do arquivo. Confira o formato (CSV ou XLSX do relógio de ponto).'); return }
+      const { linhas: rows, amostra } = await parseArquivo(f)
+      if (rows.length === 0) {
+        setParseErro('Não reconheci o layout do arquivo. Esperava um cabeçalho com Data/Entrada/Saída, ou blocos por pessoa (nome + coluna "Data"). Primeiras linhas lidas: ' + (amostra.join('  •  ') || '(arquivo vazio)'))
+        return
+      }
       // resolver nome→CPF quando não houver CPF na linha
       const semCpf = Array.from(new Set(rows.filter(r => !r.cpf && r._nome).map(r => r._nome as string)))
       let mapa: Record<string, { cpf: string | null; casado: boolean }> = {}
@@ -251,6 +254,9 @@ function AbaImportar({ companyId }: { companyId: string }) {
 
   const enviar = async () => {
     if (!file || linhas.length === 0) return
+    // envia só as linhas com CPF resolvido; nomes sem cadastro ficam na prévia (não vão pro banco)
+    const payload = linhas.filter(l => l.cpf).map(l => ({ cpf: l.cpf, data: l.data, inicio: l.inicio, fim: l.fim, duracao_seg: l.duracao_seg, tipo: l.tipo }))
+    if (payload.length === 0) { setErro('Nenhum nome do arquivo casou com o cadastro de colaboradores — nada a importar. Cadastre-os em Compliance › Funcionários e tente de novo.'); return }
     setBusy(true); setErro(''); setResultado(null)
     try {
       const buf = await file.arrayBuffer()
@@ -265,7 +271,6 @@ function AbaImportar({ companyId }: { companyId: string }) {
         p_bytes: file.size, p_mime: file.type || null, p_periodo_ini: datas[0] || null, p_periodo_fim: datas[datas.length - 1] || null,
       })
       if (!reg.ok || !reg.upload_id) throw new Error(reg.mensagem || reg.erro || 'Falha ao registrar o upload.')
-      const payload = linhas.map(l => ({ cpf: l.cpf, data: l.data, inicio: l.inicio, fim: l.fim, duracao_seg: l.duracao_seg, tipo: l.tipo }))
       const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[]; erro?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
       if (!proc.ok) throw new Error(proc.erro || 'Falha ao processar as linhas.')
       setResultado({ lidas: proc.lidas, aceitas: proc.aceitas, rejeitadas: proc.rejeitadas, rejeitadas_detalhe: proc.rejeitadas_detalhe || [] })
@@ -571,8 +576,11 @@ async function sha256(buf: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-// lê CSV ou XLSX → array de objetos {header normalizado: valor}
-async function lerRows(file: File): Promise<Record<string, string>[]> {
+const txt = (v: unknown) => (v == null ? '' : String(v).trim())
+
+// lê CSV ou XLSX → linhas POSICIONAIS (array de células). Não assume cabeçalho — o layout
+// (tabular × hierárquico) é decidido depois. includeEmpty preserva a estrutura por blocos.
+async function lerRowsRaw(file: File): Promise<string[][]> {
   const ext = file.name.toLowerCase().split('.').pop()
   if (ext === 'xlsx') {
     const ExcelJS = (await import('exceljs')).default
@@ -580,36 +588,57 @@ async function lerRows(file: File): Promise<Record<string, string>[]> {
     await wb.xlsx.load(await file.arrayBuffer())
     const ws = wb.worksheets[0]
     if (!ws) return []
-    const headers: string[] = []
-    const out: Record<string, string>[] = []
-    ws.eachRow((row, n) => {
-      const vals = (row.values as unknown[]).slice(1).map(v => (v == null ? '' : String(typeof v === 'object' && v && 'text' in v ? (v as { text: string }).text : v)).trim())
-      if (n === 1) { vals.forEach(h => headers.push(norm(h))); return }
-      const obj: Record<string, string> = {}
-      headers.forEach((h, i) => { if (h) obj[h] = vals[i] ?? '' })
-      if (Object.values(obj).some(v => v)) out.push(obj)
+    const out: string[][] = []
+    ws.eachRow({ includeEmpty: true }, (row) => {
+      out.push((row.values as unknown[]).slice(1).map(v => txt(typeof v === 'object' && v && 'text' in v ? (v as { text: string }).text : v)))
     })
     return out
   }
-  // CSV
   const text = await file.text()
-  const linhas = text.split(/\r?\n/).filter(l => l.trim())
-  if (linhas.length < 2) return []
+  const linhas = text.split(/\r?\n/)
+  while (linhas.length && !linhas[linhas.length - 1].trim()) linhas.pop()
+  if (linhas.length === 0) return []
   const delim = (linhas[0].match(/;/g)?.length || 0) > (linhas[0].match(/,/g)?.length || 0) ? ';' : ','
-  const split = (l: string) => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim())
-  const headers = split(linhas[0]).map(norm)
-  return linhas.slice(1).map(l => { const vals = split(l); const o: Record<string, string> = {}; headers.forEach((h, i) => { if (h) o[h] = vals[i] ?? '' }); return o })
+  return linhas.map(l => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim()))
 }
 
+// ── layout HIERÁRQUICO (relatório IOPoint): blocos por pessoa (nome + col "Data") ──
+const IGNORAR_H = ['subtotal de eventos', 'total de eventos', 'emitido em', 'relatório', 'relatorio', '(visitante)', 'período', 'periodo']
+const ABERTO_H = new Set(['', '-', '- ', ' -'])
+const parseDataH = (s: string): string | null => { const b = txt(s).split(' - ')[0]; const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(b); return m ? `${m[3]}-${m[2]}-${m[1]}` : null }
+const parseDataHoraH = (s: string): string | null => { const m = /^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(txt(s)); return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6] ?? '00'}-03:00` : null }
+const parseDurH = (s: string): number | null => { const m = /^(\d+):(\d{2}):(\d{2})$/.exec(txt(s)); return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : null }
+
+function parseHierarquico(rows: string[][]): { linhas: LinhaImport[]; descartadas: number } {
+  let pessoa: string | null = null
+  const linhas: LinhaImport[] = []
+  let descartadas = 0
+  for (const raw of rows) {
+    const r = [...raw, '', '', '', '', '', ''].slice(0, 6)
+    const c0 = txt(r[0]), c1 = txt(r[1])
+    if (c0 && c1.toLowerCase() === 'data') { pessoa = c0; continue }          // cabeçalho de bloco
+    if (IGNORAR_H.some(p => c0.toLowerCase().startsWith(p))) continue          // ruído
+    const data = parseDataH(c1)
+    if (!c0 && data) {                                                        // evento
+      const inicio = parseDataHoraH(r[3])
+      const fim = ABERTO_H.has(txt(r[4])) ? null : parseDataHoraH(r[4])       // pausa em aberto → null (nunca zerar)
+      if (!pessoa || !inicio) { descartadas++; continue }
+      linhas.push({ cpf: '', data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
+      continue
+    }
+    if (c0 || c1) descartadas++
+  }
+  return { linhas, descartadas }
+}
+
+// ── layout TABULAR (cabeçalho na 1ª linha: CPF/Nome/Data/Entrada/Saída) — fallback ──
 const pick = (o: Record<string, string>, keys: string[]) => { for (const k of keys) if (o[k]) return o[k]; return '' }
-// data BR (dd/mm/aaaa) ou ISO → aaaa-mm-dd
 function toISODate(v: string): string {
   if (!v) return ''
   const br = v.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (br) return `${br[3]}-${br[2]}-${br[1]}`
   const isoM = v.match(/^(\d{4}-\d{2}-\d{2})/); if (isoM) return isoM[1]
   return v.slice(0, 10)
 }
-// combina data + hora em timestamptz -03:00; aceita valor já-timestamp
 function toTS(data: string, hora: string): string {
   if (!hora) return ''
   if (/\d{4}-\d{2}-\d{2}T/.test(hora) || /\d{4}-\d{2}-\d{2}\s\d{2}:/.test(hora)) return hora
@@ -618,24 +647,34 @@ function toTS(data: string, hora: string): string {
   if (!d || !hm) return ''
   return `${d}T${hm[1].padStart(2, '0')}:${hm[2]}:${hm[3] || '00'}-03:00`
 }
-
-async function parseArquivo(file: File): Promise<LinhaImport[]> {
-  const rows = await lerRows(file)
-  return rows.map(o => {
+function parseTabular(rows: string[][]): LinhaImport[] {
+  if (rows.length < 2) return []
+  const headers = rows[0].map(norm)
+  const objs = rows.slice(1).map(vals => { const o: Record<string, string> = {}; headers.forEach((h, i) => { if (h) o[h] = vals[i] ?? '' }); return o }).filter(o => Object.values(o).some(v => v))
+  return objs.map(o => {
     const cpf = pick(o, ['cpf']).replace(/\D/g, '')
     const nome = pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador'])
     const data = toISODate(pick(o, ['data', 'dia', 'data_pausa', 'data_movto', 'competencia']))
     const inicio = toTS(data, pick(o, ['inicio', 'entrada', 'hora_inicio', 'inicio_pausa', 'ini', 'hora_entrada']))
     const fimRaw = pick(o, ['fim', 'saida', 'hora_fim', 'fim_pausa', 'hora_saida'])
-    const fim = fimRaw ? toTS(data, fimRaw) : null
+    const fim = fimRaw && !ABERTO_H.has(fimRaw) ? toTS(data, fimRaw) : null
     const tipoRaw = pick(o, ['tipo', 'pausa', 'tipo_pausa', 'categoria']).toLowerCase()
     const tipo = tipoRaw.includes('term') || tipoRaw.includes('253') ? 'termica_253'
       : tipoRaw.includes('psico') || tipoRaw.includes('36') ? 'psicofisiologica'
-      : (tipoRaw || null)
+      : (tipoRaw || 'termica_253')
     const dur = pick(o, ['duracao_seg']) ? Number(pick(o, ['duracao_seg']))
       : pick(o, ['duracao', 'minutos', 'tempo']) ? Math.round(Number(String(pick(o, ['duracao', 'minutos', 'tempo'])).replace(',', '.')) * 60) : null
     return { cpf, data, inicio, fim, duracao_seg: Number.isFinite(dur as number) ? (dur as number) : null, tipo, _nome: nome || undefined } as LinhaImport
   }).filter(l => l.data && (l.inicio || l.fim))
+}
+
+// detecta o layout e parseia. `amostra` = primeiras linhas lidas (p/ erro honesto, RD-51).
+async function parseArquivo(file: File): Promise<{ linhas: LinhaImport[]; descartadas: number; amostra: string[] }> {
+  const rows = await lerRowsRaw(file)
+  const amostra = rows.filter(r => r.some(c => txt(c))).slice(0, 3).map(r => r.map(txt).filter(Boolean).join(' | ').slice(0, 90))
+  const ehHier = rows.slice(0, 30).some(r => txt(r?.[1]).toLowerCase() === 'data' && txt(r?.[0]) !== '')
+  if (ehHier) { const h = parseHierarquico(rows); return { linhas: h.linhas, descartadas: h.descartadas, amostra } }
+  return { linhas: parseTabular(rows), descartadas: 0, amostra }
 }
 
 // ─────────────────────────────────── UI helpers ───────────────────────────────────
