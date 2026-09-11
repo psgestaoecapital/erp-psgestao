@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import Sidebar from '@/components/layout/Sidebar'
 import TopNav from '@/components/layout/TopNav'
 import AreaRedirectGuard from '@/components/layout/AreaRedirectGuard'
+import RecoveryGuard from '@/components/layout/RecoveryGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
@@ -11,6 +12,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SelectedCompanyProvider>
       <Suspense fallback={null}><AreaRedirectGuard /></Suspense>
+      <Suspense fallback={null}><RecoveryGuard /></Suspense>
       <div className="min-h-screen bg-[#FAF7F2]">
         <Sidebar />
         <div className="md:ml-[220px] min-h-screen flex flex-col">
