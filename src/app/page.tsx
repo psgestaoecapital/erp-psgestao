@@ -20,7 +20,7 @@ export default function LoginPage() {
 
     if (mode === "reset") {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin + "/dashboard",
+        redirectTo: window.location.origin + "/auth/nova-senha",
       });
       if (error) { setError(error.message); setLoading(false); return; }
       setResetSent(true);
