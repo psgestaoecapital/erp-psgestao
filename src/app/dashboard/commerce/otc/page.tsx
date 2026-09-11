@@ -26,6 +26,7 @@ import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import NFeCard from '@/components/comum/NFeCard'
+import MedicaoNFSeCard from '@/components/comum/MedicaoNFSeCard'
 
 // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
 type NfsePedidoTomador = {
@@ -799,6 +800,20 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
   const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; motivo_rejeicao: string | null } | null>(null)
   const [nfseAtualizando, setNfseAtualizando] = useState(false)
+  // #18 etapa 3 (guard #1): trava do "Faturar pedido" enquanto houver nota de medição em 'processando'
+  // (as parcelas dela seguem 'previsto'; faturar pegaria elas e daria conflito ao autorizar).
+  const [medicaoProcessando, setMedicaoProcessando] = useState(false)
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('erp_nfse_emitidas')
+        .select('id, parcela_ids')
+        .eq('pedido_id', ped.id).eq('status', 'processando')
+      const trava = (data ?? []).some((n) => Array.isArray((n as { parcela_ids?: string[] }).parcela_ids) && ((n as { parcela_ids?: string[] }).parcela_ids?.length ?? 0) > 0)
+      if (alive) setMedicaoProcessando(trava)
+    })()
+    return () => { alive = false }
+  }, [ped.id, statusLocal])
 
   useEffect(() => {
     let alive = true
@@ -919,6 +934,10 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           <Card titulo="Parcelas">
             <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} />
           </Card>
+
+          {/* #18 etapa 3 · Faturamento por medição — só renderiza quando o pedido tem previsão
+              (pedido legado sem previsão → o componente devolve null e a tela fica idêntica). */}
+          <MedicaoNFSeCard pedidoId={ped.id} companyId={ped.company_id} onMudou={onFaturado} />
 
           {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço · 4 estados */}
           {statusLocal === 'faturado' && nfseDados && nfseDados.tem_servico && (() => {
@@ -1066,9 +1085,14 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                 {faturaResult?.erro && (
                   <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {faturaResult.erro}</p>
                 )}
+                {medicaoProcessando && (
+                  <p style={{ fontSize: 12, color: C.amber, margin: 0, padding: 8, background: '#FBEED2', borderRadius: 6 }}>
+                    ⏳ Há uma NFS-e aguardando autorização da prefeitura. Espere ela autorizar (as parcelas se efetivam sozinhas) antes de faturar o pedido inteiro.
+                  </p>
+                )}
                 <button
                   type="button"
-                  disabled={faturando}
+                  disabled={faturando || medicaoProcessando}
                   onClick={async () => {
                     if (!confirm('Vai gerar os recebíveis e baixar o estoque. Confirma?')) return
                     setFaturando(true)
