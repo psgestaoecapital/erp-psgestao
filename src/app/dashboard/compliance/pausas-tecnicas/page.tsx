@@ -212,6 +212,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
   const [file, setFile] = useState<File | null>(null)
   const [linhas, setLinhas] = useState<LinhaImport[]>([])
   const [naoCasados, setNaoCasados] = useState<string[]>([])
+  const [alertaEleg, setAlertaEleg] = useState<{ matched: number; naoEleg: number } | null>(null)
   const [parseErro, setParseErro] = useState('')
   const [busy, setBusy] = useState(false)
   const [resultado, setResultado] = useState<{ lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[] } | null>(null)
@@ -223,7 +224,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
   })() }, [companyId])
 
   const escolher = async (f: File | null) => {
-    setFile(f); setLinhas([]); setNaoCasados([]); setParseErro(''); setResultado(null); setErro('')
+    setFile(f); setLinhas([]); setNaoCasados([]); setAlertaEleg(null); setParseErro(''); setResultado(null); setErro('')
     if (!f) return
     setBusy(true)
     try {
@@ -248,6 +249,16 @@ function AbaImportar({ companyId }: { companyId: string }) {
         }
         return r
       })
+      // aviso RD-51: fn_nr36_apurar IGNORA quem não é elegível → sem elegível a apuração fica vazia
+      // (0 de N monitorados). Nunca deixar isso silencioso — vazio não é conformidade.
+      const cpfs = Array.from(new Set(final.filter(l => l.cpf).map(l => l.cpf.replace(/\D/g, ''))))
+      let naoEleg = cpfs.length
+      try {
+        const el = await rpc<{ colaboradores: Colab[] }>('fn_nr36_elegiveis_listar', { p_company_id: companyId })
+        const termica = new Set((el.colaboradores || []).filter(c => c.termica).map(c => (c.cpf || '').replace(/\D/g, '')))
+        naoEleg = cpfs.filter(cpf => !termica.has(cpf)).length
+      } catch { /* na dúvida, mantém o aviso conservador (todos) */ }
+      setAlertaEleg({ matched: cpfs.length, naoEleg })
       setLinhas(final); setNaoCasados(naoC)
     } catch (e) { setParseErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -310,6 +321,11 @@ function AbaImportar({ companyId }: { companyId: string }) {
               {naoCasados.length > 0 && (
                 <div style={{ background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: C.espresso, marginBottom: 8 }}>
                   <b>{naoCasados.length} nome(s) sem CPF no cadastro</b> (serão rejeitados; cadastre em Compliance › Funcionários): {naoCasados.slice(0, 8).join(' · ')}{naoCasados.length > 8 ? '…' : ''}
+                </div>
+              )}
+              {alertaEleg && alertaEleg.naoEleg > 0 && (
+                <div style={{ background: C.redBg, border: `1px solid ${C.red}33`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: C.espresso, marginBottom: 8 }}>
+                  <b>{alertaEleg.naoEleg} de {alertaEleg.matched} colaborador(es) do arquivo NÃO estão marcados como elegíveis à pausa térmica.</b> As pausas entram no histórico, mas a apuração <b>ignora quem não é elegível</b> — eles não serão apurados e o Painel ficará vazio para eles. <b>Vazio não é conformidade.</b> Marque-os em <b>Configuração › Elegíveis</b> (dá para marcar por função) antes de contar com o painel.
                 </div>
               )}
               <div style={{ overflowX: 'auto', maxHeight: 260, border: `1px solid ${C.borderLt}`, borderRadius: 8 }}>
@@ -695,7 +711,10 @@ function Load() { return <div style={{ color: C.gray, padding: 30, textAlign: 'c
 function secTitle(): React.CSSProperties { return { fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso, margin: '0 0 8px' } }
 function card(): React.CSSProperties { return { display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 } }
 function th(): React.CSSProperties { return { padding: '8px 10px', fontWeight: 600, fontSize: 12 } }
-function td(): React.CSSProperties { return { padding: '9px 10px', verticalAlign: 'top' } }
+// corpo da tabela SEMPRE com cor de texto explícita (Espresso #3D2314) — sem cor, herdava um
+// tom claro do ambiente e a prévia ficava ilegível sobre o branco (Pilar 3 / WCAG AA). Spans
+// internos (C.gray/C.blue/C.amber) continuam sobrescrevendo onde o secundário é intencional.
+function td(): React.CSSProperties { return { padding: '9px 10px', verticalAlign: 'top', color: C.espresso } }
 function inp(): React.CSSProperties { return { border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: '8px 10px', fontSize: 13.5, color: C.ink, background: '#fff' } }
 function erroBox(): React.CSSProperties { return { background: C.redBg, color: C.red, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, marginTop: 10 } }
 function btnStyle(disabled: boolean): React.CSSProperties { return { display: 'inline-flex', alignItems: 'center', gap: 6, background: disabled ? '#d9c9a6' : C.gold, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer' } }
