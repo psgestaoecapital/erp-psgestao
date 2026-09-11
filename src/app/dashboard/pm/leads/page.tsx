@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { nomeUsuario } from '@/lib/usuarioLabel'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -147,8 +148,9 @@ export default function LeadsPage() {
     // → o nome do responsável nunca aparecia. fn_usuarios_da_empresa é SECURITY DEFINER e resolve.
     const { data: us } = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: empresa })
     const m: Record<string, string> = {}
+    // #56: nome de exibição = full_name; fallback = e-mail INTEIRO (nunca a parte antes do "@").
     for (const u of (us ?? []) as { id: string; full_name: string | null; email: string | null }[]) {
-      m[u.id] = u.full_name || (u.email ? u.email.split('@')[0] : '') || '—'
+      m[u.id] = nomeUsuario(u)
     }
     setRespMap(m)
     // reuniões vinculadas (erp_agendamento comercial · dados.lead_id) → mapa por lead (a mais recente)

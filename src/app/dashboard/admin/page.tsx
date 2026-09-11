@@ -71,6 +71,9 @@ export default function AdminPage(){
   const [auditFilter,setAuditFilter]=useState("");
   const [currentEmail,setCurrentEmail]=useState("");
   const [editingUser,setEditingUser]=useState<string|null>(null);
+  // #56 · edição do nome de exibição (users.full_name) no cadastro
+  const [editandoNome,setEditandoNome]=useState<string|null>(null);
+  const [nomeDraft,setNomeDraft]=useState("");
   const [isAuthorized,setIsAuthorized]=useState(false);
   const [isPS,setIsPS]=useState(false); // PS_ADMIN → vê ferramentas internas (ex.: mapa de cobertura por ramo)
   const [checkingAuth,setCheckingAuth]=useState(true);
@@ -367,6 +370,8 @@ export default function AdminPage(){
   };
 
   const atualizarRole=async(uid:string,nr:string)=>{await supabase.from("users").update({role:nr}).eq("id",uid);setUsuarios(usuarios.map(u=>u.id===uid?{...u,role:nr}:u));setMsg("Nível atualizado!");};
+  // #56 · nome de exibição (users.full_name). Humano digita o nome correto — não se infere do e-mail.
+  const salvarNome=async(uid:string)=>{const nome=nomeDraft.trim();if(!nome){setMsg("O nome de exibição não pode ficar vazio.");return;}const{error}=await supabase.from("users").update({full_name:nome}).eq("id",uid);if(error){setMsg("Erro ao salvar nome: "+error.message);return;}setUsuarios(usuarios.map(u=>u.id===uid?{...u,full_name:nome}:u));setEditandoNome(null);setMsg("Nome de exibição atualizado!");setTimeout(()=>setMsg(""),3000);};
   const atualizarPlano=async(compId:string,novoPlano:string)=>{await supabase.from("companies").update({plano:novoPlano}).eq("id",compId);setEmpresas(empresas.map(e=>e.id===compId?{...e,plano:novoPlano}:e));setMsg("Plano atualizado!");setTimeout(()=>setMsg(""),3000);};
 
   // ═══ Screen Watcher RPCs ═══
@@ -632,8 +637,25 @@ export default function AdminPage(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{width:36,height:36,borderRadius:"50%",background:getRC(u.role)+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{ROLES.find(r=>r.role===u.role)?.icon||"👤"}</div>
-              <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{u.full_name||u.email||"Sem nome"}</div>
-              <div style={{fontSize:10,color:TXD}}>{u.email||""}</div></div>
+              <div>
+                {editandoNome===u.id?(
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <input autoFocus value={nomeDraft} onChange={e=>setNomeDraft(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter")salvarNome(u.id);if(e.key==="Escape")setEditandoNome(null);}}
+                      placeholder="Nome de exibição"
+                      style={{fontSize:13,fontWeight:600,color:TX,background:BG3,border:`1px solid ${GO}`,borderRadius:6,padding:"4px 8px",width:200}} />
+                    <button onClick={()=>salvarNome(u.id)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`,cursor:"pointer"}}>Salvar</button>
+                    <button onClick={()=>setEditandoNome(null)} style={{fontSize:10,padding:"4px 8px",borderRadius:6,background:"transparent",color:TXD,border:`1px solid ${BD}`,cursor:"pointer"}}>Cancelar</button>
+                  </div>
+                ):(
+                  <div style={{fontSize:13,fontWeight:600,color:TX,display:"flex",alignItems:"center",gap:6}}>
+                    {u.full_name||u.email||"Sem nome"}
+                    <button title="Editar nome de exibição (#56)" onClick={()=>{setEditandoNome(u.id);setNomeDraft(u.full_name||"");}}
+                      style={{fontSize:10,padding:"1px 6px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}`,cursor:"pointer"}}>✎ nome</button>
+                  </div>
+                )}
+                <div style={{fontSize:10,color:TXD}}>{u.email||""}</div>
+              </div>
             </div>
             <select value={u.role||"visualizador"} onChange={e=>atualizarRole(u.id,e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:getRC(u.role),borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
               {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
