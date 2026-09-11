@@ -66,9 +66,9 @@ export default function DashboardHome() {
 
   const load = async () => {
     const { data: { user: u } } = await supabase.auth.getUser()
-    if (u) setUser(u)
-
-    const { data: up } = await supabase.from('users').select('role').eq('id', u?.id).single()
+    // #56: nome de exibição vem de users.full_name (não do e-mail)
+    const { data: up } = await supabase.from('users').select('role, full_name').eq('id', u?.id).single()
+    if (u) setUser({ ...u, full_name: up?.full_name ?? null })
 
     const { data: grps } = await supabase.from('company_groups').select('*').order('nome')
     setGroups(grps || [])
@@ -237,8 +237,11 @@ export default function DashboardHome() {
     return 'Boa noite'
   }
 
-  const primeiroNome = user?.email?.split('@')[0]?.split('.')?.[0] || ''
-  const nomeCapitalizado = primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1)
+  // #56: saudação usa full_name (primeiro nome); sem full_name → e-mail INTEIRO, nunca meio e-mail.
+  const displayName = (user?.full_name?.trim()) || (user?.email ?? '')
+  const ehEmail = displayName.includes('@')
+  const primeiroNome = ehEmail ? displayName : (displayName.split(/\s+/)[0] || displayName)
+  const nomeCapitalizado = ehEmail ? displayName : (primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1))
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--ps-text-d)' }}>Carregando...</div>

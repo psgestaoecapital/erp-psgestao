@@ -1,8 +1,8 @@
 'use client'
 // Seletor de USUÁRIO do tenant (RD-26: fonte fn_usuarios_da_empresa, já filtrada por company_id — Pilar 2).
-// Busca-como-digita (por nome OU e-mail), mas EXIBE só o nome — nunca o e-mail (decisão do CEO). Ao escolher
-// devolve (id, nome) — grava responsavel_id + responsavel_nome. RD-51: sem full_name, embeleza o prefixo do
-// e-mail (nomeUsuario), nunca mostra o e-mail inteiro.
+// Busca-como-digita (por nome OU e-mail) e EXIBE o nome de exibição (full_name). Ao escolher devolve
+// (id, nome) — grava responsavel_id + responsavel_nome. #56: sem full_name, mostra o e-mail INTEIRO
+// (nomeUsuario) — não se inventa nome a partir do e-mail.
 import { useState, type CSSProperties } from 'react'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 

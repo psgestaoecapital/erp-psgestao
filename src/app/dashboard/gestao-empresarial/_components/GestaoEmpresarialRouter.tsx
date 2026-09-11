@@ -37,10 +37,13 @@ export default function GestaoEmpresarialRouter() {
     ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (ignore) return
-      const meta = user?.user_metadata as Record<string, unknown> | undefined
-      const fullName = typeof meta?.full_name === 'string' ? (meta.full_name as string) : null
-      const fallback = user?.email?.split('@')[0]
-      setUserName(fullName || fallback || 'Usuário')
+      // #56: nome de exibição = users.full_name (fonte da verdade); fallback = e-mail INTEIRO.
+      const { data: prof } = user
+        ? await supabase.from('users').select('full_name').eq('id', user.id).single()
+        : { data: null as { full_name: string | null } | null }
+      if (ignore) return
+      const fullName = prof?.full_name?.trim() || null
+      setUserName(fullName || user?.email || 'Usuário')
     })()
     return () => { ignore = true }
   }, [])
