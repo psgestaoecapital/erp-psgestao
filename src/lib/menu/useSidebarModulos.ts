@@ -39,6 +39,23 @@ const OWNER_ADMIN_MODULO: SidebarModuleNode = {
   matchPaths: ['/dashboard/admin/acessos', '/dashboard/admin'],
 }
 
+// admin-link-ps · PS_ADMIN não-CEO havia PERDIDO o link do /dashboard/admin no menu: o atalho de
+// dono (OWNER_ADMIN_MODULO) exclui PS_ADMIN (linha "se system_role → ownerAtalho=false"), e o painel
+// admin não é uma ÁREA que fn_modulos_sidebar_por_area surfa — então caía na junta das duas regras e
+// sumia da navegação (embora a ROTA já os autorize por role/system_role). A rota /dashboard/admin
+// nunca foi área nem entrou em user_areas_allowed. Aqui devolvemos o link para quem é system_role
+// (PS_ADMIN etc). Decisão consciente registrada em erp_contexto_projeto (11/09/2026): isso dá acesso
+// VISÍVEL às 18 rotas de /admin (trilha LGPD, payloads shadow, sync, admin BPO); restringir escopo do
+// PS_ADMIN por rota fica como decisão separada. O CEO (sem system_role) segue vendo tudo como antes.
+const ADMIN_PS_MODULO: SidebarModuleNode = {
+  id: 'admin-ps',
+  label: 'Admin',
+  href: '/dashboard/admin',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/admin', '/dashboard/admin/acessos'],
+}
+
 // Item 3 · Cotações na Oficina — só para o CLIENT_OWNER (decisão CEO; Pilar 2: compras é
 // sensível, viewer/operador ficam de fora). Aponta para a tela EXISTENTE de Compras/Cotações
 // do GE (default tab = Cotações) — NÃO recria a janela, preservando a Fronteira GE. Atalho
@@ -436,6 +453,11 @@ export function useSidebarModulos(): State {
   // Dedupe: nao adiciona se algum modulo/RPC ja aponta pra /dashboard/admin.
   if (ownerAtalho && !modulos.some((m) => m.href === '/dashboard/admin/acessos' || m.items?.some((s) => s.href === '/dashboard/admin/acessos'))) {
     modulos.push(OWNER_ADMIN_MODULO)
+  }
+  // admin-link-ps · PS_ADMIN (system_role) recupera o link de /dashboard/admin em qualquer área.
+  // Dedupe contra o atalho de dono e contra qualquer módulo que já aponte pro /admin.
+  if (isPS && !modulos.some((m) => m.href === '/dashboard/admin' || m.href === '/dashboard/admin/acessos' || m.items?.some((s) => s.href === '/dashboard/admin' || s.href === '/dashboard/admin/acessos'))) {
+    modulos.push(ADMIN_PS_MODULO)
   }
   // Item 3 · na área Oficina, o CLIENT_OWNER (ownerAtalho) ganha o atalho "Cotações" pra tela
   // de Compras/Cotações do GE. Dedupe: não duplica se a RPC já surfou compras nesta área.
