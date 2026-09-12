@@ -31,7 +31,10 @@ const fmtDT = (s: string | null) => s ? new Date(s).toLocaleString('pt-BR') : '�
 const hhmm = (seg: number) => `${Math.floor(seg / 3600)}h${String(Math.round((seg % 3600) / 60)).padStart(2, '0')}`
 const tipoLabel = (t: string | null) => t === 'termica_253' ? 'Térmica (Art.253)' : t === 'psicofisiologica' ? 'Psicofisiológica (NR-36)' : (t || '—')
 const semColor: Record<string, { c: string; bg: string; l: string }> = {
-  cumprida: { c: C.green, bg: C.greenBg, l: 'Cumprida' },
+  // #62 · MITIGAÇÃO até o motor virar sequencial: 'cumprida' hoje só soma minutos de pausa (não checa
+  // o limite de 100 min contínuos do Art.253), então NÃO prova conformidade. Enquanto o fix não sobe,
+  // exibimos "Em revisão" (âmbar, não verde) para não dar falsa segurança (RD-51). Dados preservados (RD-61).
+  cumprida: { c: C.amber, bg: C.amberBg, l: 'Em revisão (#62)' },
   parcial: { c: C.amber, bg: C.amberBg, l: 'Parcial' },
   nao_cumprida: { c: C.red, bg: C.redBg, l: 'Não cumprida' },
   aguardando_realizado: { c: C.blue, bg: C.blueBg, l: 'Aguardando realizado' },
@@ -113,8 +116,16 @@ function AbaPainel({ companyId }: { companyId: string }) {
         <Btn onClick={reapurar} disabled={rodando}><RefreshCw size={14} /> {rodando ? 'Reapurando…' : 'Reapurar período'}</Btn>
       </div>
 
+      {/* #62 · a regra de conformidade está em revisão — não afirmar 'cumprida' até o motor virar sequencial */}
+      <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+          <b>Regra de conformidade em revisão (#62).</b> A apuração atual soma os minutos de pausa do dia, mas a NR-36/Art. 253 exige checar o limite de <b>100 minutos contínuos</b> de exposição (quando a pausa ocorreu, o intervalo entre elas, pausas &lt; 20 min). Enquanto o motor sequencial não sobe, <b>"Em revisão" NÃO prova conformidade</b> — não use como base para fiscalização. As pausas importadas estão <b>preservadas</b> e serão <b>reapuradas</b> após o fix (nada é apagado).
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        <Kpi label="Cumpridas" n={kpi.cumprida} cor={C.green} bg={C.greenBg} />
+        <Kpi label="Em revisão (#62)" n={kpi.cumprida} cor={C.amber} bg={C.amberBg} />
         <Kpi label="Parciais" n={kpi.parcial} cor={C.amber} bg={C.amberBg} />
         <Kpi label="Não cumpridas" n={kpi.nao_cumprida} cor={C.red} bg={C.redBg} />
         <Kpi label="Aguardando realizado" n={kpi.aguardando_realizado} cor={C.blue} bg={C.blueBg} />
