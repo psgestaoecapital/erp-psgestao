@@ -3,9 +3,9 @@
 // O tempário precifica dentro da Oficina: mostra valor sugerido por item (editável) + total,
 // aprova item a item, registra a trilha (quem/quando/valor) e compartilha no WhatsApp.
 // 🚫 SEM gerar título, SEM baixa de estoque, SEM tela financeira — faturamento é da GE (#696 pausado).
-import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
+import React, { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardCheck, ChevronLeft, Check, X, Share2 } from 'lucide-react'
+import { ClipboardCheck, ChevronLeft, Check, X, Share2, Eraser } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
@@ -49,6 +49,10 @@ export default function AprovacaoPage() {
   const [aprovadorNome, setAprovadorNome] = useState('')
   const [canal, setCanal] = useState('presencial')
   const [observacao, setObservacao] = useState('')
+  // Onda 3 · assinatura no gesto da aprovação presencial (o cliente assina na tela; base64 PNG →
+  // erp_os_aprovacao.assinatura, coluna que a RPC já grava). RD-51: recomendar, não bloquear.
+  const [assinatura, setAssinatura] = useState<string | null>(null)
+  const [padKey, setPadKey] = useState(0)   // Onda 3 · bump p/ remontar (limpar) o quadro de assinatura
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -74,10 +78,21 @@ export default function AprovacaoPage() {
       _preco: String(i.preco ?? i.preco_sugerido ?? ''),               // preço editável: acordado > sugerido
     })))
     setAprovadorNome(os.cliente_nome ?? '')
+    setAssinatura(null)   // Onda 3 · começa sem assinatura a cada OS
   }
 
-  const toggle = (id: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i)))
-  const setPreco = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i)))
+  // Onda 3 · canal manda: assinatura só faz sentido presencial (o cliente está aqui p/ assinar).
+  const escolherCanal = (v: string) => { setCanal(v); if (v !== 'presencial') setAssinatura(null) }
+
+  // Onda 3 · o cliente assina o que ACABOU de aprovar. Se mudar um item DEPOIS de assinar,
+  // a assinatura não vale mais (ela prova outro valor) → limpa e pede assinar de novo.
+  const invalidarAssinatura = () => {
+    if (assinatura === null) return
+    setAssinatura(null); setPadKey((k) => k + 1)
+    setMsg('Você alterou um item — a assinatura foi limpa. O cliente assina de novo o valor final.')
+  }
+  const toggle = (id: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i))) }
+  const setPreco = (id: string, v: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i))) }
   const precoNum = (l: Linha) => Number((l._preco || '0').replace(',', '.')) || 0
   // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
   // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
@@ -89,7 +104,9 @@ export default function AprovacaoPage() {
     setSalvando(true)
     const { data, error } = await supabase.rpc('fn_oficina_orcamento_registrar', {
       p_company_id: companyId, p_os_id: osSel.id,
-      p_dados: { aprovador_nome: aprovadorNome, canal, observacao, itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoRaw(i) })) },
+      p_dados: { aprovador_nome: aprovadorNome, canal, observacao,
+        assinatura: canal === 'presencial' ? assinatura : null,   // Onda 3 · só presencial; RPC faz nullif
+        itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoRaw(i) })) },
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; decisao?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
@@ -178,11 +195,25 @@ export default function AprovacaoPage() {
           <Campo l="Nome de quem autorizou"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {CANAIS.map((c) => (
-              <button key={c.v} onClick={() => setCanal(c.v)} style={{ ...chip, background: canal === c.v ? ESP : '#fff', color: canal === c.v ? '#fff' : ESP, borderColor: canal === c.v ? ESP : LINE }}>{c.l}</button>
+              <button key={c.v} onClick={() => escolherCanal(c.v)} style={{ ...chip, background: canal === c.v ? ESP : '#fff', color: canal === c.v ? '#fff' : ESP, borderColor: canal === c.v ? ESP : LINE }}>{c.l}</button>
             ))}
           </div>
           <Campo l="Observação (opcional)"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
           <button onClick={compartilharWhatsApp} style={{ ...btnLine, width: '100%', gap: 6, marginTop: 4 }}><Share2 size={15} /> Compartilhar orçamento no WhatsApp</button>
+
+          {/* Onda 3 · assinatura é o ÚLTIMO gesto: vem DEPOIS de conferir os itens (o cliente assina o
+              que acabou de aprovar). Mudar um item limpa a assinatura. Recomendar, não bloquear (RD-51). */}
+          {canal === 'presencial' && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${LINE}` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>
+                Assinatura do cliente {assinatura ? '· ✓ capturada' : ''}
+              </div>
+              <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 8px' }}>
+                Confira os itens acima. O cliente assina autorizando <b style={{ color: ESP }}>{nAprov} item(ns) · {brl(totalAprov)}</b>.
+              </div>
+              <AssinaturaPad key={`${osSel.id}-${padKey}`} onChange={setAssinatura} />
+            </div>
+          )}
         </Sec>
       </div>
 
@@ -198,6 +229,55 @@ export default function AprovacaoPage() {
         </div>
       </div>
       {msg && <Toast>{msg}</Toast>}
+    </div>
+  )
+}
+
+// Onda 3 · quadro de assinatura (dedo/caneta na tela). Exporta PNG base64 no fim do traço.
+// touchAction:'none' impede o navegador de rolar a página enquanto o cliente assina.
+function AssinaturaPad({ onChange }: { onChange: (b64: string | null) => void }) {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+  const desenhando = useRef(false)
+  const vazio = useRef(true)
+  const [temTraco, setTemTraco] = useState(false)
+  const ctx = () => ref.current?.getContext('2d') ?? null
+  const pos = (e: React.PointerEvent) => {
+    const c = ref.current; if (!c) return { x: 0, y: 0 }
+    const r = c.getBoundingClientRect()
+    return { x: (e.clientX - r.left) * (c.width / r.width), y: (e.clientY - r.top) * (c.height / r.height) }
+  }
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault(); const g = ctx(); if (!g) return
+    desenhando.current = true; const p = pos(e); g.beginPath(); g.moveTo(p.x, p.y)
+  }
+  const move = (e: React.PointerEvent) => {
+    if (!desenhando.current) return
+    e.preventDefault(); const g = ctx(); if (!g) return
+    const p = pos(e); g.lineTo(p.x, p.y); g.stroke()
+    if (vazio.current) { vazio.current = false; setTemTraco(true) }
+  }
+  const end = () => {
+    if (!desenhando.current) return
+    desenhando.current = false
+    if (!vazio.current && ref.current) onChange(ref.current.toDataURL('image/png'))
+  }
+  useEffect(() => {
+    const g = ctx(); if (!g) return
+    g.lineWidth = 2.5; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = ESP
+  }, [])
+  const limpar = () => {
+    const g = ctx(); if (g && ref.current) g.clearRect(0, 0, ref.current.width, ref.current.height)
+    vazio.current = true; setTemTraco(false); onChange(null)
+  }
+  return (
+    <div>
+      <canvas ref={ref} width={600} height={200}
+        onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
+        style={{ width: '100%', height: 150, border: `1px dashed ${GOLD}`, borderRadius: 10, background: '#fff', touchAction: 'none', display: 'block' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+        <span style={{ fontSize: 11, color: ESP60 }}>{temTraco ? 'Assinatura capturada.' : 'O cliente assina com o dedo, aqui na tela.'}</span>
+        <button type="button" onClick={limpar} style={{ ...chipMini, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Eraser size={12} /> Limpar</button>
+      </div>
     </div>
   )
 }
