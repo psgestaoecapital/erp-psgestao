@@ -52,7 +52,7 @@ export default async function OsPublicoPage({ params }: { params: Promise<{ toke
   const fotos: FotoPub[] = await Promise.all(
     (d.fotos ?? []).map(async (f) => {
       const { data: s } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(f.foto_path, 3600)
-      return { item_id: f.item_id, url: s?.signedUrl ?? null }
+      return { item_id: f.item_id, url: s?.signedUrl ?? null, anotacao: f.anotacao ?? null }
     }),
   )
 

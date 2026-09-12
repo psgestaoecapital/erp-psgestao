@@ -4,10 +4,13 @@
 // 🚫 SEM preço, SEM financeiro, SEM mudar status — só o laudo técnico (RD: financeiro é da GE).
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X, MessageCircle, Copy, ExternalLink } from 'lucide-react'
+import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X, MessageCircle, Copy, ExternalLink, Pencil } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import SolicitarPecaModal from '@/components/oficina/SolicitarPecaModal'
+import AnotarModal from '@/components/oficina/AnotarModal'
+import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
+import { temAnotacao } from '@/components/oficina/anotacao'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
@@ -25,7 +28,7 @@ async function comprimirImagem(file: File): Promise<Blob> {
     return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
   } catch { return file }
 }
-type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; _url?: string | null }
+type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; anotacao?: unknown; _url?: string | null }
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'; const WHATS = '#1FA855'   // DVI · enviar orçamento pelo WhatsApp
@@ -110,7 +113,8 @@ export default function DiagnosticoPage() {
   const [subindoFoto, setSubindoFoto] = useState(false)
   // DVI (Onda 2): a foto pendente pode estar ligada a um ITEM do diagnóstico (a foto do item converte +19%)
   const [fotoItemId, setFotoItemId] = useState<string | null>(null)
-  const [fotoZoom, setFotoZoom] = useState<string | null>(null)   // lightbox: abrir foto em tamanho grande ao clicar
+  const [fotoZoom, setFotoZoom] = useState<{ url: string; anotacao?: unknown } | null>(null)   // lightbox (com anotação por cima)
+  const [anotarFoto, setAnotarFoto] = useState<FotoDiag | null>(null)   // DVI (Onda 2) · editor de anotação da foto
   // DVI (Onda 2) · enviar orçamento ao cliente por link público (WhatsApp, RD-42 · custo zero)
   const [enviandoLink, setEnviandoLink] = useState(false)
   const [linkPub, setLinkPub] = useState<string | null>(null)
@@ -590,10 +594,20 @@ export default function DiagnosticoPage() {
                   >
                     <X size={13} />
                   </button>
+                  {/* DVI · marca de foto anotada (o cliente vê a anotação no orçamento) */}
+                  {temAnotacao(f.anotacao) && (
+                    <span title="Foto anotada" style={{ position: 'absolute', top: 4, left: 4, zIndex: 2, background: 'rgba(226,59,59,0.92)', color: '#fff', borderRadius: 999, fontSize: 10, fontWeight: 800, padding: '2px 6px', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Pencil size={10} /> anotada</span>
+                  )}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} onClick={() => setFotoZoom(f._url ?? null)} title="Clique para ampliar" style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} />
+                  {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} onClick={() => f._url && setFotoZoom({ url: f._url, anotacao: f.anotacao })} title="Clique para ampliar" style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} />
                     : <div style={{ width: '100%', height: 72, background: '#F0EADE' }} />}
                   <div style={{ fontSize: 10.5, color: ESP60, padding: '5px 7px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.descricao || 'Foto'}{f.criado_por_nome ? ` · ${f.criado_por_nome}` : ''}</div>
+                  {f._url && (
+                    <button onClick={() => setAnotarFoto(f)} title="Anotar na foto"
+                      style={{ width: '100%', borderTop: `1px solid ${LINE}`, background: '#fff', color: ESP, border: 'none', padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                      <Pencil size={12} /> {temAnotacao(f.anotacao) ? 'Editar anotação' : 'Anotar'}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -719,11 +733,21 @@ export default function DiagnosticoPage() {
       {fotoZoom && (
         <div onClick={() => setFotoZoom(null)}
           style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={fotoZoom} alt="foto do diagnóstico" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
+          {/* wrapper shrink-wrap: a anotação (0..1) casa exatamente com a imagem em contain */}
+          <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0, maxWidth: '100%', maxHeight: '100%' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={fotoZoom.url} alt="foto do diagnóstico" style={{ display: 'block', maxWidth: '100%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }} />
+            <AnotacaoOverlay anotacao={fotoZoom.anotacao} strokeWidth={3} />
+          </div>
           <button type="button" aria-label="Fechar" onClick={() => setFotoZoom(null)}
             style={{ position: 'fixed', top: 14, right: 14, width: 40, height: 40, borderRadius: 999, border: 'none', background: 'rgba(255,255,255,0.9)', color: '#3D2314', fontSize: 20, fontWeight: 700, cursor: 'pointer' }}>×</button>
         </div>
+      )}
+      {/* DVI (Onda 2) · editor de anotação da foto */}
+      {anotarFoto && (
+        <AnotarModal fotoId={anotarFoto.id} url={anotarFoto._url ?? null} anotacaoInicial={anotarFoto.anotacao}
+          onFechar={() => setAnotarFoto(null)}
+          onSalvo={() => { setMsg('✏️ Anotação salva'); if (osSel) void carregarFotos(osSel.id) }} />
       )}
     </div>
   )
