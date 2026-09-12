@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { type Marca } from '@/components/melhorias/FotoMarcador'
 import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
@@ -60,6 +61,7 @@ function Inner() {
   const [pendentesFila, setPendentesFila] = useState(0)   // rascunhos esperando aprovação (papel de plataforma)
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
+  const [motivoAberto, setMotivoAberto] = useState<string | null>(null) // #61 · qual chamado está com o textarea de "não resolveu"
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
 
   const carregar = useCallback(async () => {
@@ -105,17 +107,16 @@ function Inner() {
   // O AUTOR confirma se a resposta resolveu. Funcionou → concluida; não → reabre com motivo (RD-38:
   // quem diz que resolveu é quem abriu, não o merge). É AÇÃO SEPARADA da conversa — mandar foto nova
   // não é "não resolveu"; encerrar é uma decisão explícita.
-  const confirmar = useCallback(async (id: string, funcionou: boolean) => {
+  // #61: "não resolveu" abre um textarea inline com rascunho (não mais window.prompt de 1 linha que
+  // some ao trocar de janela). funcionou=true segue direto; funcionou=false exige o motivo do textarea.
+  const confirmar = useCallback(async (id: string, funcionou: boolean, motivo?: string) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    let motivo: string | null = null
-    if (!funcionou) {
-      motivo = window.prompt('O que ainda não resolveu? (obrigatório — a equipe volta a mexer)') || ''
-      if (!motivo.trim()) { setErro('Diga o que não resolveu para reabrir.'); return }
-    }
-    const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: motivo })
+    if (!funcionou && !(motivo ?? '').trim()) { setErro('Diga o que não resolveu para reabrir.'); return }
+    const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: funcionou ? null : (motivo ?? '').trim() })
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
+    setMotivoAberto(null)
     setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
     void carregar()
   }, [carregar])
@@ -222,10 +223,21 @@ function Inner() {
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: C.esp, textTransform: 'uppercase', letterSpacing: 0.4 }}>Resposta da equipe PS</div>
                   <div style={{ fontSize: 12.5, color: C.esp, marginTop: 3, whiteSpace: 'pre-wrap' }}>{m.resposta}</div>
                   {m.status !== 'concluida' && !m.confirmado_pelo_autor && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                      <button onClick={() => void confirmar(m.id, true)} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Funcionou ✓</button>
-                      <button onClick={() => void confirmar(m.id, false)} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Ainda não resolveu</button>
-                    </div>
+                    <>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button onClick={() => void confirmar(m.id, true)} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Funcionou ✓</button>
+                        <button onClick={() => setMotivoAberto((v) => (v === m.id ? null : m.id))} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Ainda não resolveu</button>
+                      </div>
+                      {motivoAberto === m.id && (
+                        <RespostaInline
+                          draftKey={`melhoria:naoresolveu:${m.id}`}
+                          placeholder="O que ainda não resolveu? A equipe volta a mexer — quanto mais detalhe, melhor."
+                          submitLabel="Reabrir chamado"
+                          onSubmit={(t) => confirmar(m.id, false, t)}
+                          onCancel={() => setMotivoAberto(null)}
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               )}
