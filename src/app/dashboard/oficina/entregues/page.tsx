@@ -23,13 +23,13 @@ const isoDaysAgo = (d: number) => { const t = new Date(); t.setDate(t.getDate() 
 type Linha = {
   os_id: string; numero: string | null; entregue_em: string | null; cliente_nome: string | null
   placa: string | null; veiculo: string | null; servico: string | null; mecanico: string | null
-  custo_pecas: number; custo_mo: number; receita: number | null; lucro: number | null; aguardando: boolean
+  custo_pecas: number | null; custo_mo: number | null; receita: number | null; lucro: number | null; aguardando: boolean
   custo_incompleto?: boolean; motivo_custo?: string | null   // Onda 4B · custo desconhecido → lucro não confiável
 }
 type Totais = { qtd: number; custo_total: number; custo_pecas: number; custo_mo: number; receita: number | null; lucro: number | null; qtd_aguardando: number; qtd_custo_incompleto?: number }
 // "Dinheiro esquecido" · OS entregues NÃO faturadas por idade (fn_oficina_a_faturar)
-type AFaturarLinha = { os_id: string; numero: string | null; cliente_nome: string | null; placa: string | null; entregue_em: string | null; total: number; dias: number }
-type AFaturarTotais = { qtd: number; soma_total: number; mais_antiga_dias: number; sem_valor: number }
+type AFaturarLinha = { os_id: string; numero: string | null; cliente_nome: string | null; placa: string | null; entregue_em: string | null; total: number | null; dias: number }
+type AFaturarTotais = { qtd: number; soma_total: number | null; mais_antiga_dias: number; sem_valor: number }
 // #20 Fase 3b · OS entregues SEM nota fiscal (nem NFS-e nem NF-e) — onde a obrigação fiscal parou
 type SemNotaLinha = { os_id: string; numero: string | null; cliente_nome: string | null; total: number | null; entregue_em: string | null; dias: number; faturada: boolean; tem_servico: boolean; tem_peca: boolean }
 
@@ -49,7 +49,9 @@ export default function EntreguesPage() {
   const [afLinhas, setAfLinhas] = useState<AFaturarLinha[]>([])
   const [afTotais, setAfTotais] = useState<AFaturarTotais | null>(null)
   const [snLinhas, setSnLinhas] = useState<SemNotaLinha[]>([])
-  const [snTotais, setSnTotais] = useState<{ qtd: number; total_parado: number } | null>(null)
+  const [snTotais, setSnTotais] = useState<{ qtd: number; total_parado: number | null } | null>(null)
+  // R4 · operador/mecânico não vê R$ (dono/admin vê). As RPCs devolvem 'restrito'; escondemos o dinheiro.
+  const [restrito, setRestrito] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) return
@@ -57,26 +59,26 @@ export default function EntreguesPage() {
     if (modo === 'afaturar') {
       const { data, error } = await supabase.rpc('fn_oficina_a_faturar', { p_company_id: companyId })
       setLoading(false)
-      const r = data as { ok?: boolean; erro?: string; linhas?: AFaturarLinha[]; totais?: AFaturarTotais } | null
+      const r = data as { ok?: boolean; erro?: string; restrito?: boolean; linhas?: AFaturarLinha[]; totais?: AFaturarTotais } | null
       if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
-      setAfLinhas(r.linhas ?? []); setAfTotais(r.totais ?? null)
+      setAfLinhas(r.linhas ?? []); setAfTotais(r.totais ?? null); setRestrito(!!r.restrito)
       return
     }
     if (modo === 'semnota') {
       const { data, error } = await supabase.rpc('fn_os_entregue_sem_nota', { p_company_id: companyId })
       setLoading(false)
-      const r = data as { ok?: boolean; erro?: string; itens?: SemNotaLinha[]; total_parado?: number; qtd?: number } | null
+      const r = data as { ok?: boolean; erro?: string; restrito?: boolean; itens?: SemNotaLinha[]; total_parado?: number | null; qtd?: number } | null
       if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
-      setSnLinhas(r.itens ?? []); setSnTotais({ qtd: r.qtd ?? 0, total_parado: r.total_parado ?? 0 })
+      setSnLinhas(r.itens ?? []); setSnTotais({ qtd: r.qtd ?? 0, total_parado: r.total_parado ?? null }); setRestrito(!!r.restrito)
       return
     }
     const { data, error } = await supabase.rpc('fn_oficina_entregues_listar', {
       p_company_id: companyId, p_data_ini: dataIni || null, p_data_fim: dataFim || null, p_busca: busca.trim() || null,
     })
     setLoading(false)
-    const r = data as { ok?: boolean; erro?: string; linhas?: Linha[]; totais?: Totais } | null
+    const r = data as { ok?: boolean; erro?: string; restrito?: boolean; linhas?: Linha[]; totais?: Totais } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
-    setLinhas(r.linhas ?? []); setTotais(r.totais ?? null)
+    setLinhas(r.linhas ?? []); setTotais(r.totais ?? null); setRestrito(!!r.restrito)
   }, [companyId, dataIni, dataFim, busca, modo])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -120,9 +122,10 @@ export default function EntreguesPage() {
       {modo === 'historico' && totais && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
           <Tot l="Entregas no período" v={String(totais.qtd)} />
-          <Tot l="Custo total (peças+MO)" v={brl(totais.custo_total)} />
-          <Tot l="Receita" v={totais.receita == null ? 'aguardando' : brl(totais.receita)} small={totais.receita == null} />
-          <Tot l="Lucro" v={totais.lucro == null ? 'aguardando' : brl(totais.lucro)} small={totais.lucro == null} />
+          {/* R4 · custo/receita/lucro só p/ dono/admin (operador/mecânico não vê dinheiro) */}
+          {!restrito && <Tot l="Custo total (peças+MO)" v={brl(totais.custo_total)} />}
+          {!restrito && <Tot l="Receita" v={totais.receita == null ? 'aguardando' : brl(totais.receita)} small={totais.receita == null} />}
+          {!restrito && <Tot l="Lucro" v={totais.lucro == null ? 'aguardando' : brl(totais.lucro)} small={totais.lucro == null} />}
         </div>
       )}
       {/* Onda 4B · o lucro somado ignora as OS de custo desconhecido — dizer quantas são e o que fazer,
@@ -142,7 +145,7 @@ export default function EntreguesPage() {
           {afTotais && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
               <Tot l="OS a faturar" v={String(afTotais.qtd)} />
-              <Tot l="Valor parado" v={brl(afTotais.soma_total)} />
+              {!restrito && <Tot l="Valor parado" v={brl(afTotais.soma_total)} />}
               <Tot l="Mais antiga" v={`${afTotais.mais_antiga_dias} dia(s)`} />
               <Tot l="Sem valor lançado" v={String(afTotais.sem_valor)} small={afTotais.sem_valor > 0} />
             </div>
@@ -159,10 +162,12 @@ export default function EntreguesPage() {
                 <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginTop: 2 }}>{l.placa || l.numero || '—'}</div>
                 <div style={{ fontSize: 12, color: ESP60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{[l.numero, l.cliente_nome || 'sem cliente'].filter(Boolean).join(' · ')}</div>
               </div>
-              <div style={{ textAlign: 'right', minWidth: 130 }}>
-                <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: l.total > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{l.total > 0 ? brl(l.total) : 'sem valor'}</div>
-              </div>
+              {!restrito && (
+                <div style={{ textAlign: 'right', minWidth: 130 }}>
+                  <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: (l.total ?? 0) > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{(l.total ?? 0) > 0 ? brl(l.total) : 'sem valor'}</div>
+                </div>
+              )}
               <button onClick={() => router.push(`/dashboard/os?os=${l.os_id}`)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '9px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 Abrir OS <ChevronRight size={14} />
@@ -184,11 +189,12 @@ export default function EntreguesPage() {
               <div style={{ background: corBg, borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: cor }}>{titulo} · {linhas.length}</div>
                 <div style={{ fontSize: 11.5, color: cor, opacity: 0.9 }}>{sub}</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: cor, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{brl(soma(linhas))}</div>
+                {/* R4 · valor só p/ dono/admin */}
+                {!restrito && <div style={{ fontSize: 16, fontWeight: 700, color: cor, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{brl(soma(linhas))}</div>}
               </div>
               {linhas.length === 0
                 ? <div style={{ fontSize: 12, color: ESP60, fontStyle: 'italic', padding: '2px 4px' }}>Nada aqui. 🎉</div>
-                : linhas.map((l) => <SemNotaRow key={l.os_id} l={l} onOpen={() => abrir(l.os_id)} />)}
+                : linhas.map((l) => <SemNotaRow key={l.os_id} l={l} onOpen={() => abrir(l.os_id)} restrito={restrito} />)}
             </div>
           )
           return (
@@ -221,15 +227,18 @@ export default function EntreguesPage() {
                     {l.mecanico ? ` · 🔧 ${l.mecanico}` : ''}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', minWidth: 130 }}>
-                  <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Custo (peças+MO)</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl(l.custo_pecas + l.custo_mo)}</div>
-                  <div style={{ fontSize: 10.5, color: l.aguardando ? '#1D4671' : l.custo_incompleto ? WARN : ESP60, marginTop: 1 }}>
-                    {l.aguardando ? 'receita/lucro aguardando'
-                      : l.custo_incompleto ? `⚠ custo não informado — ${MOTIVO_CUSTO[l.motivo_custo ?? ''] ?? 'preencha o custo'}`
-                      : `lucro ${brl(l.lucro)}`}
+                {/* R4 · custo/lucro só p/ dono/admin (operador/mecânico não vê dinheiro) */}
+                {!restrito && (
+                  <div style={{ textAlign: 'right', minWidth: 130 }}>
+                    <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Custo (peças+MO)</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl((l.custo_pecas ?? 0) + (l.custo_mo ?? 0))}</div>
+                    <div style={{ fontSize: 10.5, color: l.aguardando ? '#1D4671' : l.custo_incompleto ? WARN : ESP60, marginTop: 1 }}>
+                      {l.aguardando ? 'receita/lucro aguardando'
+                        : l.custo_incompleto ? `⚠ custo não informado — ${MOTIVO_CUSTO[l.motivo_custo ?? ''] ?? 'preencha o custo'}`
+                        : `lucro ${brl(l.lucro)}`}
+                    </div>
                   </div>
-                </div>
+                )}
                 <button onClick={() => router.push(`/dashboard/os?os=${l.os_id}`)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '9px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   Abrir OS <ChevronRight size={14} />
@@ -256,7 +265,7 @@ function Tot({ l, v, small }: { l: string; v: string; small?: boolean }) {
   )
 }
 // #20 Fase 3b · uma linha da fila "entregue sem nota" (reusada nos dois grupos: sem título × sem nota).
-function SemNotaRow({ l, onOpen }: { l: SemNotaLinha; onOpen: () => void }) {
+function SemNotaRow({ l, onOpen, restrito }: { l: SemNotaLinha; onOpen: () => void; restrito?: boolean }) {
   return (
     <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
       <div style={{ flex: '1 1 240px', minWidth: 0 }}>
@@ -268,10 +277,12 @@ function SemNotaRow({ l, onOpen }: { l: SemNotaLinha; onOpen: () => void }) {
           {l.tem_peca && <span style={faltaTag}>falta NF-e (peça)</span>}
         </div>
       </div>
-      <div style={{ textAlign: 'right', minWidth: 120 }}>
-        <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: (l.total ?? 0) > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{(l.total ?? 0) > 0 ? brl(l.total) : 'sem valor'}</div>
-      </div>
+      {!restrito && (
+        <div style={{ textAlign: 'right', minWidth: 120 }}>
+          <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Valor da OS</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: (l.total ?? 0) > 0 ? ESP : '#B45309', fontVariantNumeric: 'tabular-nums' }}>{(l.total ?? 0) > 0 ? brl(l.total) : 'sem valor'}</div>
+        </div>
+      )}
       <button onClick={onOpen} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '9px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
         Abrir OS <ChevronRight size={14} />
       </button>
