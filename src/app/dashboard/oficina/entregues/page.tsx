@@ -129,7 +129,7 @@ export default function EntreguesPage() {
           senão o total parece menor sem explicação (o buraco que o CEO apontou). */}
       {modo === 'historico' && totais && (totais.qtd_custo_incompleto ?? 0) > 0 && (
         <div style={{ fontSize: 12, color: WARN, background: 'rgba(180,83,9,0.06)', border: `1px solid ${WARN}`, borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
-          ⚠ {totais.qtd_custo_incompleto} entrega(s) com <b>custo não informado</b> — o lucro delas não entra no total acima. Informe o custo na aprovação da OS.
+          ⚠ {totais.qtd_custo_incompleto} entrega(s) ainda sem <b>custo informado</b> — o lucro delas será calculado quando você informar. Informe na aprovação da OS.
         </div>
       )}
 
