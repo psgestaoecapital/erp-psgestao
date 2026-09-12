@@ -137,6 +137,7 @@ export default function VisaoExecucaoModal({ companyId, osId, osResumo, mecanico
     setBusy('registro')
     const { data, error } = await supabase.rpc('fn_oficina_registro_salvar', {
       p_company_id: companyId, p_os_id: osId, p_foto_path: novaFotoPath, p_descricao: novaDesc.trim(), p_criado_por_nome: mecanico || null,
+      p_etapa: 'servico',   // registro da execução (Onda 7: passa o param novo p/ não cair no overload antigo)
     })
     setBusy(null)
     const j = data as { ok?: boolean; erro?: string } | null
