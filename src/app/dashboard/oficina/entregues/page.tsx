@@ -9,7 +9,13 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import { PackageCheck, Search, ChevronRight, RefreshCw } from 'lucide-react'
 
-const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', ESP40 = 'rgba(61,35,20,0.45)', WHITE = '#FFFFFF', OK = '#166534'
+const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', ESP40 = 'rgba(61,35,20,0.45)', WHITE = '#FFFFFF', OK = '#166534', WARN = '#B45309'
+// Onda 4B · custo incompleto: o motivo diz O QUE preencher (não "custo não informado" genérico, que vira ruído)
+const MOTIVO_CUSTO: Record<string, string> = {
+  sem_custo_peca: 'falta o custo das peças',
+  sem_apontamento: 'nenhum mecânico apontou horas',
+  ambos: 'falta custo de peça e apontamento',
+}
 const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtDataHora = (iso: string | null) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 const isoDaysAgo = (d: number) => { const t = new Date(); t.setDate(t.getDate() - d); return t.toISOString().slice(0, 10) }
@@ -18,8 +24,9 @@ type Linha = {
   os_id: string; numero: string | null; entregue_em: string | null; cliente_nome: string | null
   placa: string | null; veiculo: string | null; servico: string | null; mecanico: string | null
   custo_pecas: number; custo_mo: number; receita: number | null; lucro: number | null; aguardando: boolean
+  custo_incompleto?: boolean; motivo_custo?: string | null   // Onda 4B · custo desconhecido → lucro não confiável
 }
-type Totais = { qtd: number; custo_total: number; custo_pecas: number; custo_mo: number; receita: number | null; lucro: number | null; qtd_aguardando: number }
+type Totais = { qtd: number; custo_total: number; custo_pecas: number; custo_mo: number; receita: number | null; lucro: number | null; qtd_aguardando: number; qtd_custo_incompleto?: number }
 // "Dinheiro esquecido" · OS entregues NÃO faturadas por idade (fn_oficina_a_faturar)
 type AFaturarLinha = { os_id: string; numero: string | null; cliente_nome: string | null; placa: string | null; entregue_em: string | null; total: number; dias: number }
 type AFaturarTotais = { qtd: number; soma_total: number; mais_antiga_dias: number; sem_valor: number }
@@ -118,6 +125,13 @@ export default function EntreguesPage() {
           <Tot l="Lucro" v={totais.lucro == null ? 'aguardando' : brl(totais.lucro)} small={totais.lucro == null} />
         </div>
       )}
+      {/* Onda 4B · o lucro somado ignora as OS de custo desconhecido — dizer quantas são e o que fazer,
+          senão o total parece menor sem explicação (o buraco que o CEO apontou). */}
+      {modo === 'historico' && totais && (totais.qtd_custo_incompleto ?? 0) > 0 && (
+        <div style={{ fontSize: 12, color: WARN, background: 'rgba(180,83,9,0.06)', border: `1px solid ${WARN}`, borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
+          ⚠ {totais.qtd_custo_incompleto} entrega(s) com <b>custo não informado</b> — o lucro delas não entra no total acima. Informe o custo na aprovação da OS.
+        </div>
+      )}
 
       {erro && <div style={{ background: '#FCEBEB', color: '#791F1F', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
@@ -210,8 +224,10 @@ export default function EntreguesPage() {
                 <div style={{ textAlign: 'right', minWidth: 130 }}>
                   <div style={{ fontSize: 10, color: ESP40, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Custo (peças+MO)</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl(l.custo_pecas + l.custo_mo)}</div>
-                  <div style={{ fontSize: 10.5, color: l.aguardando ? '#1D4671' : ESP60, marginTop: 1 }}>
-                    {l.aguardando ? 'receita/lucro aguardando' : `lucro ${brl(l.lucro)}`}
+                  <div style={{ fontSize: 10.5, color: l.aguardando ? '#1D4671' : l.custo_incompleto ? WARN : ESP60, marginTop: 1 }}>
+                    {l.aguardando ? 'receita/lucro aguardando'
+                      : l.custo_incompleto ? `⚠ custo não informado — ${MOTIVO_CUSTO[l.motivo_custo ?? ''] ?? 'preencha o custo'}`
+                      : `lucro ${brl(l.lucro)}`}
                   </div>
                 </div>
                 <button onClick={() => router.push(`/dashboard/os?os=${l.os_id}`)}
