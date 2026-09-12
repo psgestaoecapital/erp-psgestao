@@ -33,6 +33,14 @@ const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em anál
 // parecem pendentes de processamento quando estão completos (o que confundia, ex.: a do Rodrigo já
 // implementada aparecendo como "não analisada").
 const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'duplicada', 'arquivada', 'implementado']
+// #63 · abas da Central pela ótica do AUTOR (a Jordana): separar o que ESPERA a equipe do que
+// PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
+type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
+const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado_pelo_autor: boolean }): BucketMelhoria => {
+  if (STATUS_TERMINAL.includes(m.status)) return 'concluidas'
+  if (m.resposta && m.resposta.trim() && !m.confirmado_pelo_autor) return 'precisa_voce' // resposta aprovada chegou, falta confirmar
+  return 'aguardando'
+}
 
 type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null }
 
@@ -62,6 +70,7 @@ function Inner() {
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
   const [motivoAberto, setMotivoAberto] = useState<string | null>(null) // #61 · qual chamado está com o textarea de "não resolveu"
+  const [abaMelhoria, setAbaMelhoria] = useState<BucketMelhoria>('precisa_voce') // #63 · aba de status da Central
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
 
   const carregar = useCallback(async () => {
@@ -206,9 +215,32 @@ function Inner() {
           {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
         </button>
       </div>
-      {minhas.length === 0 ? <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>{verArquivadas ? 'Nenhuma sugestão arquivada.' : 'Você ainda não abriu nenhuma.'}</div> : (
+      {/* #63 · abas por status (só nas ativas) — a Jordana vê o que PRECISA dela separado do que espera a equipe */}
+      {!verArquivadas && minhas.length > 0 && (() => {
+        const cont = { precisa_voce: 0, aguardando: 0, concluidas: 0 }
+        for (const m of minhas) cont[bucketMelhoria(m)]++
+        return (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
+            {([
+              ['precisa_voce', '⭐ Precisa de você', cont.precisa_voce],
+              ['aguardando', '🔵 Com a equipe', cont.aguardando],
+              ['concluidas', '✓ Concluídas', cont.concluidas],
+            ] as [BucketMelhoria, string, number][]).map(([k, label, n]) => (
+              <button key={k} type="button" onClick={() => setAbaMelhoria(k)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '8px 13px', border: 'none', background: 'transparent', borderBottom: `2px solid ${abaMelhoria === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 12.5, fontWeight: abaMelhoria === k ? 800 : 600, color: abaMelhoria === k ? C.esp : C.espM }}>
+                {label} <span style={{ fontSize: 11.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: abaMelhoria === k ? C.gold : C.cream, color: abaMelhoria === k ? '#fff' : C.espM }}>{n}</span>
+              </button>
+            ))}
+          </div>
+        )
+      })()}
+      {(() => {
+        const lista = verArquivadas ? minhas : minhas.filter((m) => bucketMelhoria(m) === abaMelhoria)
+        if (minhas.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>{verArquivadas ? 'Nenhuma sugestão arquivada.' : 'Você ainda não abriu nenhuma.'}</div>
+        if (lista.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>Nada nesta aba.</div>
+        return (
         <div style={{ display: 'grid', gap: 8 }}>
-          {minhas.map((m) => (
+          {lista.map((m) => (
             <div key={m.id} id={`chamado-${m.numero}`} style={{ background: C.white, border: `1px solid ${foco === String(m.numero) ? C.gold : C.border}`, borderRadius: 10, padding: 12, boxShadow: foco === String(m.numero) ? `0 0 0 2px ${C.gold}` : 'none', transition: 'box-shadow .3s, border-color .3s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> <span style={{ fontWeight: 600, fontSize: 11.5, color: C.espM }}>· {quando(m.created_at)}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
@@ -257,7 +289,8 @@ function Inner() {
             </div>
           ))}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
