@@ -25,7 +25,7 @@ async function comprimirImagem(file: File): Promise<Blob> {
     return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
   } catch { return file }
 }
-type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; _url?: string | null }
+type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; _url?: string | null }
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -108,6 +108,8 @@ export default function DiagnosticoPage() {
   const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
   const [fotoPend, setFotoPend] = useState<{ path: string; url?: string | null; descricao: string } | null>(null)
   const [subindoFoto, setSubindoFoto] = useState(false)
+  // DVI (Onda 2): a foto pendente pode estar ligada a um ITEM do diagnóstico (a foto do item converte +19%)
+  const [fotoItemId, setFotoItemId] = useState<string | null>(null)
   const [fotoZoom, setFotoZoom] = useState<string | null>(null)   // lightbox: abrir foto em tamanho grande ao clicar
 
   const carregarFotos = useCallback(async (osId: string) => {
@@ -223,10 +225,11 @@ export default function DiagnosticoPage() {
     const desc = fotoPend.descricao.trim() || 'Foto do diagnóstico'
     const { data } = await supabase.rpc('fn_oficina_registro_salvar', {
       p_company_id: companyId, p_os_id: osSel.id, p_foto_path: fotoPend.path, p_descricao: desc, p_etapa: 'diagnostico',
+      p_diagnostico_item_id: fotoItemId,   // DVI: liga a foto ao item quando veio de um item
     })
     const r = data as { ok?: boolean; erro?: string } | null
     if (!r?.ok) { setMsg('❌ ' + (r?.erro ?? 'Falha ao salvar a foto')); return }
-    setFotoPend(null); setMsg('📷 Foto do diagnóstico salva'); void carregarFotos(osSel.id)
+    setFotoPend(null); setFotoItemId(null); setMsg('📷 Foto do diagnóstico salva'); void carregarFotos(osSel.id)
   }
   // exclui a foto (pedido Gean) — RPC com guard de company; a foto some do histórico/impressão, então confirma.
   // A RPC apaga a linha e devolve foto_path; o arquivo do storage é removido no mesmo bucket do upload.
@@ -476,6 +479,19 @@ export default function DiagnosticoPage() {
                   <button key={s.v} onClick={() => setItem(i, { severidade: s.v })} style={{ ...chip, borderColor: it.severidade === s.v ? s.c : LINE, background: it.severidade === s.v ? s.c : '#fff', color: it.severidade === s.v ? '#fff' : s.c }}>{s.l}</button>
                 ))}
               </div>
+              {/* DVI · foto DO item (a que converte). Só em item salvo (a foto liga pelo id). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                {(() => { const nf = it.id ? fotosDiag.filter((f) => f.diagnostico_item_id === it.id).length : 0
+                  return <span style={{ fontSize: 12, fontWeight: 700, color: nf > 0 ? ESP : ESP60 }}>📷 {nf} foto(s) deste item</span> })()}
+                {it.id ? (
+                  <label onClick={() => setFotoItemId(it.id ?? null)} style={{ ...btnLineGhost, cursor: 'pointer', padding: '6px 10px' }}>
+                    <Camera size={13} /> Foto do item
+                    <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
+                  </label>
+                ) : (
+                  <span style={{ fontSize: 11, color: ESP60 }}>salve o laudo p/ anexar foto a este item</span>
+                )}
+              </div>
             </div>
           ))}
 
@@ -511,11 +527,16 @@ export default function DiagnosticoPage() {
 
         {/* RD-41 · Fotos do diagnóstico (tablet do mecânico) — entram no histórico fotográfico da impressão (#843) */}
         <Sec titulo={ramo.automotivo ? 'Fotos do diagnóstico' : `Fotos da ${ramo.objetoLabelCurto}`}>
-          <label style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
+          <label onClick={() => setFotoItemId(null)} style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
             <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar foto'}
             <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
           </label>
           <div style={{ fontSize: 11, color: ESP60, marginTop: 6 }}>Ex.: peça com defeito, vazamento, desgaste. Aparecem na impressão da OS (histórico fotográfico).</div>
+          {/* DVI · contador + referência do setor (sem chantagem, só o número) */}
+          <div style={{ fontSize: 12, color: fotosDiag.length >= 20 ? OK : GOLD, fontWeight: 700, marginTop: 8 }}>
+            📷 {fotosDiag.length} foto(s) nesta OS
+            <span style={{ fontWeight: 400, color: ESP60 }}> · inspeções com 20+ fotos aprovam ~30% mais</span>
+          </div>
 
           {fotoPend && (
             <div style={{ marginTop: 10, border: `1px solid ${GOLD}`, borderRadius: 10, padding: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
