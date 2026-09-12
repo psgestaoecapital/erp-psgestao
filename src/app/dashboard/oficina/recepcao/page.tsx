@@ -78,6 +78,7 @@ export default function RecepcaoPage() {
   const [nomeBuscou, setNomeBuscou] = useState(false)
   const nomeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [marca, setMarca] = useState(''); const [modelo, setModelo] = useState(''); const [ano, setAno] = useState(''); const [km, setKm] = useState('')
+  const [kmIndisponivel, setKmIndisponivel] = useState(false)   // Onda 6: "KM não disponível" explícito (separa de "esqueceu")
   const [chassi, setChassi] = useState(''); const [queixa, setQueixa] = useState(''); const [combustivel, setCombustivel] = useState('meio')
   // não-automotiva: descrição da peça/trabalho + material + medidas/specs + quantidade (colunas nullable estruturadas).
   const [itemDesc, setItemDesc] = useState(''); const [medidas, setMedidas] = useState(''); const [material, setMaterial] = useState(''); const [quantidade, setQuantidade] = useState('')
@@ -273,7 +274,7 @@ export default function RecepcaoPage() {
     const p_dados = ramo.automotivo
       ? {
           cliente_id: clienteId || null, cliente_nome: clienteNome || null, cliente_cnpj: clienteCnpj || null,
-          placa, marca, modelo, ano, km, chassi, queixa, combustivel,
+          placa, marca, modelo, ano, km, km_indisponivel: kmIndisponivel, chassi, queixa, combustivel,
           checklist: check, avarias, objetos,
           fotos: fotos.map((f) => ({ path: f.path, legenda: f.legenda })),
         }
@@ -447,11 +448,31 @@ export default function RecepcaoPage() {
           </Campo>
           {ramo.automotivo ? (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                 <Campo l="Marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
                 <Campo l="Modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
                 <Campo l="Ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
-                <Campo l="KM atual"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
+              </div>
+              {/* Onda 6 · KM em destaque. Exigir de leve (RD-51): avisa quando tem placa e sem km, mas não trava.
+                  "KM não disponível" é explícito → separa "esqueceu" (NULL) de "não deu pra ler o painel" (flag). */}
+              <div style={{ marginTop: 8, padding: 10, border: `1px solid ${kmIndisponivel ? LINE : (placa.trim() && !km ? GOLD : LINE)}`, borderRadius: 10, background: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: ESP60, minWidth: 64 }}>KM atual</span>
+                  <input value={km} disabled={kmIndisponivel}
+                    onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric"
+                    placeholder={kmIndisponivel ? '— não disponível —' : 'Hodômetro'}
+                    style={{ ...inp, flex: 1, opacity: kmIndisponivel ? 0.5 : 1 }} />
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, color: ESP, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={kmIndisponivel}
+                    onChange={(e) => { setKmIndisponivel(e.target.checked); if (e.target.checked) setKm('') }} />
+                  KM não disponível (painel não liga / hodômetro sem leitura)
+                </label>
+                {placa.trim() && !km && !kmIndisponivel && (
+                  <div style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>
+                    ⚠️ Sem o KM não dá pra avisar a próxima revisão nem ver o histórico deste carro. Se não deu pra ler, marque acima.
+                  </div>
+                )}
               </div>
               <Campo l="Chassi (opcional)"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
             </>
