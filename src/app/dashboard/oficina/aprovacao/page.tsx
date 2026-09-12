@@ -16,7 +16,7 @@ const SEV_COR: Record<string, string> = { critico: RED, recomendado: AMBER, futu
 const CANAIS = [{ v: 'presencial', l: 'Presencial' }, { v: 'whatsapp', l: 'WhatsApp' }, { v: 'telefone', l: 'Telefone' }, { v: 'email', l: 'E-mail' }]
 const brl = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(isFinite(n) ? n : 0)
 
-type ItemOrc = { item_id: string; tipo: string; descricao: string; servico_id: string | null; produto_id: string | null; quantidade: number | null; tempo_estimado_h: number | null; severidade: string; aprovado: boolean | null; preco: number | null; preco_sugerido: number | null }
+type ItemOrc = { item_id: string; tipo: string; descricao: string; servico_id: string | null; produto_id: string | null; quantidade: number | null; tempo_estimado_h: number | null; severidade: string; aprovado: boolean | null; preco: number | null; preco_sugerido: number | null; custo_unitario: number | null }
 type OSInfo = { id: string; numero: string; cliente_nome: string | null; placa: string | null; marca: string | null; modelo: string | null }
 type OSLinha = OSInfo
 
@@ -36,8 +36,8 @@ function useCompanyId(): string | null {
   return id
 }
 
-// estado editável por item: decisão + preço (string p/ o input)
-type Linha = ItemOrc & { _preco: string }
+// estado editável por item: decisão + preço + custo (strings p/ os inputs)
+type Linha = ItemOrc & { _preco: string; _custo: string }
 
 export default function AprovacaoPage() {
   const companyId = useCompanyId()
@@ -76,6 +76,7 @@ export default function AprovacaoPage() {
       ...i,
       aprovado: i.aprovado === null ? true : i.aprovado,               // default: aprovado
       _preco: String(i.preco ?? i.preco_sugerido ?? ''),               // preço editável: acordado > sugerido
+      _custo: i.custo_unitario != null ? String(i.custo_unitario) : '',  // Onda 4B · custo informado (pré-preenche)
     })))
     setAprovadorNome(os.cliente_nome ?? '')
     setAssinatura(null)   // Onda 3 · começa sem assinatura a cada OS
@@ -97,6 +98,12 @@ export default function AprovacaoPage() {
   // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
   // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
   const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
+  // Onda 4B · custo por peça (a margem vira verdade). Mudar custo NÃO mexe na assinatura (não muda o
+  // valor autorizado pelo cliente) — por isso setCusto não chama invalidarAssinatura.
+  const setCusto = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _custo: v.replace(/[^\d.,]/g, '') } : i)))
+  const custoRaw = (l: Linha): string | null => { const s = (l._custo ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
+  const custoNum = (l: Linha) => Number((l._custo || '0').replace(',', '.')) || 0
+  const margemPct = (l: Linha): number | null => { const p = precoNum(l), c = custoNum(l); return p > 0 && l._custo.trim() !== '' ? Math.round((1 - c / p) * 1000) / 10 : null }
   const totalAprov = itens.filter((i) => i.aprovado).reduce((s, i) => s + precoNum(i), 0)
 
   const salvar = async () => {
@@ -106,7 +113,7 @@ export default function AprovacaoPage() {
       p_company_id: companyId, p_os_id: osSel.id,
       p_dados: { aprovador_nome: aprovadorNome, canal, observacao,
         assinatura: canal === 'presencial' ? assinatura : null,   // Onda 3 · só presencial; RPC faz nullif
-        itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoRaw(i) })) },
+        itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoRaw(i), custo: custoRaw(i) })) },
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; decisao?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
@@ -187,6 +194,18 @@ export default function AprovacaoPage() {
                   <button onClick={() => setPreco(i.item_id, String(i.preco_sugerido))} style={{ ...chipMini }}>usar sugerido</button>
                 )}
               </div>
+              {/* Onda 4B · custo da peça → margem verdadeira. Só peça (mão de obra vem do apontamento).
+                  Custo é interno (nunca vai pro cliente); preencher aqui tira a OS do "custo não informado". */}
+              {i.tipo === 'peca' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: ESP60 }}>Custo R$</span>
+                  <input value={i._custo} onChange={(e) => setCusto(i.item_id, e.target.value)} inputMode="decimal" placeholder="quanto a peça custou"
+                    style={{ ...inp, maxWidth: 160, padding: '8px 10px' }} />
+                  {(() => { const m = margemPct(i); return m != null
+                    ? <span style={{ fontSize: 12, fontWeight: 700, color: m >= 0 ? OK : RED }}>margem {m}%</span>
+                    : <span style={{ fontSize: 11, color: ESP60 }}>sem custo = margem “não informada”</span> })()}
+                </div>
+              )}
             </div>
           ))}
         </Sec>
