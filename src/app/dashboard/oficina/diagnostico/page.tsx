@@ -84,9 +84,12 @@ export default function DiagnosticoPage() {
   const [resumo, setResumo] = useState<Resumo | null>(null)   // RD-41 · total aprovado/geral da OS
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  // 3.2 · a tela escolhe SERVIÇO ou PEÇA (uma busca por vez — menos ruído p/ o mecânico)
+  const [modoItem, setModoItem] = useState<'servico' | 'peca'>('servico')
   // busca no tempário
   const [buscaServ, setBuscaServ] = useState('')
   const [sugestoes, setSugestoes] = useState<Tempario[]>([])
+  const [criandoServ, setCriandoServ] = useState(false)   // 3.2 · "cadastrar serviço na hora"
   // busca de peça no catálogo/estoque
   const [buscaPeca, setBuscaPeca] = useState('')
   const [sugestoesPeca, setSugestoesPeca] = useState<Peca[]>([])
@@ -161,6 +164,26 @@ export default function DiagnosticoPage() {
   const addServicoTempario = (s: Tempario) => {
     setItens((p) => [...p, { tipo: 'servico', servico_id: s.id, descricao: s.nome, quantidade: '1', tempo_estimado_h: s.tempo_padrao_h != null ? String(s.tempo_padrao_h) : '', severidade: 'recomendado' }])
     setBuscaServ(''); setSugestoes([])
+  }
+
+  // 3.2 · normaliza p/ comparar nome (mesma regra do dedup no banco: sem acento, minúsculo, espaço simples)
+  const normNome = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+  // 3.2 · "cadastrar serviço na hora": só quando não está no catálogo. A RPC deduplica por nome
+  // NORMALIZADO no banco — se já existe parecido, devolve o existente (ja_existia) e a gente usa esse
+  // (o catálogo não nasce sujo). Não migra histórico (RD-30/RD-61) — o catálogo cresce do uso novo.
+  const cadastrarServicoNaHora = async () => {
+    const nome = buscaServ.trim()
+    if (!companyId || nome.length < 2 || criandoServ) return
+    setCriandoServ(true)
+    const { data, error } = await supabase.rpc('fn_oficina_servico_criar', { p_company_id: companyId, p_nome: nome })
+    setCriandoServ(false)
+    const r = data as { ok?: boolean; erro?: string; ja_existia?: boolean; id?: string; nome?: string; tempo_padrao_h?: number | null } | null
+    if (error || !r?.ok || !r.id) { setMsg('❌ ' + (error?.message || r?.erro || 'Não deu para cadastrar o serviço')); return }
+    addServicoTempario({ id: r.id, codigo: null, nome: r.nome ?? nome, tempo_padrao_h: r.tempo_padrao_h ?? null })
+    setMsg(r.ja_existia
+      ? `Já existia parecido no catálogo: “${r.nome}” — usei esse (não dupliquei).`
+      : `➕ “${r.nome}” cadastrado no catálogo de serviços.`)
   }
 
   // busca de peça no catálogo/estoque (debounce)
@@ -345,7 +368,21 @@ export default function DiagnosticoPage() {
         </Sec>
 
         <Sec titulo="Serviços & peças necessárias">
-          {/* busca no tempário */}
+          {/* 3.2 · a tela escolhe SERVIÇO ou PEÇA — uma busca por vez. Toque grande (44px), sem ruído. */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            {([['servico', 'Serviço', Wrench], ['peca', 'Peça', Package]] as const).map(([m, l, Icon]) => (
+              <button key={m} onClick={() => setModoItem(m)}
+                style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44,
+                  borderRadius: 10, border: `1px solid ${modoItem === m ? (m === 'peca' ? GOLD : ESP) : LINE}`,
+                  background: modoItem === m ? (m === 'peca' ? GOLD : ESP) : '#fff',
+                  color: modoItem === m ? '#fff' : ESP60, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                <Icon size={16} /> {l}
+              </button>
+            ))}
+          </div>
+
+          {/* SERVIÇO · busca no tempário + cadastrar na hora */}
+          {modoItem === 'servico' && (
           <div style={{ position: 'relative', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 10, padding: '0 10px', background: '#fff' }}>
               <Search size={16} color={ESP60} />
@@ -361,9 +398,19 @@ export default function DiagnosticoPage() {
                 ))}
               </div>
             )}
+            {/* 3.2 · não achou no catálogo? cadastra na hora (a RPC deduplica por nome normalizado) */}
+            {buscaServ.trim().length >= 2 && !sugestoes.some((s) => normNome(s.nome) === normNome(buscaServ)) && (
+              <button onClick={cadastrarServicoNaHora} disabled={criandoServ}
+                style={{ marginTop: 6, width: '100%', minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  borderRadius: 10, border: `1px dashed ${ESP}`, background: 'rgba(61,35,20,0.04)', color: ESP, fontWeight: 700, fontSize: 13, cursor: criandoServ ? 'wait' : 'pointer' }}>
+                <Plus size={15} /> {criandoServ ? 'Cadastrando…' : `Cadastrar “${buscaServ.trim()}” no catálogo`}
+              </button>
+            )}
           </div>
+          )}
 
-          {/* busca de peça no catálogo/estoque */}
+          {/* PEÇA · busca no catálogo/estoque (GE) + solicitar ao dono */}
+          {modoItem === 'peca' && (<>
           <div style={{ position: 'relative', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 10, padding: '0 10px', background: '#fff' }}>
               <Package size={16} color={ESP60} />
@@ -392,6 +439,7 @@ export default function DiagnosticoPage() {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 14px', borderRadius: 10, border: `1px dashed ${GOLD}`, background: 'rgba(200,148,26,0.06)', color: ESP, cursor: 'pointer', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
             <Package size={16} color={GOLD} /> Solicitar peça ao dono
           </button>
+          </>)}
 
           {itens.map((it, i) => (
             <div key={i} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 10, background: '#fff' }}>
@@ -431,13 +479,24 @@ export default function DiagnosticoPage() {
             </div>
           ))}
 
-          {/* A2 · o catálogo (busca acima) é o caminho padrão. Digitar livre continua possível,
-              mas é a exceção — não liga a estoque/tempário — por isso fica secundário (RD-58). */}
+          {/* A2 · o catálogo (busca/toggle acima) é o caminho padrão. Digitar livre continua possível,
+              mas é a exceção — não liga a estoque/tempário/custo — por isso fica secundário (RD-58). */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: ESP60 }}>Não achou no catálogo?</span>
-            <button onClick={() => addLinha('servico')} style={{ ...btnLineGhost, flex: 1 }}><Plus size={13} /> Digitar serviço livre</button>
-            <button onClick={() => addLinha('peca')} style={{ ...btnLineGhost, flex: 1 }}><Plus size={13} /> Digitar peça livre</button>
+            <button onClick={() => addLinha(modoItem)} style={{ ...btnLineGhost, flex: 1 }}>
+              <Plus size={13} /> Digitar {modoItem === 'peca' ? 'peça' : 'serviço'} livre
+            </button>
           </div>
+
+          {/* RD-51 · avisar, não bloquear: item livre não puxa custo/estoque nem tempo padrão do catálogo */}
+          {itens.some((i) => i.descricao.trim() && !i.produto_id && !i.servico_id) && (
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 10, border: `1px solid ${AMBER}`, background: 'rgba(180,83,9,0.06)' }}>
+              <span style={{ fontSize: 14, lineHeight: '18px' }}>⚠️</span>
+              <span style={{ fontSize: 12, color: AMBER, fontWeight: 600 }}>
+                Há item digitado à mão. Item livre não puxa custo/estoque (peça) nem tempo padrão (serviço) — quando existir no catálogo, prefira buscar acima.
+              </span>
+            </div>
+          )}
 
           {/* RD-41 · total do orçamento (operacional; faturamento continua [→GE]) */}
           {resumo && (resumo.qtd_aprovados > 0 || resumo.qtd_pendentes > 0 || resumo.qtd_recusados > 0) && (
