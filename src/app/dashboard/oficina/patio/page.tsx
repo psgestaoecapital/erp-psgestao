@@ -145,6 +145,10 @@ export default function PatioKanbanPage() {
   const [mecsOS, setMecsOS] = useState<MecOS[]>([])               // mecânicos da OS aberta
   const [novoMec, setNovoMec] = useState('')                      // input p/ novo nome
   const [salvandoMec, setSalvandoMec] = useState(false)
+  // designação por id: mecânicos CADASTRADOS (com user id) + o id do que foi escolhido no seletor
+  type MecCad = { id: string; nome: string; papel: string }
+  const [mecCadastrados, setMecCadastrados] = useState<MecCad[]>([])
+  const [mecSelId, setMecSelId] = useState<string | null>(null)   // null = nome livre (sem id, RD-51)
   // RD-41 · assinaturas tipadas (checklist_ciente / entrega) da OS aberta
   const [assinaturasCard, setAssinaturasCard] = useState<string[]>([])
   const [assinarEntregaOs, setAssinarEntregaOs] = useState<OS | null>(null)
@@ -216,6 +220,14 @@ export default function PatioKanbanPage() {
   }, [companyId])
   useEffect(() => { void carregarMecanicos() }, [carregarMecanicos])
 
+  // mecânicos CADASTRADOS (com id) p/ o seletor de 1 toque — designa por id (a fila do 3.3 lê daí)
+  const carregarMecCadastrados = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_oficina_mecanicos_cadastrados', { p_company_id: companyId })
+    setMecCadastrados((data as MecCad[]) ?? [])
+  }, [companyId])
+  useEffect(() => { void carregarMecCadastrados() }, [carregarMecCadastrados])
+
   // mecânicos da OS aberta (responsável + auxiliares)
   const carregarMecsOS = useCallback(async (osId: string) => {
     const { data } = await supabase.rpc('fn_os_mecanicos_listar', { p_os_id: osId })
@@ -243,11 +255,12 @@ export default function PatioKanbanPage() {
   async function designar(rpc: 'fn_os_designar_responsavel' | 'fn_os_add_auxiliar', nome: string) {
     if (!cardAberto || !nome.trim()) return
     setSalvandoMec(true)
-    const { data, error } = await supabase.rpc(rpc, { p_os_id: cardAberto.id, p_nome: nome.trim() })
+    // passa p_mecanico_id quando veio do seletor (cadastrado); nome livre vai sem id (RD-51)
+    const { data, error } = await supabase.rpc(rpc, { p_os_id: cardAberto.id, p_nome: nome.trim(), p_mecanico_id: mecSelId })
     setSalvandoMec(false)
     const res = data as { ok?: boolean; erro?: string } | null
     if (error || !res?.ok) { setErro(error?.message || res?.erro || 'Falha ao designar mecânico'); return }
-    setNovoMec('')
+    setNovoMec(''); setMecSelId(null)
     await Promise.all([carregarMecsOS(cardAberto.id), carregarMecanicos(), carregar()])
   }
   async function removerMec(id: string) {
@@ -459,10 +472,27 @@ export default function PatioKanbanPage() {
                     style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.vermelho, cursor: 'pointer' }}>remover</button>
                 </div>
               ))}
-              <input list="mec-limpos" value={novoMec} onChange={(e) => setNovoMec(e.target.value)}
+              {/* seletor de 1 toque: mecânicos cadastrados (com id → designação grava mecanico_id, enche a fila do 3.3) */}
+              {mecCadastrados.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {mecCadastrados.map((m) => (
+                    <button key={m.id} onClick={() => { setNovoMec(m.nome); setMecSelId(m.id) }}
+                      style={{ minHeight: 40, padding: '0 12px', borderRadius: 999, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                        border: `1px solid ${mecSelId === m.id ? C.espresso : C.border}`,
+                        background: mecSelId === m.id ? C.espresso : C.white, color: mecSelId === m.id ? C.white : C.espresso }}>
+                      {tituloCase(m.nome)}{m.papel === 'OFICINA_DONO' ? ' · dono' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input list="mec-limpos" value={novoMec}
+                onChange={(e) => { setNovoMec(e.target.value); setMecSelId(null) }}
                 placeholder="Nome do mecânico" enterKeyHint="done"
                 style={{ width: '100%', marginTop: 8, padding: '11px 12px', fontSize: 15, borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }} />
               <datalist id="mec-limpos">{mecLimpos.map((m) => <option key={m} value={m} />)}</datalist>
+              {novoMec.trim() && !mecSelId && (
+                <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>⚠️ Nome livre — sem cadastro ligado. Prefira escolher acima pra a fila do mecânico reconhecer.</div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button onClick={() => void designar('fn_os_designar_responsavel', novoMec)} disabled={salvandoMec || !novoMec.trim()}
                   style={{ flex: 1, padding: '12px', fontSize: 14, fontWeight: 700, borderRadius: 10, border: 'none', background: C.gold, color: C.white, cursor: salvandoMec || !novoMec.trim() ? 'default' : 'pointer', opacity: salvandoMec || !novoMec.trim() ? 0.6 : 1 }}>Responsável</button>
