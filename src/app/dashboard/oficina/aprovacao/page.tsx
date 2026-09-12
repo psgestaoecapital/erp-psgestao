@@ -52,6 +52,7 @@ export default function AprovacaoPage() {
   // Onda 3 · assinatura no gesto da aprovação presencial (o cliente assina na tela; base64 PNG →
   // erp_os_aprovacao.assinatura, coluna que a RPC já grava). RD-51: recomendar, não bloquear.
   const [assinatura, setAssinatura] = useState<string | null>(null)
+  const [padKey, setPadKey] = useState(0)   // Onda 3 · bump p/ remontar (limpar) o quadro de assinatura
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -83,8 +84,15 @@ export default function AprovacaoPage() {
   // Onda 3 · canal manda: assinatura só faz sentido presencial (o cliente está aqui p/ assinar).
   const escolherCanal = (v: string) => { setCanal(v); if (v !== 'presencial') setAssinatura(null) }
 
-  const toggle = (id: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i)))
-  const setPreco = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i)))
+  // Onda 3 · o cliente assina o que ACABOU de aprovar. Se mudar um item DEPOIS de assinar,
+  // a assinatura não vale mais (ela prova outro valor) → limpa e pede assinar de novo.
+  const invalidarAssinatura = () => {
+    if (assinatura === null) return
+    setAssinatura(null); setPadKey((k) => k + 1)
+    setMsg('Você alterou um item — a assinatura foi limpa. O cliente assina de novo o valor final.')
+  }
+  const toggle = (id: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i))) }
+  const setPreco = (id: string, v: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i))) }
   const precoNum = (l: Linha) => Number((l._preco || '0').replace(',', '.')) || 0
   // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
   // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
@@ -190,17 +198,22 @@ export default function AprovacaoPage() {
               <button key={c.v} onClick={() => escolherCanal(c.v)} style={{ ...chip, background: canal === c.v ? ESP : '#fff', color: canal === c.v ? '#fff' : ESP, borderColor: canal === c.v ? ESP : LINE }}>{c.l}</button>
             ))}
           </div>
-          {/* Onda 3 · assinatura no ato presencial. Recomendar, não bloquear (RD-51): dá pra salvar sem. */}
-          {canal === 'presencial' && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>
-                Assinatura do cliente {assinatura ? '· ✓ capturada' : '· opcional, mas recomendada'}
-              </div>
-              <AssinaturaPad key={osSel.id} onChange={setAssinatura} />
-            </div>
-          )}
           <Campo l="Observação (opcional)"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
           <button onClick={compartilharWhatsApp} style={{ ...btnLine, width: '100%', gap: 6, marginTop: 4 }}><Share2 size={15} /> Compartilhar orçamento no WhatsApp</button>
+
+          {/* Onda 3 · assinatura é o ÚLTIMO gesto: vem DEPOIS de conferir os itens (o cliente assina o
+              que acabou de aprovar). Mudar um item limpa a assinatura. Recomendar, não bloquear (RD-51). */}
+          {canal === 'presencial' && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${LINE}` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>
+                Assinatura do cliente {assinatura ? '· ✓ capturada' : ''}
+              </div>
+              <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 8px' }}>
+                Confira os itens acima. O cliente assina autorizando <b style={{ color: ESP }}>{nAprov} item(ns) · {brl(totalAprov)}</b>.
+              </div>
+              <AssinaturaPad key={`${osSel.id}-${padKey}`} onChange={setAssinatura} />
+            </div>
+          )}
         </Sec>
       </div>
 
