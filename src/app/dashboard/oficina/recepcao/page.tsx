@@ -83,6 +83,9 @@ export default function RecepcaoPage() {
   const [itemDesc, setItemDesc] = useState(''); const [medidas, setMedidas] = useState(''); const [material, setMaterial] = useState(''); const [quantidade, setQuantidade] = useState('')
   const [origemAberta, setOrigemAberta] = useState(false)   // "motor/veículo de origem" colapsado
   const [mecanico, setMecanico] = useState(''); const [mecLimpos, setMecLimpos] = useState<string[]>([])  // responsável no check-in (opcional)
+  // designação por id: mecânicos cadastrados (com user id) + o escolhido no seletor
+  const [mecCadastrados, setMecCadastrados] = useState<{ id: string; nome: string; papel: string }[]>([])
+  const [mecSelId, setMecSelId] = useState<string | null>(null)
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
@@ -293,7 +296,7 @@ export default function RecepcaoPage() {
     if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + (error?.message || j?.erro)); return }
     // mecânico responsável opcional no check-in → reusa fn_os_designar_responsavel (trilha)
     if (j?.os_id && mecanico.trim()) {
-      await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim() })
+      await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim(), p_mecanico_id: mecSelId })
     }
     // OFIC-A (#10) · veio de um agendamento do Pátio → vincula a OS (os_id + status em_atendimento).
     // Idempotente no backend; o agendamento sai dos "Programados" (fn_agenda_patio_hoje filtra os_id).
@@ -312,6 +315,9 @@ export default function RecepcaoPage() {
     if (!companyId) return
     void supabase.rpc('fn_oficina_mecanicos', { p_company_id: companyId }).then(({ data }) => {
       setMecLimpos(Array.isArray(data) ? data.map((r: { nome: string }) => r.nome) : [])
+    })
+    void supabase.rpc('fn_oficina_mecanicos_cadastrados', { p_company_id: companyId }).then(({ data }) => {
+      setMecCadastrados((data as { id: string; nome: string; papel: string }[]) ?? [])
     })
   }, [companyId])
   // OFIC-A (#10) · prefill vindo do Pátio (?ag=&placa=&cliente_id=&cliente_nome=). Só no mount (client).
@@ -478,9 +484,25 @@ export default function RecepcaoPage() {
 
         {/* MECÂNICO RESPONSÁVEL (opcional no check-in; pode designar depois no Pátio) */}
         <Sec titulo="Mecânico responsável (opcional)">
-          <input list="mec-recepcao" value={mecanico} onChange={(e) => setMecanico(e.target.value)}
+          {/* seletor de 1 toque: cadastrados (com id → designação grava mecanico_id, enche a fila do 3.3) */}
+          {mecCadastrados.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {mecCadastrados.map((m) => (
+                <button key={m.id} type="button" onClick={() => { setMecanico(m.nome); setMecSelId(m.id) }}
+                  style={{ minHeight: 40, padding: '0 12px', borderRadius: 999, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                    border: `1px solid ${mecSelId === m.id ? ESP : LINE}`,
+                    background: mecSelId === m.id ? ESP : '#fff', color: mecSelId === m.id ? '#fff' : ESP }}>
+                  {m.nome}{m.papel === 'OFICINA_DONO' ? ' · dono' : ''}
+                </button>
+              ))}
+            </div>
+          )}
+          <input list="mec-recepcao" value={mecanico} onChange={(e) => { setMecanico(e.target.value); setMecSelId(null) }}
             placeholder="Nome do mecânico" style={inp} />
           <datalist id="mec-recepcao">{mecLimpos.map((m) => <option key={m} value={m} />)}</datalist>
+          {mecanico.trim() && !mecSelId && (
+            <div style={{ fontSize: 11, color: GOLD, marginTop: 4 }}>⚠️ Nome livre — sem cadastro ligado. Prefira escolher acima pra a fila do mecânico reconhecer.</div>
+          )}
         </Sec>
 
         {/* CHECKLIST DE ENTRADA — só automotiva (combustível/retrovisores/pneus não fazem sentido p/ peça) */}
