@@ -4,7 +4,7 @@
 // 🚫 SEM preço, SEM financeiro, SEM mudar status — só o laudo técnico (RD: financeiro é da GE).
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X } from 'lucide-react'
+import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X, MessageCircle, Copy, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import SolicitarPecaModal from '@/components/oficina/SolicitarPecaModal'
@@ -28,7 +28,7 @@ async function comprimirImagem(file: File): Promise<Blob> {
 type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; _url?: string | null }
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
-const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
+const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'; const WHATS = '#1FA855'   // DVI · enviar orçamento pelo WhatsApp
 const SEVERIDADES = [
   { v: 'critico', l: 'Crítico', c: RED },
   { v: 'recomendado', l: 'Recomendado', c: AMBER },
@@ -111,6 +111,9 @@ export default function DiagnosticoPage() {
   // DVI (Onda 2): a foto pendente pode estar ligada a um ITEM do diagnóstico (a foto do item converte +19%)
   const [fotoItemId, setFotoItemId] = useState<string | null>(null)
   const [fotoZoom, setFotoZoom] = useState<string | null>(null)   // lightbox: abrir foto em tamanho grande ao clicar
+  // DVI (Onda 2) · enviar orçamento ao cliente por link público (WhatsApp, RD-42 · custo zero)
+  const [enviandoLink, setEnviandoLink] = useState(false)
+  const [linkPub, setLinkPub] = useState<string | null>(null)
 
   const carregarFotos = useCallback(async (osId: string) => {
     if (!companyId) return
@@ -134,7 +137,7 @@ export default function DiagnosticoPage() {
 
   const abrirOS = async (os: OSLinha) => {
     if (!companyId) return
-    setOsSel(os); setFotoPend(null); setFotosDiag([]); void carregarFotos(os.id)
+    setOsSel(os); setFotoPend(null); setFotosDiag([]); setLinkPub(null); void carregarFotos(os.id)
     const { data } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: companyId, p_os_id: os.id })
     const d = data as { os?: { diagnostico?: string; km?: number }; itens?: (ItemLaudo & { preco?: number; subtotal?: number; status_item?: string })[]; resumo?: Resumo } | null
     setDiagnostico(d?.os?.diagnostico ?? '')
@@ -247,6 +250,30 @@ export default function DiagnosticoPage() {
     setFotosDiag((prev) => prev.filter((x) => x.id !== f.id)) // some da tela na hora
     if (r.foto_path) { await supabase.storage.from(BUCKET).remove([r.foto_path]) } // remove o arquivo (a RPC só apaga a linha)
     setMsg('🗑 Foto excluída')
+  }
+
+  // DVI (Onda 2) · gera (ou reusa) o link público da OS e abre o WhatsApp com a mensagem pronta.
+  // wa.me sem número → o mecânico escolhe a conversa do cliente. Custo zero (RD-42). O link é a foto
+  // virando dinheiro: o cliente vê o diagnóstico com fotos e aprova item a item; a aprovação volta pra cá.
+  const enviarOrcamento = async () => {
+    if (!companyId || !osSel || enviandoLink) return
+    setEnviandoLink(true)
+    const { data, error } = await supabase.rpc('fn_os_link_publico_gerar', { p_company_id: companyId, p_os_id: osSel.id })
+    setEnviandoLink(false)
+    const r = data as { ok?: boolean; erro?: string; token?: string; reusado?: boolean } | null
+    if (error || !r?.ok || !r.token) { setMsg('❌ ' + (error?.message || r?.erro || 'Não deu para gerar o link do cliente')); return }
+    const url = `${window.location.origin}/os/${r.token}`
+    setLinkPub(url)
+    const veic = [osSel.placa, [osSel.marca, osSel.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ')
+    const ola = osSel.cliente_nome ? `Olá, ${osSel.cliente_nome.split(' ')[0]}!` : 'Olá!'
+    const texto = `${ola} Terminamos a inspeção do seu ${veic || 'veículo'}.\n\nDá uma olhada no diagnóstico com fotos e aprove o que quiser por aqui:\n${url}\n\nQualquer dúvida é só chamar. 🔧`
+    if (typeof window !== 'undefined') window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener,noreferrer')
+    setMsg(r.reusado ? 'Link do orçamento reaberto (mesma página do cliente).' : 'Link do orçamento gerado — escolha a conversa do cliente.')
+  }
+  const copiarLink = async () => {
+    if (!linkPub) return
+    try { await navigator.clipboard.writeText(linkPub); setMsg('Link copiado.') }
+    catch { setMsg('Copie o link exibido abaixo.') }
   }
 
   const salvar = async () => {
@@ -569,6 +596,32 @@ export default function DiagnosticoPage() {
                   <div style={{ fontSize: 10.5, color: ESP60, padding: '5px 7px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.descricao || 'Foto'}{f.criado_por_nome ? ` · ${f.criado_por_nome}` : ''}</div>
                 </div>
               ))}
+            </div>
+          )}
+        </Sec>
+
+        {/* DVI (Onda 2) · Enviar orçamento ao cliente — a foto vira dinheiro. Só com item salvo (o link
+            mostra os itens do laudo). O aprovado × orçado desta OS aparece no total acima (resumo). */}
+        <Sec titulo="Enviar orçamento ao cliente">
+          <div style={{ fontSize: 12, color: ESP60, marginBottom: 10 }}>
+            O cliente abre um link pelo WhatsApp, vê as fotos e o preço de cada item, e aprova o que quiser. A aprovação volta pra cá na hora.
+          </div>
+          {itens.some((i) => i.id) ? (
+            <button onClick={() => void enviarOrcamento()} disabled={enviandoLink}
+              style={{ ...btnGold, background: WHATS, color: '#fff', width: '100%', minHeight: 48, fontSize: 15, gap: 8, cursor: enviandoLink ? 'wait' : 'pointer' }}>
+              <MessageCircle size={18} /> {enviandoLink ? 'Gerando link…' : 'Enviar orçamento pelo WhatsApp'}
+            </button>
+          ) : (
+            <div style={{ fontSize: 12, color: ESP60 }}>Salve o laudo com ao menos um item para gerar o link do cliente.</div>
+          )}
+          {linkPub && (
+            <div style={{ marginTop: 12, border: `1px solid ${LINE}`, borderRadius: 10, padding: 12, background: 'rgba(31,168,85,0.05)' }}>
+              <div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>Link do cliente (vale 7 dias) — se o WhatsApp não abriu, copie e envie:</div>
+              <div style={{ fontSize: 12, color: ESP, wordBreak: 'break-all', fontWeight: 600, marginBottom: 8 }}>{linkPub}</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => void copiarLink()} style={{ ...btnLine, flex: 1 }}><Copy size={14} /> Copiar link</button>
+                <a href={linkPub} target="_blank" rel="noopener noreferrer" style={{ ...btnLine, flex: 1, textDecoration: 'none' }}><ExternalLink size={14} /> Abrir prévia</a>
+              </div>
             </div>
           )}
         </Sec>
