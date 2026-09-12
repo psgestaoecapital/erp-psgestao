@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
+import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 
 const C = {
@@ -59,6 +60,7 @@ function Inner() {
   const [fCategoria, setFCategoria] = useState('todas')
   const [busca, setBusca] = useState('')   // suporte digita o número (#14) ou parte do título e acha o chamado
   const [aberto, setAberto] = useState<string | null>(null)
+  const [respostaAberta, setRespostaAberta] = useState<string | null>(null) // #61 · qual chamado está com o textarea de resposta
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
   const [ehAdmin, setEhAdmin] = useState(false)   // PS_ADMIN / PS_ADMIN_CVM aprovam resposta
   const [respExpandida, setRespExpandida] = useState<string | null>(null)   // "ver completa" da resposta no card
@@ -125,11 +127,12 @@ function Inner() {
     if (ok) setMsg(novo === 'concluida' && !pr ? '⚠️ Concluída sem PR vinculado.' : 'Status atualizado.')
   }
   // Responder grava RASCUNHO (fn_sugestao_responder): a resposta NÃO chega ao autor até o CEO aprovar.
-  async function responder(it: Item) {
-    const resp = window.prompt('Resposta ao usuário (fica aguardando aprovação do CEO):', it.resposta || '') || ''
-    if (!resp.trim()) return
-    const ok = await acao(it.id, 'fn_sugestao_responder', { p_id: it.id, p_texto: resp, p_user: userId })
-    if (ok) setMsg('Resposta salva — aguardando aprovação do CEO para chegar ao autor.')
+  // #61: o texto agora vem de um textarea inline com rascunho (não mais window.prompt de 1 linha que
+  // perdia tudo ao trocar de janela).
+  async function salvarResposta(it: Item, texto: string) {
+    if (!texto.trim()) return
+    const ok = await acao(it.id, 'fn_sugestao_responder', { p_id: it.id, p_texto: texto.trim(), p_user: userId })
+    if (ok) { setRespostaAberta(null); setMsg('Resposta salva — aguardando aprovação do CEO para chegar ao autor.') }
   }
   // Aprovar (só PS_ADMIN): libera a resposta ao autor E cria a notificação por pessoa.
   async function aprovar(it: Item) {
@@ -238,8 +241,18 @@ function Inner() {
                     {ehAdmin
                       ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
                       : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO aprova o envio ao autor</span>}
-                    <button onClick={() => void responder(it)} style={btn(C.gold)}>Editar antes de aprovar</button>
+                    <button onClick={() => setRespostaAberta((v) => (v === it.id ? null : it.id))} style={btn(C.gold)}>Editar antes de aprovar</button>
                   </div>
+                  {respostaAberta === it.id && (
+                    <RespostaInline
+                      draftKey={`atendimento:resposta:${it.id}`}
+                      placeholder="Edite a resposta — fica como rascunho até o CEO aprovar."
+                      submitLabel="Salvar resposta"
+                      initial={it.resposta || ''}
+                      onSubmit={(t) => salvarResposta(it, t)}
+                      onCancel={() => setRespostaAberta(null)}
+                    />
+                  )}
                 </div>
               )}
               {/* 📤 Enviado, sem confirmação: há quantos dias, e um botão para reenviar o aviso (cobrar o autor). */}
@@ -297,9 +310,19 @@ function Inner() {
                         <div style={{ fontSize: 12.5, marginTop: 10, background: C.cream, border: `1px dashed ${C.border}`, padding: '10px 12px', borderRadius: 8 }}>
                           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Resposta ao autor</div>
                           <div style={{ color: C.espM }}>Nenhuma resposta escrita ainda. Escreva a resposta — depois o CEO (PS_ADMIN) aprova e ela chega ao autor. <b>Sem resposta escrita não há o que aprovar.</b></div>
-                          <div style={{ marginTop: 8 }}>
-                            <button onClick={() => void responder(it)} style={btn(C.gold)}>Responder ao autor</button>
-                          </div>
+                          {respostaAberta === it.id ? (
+                            <RespostaInline
+                              draftKey={`atendimento:resposta:${it.id}`}
+                              placeholder="Resposta ao autor — fica como rascunho até o CEO aprovar."
+                              submitLabel="Salvar resposta"
+                              onSubmit={(t) => salvarResposta(it, t)}
+                              onCancel={() => setRespostaAberta(null)}
+                            />
+                          ) : (
+                            <div style={{ marginTop: 8 }}>
+                              <button onClick={() => setRespostaAberta(it.id)} style={btn(C.gold)}>Responder ao autor</button>
+                            </div>
+                          )}
                         </div>
                       )
                     }
@@ -316,12 +339,24 @@ function Inner() {
                           {it.resposta_aprovada && it.aprovador_nome ? <> · aprovado por <b>{it.aprovador_nome}</b></> : ''}
                         </div>
                         {!it.resposta_aprovada && (
-                          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {ehAdmin
-                              ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
-                              : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO (PS_ADMIN) aprova o envio ao autor</span>}
-                            <button onClick={() => void responder(it)} style={btn(C.gold)}>Editar antes de enviar</button>
-                          </div>
+                          <>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                              {ehAdmin
+                                ? <button onClick={() => void aprovar(it)} style={btn(C.green)}>Aprovar e enviar</button>
+                                : <span style={{ fontSize: 11.5, color: C.espM }}>só o CEO (PS_ADMIN) aprova o envio ao autor</span>}
+                              <button onClick={() => setRespostaAberta((v) => (v === it.id ? null : it.id))} style={btn(C.gold)}>Editar antes de enviar</button>
+                            </div>
+                            {respostaAberta === it.id && (
+                              <RespostaInline
+                                draftKey={`atendimento:resposta:${it.id}`}
+                                placeholder="Edite a resposta — fica como rascunho até o CEO aprovar."
+                                submitLabel="Salvar resposta"
+                                initial={it.resposta || ''}
+                                onSubmit={(t) => salvarResposta(it, t)}
+                                onCancel={() => setRespostaAberta(null)}
+                              />
+                            )}
+                          </>
                         )}
                       </div>
                     )
