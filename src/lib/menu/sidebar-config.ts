@@ -63,6 +63,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     status: 'pronto',
     items: [
       { id: 'receber', label: 'A Receber', href: '/dashboard/financeiro/receber', status: 'pronto', badge: 'NFSe' },
+      { id: 'faturar-os', label: 'Faturar OS', href: '/dashboard/financeiro/faturar-os', status: 'pronto', badge: 'Oficina' },
       { id: 'pagar', label: 'A Pagar', href: '/dashboard/financeiro/pagar', status: 'pronto' },
       { id: 'nova-receita', label: 'Nova Receita', href: '/dashboard/financeiro/nova-receita', status: 'pronto' },
       { id: 'nova-despesa', label: 'Nova Despesa', href: '/dashboard/financeiro/nova-despesa', status: 'pronto' },
