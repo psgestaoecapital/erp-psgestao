@@ -14,7 +14,7 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E0D8CC', ESP60
 type Metricas = {
   ok?: boolean
   os_abertas?: number; veiculos_patio?: number; os_mes?: number
-  faturamento_mes?: number | string; ultima_atividade?: string | null
+  faturamento_mes?: number | string | null; faturamento_restrito?: boolean; ultima_atividade?: string | null
   clientes?: number; telas_total?: number; telas_prontas?: number
 }
 type Atalho = { id: string; label: string; href: string }
@@ -94,7 +94,10 @@ export default function OficinaHome() {
             <Stat icon={<ClipboardList size={16} />} label="OS abertas" value={m?.os_abertas ?? '—'} />
             <Stat icon={<Car size={16} />} label="Veículos no pátio" value={m?.veiculos_patio ?? '—'} />
             <Stat icon={<CalendarDays size={16} />} label="OS no mês" value={m?.os_mes ?? '—'} />
-            <Stat icon={<DollarSign size={16} />} label="Faturamento do mês" value={brl(m?.faturamento_mes)} sub="via Gestão Empresarial" small />
+            {/* R4 · faturamento só p/ dono/admin (o mecânico não vê dinheiro). Escondido, não "—". */}
+            {!m?.faturamento_restrito && (
+              <Stat icon={<DollarSign size={16} />} label="Faturamento do mês" value={brl(m?.faturamento_mes)} sub="via Gestão Empresarial" small />
+            )}
             <Stat icon={<Clock size={16} />} label="Última atividade" value={fmtQuando(m?.ultima_atividade)} small />
           </div>
 
