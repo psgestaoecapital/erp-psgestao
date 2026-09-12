@@ -179,8 +179,12 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
               <div style={{ borderTop: `1px solid ${LINE}`, paddingTop: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: WARN, marginBottom: 6 }}>{relatorio.puladas.length} não faturada(s):</div>
                 {relatorio.puladas.map((p, i) => (
-                  <div key={i} style={{ fontSize: 12.5, color: ESP60, padding: '3px 0' }}>• OS {p.numero ?? p.os_id.slice(0, 8)} — {MOTIVO_LOTE[p.motivo] ?? p.motivo}</div>
+                  <div key={i} style={{ fontSize: 12.5, color: ESP60, padding: '4px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderBottom: `1px solid ${LINE}` }}>
+                    <span>• OS {p.numero ?? p.os_id.slice(0, 8)} — {MOTIVO_LOTE[p.motivo] ?? p.motivo}</span>
+                    <a href={`/dashboard/os?os=${p.os_id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: ESP, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>abrir <ChevronRight size={12} /></a>
+                  </div>
                 ))}
+                <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8 }}>Resolva cada uma (informar valor / vincular cliente) e fature de novo.</div>
               </div>
             )}
           </div>
