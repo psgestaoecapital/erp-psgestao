@@ -55,11 +55,14 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
   const faturarUma = async (os: Linha) => {
     if (faturando) return
     setFaturando(os.os_id)
-    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.os_id, p_conta_bancaria_id: null })
+    // roteia pelo lote (1 item) → passa pelo MESMO gate de papel; a fila inteira fica protegida
+    // sem tocar na fn_os_faturar compartilhada (/dashboard/os, commerce/otc).
+    const { data, error } = await supabase.rpc('fn_os_faturar_lote', { p_company_id: companyId, p_os_ids: [os.os_id], p_conta_bancaria_id: null })
     setFaturando(null)
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao faturar')); return }
-    setMsg(`✅ OS ${os.numero ?? ''} faturada — título gerado em A Receber.`)
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string; faturadas?: number; puladas?: Pulada[] } | null
+    if (error || !r?.ok) { setMsg('⛔ ' + (r?.mensagem || error?.message || r?.erro || 'Falha ao faturar')); return }
+    if ((r.faturadas ?? 0) >= 1) { setMsg(`✅ OS ${os.numero ?? ''} faturada — título em A Receber.`) }
+    else { const m = r.puladas?.[0]?.motivo; setMsg('⚠ Não faturada: ' + (MOTIVO_LOTE[m ?? ''] ?? m ?? 'verifique a OS')) }
     void carregar()
   }
 
@@ -69,8 +72,8 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
     const ids = prontas.map((l) => l.os_id)
     const { data, error } = await supabase.rpc('fn_os_faturar_lote', { p_company_id: companyId, p_os_ids: ids, p_conta_bancaria_id: null })
     setEmLote(false)
-    const r = data as { ok?: boolean; erro?: string; faturadas?: number; valor_faturado?: number; puladas?: Pulada[] } | null
-    if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha no lote')); return }
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string; faturadas?: number; valor_faturado?: number; puladas?: Pulada[] } | null
+    if (error || !r?.ok) { setMsg('⛔ ' + (r?.mensagem || error?.message || r?.erro || 'Falha no lote')); return }
     setRelatorio({ faturadas: r.faturadas ?? 0, valor: Number(r.valor_faturado) || 0, puladas: r.puladas ?? [] })
     void carregar()
   }
