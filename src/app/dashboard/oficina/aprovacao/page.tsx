@@ -97,7 +97,9 @@ export default function AprovacaoPage() {
   // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
   // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
   const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
-  const totalAprov = itens.filter((i) => i.aprovado).reduce((s, i) => s + precoNum(i), 0)
+  // Item aprovado SEM preço não entra no total (não vira R$ 0,00 calado — decisão errada). É declarado.
+  const aprovSemPreco = itens.filter((i) => i.aprovado && precoNum(i) <= 0)
+  const totalAprov = itens.filter((i) => i.aprovado && precoNum(i) > 0).reduce((s, i) => s + precoNum(i), 0)
 
   const salvar = async () => {
     if (!companyId || !osSel) return
@@ -187,6 +189,11 @@ export default function AprovacaoPage() {
                   <button onClick={() => setPreco(i.item_id, String(i.preco_sugerido))} style={{ ...chipMini }}>usar sugerido</button>
                 )}
               </div>
+              {i.aprovado && precoNum(i) <= 0 && (
+                <div style={{ fontSize: 11, color: AMBER, marginTop: 6 }}>
+                  ⚠️ Preço não informado — sem ele este item não entra no total e a OS não fatura certo. Informe o valor acima.
+                </div>
+              )}
             </div>
           ))}
         </Sec>
@@ -219,6 +226,11 @@ export default function AprovacaoPage() {
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${LINE}`, padding: '10px 14px' }}>
         <div style={{ maxWidth: 560, margin: '0 auto' }}>
+          {aprovSemPreco.length > 0 && (
+            <div style={{ fontSize: 11.5, color: AMBER, fontWeight: 600, marginBottom: 6 }}>
+              ⚠️ {aprovSemPreco.length} item(ns) aprovado(s) sem preço — não entram no total. Informe o preço para faturar certo.
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ fontSize: 13, color: ESP60 }}>Total aprovado</span>
             <span style={{ fontSize: 20, fontWeight: 800, color: ESP }}>{brl(totalAprov)}</span>

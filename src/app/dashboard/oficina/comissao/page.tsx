@@ -12,7 +12,7 @@ const OK = '#166534'
 const brl = (n: number | null | undefined) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(n) || 0)
 const fmtH = (h: number | null | undefined) => `${(Number(h) || 0).toFixed(1)}h`
 
-type MecCalc = { mecanico: string; servicos: number; horas: number; producao: number; regra_tipo: string | null; regra_valor: number | null; comissao: number }
+type MecCalc = { mecanico: string; servicos: number; horas: number; producao: number; regra_tipo: string | null; regra_valor: number | null; comissao: number | null; sem_regra?: boolean }
 type Regra = { id: string; mecanico_nome: string | null; tipo: string; valor: number }
 
 function useCompanyId(): string | null {
@@ -39,7 +39,9 @@ export default function ComissaoPage() {
   const router = useRouter()
   const [ini, setIni] = useState(isoInicioMes())
   const [fim, setFim] = useState(isoHoje())
-  const [mecs, setMecs] = useState<MecCalc[]>([])
+  const [mecs, setMecs] = useState<MecCalc[]>([])       // só com regra (entram no total)
+  const [semRegra, setSemRegra] = useState<MecCalc[]>([]) // sem regra → declarados à parte, FORA do total
+  const [total, setTotal] = useState(0)                  // total_comissao vindo da RPC (só com regra)
   const [regras, setRegras] = useState<Regra[]>([])
   const [carregando, setCarregando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -55,8 +57,11 @@ export default function ComissaoPage() {
       supabase.rpc('fn_oficina_comissao_calcular', { p_company_id: companyId, p_data_ini: ini, p_data_fim: fim }),
       supabase.rpc('fn_oficina_comissao_regras', { p_company_id: companyId }),
     ])
-    const c = calc as { mecanicos?: MecCalc[] } | null
-    setMecs(c?.mecanicos ?? [])
+    const c = calc as { mecanicos?: MecCalc[]; total_comissao?: number } | null
+    const all = c?.mecanicos ?? []
+    setMecs(all.filter((m) => !m.sem_regra))
+    setSemRegra(all.filter((m) => !!m.sem_regra))
+    setTotal(Number(c?.total_comissao) || 0)
     setRegras((regs as Regra[]) ?? [])
     setCarregando(false)
   }, [companyId, ini, fim])
@@ -78,7 +83,6 @@ export default function ComissaoPage() {
 
   if (!companyId) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione uma empresa específica no topo para abrir a Comissão.</div>
 
-  const totalComissao = mecs.reduce((s, m) => s + (Number(m.comissao) || 0), 0)
   const descRegra = (r: Regra) => r.tipo === 'por_hora' ? `${brl(r.valor)}/h` : `${Number(r.valor)}% da mão de obra`
 
   return (
@@ -97,8 +101,12 @@ export default function ComissaoPage() {
           </div>
         </Sec>
 
-        <Sec titulo={`Comissão por mecânico · total ${brl(totalComissao)}`}>
-          {mecs.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Nenhum serviço apontado no período.</div>}
+        <Sec titulo={`Comissão por mecânico · total ${brl(total)}`}>
+          {mecs.length === 0 && semRegra.length === 0 && (
+            <div style={{ color: ESP60, fontSize: 13 }}>
+              Nenhum serviço apontado no período. Assim que os mecânicos apontarem horas nas OS, o cálculo aparece aqui.
+            </div>
+          )}
           {mecs.map((m) => (
             <div key={m.mecanico} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 10, background: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -109,10 +117,25 @@ export default function ComissaoPage() {
                 <span><Clock size={12} style={{ verticalAlign: -1 }} /> {fmtH(m.horas)}</span>
                 <span><TrendingUp size={12} style={{ verticalAlign: -1 }} /> produção {brl(m.producao)}</span>
                 <span>{m.servicos} serviço(s)</span>
-                <span style={{ marginLeft: 'auto' }}>{m.regra_tipo ? (m.regra_tipo === 'por_hora' ? `${brl(m.regra_valor)}/h` : `${Number(m.regra_valor)}%`) : 'sem regra'}</span>
+                <span style={{ marginLeft: 'auto' }}>{m.regra_tipo === 'por_hora' ? `${brl(m.regra_valor)}/h` : `${Number(m.regra_valor)}%`}</span>
               </div>
             </div>
           ))}
+
+          {/* Sem regra: FORA do total (não vira R$ 0,00 somado), declarado — mesmo tratamento do lucro NULL da Onda 4A. */}
+          {semRegra.length > 0 && (
+            <div style={{ border: `1px solid ${GOLD}`, background: 'rgba(200,148,26,0.06)', borderRadius: 12, padding: 12, marginTop: 4 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#854F0B', marginBottom: 6 }}>
+                ⚠️ {semRegra.length} mecânico(s) sem regra de comissão — <b>não entraram no total</b>. Cadastre a regra abaixo para calcular.
+              </div>
+              {semRegra.map((m) => (
+                <div key={m.mecanico} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: `1px solid ${LINE}` }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: ESP }}>{m.mecanico}</span>
+                  <span style={{ fontSize: 11.5, color: ESP60 }}>{m.servicos} serviço(s) · {fmtH(m.horas)} · produção {brl(m.producao)} · <b style={{ color: '#854F0B' }}>sem regra</b></span>
+                </div>
+              ))}
+            </div>
+          )}
         </Sec>
 
         <Sec titulo="Regras de comissão">
