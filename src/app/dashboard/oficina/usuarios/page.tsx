@@ -155,7 +155,7 @@ export default function UsuariosOficinaPage() {
       {loading ? (
         <div style={{ color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : pessoas.length === 0 ? (
-        <div style={{ color: C.espressoM, fontSize: 13 }}>Ninguém ainda.</div>
+        <div style={{ color: C.espressoM, fontSize: 13, lineHeight: 1.5 }}>Nenhum usuário cadastrado. Cadastre sua equipe para que cada mecânico veja a fila dele e você acompanhe quem fez o que.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {pessoas.map((p) => {

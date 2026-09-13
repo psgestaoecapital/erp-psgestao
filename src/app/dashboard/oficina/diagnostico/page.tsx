@@ -455,7 +455,7 @@ export default function DiagnosticoPage() {
                       <span style={{ fontSize: 14 }}>{p.nome}</span>
                     </div>
                     <div style={{ fontSize: 11, color: ESP60, marginTop: 2 }}>
-                      {p.codigo ? `${p.codigo} · ` : ''}estoque {p.estoque_atual != null ? Number(p.estoque_atual) : '—'} {p.unidade ?? ''}
+                      {p.codigo ? `${p.codigo} · ` : ''}{p.estoque_atual != null ? `estoque ${Number(p.estoque_atual)} ${p.unidade ?? ''}` : 'estoque não informado'}
                       {p.status_estoque && p.status_estoque !== 'ok' ? ` · ${p.status_estoque}` : ''}
                     </div>
                   </button>

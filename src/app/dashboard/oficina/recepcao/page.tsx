@@ -478,7 +478,14 @@ export default function RecepcaoPage() {
             </>
           ) : (
             <>
-              <Campo l={`${ramo.objetoLabel} *`}><input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder={ramo.identPlaceholder} style={inp} /></Campo>
+              <Campo l={ramo.objetoLabel}>
+                <input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder={ramo.identPlaceholder} style={inp} />
+                {!itemDesc.trim() && (
+                  <div style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>
+                    ⚠️ Sem descrever a {ramo.objetoLabelCurto}, não dá pra abrir a OS nem orçar o serviço.
+                  </div>
+                )}
+              </Campo>
               <Campo l="Material (opcional)"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: alumínio / ferro fundido" style={inp} /></Campo>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: 8 }}>
                 <Campo l="Medidas / specs (opcional)"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>

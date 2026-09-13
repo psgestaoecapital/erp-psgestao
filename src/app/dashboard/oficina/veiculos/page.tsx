@@ -137,7 +137,13 @@ export default function VeiculosPage() {
           <button onClick={() => void buscar()} disabled={carregando} style={{ ...btnGold, minWidth: 52 }}><Search size={18} /></button>
         </div>
 
-        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>{carregando ? 'Buscando…' : 'Nenhum veículo encontrado.'}</div>}
+        {lista.length === 0 && (
+          <div style={{ color: ESP60, fontSize: 14, padding: '20px 0', lineHeight: 1.5 }}>
+            {carregando ? 'Buscando…' : (termo.trim()
+              ? 'Nenhum veículo com esse termo. Confira a placa ou o nome — os veículos aparecem aqui conforme você abre OS com a placa preenchida.'
+              : 'Nenhum veículo ainda. Os veículos aparecem aqui conforme você abre OS com a placa preenchida.')}
+          </div>
+        )}
         {lista.map((veic) => (
           <button key={veic.placa} onClick={() => void abrir(veic.placa)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
