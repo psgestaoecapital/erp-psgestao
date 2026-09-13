@@ -46,6 +46,8 @@ export default function VeiculosPage() {
   const [sel, setSel] = useState<{ veiculo: Veiculo; os: OSHist[]; km_evolucao: KmPt[] } | null>(null)
   const [contatos, setContatos] = useState<Contato[]>([])
   const [carregando, setCarregando] = useState(false)
+  const [gerandoLink, setGerandoLink] = useState(false)
+  const [linkMsg, setLinkMsg] = useState<string | null>(null)
 
   const buscar = useCallback(async () => {
     if (!companyId) return
@@ -56,6 +58,21 @@ export default function VeiculosPage() {
   }, [companyId, termo])
 
   useEffect(() => { void buscar() }, [companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Onda 10 · D — gera o link público do histórico (sem valores) e abre o WhatsApp p/ enviar ao cliente.
+  const compartilharHistorico = async (placa: string) => {
+    if (!companyId || gerandoLink) return
+    setGerandoLink(true); setLinkMsg(null)
+    const { data } = await supabase.rpc('fn_veiculo_link_publico_gerar', { p_company_id: companyId, p_placa: placa })
+    setGerandoLink(false)
+    const r = data as { ok?: boolean; token?: string; erro?: string } | null
+    if (!r?.ok || !r.token) { setLinkMsg('Não consegui gerar o link agora.'); return }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const url = `${origin}/veiculo/${r.token}`
+    const texto = `Olá! Aqui está o histórico de serviços do seu veículo ${placa} com a gente:\n${url}`
+    if (typeof window !== 'undefined') window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank')
+    try { await navigator.clipboard?.writeText(url); setLinkMsg('Link gerado e copiado.') } catch { setLinkMsg('Link gerado.') }
+  }
 
   const abrir = async (placa: string) => {
     if (!companyId) return
@@ -80,6 +97,13 @@ export default function VeiculosPage() {
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Veículo</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 2px', display: 'flex', alignItems: 'center', gap: 8 }}><Car size={22} /> {v.placa}</h1>
           <div style={{ fontSize: 14, color: ESP60, marginBottom: 12 }}>{[v.marca, v.modelo, v.ano].filter(Boolean).join(' · ') || 'Veículo'}{v.cliente_nome ? ` · ${v.cliente_nome}` : ''}</div>
+
+          {/* Onda 10 · D — compartilhar o histórico (portal público SEM valores) com o cliente via WhatsApp */}
+          <button onClick={() => void compartilharHistorico(v.placa)} disabled={gerandoLink}
+            style={{ marginBottom: 12, minHeight: 42, padding: '0 16px', borderRadius: 10, border: 'none', background: '#25D366', color: '#0b3d1f', fontWeight: 800, fontSize: 13.5, cursor: gerandoLink ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {gerandoLink ? 'Gerando…' : '📲 Enviar histórico ao cliente'}
+          </button>
+          {linkMsg && <div style={{ fontSize: 12, color: OK, marginBottom: 12 }}>{linkMsg}</div>}
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <Stat l="Passagens" v={String(v.os_count)} />
