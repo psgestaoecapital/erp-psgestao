@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { PackageCheck, RefreshCw, CircleDollarSign, UserPlus, FileWarning, ChevronRight, X } from 'lucide-react'
+import VincularClienteModal from './VincularClienteModal'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', WHITE = '#FFFFFF', OK = '#166534', WARN = '#B45309', RED = '#A32D2D'
 const brl = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
@@ -31,6 +32,7 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
   const [preview, setPreview] = useState(false)                     // modal de confirmação do lote
   const [emLote, setEmLote] = useState(false)
   const [relatorio, setRelatorio] = useState<{ faturadas: number; valor: number; puladas: Pulada[] } | null>(null)
+  const [vincularOs, setVincularOs] = useState<Linha | null>(null)   // PR B · vincular cliente na OS sem cliente
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null)
@@ -130,7 +132,11 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
       {semCliente.length > 0 && (
         <Grupo icon={<UserPlus size={16} color={WARN} />} titulo={`Falta vincular cliente (${semCliente.length})`} cor={WARN}>
           <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Título sem cliente não concilia nem entra na cobrança. Vincule o cliente antes de faturar (em breve, aqui mesmo).</div>
-          {semCliente.map((l) => <LinhaOS key={l.os_id} l={l} acao={<span style={{ fontSize: 12, color: WARN, fontWeight: 700, whiteSpace: 'nowrap' }}>vincular cliente</span>} />)}
+          {semCliente.map((l) => <LinhaOS key={l.os_id} l={l}
+            acao={<button onClick={() => setVincularOs(l)}
+              style={{ minHeight: 38, padding: '0 14px', borderRadius: 8, border: `1px solid ${WARN}`, background: '#fff', color: WARN, fontWeight: 800, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <UserPlus size={14} /> Vincular cliente
+            </button>} />)}
         </Grupo>
       )}
 
@@ -189,6 +195,12 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
             )}
           </div>
         </div>
+      )}
+
+      {vincularOs && (
+        <VincularClienteModal companyId={companyId} os={{ os_id: vincularOs.os_id, numero: vincularOs.numero, placa: vincularOs.placa }}
+          onFechar={() => setVincularOs(null)}
+          onVinculado={(nome) => { setVincularOs(null); setMsg(`✅ Cliente vinculado${nome ? ` — ${nome}` : ''}. A OS entrou em "prontas".`); void carregar() }} />
       )}
 
       {msg && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 90, maxWidth: '92%', textAlign: 'center' }}>{msg}</div>}
