@@ -63,6 +63,8 @@ export default function RecepcaoPage() {
   const [agendamentoId, setAgendamentoId] = useState<string | null>(null)
   const [placa, setPlaca] = useState(''); const [buscando, setBuscando] = useState(false); const [historico, setHistorico] = useState<string | null>(null)
   const [clienteNome, setClienteNome] = useState(''); const [clienteCnpj, setClienteCnpj] = useState(''); const [clienteId, setClienteId] = useState('')
+  // Onda 10 · A — canal (WhatsApp/telefone) + consentimento LGPD. Prefill do cadastro; opt-in de pós-venda explícito.
+  const [whatsapp, setWhatsapp] = useState(''); const [aceitaPosVenda, setAceitaPosVenda] = useState(false); const [naoQuisTelefone, setNaoQuisTelefone] = useState(false)
   // RD-41 · busca de cliente por documento (CPF/CNPJ) na base do tenant + cadastro inline (sem sair da recepção).
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   type DocStatus = { tipo: 'cliente' | 'fornecedor' | 'nao_encontrado' | 'sem_plano' | 'erro'; razao?: string; fornecedorId?: string }
@@ -244,6 +246,17 @@ export default function RecepcaoPage() {
   const setLegenda = (i: number, v: string) => setFotos((p) => p.map((f, idx) => (idx === i ? { ...f, legenda: v } : f)))
   const removerFoto = (i: number) => setFotos((p) => p.filter((_, idx) => idx !== i))
 
+  // Onda 10 · A — grava o contato do cliente (propaga telefone se vazio no cadastro + opt-in de pós-venda).
+  // Só quando há cliente vinculado e algo a gravar. Opt-in só quando explícito (true); nunca grava recusa aqui.
+  const salvarContatoCliente = async () => {
+    if (!companyId || !clienteId) return
+    if (!whatsapp.trim() && !aceitaPosVenda) return
+    await supabase.rpc('fn_oficina_cliente_contato_upsert', {
+      p_company_id: companyId, p_cliente_id: clienteId,
+      p_whatsapp: whatsapp.trim() || null, p_aceita_pos_venda: aceitaPosVenda ? true : null,
+    })
+  }
+
   const salvar = async () => {
     if (!companyId) return
     // OFIC-B (#11) · "Somente orçamento": não cria OS/pátio; cria um orçamento e vai pro editor.
@@ -260,6 +273,7 @@ export default function RecepcaoPage() {
       setSalvando(false)
       const r = data as { ok?: boolean; erro?: string; orcamento_id?: string } | null
       if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao criar orçamento')); return }
+      await salvarContatoCliente()
       setMsg('✅ Orçamento CRIOU — abra para adicionar itens e enviar o link ao cliente. Abrindo…')
       setTimeout(() => router.push('/dashboard/orcamentos'), 1200)
       return
@@ -304,6 +318,7 @@ export default function RecepcaoPage() {
     if (j?.os_id && agendamentoId) {
       await supabase.rpc('fn_agendamento_vincular_os', { p_agendamento_id: agendamentoId, p_os_id: j.os_id })
     }
+    await salvarContatoCliente()
     setSalvando(false)
     setMsg(`✅ Recepção registrada — ${j?.numero}.`)
     // RD-41 · colher a assinatura "ciente do checklist" do cliente (pode pular).
@@ -321,6 +336,19 @@ export default function RecepcaoPage() {
       setMecCadastrados((data as { id: string; nome: string; papel: string }[]) ?? [])
     })
   }, [companyId])
+  // Onda 10 · A — prefill do contato quando um cliente já existe (não sobrescreve o que o atendente está digitando).
+  useEffect(() => {
+    if (!companyId || !clienteId) return
+    let cancel = false
+    void supabase.rpc('fn_oficina_cliente_contato_obter', { p_company_id: companyId, p_cliente_id: clienteId }).then(({ data }) => {
+      if (cancel) return
+      const r = data as { ok?: boolean; whatsapp?: string | null; aceita_pos_venda?: boolean | null } | null
+      if (!r?.ok) return
+      if (r.whatsapp) setWhatsapp((cur) => (cur.trim() ? cur : (r.whatsapp ?? '')))
+      if (r.aceita_pos_venda === true) setAceitaPosVenda(true)
+    })
+    return () => { cancel = true }
+  }, [companyId, clienteId])
   // OFIC-A (#10) · prefill vindo do Pátio (?ag=&placa=&cliente_id=&cliente_nome=). Só no mount (client).
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -445,6 +473,31 @@ export default function RecepcaoPage() {
             )}
             {!buscandoDoc && docStatus?.tipo === 'sem_plano' && <div style={selMut}>Busca de cadastro indisponível para esta empresa.</div>}
             {!buscandoDoc && docStatus?.tipo === 'erro' && <div style={selMut}>Não consegui buscar agora — pode digitar o nome manualmente.</div>}
+          </Campo>
+          {/* Onda 10 · A — WhatsApp/telefone + consentimento (LGPD). Exige de leve (RD-51): avisa, não trava. */}
+          <Campo l="WhatsApp / telefone">
+            <input value={whatsapp} disabled={naoQuisTelefone}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              onFocus={() => { if (naoQuisTelefone) setNaoQuisTelefone(false) }}
+              inputMode="tel" placeholder="(66) 99999-0000"
+              style={{ ...inp, opacity: naoQuisTelefone ? 0.5 : 1 }} />
+            {!whatsapp.trim() && !naoQuisTelefone && (clienteId || clienteNome.trim().length >= 2) && (
+              <div style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>
+                ⚠️ Sem o WhatsApp não dá pra avisar quando o carro ficar pronto nem mandar o orçamento.
+              </div>
+            )}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, color: ESP, cursor: 'pointer' }}>
+              <input type="checkbox" checked={naoQuisTelefone}
+                onChange={(e) => { setNaoQuisTelefone(e.target.checked); if (e.target.checked) { setWhatsapp(''); setAceitaPosVenda(false) } }} />
+              Cliente não quis informar
+            </label>
+            {whatsapp.trim() && !naoQuisTelefone && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 8, fontSize: 12.5, color: ESP, cursor: 'pointer', lineHeight: 1.35 }}>
+                <input type="checkbox" checked={aceitaPosVenda} onChange={(e) => setAceitaPosVenda(e.target.checked)} style={{ marginTop: 2 }} />
+                <span>Aceita receber contato sobre o veículo (lembrete de revisão, retorno).{' '}
+                  <span style={{ color: ESP60 }}>Opcional — sem isso, o WhatsApp serve só para avisar sobre este serviço.</span></span>
+              </label>
+            )}
           </Campo>
           {ramo.automotivo ? (
             <>
