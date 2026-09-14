@@ -18,6 +18,9 @@ type VeicLinha = { placa: string; cliente_nome: string | null; marca: string | n
 type OSHist = { id: string; numero: string; status: string; data: string | null; km: number | null; tecnico_nome: string | null; defeito_relatado: string | null; diagnostico: string | null; pecas_utilizadas: string | null; total: number | null; itens_count: number; valor_aprovado: number | null }
 type Veiculo = { placa: string; cliente_nome: string | null; marca: string | null; modelo: string | null; ano: number | null; chassi: string | null; ultimo_km: number | null; os_count: number }
 type KmPt = { data: string | null; km: number }
+type Contato = { id: string; tipo: string; canal: string; mensagem: string | null; resultado: string | null; agendado_para: string | null; criado_em: string }
+const CONTATO_RES: Record<string, string> = { enviado: 'mensagem enviada', respondeu: 'respondeu', agendou: 'agendou retorno', recusou: 'não quis contato', sem_resposta: 'sem resposta' }
+const fmtDataHora = (d: string | null) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
 
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
@@ -41,6 +44,7 @@ export default function VeiculosPage() {
   const [termo, setTermo] = useState('')
   const [lista, setLista] = useState<VeicLinha[]>([])
   const [sel, setSel] = useState<{ veiculo: Veiculo; os: OSHist[]; km_evolucao: KmPt[] } | null>(null)
+  const [contatos, setContatos] = useState<Contato[]>([])
   const [carregando, setCarregando] = useState(false)
 
   const buscar = useCallback(async () => {
@@ -55,8 +59,12 @@ export default function VeiculosPage() {
 
   const abrir = async (placa: string) => {
     if (!companyId) return
-    const { data } = await supabase.rpc('fn_oficina_veiculo_historico', { p_company_id: companyId, p_placa: placa })
+    const [{ data }, { data: cts }] = await Promise.all([
+      supabase.rpc('fn_oficina_veiculo_historico', { p_company_id: companyId, p_placa: placa }),
+      supabase.rpc('fn_oficina_veiculo_contatos', { p_company_id: companyId, p_placa: placa }),
+    ])
     setSel(data as { veiculo: Veiculo; os: OSHist[]; km_evolucao: KmPt[] })
+    setContatos((cts as Contato[]) ?? [])
   }
 
   if (!companyId) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione uma empresa específica no topo para abrir os Veículos.</div>
@@ -112,6 +120,21 @@ export default function VeiculosPage() {
                     <span style={{ color: OK, fontWeight: 700, marginLeft: 'auto' }}>{brl(o.valor_aprovado ?? o.total)}</span>
                   )}
                 </div>
+              </div>
+            ))}
+          </Sec>
+
+          {/* Onda 10 · C — Contatos com o cliente sobre este veículo (pós-venda, retorno). Evita ligar 2× na semana. */}
+          <Sec titulo={`Contatos (${contatos.length})`}>
+            {contatos.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Nenhum contato registrado ainda.</div>}
+            {contatos.map((c) => (
+              <div key={c.id} style={{ borderLeft: `3px solid ${LINE}`, paddingLeft: 10, marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{c.canal === 'whatsapp' ? 'WhatsApp' : c.canal} · {CONTATO_RES[c.resultado ?? ''] ?? c.resultado ?? 'registrado'}</span>
+                  <span style={{ fontSize: 11, color: ESP60 }}>{fmtDataHora(c.criado_em)}</span>
+                </div>
+                {c.agendado_para && <div style={{ fontSize: 11.5, color: OK, marginTop: 2 }}>Retorno agendado: {fmtData(c.agendado_para)}</div>}
+                {c.mensagem && <div style={{ fontSize: 12, color: ESP60, marginTop: 2, whiteSpace: 'pre-wrap' }}>{c.mensagem}</div>}
               </div>
             ))}
           </Sec>
