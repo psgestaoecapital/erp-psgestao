@@ -11,6 +11,7 @@
 //    cooperativa 6789 / posto 03 / codigoBeneficiario 12345) + a x-api-key da app de homologação.
 
 import { Buffer } from 'node:buffer'
+import { tipoPessoaPorDocumento } from '@/lib/banco/documento'
 
 export type SicrediAmbiente = 'producao' | 'homologacao'
 
@@ -132,6 +133,13 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   const c = input.cred
   const token = await obterToken(c)
   const doc = onlyDigits(input.pagador.documento)
+  // tipoPessoa vem do DOCUMENTO, nunca de um campo de cadastro chutado (11=CPF/física,
+  // 14=CNPJ/jurídica). Mandar o tipo fixo/errado faz o Sicredi recusar com 422. Documento
+  // fora de 11/14 é incompleto: para aqui, não vai ao banco (a rota já avisa a tela antes).
+  const pessoa = tipoPessoaPorDocumento(doc)
+  if (!pessoa) {
+    throw new Error(`Documento do pagador inválido (${doc.length} dígito(s)): informe um CPF (11) ou CNPJ (14) no cadastro do cliente antes de gerar o boleto.`)
+  }
 
   const payload: Record<string, unknown> = {
     tipoCobranca: input.hibrido ? 'HIBRIDO' : 'NORMAL', // HIBRIDO exige contratação na cooperativa
@@ -143,7 +151,7 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     dataVencimento: input.vencimentoISO,
     valor: Number(input.valor.toFixed(2)),
     pagador: {
-      tipoPessoa: input.pagador.tipo === 'PF' ? 'PESSOA_FISICA' : 'PESSOA_JURIDICA',
+      tipoPessoa: pessoa === 'FISICA' ? 'PESSOA_FISICA' : 'PESSOA_JURIDICA',
       documento: doc,
       nome: cleanText(input.pagador.nome, 70),
       endereco: cleanText(input.pagador.logradouro ?? '', 40),

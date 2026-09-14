@@ -9,6 +9,8 @@ import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { registrarBoleto, buscarPdf, type SicrediAmbiente } from '@/lib/banco/sicredi'
 import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
+import { onlyDigitsDoc, tipoPessoaPorDocumento } from '@/lib/banco/documento'
+import { extractBankMessage } from '@/lib/banco/bankError'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -128,6 +130,13 @@ export async function POST(req: NextRequest) {
       await logSync(companyId, 'erro', 'cliente sem CPF/CNPJ', { receber_id })
       return NextResponse.json({ ok: false, erro: 'Cliente sem CPF/CNPJ — necessario para registrar boleto.' }, { status: 412 })
     }
+    // Documento tem que ser CPF (11) ou CNPJ (14). Fora disso o banco recusa (422) por
+    // divergência com o tipo. Barra ANTES de ir ao banco, dizendo o que falta e o impacto.
+    const docDigitos = onlyDigitsDoc(pagador.documento)
+    if (!tipoPessoaPorDocumento(docDigitos)) {
+      await logSync(companyId, 'erro', `documento do cliente incompleto (${docDigitos.length} digitos)`, { receber_id })
+      return NextResponse.json({ ok: false, erro: `O CPF/CNPJ do cliente esta incompleto (tem ${docDigitos.length} digito(s); precisa de 11 para CPF ou 14 para CNPJ) — corrija no cadastro do cliente antes de gerar o boleto.` }, { status: 412 })
+    }
 
     const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
     const emissaoPretendida = rec.data_emissao ?? hojeSP
@@ -148,7 +157,10 @@ export async function POST(req: NextRequest) {
       especieDocumento: (credRow.especie_documento as string | null) ?? undefined })  // espécie da config (KGF serviço = DUPLICATA_SERVICO_INDICACAO); default do conector = MERCANTIL
     if (result.status < 200 || result.status >= 300 || !result.nuTituloGerado || !result.linhaDigitavel || !result.codigoBarras) {
       await logSync(companyId, 'erro', `registro falhou: status ${result.status}`, { receber_id, username, username_len: username.length, raw: result.raw, payload_enviado: result.payload_resumo })
-      return NextResponse.json({ ok: false, erro: 'Sicredi recusou o registro do boleto.', detalhes: result.raw }, { status: 502 })
+      // O banco quase sempre diz a causa; mostrar isso na tela (não jogar fora) — vale p/ qualquer erro de banco.
+      const msgBanco = extractBankMessage(result.raw)
+      const erro = msgBanco ? `Sicredi nao registrou o boleto: ${msgBanco}` : 'Sicredi recusou o registro do boleto.'
+      return NextResponse.json({ ok: false, erro, detalhes: result.raw }, { status: 502 })
     }
 
     // PDF: nativo do Sicredi (/boletos/pdf); fallback = gerarPdfBoleto local (banco 748)
