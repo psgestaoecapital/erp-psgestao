@@ -2,6 +2,7 @@
 // Node runtime only (mTLS via https.Agent com .pfx).
 import https from 'node:https'
 import { Buffer } from 'node:buffer'
+import { tipoPessoaPorDocumento } from '@/lib/banco/documento'
 
 export type BradescoAmbiente = 'producao' | 'sandbox'
 
@@ -139,6 +140,15 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   const cepPagador = cepRaw.slice(0, 5)
   const complementoCepPagador = cepRaw.slice(5, 8)
 
+  // CPF/CNPJ do pagador: o indicador (cdIndCpfcnpjPagador 1=CPF, 2=CNPJ) sai do DOCUMENTO,
+  // nunca de um campo de cadastro chutado — 11 dígitos = física, 14 = jurídica. Documento
+  // fora disso é incompleto e para aqui (a rota já avisa a tela antes de chegar ao banco).
+  const docPagador = onlyDigits(input.pagador.documento)
+  const pessoaPagador = tipoPessoaPorDocumento(docPagador)
+  if (!pessoaPagador) {
+    throw new Error(`Documento do pagador inválido (${docPagador.length} dígito(s)): informe um CPF (11) ou CNPJ (14) no cadastro do cliente antes de gerar o boleto.`)
+  }
+
   const ag = onlyDigits(input.agencia).padStart(4, '0').slice(-4)
   const ct = onlyDigits(input.conta).padStart(7, '0').slice(-7)
   // nuNegociacao: prioridade absoluta para o valor da config (gerente Bradesco
@@ -168,8 +178,8 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     cepPagador,                  // 5 digitos (Bradesco rejeita >5)
     complementoCepPagador,       // 3 digitos (sufixo do CEP)
     tpVencimento: 0,
-    cdIndCpfcnpjPagador: input.pagador.tipo === 'PF' ? 1 : 2,
-    nuCpfcnpjPagador: onlyDigits(input.pagador.documento),
+    cdIndCpfcnpjPagador: pessoaPagador === 'FISICA' ? 1 : 2,
+    nuCpfcnpjPagador: docPagador,
     listaMsgs: (input.instrucoes ?? [])
       .filter((m): m is string => !!m && String(m).trim().length > 0)
       .slice(0, 4)
