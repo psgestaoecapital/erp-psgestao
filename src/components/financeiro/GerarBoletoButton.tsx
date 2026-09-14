@@ -9,6 +9,9 @@ export default function GerarBoletoButton({ receberId, jaTemBoleto, linhaDigitav
   const [busy, setBusy] = useState(false)
   const [linha, setLinha] = useState<string | null>(linhaDigitavel)
   const [copiou, setCopiou] = useState(false)
+  // Erro na TELA, não em alert() — depois de alguns alerts o navegador some com o diálogo e o
+  // botão parece travar sem dizer nada. Inline, a mensagem do banco fica visível.
+  const [erro, setErro] = useState<string | null>(null)
 
   if (jaTemBoleto || linha) {
     return (
@@ -29,6 +32,7 @@ export default function GerarBoletoButton({ receberId, jaTemBoleto, linhaDigitav
 
   const gerar = async () => {
     setBusy(true)
+    setErro(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const r = await fetch('/api/banco/bradesco/registrar-boleto', {
@@ -40,24 +44,30 @@ export default function GerarBoletoButton({ receberId, jaTemBoleto, linhaDigitav
         body: JSON.stringify({ receber_id: receberId }),
       })
       const j = await r.json()
-      if (!j.ok) { alert(j.erro || 'Falha ao gerar boleto'); return }
+      if (!j.ok) { setErro(j.erro || 'Falha ao gerar boleto'); return }
       setLinha(j.linha_digitavel as string)
       onSucesso?.()
-      alert(`Boleto gerado.\nNosso numero: ${j.nosso_numero}`)
     } catch (e) {
-      alert((e as Error).message || 'Erro')
+      setErro((e as Error).message || 'Erro ao gerar boleto')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={gerar}
-      disabled={busy}
-      style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1 }}>
-      {busy ? 'Gerando…' : 'Gerar boleto'}
-    </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <button
+        type="button"
+        onClick={gerar}
+        disabled={busy}
+        style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1 }}>
+        {busy ? 'Gerando…' : erro ? 'Tentar de novo' : 'Gerar boleto'}
+      </button>
+      {erro && (
+        <div role="alert" style={{ fontSize: 10.5, lineHeight: 1.4, color: '#991B1B', background: '#FEF2F2', border: '0.5px solid rgba(153,27,27,0.25)', borderRadius: 4, padding: '5px 7px', maxWidth: 340, whiteSpace: 'normal' }}>
+          {erro}
+        </div>
+      )}
+    </div>
   )
 }

@@ -98,6 +98,10 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
   const [busy, setBusy] = useState(false)
   const [imprimindo, setImprimindo] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | null>(null)
+  // Erro fica na TELA, não em alert(): depois de alguns alerts o navegador oferece
+  // "impedir novos diálogos" e a partir daí a mensagem some — a Jordana clicava, o botão
+  // voltava sozinho e nada aparecia, parecendo travado. Inline, a causa (a do banco) fica visível.
+  const [erro, setErro] = useState<string | null>(null)
 
   const label = LABEL[provider]
 
@@ -223,6 +227,7 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
       return
     }
     setBusy(true)
+    setErro(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const r = await fetch(`/api/banco/${provider}/registrar-boleto`, {
@@ -235,10 +240,10 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         body: JSON.stringify({ receber_id: receberId }),
       })
       const j = await r.json()
-      if (!j.ok) { alert(j.erro || 'Nao foi possivel gerar o boleto.'); return }
+      if (!j.ok) { setErro(j.erro || 'Nao foi possivel gerar o boleto.'); return }
       onSucesso?.()
     } catch (e) {
-      alert(`Nao foi possivel gerar o boleto: ${(e as Error).message || 'erro de rede'}`)
+      setErro(`Nao foi possivel gerar o boleto: ${(e as Error).message || 'erro de rede'}`)
     } finally {
       setBusy(false)
     }
@@ -247,33 +252,44 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
   if (!registrado) {
     const bloqueado = !!motivoDesabilitado
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={gerar}
-          disabled={busy}
-          title={motivoDesabilitado ?? `Gerar boleto ${label}`}
-          style={{
-            background: bloqueado ? 'rgba(200,148,26,0.35)' : '#C8941A',
-            color: '#3D2314', border: 'none', padding: '4px 10px',
-            borderRadius: 4, fontSize: 11, fontWeight: 600,
-            cursor: busy ? 'wait' : 'pointer',
-            whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
-          }}>
-          {busy ? 'Gerando boleto...' : bloqueado ? '⚠ Gerar boleto' : 'Gerar boleto'}
-        </button>
-        {bloqueado && (
-          <button type="button" onClick={abrirCadastroCliente}
-            title={motivoDesabilitado ?? ''}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={gerar}
+            disabled={busy}
+            title={motivoDesabilitado ?? `Gerar boleto ${label}`}
             style={{
-              background: 'transparent', color: '#3D2314',
-              border: '0.5px dashed rgba(61,35,20,0.35)',
-              padding: '3px 7px', borderRadius: 3,
-              fontSize: 10, fontWeight: 600,
-              cursor: 'pointer', whiteSpace: 'nowrap',
+              background: bloqueado ? 'rgba(200,148,26,0.35)' : '#C8941A',
+              color: '#3D2314', border: 'none', padding: '4px 10px',
+              borderRadius: 4, fontSize: 11, fontWeight: 600,
+              cursor: busy ? 'wait' : 'pointer',
+              whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
             }}>
-            Completar cadastro
+            {busy ? 'Gerando boleto...' : bloqueado ? '⚠ Gerar boleto' : erro ? 'Tentar de novo' : 'Gerar boleto'}
           </button>
+          {bloqueado && (
+            <button type="button" onClick={abrirCadastroCliente}
+              title={motivoDesabilitado ?? ''}
+              style={{
+                background: 'transparent', color: '#3D2314',
+                border: '0.5px dashed rgba(61,35,20,0.35)',
+                padding: '3px 7px', borderRadius: 3,
+                fontSize: 10, fontWeight: 600,
+                cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+              Completar cadastro
+            </button>
+          )}
+        </div>
+        {erro && (
+          <div role="alert" style={{
+            fontSize: 10.5, lineHeight: 1.4, color: '#991B1B',
+            background: '#FEF2F2', border: '0.5px solid rgba(153,27,27,0.25)',
+            borderRadius: 4, padding: '5px 7px', maxWidth: 340, whiteSpace: 'normal',
+          }}>
+            {erro}
+          </div>
         )}
       </div>
     )
