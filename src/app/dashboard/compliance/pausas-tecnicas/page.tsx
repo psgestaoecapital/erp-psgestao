@@ -54,7 +54,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export default function PausasTecnicasPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'painel' | 'importar' | 'historico' | 'config'>('painel')
+  const [aba, setAba] = useState<'painel' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -63,11 +63,12 @@ export default function PausasTecnicasPage() {
     <Wrap>
       <Header />
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel', ClipboardList], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
+        {([['painel', 'Painel', ClipboardList], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
+      {aba === 'auditoria' && <AbaAuditoria companyId={companyId} />}
       {aba === 'importar' && <AbaImportar companyId={companyId} />}
       {aba === 'historico' && <AbaHistorico companyId={companyId} />}
       {aba === 'config' && <AbaConfig companyId={companyId} />}
@@ -746,3 +747,158 @@ function btnStyle(disabled: boolean): React.CSSProperties { return { display: 'i
 function Campo({ label, children }: { label: string; children: React.ReactNode }) { return <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 12, color: C.gray }}>{label}</label>{children}</div> }
 function Btn({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) { return <button onClick={onClick} disabled={disabled} style={btnStyle(!!disabled)}>{children}</button> }
 function BtnGhost({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) { return <button onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>{children}</button> }
+
+// ─────────────────────────────────── AUDITORIA (SST ②) ───────────────────────────────────
+// Relatório de auditoria trabalhista com valor probatório: jornada real (marcação normalizada
+// ao fuso — decisão a4a440da), escala, exposição x pausa, desvios em minutos, base legal,
+// parâmetros vigentes, e hash + registro de emissão. 'sem_dado' NUNCA é linha em branco: diz o
+// motivo (0e580f96). Emitir grava a emissão (auditável) e abre a impressão (PDF via navegador).
+type RelJornada = { entrada: string | null; saida: string | null; ajustada: boolean; origem: string | null; pontos: number }
+type RelEvento = { classe: string | null; dur_min: number | null; inicio: string | null; fim: string | null }
+type RelDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number }
+type RelDia = { data: string; tipo: string; status: string; shift: string | null; jornada: RelJornada | null; eventos: RelEvento[] | null; desvios: RelDesvio[]; sem_dado_motivo: string | null }
+type RelColab = { cpf: string; nome: string; matricula: string | null; funcao: string | null; setor: string | null; dias: RelDia[] | null }
+type RelRegra = { tipo: string; nome: string; base_legal: string | null; parametros: Record<string, unknown> }
+type Relatorio = { empresa: Record<string, string | null>; periodo: { ini: string; fim: string; emitido_em: string }; regras: RelRegra[]; colaboradores: RelColab[]; hash: string; emitido_por: { email: string | null }; emissao_id?: string }
+type Emissao = { id: string; dt_ini: string; dt_fim: string; emitido_por_email: string | null; emitido_em: string; hash: string; resumo: { colaboradores?: number } | null }
+
+const desvioLabel = (d: RelDesvio): string => {
+  if (d.tipo === 'excedeu_limite') return `Exposição contínua ${d.de}–${d.ate}: ${d.minutos} min (${d.excedeu} min acima do limite)`
+  if (d.tipo === 'pausa_insuficiente') return `Pausa às ${d.inicio} durou ${d.duracao_min} min (mínimo ${d.minimo} min)`
+  if (d.tipo === 'pausa_nao_realizada') return `${d.faltantes} pausa(s) devida(s) e não realizada(s)`
+  return d.tipo
+}
+
+function AbaAuditoria({ companyId }: { companyId: string }) {
+  const hoje = new Date()
+  const [ini, setIni] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)))
+  const [fim, setFim] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)))
+  const [rel, setRel] = useState<Relatorio | null>(null)
+  const [emissoes, setEmissoes] = useState<Emissao[]>([])
+  const [carregando, setCarregando] = useState(false)
+  const [emitindo, setEmitindo] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const listarEmissoes = useCallback(async () => {
+    try {
+      const r = await rpc<{ emissoes: Emissao[] }>('fn_nr36_relatorio_emissoes_listar', { p_company_id: companyId })
+      setEmissoes(r.emissoes || [])
+    } catch { /* silencioso */ }
+  }, [companyId])
+  useEffect(() => { void listarEmissoes() }, [listarEmissoes])
+
+  const gerar = async (registrar: boolean) => {
+    if (registrar) setEmitindo(true); else setCarregando(true)
+    setErro('')
+    try {
+      const r = await rpc<Relatorio>('fn_nr36_relatorio_auditoria', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim, p_registrar: registrar })
+      setRel(r)
+      if (registrar) { await listarEmissoes(); setTimeout(() => window.print(), 300) }
+    } catch (e) { setErro((e as Error).message) } finally { setCarregando(false); setEmitindo(false) }
+  }
+
+  const totalDesvios = rel?.colaboradores.reduce((s, c) => s + (c.dias || []).filter(d => d.status === 'desvio').length, 0) ?? 0
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }} data-no-print="true">
+        <Campo label="De"><input type="date" style={inp()} value={ini} onChange={e => setIni(e.target.value)} /></Campo>
+        <Campo label="Até"><input type="date" style={inp()} value={fim} onChange={e => setFim(e.target.value)} /></Campo>
+        <Btn onClick={() => gerar(false)} disabled={carregando}><FileText size={14} /> {carregando ? 'Gerando…' : 'Gerar prévia'}</Btn>
+        {rel && <Btn onClick={() => gerar(true)} disabled={emitindo}><Download size={14} /> {emitindo ? 'Emitindo…' : 'Emitir e imprimir (PDF)'}</Btn>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
+        <ShieldAlert size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+          Documento com <b>valor probatório</b> para fiscalização (MTE). Cada número aponta o registro de origem; horários em hora local (marcação e exposição normalizadas para o mesmo fuso). <b>&ldquo;Emitir&rdquo;</b> grava a emissão com data, autor e um código de verificação (hash), e abre a impressão.
+        </div>
+      </div>
+
+      {erro && <div style={erroBox()}>{erro}</div>}
+      {!rel ? <Vazio titulo="Gere o relatório do período" texto="Escolha o período e clique em Gerar prévia. A apuração precisa ter sido feita no Painel (Reapurar) para o período." /> : (
+        <div id="relatorio-auditoria">
+          {/* cabeçalho institucional */}
+          <div style={{ borderBottom: `2px solid ${C.gold}`, paddingBottom: 10, marginBottom: 14 }}>
+            <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 600, color: C.espresso }}>Relatório de Auditoria — Pausas e Exposição (NR-36 / Art. 253 CLT)</div>
+            <div style={{ fontSize: 13, color: C.espresso, marginTop: 4 }}>{rel.empresa.razao_social} — CNPJ {rel.empresa.cnpj}{rel.empresa.cnae ? ` — CNAE ${rel.empresa.cnae}` : ''}</div>
+            {rel.empresa.endereco && <div style={{ fontSize: 12, color: C.gray }}>{rel.empresa.endereco}</div>}
+            <div style={{ fontSize: 12, color: C.gray, marginTop: 4 }}>Período: {fmtData(rel.periodo.ini)} a {fmtData(rel.periodo.fim)} · Emitido em {fmtDT(rel.periodo.emitido_em)}{rel.emitido_por?.email ? ` por ${rel.emitido_por.email}` : ''}</div>
+          </div>
+
+          {/* base legal + parâmetros vigentes */}
+          <div style={{ background: C.beigeLt, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: C.espresso }}>
+            <b>Base legal e parâmetros vigentes na apuração:</b>
+            {rel.regras.map((r, i) => (
+              <div key={i} style={{ marginTop: 4 }}>· <b>{tipoLabel(r.tipo)}</b>: {r.base_legal} — {Object.entries(r.parametros).map(([k, v]) => `${k}=${String(v)}`).join(' · ')}</div>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }}><b>{rel.colaboradores.length}</b> colaborador(es) no período · <b style={{ color: totalDesvios > 0 ? C.red : C.green }}>{totalDesvios}</b> dia(s) com desvio.</div>
+
+          {rel.colaboradores.map((c) => (
+            <div key={c.cpf} style={{ marginBottom: 18, breakInside: 'avoid' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso, borderBottom: `1px solid ${C.borderLt}`, paddingBottom: 4 }}>
+                {c.nome} <span style={{ fontWeight: 400, color: C.gray, fontSize: 12 }}>· CPF {c.cpf}{c.matricula ? ` · matrícula ${c.matricula}` : ''}{c.funcao ? ` · ${c.funcao}` : ''}{c.setor ? ` · ${c.setor}` : ''}</span>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+                <thead><tr style={{ textAlign: 'left', color: C.gray }}>
+                  <th style={th()}>Data</th><th style={th()}>Jornada</th><th style={th()}>Escala</th><th style={th()}>Exposição / pausas</th><th style={th()}>Situação</th>
+                </tr></thead>
+                <tbody>
+                  {(c.dias || []).map((d, i) => { const s = semColor[d.status] || semColor.sem_dado; return (
+                    <tr key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, breakInside: 'avoid' }}>
+                      <td style={td()}>{fmtData(d.data)}</td>
+                      <td style={td()}>{d.jornada?.entrada ? `${d.jornada.entrada}–${d.jornada.saida}` : '—'}{d.jornada?.ajustada ? <span style={{ color: C.amber, fontSize: 10, display: 'block' }}>marcação ajustada</span> : null}</td>
+                      <td style={td()}>{d.shift || '—'}</td>
+                      <td style={td()}>
+                        {d.status === 'sem_dado'
+                          ? <span style={{ color: C.gray, fontStyle: 'italic' }}>Sem registro de entrada no ambiente neste dia</span>
+                          : (d.eventos || []).map((e, j) => (
+                              <div key={j} style={{ color: e.classe === 'exposicao' ? C.espresso : C.gray }}>
+                                {e.classe === 'exposicao' ? '🔵 exposição' : e.classe === 'aberto' ? '⏳ em aberto' : '⏸ pausa'} {e.inicio}{e.fim ? `–${e.fim}` : ''} {e.dur_min != null ? `(${e.dur_min} min)` : ''}
+                              </div>
+                            ))}
+                        {d.desvios.length > 0 && <div style={{ marginTop: 4 }}>{d.desvios.map((dv, k) => <div key={k} style={{ color: C.red, fontSize: 11 }}>⚠ {desvioLabel(dv)}</div>)}</div>}
+                      </td>
+                      <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: s.bg, color: s.c, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{s.l}</span></td>
+                    </tr>
+                  ) })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+
+          {/* rodapé probatório: hash */}
+          <div style={{ borderTop: `1px solid ${C.borderLt}`, marginTop: 10, paddingTop: 8, fontSize: 11, color: C.gray }}>
+            Código de verificação (SHA-256): <span style={{ fontFamily: 'monospace', color: C.espresso }}>{rel.hash}</span>
+            {rel.emissao_id && <span> · Emissão registrada #{rel.emissao_id.slice(0, 8)}</span>}
+            <div style={{ marginTop: 3 }}>Horários em hora local. Marcação e exposição normalizadas para o mesmo fuso (America/Sao_Paulo).</div>
+          </div>
+        </div>
+      )}
+
+      {emissoes.length > 0 && (
+        <div style={{ marginTop: 20 }} data-no-print="true">
+          <div style={secTitle()}>Emissões registradas</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+              <th style={th()}>Período</th><th style={th()}>Emitido em</th><th style={th()}>Por</th><th style={th()}>Colab.</th><th style={th()}>Hash</th>
+            </tr></thead>
+            <tbody>
+              {emissoes.map((e) => (
+                <tr key={e.id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+                  <td style={td()}>{fmtData(e.dt_ini)}–{fmtData(e.dt_fim)}</td>
+                  <td style={td()}>{fmtDT(e.emitido_em)}</td>
+                  <td style={td()}>{e.emitido_por_email || '—'}</td>
+                  <td style={td()}>{e.resumo?.colaboradores ?? '—'}</td>
+                  <td style={td()}><span style={{ fontFamily: 'monospace', fontSize: 10 }}>{e.hash.slice(0, 16)}…</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
