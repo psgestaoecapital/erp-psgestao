@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
-import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2 } from 'lucide-react'
+import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -54,7 +54,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export default function PausasTecnicasPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'painel' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
+  const [aba, setAba] = useState<'painel' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -63,11 +63,12 @@ export default function PausasTecnicasPage() {
     <Wrap>
       <Header />
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel', ClipboardList], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
+        {([['painel', 'Painel', ClipboardList], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
+      {aba === 'supervisao' && <AbaSupervisao companyId={companyId} />}
       {aba === 'auditoria' && <AbaAuditoria companyId={companyId} />}
       {aba === 'importar' && <AbaImportar companyId={companyId} />}
       {aba === 'historico' && <AbaHistorico companyId={companyId} />}
@@ -897,6 +898,106 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────── SUPERVISÃO (SST · #68) ───────────────────────────────────
+// Terceira saída do MESMO motor: o caso curto para o SUPERVISOR levar ao colaborador. Linguagem
+// de chão, descreve o FATO — nunca julga a pessoa (cuidado de RH: "ficou 4h13 sem pausa", jamais
+// "não cumpriu"; a causa pode ser da operação). Horários em hora local (fuso normalizado na origem).
+type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number }
+type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; shift: string | null; gatilho_min: string | null; pausa_min: string | null; jornada: { entrada: string | null; saida: string | null } | null; desvios: SupDesvio[] }
+
+const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
+// FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
+function frasesChao(d: SupCaso): string[] {
+  return (d.desvios || []).map((dv) => {
+    if (dv.tipo === 'excedeu_limite' && dv.minutos != null) {
+      const lim = dv.minutos - (dv.excedeu ?? 0)
+      return `ficou ${hmm(dv.minutos)} sem pausa, das ${dv.de} às ${dv.ate} — o limite é ${hmm(lim)}`
+    }
+    if (dv.tipo === 'pausa_insuficiente') return `pausa de ${dv.duracao_min} minutos às ${dv.inicio} — o mínimo é ${dv.minimo}`
+    if (dv.tipo === 'pausa_nao_realizada') return (dv.faltantes ?? 0) === 1 ? 'faltou uma pausa no dia' : `faltaram ${dv.faltantes} pausas no dia`
+    return dv.tipo
+  })
+}
+function casoTexto(d: SupCaso): string {
+  const cab = `${d.nome}${d.funcao ? ` — ${d.funcao}` : ''}${d.setor ? ` — ${d.setor}` : ''}\n${fmtData(d.data)} · jornada ${d.jornada?.entrada ?? '—'}–${d.jornada?.saida ?? '—'}\n`
+  const linhas = frasesChao(d).map(f => `• ${f}`).join('\n')
+  return `${cab}\n${linhas}\n\nO sistema registra o fato ocorrido; a causa (linha parada, falta de substituto, demanda da operação) é a conversa entre supervisão e colaborador.`
+}
+
+function AbaSupervisao({ companyId }: { companyId: string }) {
+  const hoje = new Date()
+  const [ini, setIni] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)))
+  const [fim, setFim] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)))
+  const [casos, setCasos] = useState<SupCaso[]>([])
+  const [carregado, setCarregado] = useState(false)
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    setCarregando(true); setErro('')
+    try {
+      const r = await rpc<{ casos: SupCaso[] }>('fn_nr36_supervisao_casos', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
+      setCasos(r.casos || []); setCarregado(true)
+    } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
+  }, [companyId, ini, fim])
+  useEffect(() => { void carregar() }, [carregar])
+
+  const copiar = async (d: SupCaso) => {
+    const k = d.cpf + d.data
+    try { await navigator.clipboard.writeText(casoTexto(d)); setCopiado(k); setTimeout(() => setCopiado(null), 1800) } catch { /* */ }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }} data-no-print="true">
+        <Campo label="De"><input type="date" style={inp()} value={ini} onChange={e => setIni(e.target.value)} /></Campo>
+        <Campo label="Até"><input type="date" style={inp()} value={fim} onChange={e => setFim(e.target.value)} /></Campo>
+        <Btn onClick={() => carregar()} disabled={carregando}><RefreshCw size={14} /> {carregando ? 'Buscando…' : 'Atualizar'}</Btn>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, background: C.beigeLt, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
+        <Users size={18} style={{ color: C.espresso, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+          Casos para a <b>conversa da supervisão com o colaborador</b>. O texto descreve <b>o que aconteceu</b>, não julga — a causa (linha parada, falta de substituto, demanda da operação) é a conversa. Abra o dia, copie ou imprima o caso.
+        </div>
+      </div>
+
+      {erro && <div style={erroBox()}>{erro}</div>}
+      {!carregado ? <Load /> :
+        casos.length === 0 ? <Vazio titulo="Nenhum desvio no período" texto="Não há casos de desvio para tratar neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
+        <div>
+          <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }} data-no-print="true"><b>{casos.length}</b> caso(s) de desvio no período.</div>
+          {casos.map((d) => { const k = d.cpf + d.data; const open = aberto === k; return (
+            <div key={k} style={{ border: `1px solid ${C.borderLt}`, borderRadius: 10, marginBottom: 8, background: '#fff', breakInside: 'avoid' }}>
+              <button onClick={() => setAberto(open ? null : k)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 14px', border: 'none', background: 'transparent', cursor: 'pointer' }}>
+                <span>
+                  <span style={{ fontWeight: 700, color: C.espresso, fontSize: 13.5 }}>{d.nome}</span>
+                  <span style={{ color: C.gray, fontSize: 12 }}> · {fmtData(d.data)}{d.setor ? ` · ${d.setor}` : ''}</span>
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.redBg, color: C.red, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{d.desvios.length} desvio(s)</span>
+              </button>
+              {open && (
+                <div style={{ padding: '0 14px 14px' }}>
+                  <div style={{ fontSize: 12, color: C.gray, marginBottom: 6 }}>Jornada {d.jornada?.entrada ?? '—'}–{d.jornada?.saida ?? '—'}{d.shift ? ` · escala ${d.shift}` : ''}</div>
+                  <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
+                    {frasesChao(d).map((f, i) => <li key={i} style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
+                  </ul>
+                  <div style={{ display: 'flex', gap: 8 }} data-no-print="true">
+                    <BtnGhost onClick={() => copiar(d)}><Copy size={13} /> {copiado === k ? 'Copiado!' : 'Copiar caso'}</BtnGhost>
+                    <BtnGhost onClick={() => window.print()}><Printer size={13} /> Imprimir</BtnGhost>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) })}
         </div>
       )}
     </div>
