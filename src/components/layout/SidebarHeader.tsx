@@ -9,15 +9,28 @@ import AreaSwitcher from './AreaSwitcher'
 interface EmpresaResumo {
   id: string
   nome: string
+  ambiente: string | null   // producao | demo | sandbox | auditoria — marca visual de dado sintético
 }
 
 interface CompanyRow {
   id: string
   nome_fantasia: string | null
   razao_social: string | null
+  ambiente_tenant: string | null
 }
 
 const EMPRESA_STORAGE_KEY = 'ps_empresa_sel'
+
+// Marca o dropdown por ambiente_tenant (a fonte única que o sistema usa; producao não marca).
+// Assim ninguém confunde dado sintético com cliente real, sem esconder (mantém o acesso).
+function ambienteBadge(amb: string | null): string | null {
+  switch (amb) {
+    case 'auditoria': return 'bot'
+    case 'demo': return 'demo'
+    case 'sandbox': return 'sandbox'
+    default: return null   // producao (ou nulo) → sem marca
+  }
+}
 
 function lerEmpresaId(): string | null {
   if (typeof window === 'undefined') return null
@@ -41,12 +54,12 @@ export default function SidebarHeader() {
       const { data: roleData } = await supabase.from('users').select('role').eq('id', user.id).maybeSingle()
       let rows: CompanyRow[] = []
       if (roleData?.role === 'adm' || roleData?.role === 'acesso_total') {
-        const { data } = await supabase.from('companies').select('id, nome_fantasia, razao_social').order('nome_fantasia')
+        const { data } = await supabase.from('companies').select('id, nome_fantasia, razao_social, ambiente_tenant').order('nome_fantasia')
         rows = (data ?? []) as CompanyRow[]
       } else {
         const { data } = await supabase
           .from('user_companies')
-          .select('companies(id, nome_fantasia, razao_social)')
+          .select('companies(id, nome_fantasia, razao_social, ambiente_tenant)')
           .eq('user_id', user.id)
         const flat = (data ?? []) as unknown as Array<{ companies: CompanyRow | CompanyRow[] | null }>
         rows = flat.flatMap((u) => (Array.isArray(u.companies) ? u.companies : u.companies ? [u.companies] : []))
@@ -55,6 +68,7 @@ export default function SidebarHeader() {
       const lista: EmpresaResumo[] = rows.map((c) => ({
         id: c.id,
         nome: c.nome_fantasia || c.razao_social || c.id,
+        ambiente: c.ambiente_tenant ?? null,
       }))
       setEmpresas(lista)
       // TENANT-UNICO: usuario com EXATAMENTE 1 empresa e sem selecao valida no
@@ -144,6 +158,9 @@ export default function SidebarHeader() {
               <span className="flex items-center gap-2 min-w-0">
                 <span className="w-[7px] h-[7px] bg-[#C8941A] rounded-full flex-shrink-0" />
                 <span className="truncate">{empresaAtual.nome}</span>
+                {ambienteBadge(empresaAtual.ambiente) && (
+                  <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#FAF7F2]/20 text-[#FAF7F2]">{ambienteBadge(empresaAtual.ambiente)}</span>
+                )}
               </span>
               <ChevronDown size={12} className="opacity-70 flex-shrink-0" />
             </button>
@@ -160,6 +177,9 @@ export default function SidebarHeader() {
                   >
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${e.id === empresaAtual.id ? 'bg-[#C8941A]' : 'border border-[#3D2314]/20'}`} />
                     <span className="truncate">{e.nome}</span>
+                    {ambienteBadge(e.ambiente) && (
+                      <span className="flex-shrink-0 ml-auto text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#3D2314]/10 text-[#3D2314]/70">{ambienteBadge(e.ambiente)}</span>
+                    )}
                   </button>
                 ))}
               </div>
