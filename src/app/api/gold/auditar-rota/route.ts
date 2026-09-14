@@ -21,6 +21,10 @@ const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v147.0.0/chromium-v147.0.0-pack.x64.tar';
 
 const EMPRESA_PADRAO_BOT = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
+// Bot PRÓPRIO da oficina (ambiente_tenant='auditoria', sintético e isolado). As telas da oficina são
+// filas por empresa: sem dados, a Camada 2 auditaria só o empty state. Para rotas /dashboard/oficina,
+// o auditor usa esta empresa e chama fn_gold_oficina_seed_reparar antes (idempotente + auto-reparável).
+const EMPRESA_BOT_OFICINA = 'b0700000-0000-4000-a000-000000000001';
 
 type Body = { rota?: string; screen_id?: string };
 
@@ -98,6 +102,13 @@ export async function POST(req: Request) {
     });
     const storageKey = `sb-${PROJECT_REF}-auth-token`;
 
+    // Rota de oficina → empresa-bot própria + seed idempotente antes de auditar (garante filas populadas).
+    const ehOficina = rota.startsWith('/dashboard/oficina');
+    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : EMPRESA_PADRAO_BOT;
+    if (ehOficina) {
+      await supabase.rpc('fn_gold_oficina_seed_reparar', { p_company_id: EMPRESA_BOT_OFICINA });
+    }
+
     const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
     browser = await playwright.launch({ args: chromium.args, executablePath, headless: true });
 
@@ -109,7 +120,7 @@ export async function POST(req: Request) {
       ({ sk, sv, ek, ev }: { sk: string; sv: string; ek: string; ev: string }) => {
         try { window.localStorage.setItem(sk, sv); window.localStorage.setItem(ek, ev); } catch { /* */ }
       },
-      { sk: storageKey, sv: sessionPayload, ek: 'ps_empresa_sel', ev: EMPRESA_PADRAO_BOT },
+      { sk: storageKey, sv: sessionPayload, ek: 'ps_empresa_sel', ev: empresaAudit },
     );
 
     authStatus = 'autenticado';
