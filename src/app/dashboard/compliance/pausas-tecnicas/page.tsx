@@ -37,7 +37,10 @@ const semColor: Record<string, { c: string; bg: string; l: string }> = {
   conforme: { c: C.green, bg: C.greenBg, l: 'Conforme' },
   desvio: { c: C.red, bg: C.redBg, l: 'Desvio' },
   aguardando_realizado: { c: C.blue, bg: C.blueBg, l: 'Aguardando realizado' },
-  sem_dado: { c: C.gray, bg: C.beigeLt, l: 'Sem dado' },
+  // 'sem_dado' aqui = dia DENTRO do período importado em que o colaborador não registrou evento
+  // (colaborador_sem_evento). O vazio de PERÍODO (planilha não importada) é sinalizado à parte,
+  // pelo banner de "dias sem planilha importada" (fn_nr36_dias_sem_dado). São coisas diferentes (0e580f96).
+  sem_dado: { c: C.gray, bg: C.beigeLt, l: 'Sem evento no dia' },
   // legado (some após reapurar): mostra âmbar até a reapuração substituir por conforme/desvio
   cumprida: { c: C.amber, bg: C.amberBg, l: 'Em revisão' },
   parcial: { c: C.amber, bg: C.amberBg, l: 'Em revisão' },
@@ -133,8 +136,14 @@ function AbaPainel({ companyId }: { companyId: string }) {
         <Kpi label="Conformes" n={kpi.conforme} cor={C.green} bg={C.greenBg} />
         <Kpi label="Desvios" n={kpi.desvio} cor={C.red} bg={C.redBg} />
         <Kpi label="Aguardando realizado" n={kpi.aguardando_realizado} cor={C.blue} bg={C.blueBg} />
-        <Kpi label="Sem dado" n={kpi.sem_dado} cor={C.gray} bg={C.beigeLt} />
+        <Kpi label="Sem evento no dia" n={kpi.sem_dado} cor={C.gray} bg={C.beigeLt} />
       </div>
+
+      {kpi.sem_dado > 0 && (
+        <div style={{ fontSize: 12, color: C.gray, marginBottom: 12, lineHeight: 1.5 }}>
+          <b>&ldquo;Sem evento no dia&rdquo;</b> = o colaborador trabalhou (há ponto), mas <b>não registrou entrada no ambiente</b> naquele dia — dentro do período que foi importado. É diferente de <b>&ldquo;dia sem planilha importada&rdquo;</b> (avisado acima), que é dado que ainda falta subir. Nenhum dos dois é &ldquo;conforme&rdquo;.
+        </div>
+      )}
 
       {diasSemDado.length > 0 && (
         <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
