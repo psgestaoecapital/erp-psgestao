@@ -87,12 +87,15 @@ GRANT EXECUTE ON FUNCTION public.fn_gold_oficina_seed_reparar(uuid) TO authentic
 -- 6) Semeia agora (deploy) e cadastra os botões da Camada 2 (has-text, padrão revenda). Idempotente.
 SELECT public.fn_gold_oficina_seed_reparar('b0700000-0000-4000-a000-000000000001');
 
+-- screen_id É o id de system_screens (FK gold_screen_buttons_screen_id_fkey) — NÃO o id do module_catalog.
+-- Resolvo por rota (JOIN em system_screens) p/ não hardcodar UUID e não violar a FK.
 INSERT INTO public.gold_screen_buttons (screen_id, rota, botao_label, botao_selector_css, destino_esperado_rota, destino_esperado_descricao, prioridade, tipo, cadastrado_por)
-SELECT x.screen_id, x.rota, x.label, x.selector, x.destino, x.descr, x.prio, x.tipo, 'code_web'
+SELECT s.id, x.rota, x.label, x.selector, x.destino, x.descr, x.prio, x.tipo, 'code_web'
 FROM (VALUES
-  ('oficina_recepcao','/dashboard/oficina/recepcao','Registrar recepção','button:has-text("Registrar recepção")',NULL,'Submete o check-in; sem placa valida e avisa (RD-51), permanece na recepção','critico','submit'),
-  ('oficina_diagnostico','/dashboard/oficina/diagnostico','abrir OS BOT-DIAG','text=BOT0001',NULL,'Abre a OS de diagnóstico do bot (fila populada pelo seed)','critico','navegacao'),
-  ('oficina_aprovacao_cliente','/dashboard/oficina/aprovacao','abrir OS BOT-APROV','text=BOT-APROV',NULL,'Abre o orçamento do bot (item a aprovar; fila populada pelo seed)','critico','navegacao'),
-  ('oficina_apontamento_mecanico','/dashboard/oficina/apontamento','abrir OS BOT-APONT','text=BOT-APONT',NULL,'Abre o apontamento do bot (serviço aprovado; fila populada pelo seed)','critico','navegacao')
-) AS x(screen_id, rota, label, selector, destino, descr, prio, tipo)
+  ('/dashboard/oficina/recepcao','Registrar recepção','button:has-text("Registrar recepção")',NULL,'Submete o check-in; sem placa valida e avisa (RD-51), permanece na recepção','critico','submit'),
+  ('/dashboard/oficina/diagnostico','abrir OS BOT-DIAG','text=BOT0001',NULL,'Abre a OS de diagnóstico do bot (fila populada pelo seed)','critico','navegacao'),
+  ('/dashboard/oficina/aprovacao','abrir OS BOT-APROV','text=BOT-APROV',NULL,'Abre o orçamento do bot (item a aprovar; fila populada pelo seed)','critico','navegacao'),
+  ('/dashboard/oficina/apontamento','abrir OS BOT-APONT','text=BOT-APONT',NULL,'Abre o apontamento do bot (serviço aprovado; fila populada pelo seed)','critico','navegacao')
+) AS x(rota, label, selector, destino, descr, prio, tipo)
+JOIN public.system_screens s ON s.rota = x.rota
 WHERE NOT EXISTS (SELECT 1 FROM gold_screen_buttons g WHERE g.rota = x.rota AND g.botao_label = x.label);
