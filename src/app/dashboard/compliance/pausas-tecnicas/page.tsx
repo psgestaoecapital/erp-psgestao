@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
-import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer } from 'lucide-react'
+import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3 } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -54,7 +54,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export default function PausasTecnicasPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'painel' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
+  const [aba, setAba] = useState<'painel' | 'gestao' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -63,11 +63,12 @@ export default function PausasTecnicasPage() {
     <Wrap>
       <Header />
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel', ClipboardList], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
+        {([['painel', 'Painel', ClipboardList], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
+      {aba === 'gestao' && <AbaGestao companyId={companyId} />}
       {aba === 'supervisao' && <AbaSupervisao companyId={companyId} />}
       {aba === 'auditoria' && <AbaAuditoria companyId={companyId} />}
       {aba === 'importar' && <AbaImportar companyId={companyId} />}
@@ -756,7 +757,7 @@ function BtnGhost({ children, onClick }: { children: React.ReactNode; onClick?: 
 // motivo (0e580f96). Emitir grava a emissão (auditável) e abre a impressão (PDF via navegador).
 type RelJornada = { entrada: string | null; saida: string | null; ajustada: boolean; origem: string | null; pontos: number }
 type RelEvento = { classe: string | null; dur_min: number | null; inicio: string | null; fim: string | null }
-type RelDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number }
+type RelDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number; marcacao_interna?: string[] }
 type RelDia = { data: string; tipo: string; status: string; shift: string | null; jornada: RelJornada | null; eventos: RelEvento[] | null; desvios: RelDesvio[]; sem_dado_motivo: string | null }
 type RelColab = { cpf: string; nome: string; matricula: string | null; funcao: string | null; setor: string | null; dias: RelDia[] | null }
 type RelRegra = { tipo: string; nome: string; base_legal: string | null; parametros: Record<string, unknown> }
@@ -764,7 +765,13 @@ type Relatorio = { empresa: Record<string, string | null>; periodo: { ini: strin
 type Emissao = { id: string; dt_ini: string; dt_fim: string; emitido_por_email: string | null; emitido_em: string; hash: string; resumo: { colaboradores?: number } | null }
 
 const desvioLabel = (d: RelDesvio): string => {
-  if (d.tipo === 'excedeu_limite') return `Exposição contínua ${d.de}–${d.ate}: ${d.minutos} min (${d.excedeu} min acima do limite)`
+  if (d.tipo === 'excedeu_limite') {
+    const base = `Exposição contínua ${d.de}–${d.ate}: ${d.minutos} min (${d.excedeu} min acima do limite)`
+    // Sinal (não decisão): batida de ponto dentro do período pode indicar interrupção — o SST confirma.
+    return (d.marcacao_interna && d.marcacao_interna.length > 0)
+      ? `${base} · ⚠ há marcação de ponto dentro deste período (${d.marcacao_interna.join(', ')}) — confirmar se houve interrupção`
+      : base
+  }
   if (d.tipo === 'pausa_insuficiente') return `Pausa às ${d.inicio} durou ${d.duracao_min} min (mínimo ${d.minimo} min)`
   if (d.tipo === 'pausa_nao_realizada') return `${d.faltantes} pausa(s) devida(s) e não realizada(s)`
   return d.tipo
@@ -908,7 +915,7 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
 // Terceira saída do MESMO motor: o caso curto para o SUPERVISOR levar ao colaborador. Linguagem
 // de chão, descreve o FATO — nunca julga a pessoa (cuidado de RH: "ficou 4h13 sem pausa", jamais
 // "não cumpriu"; a causa pode ser da operação). Horários em hora local (fuso normalizado na origem).
-type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number }
+type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number; marcacao_interna?: string[] }
 type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; shift: string | null; gatilho_min: string | null; pausa_min: string | null; jornada: { entrada: string | null; saida: string | null } | null; desvios: SupDesvio[] }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
@@ -917,7 +924,11 @@ function frasesChao(d: SupCaso): string[] {
   return (d.desvios || []).map((dv) => {
     if (dv.tipo === 'excedeu_limite' && dv.minutos != null) {
       const lim = dv.minutos - (dv.excedeu ?? 0)
-      return `ficou ${hmm(dv.minutos)} sem pausa, das ${dv.de} às ${dv.ate} — o limite é ${hmm(lim)}`
+      const base = `ficou ${hmm(dv.minutos)} sem pausa, das ${dv.de} às ${dv.ate} — o limite é ${hmm(lim)}`
+      // Sinal: batida de ponto dentro do período — pode ter sido interrupção. O supervisor confirma.
+      return (dv.marcacao_interna && dv.marcacao_interna.length > 0)
+        ? `${base} · ⚠ há batida de ponto dentro deste período (${dv.marcacao_interna.join(', ')}) — confirmar se houve interrupção`
+        : base
     }
     if (dv.tipo === 'pausa_insuficiente') return `pausa de ${dv.duracao_min} minutos às ${dv.inicio} — o mínimo é ${dv.minimo}`
     if (dv.tipo === 'pausa_nao_realizada') return (dv.faltantes ?? 0) === 1 ? 'faltou uma pausa no dia' : `faltaram ${dv.faltantes} pausas no dia`
@@ -998,6 +1009,122 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
               )}
             </div>
           ) })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────── GESTÃO (SST · #67) ───────────────────────────────────
+// A visão gerencial: responde "está tudo em ordem este mês?" e "quem precisa de atenção agora?".
+// SEM cifrão (655bb74b) — contagem e nome de setor, nunca valor. O conflito ponto×exposição
+// (87 de 120 na validadora) aparece em destaque: pode mudar muito o número quando o SST confirmar.
+type PainelGestao = {
+  por_status: Record<string, number> | null
+  tendencia_semana: { semana: string; desvios: number }[] | null
+  por_setor: { setor: string; desvios: number }[] | null
+  repetentes: { nome: string; cpf: string; dias_desvio: number }[] | null
+  tipo_predominante: Record<string, number> | null
+  sem_dado: { total: number; colaborador_sem_evento: number } | null
+  com_conflito_ponto: number | null
+}
+const tipoDesvioLabel: Record<string, string> = { excedeu_limite: 'Exposição acima do limite', pausa_insuficiente: 'Pausa curta demais', pausa_nao_realizada: 'Pausa não realizada' }
+
+function AbaGestao({ companyId }: { companyId: string }) {
+  const hoje = new Date()
+  const [ini, setIni] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)))
+  const [fim, setFim] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)))
+  const [p, setP] = useState<PainelGestao | null>(null)
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const carregar = useCallback(async () => {
+    setCarregando(true); setErro('')
+    try {
+      const r = await rpc<{ painel: PainelGestao }>('fn_nr36_painel_gestao', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
+      setP(r.painel)
+    } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
+  }, [companyId, ini, fim])
+  useEffect(() => { void carregar() }, [carregar])
+
+  const st = p?.por_status || {}
+  const maxSem = Math.max(1, ...(p?.tendencia_semana || []).map(w => w.desvios))
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
+        <Campo label="De"><input type="date" style={inp()} value={ini} onChange={e => setIni(e.target.value)} /></Campo>
+        <Campo label="Até"><input type="date" style={inp()} value={fim} onChange={e => setFim(e.target.value)} /></Campo>
+        <Btn onClick={() => carregar()} disabled={carregando}><RefreshCw size={14} /> {carregando ? 'Carregando…' : 'Atualizar'}</Btn>
+      </div>
+      {erro && <div style={erroBox()}>{erro}</div>}
+      {!p ? <Load /> : (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginBottom: 14 }}>
+            <Kpi label="Desvios" n={st.desvio || 0} cor={C.red} bg={C.redBg} />
+            <Kpi label="Conformes" n={st.conforme || 0} cor={C.green} bg={C.greenBg} />
+            <Kpi label="Aguardando" n={st.aguardando_realizado || 0} cor={C.blue} bg={C.blueBg} />
+            <Kpi label="Sem evento" n={p.sem_dado?.total || 0} cor={C.gray} bg={C.beigeLt} />
+          </div>
+
+          {/* conflito ponto × exposição — em destaque, porque muda o número quando confirmado */}
+          {(p.com_conflito_ponto ?? 0) > 0 && (
+            <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+              <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+                <b>{p.com_conflito_ponto} de {st.desvio || 0} desvios têm marcação de ponto dentro do período de exposição.</b> Pode ter havido interrupção não registrada como pausa — <b>o número de desvios pode mudar</b> quando a supervisão confirmar caso a caso. Cada caso mostra as batidas na aba Supervisão e no relatório.
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16 }}>
+            {/* tendência */}
+            <div>
+              <div style={secTitle()}>Tendência (desvios por semana)</div>
+              {(p.tendencia_semana || []).length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Sem desvios no período.</div> :
+                (p.tendencia_semana || []).map((w) => (
+                  <div key={w.semana} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, color: C.gray, width: 82 }}>{fmtData(w.semana)}</span>
+                    <span style={{ height: 14, background: C.red, borderRadius: 3, width: `${Math.round(100 * w.desvios / maxSem)}%`, minWidth: 6 }} />
+                    <span style={{ fontSize: 12, color: C.espresso }}>{w.desvios}</span>
+                  </div>
+                ))}
+            </div>
+            {/* por setor */}
+            <div>
+              <div style={secTitle()}>Desvios por setor</div>
+              {(p.por_setor || []).map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.espresso, padding: '4px 0', borderBottom: `1px solid ${C.beigeLt}` }}>
+                  <span>{s.setor}</span><b>{s.desvios}</b>
+                </div>
+              ))}
+            </div>
+            {/* colaboradores que repetem */}
+            <div>
+              <div style={secTitle()}>Quem repete (2+ dias com desvio)</div>
+              {(p.repetentes || []).length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Ninguém repete no período.</div> :
+                (p.repetentes || []).map((r) => (
+                  <div key={r.cpf} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.espresso, padding: '4px 0', borderBottom: `1px solid ${C.beigeLt}` }}>
+                    <span>{r.nome}</span><b>{r.dias_desvio} dia(s)</b>
+                  </div>
+                ))}
+            </div>
+            {/* tipo predominante */}
+            <div>
+              <div style={secTitle()}>Tipo de desvio</div>
+              {Object.entries(p.tipo_predominante || {}).sort((a, b) => b[1] - a[1]).map(([t, n]) => (
+                <div key={t} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.espresso, padding: '4px 0', borderBottom: `1px solid ${C.beigeLt}` }}>
+                  <span>{tipoDesvioLabel[t] || t}</span><b>{n}</b>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {(p.sem_dado?.total ?? 0) > 0 && (
+            <div style={{ fontSize: 12, color: C.gray, marginTop: 14, lineHeight: 1.5 }}>
+              <b>{p.sem_dado?.total} dia(s) sem evento</b>: colaborador com ponto no período importado, mas sem registro de entrada no ambiente naquele dia. Não é desvio nem conformidade — é dado a confirmar. (Dias sem <b>planilha</b> importada são sinalizados na aba Painel.)
+            </div>
+          )}
         </div>
       )}
     </div>
