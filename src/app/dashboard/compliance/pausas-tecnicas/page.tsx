@@ -19,7 +19,7 @@ const C = {
 }
 type Regra = { id: string; tipo: string; nome: string; parametros: Record<string, unknown>; base_legal: string | null; ativo: boolean }
 type Colab = { colaborador_id: string; nome: string; cpf: string; funcao: string | null; departamento: string | null; psico: boolean; termica: boolean }
-type Resumo = { colaborador_id: string; cpf: string; nome: string; funcao: string | null; tipo: string; dias: number; devido_min: number; realizado_min: number | null; dias_nao_cumpridos: number; dias_parciais: number; dias_aguardando: number; status: string }
+type Resumo = { colaborador_id: string; cpf: string; nome: string; funcao: string | null; tipo: string; dias: number; devido_min: number; realizado_min: number | null; dias_desvio: number; dias_conforme: number; dias_aguardando: number; dias_sem_dado: number; status: string }
 type ProvaLinha = { data: string; tipo: string; jornada_seg: number; devido_min: number; realizado_min: number | null; status: string }
 type UploadRow = { id: string; arquivo_nome: string; arquivo_hash: string; periodo_inicio: string | null; periodo_fim: string | null; linhas_lidas: number | null; linhas_aceitas: number | null; linhas_rejeitadas: number | null; status: string; enviado_por_email: string | null; enviado_em: string; arquivo_path: string | null; substituido_por: string | null }
 type Rejeitada = { linha: number; cpf: string | null; motivo: string }
@@ -31,13 +31,17 @@ const fmtDT = (s: string | null) => s ? new Date(s).toLocaleString('pt-BR') : '�
 const hhmm = (seg: number) => `${Math.floor(seg / 3600)}h${String(Math.round((seg % 3600) / 60)).padStart(2, '0')}`
 const tipoLabel = (t: string | null) => t === 'termica_253' ? 'Térmica (Art.253)' : t === 'psicofisiologica' ? 'Psicofisiológica (NR-36)' : (t || '—')
 const semColor: Record<string, { c: string; bg: string; l: string }> = {
-  // #62 · MITIGAÇÃO até o motor virar sequencial: 'cumprida' hoje só soma minutos de pausa (não checa
-  // o limite de 100 min contínuos do Art.253), então NÃO prova conformidade. Enquanto o fix não sobe,
-  // exibimos "Em revisão" (âmbar, não verde) para não dar falsa segurança (RD-51). Dados preservados (RD-61).
-  cumprida: { c: C.amber, bg: C.amberBg, l: 'Em revisão (#62)' },
-  parcial: { c: C.amber, bg: C.amberBg, l: 'Parcial' },
-  nao_cumprida: { c: C.red, bg: C.redBg, l: 'Não cumprida' },
+  // Motor sequencial (Art.253/NR-36): apura o limite de exposição CONTÍNUA evento a evento
+  // (gatilho_min/pausa_min), não por soma. Vocabulário: conforme · desvio · aguardando · sem_dado.
+  // 'sem_dado' NUNCA vira verde (RD-51) — dia sem evento importado não é dia conforme.
+  conforme: { c: C.green, bg: C.greenBg, l: 'Conforme' },
+  desvio: { c: C.red, bg: C.redBg, l: 'Desvio' },
   aguardando_realizado: { c: C.blue, bg: C.blueBg, l: 'Aguardando realizado' },
+  sem_dado: { c: C.gray, bg: C.beigeLt, l: 'Sem dado' },
+  // legado (some após reapurar): mostra âmbar até a reapuração substituir por conforme/desvio
+  cumprida: { c: C.amber, bg: C.amberBg, l: 'Em revisão' },
+  parcial: { c: C.amber, bg: C.amberBg, l: 'Em revisão' },
+  nao_cumprida: { c: C.red, bg: C.redBg, l: 'Desvio' },
 }
 const motivoLabel = (m: string) => m === 'cpf_nao_cadastrado' ? 'CPF não está no cadastro de colaboradores' : m === 'data_hora_invalida' ? 'Data/hora inválida' : m
 
@@ -103,7 +107,7 @@ function AbaPainel({ companyId }: { companyId: string }) {
   }
 
   const kpi = useMemo(() => {
-    const k = { cumprida: 0, parcial: 0, nao_cumprida: 0, aguardando_realizado: 0 }
+    const k = { conforme: 0, desvio: 0, aguardando_realizado: 0, sem_dado: 0 }
     for (const r of resumo) if (r.status in k) (k as Record<string, number>)[r.status]++
     return k
   }, [resumo])
@@ -116,19 +120,20 @@ function AbaPainel({ companyId }: { companyId: string }) {
         <Btn onClick={reapurar} disabled={rodando}><RefreshCw size={14} /> {rodando ? 'Reapurando…' : 'Reapurar período'}</Btn>
       </div>
 
-      {/* #62 · a regra de conformidade está em revisão — não afirmar 'cumprida' até o motor virar sequencial */}
-      <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-        <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+      {/* Motor sequencial ativo: apura o limite de exposição CONTÍNUA (Art.253), não por soma.
+          A janela de exposição lê os eventos reais do relógio (classificados por duração). */}
+      <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <AlertTriangle size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-          <b>Regra de conformidade em revisão (#62).</b> A apuração atual soma os minutos de pausa do dia, mas a NR-36/Art. 253 exige checar o limite de <b>100 minutos contínuos</b> de exposição (quando a pausa ocorreu, o intervalo entre elas, pausas &lt; 20 min). Enquanto o motor sequencial não sobe, <b>"Em revisão" NÃO prova conformidade</b> — não use como base para fiscalização. As pausas importadas estão <b>preservadas</b> e serão <b>reapuradas</b> após o fix (nada é apagado).
+          <b>Motor sequencial (Art.253/NR-36).</b> A apuração checa o limite de <b>exposição contínua</b> evento a evento — quando a pausa ocorreu, sua duração e as pausas que faltaram — não a soma do dia. Os eventos do relógio são classificados por duração (pausa × exposição), com o limite ajustável em Configuração (regra <code>0e580f96</code>). <b>&ldquo;Sem dado&rdquo;</b> = dia sem evento importado (não é dia conforme). O cruzamento com a marcação de entrada/saída depende da correção de fuso do ponto (pendente) — até lá, a exposição vem do registro próprio.
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        <Kpi label="Em revisão (#62)" n={kpi.cumprida} cor={C.amber} bg={C.amberBg} />
-        <Kpi label="Parciais" n={kpi.parcial} cor={C.amber} bg={C.amberBg} />
-        <Kpi label="Não cumpridas" n={kpi.nao_cumprida} cor={C.red} bg={C.redBg} />
+        <Kpi label="Conformes" n={kpi.conforme} cor={C.green} bg={C.greenBg} />
+        <Kpi label="Desvios" n={kpi.desvio} cor={C.red} bg={C.redBg} />
         <Kpi label="Aguardando realizado" n={kpi.aguardando_realizado} cor={C.blue} bg={C.blueBg} />
+        <Kpi label="Sem dado" n={kpi.sem_dado} cor={C.gray} bg={C.beigeLt} />
       </div>
 
       {diasSemDado.length > 0 && (
