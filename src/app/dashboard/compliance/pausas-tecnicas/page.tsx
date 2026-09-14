@@ -806,6 +806,9 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
   }
 
   const totalDesvios = rel?.colaboradores.reduce((s, c) => s + (c.dias || []).filter(d => d.status === 'desvio').length, 0) ?? 0
+  // Desvios com marcação de ponto dentro da exposição → dependem de confirmação do SST (interrupção?).
+  // Declarado no TOPO (não rodapé): um relatório que afirma N desvios com M em dúvida se desmonta.
+  const totalConflito = rel?.colaboradores.reduce((s, c) => s + (c.dias || []).filter(d => d.status === 'desvio' && (d.desvios || []).some(dv => (dv.marcacao_interna?.length ?? 0) > 0)).length, 0) ?? 0
 
   return (
     <div>
@@ -843,6 +846,17 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
           </div>
 
           <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }}><b>{rel.colaboradores.length}</b> colaborador(es) no período · <b style={{ color: totalDesvios > 0 ? C.red : C.green }}>{totalDesvios}</b> dia(s) com desvio.</div>
+
+          {/* RESSALVA DECLARADA NO TOPO (não rodapé): desvios com marcação de ponto dentro da exposição
+              dependem de confirmação do SST sobre ter havido interrupção. Sem isso, o número não é firme. */}
+          {totalConflito > 0 && (
+            <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}77`, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+              <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.55 }}>
+                <b>Ressalva do total.</b> Deste total, <b>{totalConflito} ocorrência(s)</b> apresentam marcação de ponto dentro do período de exposição e <b>dependem de confirmação do responsável de SST</b> sobre ter havido interrupção. Enquanto não confirmadas, o número de desvios não deve ser tratado como definitivo.
+              </div>
+            </div>
+          )}
 
           {rel.colaboradores.map((c) => (
             <div key={c.cpf} style={{ marginBottom: 18, breakInside: 'avoid' }}>
