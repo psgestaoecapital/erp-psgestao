@@ -3,6 +3,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import TopNav from '@/components/layout/TopNav'
 import AreaRedirectGuard from '@/components/layout/AreaRedirectGuard'
 import RecoveryGuard from '@/components/layout/RecoveryGuard'
+import ConsentGuard from '@/components/layout/ConsentGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
@@ -13,6 +14,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <SelectedCompanyProvider>
       <Suspense fallback={null}><AreaRedirectGuard /></Suspense>
       <Suspense fallback={null}><RecoveryGuard /></Suspense>
+      {/* GATE LGPD (P0): restaura a chamada que sumiu no #126. Redireciona pra ROTA /aceite
+          quem está pendente na versão vigente — nunca modal no root (evita a causa do #126). */}
+      <Suspense fallback={null}><ConsentGuard /></Suspense>
       <div className="min-h-screen bg-[#FAF7F2]">
         <Sidebar />
         <div className="md:ml-[220px] min-h-screen flex flex-col">
