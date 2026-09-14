@@ -4,9 +4,11 @@
 // vê o preço de cada item e o total do que aprovou. Mobile-first (abre pelo WhatsApp).
 import { useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
+import { temAnotacao } from '@/components/oficina/anotacao'
 
 export type ItemPub = { id: string; tipo?: string | null; descricao: string | null; severidade: string | null; quantidade?: number | null; preco?: number | null; aprovado?: boolean | null }
-export type FotoPub = { item_id: string | null; url: string | null }
+export type FotoPub = { item_id: string | null; url: string | null; anotacao?: unknown }
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
 const RED = '#A32D2D', AMBER = '#B45309', GREEN = '#166534'
@@ -30,11 +32,11 @@ export default function DviPublico({ oficina, os, itens, fotos, token }: {
   const [enviando, setEnviando] = useState(false)
   const [feito, setFeito] = useState<{ valor: number; itens: number } | null>(null)
   const [erro, setErro] = useState<string | null>(null)
-  const [zoom, setZoom] = useState<string | null>(null)
+  const [zoom, setZoom] = useState<FotoPub | null>(null)
 
   const fotosPorItem = useMemo(() => {
-    const m = new Map<string, string[]>()
-    for (const f of fotos) { if (f.item_id && f.url) { const a = m.get(f.item_id) ?? []; a.push(f.url); m.set(f.item_id, a) } }
+    const m = new Map<string, FotoPub[]>()
+    for (const f of fotos) { if (f.item_id && f.url) { const a = m.get(f.item_id) ?? []; a.push(f); m.set(f.item_id, a) } }
     return m
   }, [fotos])
 
@@ -91,10 +93,15 @@ export default function DviPublico({ oficina, os, itens, fotos, token }: {
                         <div style={{ fontSize: 15, fontWeight: 600 }}>{it.descricao}</div>
                         {fs.length > 0 && (
                           <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                            {fs.map((u, k) => (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img key={k} src={u} alt="foto do item" referrerPolicy="no-referrer" onClick={() => setZoom(u)}
-                                style={{ width: 84, height: 84, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in' }} />
+                            {fs.map((f, k) => (
+                              <div key={k} style={{ position: 'relative', width: 84, height: 84 }} onClick={() => setZoom(f)}>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={f.url ?? ''} alt="foto do item" referrerPolicy="no-referrer"
+                                  style={{ width: 84, height: 84, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', display: 'block' }} />
+                                {temAnotacao(f.anotacao) && (
+                                  <span style={{ position: 'absolute', top: 3, left: 3, background: 'rgba(226,59,59,0.92)', color: '#fff', borderRadius: 999, fontSize: 9, fontWeight: 800, padding: '1px 5px' }}>✏</span>
+                                )}
+                              </div>
                             ))}
                           </div>
                         )}
@@ -135,8 +142,12 @@ export default function DviPublico({ oficina, os, itens, fotos, token }: {
 
       {zoom && (
         <div onClick={() => setZoom(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90, padding: 16 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom} alt="foto ampliada" referrerPolicy="no-referrer" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
+          {/* wrapper shrink-wrap: a anotação (0..1) casa com a imagem em contain */}
+          <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0, maxWidth: '100%', maxHeight: '100%' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={zoom.url ?? ''} alt="foto ampliada" referrerPolicy="no-referrer" style={{ display: 'block', maxWidth: '100%', maxHeight: '90vh', borderRadius: 8 }} />
+            <AnotacaoOverlay anotacao={zoom.anotacao} strokeWidth={3} />
+          </div>
         </div>
       )}
     </div>
