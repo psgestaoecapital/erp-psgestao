@@ -277,12 +277,27 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
         payload[c.col] = c.tipo === 'num' ? raw.replace(',', '.') : raw
       }
       // #71: trocar o cliente grava o VÍNCULO (cliente_id), não só o nome — senão o boleto/NF
-      // continuam usando o cliente antigo. cliente_id vem do autocomplete, entra explícito aqui.
-      if (tipo === 'receber' && (form.cliente_id ?? '') !== (orig.cliente_id ?? '')) {
-        payload.cliente_id = (form.cliente_id ?? '') || null
+      // continuam usando o cliente antigo. E o NOME é DERIVADO do vínculo, não um campo livre:
+      // se a pessoa digita por cima do nome sem escolher outro cliente, o nome NÃO é gravado
+      // (senão ficaria id de um cliente e nome de outro). Só grava id + nome juntos, da seleção.
+      let soNomeDigitado = false
+      if (tipo === 'receber') {
+        const idMudou = (form.cliente_id ?? '') !== (orig.cliente_id ?? '')
+        delete payload.cliente_nome  // nunca manda nome solto vindo do loop
+        if (idMudou) {
+          payload.cliente_id = (form.cliente_id ?? '') || null
+          payload.cliente_nome = (form.cliente_nome ?? '').trim() || null  // derivado da seleção
+        } else if ((form.cliente_nome ?? '') !== (orig.cliente_nome ?? '')) {
+          soNomeDigitado = true
+        }
       }
       // #71: nada de no-op silencioso — se não mudou nada, AVISA (antes fechava como se salvasse).
-      if (Object.keys(payload).length === 0) { setErro('Nada foi alterado — nenhuma mudança para salvar.'); return }
+      if (Object.keys(payload).length === 0) {
+        setErro(soNomeDigitado
+          ? 'Para trocar o cliente, escolha um da lista — não basta digitar o nome.'
+          : 'Nada foi alterado — nenhuma mudança para salvar.')
+        return
+      }
       const rpc = tipo === 'pagar' ? 'fn_pagar_editar_completo' : 'fn_receber_editar_completo'
       const { data, error } = await supabase.rpc(rpc, { p_id: itemId, p_campos: payload })
       if (error) throw error
