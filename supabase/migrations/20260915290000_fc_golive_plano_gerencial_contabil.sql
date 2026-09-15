@@ -1330,7 +1330,7 @@ ON CONFLICT (company_id, codigo) DO UPDATE
 -- (3) psgc_depara das obras (gerencial 2.04.x → CMV 4.x). Sem isto, obra cairia em 6.11 (despesa).
 INSERT INTO public.psgc_depara
   (company_id, origem_codigo, origem_descricao, origem_sistema, psgc_codigo, metodo, confianca, revisado, ativo)
-SELECT 'b202b50f-37cb-462e-accf-126869de49f0'::uuid, t.cod, t.des, 'gerencial', t.psgc, 'seed_obra', 100, true, true
+SELECT 'b202b50f-37cb-462e-accf-126869de49f0'::uuid, t.cod, t.des, 'gerencial', t.psgc, 'import', 100, true, true
 FROM (VALUES
   ('2.04.01', 'Materiais Aplicados em Obra',    '4.1'),
   ('2.04.02', 'Mão de Obra de Obra',            '4.3'),
