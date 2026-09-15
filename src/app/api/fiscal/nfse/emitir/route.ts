@@ -40,6 +40,9 @@ interface EmitirNFSeBody {
     aliquotaIss?: number
     retemIss?: boolean
   }
+  // Observação livre do usuário para as informações complementares da nota (o bloco da Lei
+  // 12.741 é acrescentado automaticamente ao lado desta, não a substitui).
+  observacoes?: string
 }
 
 interface DadosNFSeRPC {
@@ -156,6 +159,12 @@ export const POST = withAuth(async (req: NextRequest) => {
       )
     }
 
+    // Observação livre do usuário (opcional) → informações complementares. O bloco da Lei 12.741
+    // é acrescentado depois, sem sobrescrever esta.
+    if (typeof body.observacoes === 'string' && body.observacoes.trim()) {
+      nfseReq.observacoes = body.observacoes.trim()
+    }
+
     validateNFSeRequest(nfseReq)
 
     // (a) IDEMPOTÊNCIA FISCAL — nunca emitir 2ª nota p/ o MESMO tomador+valor+competência
@@ -200,7 +209,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
     const { data: providerCfg } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('id, provider, gov_nfse_municipio_codigo, ambiente')
+      .select('id, provider, gov_nfse_municipio_codigo, ambiente, percentual_total_tributos_sn, lei12741_observacao_template, lei12741_ativo')
       .eq('company_id', body.companyId)
       .eq('ativo', true)
       .maybeSingle()
@@ -307,6 +316,32 @@ export const POST = withAuth(async (req: NextRequest) => {
             }, { status: 400 })
           }
         }
+      }
+    }
+
+    // Lei 12.741/2012 (Transparência Fiscal) — o valor aproximado dos tributos vai nas INFORMAÇÕES
+    // COMPLEMENTARES da nota (Focus: informacoes_complementares no nacional, outras_informacoes no
+    // municipal), não em campo estruturado por esfera. Para Simples Nacional a lei aceita um único
+    // percentual aproximado (percentual_total_tributos_sn, por empresa). valor = % × valor do serviço;
+    // mostra R$ e %. A redação é PARÂMETRO (lei12741_observacao_template) — o contador muda por UPDATE.
+    // Sem percentual (empresa fora do Simples) não compõe o bloco (aí depende da tabela IBPT — adiado).
+    // Anexa a uma observação livre já existente na requisição, sem sobrescrever nem poluir a descrição.
+    // SALVAGUARDA (CEO): só compõe se lei12741_ativo=true na config da empresa — liga/desliga por
+    // empresa SEM PR. Default false: o merge não muda nada até ligar por empresa (rollout controlado;
+    // e rollback instantâneo se a Focus recusar o campo ou a redação vier errada).
+    {
+      const pctTrib = Number(providerCfg?.percentual_total_tributos_sn ?? 0)
+      if (providerCfg?.lei12741_ativo === true && Number.isFinite(pctTrib) && pctTrib > 0 && Number(nfseReq.valorServicos) > 0) {
+        const valorAprox = Math.round((pctTrib / 100) * Number(nfseReq.valorServicos) * 100) / 100
+        const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const template = (typeof providerCfg?.lei12741_observacao_template === 'string' && providerCfg.lei12741_observacao_template.trim())
+          ? providerCfg.lei12741_observacao_template.trim()
+          : 'Valor aproximado dos tributos: R$ {valor} ({percentual}%) — Fonte: Simples Nacional, Lei 12.741/2012'
+        const blocoLei12741 = template.replace(/\{valor\}/g, fmt(valorAprox)).replace(/\{percentual\}/g, fmt(pctTrib))
+        nfseReq.observacoes = [blocoLei12741, nfseReq.observacoes]
+          .map((s) => (s ?? '').trim())
+          .filter(Boolean)
+          .join(' | ')
       }
     }
 
