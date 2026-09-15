@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
-import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3 } from 'lucide-react'
+import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -57,7 +57,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export default function PausasTecnicasPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'painel' | 'conferencia' | 'gestao' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
+  const [aba, setAba] = useState<'painel' | 'conferencia' | 'ciencia' | 'gestao' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -66,7 +66,7 @@ export default function PausasTecnicasPage() {
     <Wrap>
       <Header />
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel', ClipboardList], ['conferencia', 'Conferência', CheckCircle2], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
+        {([['painel', 'Painel', ClipboardList], ['conferencia', 'Conferência', CheckCircle2], ['ciencia', 'Ciência', FileSignature], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
@@ -76,6 +76,7 @@ export default function PausasTecnicasPage() {
           à parte, mostrada no quadro de reconciliação do Painel. */}
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
       {aba === 'conferencia' && <AbaConferencia companyId={companyId} />}
+      {aba === 'ciencia' && <AbaCiencia companyId={companyId} />}
       {aba === 'gestao' && <AbaGestao companyId={companyId} />}
       {aba === 'supervisao' && <AbaSupervisao companyId={companyId} />}
       {aba === 'auditoria' && <AbaAuditoria companyId={companyId} />}
@@ -205,6 +206,208 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
   return <div style={{ background: bg, border: `1px solid ${cor}22`, borderRadius: 12, padding: '12px 14px' }}><div style={{ fontSize: 26, fontWeight: 800, color: cor, lineHeight: 1 }}>{n}</div><div style={{ fontSize: 12, color: C.espresso, marginTop: 4 }}>{label}</div></div>
 }
 
+// ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
+// Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
+// EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
+type CienciaLinha = { id: string; cpf: string; nome: string; funcao: string | null; setor: string | null; status: string; assinado_em: string | null; recusa_assinar: boolean; recusa_motivo: string | null; resumo: { conforme?: number; desvio?: number; pendente_confirmacao?: number; dias_total?: number } | null; documento_hash: string | null }
+const cienciaSelo: Record<string, { c: string; bg: string; l: string }> = {
+  assinado: { c: C.green, bg: C.greenBg, l: 'Assinado' },
+  pendente: { c: C.amber, bg: C.amberBg, l: 'Aguardando assinatura' },
+  recusado: { c: C.red, bg: C.redBg, l: 'Recusou assinar' },
+}
+function mesAtual(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+
+function AbaCiencia({ companyId }: { companyId: string }) {
+  const [comp, setComp] = useState(mesAtual())
+  const [dados, setDados] = useState<{ total: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] } | null>(null)
+  const [erro, setErro] = useState(''); const [busy, setBusy] = useState(false); const [carregado, setCarregado] = useState(false)
+  const [link, setLink] = useState<{ nome: string; url: string; wa: string | null } | null>(null)
+  const [verDoc, setVerDoc] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    setErro('')
+    try { const r = await rpc<{ ok: boolean; total: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] }>('fn_nr36_ciencia_listar', { p_company_id: companyId, p_competencia: `${comp}-01` }); setDados(r); setCarregado(true) }
+    catch (e) { setErro((e as Error).message) }
+  }, [companyId, comp])
+  useEffect(() => { void carregar() }, [carregar])
+
+  const gerar = async () => {
+    setBusy(true); setErro('')
+    try { await rpc('fn_nr36_ciencia_gerar', { p_company_id: companyId, p_competencia: `${comp}-01` }); await carregar() }
+    catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+  const gerarLink = async (l: CienciaLinha) => {
+    setErro('')
+    try {
+      const r = await rpc<Array<{ token: string; url_assinatura: string; whatsapp_link: string | null; colaborador_nome: string }>>('fn_nr36_ciencia_gerar_link', { p_ciencia_id: l.id, p_whatsapp_telefone: null })
+      const row = Array.isArray(r) ? r[0] : r
+      if (row) setLink({ nome: l.nome, url: row.url_assinatura, wa: row.whatsapp_link })
+    } catch (e) { setErro((e as Error).message) }
+  }
+  const recusar = async (l: CienciaLinha) => {
+    const motivo = window.prompt(`Registrar recusa de ${l.nome}. Motivo (opcional):`, '')
+    if (motivo === null) return
+    try { await rpc('fn_nr36_ciencia_recusar', { p_id: l.id, p_motivo: motivo }); await carregar() }
+    catch (e) { setErro((e as Error).message) }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
+        <Campo label="Competência"><input type="month" style={inp()} value={comp} onChange={e => setComp(e.target.value)} /></Campo>
+        <Btn onClick={gerar} disabled={busy}><RefreshCw size={14} /> {busy ? 'Gerando…' : 'Gerar / atualizar documentos'}</Btn>
+      </div>
+      <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <FileSignature size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+          Gera um relatório mensal por colaborador com os horários de pausa e sua origem (registrado · confirmado pelo ponto · estimado), coleta a <b>assinatura por link</b> (Lei 14.063/2020, mesmo fluxo do EPI) e mostra <b>quem já assinou e quem falta</b>. A abertura do link é registrada mesmo sem assinatura. Só gera para quem tem apuração no mês; documento já assinado não é sobrescrito.
+        </div>
+      </div>
+
+      {dados && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginBottom: 12 }}>
+          <Kpi label="Documentos" n={dados.total} cor={C.espresso} bg={C.beigeLt} />
+          <Kpi label="Assinados" n={dados.assinados} cor={C.green} bg={C.greenBg} />
+          <Kpi label="Aguardando" n={dados.pendentes} cor={C.amber} bg={C.amberBg} />
+          <Kpi label="Recusaram" n={dados.recusados} cor={C.red} bg={C.redBg} />
+        </div>
+      )}
+
+      {erro && <div style={erroBox()}>{erro}</div>}
+      {!carregado ? <Load /> : !dados || dados.linhas.length === 0 ? (
+        <Vazio titulo="Sem documentos nesta competência" texto="Clique em “Gerar / atualizar documentos”. O sistema cria um relatório por colaborador que teve apuração de pausa no mês." />
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+              <th style={th()}>Colaborador</th><th style={th()}>Resumo do mês</th><th style={th()}>Situação</th><th style={th()}></th>
+            </tr></thead>
+            <tbody>
+              {dados.linhas.map((l) => { const s = cienciaSelo[l.status] || cienciaSelo.pendente; return (
+                <tr key={l.id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+                  <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{l.nome}</div><div style={{ fontSize: 11, color: C.gray }}>{l.funcao || ''}{l.setor ? ` · ${l.setor}` : ''}</div></td>
+                  <td style={td()}><span style={{ color: C.green }}>{l.resumo?.conforme ?? 0} conf.</span> · <span style={{ color: C.red }}>{l.resumo?.desvio ?? 0} desv.</span> · <span style={{ color: C.amber }}>{l.resumo?.pendente_confirmacao ?? 0} p/ confirmar</span></td>
+                  <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {s.l}</span>{l.recusa_motivo && <div style={{ fontSize: 10, color: C.gray, marginTop: 3 }}>{l.recusa_motivo}</div>}</td>
+                  <td style={{ ...td(), whiteSpace: 'nowrap' }}>
+                    <BtnGhost onClick={() => setVerDoc(l.id)}><FileText size={13} /> Ver/PDF</BtnGhost>{' '}
+                    {l.status !== 'assinado' && <><BtnGhost onClick={() => gerarLink(l)}><Copy size={13} /> Link p/ assinar</BtnGhost>{' '}
+                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost></>}
+                  </td>
+                </tr>
+              ) })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {link && (
+        <div onClick={() => setLink(null)} style={modalBg()}>
+          <div onClick={e => e.stopPropagation()} style={{ ...modalCard(), maxWidth: 520 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.espresso, marginBottom: 8 }}>Link de assinatura — {link.nome}</div>
+            <p style={{ fontSize: 12.5, color: C.gray, marginBottom: 10 }}>Envie ao colaborador. A abertura fica registrada; ele confirma com o próprio CPF (Lei 14.063/2020).</p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input readOnly value={link.url} style={{ ...inp(), flex: 1 }} onFocus={e => e.currentTarget.select()} />
+              <Btn onClick={() => navigator.clipboard?.writeText(link.url)}><Copy size={14} /> Copiar</Btn>
+            </div>
+            {link.wa && <a href={link.wa} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: C.green, fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>Abrir no WhatsApp →</a>}
+            <div style={{ marginTop: 14, textAlign: 'right' }}><BtnGhost onClick={() => setLink(null)}>Fechar</BtnGhost></div>
+          </div>
+        </div>
+      )}
+      {verDoc && <ModalCienciaDoc id={verDoc} onClose={() => setVerDoc(null)} />}
+    </div>
+  )
+}
+
+function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
+  const [doc, setDoc] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [subindo, setSubindo] = useState(false)
+  const carregarDoc = useCallback(async () => {
+    try { const { data } = await supabase.from('nr36_ciencia_mensal').select('*').eq('id', id).single(); setDoc(data as Record<string, unknown>) }
+    catch { /* */ } finally { setLoading(false) }
+  }, [id])
+  useEffect(() => { void carregarDoc() }, [carregarDoc])
+  const anexarAssinado = async (f: File | null) => {
+    if (!f || !doc) return
+    setSubindo(true)
+    try {
+      const path = `ciencia/${doc.company_id}/${doc.cpf}_${String(doc.competencia).slice(0, 7)}_${Date.now()}.${(f.name.split('.').pop() || 'pdf')}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/pdf', upsert: false })
+      if (up.error) throw up.error
+      const { data: pub } = supabase.storage.from('compliance-pausas').getPublicUrl(path)
+      await rpc('fn_nr36_ciencia_anexar_assinado', { p_id: id, p_arquivo_url: pub?.publicUrl || path })
+      await carregarDoc()
+    } catch (e) { alert('Falha ao anexar: ' + (e as Error).message) } finally { setSubindo(false) }
+  }
+  const snap = (doc?.colaborador_snapshot || {}) as Record<string, string>
+  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: Array<{ de?: string; ate?: string; min?: number; fim_origem?: string }> }>
+  const nEst = detalhe.reduce((a, d) => a + (d.pausas || []).filter(p => p.fim_origem === 'estimado').length, 0)
+  const fim = (p: { de?: string; ate?: string; fim_origem?: string }) => {
+    const de = p.de || '—'
+    if (!p.ate) return <span style={{ color: C.red }}>{de} → sem registro de saída</span>
+    if (p.fim_origem === 'estimado') return <span><span style={{ fontFamily: 'monospace' }}>{de} → ~{p.ate}</span> <b style={{ color: C.amber }}>(estimado)</b></span>
+    if (p.fim_origem === 'confirmado_ponto') return <span><span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span> <b style={{ color: C.blue }}>(confirmado pelo ponto)</b></span>
+    if (p.fim_origem === 'confirmado_manual') return <span><span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span> <b style={{ color: C.espresso }}>(confirmado)</b></span>
+    return <span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span>
+  }
+  return (
+    <div onClick={onClose} style={modalBg()}>
+      <style>{`@media print { body { visibility: hidden !important } #ciencia-doc-print, #ciencia-doc-print * { visibility: visible !important } #ciencia-doc-print { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important } .no-print { display: none !important } @page { size: A4; margin: 14mm } }`}</style>
+      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" style={{ ...modalCard(), maxWidth: 720, maxHeight: '86vh', overflowY: 'auto' }}>
+        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: C.gray, textTransform: 'uppercase', letterSpacing: 1 }}>Relatório de ciência mensal</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <BtnGhost onClick={() => window.print()}><Printer size={13} /> Imprimir/PDF</BtnGhost>
+            {doc && doc.status !== 'assinado' && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, fontWeight: 600, cursor: subindo ? 'wait' : 'pointer' }}>
+                <Upload size={13} /> {subindo ? 'Enviando…' : 'Anexar assinado'}
+                <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={subindo} onChange={e => anexarAssinado(e.target.files?.[0] || null)} />
+              </label>
+            )}
+            <BtnGhost onClick={onClose}>Fechar</BtnGhost>
+          </div>
+        </div>
+        {loading ? <Load /> : !doc ? <Vazio titulo="Documento não encontrado" texto="" /> : (
+          <div>
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 700, color: C.espresso }}>Relatório Mensal de Pausas Térmicas — NR-36 / Art. 253 CLT</div>
+              <div style={{ fontSize: 12, color: C.gray }}>Competência {String(doc.competencia).slice(0, 7)}</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 6, fontSize: 12.5, marginBottom: 12 }}>
+              <div><b>Nome:</b> {snap.nome || '—'}</div><div><b>CPF:</b> {snap.cpf || '—'}</div>
+              <div><b>Matrícula:</b> {snap.matricula || '—'}</div><div><b>PIS:</b> {snap.pis || '—'}</div>
+              <div><b>Função:</b> {snap.funcao || '—'}</div><div><b>Setor:</b> {snap.setor || '—'}</div>
+            </div>
+            {detalhe.map((d, i) => (
+              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span></div>
+                {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
+                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
+              </div>
+            ))}
+            {nEst > 0 && (
+              <div style={{ marginTop: 12, padding: 10, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, fontSize: 11.5, color: '#92400E' }}>
+                {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
+              </div>
+            )}
+            <div style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
+              {doc.status === 'assinado' ? (
+                <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do colaborador</div>
+                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── SST ⑦ (#67): reconciliação do período ──────────────────────────────────────
 // Veredito legal (só pausa insuficiente = desvio) SEPARADO do sinalizado (dias com jornada e
 // ZERO pausa registrada + estimativa de não-realizada). Nunca somados — "estimado ≠ registrado".
@@ -241,6 +444,11 @@ function ReconciliacaoPanel({ companyId, ini, fim, chave }: { companyId: string;
         <ReconItem n={d.pendente_confirmacao} cor={C.amber} label="Aguardando confirmação (aba Conferência)" />
         <ReconItem n={d.conforme} cor={C.green} label="Conformes" />
         {d.sem_dado > 0 && <ReconItem n={d.sem_dado} cor={C.gray} label="Sem jornada no ponto" />}
+      </div>
+
+      {/* por que confirmar pode AUMENTAR o desvio — a responsável precisa entender antes de estranhar */}
+      <div style={{ fontSize: 11.5, color: C.gray, lineHeight: 1.55, marginBottom: 10 }}>
+        Confirmar o fim de uma pausa aberta pode <b>aumentar</b> o número de desvios: ao amarrar o fim pela batida do ponto, um dia que estava “aguardando confirmação” pode revelar uma pausa abaixo do mínimo que antes não dava para avaliar. O número subir depois de confirmar é o dado ficando exato — não é piora.
       </div>
 
       {/* Sinalizado — à parte, nunca somado ao veredito */}
@@ -949,6 +1157,8 @@ function th(): React.CSSProperties { return { padding: '8px 10px', fontWeight: 6
 function td(): React.CSSProperties { return { padding: '9px 10px', verticalAlign: 'top', color: C.espresso } }
 function inp(): React.CSSProperties { return { border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: '8px 10px', fontSize: 13.5, color: C.ink, background: '#fff' } }
 function erroBox(): React.CSSProperties { return { background: C.redBg, color: C.red, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, marginTop: 10 } }
+function modalBg(): React.CSSProperties { return { position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1000 } }
+function modalCard(): React.CSSProperties { return { background: '#fff', borderRadius: 14, width: '100%', padding: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' } }
 function btnStyle(disabled: boolean): React.CSSProperties { return { display: 'inline-flex', alignItems: 'center', gap: 6, background: disabled ? '#d9c9a6' : C.gold, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer' } }
 function Campo({ label, children }: { label: string; children: React.ReactNode }) { return <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 12, color: C.gray }}>{label}</label>{children}</div> }
 function Btn({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) { return <button onClick={onClick} disabled={disabled} style={btnStyle(!!disabled)}>{children}</button> }
