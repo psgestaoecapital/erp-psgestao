@@ -67,6 +67,18 @@ export default function PausasTecnicasPage() {
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
+      {/* SST · veredito SUSPENSO (RD-51 · 0e580f96): a classificação dos eventos de pausa estava
+          errada (evento longo contado como exposição, quando é pausa sem registro de saída). Os
+          números abaixo não valem até a reapuração. Mostra o QUE está errado E o que se perde. */}
+      {(aba === 'painel' || aba === 'gestao' || aba === 'supervisao' || aba === 'auditoria') && (
+        <div role="alert" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: '12px 14px', marginBottom: 16 }}>
+          <span aria-hidden style={{ fontSize: 16, lineHeight: 1.3 }}>⚠️</span>
+          <div style={{ fontSize: 13, color: C.espresso, lineHeight: 1.55 }}>
+            <b>Em revisão — a classificação dos eventos está sendo corrigida. Os números abaixo não devem ser usados até a reapuração.</b>
+            <div style={{ marginTop: 4, color: C.amber }}>Motivo: eventos longos estavam sendo contados como tempo de exposição, e são pausas sem registro de saída. Estamos amarrando com o ponto.</div>
+          </div>
+        </div>
+      )}
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
       {aba === 'gestao' && <AbaGestao companyId={companyId} />}
       {aba === 'supervisao' && <AbaSupervisao companyId={companyId} />}
