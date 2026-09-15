@@ -174,18 +174,52 @@ export const POST = withAuth(async (req: NextRequest) => {
       nfseReq.observacoes = body.observacoes.trim()
     }
 
-    // #18 · E0370: grupo de obra p/ serviço de construção. O endereço/CNO da emissão vai ao payload.
-    if (body.obra) nfseReq.obra = body.obra
+    // #82① · LIGA a emissão à OBRA. Prioridade: obra apontada na emissão (body.obraId); senão resolve a
+    // cadeia receber→pedido→orçamento→obra no servidor. Os campos digitados na emissão têm prioridade;
+    // o que faltar vem da obra vinculada (Hub). Sem isso a trava E0370 nunca enxerga o que foi salvo lá.
+    let obraIdFinal: string | null = body.obraId ?? null
+    if (body.erpReceberId || body.obraId) {
+      const { data: obraRes } = await supabaseAdmin.rpc('fn_nfse_obra_resolver', {
+        p_company_id: body.companyId,
+        p_erp_receber_id: body.erpReceberId ?? null,
+        p_obra_id: body.obraId ?? null,
+      })
+      const o = obraRes as {
+        encontrada?: boolean; obra_id?: string; cno?: string | null; logradouro?: string | null
+        numero_endereco?: string | null; bairro?: string | null; cidade?: string | null
+        uf?: string | null; cep?: string | null; codigo_ibge?: string | null
+      } | null
+      if (o?.encontrada) {
+        obraIdFinal = o.obra_id ?? obraIdFinal
+        const t = body.obra ?? {}
+        const pick = (a?: string, b?: string | null) => (a && a.trim() ? a : (b ?? undefined))
+        nfseReq.obra = {
+          cno: pick(t.cno, o.cno),
+          inscricaoImobiliaria: t.inscricaoImobiliaria,
+          logradouro: pick(t.logradouro, o.logradouro),
+          numero: pick(t.numero, o.numero_endereco),
+          complemento: t.complemento,
+          bairro: pick(t.bairro, o.bairro),
+          cep: pick(t.cep, o.cep),
+          uf: pick(t.uf, o.uf),
+          codigoMunicipio: pick(t.codigoMunicipio, o.codigo_ibge),
+        }
+      } else if (body.obra) {
+        nfseReq.obra = body.obra
+      }
+    } else if (body.obra) {
+      nfseReq.obra = body.obra
+    }
 
-    // #18 · TRAVA PROATIVA (servidor): se o código de tributação exige obra e não veio CNO nem
-    // endereço, bloqueia com a mensagem E0370 ANTES de enviar — em vez de deixar a prefeitura rejeitar.
+    // #18/#82① · TRAVA PROATIVA (servidor): se o código exige obra e não há CNO nem endereço (nem
+    // digitado, nem na obra vinculada via obra_id), bloqueia com a mensagem E0370 ANTES de enviar.
     {
       const { data: pend } = await supabaseAdmin.rpc('fn_nfse_obra_pendente', {
         p_company_id: body.companyId,
         p_codigo_servico: nfseReq.codigoServico,
-        p_obra_id: body.obraId ?? null,
-        p_cno: body.obra?.cno ?? null,
-        p_endereco: body.obra?.logradouro ?? null,
+        p_obra_id: obraIdFinal,
+        p_cno: nfseReq.obra?.cno ?? null,
+        p_endereco: nfseReq.obra?.logradouro ?? null,
       })
       const r = (Array.isArray(pend) ? pend[0] : pend) as { pendente?: boolean; mensagem?: string } | null
       if (r?.pendente) {
@@ -424,6 +458,11 @@ export const POST = withAuth(async (req: NextRequest) => {
         },
         { status: 500 }
       )
+    }
+
+    // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
+    if (registroId && obraIdFinal) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
     }
 
     return NextResponse.json({

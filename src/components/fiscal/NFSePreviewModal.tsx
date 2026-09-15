@@ -53,6 +53,9 @@ export default function NFSePreviewModal(props: Props) {
   const [subitens, setSubitens] = useState<Array<{ codigo: string; descricao: string }>>([])
   const [subitem, setSubitem] = useState('')
   const [obra, setObra] = useState({ logradouro: '', numero: '', bairro: '', cep: '', uf: '', municipio: '', cno: '' })
+  // #82① · apontar a obra do Hub (opcional): ao escolher, puxa endereço/CNO já salvos e passa obra_id.
+  const [obras, setObras] = useState<Array<{ id: string; numero: string; nome: string | null }>>([])
+  const [obraId, setObraId] = useState('')
 
   useEffect(() => {
     if (props.open) {
@@ -110,6 +113,36 @@ export default function NFSePreviewModal(props: Props) {
     return () => { alive = false }
   }, [props.open, props.companyId, servicoId, servicos])
 
+  // #82① · carrega as obras da empresa para o seletor (só quando o serviço exige obra)
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      if (!props.open || !props.companyId || subitens.length === 0) { if (alive) setObras([]); return }
+      const { data } = await supabase
+        .from('projetos_obras')
+        .select('id,numero,nome')
+        .eq('company_id', props.companyId)
+        .order('numero', { ascending: false })
+      if (!alive) return
+      setObras((data ?? []) as Array<{ id: string; numero: string; nome: string | null }>)
+    })()
+    return () => { alive = false }
+  }, [props.open, props.companyId, subitens.length])
+
+  // #82① · ao escolher uma obra do Hub, puxa os dados fiscais já salvos (endereço/CNO) para os campos
+  async function escolherObra(id: string) {
+    setObraId(id)
+    if (!id) return
+    const { data } = await supabase.rpc('fn_nfse_obra_resolver', { p_company_id: props.companyId, p_erp_receber_id: null, p_obra_id: id })
+    const o = data as { encontrada?: boolean; cno?: string | null; logradouro?: string | null; numero_endereco?: string | null; bairro?: string | null; cep?: string | null; uf?: string | null; codigo_ibge?: string | null } | null
+    if (o?.encontrada) {
+      setObra({
+        logradouro: o.logradouro ?? '', numero: o.numero_endereco ?? '', bairro: o.bairro ?? '',
+        cep: o.cep ?? '', uf: o.uf ?? '', municipio: o.codigo_ibge ?? '', cno: o.cno ?? '',
+      })
+    }
+  }
+
   if (!props.open) return null
 
   async function pollStatus(nfseId: string, attempt: number) {
@@ -150,6 +183,7 @@ export default function NFSePreviewModal(props: Props) {
           // #18 · construção: subitem escolhido por nota + endereço da obra (E0370)
           ...(subitens.length > 0 ? {
             codigoServicoTributacao: subitem || undefined,
+            obraId: obraId || undefined,
             obra: {
               cno: obra.cno.trim() || undefined,
               logradouro: obra.logradouro.trim() || undefined,
@@ -268,6 +302,21 @@ export default function NFSePreviewModal(props: Props) {
                   <div className="text-[11px] text-[#7A5B12] leading-snug">
                     <strong>Serviço de construção (regra E0370).</strong> Escolha o código de tributação da obra e informe o <strong>endereço da obra</strong> (ou o CNO). Sem um dos dois, a prefeitura rejeita a nota.
                   </div>
+                  {obras.length > 0 && (
+                    <div>
+                      <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Obra do Hub (opcional — puxa os dados já cadastrados)</label>
+                      <select
+                        value={obraId}
+                        onChange={(e) => void escolherObra(e.target.value)}
+                        className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
+                      >
+                        <option value="">— Preencher manualmente —</option>
+                        {obras.map((o) => (
+                          <option key={o.id} value={o.id}>{o.numero}{o.nome ? ` · ${o.nome}` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Código de tributação (subitem)</label>
                     <select
