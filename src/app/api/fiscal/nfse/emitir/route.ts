@@ -209,7 +209,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
     const { data: providerCfg } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('id, provider, gov_nfse_municipio_codigo, ambiente, percentual_total_tributos_sn, lei12741_observacao_template')
+      .select('id, provider, gov_nfse_municipio_codigo, ambiente, percentual_total_tributos_sn, lei12741_observacao_template, lei12741_ativo')
       .eq('company_id', body.companyId)
       .eq('ativo', true)
       .maybeSingle()
@@ -326,9 +326,12 @@ export const POST = withAuth(async (req: NextRequest) => {
     // mostra R$ e %. A redação é PARÂMETRO (lei12741_observacao_template) — o contador muda por UPDATE.
     // Sem percentual (empresa fora do Simples) não compõe o bloco (aí depende da tabela IBPT — adiado).
     // Anexa a uma observação livre já existente na requisição, sem sobrescrever nem poluir a descrição.
+    // SALVAGUARDA (CEO): só compõe se lei12741_ativo=true na config da empresa — liga/desliga por
+    // empresa SEM PR. Default false: o merge não muda nada até ligar por empresa (rollout controlado;
+    // e rollback instantâneo se a Focus recusar o campo ou a redação vier errada).
     {
       const pctTrib = Number(providerCfg?.percentual_total_tributos_sn ?? 0)
-      if (Number.isFinite(pctTrib) && pctTrib > 0 && Number(nfseReq.valorServicos) > 0) {
+      if (providerCfg?.lei12741_ativo === true && Number.isFinite(pctTrib) && pctTrib > 0 && Number(nfseReq.valorServicos) > 0) {
         const valorAprox = Math.round((pctTrib / 100) * Number(nfseReq.valorServicos) * 100) / 100
         const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         const template = (typeof providerCfg?.lei12741_observacao_template === 'string' && providerCfg.lei12741_observacao_template.trim())

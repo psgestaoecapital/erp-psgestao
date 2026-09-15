@@ -17,3 +17,13 @@ ALTER TABLE public.erp_fiscal_provider_config
 
 COMMENT ON COLUMN public.erp_fiscal_provider_config.lei12741_observacao_template IS
   'Lei 12.741/2012 · texto do valor aproximado dos tributos nas informações complementares da NFS-e. Placeholders {valor} e {percentual} substituídos na emissão. Só compõe quando percentual_total_tributos_sn está preenchido (Simples Nacional).';
+
+-- SALVAGUARDA (CEO): liga/desliga o bloco POR EMPRESA, sem PR. DEFAULT false — o merge NÃO muda
+-- nada até ligar por empresa (rollout controlado: liga na empresa de teste, confere a DANFSe, e só
+-- então liga as demais). É também o rollback instantâneo: se a Focus recusar o campo ou a redação
+-- vier errada, basta UPDATE ... SET lei12741_ativo=false — sem tocar em nota já emitida.
+ALTER TABLE public.erp_fiscal_provider_config
+  ADD COLUMN IF NOT EXISTS lei12741_ativo boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN public.erp_fiscal_provider_config.lei12741_ativo IS
+  'Liga/desliga o bloco Lei 12.741 nas informações complementares da NFS-e, por empresa. Default false (rollout controlado + rollback instantâneo). Sem PR — é UPDATE.';
