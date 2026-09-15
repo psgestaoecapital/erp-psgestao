@@ -49,6 +49,14 @@ export interface NFSeRequest {
   opcaoSimplesNacional?: number   // 1=Não optante · 2=MEI · 3=ME/EPP
   regimeApuracaoSN?: number       // regime_tributario_simples_nacional (1/2/3)
   percentualTribSN?: number       // percentual_total_tributos_simples_nacional (totTrib p/ ME/EPP)
+  // #18 · E0370: grupo de OBRA (serviço de construção civil). Endereço da obra OU CNO/CIB — o layout
+  // nacional exige um dos dois quando o código de tributação está na lista E0370 (fn_fiscal_exige_obra).
+  obra?: {
+    cno?: string                  // Cadastro Nacional de Obras (CNO/CEI)
+    inscricaoImobiliaria?: string // CIB (Cadastro Imobiliário Brasileiro)
+    logradouro?: string; numero?: string; complemento?: string; bairro?: string
+    codigoMunicipio?: string; uf?: string; cep?: string
+  }
 }
 
 export interface NFSeResponse {

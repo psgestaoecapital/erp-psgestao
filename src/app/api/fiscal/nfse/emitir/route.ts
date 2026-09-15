@@ -16,9 +16,17 @@ interface EmitirNFSeBody {
   erpReceberId?: string
   // receber-nfse-seletor-servico-v1
   servicoId?: string
-  // chamado #18 · E0370: serviço de construção aponta para a obra (endereço/CNO vêm dela). Fase A usa
-  // pra trava (bloqueia sem obra/CNO); Fase B leva o grupo de obra ao XML.
+  // chamado #18 · E0370: serviço de construção aponta para a obra (endereço/CNO vêm dela). Fase A:
+  // trava (bloqueia sem obra/CNO) + Fase B: leva o grupo de obra ao payload nacional.
   obraId?: string
+  // código de tributação (subitem 07.02.01/07.02.02) escolhido POR NOTA — varia por tipo de obra.
+  codigoServicoTributacao?: string
+  // endereço/CNO da obra informados na emissão (E0370). O endereço basta (Rodrigo: não é CNO).
+  obra?: {
+    cno?: string; inscricaoImobiliaria?: string
+    logradouro?: string; numero?: string; complemento?: string; bairro?: string
+    codigoMunicipio?: string; uf?: string; cep?: string
+  }
   manual?: {
     descricaoServico: string
     valorServicos: number
@@ -101,7 +109,8 @@ export const POST = withAuth(async (req: NextRequest) => {
       if (dadosRpc?.servico) {
         servicoOverride = {
           ...(body.overrides ?? {}),
-          codigoServico: dadosRpc.servico.codigo_servico_municipio,
+          // #18: o subitem escolhido na emissão (07.02.01/07.02.02) manda; senão, o do cadastro.
+          codigoServico: body.codigoServicoTributacao || dadosRpc.servico.codigo_servico_municipio,
           aliquotaIss: body.overrides?.aliquotaIss ?? dadosRpc.servico.aliquota_iss,
           retemIss: body.overrides?.retemIss ?? dadosRpc.servico.iss_retido,
           descricaoServico: body.overrides?.descricaoServico ?? dadosRpc.servico.descricao,
@@ -163,6 +172,25 @@ export const POST = withAuth(async (req: NextRequest) => {
     // é acrescentado depois, sem sobrescrever esta.
     if (typeof body.observacoes === 'string' && body.observacoes.trim()) {
       nfseReq.observacoes = body.observacoes.trim()
+    }
+
+    // #18 · E0370: grupo de obra p/ serviço de construção. O endereço/CNO da emissão vai ao payload.
+    if (body.obra) nfseReq.obra = body.obra
+
+    // #18 · TRAVA PROATIVA (servidor): se o código de tributação exige obra e não veio CNO nem
+    // endereço, bloqueia com a mensagem E0370 ANTES de enviar — em vez de deixar a prefeitura rejeitar.
+    {
+      const { data: pend } = await supabaseAdmin.rpc('fn_nfse_obra_pendente', {
+        p_company_id: body.companyId,
+        p_codigo_servico: nfseReq.codigoServico,
+        p_obra_id: body.obraId ?? null,
+        p_cno: body.obra?.cno ?? null,
+        p_endereco: body.obra?.logradouro ?? null,
+      })
+      const r = (Array.isArray(pend) ? pend[0] : pend) as { pendente?: boolean; mensagem?: string } | null
+      if (r?.pendente) {
+        return NextResponse.json({ ok: false, mensagem: r.mensagem ?? 'Serviço de construção exige o CNO ou o endereço da obra (regra E0370).', obra_pendente: true }, { status: 400 })
+      }
     }
 
     validateNFSeRequest(nfseReq)

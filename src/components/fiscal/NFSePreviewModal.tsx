@@ -49,6 +49,10 @@ export default function NFSePreviewModal(props: Props) {
   const [servicos, setServicos] = useState<ServicoOpt[]>([])
   const [servicoId, setServicoId] = useState<string>('')
   const [carregandoServicos, setCarregandoServicos] = useState(false)
+  // #18 · E0370: subitens de tributação (07.02.01/07.02.02) + endereço da obra p/ serviço de construção
+  const [subitens, setSubitens] = useState<Array<{ codigo: string; descricao: string }>>([])
+  const [subitem, setSubitem] = useState('')
+  const [obra, setObra] = useState({ logradouro: '', numero: '', bairro: '', cep: '', uf: '', municipio: '', cno: '' })
 
   useEffect(() => {
     if (props.open) {
@@ -85,6 +89,26 @@ export default function NFSePreviewModal(props: Props) {
     })()
     return () => { alive = false }
   }, [props.open, props.companyId])
+
+  // #18 · quando o serviço muda, busca os subitens de tributação do grupo LC116 (07.02 → 07.02.01/02).
+  // Se houver subitens, o serviço é de construção (E0370) → exige endereço da obra.
+  useEffect(() => {
+    let alive = true
+    const sel = servicos.find((s) => s.id === servicoId) ?? null
+    ;(async () => {
+      if (!props.open || !props.companyId || !sel?.codigo_lc116) {
+        if (alive) { setSubitens([]); setSubitem('') }
+        return
+      }
+      const { data } = await supabase.rpc('fn_fiscal_subitens_obra', { p_company_id: props.companyId, p_codigo_lc116: sel.codigo_lc116 })
+      if (!alive) return
+      const arr = (Array.isArray(data) ? data : []) as Array<{ codigo: string; descricao: string }>
+      setSubitens(arr)
+      const munic = (sel.codigo_servico_municipio ?? '').replace(/\D/g, '')
+      setSubitem(arr.find((x) => x.codigo === munic)?.codigo ?? arr[0]?.codigo ?? '')
+    })()
+    return () => { alive = false }
+  }, [props.open, props.companyId, servicoId, servicos])
 
   if (!props.open) return null
 
@@ -123,6 +147,19 @@ export default function NFSePreviewModal(props: Props) {
           companyId: props.companyId,
           erpReceberId: props.erpReceberId,
           servicoId,
+          // #18 · construção: subitem escolhido por nota + endereço da obra (E0370)
+          ...(subitens.length > 0 ? {
+            codigoServicoTributacao: subitem || undefined,
+            obra: {
+              cno: obra.cno.trim() || undefined,
+              logradouro: obra.logradouro.trim() || undefined,
+              numero: obra.numero.trim() || undefined,
+              bairro: obra.bairro.trim() || undefined,
+              cep: obra.cep.trim() || undefined,
+              uf: obra.uf.trim() || undefined,
+              codigoMunicipio: obra.municipio.trim() || undefined,
+            },
+          } : {}),
           overrides: {
             descricaoServico: descricao,
             aliquotaIss: parseFloat(aliquota),
@@ -156,7 +193,9 @@ export default function NFSePreviewModal(props: Props) {
   }
 
   const servicoSel = servicos.find((s) => s.id === servicoId) ?? null
-  const podeEmitir = !!servicoId && descricao.trim().length >= 3
+  const exigeObra = subitens.length > 0
+  const obraOk = !exigeObra || !!(obra.cno.trim() || obra.logradouro.trim())
+  const podeEmitir = !!servicoId && descricao.trim().length >= 3 && obraOk
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -223,6 +262,36 @@ export default function NFSePreviewModal(props: Props) {
                   </div>
                 )}
               </div>
+
+              {exigeObra && (
+                <div className="border border-[#C8941A]/40 bg-[#FEF7E6] rounded-lg p-3 space-y-2.5">
+                  <div className="text-[11px] text-[#7A5B12] leading-snug">
+                    <strong>Serviço de construção (regra E0370).</strong> Escolha o código de tributação da obra e informe o <strong>endereço da obra</strong> (ou o CNO). Sem um dos dois, a prefeitura rejeita a nota.
+                  </div>
+                  <div>
+                    <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Código de tributação (subitem)</label>
+                    <select
+                      value={subitem}
+                      onChange={(e) => setSubitem(e.target.value)}
+                      className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
+                    >
+                      {subitens.map((s) => (
+                        <option key={s.codigo} value={s.codigo}>{s.codigo} · {s.descricao}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={obra.logradouro} onChange={(e) => setObra({ ...obra, logradouro: e.target.value })} placeholder="Logradouro da obra" className="col-span-2 px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                    <input value={obra.numero} onChange={(e) => setObra({ ...obra, numero: e.target.value })} placeholder="Número" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                    <input value={obra.bairro} onChange={(e) => setObra({ ...obra, bairro: e.target.value })} placeholder="Bairro" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                    <input value={obra.cep} onChange={(e) => setObra({ ...obra, cep: e.target.value })} placeholder="CEP" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                    <input value={obra.uf} onChange={(e) => setObra({ ...obra, uf: e.target.value.toUpperCase().slice(0, 2) })} placeholder="UF" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                    <input value={obra.municipio} onChange={(e) => setObra({ ...obra, municipio: e.target.value })} placeholder="Cód. município (IBGE)" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                    <input value={obra.cno} onChange={(e) => setObra({ ...obra, cno: e.target.value })} placeholder="CNO (opcional, se tiver)" className="col-span-2 px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+                  </div>
+                  {!obraOk && <div className="text-[11px] text-[#791F1F]">Informe o endereço da obra ou o CNO para emitir.</div>}
+                </div>
+              )}
 
               <div>
                 <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">

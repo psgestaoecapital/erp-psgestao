@@ -94,6 +94,25 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     if (end.complemento) p.complemento_tomador = end.complemento
     if (end.bairro) p.bairro_tomador = end.bairro
   }
+  // #18 · E0370: grupo de OBRA (construção civil). O layout nacional exige CNO/CIB OU endereço da obra
+  // quando o código de tributação está na lista (07.02.01, 07.02.02, ...). Estrutura espelhada do
+  // padrão nacional (CNO=codigo_obra, CIB=inscricao_imobiliaria, endereço da obra).
+  // ⚠️ RD-59: os nomes EXATOS dos campos do Focus nacional para obra devem ser confirmados na
+  // homologação (1 nota real) — o egress do dev bloqueia a doc/API do Focus. Se o Focus recusar o
+  // objeto/nome, ajustar só este bloco.
+  const o = req.obra
+  if (o && (o.cno || o.inscricaoImobiliaria || o.logradouro)) {
+    const cc: Record<string, unknown> = {}
+    if (o.cno) cc.codigo_obra = String(o.cno).replace(/\D/g, '')
+    if (o.inscricaoImobiliaria) cc.inscricao_imobiliaria = String(o.inscricaoImobiliaria).replace(/\D/g, '')
+    if (o.cep) cc.cep_obra = String(o.cep).replace(/\D/g, '')
+    if (o.codigoMunicipio) cc.codigo_municipio_obra = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
+    if (o.logradouro) cc.logradouro_obra = o.logradouro
+    if (o.numero) cc.numero_obra = o.numero
+    if (o.complemento) cc.complemento_obra = o.complemento
+    if (o.bairro) cc.bairro_obra = o.bairro
+    p.construcao_civil = cc
+  }
   return p
 }
 
