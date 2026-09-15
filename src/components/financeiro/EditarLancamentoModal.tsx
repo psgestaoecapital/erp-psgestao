@@ -20,8 +20,10 @@ type Tipo = 'pagar' | 'receber'
 // igual ao "Novo lançamento". Cliente usa fn_cliente_buscar/fn_cliente_criar_inline; fornecedor busca
 // direto em erp_fornecedores (não há RPC dedicada — mesmo caminho do form de nova despesa).
 type Sugestao = { id: string; nome: string; doc: string | null }
-function ContraparteAutocomplete({ kind, companyId, value, onChange }: {
+function ContraparteAutocomplete({ kind, companyId, value, onChange, onPick }: {
   kind: 'cliente' | 'fornecedor'; companyId: string; value: string; onChange: (nome: string) => void
+  // onPick: quando o usuário ESCOLHE (ou cria) um cadastro, devolve o id do vínculo — não só o texto.
+  onPick?: (id: string | null, nome: string) => void
 }) {
   const [termo, setTermo] = useState(value)
   const [abrir, setAbrir] = useState(false)
@@ -58,15 +60,16 @@ function ContraparteAutocomplete({ kind, companyId, value, onChange }: {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => void buscar(v), 250)
   }
-  const escolher = (s: Sugestao) => { onChange(s.nome); setTermo(s.nome); setAbrir(false); setSugestoes([]) }
+  const escolher = (s: Sugestao) => { onChange(s.nome); onPick?.(s.id, s.nome); setTermo(s.nome); setAbrir(false); setSugestoes([]) }
   async function criarCliente() {
     const nome = termo.trim()
     if (!nome) return
     setCriando(true)
     try {
+      // fn_cliente_criar_inline RETURNS uuid — captura o id do novo cliente p/ gravar o vínculo.
       const { data } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-      const r = data as { ok?: boolean; nome?: string } | null
-      onChange(r?.nome || nome); setTermo(r?.nome || nome); setAbrir(false); setSugestoes([])
+      const novoId = typeof data === 'string' ? data : null
+      onChange(nome); onPick?.(novoId, nome); setTermo(nome); setAbrir(false); setSugestoes([])
     } finally { setCriando(false) }
   }
   const semMatchExato = kind === 'cliente' && termo.trim().length >= 2 && !sugestoes.some((s) => s.nome.toLowerCase() === termo.trim().toLowerCase())
@@ -220,6 +223,8 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
           const v = d[c.col]
           next[c.col] = c.tipo === 'bool' ? (v ? 'true' : 'false') : (v == null ? '' : String(v))
         }
+        // cliente_id não é um campo de tela (vem do autocomplete) — carrega o vínculo atual p/ diff.
+        if (tipo === 'receber') next['cliente_id'] = d.cliente_id == null ? '' : String(d.cliente_id)
         setForm(next); setOrig(next)
         setLegadoConta(String(d.conta_bancaria ?? ''))
         setLegadoCentro(String(d.centro_custo ?? ''))
@@ -228,7 +233,7 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
         setMovimentoBanco(d.movimento_banco_id != null)
         setValorPago(Number(d.valor_pago ?? 0))
       })
-  }, [open, itemId, tabela, companyId, defs])
+  }, [open, itemId, tabela, tipo, companyId, defs])
 
   const set = (col: string, v: string) => setForm((f) => ({ ...f, [col]: v }))
   // Saldo efetivo ao vivo = (valor + juros + multa − desconto) − valor_pago. Fonte da quitação (RD-52).
@@ -271,7 +276,13 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
         const raw = (form[c.col] ?? '').trim()
         payload[c.col] = c.tipo === 'num' ? raw.replace(',', '.') : raw
       }
-      if (Object.keys(payload).length === 0) { onClose(); return }
+      // #71: trocar o cliente grava o VÍNCULO (cliente_id), não só o nome — senão o boleto/NF
+      // continuam usando o cliente antigo. cliente_id vem do autocomplete, entra explícito aqui.
+      if (tipo === 'receber' && (form.cliente_id ?? '') !== (orig.cliente_id ?? '')) {
+        payload.cliente_id = (form.cliente_id ?? '') || null
+      }
+      // #71: nada de no-op silencioso — se não mudou nada, AVISA (antes fechava como se salvasse).
+      if (Object.keys(payload).length === 0) { setErro('Nada foi alterado — nenhuma mudança para salvar.'); return }
       const rpc = tipo === 'pagar' ? 'fn_pagar_editar_completo' : 'fn_receber_editar_completo'
       const { data, error } = await supabase.rpc(rpc, { p_id: itemId, p_campos: payload })
       if (error) throw error
@@ -386,7 +397,8 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
                 ) : c.tipo === 'categoria' ? (
                   <CategoriaCombobox companyId={companyId} aplicacao={tipo} value={val} onChange={(codigo) => set(c.col, codigo)} />
                 ) : c.tipo === 'cliente' || c.tipo === 'fornecedor' ? (
-                  <ContraparteAutocomplete kind={c.tipo} companyId={companyId} value={val} onChange={(nome) => set(c.col, nome)} />
+                  <ContraparteAutocomplete kind={c.tipo} companyId={companyId} value={val} onChange={(nome) => set(c.col, nome)}
+                    onPick={c.tipo === 'cliente' ? (id, nome) => { set('cliente_nome', nome); set('cliente_id', id ?? '') } : undefined} />
                 ) : (
                   <input value={val} onChange={(e) => set(c.col, e.target.value)} type={c.tipo === 'date' ? 'date' : 'text'} inputMode={c.tipo === 'num' ? 'decimal' : undefined} style={inp} />
                 )}
