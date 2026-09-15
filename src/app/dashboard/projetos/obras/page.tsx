@@ -9,6 +9,7 @@ import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import CepEndereco from '@/components/comum/CepEndereco'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C'
 
@@ -348,9 +349,8 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
       setCarregando(false)
     })
     return () => { alive = false }
-  }, [obra.id]) // eslint-disable-line react-hooks/set-state-in-effect
+  }, [obra.id])
   const temId = !!(f.cno.trim() || f.codigo_obra_municipal.trim())
-  const endOk = !!(f.endereco.trim() && f.cep.trim() && f.codigo_ibge_municipio.trim())
   async function salvar() {
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_obra_salvar_fiscal', {
@@ -390,16 +390,20 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
               </div>
               {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12 }}>⚠️ Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</div>}
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Endereço da obra</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 6 }}>
-                {campo('Logradouro', 'endereco')}
-                {campo('Número', 'numero_endereco')}
-                {campo('Bairro', 'bairro')}
-                {campo('Cidade', 'cidade')}
-                {campo('UF', 'uf', 'PR')}
-                {campo('CEP', 'cep')}
-                {campo('Código IBGE do município', 'codigo_ibge_municipio', 'ex.: 4127700')}
-              </div>
-              {!endOk && <div style={{ fontSize: 11.5, color: '#B45309', margin: '8px 0 0' }}>⚠️ Logradouro, CEP e código IBGE são exigidos pelo leiaute da NFS-e nacional.</div>}
+              {/* #82/CEP · o IBGE nasce do CEP (nunca digitado) — fecha o erro que mandava ISS pro estado errado */}
+              <CepEndereco
+                ibgeObrigatorio
+                value={{ cep: f.cep, logradouro: f.endereco, numero: f.numero_endereco, bairro: f.bairro, cidade: f.cidade, uf: f.uf, codigo_ibge_municipio: f.codigo_ibge_municipio }}
+                onChange={(p) => setF((prev) => ({ ...prev,
+                  ...(p.cep !== undefined ? { cep: p.cep } : {}),
+                  ...(p.logradouro !== undefined ? { endereco: p.logradouro } : {}),
+                  ...(p.numero !== undefined ? { numero_endereco: p.numero } : {}),
+                  ...(p.bairro !== undefined ? { bairro: p.bairro } : {}),
+                  ...(p.cidade !== undefined ? { cidade: p.cidade } : {}),
+                  ...(p.uf !== undefined ? { uf: p.uf } : {}),
+                  ...(p.codigo_ibge_municipio !== undefined ? { codigo_ibge_municipio: p.codigo_ibge_municipio } : {}),
+                }))}
+              />
               {msg && <div style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: '8px 10px', fontSize: 12, marginTop: 12 }}>{msg}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                 <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
