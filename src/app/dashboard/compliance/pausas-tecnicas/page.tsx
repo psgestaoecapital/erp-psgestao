@@ -37,6 +37,9 @@ const semColor: Record<string, { c: string; bg: string; l: string }> = {
   conforme: { c: C.green, bg: C.greenBg, l: 'Conforme' },
   desvio: { c: C.red, bg: C.redBg, l: 'Desvio' },
   aguardando_realizado: { c: C.blue, bg: C.blueBg, l: 'Aguardando realizado' },
+  // pausa aberta / não-fechada (fim não confiável) → aguarda a responsável confirmar na aba
+  // Conferência. NUNCA é desvio nem conforme (RD-38: não sabemos o fim, não supomos).
+  pendente_confirmacao: { c: C.amber, bg: C.amberBg, l: 'Aguardando confirmação' },
   // 'sem_dado' aqui = dia DENTRO do período importado em que o colaborador não registrou evento
   // (colaborador_sem_evento). O vazio de PERÍODO (planilha não importada) é sinalizado à parte,
   // pelo banner de "dias sem planilha importada" (fn_nr36_dias_sem_dado). São coisas diferentes (0e580f96).
@@ -67,18 +70,10 @@ export default function PausasTecnicasPage() {
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
-      {/* SST · veredito SUSPENSO (RD-51 · 0e580f96): a classificação dos eventos de pausa estava
-          errada (evento longo contado como exposição, quando é pausa sem registro de saída). Os
-          números abaixo não valem até a reapuração. Mostra o QUE está errado E o que se perde. */}
-      {(aba === 'painel' || aba === 'gestao' || aba === 'supervisao' || aba === 'auditoria') && (
-        <div role="alert" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: '12px 14px', marginBottom: 16 }}>
-          <span aria-hidden style={{ fontSize: 16, lineHeight: 1.3 }}>⚠️</span>
-          <div style={{ fontSize: 13, color: C.espresso, lineHeight: 1.55 }}>
-            <b>Em revisão — a classificação dos eventos está sendo corrigida. Os números abaixo não devem ser usados até a reapuração.</b>
-            <div style={{ marginTop: 4, color: C.amber }}>Motivo: eventos longos estavam sendo contados como tempo de exposição, e são pausas sem registro de saída. Estamos amarrando com o ponto.</div>
-          </div>
-        </div>
-      )}
+      {/* Banner "Em revisão" (SST ①) REMOVIDO: a reclassificação em 5 classes (②) e a reapuração
+          com amarração pausa×ponto (③+④) já rodaram em produção. Os números do veredito agora
+          contam só o desvio provado (pausa insuficiente); a não-realizada é estimativa sinalizada
+          à parte, mostrada no quadro de reconciliação do Painel. */}
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
       {aba === 'conferencia' && <AbaConferencia companyId={companyId} />}
       {aba === 'gestao' && <AbaGestao companyId={companyId} />}
@@ -126,7 +121,7 @@ function AbaPainel({ companyId }: { companyId: string }) {
   }
 
   const kpi = useMemo(() => {
-    const k = { conforme: 0, desvio: 0, aguardando_realizado: 0, sem_dado: 0 }
+    const k = { conforme: 0, desvio: 0, pendente_confirmacao: 0, aguardando_realizado: 0, sem_dado: 0 }
     for (const r of resumo) if (r.status in k) (k as Record<string, number>)[r.status]++
     return k
   }, [resumo])
@@ -148,9 +143,13 @@ function AbaPainel({ companyId }: { companyId: string }) {
         </div>
       </div>
 
+      {/* SST ⑦ (#67): reconciliação por período — o caminho dos 189 e os 54 sinalizados à parte */}
+      <ReconciliacaoPanel companyId={companyId} ini={ini} fim={fim} chave={carregado ? `${ini}|${fim}|${resumo.length}` : ''} />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
         <Kpi label="Conformes" n={kpi.conforme} cor={C.green} bg={C.greenBg} />
         <Kpi label="Desvios" n={kpi.desvio} cor={C.red} bg={C.redBg} />
+        <Kpi label="Aguardando confirmação" n={kpi.pendente_confirmacao} cor={C.amber} bg={C.amberBg} />
         <Kpi label="Aguardando realizado" n={kpi.aguardando_realizado} cor={C.blue} bg={C.blueBg} />
         <Kpi label="Sem evento no dia" n={kpi.sem_dado} cor={C.gray} bg={C.beigeLt} />
       </div>
@@ -204,6 +203,70 @@ function AbaPainel({ companyId }: { companyId: string }) {
 
 function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg: string }) {
   return <div style={{ background: bg, border: `1px solid ${cor}22`, borderRadius: 12, padding: '12px 14px' }}><div style={{ fontSize: 26, fontWeight: 800, color: cor, lineHeight: 1 }}>{n}</div><div style={{ fontSize: 12, color: C.espresso, marginTop: 4 }}>{label}</div></div>
+}
+
+// ── SST ⑦ (#67): reconciliação do período ──────────────────────────────────────
+// Veredito legal (só pausa insuficiente = desvio) SEPARADO do sinalizado (dias com jornada e
+// ZERO pausa registrada + estimativa de não-realizada). Nunca somados — "estimado ≠ registrado".
+type Reconc = {
+  ok: boolean
+  dias?: { desvio: number; pendente_confirmacao: number; conforme: number; sem_dado: number }
+  leitura?: { insuficiente_legal: number; excesso_gestao_nao_infracao: number; esquecimento_tratado: number }
+  sinalizado?: { dias_jornada_zero_pausa: number; dias_com_estimativa: number; pausas_nao_realizadas_estimadas: number; rotulo: string }
+}
+function ReconItem({ n, cor, label }: { n: number; cor: string; label: string }) {
+  return <div style={{ flex: '1 1 120px' }}><div style={{ fontSize: 22, fontWeight: 800, color: cor, lineHeight: 1 }}>{n}</div><div style={{ fontSize: 11.5, color: C.espresso, marginTop: 3 }}>{label}</div></div>
+}
+function ReconciliacaoPanel({ companyId, ini, fim, chave }: { companyId: string; ini: string; fim: string; chave: string }) {
+  const [r, setR] = useState<Reconc | null>(null)
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      try { const d = await rpc<Reconc>('fn_nr36_reconciliacao', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); if (vivo) setR(d) }
+      catch { if (vivo) setR(null) }
+    })()
+    return () => { vivo = false }
+  }, [companyId, ini, fim, chave])
+  if (!r || !r.ok || !r.dias) return null
+  const d = r.dias, sig = r.sinalizado, lei = r.leitura
+  const total = d.desvio + d.pendente_confirmacao + d.conforme + d.sem_dado
+  return (
+    <div style={{ border: `1px solid ${C.borderLt}`, borderRadius: 14, padding: 16, marginBottom: 12, background: C.offwhite }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: C.espresso, marginBottom: 2 }}>Reconciliação do período</div>
+      <div style={{ fontSize: 11.5, color: C.gray, marginBottom: 12 }}>{total} dia(s) apurado(s). O veredito legal conta só pausa insuficiente (feita e curta demais). Pausa sem hora de saída aguarda confirmação — nunca vira desvio no escuro.</div>
+
+      {/* Veredito legal */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, padding: '12px 14px', background: C.beigeLt, borderRadius: 12, marginBottom: 10 }}>
+        <ReconItem n={d.desvio} cor={C.red} label="Desvios provados (pausa insuficiente)" />
+        <ReconItem n={d.pendente_confirmacao} cor={C.amber} label="Aguardando confirmação (aba Conferência)" />
+        <ReconItem n={d.conforme} cor={C.green} label="Conformes" />
+        {d.sem_dado > 0 && <ReconItem n={d.sem_dado} cor={C.gray} label="Sem jornada no ponto" />}
+      </div>
+
+      {/* Sinalizado — à parte, nunca somado ao veredito */}
+      {sig && (sig.dias_jornada_zero_pausa > 0 || sig.pausas_nao_realizadas_estimadas > 0) && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
+          <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.55 }}>
+            <b>Sinalizado — fora do veredito legal, a verificar.</b>
+            <div style={{ marginTop: 4 }}>⚠️ {sig.rotulo}</div>
+            {sig.pausas_nao_realizadas_estimadas > 0 && (
+              <div style={{ marginTop: 4, color: C.amber }}>
+                Estimativa: {sig.pausas_nao_realizadas_estimadas} pausa(s) devida(s) não realizada(s) em {sig.dias_com_estimativa} dia(s), pela exposição. É <b>estimativa</b> (o gatilho é por trabalho contínuo) — <b>nunca somada ao desvio</b>. Estimado ≠ registrado.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Como os eventos se classificam (as 5 classes → 3 leituras) */}
+      {lei && (
+        <div style={{ fontSize: 12, color: C.gray, lineHeight: 1.6 }}>
+          Eventos de pausa por leitura: <b style={{ color: C.red }}>{lei.insuficiente_legal}</b> insuficiente (legal) · <b style={{ color: C.espresso }}>{lei.excesso_gestao_nao_infracao}</b> excesso (gestão, não é infração) · <b style={{ color: C.amber }}>{lei.esquecimento_tratado}</b> sem hora de saída (esquecimento → confirmação).
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ModalProva({ companyId, cpf, nome, ini, fim, onClose }: { companyId: string; cpf: string; nome: string; ini: string; fim: string; onClose: () => void }) {
