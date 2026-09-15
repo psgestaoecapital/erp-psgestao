@@ -52,6 +52,7 @@ type Orcamento = {
   observacoes:string; observacoes_internas:string; texto_proposta:string;
   hash_publico:string; visualizado_em:string; qtd_visualizacoes:number;
   pedido_id:string; convertido_em:string;
+  eh_obra?:boolean|null; // #82③ · este orçamento é de obra? controla criação automática da obra no Hub
   created_at:string; updated_at:string;
   itens?:ItemOrc[];
 };
@@ -439,6 +440,8 @@ export default function OrcamentosPage(){
       acrescimo_valor:Number(form.acrescimo_valor)||0,
       subtotal:totalItens,total:totalFinal,
       observacoes:form.observacoes,texto_proposta:form.texto_proposta,
+      // #82③ · este orçamento é de obra? controla a criação automática da obra no Hub (trigger condicional)
+      eh_obra:form.eh_obra??null,
     };
 
     let orcId=editing?.id;
@@ -704,6 +707,16 @@ export default function OrcamentosPage(){
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
               <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
           </div>
+
+          {/* #82③ · obra é ESCOLHA: só aparece p/ empresa com Hub de Obras. Marcado = cria obra ao aprovar. */}
+          {temProjetos && (
+            <div style={{background:GO+"10",border:`1px solid ${GO}40`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"flex-start",gap:8}}>
+              <input type="checkbox" id="orc-eh-obra" checked={form.eh_obra ?? true} onChange={e=>setForm({...form,eh_obra:e.target.checked})} style={{marginTop:2}}/>
+              <label htmlFor="orc-eh-obra" style={{fontSize:11.5,color:"#3D2314",cursor:"pointer",lineHeight:1.4}}>
+                <b>Este orçamento é de obra.</b> Ao aprovar/converter, cria a obra no Hub de Projetos. <b>Desmarque</b> se for só serviço (não cria obra) — é o caso de quem fatura só serviço.
+              </label>
+            </div>
+          )}
 
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
