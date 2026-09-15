@@ -73,6 +73,9 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     p.indicador_total_tributacao = '0'
   }
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
+  // Informações complementares do padrão nacional (DPS <infoCompl>/<xInfComp>, máx. 2000) —
+  // é o campo livre da nota, onde vai o "valor aproximado dos tributos" da Lei 12.741/2012.
+  if (req.observacoes && req.observacoes.trim()) p.informacoes_complementares = req.observacoes.trim().slice(0, 2000)
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
   }
@@ -253,6 +256,10 @@ export class FocusNFeProvider implements FiscalProvider {
         valor_iss: req.valorIss,
       },
     }
+    // Informações complementares do ABRASF municipal — onde vai o "valor aproximado dos
+    // tributos" da Lei 12.741/2012. NÃO misturar na discriminação (que é o que o cliente lê
+    // como "o que comprei").
+    if (req.observacoes && req.observacoes.trim()) payload.outras_informacoes = req.observacoes.trim().slice(0, 2000)
 
     const data = await this.request<FocusNFeNFSeResponse>(
       'POST',

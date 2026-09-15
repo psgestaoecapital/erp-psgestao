@@ -32,6 +32,9 @@ export interface FocusNFeNFSePayload {
     valor_servicos: number
     valor_iss?: number
   }
+  // Informações complementares livres do ABRASF municipal (NÃO é a discriminação do serviço).
+  // É onde vai, entre outras coisas, o "valor aproximado dos tributos" da Lei 12.741/2012.
+  outras_informacoes?: string
 }
 
 export interface FocusNFeNFSeResponse {
