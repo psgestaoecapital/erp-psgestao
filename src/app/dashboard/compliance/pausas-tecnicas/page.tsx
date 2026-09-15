@@ -54,7 +54,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export default function PausasTecnicasPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'painel' | 'gestao' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
+  const [aba, setAba] = useState<'painel' | 'conferencia' | 'gestao' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -63,11 +63,12 @@ export default function PausasTecnicasPage() {
     <Wrap>
       <Header />
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel', ClipboardList], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
+        {([['painel', 'Painel', ClipboardList], ['conferencia', 'Conferência', CheckCircle2], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
       {aba === 'painel' && <AbaPainel companyId={companyId} />}
+      {aba === 'conferencia' && <AbaConferencia companyId={companyId} />}
       {aba === 'gestao' && <AbaGestao companyId={companyId} />}
       {aba === 'supervisao' && <AbaSupervisao companyId={companyId} />}
       {aba === 'auditoria' && <AbaAuditoria companyId={companyId} />}
@@ -722,6 +723,134 @@ async function parseArquivo(file: File): Promise<{ linhas: LinhaImport[]; descar
 }
 
 // ─────────────────────────────────── UI helpers ───────────────────────────────────
+// SST ③b · Conferência das pausas sem hora de saída (546). O sistema SUGERE, a responsável
+// confirma. Dois níveis VISUALMENTE distintos: batida do ponto (forte) × estimativa (fraca).
+// Lote com prévia + dupla confirmação acima de N; desfazer por período (caminho de volta).
+type PendenteRow = { pausa_id: string; cpf: string; colaborador: string; data: string; classe_evento: string; inicio_local: string; fim_sugerido_local: string; fim_sugerido_tipo: string; batida_local: string | null }
+function AbaConferencia({ companyId }: { companyId: string }) {
+  const [rows, setRows] = useState<PendenteRow[]>([])
+  const [carregando, setCarregando] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState(''); const [okMsg, setOkMsg] = useState('')
+
+  const carregar = useCallback(async () => {
+    setCarregando(true); setErro(''); setOkMsg('')
+    try {
+      const { data, error } = await supabase.rpc('fn_nr36_pausas_pendentes_listar', { p_company_id: companyId, p_limite: 2000 })
+      if (error) throw error
+      setRows((data as PendenteRow[] | null) ?? [])
+    } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
+  }, [companyId])
+  useEffect(() => { void carregar() }, [carregar])
+
+  const fortes = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'batida_forte'), [rows])
+  const fracas = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
+
+  async function confirmarUm(id: string, acao: string, fimManual?: string) {
+    setBusy(true); setErro(''); setOkMsg('')
+    try {
+      const { data, error } = await supabase.rpc('fn_nr36_confirmar_fim_pausa', { p_pausa_id: id, p_acao: acao, p_fim_manual: fimManual ?? null })
+      if (error) throw error
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro ?? 'falha ao confirmar')
+      await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+  async function confirmarLote(ids: string[], acao: string, rotulo: string) {
+    if (ids.length === 0) return
+    if (!window.confirm(`Confirmar ${ids.length} pausa(s) — ${rotulo}. Isso grava o fim de cada uma; você pode desfazer depois por período. Continuar?`)) return
+    if (ids.length > 50 && !window.confirm(`São ${ids.length} de uma vez. Confirme novamente para prosseguir.`)) return
+    setBusy(true); setErro(''); setOkMsg('')
+    try {
+      const { data, error } = await supabase.rpc('fn_nr36_confirmar_fim_lote', { p_pausa_ids: ids, p_acao: acao })
+      if (error) throw error
+      const r = data as { ok?: boolean; confirmados?: number; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro ?? 'falha no lote')
+      setOkMsg(`${r.confirmados} confirmada(s).`); await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+  async function corrigir(id: string, dataDia: string) {
+    const hhmm = window.prompt('Horário real do fim da pausa (HH:MM):')
+    if (!hhmm) return
+    if (!/^\d{1,2}:\d{2}$/.test(hhmm.trim())) { setErro('Horário inválido — use HH:MM.'); return }
+    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`)
+  }
+  async function desfazerPeriodo() {
+    const ini = window.prompt('Desfazer confirmações a partir de (AAAA-MM-DD):'); if (!ini) return
+    const fim = window.prompt('até (AAAA-MM-DD):', ini); if (!fim) return
+    if (!window.confirm(`Desfazer as confirmações entre ${ini} e ${fim}? Elas voltam a pendentes.`)) return
+    setBusy(true); setErro(''); setOkMsg('')
+    try {
+      const { data, error } = await supabase.rpc('fn_nr36_desfazer_amarracao_periodo', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
+      if (error) throw error
+      const r = data as { ok?: boolean; desfeitas?: number; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro ?? 'falha ao desfazer')
+      setOkMsg(`${r.desfeitas} confirmação(ões) desfeita(s).`); await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+
+  const btn = (bg: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 5, border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', background: bg, color: '#fff', opacity: busy ? 0.6 : 1 })
+  const btnGhost: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${C.borderLt}`, borderRadius: 7, padding: '4px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: '#fff', color: C.espresso }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={secTitle()}>Conferência — pausas sem hora de saída</div>
+        <div style={{ fontSize: 13, color: C.gray }}>O sistema <b>sugere</b> o fim pela batida do ponto; <b>você confirma</b>. Cada horário guarda a origem — o relatório declara o que foi confirmado pelo ponto e o que é estimativa.</div>
+      </div>
+
+      {erro && <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      {okMsg && <div style={{ background: C.greenBg, color: C.green, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}><CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{okMsg}</div>}
+
+      {/* Prévia + lote separado por confiabilidade */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: C.espresso, flex: '1 1 260px' }}>
+          <b>{rows.length}</b> pendente(s) · <b style={{ color: C.green }}>{fortes.length}</b> pela batida do ponto (forte) · <b style={{ color: C.amber }}>{fracas.length}</b> pela estimativa de 20&nbsp;min (fraca). Os dois grupos têm confiabilidade diferente — confirme os fortes e olhe os fracos com calma.
+        </div>
+        <button disabled={busy || fortes.length === 0} style={btn(C.green)} onClick={() => confirmarLote(fortes.map(r => r.pausa_id), 'confirmar_ponto', `${fortes.length} pela batida do ponto`)}><CheckCircle2 size={14} /> Confirmar os {fortes.length} pela batida</button>
+        <button disabled={busy || fracas.length === 0} style={btn(C.amber)} onClick={() => confirmarLote(fracas.map(r => r.pausa_id), 'confirmar_estimativa', `${fracas.length} pela estimativa`)}><AlertTriangle size={14} /> Confirmar os {fracas.length} pela estimativa</button>
+        <button disabled={busy} style={{ ...btnGhost, padding: '7px 12px' }} onClick={desfazerPeriodo}><History size={13} /> Desfazer por período</button>
+        <button disabled={carregando} style={{ ...btnGhost, padding: '7px 12px' }} onClick={carregar}><RefreshCw size={13} /> Atualizar</button>
+      </div>
+
+      {carregando ? <div style={{ color: C.gray, padding: 24 }}>Carregando…</div>
+        : rows.length === 0 ? <Vazio titulo="Nenhuma pausa pendente" texto="Todas as pausas têm hora de saída registrada ou confirmada. Nada a conferir." />
+        : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+              <th style={{ padding: '7px 8px' }}>Colaborador</th><th style={{ padding: '7px 8px' }}>Dia</th><th style={{ padding: '7px 8px' }}>Início</th><th style={{ padding: '7px 8px' }}>Fim provável</th><th style={{ padding: '7px 8px' }}>Ações</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(r => {
+                const forte = r.fim_sugerido_tipo === 'batida_forte'
+                return (
+                  <tr key={r.pausa_id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+                    <td style={{ padding: '8px', fontWeight: 600, color: C.espresso }}>{r.colaborador}</td>
+                    <td style={{ padding: '8px', color: C.gray }}>{r.data.split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '8px' }}>{r.inicio_local}</td>
+                    <td style={{ padding: '8px' }}>
+                      <span style={{ fontWeight: 700, color: C.espresso }}>{r.fim_sugerido_local}</span>{' '}
+                      {forte
+                        ? <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>batida do ponto {r.batida_local}</span>
+                        : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 7px', borderRadius: 20 }}>estimativa · o ponto não ajuda</span>}
+                    </td>
+                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa')}>Confirmar</button>
+                      <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(r.pausa_id, r.data)}>Corrigir</button>
+                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado')}>Não sei</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Wrap({ children }: { children: React.ReactNode }) { return <div style={{ background: C.offwhite, minHeight: '100vh', padding: '24px clamp(14px,4vw,36px)' }}><div style={{ maxWidth: 1100, margin: '0 auto' }}>{children}</div></div> }
 function Header() {
   return (
