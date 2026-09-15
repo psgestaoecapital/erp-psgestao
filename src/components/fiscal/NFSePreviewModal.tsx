@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Loader2, FileCheck, AlertTriangle, X, ExternalLink } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import CepEndereco from '@/components/comum/CepEndereco'
 
 interface Props {
   open: boolean
@@ -52,7 +53,7 @@ export default function NFSePreviewModal(props: Props) {
   // #18 · E0370: subitens de tributação (07.02.01/07.02.02) + endereço da obra p/ serviço de construção
   const [subitens, setSubitens] = useState<Array<{ codigo: string; descricao: string }>>([])
   const [subitem, setSubitem] = useState('')
-  const [obra, setObra] = useState({ logradouro: '', numero: '', bairro: '', cep: '', uf: '', municipio: '', cno: '' })
+  const [obra, setObra] = useState({ logradouro: '', numero: '', bairro: '', cidade: '', cep: '', uf: '', municipio: '', cno: '' })
   // #82① · apontar a obra do Hub (opcional): ao escolher, puxa endereço/CNO já salvos e passa obra_id.
   const [obras, setObras] = useState<Array<{ id: string; numero: string; nome: string | null }>>([])
   const [obraId, setObraId] = useState('')
@@ -134,11 +135,11 @@ export default function NFSePreviewModal(props: Props) {
     setObraId(id)
     if (!id) return
     const { data } = await supabase.rpc('fn_nfse_obra_resolver', { p_company_id: props.companyId, p_erp_receber_id: null, p_obra_id: id })
-    const o = data as { encontrada?: boolean; cno?: string | null; logradouro?: string | null; numero_endereco?: string | null; bairro?: string | null; cep?: string | null; uf?: string | null; codigo_ibge?: string | null } | null
+    const o = data as { encontrada?: boolean; cno?: string | null; logradouro?: string | null; numero_endereco?: string | null; bairro?: string | null; cidade?: string | null; cep?: string | null; uf?: string | null; codigo_ibge?: string | null } | null
     if (o?.encontrada) {
       setObra({
         logradouro: o.logradouro ?? '', numero: o.numero_endereco ?? '', bairro: o.bairro ?? '',
-        cep: o.cep ?? '', uf: o.uf ?? '', municipio: o.codigo_ibge ?? '', cno: o.cno ?? '',
+        cidade: o.cidade ?? '', cep: o.cep ?? '', uf: o.uf ?? '', municipio: o.codigo_ibge ?? '', cno: o.cno ?? '',
       })
     }
   }
@@ -329,15 +330,21 @@ export default function NFSePreviewModal(props: Props) {
                       ))}
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input value={obra.logradouro} onChange={(e) => setObra({ ...obra, logradouro: e.target.value })} placeholder="Logradouro da obra" className="col-span-2 px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                    <input value={obra.numero} onChange={(e) => setObra({ ...obra, numero: e.target.value })} placeholder="Número" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                    <input value={obra.bairro} onChange={(e) => setObra({ ...obra, bairro: e.target.value })} placeholder="Bairro" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                    <input value={obra.cep} onChange={(e) => setObra({ ...obra, cep: e.target.value })} placeholder="CEP" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                    <input value={obra.uf} onChange={(e) => setObra({ ...obra, uf: e.target.value.toUpperCase().slice(0, 2) })} placeholder="UF" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                    <input value={obra.municipio} onChange={(e) => setObra({ ...obra, municipio: e.target.value })} placeholder="Cód. município (IBGE)" className="px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                    <input value={obra.cno} onChange={(e) => setObra({ ...obra, cno: e.target.value })} placeholder="CNO (opcional, se tiver)" className="col-span-2 px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-                  </div>
+                  {/* #82② · endereço da obra pelo componente único (IBGE nasce do CEP, nunca digitado) */}
+                  <CepEndereco
+                    ibgeObrigatorio
+                    value={{ cep: obra.cep, logradouro: obra.logradouro, numero: obra.numero, bairro: obra.bairro, cidade: obra.cidade, uf: obra.uf, codigo_ibge_municipio: obra.municipio }}
+                    onChange={(p) => setObra((prev) => ({ ...prev,
+                      ...(p.cep !== undefined ? { cep: p.cep } : {}),
+                      ...(p.logradouro !== undefined ? { logradouro: p.logradouro } : {}),
+                      ...(p.numero !== undefined ? { numero: p.numero } : {}),
+                      ...(p.bairro !== undefined ? { bairro: p.bairro } : {}),
+                      ...(p.cidade !== undefined ? { cidade: p.cidade } : {}),
+                      ...(p.uf !== undefined ? { uf: p.uf } : {}),
+                      ...(p.codigo_ibge_municipio !== undefined ? { municipio: p.codigo_ibge_municipio } : {}),
+                    }))}
+                  />
+                  <input value={obra.cno} onChange={(e) => setObra({ ...obra, cno: e.target.value })} placeholder="CNO (opcional, se tiver)" className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
                   {!obraOk && <div className="text-[11px] text-[#791F1F]">Informe o endereço da obra ou o CNO para emitir.</div>}
                 </div>
               )}
