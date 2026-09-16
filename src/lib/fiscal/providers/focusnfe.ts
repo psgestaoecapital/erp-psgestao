@@ -112,6 +112,11 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     if (o.complemento) cc.complemento_obra = o.complemento
     if (o.bairro) cc.bairro_obra = o.bairro
     p.construcao_civil = cc
+    // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA, não na sede do prestador.
+    // Ex. real (nota 18 da R.R): obra em Porto Belo, sede em São Miguel do Oeste → ISS retido em Porto Belo.
+    // Sem sobrescrever a prestação com o município da obra, o imposto iria para o município errado
+    // (mesmo erro do IBGE de Toledo, por outro caminho).
+    if (o.codigoMunicipio) p.codigo_municipio_prestacao = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
   }
   return p
 }
