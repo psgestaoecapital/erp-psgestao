@@ -128,6 +128,7 @@ export default function NFSeListClient() {
   const [obraBusca, setObraBusca] = useState('')
   const [obras, setObras] = useState<ObraLite[]>([])
   const [vinculando, setVinculando] = useState(false)
+  const [confirmDesvincular, setConfirmDesvincular] = useState(false) // desvincular perde rastreio → confirma
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -176,6 +177,7 @@ export default function NFSeListClient() {
     ;(async () => {
       setObraPickerOpen(false)
       setObraBusca('')
+      setConfirmDesvincular(false)
       setObraLink('loading')
       const { data: nfse } = await supabase
         .from('erp_nfse_emitidas').select('obra_id').eq('id', expandida).maybeSingle()
@@ -218,6 +220,7 @@ export default function NFSeListClient() {
       }
       setObraPickerOpen(false)
       setObraBusca('')
+      setConfirmDesvincular(false)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao vincular obra')
     } finally {
@@ -688,19 +691,40 @@ export default function NFSeListClient() {
                                       )}
                                       <button
                                         type="button"
-                                        onClick={() => setObraPickerOpen((v) => !v)}
+                                        onClick={() => { setConfirmDesvincular(false); setObraPickerOpen((v) => !v) }}
                                         className="text-[11.5px] text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2"
                                       >
                                         Trocar
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => vincularObra(row.id, null)}
-                                        disabled={vinculando}
-                                        className="text-[11.5px] text-[#3D2314]/55 hover:text-[#791F1F] underline underline-offset-2 disabled:opacity-50"
-                                      >
-                                        Desvincular
-                                      </button>
+                                      {confirmDesvincular ? (
+                                        <span className="inline-flex items-center gap-2 text-[11.5px] text-[#791F1F]">
+                                          Remover o vínculo? Perde o rastreio de custo desta nota.
+                                          <button
+                                            type="button"
+                                            onClick={() => vincularObra(row.id, null)}
+                                            disabled={vinculando}
+                                            data-testid="nfse-desvincular-confirmar"
+                                            className="font-semibold underline underline-offset-2 hover:text-[#5A1616] disabled:opacity-50"
+                                          >
+                                            Confirmar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmDesvincular(false)}
+                                            className="text-[#3D2314]/55 hover:text-[#3D2314] underline underline-offset-2"
+                                          >
+                                            Cancelar
+                                          </button>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDesvincular(true)}
+                                          className="text-[11.5px] text-[#3D2314]/55 hover:text-[#791F1F] underline underline-offset-2"
+                                        >
+                                          Desvincular
+                                        </button>
+                                      )}
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-2 text-[12px]">
@@ -751,6 +775,19 @@ export default function NFSeListClient() {
                                       </div>
                                     </div>
                                   )}
+                                </div>
+                              )}
+
+                              {/* #82.3 — nota rejeitada não vincula obra aqui; explica o porquê e aponta o caminho */}
+                              {row.status === 'rejeitada' && (
+                                <div className="mt-3 pt-3 border-t border-[#3D2314]/8">
+                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-1 flex items-center gap-1.5">
+                                    <Building2 size={12} /> Obra vinculada
+                                  </div>
+                                  <div className="flex items-start gap-1.5 text-[11.5px] text-[#791F1F]">
+                                    <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+                                    <span>Esta nota foi rejeitada — não há documento fiscal para vincular. Use “Corrigir e reenviar” acima: a obra é informada na reemissão.</span>
+                                  </div>
                                 </div>
                               )}
                             </td>
