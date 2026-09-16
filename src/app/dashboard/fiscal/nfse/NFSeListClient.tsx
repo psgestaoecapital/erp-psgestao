@@ -9,6 +9,7 @@ import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
   Download, FileCode, FileText, ChevronLeft, ChevronRight as ChevR, Plus, RefreshCw,
+  Building2, AlertTriangle,
 } from 'lucide-react'
 
 interface NFSeRow {
@@ -33,6 +34,34 @@ interface NFSeRow {
   criado_em: string | null
   total_geral: number
 }
+
+// #82.3 — obra do Hub para o vínculo gerencial de uma NFS-e já emitida
+interface ObraLite {
+  id: string
+  numero: string
+  nome: string | null
+  cliente_nome: string | null
+  endereco: string | null
+  numero_endereco: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
+  cep: string | null
+  cno: string | null
+  codigo_ibge_municipio: string | null
+}
+// Obra incompleta = mesma regra do backend (obra_pendente): sem CNO E (sem endereço OU sem IBGE).
+function obraIncompleta(o: ObraLite): boolean {
+  const cno = (o.cno || '').trim()
+  const log = (o.endereco || '').trim()
+  const ibge = (o.codigo_ibge_municipio || '').trim()
+  return cno === '' && (log === '' || ibge === '')
+}
+function obraResumo(o: ObraLite): string {
+  const partes = [o.endereco, o.numero_endereco, o.cidade && o.uf ? `${o.cidade}/${o.uf}` : o.cidade].filter(Boolean)
+  return partes.length ? partes.join(', ') : 'sem endereço cadastrado'
+}
+const OBRA_SELECT = 'id,numero,nome,cliente_nome,endereco,numero_endereco,bairro,cidade,uf,cep,cno,codigo_ibge_municipio'
 
 const PAGE_SIZE = 50
 
@@ -93,6 +122,12 @@ export default function NFSeListClient() {
     descricaoServico?: string; valorServicos?: number; codigoServicoMunicipio?: string; aliquotaIss?: number
   }>(null)
   const [preparandoReenvio, setPreparandoReenvio] = useState<string | null>(null)
+  // #82.3 — vínculo gerencial de obra à NFS-e já emitida (grava só erp_nfse_emitidas.obra_id; sem reemitir).
+  const [obraLink, setObraLink] = useState<ObraLite | null | 'loading'>(null)
+  const [obraPickerOpen, setObraPickerOpen] = useState(false)
+  const [obraBusca, setObraBusca] = useState('')
+  const [obras, setObras] = useState<ObraLite[]>([])
+  const [vinculando, setVinculando] = useState(false)
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -133,6 +168,62 @@ export default function NFSeListClient() {
   }, [companyId, statusFiltro, dataInicio, dataFim, buscaSubmit, pagina])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // #82.3 — ao expandir uma nota, carrega a obra vinculada (se houver) pra exibir.
+  useEffect(() => {
+    if (!expandida || !companyId) return
+    let alive = true
+    ;(async () => {
+      setObraPickerOpen(false)
+      setObraBusca('')
+      setObraLink('loading')
+      const { data: nfse } = await supabase
+        .from('erp_nfse_emitidas').select('obra_id').eq('id', expandida).maybeSingle()
+      const obraId = (nfse as { obra_id?: string | null } | null)?.obra_id ?? null
+      if (!obraId) { if (alive) setObraLink(null); return }
+      const { data: obra } = await supabase
+        .from('projetos_obras').select(OBRA_SELECT).eq('id', obraId).maybeSingle()
+      if (alive) setObraLink((obra as ObraLite) ?? null)
+    })()
+    return () => { alive = false }
+  }, [expandida, companyId])
+
+  // #82.3 — lista de obras do Hub pro seletor (só quando o picker está aberto).
+  useEffect(() => {
+    if (!obraPickerOpen || !companyId) return
+    const h = setTimeout(async () => {
+      let q = supabase.from('projetos_obras').select(OBRA_SELECT)
+        .eq('company_id', companyId).order('numero', { ascending: false }).limit(25)
+      if (obraBusca.trim().length >= 2) {
+        const t = obraBusca.trim()
+        q = q.or(`numero.ilike.%${t}%,nome.ilike.%${t}%,cidade.ilike.%${t}%,endereco.ilike.%${t}%`)
+      }
+      const { data } = await q
+      setObras((data ?? []) as ObraLite[])
+    }, 250)
+    return () => clearTimeout(h)
+  }, [obraPickerOpen, obraBusca, companyId])
+
+  // #82.3 — grava/limpa o vínculo. RLS (tenant_isolation) garante mesmo tenant; mexe SÓ no obra_id.
+  async function vincularObra(nfseId: string, obraId: string | null) {
+    setVinculando(true)
+    try {
+      const { error } = await supabase.from('erp_nfse_emitidas').update({ obra_id: obraId }).eq('id', nfseId)
+      if (error) throw error
+      if (!obraId) {
+        setObraLink(null)
+      } else {
+        const { data: obra } = await supabase.from('projetos_obras').select(OBRA_SELECT).eq('id', obraId).maybeSingle()
+        setObraLink((obra as ObraLite) ?? null)
+      }
+      setObraPickerOpen(false)
+      setObraBusca('')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao vincular obra')
+    } finally {
+      setVinculando(false)
+    }
+  }
 
   async function baixar(row: NFSeRow, tipo: 'xml' | 'pdf') {
     setBaixando(`${row.id}-${tipo}`)
@@ -574,6 +665,94 @@ export default function NFSeListClient() {
                                 </button>
                                 )}
                               </div>
+
+                              {/* #82.3 — vínculo gerencial de obra (sem reemitir; grava só obra_id) */}
+                              {row.status !== 'rejeitada' && (
+                                <div className="mt-3 pt-3 border-t border-[#3D2314]/8" onClick={(e) => e.stopPropagation()}>
+                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-1.5 flex items-center gap-1.5">
+                                    <Building2 size={12} /> Obra vinculada
+                                    <span className="normal-case tracking-normal text-[#3D2314]/45">— gerencial, não altera a nota</span>
+                                  </div>
+                                  {obraLink === 'loading' ? (
+                                    <div className="text-[12px] text-[#3D2314]/55 flex items-center gap-1.5">
+                                      <Loader2 size={12} className="animate-spin" /> Carregando…
+                                    </div>
+                                  ) : obraLink ? (
+                                    <div className="flex items-center gap-2 flex-wrap text-[12px]">
+                                      <span className="font-medium text-[#3D2314]">{obraLink.numero}</span>
+                                      <span className="text-[#3D2314]/60">{obraResumo(obraLink)}</span>
+                                      {obraIncompleta(obraLink) && (
+                                        <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[#B45309] bg-[#FEF3E2] border border-[#B45309]/30 rounded-full px-2 py-0.5">
+                                          <AlertTriangle size={10} /> incompleta
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => setObraPickerOpen((v) => !v)}
+                                        className="text-[11.5px] text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2"
+                                      >
+                                        Trocar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => vincularObra(row.id, null)}
+                                        disabled={vinculando}
+                                        className="text-[11.5px] text-[#3D2314]/55 hover:text-[#791F1F] underline underline-offset-2 disabled:opacity-50"
+                                      >
+                                        Desvincular
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2 text-[12px]">
+                                      <span className="text-[#3D2314]/60">Nenhuma obra vinculada.</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setObraPickerOpen((v) => !v)}
+                                        data-testid="nfse-vincular-obra"
+                                        className="text-[11.5px] font-medium text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2"
+                                      >
+                                        Vincular obra
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {obraPickerOpen && (
+                                    <div className="mt-2 border border-[#3D2314]/12 rounded-lg bg-white p-2">
+                                      <div className="relative mb-2">
+                                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
+                                        <input
+                                          type="text"
+                                          value={obraBusca}
+                                          onChange={(e) => setObraBusca(e.target.value)}
+                                          placeholder="Buscar obra por número, nome, cidade ou endereço"
+                                          className="w-full pl-8 pr-3 py-1.5 text-[12px] border border-[#3D2314]/15 rounded-md focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40"
+                                        />
+                                      </div>
+                                      <div className="max-h-52 overflow-y-auto divide-y divide-[#3D2314]/6">
+                                        {obras.length === 0 ? (
+                                          <div className="py-2 text-[11.5px] text-[#3D2314]/55">Nenhuma obra encontrada.</div>
+                                        ) : obras.map((o) => (
+                                          <button
+                                            key={o.id}
+                                            type="button"
+                                            onClick={() => vincularObra(row.id, o.id)}
+                                            disabled={vinculando}
+                                            className="w-full text-left py-2 px-1.5 hover:bg-[#FAEEDA]/40 disabled:opacity-50 flex flex-col gap-0.5"
+                                          >
+                                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-[#3D2314]">
+                                              {o.numero}
+                                              {obraIncompleta(o) && (
+                                                <span className="text-[9.5px] font-semibold text-[#B45309] bg-[#FEF3E2] border border-[#B45309]/30 rounded-full px-1.5">incompleta</span>
+                                              )}
+                                            </span>
+                                            <span className="text-[11px] text-[#3D2314]/60">{obraResumo(o)}{o.cliente_nome ? ` · ${o.cliente_nome}` : ''}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )}
