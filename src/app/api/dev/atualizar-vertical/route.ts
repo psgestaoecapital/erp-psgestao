@@ -13,7 +13,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ADMIN_ROLES = ['adm', 'admin', 'acesso_total', 'adm_investimentos'];
+// SEGURANÇA: a Central é da PS. Gate por system_role (não por role, que qualquer 'adm' de cliente tem),
+// e nunca o robô. Hoje: Gilberto, André, Jordana, Rodrigo.
+const PS_ADMIN_SYSTEM_ROLES = ['PS_ADMIN', 'PS_ADMIN_CVM'];
 
 // system_screens.area usa 'hub_construcao'/'revenda'; a Central usa 'hub'/'revenda_veiculos'
 function areasDoVertical(vertical: string): string[] {
@@ -36,9 +38,9 @@ export async function POST(req: NextRequest) {
   const { data: userData } = await admin.auth.getUser(token);
   const user = userData?.user;
   if (!user) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
-  const { data: u } = await admin.from('users').select('role').eq('id', user.id).single();
-  if (!u || !ADMIN_ROLES.includes(u.role)) {
-    return NextResponse.json({ error: 'Apenas o CEO pode atualizar a vertical por enquanto.' }, { status: 403 });
+  const { data: u } = await admin.from('users').select('system_role, is_robo').eq('id', user.id).single();
+  if (!u || !PS_ADMIN_SYSTEM_ROLES.includes(u.system_role) || u.is_robo === true) {
+    return NextResponse.json({ error: 'Apenas a equipe PS (PS_ADMIN) pode atualizar a vertical.' }, { status: 403 });
   }
 
   // 2) orçamento + teto

@@ -23,8 +23,9 @@ export default function DevPage() {
     (async()=>{
       const{data:{user}}=await supabase.auth.getUser();
       if(!user)return;
-      const{data}=await supabase.from("users").select("role").eq("id",user.id).single();
-      if(data?.role==="adm"||data?.role==="adm_investimentos"||data?.role==="acesso_total")setIsAdmin(true);
+      // SEGURANÇA: Central é da PS — system_role (não role, que qualquer 'adm' de cliente tem), nunca o robô.
+      const{data}=await supabase.from("users").select("system_role,is_robo").eq("id",user.id).single();
+      if((data?.system_role==="PS_ADMIN"||data?.system_role==="PS_ADMIN_CVM")&&data?.is_robo!==true)setIsAdmin(true);
     })();
   },[]);
 
