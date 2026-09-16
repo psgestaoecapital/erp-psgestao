@@ -61,11 +61,11 @@ export default function DevPage() {
   ];
 
   return (
-    <div style={{ fontFamily:"'Courier New',monospace", background:C.bg, color:C.f, minHeight:'100vh' }}>
+    <div style={{ fontFamily:"system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", background:C.bg, color:C.f, minHeight:'100vh' }}>
       <div style={{ background:C.card, padding:'12px 20px', borderBottom:'2px solid '+C.s, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div>
-          <span style={{ color:C.s, fontWeight:700, fontSize:16 }}>{'</>'} DEV MODULE</span>
-          <span style={{ color:'#666', fontSize:11, marginLeft:12 }}>PS Gestao ERP — v8.7.5</span>
+          <span style={{ color:C.s, fontWeight:700, fontSize:16 }}>Central de Desenvolvimento</span>
+          <span style={{ color:'#8A7A6A', fontSize:11, marginLeft:12 }}>PS Gestão ERP</span>
         </div>
         <a href="/dashboard" style={{ color:C.s, fontSize:12, textDecoration:'none' }}>← Dashboard</a>
       </div>
@@ -197,22 +197,47 @@ function LeituraDiagnostico(){
 type Orc={vertical:string;telas:number;custo_estimado:number;tempo_min:number;gasto_dia:number;gasto_mes:number;cap_dia:number;cap_mes:number;pode:boolean;motivo:string|null};
 function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   const [vertical,setVertical]=useState('oficina');
-  const [doc,setDoc]=useState<{titulo:string;versao:number;status:string;conteudo_md:string;criado_em:string}|null>(null);
+  const [doc,setDoc]=useState<{titulo:string;versao:number;status:string;conteudo_md:string;criado_em:string;aprovado_por:string|null;aprovado_em:string|null}|null>(null);
+  const [aprovadorNome,setAprovadorNome]=useState<string|null>(null);
   const [carregando,setCarregando]=useState(false);
   const [semDoc,setSemDoc]=useState(false);
   const [orc,setOrc]=useState<Orc|null>(null);
   const [disparando,setDisparando]=useState(false);
   const [disparo,setDisparo]=useState<{ok:boolean;msg:string}|null>(null);
-  useEffect(()=>{(async()=>{
-    setCarregando(true);setSemDoc(false);setDoc(null);setDisparo(null);setOrc(null);
+  const [aprovando,setAprovando]=useState(false);
+  async function carregarDoc(){
+    setCarregando(true);setSemDoc(false);setDoc(null);setAprovadorNome(null);
     const{data}=await supabase.from('erp_documento_vertical')
-      .select('titulo,versao,status,conteudo_md,criado_em')
+      .select('titulo,versao,status,conteudo_md,criado_em,aprovado_por,aprovado_em')
       .eq('vertical',vertical).eq('vigente',true).maybeSingle();
-    if(data)setDoc(data as any); else setSemDoc(true);
+    if(data){ setDoc(data as any);
+      if((data as any).aprovado_por){ const{data:ap}=await supabase.from('users').select('full_name,email').eq('id',(data as any).aprovado_por).maybeSingle(); if(ap)setAprovadorNome((ap as any).full_name||(ap as any).email); }
+    } else setSemDoc(true);
     setCarregando(false);
+  }
+  useEffect(()=>{(async()=>{
+    setDisparo(null);setOrc(null);
+    await carregarDoc();
     const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical});
     if(o)setOrc(o as Orc);
   })();},[vertical]);
+
+  async function aprovarDoc(){
+    if(aprovando)return;
+    if(!confirm('Aprovar este documento?\n\nAo aprovar, ele passa a ser a REFERÊNCIA da vertical — a Claude e o auditor vão comparar o sistema contra ele.'))return;
+    setAprovando(true);
+    try{ const{data:d}=await supabase.rpc('fn_dev_documento_aprovar',{p_vertical:vertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao aprovar.'); }
+    catch(e:any){ alert(e.message||'Erro ao aprovar.'); }
+    setAprovando(false);
+  }
+  async function revogarDoc(){
+    if(aprovando)return;
+    if(!confirm('Revogar a aprovação? O documento volta a rascunho e deixa de ser a referência oficial até ser aprovado de novo.'))return;
+    setAprovando(true);
+    try{ const{data:d}=await supabase.rpc('fn_dev_documento_desaprovar',{p_vertical:vertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao revogar.'); }
+    catch(e:any){ alert(e.message||'Erro ao revogar.'); }
+    setAprovando(false);
+  }
 
   async function atualizarVertical(){
     if(!orc?.pode||disparando)return;
@@ -249,17 +274,33 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
       )}
       {!carregando && doc && (
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:'hidden'}}>
+          {/* Faixa de rascunho: diz o que é e oferece aprovar (só PS_ADMIN) */}
+          {doc.status!=='aprovado' && (
+            <div style={{background:Y+'14',borderBottom:`1px solid ${Y}33`,padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <span style={{fontSize:11.5,color:Y}}>📝 Este documento está em <b>rascunho</b> — ainda não é a versão oficial da vertical.</span>
+              {isAdmin && (
+                <button onClick={aprovarDoc} disabled={aprovando}
+                  style={{padding:'7px 14px',borderRadius:8,border:'none',fontSize:12,fontWeight:600,cursor:aprovando?'not-allowed':'pointer',background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,whiteSpace:'nowrap'}}>
+                  {aprovando?'Aprovando…':'Aprovar este documento'}
+                </button>
+              )}
+            </div>
+          )}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:`1px solid ${BD}`,flexWrap:'wrap',gap:8}}>
             <div>
               <div style={{fontSize:13,fontWeight:700,color:TX}}>{doc.titulo}</div>
               <div style={{fontSize:10,color:TXD}}>versão {doc.versao} · {doc.conteudo_md.length.toLocaleString('pt-BR')} caracteres</div>
             </div>
-            <span style={{fontSize:10,fontWeight:700,padding:'3px 10px',borderRadius:6,
-              background:(doc.status==='aprovado'?G:Y)+'20',color:doc.status==='aprovado'?G:Y,border:`1px solid ${(doc.status==='aprovado'?G:Y)}40`}}>
-              {doc.status==='aprovado'?'✅ aprovado':'📝 rascunho'}
-            </span>
+            {doc.status==='aprovado' ? (
+              <div style={{textAlign:'right'}}>
+                <div style={{fontSize:10.5,color:G}}>✅ Aprovado{aprovadorNome?` por ${aprovadorNome}`:''}{doc.aprovado_em?` em ${fmtDia(doc.aprovado_em.slice(0,10))}`:''}</div>
+                {isAdmin && <button onClick={revogarDoc} disabled={aprovando} style={{marginTop:3,border:'none',background:'none',color:TXD,textDecoration:'underline',fontSize:10,cursor:'pointer'}}>revogar aprovação</button>}
+              </div>
+            ) : (
+              <span style={{fontSize:10,fontWeight:700,padding:'3px 10px',borderRadius:6,background:Y+'20',color:Y,border:`1px solid ${Y}40`}}>📝 rascunho</span>
+            )}
           </div>
-          <pre style={{margin:0,padding:16,fontSize:12,lineHeight:1.6,color:TX,whiteSpace:'pre-wrap',wordBreak:'break-word',fontFamily:"'Courier New',monospace",maxHeight:640,overflow:'auto'}}>{doc.conteudo_md}</pre>
+          <pre style={{margin:0,padding:16,fontSize:12.5,lineHeight:1.65,color:TX,whiteSpace:'pre-wrap',wordBreak:'break-word',fontFamily:'inherit',maxHeight:640,overflow:'auto'}}>{doc.conteudo_md}</pre>
         </div>
       )}
       {/* ④ botão atualizar a vertical — só o CEO; custo antes do clique; teto diário/mensal; dois tempos */}
