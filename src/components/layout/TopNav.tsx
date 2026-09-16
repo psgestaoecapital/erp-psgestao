@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell, LogOut, Lightbulb, HelpCircle } from 'lucide-react'
+import { Bell, LogOut, Lightbulb, HelpCircle, Gauge } from 'lucide-react'
 import MobileDrawer from './MobileDrawer'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -47,6 +47,9 @@ export default function TopNav() {
   const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida)
   const [sinoAberto, setSinoAberto] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
+  // ⑤ medidor da Central de Desenvolvimento — só admin (CEO). Chamada LEVE (fn_dev_medidor_badge):
+  // número = travado no CEO (rascunhos aguardando aprovação); cor = saúde (tela quebrada→vermelho).
+  const [devBadge, setDevBadge] = useState<{ numero: number; cor: string } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const sinoRef = useRef<HTMLDivElement>(null)
 
@@ -105,6 +108,16 @@ export default function TopNav() {
         .limit(12)
       if (!ignore) setAlertas((al as Alerta[]) ?? [])
 
+      // ⑤ medidor: só para admin (CEO). Busca só o contador (leve); a tela carrega no clique.
+      if (authUser?.id) {
+        const { data: urow } = await supabase.from('users').select('role').eq('id', authUser.id).single()
+        const ehAdmin = ['adm', 'admin', 'acesso_total', 'adm_investimentos'].includes((urow?.role as string) || '')
+        if (ehAdmin && !ignore) {
+          const { data: badge } = await supabase.rpc('fn_dev_medidor_badge')
+          if (badge && !ignore) setDevBadge(badge as { numero: number; cor: string })
+        }
+      }
+
       // Notificações de chamado do próprio usuário (RLS: destinatario_id = auth.uid()).
       if (authUser?.id) {
         const { data: nc } = await supabase
@@ -149,6 +162,28 @@ export default function TopNav() {
               </span>
             )}
           </div>
+        )}
+        {/* ⑤ Medidor · Central de Desenvolvimento (só admin/CEO). Número = travado no CEO;
+            cor do ponto = saúde do sistema. O clique abre a tela (que aí sim carrega pesado). */}
+        {devBadge && (
+          <Link
+            href="/dashboard/dev"
+            aria-label="Central de Desenvolvimento"
+            title={`Central de Desenvolvimento · ${devBadge.numero} aguardando você · saúde: ${devBadge.cor}`}
+            data-testid="header-central-dev"
+            className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          >
+            <Gauge size={18} />
+            <span
+              className="absolute top-[6px] right-[6px] w-[8px] h-[8px] rounded-full ring-[1.5px] ring-[#FAF7F2]"
+              style={{ background: devBadge.cor === 'vermelho' ? '#E24B4A' : devBadge.cor === 'amarelo' ? '#C8941A' : '#166534' }}
+            />
+            {devBadge.numero > 0 && (
+              <span className="absolute -top-[3px] -right-[3px] min-w-[15px] h-[15px] px-[3px] rounded-full bg-[#3D2314] text-[#FAF7F2] text-[9px] font-semibold flex items-center justify-center ring-[1.5px] ring-[#FAF7F2]">
+                {devBadge.numero > 9 ? '9+' : devBadge.numero}
+              </span>
+            )}
+          </Link>
         )}
         {/* Melhorias · registrar dificuldade/sugestão pela própria tela (mobile-first). Estava só via
             WhatsApp; agora é um toque no cabeçalho — leva à Central de Melhorias. */}

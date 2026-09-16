@@ -8,7 +8,12 @@ const STAGING_URL="https://erp-psgestao-git-staging-psgestaoecapitals-projects.v
 const PROD_URL="https://erp-psgestao.vercel.app";
 
 export default function DevPage() {
-  const [view, setView] = useState<'leitura'|'desenvolvimento'|'ferramentas'>('leitura');
+  // Duas telas irmãs (Leitura · Desenvolvimento) para os quatro usuários. As "Ferramentas do dev"
+  // (SQL/deploy/segurança) são utilitário técnico — ficam FORA do seletor, atrás de porta ?dev=ferramentas.
+  const [view, setView] = useState<'leitura'|'desenvolvimento'|'ferramentas'>(()=>{
+    if (typeof window!=='undefined' && new URLSearchParams(window.location.search).get('dev')==='ferramentas') return 'ferramentas';
+    return 'leitura';
+  });
   const [tab, setTab] = useState('ambientes');
   const [isAdmin,setIsAdmin]=useState(false);
   const [secResults,setSecResults]=useState<any[]>([]);
@@ -69,7 +74,8 @@ export default function DevPage() {
         {([
           {id:'leitura',label:'📊 Leitura e diagnóstico'},
           {id:'desenvolvimento',label:'📄 Desenvolvimento'},
-          {id:'ferramentas',label:'🛠 Ferramentas do dev'},
+          // 'Ferramentas do dev' fica fora do seletor (porta ?dev=ferramentas) — utilitário técnico.
+          ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:'🛠 Ferramentas do dev'}] : []),
         ] as const).map(v=>(
           <button key={v.id} onClick={()=>setView(v.id)}
             style={{ background:view===v.id?`linear-gradient(135deg,${GO},${GOL})`:'transparent', color:view===v.id?BG:C.f, border:`1px solid ${view===v.id?'transparent':BD}`, padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
