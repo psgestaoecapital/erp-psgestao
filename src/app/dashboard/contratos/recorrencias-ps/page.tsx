@@ -74,9 +74,9 @@ export default function RecorrenciasPsPage() {
       <div style={{ maxWidth: 1080, margin: '0 auto' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>🔁 Contratos &amp; Vendas</div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Recorrências PS</h1>
-            <p style={{ fontSize: 12.5, color: MUT, margin: '4px 0 0' }}>Receita recorrente de serviço · cria o contrato e o sistema gera as competências sozinho.</p>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>🔁 Contratos &amp; Recorrências</div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Recorrências (receita e despesa)</h1>
+            <p style={{ fontSize: 12.5, color: MUT, margin: '4px 0 0' }}>Receita <b>ou</b> despesa recorrente — aluguel, salário, diarista, mensalidade, BPO. Cria o contrato e o sistema gera as parcelas sozinho (a receber ou a pagar). Sem duplicar à mão.</p>
           </div>
           <button type="button" onClick={() => setWizardOpen(true)} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova recorrência</button>
         </header>
@@ -106,7 +106,7 @@ export default function RecorrenciasPsPage() {
           <div style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
             <div style={{ fontSize: 34, marginBottom: 8 }}>🔁</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Nenhuma recorrência {filtro !== 'tudo' ? `de ${filtro}` : ''} ainda</div>
-            <div style={{ fontSize: 12.5, color: MUT }}>Clique em <strong>+ Nova recorrência</strong> para criar um contrato — BPO, honorários, mensalidade — e ver o cronograma antes de confirmar.</div>
+            <div style={{ fontSize: 12.5, color: MUT }}>Clique em <strong>+ Nova recorrência</strong> para criar um contrato de <b>receita</b> (BPO, honorários, mensalidade) ou de <b>despesa</b> (aluguel, salário, diarista) — e ver o cronograma antes de confirmar.</div>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 12 }}>
@@ -292,7 +292,7 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
 
           {passo === 3 && (
             <div style={{ display: 'grid', gap: 12 }}>
-              <div><span style={lbl}>Descrição do serviço</span><input style={inp} value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="ex.: Honorários contábeis · BPO financeiro" /></div>
+              <div><span style={lbl}>{natureza === 'despesa' ? 'Descrição da despesa' : 'Descrição do serviço'}</span><input style={inp} value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder={natureza === 'despesa' ? 'ex.: Aluguel do galpão · Salário diarista' : 'ex.: Honorários contábeis · BPO financeiro'} /></div>
               <div><span style={lbl}>Valor mensal (R$)</span><input style={inp} inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} placeholder="0,00" /></div>
               <div style={{ background: '#FBF3DE', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '10px 12px', fontSize: 13 }}>Total mensal: <b>{brl(valorNum)}</b> <span style={{ color: MUT, fontSize: 11 }}>(grade de itens múltiplos com margem vem na F2)</span></div>
             </div>
@@ -301,7 +301,7 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
           {passo === 4 && (
             <div style={{ display: 'grid', gap: 12 }}>
               <div>
-                <span style={lbl}>Como vai receber</span>
+                <span style={lbl}>{natureza === 'despesa' ? 'Como vai pagar' : 'Como vai receber'}</span>
                 <div style={{ display: 'inline-flex', border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
                   {[['boleto', 'Boleto'], ['pix', 'Pix'], ['cartao', 'Cartão']].map(([v, l]) => <button key={v} type="button" onClick={() => setForma(v)} style={{ padding: '7px 14px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer', background: forma === v ? ESP : '#fff', color: forma === v ? BG : ESP }}>{l}</button>)}
                 </div>
