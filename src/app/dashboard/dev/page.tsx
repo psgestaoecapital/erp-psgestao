@@ -8,6 +8,7 @@ const STAGING_URL="https://erp-psgestao-git-staging-psgestaoecapitals-projects.v
 const PROD_URL="https://erp-psgestao.vercel.app";
 
 export default function DevPage() {
+  const [view, setView] = useState<'leitura'|'desenvolvimento'|'ferramentas'>('leitura');
   const [tab, setTab] = useState('ambientes');
   const [isAdmin,setIsAdmin]=useState(false);
   const [secResults,setSecResults]=useState<any[]>([]);
@@ -63,24 +64,175 @@ export default function DevPage() {
         <a href="/dashboard" style={{ color:C.s, fontSize:12, textDecoration:'none' }}>← Dashboard</a>
       </div>
 
-      <div style={{ display:'flex', borderBottom:'1px solid #333', background:C.card, flexWrap:'wrap' }}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{ background:tab===t.id?C.p:'transparent', color:tab===t.id?C.s:C.f, border:'none', padding:'8px 14px', fontSize:11, cursor:'pointer', fontFamily:'inherit', borderBottom:tab===t.id?'2px solid '+C.s:'2px solid transparent' }}>
-            {t.label}
+      {/* Seletor das duas telas irmãs (Central de Desenvolvimento) + Ferramentas do dev */}
+      <div style={{ display:'flex', gap:8, background:C.card, borderBottom:'1px solid #333', padding:'8px 12px', flexWrap:'wrap' }}>
+        {([
+          {id:'leitura',label:'📊 Leitura e diagnóstico'},
+          {id:'desenvolvimento',label:'📄 Desenvolvimento'},
+          {id:'ferramentas',label:'🛠 Ferramentas do dev'},
+        ] as const).map(v=>(
+          <button key={v.id} onClick={()=>setView(v.id)}
+            style={{ background:view===v.id?`linear-gradient(135deg,${GO},${GOL})`:'transparent', color:view===v.id?BG:C.f, border:`1px solid ${view===v.id?'transparent':BD}`, padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+            {v.label}
           </button>
         ))}
       </div>
 
-      <div style={{ padding:16 }}>
-        {tab==='ambientes'&&<Ambientes/>}
-        {tab==='chat'&&<ChatDev/>}
-        {tab==='deploy'&&<DeployManager/>}
-        {tab==='sql'&&<SQLEditor/>}
-        {tab==='seguranca'&&<Seguranca secResults={secResults} secLoading={secLoading} testar={testarSeguranca}/>}
-        {tab==='changelog'&&<Changelog/>}
-        {tab==='files'&&<FileExplorer/>}
+      {view==='leitura' && <div style={{ padding:16 }}><LeituraDiagnostico/></div>}
+      {view==='desenvolvimento' && <div style={{ padding:16 }}><DesenvolvimentoDoc isAdmin={isAdmin}/></div>}
+
+      {view==='ferramentas' && <>
+        <div style={{ display:'flex', borderBottom:'1px solid #333', background:C.card, flexWrap:'wrap' }}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              style={{ background:tab===t.id?C.p:'transparent', color:tab===t.id?C.s:C.f, border:'none', padding:'8px 14px', fontSize:11, cursor:'pointer', fontFamily:'inherit', borderBottom:tab===t.id?'2px solid '+C.s:'2px solid transparent' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding:16 }}>
+          {tab==='ambientes'&&<Ambientes/>}
+          {tab==='chat'&&<ChatDev/>}
+          {tab==='deploy'&&<DeployManager/>}
+          {tab==='sql'&&<SQLEditor/>}
+          {tab==='seguranca'&&<Seguranca secResults={secResults} secLoading={secLoading} testar={testarSeguranca}/>}
+          {tab==='changelog'&&<Changelog/>}
+          {tab==='files'&&<FileExplorer/>}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// CENTRAL DE DESENVOLVIMENTO — ① Leitura e diagnóstico (as três barras por vertical)
+// ════════════════════════════════════════
+type BarraRow = {
+  area_slug:string; status_comercial:string; telas:number;
+  construido_pct:number|null; construido_sem_dado:boolean;
+  telas_auditadas:number; auditado_pct:number|null; auditado_sem_dado:boolean;
+  tem_tabelas_proprias:boolean; em_uso_empresas:number|null; em_uso_nomes:string[]|null;
+  em_uso_ultima_escrita:string|null; em_uso_sem_dado:boolean;
+  automacao_rotulo:string|null; automacao_empresas:number|null;
+};
+const NOME_VERTICAL:Record<string,string>={
+  agro:'Agro / Pecuária', bpo:'BPO', compliance:'Compliance', custeio_a:'Custeio A', custeio_b:'Custeio B',
+  gestao_empresarial:'Gestão Empresarial', hub:'Hub (Construção)', industrial:'Industrial', medica:'Médica',
+  odonto:'Odonto', oficina:'Oficina', pm:'P&M (Agência)', revenda_veiculos:'Revenda de Veículos', wealth:'Wealth',
+};
+function fmtDia(iso:string|null):string{ if(!iso) return 'nunca'; const p=iso.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
+function Barra({label,pct,semDado,cor}:{label:string;pct:number|null;semDado:boolean;cor:string}){
+  const val = semDado ? null : Math.max(0, Math.min(100, Number(pct ?? 0)));
+  return(
+    <div style={{marginBottom:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:TXM,marginBottom:3}}>
+        <span>{label}</span>
+        <span style={{color:semDado?TXD:TX,fontWeight:600}}>{semDado?'sem dado':`${val}%`}{label==='Construído'&&!semDado?' (estim.)':''}</span>
       </div>
+      <div style={{height:8,borderRadius:6,background:BG3,overflow:'hidden'}}>
+        {!semDado && <div style={{height:'100%',width:`${val}%`,background:cor,borderRadius:6}}/>}
+      </div>
+    </div>
+  );
+}
+function LeituraDiagnostico(){
+  const [rows,setRows]=useState<BarraRow[]|null>(null);
+  const [erro,setErro]=useState<string|null>(null);
+  useEffect(()=>{(async()=>{
+    const{data,error}=await supabase.rpc('fn_dev_central_barras');
+    if(error){setErro(error.message);return;}
+    setRows((data||[]) as BarraRow[]);
+  })();},[]);
+  if(erro) return <div style={{color:R,fontSize:12}}>Erro ao carregar: {erro}</div>;
+  if(!rows) return <div style={{color:TXM,fontSize:12}}>Carregando as três barras…</div>;
+  return(
+    <div>
+      <div style={{fontSize:13,color:GOL,marginBottom:4,fontWeight:600}}>As três barras por vertical</div>
+      <div style={{fontSize:11,color:TXM,marginBottom:14}}>
+        <b>Construído</b> = estimado por tela · <b>Auditado</b> = telas que o robô exercita (gold buttons) · <b>Em uso</b> = empresas reais que escreveram em tabela da vertical (30d). "sem dado" ≠ 0%.
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
+        {rows.map(r=>(
+          <div key={r.area_slug} style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+              <span style={{fontSize:13,fontWeight:700,color:TX}}>{NOME_VERTICAL[r.area_slug]||r.area_slug}</span>
+              <span style={{fontSize:9,color:TXD,textTransform:'uppercase'}}>{r.status_comercial}{r.telas>0?` · ${r.telas} telas`:''}</span>
+            </div>
+            <Barra label="Construído" pct={r.construido_pct} semDado={r.construido_sem_dado} cor={G}/>
+            <Barra label={`Auditado${r.auditado_sem_dado?'':` (${r.telas_auditadas}/${r.telas})`}`} pct={r.auditado_pct} semDado={r.auditado_sem_dado} cor={B}/>
+            {/* Em uso — contagem, não %: chip com nomes. Automação é SEMPRE linha separada, nunca somada. */}
+            <div style={{marginTop:6,fontSize:10,color:TXM}}>
+              <div style={{marginBottom:3}}>Em uso</div>
+              {r.em_uso_sem_dado ? (
+                <span style={{color:TXD}}>sem dado · núcleo compartilhado</span>
+              ) : (r.em_uso_empresas??0)===0 ? (
+                <span style={{color:Y}}>0 empresas · última escrita {fmtDia(r.em_uso_ultima_escrita)}</span>
+              ) : (
+                <span style={{color:G}}>{r.em_uso_empresas} {r.em_uso_empresas===1?'empresa':'empresas'} · <span style={{color:TX}}>{(r.em_uso_nomes||[]).join(', ')}</span></span>
+              )}
+              {r.automacao_empresas!=null && (
+                <div style={{marginTop:5,paddingTop:5,borderTop:`1px dashed ${BD}`,color:P}}>
+                  automação · {r.automacao_rotulo}, {r.automacao_empresas} {r.automacao_empresas===1?'empresa':'empresas'}
+                  <span style={{color:TXD}}> (não conta como uso)</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// CENTRAL DE DESENVOLVIMENTO — ② Desenvolvimento (o documento vivo da vertical)
+// ════════════════════════════════════════
+function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
+  const [vertical,setVertical]=useState('oficina');
+  const [doc,setDoc]=useState<{titulo:string;versao:number;status:string;conteudo_md:string;criado_em:string}|null>(null);
+  const [carregando,setCarregando]=useState(false);
+  const [semDoc,setSemDoc]=useState(false);
+  useEffect(()=>{(async()=>{
+    setCarregando(true);setSemDoc(false);setDoc(null);
+    const{data}=await supabase.from('erp_documento_vertical')
+      .select('titulo,versao,status,conteudo_md,criado_em')
+      .eq('vertical',vertical).eq('vigente',true).maybeSingle();
+    if(data)setDoc(data as any); else setSemDoc(true);
+    setCarregando(false);
+  })();},[vertical]);
+  return(
+    <div>
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12,flexWrap:'wrap'}}>
+        <span style={{fontSize:13,color:GOL,fontWeight:600}}>📄 Documento vivo da vertical</span>
+        <select value={vertical} onChange={e=>setVertical(e.target.value)}
+          style={{background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit'}}>
+          {Object.entries(NOME_VERTICAL).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+        </select>
+      </div>
+      {carregando && <div style={{color:TXM,fontSize:12}}>Carregando…</div>}
+      {!carregando && semDoc && (
+        <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:24,textAlign:'center'}}>
+          <div style={{fontSize:24,marginBottom:8}}>📄</div>
+          <div style={{fontSize:12,color:TXM}}>Ainda não há documento vivo para esta vertical.</div>
+          {!isAdmin && <div style={{fontSize:11,color:TXD,marginTop:6}}>O documento é visível apenas para administradores (CEO).</div>}
+        </div>
+      )}
+      {!carregando && doc && (
+        <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:'hidden'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:`1px solid ${BD}`,flexWrap:'wrap',gap:8}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:TX}}>{doc.titulo}</div>
+              <div style={{fontSize:10,color:TXD}}>versão {doc.versao} · {doc.conteudo_md.length.toLocaleString('pt-BR')} caracteres</div>
+            </div>
+            <span style={{fontSize:10,fontWeight:700,padding:'3px 10px',borderRadius:6,
+              background:(doc.status==='aprovado'?G:Y)+'20',color:doc.status==='aprovado'?G:Y,border:`1px solid ${(doc.status==='aprovado'?G:Y)}40`}}>
+              {doc.status==='aprovado'?'✅ aprovado':'📝 rascunho'}
+            </span>
+          </div>
+          <pre style={{margin:0,padding:16,fontSize:12,lineHeight:1.6,color:TX,whiteSpace:'pre-wrap',wordBreak:'break-word',fontFamily:"'Courier New',monospace",maxHeight:640,overflow:'auto'}}>{doc.conteudo_md}</pre>
+        </div>
+      )}
+      <div style={{fontSize:10,color:TXD,marginTop:10}}>O botão “atualizar a vertical” (com custo estimado e corte diário) e o roadmap entram na próxima etapa (④).</div>
     </div>
   );
 }
