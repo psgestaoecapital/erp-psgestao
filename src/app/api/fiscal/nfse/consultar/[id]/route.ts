@@ -47,6 +47,13 @@ export const GET = withAuth(async (
               provider_raw: atual.providerRaw ?? null,
             })
             .eq('id', id)
+
+          // #18 etapa 3 (timing "a"): efetivar as parcelas da medição SÓ agora que a nota AUTORIZOU.
+          // Idempotente e atômico; se falhar, grava efetivacao_status='falha' (não silencia). Nota
+          // rejeitada/cancelada → a função não efetiva (parcela segue 'previsto').
+          if (atual.status === 'autorizada') {
+            try { await supabaseAdmin.rpc('fn_nfse_efetivar_se_autorizada', { p_nfse_id: id }) } catch { /* registrado no efetivacao_status; não derruba a consulta */ }
+          }
         }
 
         return NextResponse.json({
