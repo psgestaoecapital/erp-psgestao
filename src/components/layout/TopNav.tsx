@@ -108,11 +108,12 @@ export default function TopNav() {
         .limit(12)
       if (!ignore) setAlertas((al as Alerta[]) ?? [])
 
-      // ⑤ medidor: só para admin (CEO). Busca só o contador (leve); a tela carrega no clique.
+      // ⑤ medidor: SÓ equipe PS (system_role PS_ADMIN/PS_ADMIN_CVM, nunca o robô) — não role, que
+      // qualquer 'adm' de empresa cliente tem. Busca só o contador (leve); a tela carrega no clique.
       if (authUser?.id) {
-        const { data: urow } = await supabase.from('users').select('role').eq('id', authUser.id).single()
-        const ehAdmin = ['adm', 'admin', 'acesso_total', 'adm_investimentos'].includes((urow?.role as string) || '')
-        if (ehAdmin && !ignore) {
+        const { data: urow } = await supabase.from('users').select('system_role, is_robo').eq('id', authUser.id).single()
+        const ehPsAdmin = ['PS_ADMIN', 'PS_ADMIN_CVM'].includes((urow?.system_role as string) || '') && urow?.is_robo !== true
+        if (ehPsAdmin && !ignore) {
           const { data: badge } = await supabase.rpc('fn_dev_medidor_badge')
           if (badge && !ignore) setDevBadge(badge as { numero: number; cor: string })
         }
