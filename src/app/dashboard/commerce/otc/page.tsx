@@ -19,8 +19,10 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight, Trash2,
+  Building2, AlertTriangle, MapPin, ExternalLink,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
+import CepEndereco, { type EnderecoValue } from '@/components/comum/CepEndereco'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
@@ -1143,6 +1145,34 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   )
 }
 
+// #82② cluster obra · linha de obra do Hub para o seletor
+type ObraLite = {
+  id: string
+  numero: string
+  nome: string | null
+  cliente_nome: string | null
+  endereco: string | null
+  numero_endereco: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
+  cep: string | null
+  cno: string | null
+  codigo_ibge_municipio: string | null
+}
+// Obra incompleta = mesma regra do backend (obra_pendente): sem CNO E (sem endereço OU sem IBGE).
+// Uma obra assim não pode ser faturada ainda — sinaliza, nunca chuta.
+function obraIncompleta(o: ObraLite): boolean {
+  const cno = (o.cno || '').trim()
+  const log = (o.endereco || '').trim()
+  const ibge = (o.codigo_ibge_municipio || '').trim()
+  return cno === '' && (log === '' || ibge === '')
+}
+function obraResumo(o: ObraLite): string {
+  const partes = [o.endereco, o.numero_endereco, o.cidade && o.uf ? `${o.cidade}/${o.uf}` : o.cidade].filter(Boolean)
+  return partes.length ? partes.join(', ') : 'sem endereço cadastrado'
+}
+
 function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   companyId: string; onClose: () => void; onCreated: (id: string) => void; flash: (m: string) => void;
 }) {
@@ -1155,6 +1185,47 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   const [itens, setItens] = useState<EditorItem[]>([])
   const [observacoes, setObservacoes] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  // #82② cluster obra · Parte 3 — bloco de obra quando algum serviço é E0370 (construção civil).
+  // A obra vira CAMPOS congelados no orçamento (autossuficiência fiscal) + obra_id (rastreio #82.3).
+  const [exigeObra, setExigeObra] = useState(false)
+  const [checandoObra, setChecandoObra] = useState(false)
+  const [obraModo, setObraModo] = useState<'apontar' | 'informar'>('apontar')
+  const [obras, setObras] = useState<ObraLite[]>([])
+  const [obraSel, setObraSel] = useState<ObraLite | null>(null)
+  const [obraBusca, setObraBusca] = useState('')
+  const [criarNoHub, setCriarNoHub] = useState(false) // opção 3 — desmarcado por padrão
+  const [obraEnd, setObraEnd] = useState<EnderecoValue>({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: '', codigo_ibge_municipio: '' })
+  const [obraCno, setObraCno] = useState('')
+
+  // Detecção do E0370 ANTES de salvar (a tela só tem os servico_id; fn_orcamento_exige_obra exige
+  // orçamento já gravado). Mesma regra da emissão (fn_servicos_exigem_obra → fn_fiscal_exige_obra).
+  useEffect(() => {
+    const ids = itens.filter((i) => i.tipo_item === 'servico' && i.servico_id).map((i) => i.servico_id as string)
+    if (ids.length === 0) { setExigeObra(false); return }
+    let cancel = false
+    setChecandoObra(true)
+    supabase.rpc('fn_servicos_exigem_obra', { p_company_id: companyId, p_servico_ids: ids })
+      .then(({ data }) => { if (!cancel) { setExigeObra(data === true); setChecandoObra(false) } })
+    return () => { cancel = true }
+  }, [itens, companyId])
+
+  // Lista de obras do Hub para "apontar" (número + endereço + cliente; as incompletas ficam sinalizadas).
+  useEffect(() => {
+    if (!exigeObra || obraModo !== 'apontar') return
+    const handle = setTimeout(async () => {
+      let q = supabase.from('projetos_obras')
+        .select('id,numero,nome,cliente_nome,endereco,numero_endereco,bairro,cidade,uf,cep,cno,codigo_ibge_municipio')
+        .eq('company_id', companyId).order('numero', { ascending: false }).limit(25)
+      if (obraBusca.trim().length >= 2) {
+        const t = obraBusca.trim()
+        q = q.or(`numero.ilike.%${t}%,nome.ilike.%${t}%,cidade.ilike.%${t}%,endereco.ilike.%${t}%`)
+      }
+      const { data } = await q
+      setObras((data ?? []) as ObraLite[])
+    }, 250)
+    return () => clearTimeout(handle)
+  }, [exigeObra, obraModo, obraBusca, companyId])
 
   // Busca clientes (debounced)
   useEffect(() => {
@@ -1187,6 +1258,59 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
     const numero = (numData as string | null) || `ORC-${new Date().getFullYear()}-0001`
     const validade = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const { data: { user } } = await supabase.auth.getUser()
+
+    // #82② — obra congelada no orçamento (autossuficiência fiscal) + obra_id (rastreio).
+    // Não bloqueia o rascunho: se ainda não há obra, grava tudo nulo e a trava fica na emissão.
+    let obraFields: Record<string, unknown> = {}
+    if (exigeObra) {
+      if (obraModo === 'apontar' && obraSel) {
+        obraFields = {
+          obra_id: obraSel.id,
+          obra_cno: obraSel.cno,
+          obra_logradouro: obraSel.endereco,
+          obra_numero: obraSel.numero_endereco,
+          obra_complemento: null,
+          obra_bairro: obraSel.bairro,
+          obra_cidade: obraSel.cidade,
+          obra_uf: obraSel.uf,
+          obra_cep: obraSel.cep,
+          obra_codigo_ibge: obraSel.codigo_ibge_municipio, // IBGE nulo permanece nulo — nunca chutado
+        }
+      } else if (obraModo === 'informar') {
+        let obraId: string | null = null
+        if (criarNoHub) {
+          const { data: novaId, error: eObra } = await supabase.rpc('fn_hub_criar_obra_rapida', {
+            p_company_id: companyId,
+            p_cliente_id: clienteSel.id,
+            p_cliente_nome: clienteSel.nome_fantasia || clienteSel.razao_social,
+            p_nome: null,
+            p_logradouro: obraEnd.logradouro || null,
+            p_numero: obraEnd.numero || null,
+            p_bairro: obraEnd.bairro || null,
+            p_cidade: obraEnd.cidade || null,
+            p_uf: obraEnd.uf || null,
+            p_cep: obraEnd.cep || null,
+            p_codigo_ibge: obraEnd.codigo_ibge_municipio || null,
+            p_cno: obraCno || null,
+          })
+          if (eObra) { flash('Erro ao cadastrar obra no Hub: ' + eObra.message); setSalvando(false); return }
+          obraId = (novaId as string) ?? null
+        }
+        obraFields = {
+          obra_id: obraId,
+          obra_cno: obraCno || null,
+          obra_logradouro: obraEnd.logradouro || null,
+          obra_numero: obraEnd.numero || null,
+          obra_complemento: obraEnd.complemento || null,
+          obra_bairro: obraEnd.bairro || null,
+          obra_cidade: obraEnd.cidade || null,
+          obra_uf: obraEnd.uf || null,
+          obra_cep: obraEnd.cep || null,
+          obra_codigo_ibge: obraEnd.codigo_ibge_municipio || null,
+        }
+      }
+    }
+
     const { data: orc, error } = await supabase
       .from('erp_orcamentos')
       .insert({
@@ -1205,6 +1329,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
         total: subtotal,
         observacoes: observacoes || null,
         created_by: user?.id,
+        ...obraFields,
       })
       .select()
       .single()
@@ -1301,6 +1426,91 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
 
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens</label>
             <OrcamentoItensEditor companyId={companyId} itens={itens} onChange={setItens} />
+
+            {/* #82② — bloco de obra: só aparece quando um serviço é de construção civil (E0370) */}
+            {checandoObra && !exigeObra && (
+              <p style={{ margin: 0, fontSize: 11, color: C.espressoL }}>Verificando se algum serviço exige obra…</p>
+            )}
+            {exigeObra && (
+              <div style={{ border: `1px solid ${C.amber}55`, background: C.amberBg, borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Building2 size={16} color={C.amber} />
+                  <strong style={{ fontSize: 13, color: C.espresso }}>Serviço de construção civil</strong>
+                </div>
+                <p style={{ margin: 0, fontSize: 12, color: C.espressoM, lineHeight: 1.5 }}>
+                  Um dos serviços exige obra (E0370). A NFS-e precisa da obra — onde o ISS incide é o município da obra, não o da sede.
+                  Aponte uma obra já cadastrada ou informe o endereço agora.
+                </p>
+
+                {/* rádios: apontar × informar */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {([['apontar', 'Apontar obra cadastrada'], ['informar', 'Informar o endereço agora']] as const).map(([modo, rotulo]) => (
+                    <button key={modo} type="button" onClick={() => setObraModo(modo)}
+                      style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        border: `1px solid ${obraModo === modo ? C.amber : C.border}`,
+                        background: obraModo === modo ? C.white : 'transparent',
+                        color: obraModo === modo ? C.espresso : C.espressoM }}>
+                      {obraModo === modo ? '● ' : '○ '}{rotulo}
+                    </button>
+                  ))}
+                </div>
+
+                {obraModo === 'apontar' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ position: 'relative' }}>
+                      <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
+                      <input value={obraBusca} onChange={(e) => setObraBusca(e.target.value)} placeholder="Buscar por número, nome, cidade ou endereço"
+                        style={{ ...inp, paddingLeft: 28 }} />
+                    </div>
+                    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto' }}>
+                      {obras.length === 0 ? (
+                        <div style={{ padding: 12, fontSize: 12, color: C.espressoM }}>Nenhuma obra encontrada. Use “Informar o endereço agora”.</div>
+                      ) : obras.map((o) => {
+                        const inc = obraIncompleta(o)
+                        const sel = obraSel?.id === o.id
+                        return (
+                          <button key={o.id} type="button" onClick={() => setObraSel(o)}
+                            style={{ width: '100%', textAlign: 'left', padding: 10, border: 'none', borderBottom: `1px solid ${C.borderL}`,
+                              background: sel ? C.goldBg : 'transparent', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.espresso }}>
+                              {o.numero}
+                              {inc && <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 999, padding: '0 6px' }}>incompleta</span>}
+                            </span>
+                            <span style={{ fontSize: 11, color: C.espressoM }}>{obraResumo(o)}{o.cliente_nome ? ` · ${o.cliente_nome}` : ''}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {obraSel && obraIncompleta(obraSel) && (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, color: '#B45309' }}>
+                        <AlertTriangle size={13} style={{ marginTop: 1, flexShrink: 0 }} />
+                        <span>Esta obra não tem CNO nem endereço/IBGE completos — preencha antes de faturar.{' '}
+                          <a href={`/dashboard/projetos/obras/${obraSel.id}`} target="_blank" rel="noreferrer"
+                            style={{ color: C.goldD, textDecoration: 'underline', whiteSpace: 'nowrap' }}>
+                            abrir a obra <ExternalLink size={10} style={{ verticalAlign: 'middle' }} />
+                          </a>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: C.espressoM }}>
+                      <MapPin size={13} /> Endereço da obra
+                    </div>
+                    <CepEndereco value={obraEnd} onChange={(patch) => setObraEnd((v) => ({ ...v, ...patch }))} ibgeObrigatorio />
+                    <label style={{ display: 'block' }}>
+                      <span style={{ fontSize: 10.5, color: C.espressoM, fontWeight: 600, display: 'block', marginBottom: 3 }}>CNO da obra (opcional)</span>
+                      <input value={obraCno} onChange={(e) => setObraCno(e.target.value)} placeholder="Ex.: 90.011.41292/78" style={inp} />
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={criarNoHub} onChange={(e) => setCriarNoHub(e.target.checked)} />
+                      Também cadastrar esta obra no Hub (para acompanhar depois)
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
 
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />
