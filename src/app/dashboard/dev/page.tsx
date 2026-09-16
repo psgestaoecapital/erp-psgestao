@@ -120,6 +120,7 @@ const NOME_VERTICAL:Record<string,string>={
   gestao_empresarial:'Gestão Empresarial', hub:'Hub (Construção)', industrial:'Industrial', medica:'Médica',
   odonto:'Odonto', oficina:'Oficina', pm:'P&M (Agência)', revenda_veiculos:'Revenda de Veículos', wealth:'Wealth',
 };
+function fmtDia(iso:string|null):string{ if(!iso) return 'nunca'; const p=iso.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
 function Barra({label,pct,semDado,cor}:{label:string;pct:number|null;semDado:boolean;cor:string}){
   const val = semDado ? null : Math.max(0, Math.min(100, Number(pct ?? 0)));
   return(
@@ -159,18 +160,21 @@ function LeituraDiagnostico(){
             </div>
             <Barra label="Construído" pct={r.construido_pct} semDado={r.construido_sem_dado} cor={G}/>
             <Barra label={`Auditado${r.auditado_sem_dado?'':` (${r.telas_auditadas}/${r.telas})`}`} pct={r.auditado_pct} semDado={r.auditado_sem_dado} cor={B}/>
-            {/* Em uso — contagem, não %: chip com nomes */}
+            {/* Em uso — contagem, não %: chip com nomes. Automação é SEMPRE linha separada, nunca somada. */}
             <div style={{marginTop:6,fontSize:10,color:TXM}}>
               <div style={{marginBottom:3}}>Em uso</div>
               {r.em_uso_sem_dado ? (
                 <span style={{color:TXD}}>sem dado · núcleo compartilhado</span>
               ) : (r.em_uso_empresas??0)===0 ? (
-                <span style={{color:Y}}>0 empresas · última escrita {r.em_uso_ultima_escrita ?? 'nunca'}</span>
+                <span style={{color:Y}}>0 empresas · última escrita {fmtDia(r.em_uso_ultima_escrita)}</span>
               ) : (
                 <span style={{color:G}}>{r.em_uso_empresas} {r.em_uso_empresas===1?'empresa':'empresas'} · <span style={{color:TX}}>{(r.em_uso_nomes||[]).join(', ')}</span></span>
               )}
               {r.automacao_empresas!=null && (
-                <div style={{marginTop:3,color:TXD}}>{r.automacao_rotulo}: {r.automacao_empresas} empresas — automação (não conta como uso)</div>
+                <div style={{marginTop:5,paddingTop:5,borderTop:`1px dashed ${BD}`,color:P}}>
+                  automação · {r.automacao_rotulo}, {r.automacao_empresas} {r.automacao_empresas===1?'empresa':'empresas'}
+                  <span style={{color:TXD}}> (não conta como uso)</span>
+                </div>
               )}
             </div>
           </div>
