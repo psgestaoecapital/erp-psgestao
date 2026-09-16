@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+
+      "mcp__github__*",
+
+      "mcp__Supabase_PS_Gest_o__list_tables",
+      "mcp__Supabase_PS_Gest_o__list_migrations",
+      "mcp__Supabase_PS_Gest_o__list_extensions",
+      "mcp__Supabase_PS_Gest_o__list_edge_functions",
+      "mcp__Supabase_PS_Gest_o__list_branches",
+      "mcp__Supabase_PS_Gest_o__list_projects",
+      "mcp__Supabase_PS_Gest_o__list_organizations",
+      "mcp__Supabase_PS_Gest_o__get_advisors",
+      "mcp__Supabase_PS_Gest_o__get_project",
+      "mcp__Supabase_PS_Gest_o__get_project_url",
+      "mcp__Supabase_PS_Gest_o__get_publishable_keys",
+      "mcp__Supabase_PS_Gest_o__get_organization",
+      "mcp__Supabase_PS_Gest_o__get_edge_function",
+      "mcp__Supabase_PS_Gest_o__generate_typescript_types",
+      "mcp__Supabase_PS_Gest_o__search_docs",
+      "mcp__Supabase_PS_Gest_o__query_logs",
+
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git branch:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git merge:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git remote:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm run lint:*)"
+    ],
+    "ask": [
+      "mcp__github__merge_pull_request",
+      "mcp__github__enable_pr_auto_merge"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__Supabase_PS_Gest_o__execute_sql",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/sql-readonly-gate.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
