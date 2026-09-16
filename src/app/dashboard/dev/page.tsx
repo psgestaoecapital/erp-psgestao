@@ -187,19 +187,42 @@ function LeituraDiagnostico(){
 // ════════════════════════════════════════
 // CENTRAL DE DESENVOLVIMENTO — ② Desenvolvimento (o documento vivo da vertical)
 // ════════════════════════════════════════
+type Orc={vertical:string;telas:number;custo_estimado:number;tempo_min:number;gasto_dia:number;gasto_mes:number;cap_dia:number;cap_mes:number;pode:boolean;motivo:string|null};
 function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   const [vertical,setVertical]=useState('oficina');
   const [doc,setDoc]=useState<{titulo:string;versao:number;status:string;conteudo_md:string;criado_em:string}|null>(null);
   const [carregando,setCarregando]=useState(false);
   const [semDoc,setSemDoc]=useState(false);
+  const [orc,setOrc]=useState<Orc|null>(null);
+  const [disparando,setDisparando]=useState(false);
+  const [disparo,setDisparo]=useState<{ok:boolean;msg:string}|null>(null);
   useEffect(()=>{(async()=>{
-    setCarregando(true);setSemDoc(false);setDoc(null);
+    setCarregando(true);setSemDoc(false);setDoc(null);setDisparo(null);setOrc(null);
     const{data}=await supabase.from('erp_documento_vertical')
       .select('titulo,versao,status,conteudo_md,criado_em')
       .eq('vertical',vertical).eq('vigente',true).maybeSingle();
     if(data)setDoc(data as any); else setSemDoc(true);
     setCarregando(false);
+    const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical});
+    if(o)setOrc(o as Orc);
   })();},[vertical]);
+
+  async function atualizarVertical(){
+    if(!orc?.pode||disparando)return;
+    if(!confirm(`Atualizar "${NOME_VERTICAL[vertical]||vertical}"?\n\n${orc.telas} telas · ~US$ ${orc.custo_estimado.toFixed(2)} · ~${orc.tempo_min} min\n\nO robô audita as telas (diagnóstico em minutos). A análise cruzada com o blueprint sai na próxima conversa com a Claude.`))return;
+    setDisparando(true);setDisparo(null);
+    try{
+      const{data:{session}}=await supabase.auth.getSession();
+      const res=await fetch('/api/dev/atualizar-vertical',{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${session?.access_token||''}`},
+        body:JSON.stringify({vertical})});
+      const d=await res.json();
+      if(!res.ok){setDisparo({ok:false,msg:d.error||'Falha ao disparar.'});}
+      else{setDisparo({ok:true,msg:`Auditoria disparada em ${d.rotas_disparadas}/${d.rotas_auditaveis} telas. ${d.aviso}`});
+        const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical}); if(o)setOrc(o as Orc);}
+    }catch(e:any){setDisparo({ok:false,msg:e.message||'Erro de rede.'});}
+    setDisparando(false);
+  }
   return(
     <div>
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12,flexWrap:'wrap'}}>
@@ -232,7 +255,32 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
           <pre style={{margin:0,padding:16,fontSize:12,lineHeight:1.6,color:TX,whiteSpace:'pre-wrap',wordBreak:'break-word',fontFamily:"'Courier New',monospace",maxHeight:640,overflow:'auto'}}>{doc.conteudo_md}</pre>
         </div>
       )}
-      <div style={{fontSize:10,color:TXD,marginTop:10}}>O botão “atualizar a vertical” (com custo estimado e corte diário) e o roadmap entram na próxima etapa (④).</div>
+      {/* ④ botão atualizar a vertical — só o CEO; custo antes do clique; teto diário/mensal; dois tempos */}
+      {isAdmin && orc && (
+        <div style={{marginTop:14,background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+            <div style={{fontSize:11,color:TXM}}>
+              {orc.telas>0
+                ? <>Atualizar auditoria: <b style={{color:TX}}>{orc.telas} telas · ~US$ {orc.custo_estimado.toFixed(2)} · ~{orc.tempo_min} min</b></>
+                : <>Esta vertical não tem telas catalogadas para auditar.</>}
+              <div style={{fontSize:9.5,color:TXD,marginTop:2}}>Gasto: US$ {orc.gasto_dia.toFixed(2)}/{orc.cap_dia.toFixed(2)} hoje · US$ {orc.gasto_mes.toFixed(2)}/{orc.cap_mes.toFixed(2)} no mês</div>
+            </div>
+            <button onClick={atualizarVertical} disabled={!orc.pode||disparando}
+              title={orc.pode?'':(orc.motivo||'')}
+              style={{padding:'8px 16px',borderRadius:8,border:'none',fontSize:12,fontWeight:600,
+                cursor:orc.pode&&!disparando?'pointer':'not-allowed',
+                background:orc.pode&&!disparando?`linear-gradient(135deg,${GO},${GOL})`:BG3,
+                color:orc.pode&&!disparando?BG:TXD}}>
+              {disparando?'Disparando…':'🔄 Atualizar a vertical'}
+            </button>
+          </div>
+          {!orc.pode&&orc.motivo&&<div style={{fontSize:10.5,color:Y,marginTop:8}}>{orc.motivo}</div>}
+          {disparo&&<div style={{fontSize:11,color:disparo.ok?G:R,marginTop:8,lineHeight:1.5}}>{disparo.ok?'✅ ':'❌ '}{disparo.msg}</div>}
+          <div style={{fontSize:9.5,color:TXD,marginTop:8,borderTop:`1px dashed ${BD}`,paddingTop:8}}>
+            ⏱ O <b>diagnóstico</b> do robô sai <b>em minutos</b>. A <b>análise cruzada com o blueprint</b> só sai <b>na próxima conversa com a Claude</b> — não vem sozinha. O roadmap como indicador separado entra depois.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
