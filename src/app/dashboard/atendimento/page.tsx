@@ -227,7 +227,7 @@ function Inner() {
               {est === 'precisa_mim' && (
                 <div style={{ marginTop: 10, background: C.amberBg, border: '1px solid #F0DDB0', borderRadius: 10, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10.5, fontWeight: 800, color: C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 5 }}>
-                    Resposta redigida {it.resposta_origem === 'assistente' ? '(assistente/IA)' : it.redator_nome ? `(por ${it.redator_nome})` : ''} — esperando você
+                    Resposta redigida {it.resposta_origem === 'ia' ? '(rascunho da IA — revise)' : it.resposta_origem === 'assistente' ? '(assistente/IA)' : it.redator_nome ? `(por ${it.redator_nome})` : ''} — esperando você
                   </div>
                   <div style={{ fontSize: 13, color: C.esp, whiteSpace: 'pre-wrap' }}>
                     {(respExpandida === it.id || respPreview.length <= 200) ? respPreview : respPreview.slice(0, 200) + '… '}
@@ -335,7 +335,7 @@ function Inner() {
                         {/* quem REDIGIU × quem APROVOU — o CEO precisa ver o que está aprovando e quem escreveu;
                             o texto chega ao autor como do aprovador, mas o registro guarda os dois (RD-51/RD-58). */}
                         <div style={{ fontSize: 10.5, color: C.espM, marginTop: 6 }}>
-                          Rascunho escrito {it.resposta_origem === 'assistente' ? <b>pelo assistente (IA)</b> : it.redator_nome ? <>por <b>{it.redator_nome}</b></> : 'manualmente'}
+                          Rascunho escrito {it.resposta_origem === 'ia' ? <b style={{ color: C.amber }}>pela IA — revise antes de aprovar</b> : it.resposta_origem === 'assistente' ? <b>pelo assistente (IA)</b> : it.redator_nome ? <>por <b>{it.redator_nome}</b></> : 'manualmente'}
                           {it.resposta_aprovada && it.aprovador_nome ? <> · aprovado por <b>{it.aprovador_nome}</b></> : ''}
                         </div>
                         {!it.resposta_aprovada && (
