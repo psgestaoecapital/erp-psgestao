@@ -51,6 +51,26 @@ function marcacoesTexto(marcacoes: any): string {
     : "(sem marcações)";
 }
 
+// #14/IA-chamados (FALHA 2): a análise das 15:22 do Rodrigo caiu com "Unexpected end of JSON input"
+// — o JSON.parse cru estourava quando o modelo devolvia texto com prosa, cercas ou (com max_tokens
+// baixo) truncado, e a foto do erro nunca era lida. Este extrator NUNCA lança: tira as cercas, isola
+// o primeiro bloco {...} balanceado e tenta parsear; devolve null se não der (aí o chamador re-tenta
+// com mais tokens). Truncamento real é tratado subindo max_tokens + 1 retry, não remendando string.
+function extrairJson(txt: string | null | undefined): any | null {
+  if (!txt || !txt.trim()) return null;
+  const s = txt.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const i = s.indexOf("{");
+  if (i < 0) return null;
+  let depth = 0, end = -1;
+  for (let j = i; j < s.length; j++) {
+    const c = s[j];
+    if (c === "{") depth++;
+    else if (c === "}") { depth--; if (depth === 0) { end = j; break; } }
+  }
+  const cand = end >= 0 ? s.slice(i, end + 1) : s.slice(i);
+  try { return JSON.parse(cand); } catch { return null; }
+}
+
 Deno.serve(async (req: Request) => {
   // preflight CORS do navegador (por causa do header Authorization do invoke)
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -76,7 +96,10 @@ Deno.serve(async (req: Request) => {
 
   // Resolve o ALVO: uma mensagem (foto nova) ou o chamado (foto original). Monta descrição + anexo.
   let descricao = ""; let categoria: string | null = null; let rota: string | null = null; let area: string | null = null;
-  let anexo: { storage_path?: string; marcacoes?: any } | undefined;
+  // FALHA 1 (Rodrigo 15:22): a mensagem tinha 2 prints e a função lia só o primeiro (limit 1). Agora
+  // lê TODOS os anexos da mensagem/chamado (teto de 5, para não estourar tokens/custo por mensagem).
+  const MAX_IMAGENS = 5;
+  let anexosLista: { storage_path?: string; marcacoes?: any }[] = [];
 
   if (mensagemId) {
     const { data: msg } = await supabase.from("sugestao_mensagem").select("id, texto, sugestao_id").eq("id", mensagemId).maybeSingle();
@@ -85,16 +108,17 @@ Deno.serve(async (req: Request) => {
     // a descrição do prompt é a mensagem nova do usuário, com o contexto do chamado
     descricao = `${(sug as any)?.descricao ? `[Chamado] ${(sug as any).descricao}\n` : ""}[Nova mensagem] ${(msg as any).texto || "(sem texto — enviou só a imagem)"}`;
     categoria = (sug as any)?.categoria ?? null; rota = (sug as any)?.rota ?? null; area = (sug as any)?.area ?? null;
-    const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("mensagem_id", mensagemId).order("ordem").limit(1);
-    anexo = (anexos || [])[0];
+    const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("mensagem_id", mensagemId).order("ordem").limit(MAX_IMAGENS);
+    anexosLista = (anexos || []) as any[];
   } else {
     const { data: sug } = await supabase.from("sugestoes").select("id, descricao, categoria, rota, area").eq("id", sugestaoId).maybeSingle();
     if (!sug) return json({ ok: false, erro: "sugestao_nao_encontrada" }, 404);
     descricao = (sug as any).descricao || ""; categoria = (sug as any).categoria ?? null; rota = (sug as any).rota ?? null; area = (sug as any).area ?? null;
     // só os anexos do CHAMADO (mensagem_id NULL) — a foto de uma resposta não é a foto do chamado
-    const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("sugestao_id", sugestaoId).is("mensagem_id", null).order("ordem").limit(1);
-    anexo = (anexos || [])[0];
+    const { data: anexos } = await supabase.from("sugestao_anexo").select("storage_path, marcacoes").eq("sugestao_id", sugestaoId).is("mensagem_id", null).order("ordem").limit(MAX_IMAGENS);
+    anexosLista = (anexos || []) as any[];
   }
+  const anexo = anexosLista[0]; // referência p/ o texto de marcações no prompt
 
   const prompt = `Você é um Engenheiro de Produto Sênior do SaaS PS Gestão ERP. Um usuário registrou uma dificuldade${anexo ? " e enviou uma foto da tela com marcações" : ""}.
 
@@ -117,40 +141,59 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
 É PALPITE para orientar o atendente — não é decisão. A erro_assinatura serve para saber, mecanicamente, se um erro que reaparece é o MESMO ou MUDOU entre tentativas.`;
 
   const content: any[] = [];
-  if (anexo?.storage_path) {
+  for (const ax of anexosLista) {
+    if (!ax?.storage_path) continue;
     try {
-      const { data: file } = await supabase.storage.from("sugestoes-anexos").download(anexo.storage_path);
+      const { data: file } = await supabase.storage.from("sugestoes-anexos").download(ax.storage_path);
       if (file) {
         const buf = new Uint8Array(await file.arrayBuffer());
         const b64 = btoa(buf.reduce((d, byte) => d + String.fromCharCode(byte), ""));
-        content.push({ type: "image", source: { type: "base64", media_type: detectMediaType(anexo.storage_path), data: b64 } });
+        content.push({ type: "image", source: { type: "base64", media_type: detectMediaType(ax.storage_path), data: b64 } });
       }
-    } catch (_) { /* sem imagem: segue só com texto */ }
+    } catch (_) { /* uma imagem que não baixa não derruba a análise das demais */ }
   }
   content.push({ type: "text", text: prompt });
 
-  let analysis: any = null; let custoUsd = 0;
   const modelo = modeloPara("analise_imagem");
-  try {
+  // chama a IA e devolve o JSON já parseado (robusto, nunca lança). max_tokens folgado p/ não truncar
+  // com vários prints — foi o truncamento/prosa que fez a análise das 15:22 do Rodrigo se perder.
+  async function chamarIA(maxTokens: number): Promise<{ analysis: any; custoUsd: number } | { httpErro: string; status: number }> {
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: modelo, max_tokens: 1000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model: modelo, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
       signal: AbortSignal.timeout(45000),
     });
     if (!claudeResponse.ok) {
       const t = await claudeResponse.text();
-      await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: claudeResponse.status, erro: `${claudeResponse.status}: ${t.slice(0, 200)}` });
-      return json({ ok: false, erro: "claude_api", detalhe: `${claudeResponse.status}: ${t.slice(0, 200)}`, analisada: false });
+      return { httpErro: `${claudeResponse.status}: ${t.slice(0, 200)}`, status: claudeResponse.status };
     }
     const claudeData = await claudeResponse.json();
     const responseText = claudeData.content?.[0]?.text || "";
-    const cleanText = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    analysis = JSON.parse(cleanText);
     const it = claudeData.usage?.input_tokens || 0;
     const ot = claudeData.usage?.output_tokens || 0;
     // custo com as taxas do modelo default vivo (claude-sonnet-5): US$2/M entrada, US$10/M saída
-    custoUsd = (it * 2 / 1_000_000) + (ot * 10 / 1_000_000);
+    return { analysis: extrairJson(responseText), custoUsd: (it * 2 / 1_000_000) + (ot * 10 / 1_000_000) };
+  }
+
+  let analysis: any = null; let custoUsd = 0;
+  try {
+    const r = await chamarIA(2000);
+    if ("httpErro" in r) {
+      await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: r.status, erro: r.httpErro });
+      return json({ ok: false, erro: "claude_api", detalhe: r.httpErro, analisada: false });
+    }
+    analysis = r.analysis; custoUsd = r.custoUsd;
+    // FALHA 2: se o JSON não veio parseável (prosa/truncado/vazio), tenta UMA vez com mais tokens
+    // antes de desistir — a análise deixa de se perder em silêncio pela primeira resposta ruim.
+    if (!analysis) {
+      const r2 = await chamarIA(3000);
+      if (!("httpErro" in r2) && r2.analysis) { analysis = r2.analysis; custoUsd += r2.custoUsd; }
+    }
+    if (!analysis) {
+      await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: null, erro: "resposta_sem_json_parseavel (2 tentativas)" });
+      return json({ ok: false, erro: "falha_analise", detalhe: "resposta_sem_json_parseavel", analisada: false });
+    }
   } catch (err) {
     // qualquer falha na IA: a sugestão segue válida, só sem análise
     await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: null, erro: String(err).slice(0, 200) });
