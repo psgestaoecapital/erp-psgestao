@@ -40,6 +40,7 @@ type PagarHistorico = {
     id: string; descricao: string | null; valor: number
     valor_pago: number; saldo: number; status: string | null
     data_pagamento: string | null; forma_pagamento: string | null; conciliado: boolean
+    origem_baixa?: string | null
   }
   eventos_conciliacao?: EventoConciliacao[]
   observacoes?: string | null
@@ -80,6 +81,20 @@ const FORMA_LABEL: Record<string, string> = {
 }
 const formaLabel = (f: string | null | undefined): string =>
   f ? (FORMA_LABEL[f] ?? f) : '—'
+
+// ④ origem_baixa — como a baixa foi feita. NULL nunca aparece mudo (queixa da Jordana): mostra que é
+// baixa antiga sem registro, não um bug.
+const ORIGEM_BAIXA_LABEL: Record<string, string> = {
+  retorno_cnab: 'Retorno CNAB (arquivo do banco)',
+  conciliacao: 'Conciliação bancária',
+  manual: 'Baixa manual',
+  permuta: 'Permuta',
+  dinheiro: 'Dinheiro',
+  boleto: 'Boleto liquidado',
+  importacao: 'Importação',
+}
+const origemBaixaLabel = (o: string | null | undefined): string =>
+  o ? (ORIGEM_BAIXA_LABEL[o] ?? o) : 'origem não registrada (baixa anterior a set/2026)'
 
 const CAMPOS_LEGIVEIS: Record<string, { label: string; fmt: (v: unknown) => string }> = {
   descricao: { label: 'Descrição', fmt: (v) => String(v ?? '—') },
@@ -196,6 +211,16 @@ export default function HistoricoLancamentoModal({ open, onClose, itemId, itemDe
                     {conta.conciliado ? '✓ Baixado por conciliação' : (conta.valor_pago > 0 ? 'Baixa manual' : 'Sem baixa')}
                   </span>
                 </div>
+
+                {/* ④ origem_baixa — como o título foi baixado (NULL = registro antigo, nunca em branco mudo). */}
+                {Number(conta.valor_pago || 0) > 0 && (
+                  <div style={{ fontSize: 12, color: ESP, marginBottom: baixaEventos.length ? 10 : 0 }}>
+                    <b>Origem da baixa:</b>{' '}
+                    <span style={{ color: conta.origem_baixa ? ESP : ESP60, fontStyle: conta.origem_baixa ? 'normal' : 'italic' }}>
+                      {origemBaixaLabel(conta.origem_baixa)}
+                    </span>
+                  </div>
+                )}
 
                 {baixaEventos.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
