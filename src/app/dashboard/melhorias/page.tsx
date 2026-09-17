@@ -71,6 +71,7 @@ function Inner() {
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
   const [motivoAberto, setMotivoAberto] = useState<string | null>(null) // #61 · qual chamado está com o textarea de "não resolveu"
+  const [naoResolveuFotos, setNaoResolveuFotos] = useState<FotoItem[]>([]) // #2 fast-follow · fotos da devolutiva "ainda não resolveu"
   const [abaMelhoria, setAbaMelhoria] = useState<BucketMelhoria>('precisa_voce') // #63 · aba de status da Central
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
 
@@ -139,14 +140,21 @@ function Inner() {
   // não é "não resolveu"; encerrar é uma decisão explícita.
   // #61: "não resolveu" abre um textarea inline com rascunho (não mais window.prompt de 1 linha que
   // some ao trocar de janela). funcionou=true segue direto; funcionou=false exige o motivo do textarea.
-  const confirmar = useCallback(async (id: string, funcionou: boolean, motivo?: string) => {
+  const confirmar = useCallback(async (id: string, funcionou: boolean, motivo?: string, fotos?: FotoItem[]) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     if (!funcionou && !(motivo ?? '').trim()) { setErro('Diga o que não resolveu para reabrir.'); return }
-    const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: funcionou ? null : (motivo ?? '').trim() })
+    // #2 fast-follow · sobe as fotos da devolutiva (mesmo padrão do compositor) e anexa à mensagem.
+    const anexos: { storage_path: string; marcacoes: Marca[] }[] = []
+    for (const ft of (funcionou ? [] : (fotos ?? []))) {
+      const path = await uploadFotoSugestao(ft.file, user.id).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
+      if (path === null) return
+      anexos.push({ storage_path: path, marcacoes: ft.marcas })
+    }
+    const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: funcionou ? null : (motivo ?? '').trim(), p_anexos: anexos })
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
-    setMotivoAberto(null)
+    setMotivoAberto(null); setNaoResolveuFotos([])
     setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
     void carregar()
   }, [carregar])
@@ -286,13 +294,19 @@ function Inner() {
                         <button onClick={() => setMotivoAberto((v) => (v === m.id ? null : m.id))} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Ainda não resolveu</button>
                       </div>
                       {motivoAberto === m.id && (
-                        <RespostaInline
-                          draftKey={`melhoria:naoresolveu:${m.id}`}
-                          placeholder="O que ainda não resolveu? A equipe volta a mexer — quanto mais detalhe, melhor."
-                          submitLabel="Reabrir chamado"
-                          onSubmit={(t) => confirmar(m.id, false, t)}
-                          onCancel={() => setMotivoAberto(null)}
-                        />
+                        <>
+                          <RespostaInline
+                            draftKey={`melhoria:naoresolveu:${m.id}`}
+                            placeholder="O que ainda não resolveu? A equipe volta a mexer — quanto mais detalhe, melhor."
+                            submitLabel="Reabrir chamado"
+                            onSubmit={(t) => confirmar(m.id, false, t, naoResolveuFotos)}
+                            onCancel={() => { setMotivoAberto(null); setNaoResolveuFotos([]) }}
+                          />
+                          {/* #2 fast-follow · anexar foto na devolutiva, como no compositor normal */}
+                          <div style={{ marginTop: 6 }}>
+                            <FotosChamado value={naoResolveuFotos} onChange={setNaoResolveuFotos} compact />
+                          </div>
+                        </>
                       )}
                     </>
                   )}
