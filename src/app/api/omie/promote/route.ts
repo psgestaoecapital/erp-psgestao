@@ -7,14 +7,9 @@
 // Body: { company_id: string, import_types?: string[] }
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const IMPORT_TYPES_PADRAO = ['clientes', 'contas_pagar', 'contas_receber'] as const
 type ImportType = typeof IMPORT_TYPES_PADRAO[number]

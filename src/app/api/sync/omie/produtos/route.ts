@@ -2,15 +2,10 @@
 // PS Gestão ERP — Sync Produtos Omie → PS Gestão
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
 
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 function mapOmieProduto(omie: any, companyId: string) {
   const isServico = omie.tipoItem === '04' || omie.tipoItem === '05' || omie.descr_detalhada?.toLowerCase().includes('servi')
