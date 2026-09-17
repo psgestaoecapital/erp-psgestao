@@ -19,7 +19,7 @@ const C = {
 }
 type Regra = { id: string; tipo: string; nome: string; parametros: Record<string, unknown>; base_legal: string | null; ativo: boolean }
 type Colab = { colaborador_id: string; nome: string; cpf: string; funcao: string | null; departamento: string | null; psico: boolean; termica: boolean }
-type Resumo = { colaborador_id: string; cpf: string; nome: string; funcao: string | null; tipo: string; dias: number; devido_min: number; realizado_min: number | null; dias_desvio: number; dias_conforme: number; dias_aguardando: number; dias_sem_dado: number; status: string }
+type Resumo = { colaborador_id: string; cpf: string; nome: string; funcao: string | null; tipo: string; dias: number; devido_min: number; realizado_min: number | null; dias_desvio: number; dias_conforme: number; dias_aguardando: number; dias_pendente: number; dias_sem_dado: number; status: string }
 type ProvaLinha = { data: string; tipo: string; jornada_seg: number; devido_min: number; realizado_min: number | null; status: string }
 type UploadRow = { id: string; arquivo_nome: string; arquivo_hash: string; periodo_inicio: string | null; periodo_fim: string | null; linhas_lidas: number | null; linhas_aceitas: number | null; linhas_rejeitadas: number | null; status: string; enviado_por_email: string | null; enviado_em: string; arquivo_path: string | null; substituido_por: string | null }
 type Rejeitada = { linha: number; cpf: string | null; motivo: string }
@@ -50,6 +50,34 @@ const semColor: Record<string, { c: string; bg: string; l: string }> = {
   nao_cumprida: { c: C.red, bg: C.redBg, l: 'Desvio' },
 }
 const motivoLabel = (m: string) => m === 'cpf_nao_cadastrado' ? 'CPF não está no cadastro de colaboradores' : m === 'data_hora_invalida' ? 'Data/hora inválida' : m
+
+// #92 · rótulo do roll-up por colaborador. A pendência tem rótulo PRÓPRIO ("Aguardando
+// conferência") — nunca "desvio" (RD-38: não sabemos o fim, não supomos) e nunca "conforme"
+// (RD-51: dia em aberto não é conforme). Aponta a responsável para a aba Conferência.
+const painelStatusLabel: Record<string, string> = { pendente_confirmacao: 'Aguardando conferência' }
+
+// #92 · composição dos dias do colaborador — o painel mostra o QUE COMPÕE o mês, não só o pior
+// status. Ex.: "18 conforme · 13 aguardando · 1 desvio". Só os grupos não-zero, em ordem de
+// severidade, para a supervisão enxergar a mistura de uma vez.
+function ComposicaoDias({ r }: { r: Resumo }) {
+  const partes = [
+    { n: r.dias_desvio, c: C.red, l: 'desvio' },
+    { n: r.dias_pendente, c: C.amber, l: 'aguardando' },
+    { n: r.dias_sem_dado, c: C.gray, l: 'sem evento' },
+    { n: r.dias_aguardando, c: C.blue, l: 'aguard. realizado' },
+    { n: r.dias_conforme, c: C.green, l: 'conforme' },
+  ].filter(p => (p.n ?? 0) > 0)
+  if (partes.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+      {partes.map((p, i) => (
+        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: p.c, background: p.c + '18', borderRadius: 6, padding: '1px 6px' }}>
+          <span style={{ width: 6, height: 6, borderRadius: 999, background: p.c }} />{p.n} {p.l}
+        </span>
+      ))}
+    </div>
+  )
+}
 
 // normaliza cabeçalho: minúsculo, sem acento, sem espaços/pontuação
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
@@ -186,7 +214,10 @@ function AbaPainel({ companyId }: { companyId: string }) {
                   <td style={td()}>{r.dias}</td>
                   <td style={td()}>{r.devido_min} min</td>
                   <td style={td()}>{r.realizado_min == null ? <span style={{ color: C.blue }}>aguardando</span> : `${r.realizado_min} min`}</td>
-                  <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {s.l}</span></td>
+                  <td style={td()}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {painelStatusLabel[r.status] ?? s.l}</span>
+                    <ComposicaoDias r={r} />
+                  </td>
                   <td style={td()}><BtnGhost onClick={() => setProva({ cpf: r.cpf, nome: r.nome })}><FileText size={13} /> Prova</BtnGhost></td>
                 </tr>
               ) })}
@@ -1111,7 +1142,9 @@ function AbaConferencia({ companyId }: { companyId: string }) {
                   <tr key={r.pausa_id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
                     <td style={{ padding: '8px', fontWeight: 600, color: C.espresso }}>{r.colaborador}</td>
                     <td style={{ padding: '8px', color: C.gray }}>{r.data.split('-').reverse().join('/')}</td>
-                    <td style={{ padding: '8px' }}>{r.inicio_local}</td>
+                    {/* #93 · horário do início estava sem cor e herdava um tom claro do ambiente,
+                        ficando ilegível. Fixa no Espresso, igual aos demais dados da linha. */}
+                    <td style={{ padding: '8px', color: C.espresso, fontWeight: 600 }}>{r.inicio_local}</td>
                     <td style={{ padding: '8px' }}>
                       <span style={{ fontWeight: 700, color: C.espresso }}>{r.fim_sugerido_local}</span>{' '}
                       {forte
@@ -1345,6 +1378,10 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
 // "não cumpriu"; a causa pode ser da operação). Horários em hora local (fuso normalizado na origem).
 type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number; marcacao_interna?: string[] }
 type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; shift: string | null; gatilho_min: string | null; pausa_min: string | null; jornada: { entrada: string | null; saida: string | null } | null; desvios: SupDesvio[] }
+// #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
+// está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
+// Conferência. NUNCA é desvio no escuro (RD-38).
+type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; jornada: { entrada: string | null; saida: string | null } | null }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
@@ -1374,6 +1411,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   const [ini, setIni] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)))
   const [fim, setFim] = useState(iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)))
   const [casos, setCasos] = useState<SupCaso[]>([])
+  const [pendentes, setPendentes] = useState<SupPendente[]>([])
   const [carregado, setCarregado] = useState(false)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
@@ -1384,7 +1422,11 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
     setCarregando(true); setErro('')
     try {
       const r = await rpc<{ casos: SupCaso[] }>('fn_nr36_supervisao_casos', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
-      setCasos(r.casos || []); setCarregado(true)
+      setCasos(r.casos || [])
+      // #92 · dias aguardando confirmação — a segunda natureza, separada dos desvios provados
+      const p = await rpc<{ pendentes: SupPendente[] }>('fn_nr36_supervisao_pendentes', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
+      setPendentes(p.pendentes || [])
+      setCarregado(true)
     } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
   }, [companyId, ini, fim])
   useEffect(() => { void carregar() }, [carregar])
@@ -1411,33 +1453,75 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
 
       {erro && <div style={erroBox()}>{erro}</div>}
       {!carregado ? <Load /> :
-        casos.length === 0 ? <Vazio titulo="Nenhum desvio no período" texto="Não há casos de desvio para tratar neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
-        <div>
-          <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }} data-no-print="true"><b>{casos.length}</b> caso(s) de desvio no período.</div>
-          {casos.map((d) => { const k = d.cpf + d.data; const open = aberto === k; return (
-            <div key={k} style={{ border: `1px solid ${C.borderLt}`, borderRadius: 10, marginBottom: 8, background: '#fff', breakInside: 'avoid' }}>
-              <button onClick={() => setAberto(open ? null : k)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 14px', border: 'none', background: 'transparent', cursor: 'pointer' }}>
-                <span>
-                  <span style={{ fontWeight: 700, color: C.espresso, fontSize: 13.5 }}>{d.nome}</span>
-                  <span style={{ color: C.gray, fontSize: 12 }}> · {fmtData(d.data)}{d.setor ? ` · ${d.setor}` : ''}</span>
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.redBg, color: C.red, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{d.desvios.length} desvio(s)</span>
-              </button>
-              {open && (
-                <div style={{ padding: '0 14px 14px' }}>
-                  <div style={{ fontSize: 12, color: C.gray, marginBottom: 6 }}>Jornada {d.jornada?.entrada ?? '—'}–{d.jornada?.saida ?? '—'}{d.shift ? ` · escala ${d.shift}` : ''}</div>
-                  <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
-                    {frasesChao(d).map((f, i) => <li key={i} style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
-                  </ul>
-                  <div style={{ display: 'flex', gap: 8 }} data-no-print="true">
-                    <BtnGhost onClick={() => copiar(d)}><Copy size={13} /> {copiado === k ? 'Copiado!' : 'Copiar caso'}</BtnGhost>
-                    <BtnGhost onClick={() => window.print()}><Printer size={13} /> Imprimir</BtnGhost>
+        (casos.length === 0 && pendentes.length === 0) ? <Vazio titulo="Nada para tratar no período" texto="Não há desvios provados nem dias aguardando confirmação neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
+        <>
+          {/* SEÇÃO 1 · Desvios provados — pausa insuficiente/não realizada, fato registrado */}
+          <div style={secTitle()}>Desvios provados</div>
+          {casos.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.gray, marginBottom: 18 }}>Nenhum desvio provado no período.</div>
+          ) : (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }} data-no-print="true"><b>{casos.length}</b> caso(s) de desvio no período.</div>
+            {casos.map((d) => { const k = d.cpf + d.data; const open = aberto === k; return (
+              <div key={k} style={{ border: `1px solid ${C.borderLt}`, borderRadius: 10, marginBottom: 8, background: '#fff', breakInside: 'avoid' }}>
+                <button onClick={() => setAberto(open ? null : k)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 14px', border: 'none', background: 'transparent', cursor: 'pointer' }}>
+                  <span>
+                    <span style={{ fontWeight: 700, color: C.espresso, fontSize: 13.5 }}>{d.nome}</span>
+                    <span style={{ color: C.gray, fontSize: 12 }}> · {fmtData(d.data)}{d.setor ? ` · ${d.setor}` : ''}</span>
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.redBg, color: C.red, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{d.desvios.length} desvio(s)</span>
+                </button>
+                {open && (
+                  <div style={{ padding: '0 14px 14px' }}>
+                    <div style={{ fontSize: 12, color: C.gray, marginBottom: 6 }}>Jornada {d.jornada?.entrada ?? '—'}–{d.jornada?.saida ?? '—'}{d.shift ? ` · escala ${d.shift}` : ''}</div>
+                    <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
+                      {frasesChao(d).map((f, i) => <li key={i} style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
+                    </ul>
+                    <div style={{ display: 'flex', gap: 8 }} data-no-print="true">
+                      <BtnGhost onClick={() => copiar(d)}><Copy size={13} /> {copiado === k ? 'Copiado!' : 'Copiar caso'}</BtnGhost>
+                      <BtnGhost onClick={() => window.print()}><Printer size={13} /> Imprimir</BtnGhost>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            ) })}
+          </div>
+          )}
+
+          {/* SEÇÃO 2 · Dias aguardando confirmação — #92. Natureza DIFERENTE do desvio: pausa sem
+              hora de saída, ainda não provada. O supervisor pergunta ao colaborador o que houve;
+              a responsável fecha na aba Conferência. NUNCA é desvio no escuro (RD-38). */}
+          <div style={secTitle()}>Dias aguardando confirmação</div>
+          {pendentes.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.gray }}>Nenhum dia aguardando confirmação no período.</div>
+          ) : (
+          <div>
+            <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
+              <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+                <b>{pendentes.length} dia(s) com pausa sem hora de saída.</b> Ainda <b>não são desvio</b> — o fim da pausa não está confirmado, então o sistema não julga no escuro. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>, onde viram conforme ou desvio.
+              </div>
             </div>
-          ) })}
-        </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
+                </tr></thead>
+                <tbody>
+                  {pendentes.map((p, i) => (
+                    <tr key={p.cpf + p.data + i} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+                      <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</div>{p.funcao && <div style={{ fontSize: 11, color: C.gray }}>{p.funcao}</div>}</td>
+                      <td style={td()}>{fmtData(p.data)}</td>
+                      <td style={td()}>{p.setor || '—'}</td>
+                      <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          )}
+        </>
       )}
     </div>
   )
