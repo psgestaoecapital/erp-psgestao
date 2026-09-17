@@ -13,13 +13,13 @@
 // Multi-tenant: RD-34 → useCompanyIds (admin / consolidado / grupo / unica)
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
-  Plus, Search, FileText, ShoppingCart, BarChart3,
-  X, Info, Send, CheckCircle2, ArrowRight, Trash2,
-  Building2, AlertTriangle, MapPin, ExternalLink,
+  Plus, Search, ShoppingCart, BarChart3,
+  X, Info, Send, CheckCircle2, ArrowRight,
+  AlertTriangle,
   Columns3, Lock,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
@@ -197,13 +197,14 @@ export default function OTCPage() {
 }
 
 function OTCPageInner() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { companyIds, selInfo, loading: companiesLoading, sel } = useCompanyIds()
   const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
   const canCreate = !!companyIdUnico
 
-  const initialTab = (searchParams?.get('tab') as Tab) || 'orcamentos'
+  // #90 · abas Orçamentos/Pedidos removidas — só Kanban e Visão geral. Normaliza links antigos.
+  const rawTab = (searchParams?.get('tab') as Tab) || 'kanban'
+  const initialTab: Tab = rawTab === 'visao' ? 'visao' : 'kanban'
   const [tab, setTab] = useState<Tab>(initialTab)
 
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([])
@@ -212,9 +213,6 @@ function OTCPageInner() {
   const [msg, setMsg] = useState<string>('')
   const [erro, setErro] = useState<string>('')
 
-  const [filtroBusca, setFiltroBusca] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState<string>('')
-
   const [orcSel, setOrcSel] = useState<Orcamento | null>(null)
   const [orcItens, setOrcItens] = useState<OrcamentoItem[]>([])
   const [pedSel, setPedSel] = useState<Pedido | null>(null)
@@ -222,6 +220,9 @@ function OTCPageInner() {
   // ⑨ #90 · confirmação ao arrastar Orçamento → Pedido no Kanban (cria documento fiscal → nunca direto)
   const [confirmConv, setConfirmConv] = useState<Orcamento | null>(null)
   const [convertendo, setConvertendo] = useState(false)
+  // #90 · arrastar para Faturado: faturar (pedido) ou converter+faturar (orçamento), com confirmação.
+  const [confirmFatura, setConfirmFatura] = useState<{ tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido } | null>(null)
+  const [faturandoKanban, setFaturandoKanban] = useState(false)
 
   // FIX-VAZAMENTO-JORDANA (07/07 · defesa em profundidade sobre #541):
   //   1) Gate estrito em companyIdUnico (nunca .in(companyIds))
@@ -323,40 +324,37 @@ function OTCPageInner() {
     flash('Pedido criado com sucesso!')
     setOrcSel(null)
     await carregar()
-    router.push(`/dashboard/commerce/otc?tab=pedidos&id=${pedidoId}`)
-    setTab('pedidos')
+    // #90 · abas removidas — abre o pedido recém-criado no drawer (não troca de aba).
+    const { data: ped } = await supabase.from('erp_pedidos').select('*').eq('id', pedidoId).single()
+    if (ped) setPedSel(ped as Pedido)
   }
 
-  // ────────────────────────────────────────────────────────
-  // Listas filtradas
-  // ────────────────────────────────────────────────────────
-
-  const orcFiltrados = useMemo(() => {
-    const q = filtroBusca.trim().toLowerCase()
-    return orcamentos.filter((o) => {
-      if (filtroStatus && o.status !== filtroStatus) return false
-      if (!q) return true
-      return (
-        (o.numero ?? '').toLowerCase().includes(q) ||
-        (o.cliente_nome ?? '').toLowerCase().includes(q) ||
-        (o.cliente_cnpj ?? '').toLowerCase().includes(q) ||
-        (o.vendedor_nome ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [orcamentos, filtroBusca, filtroStatus])
-
-  const pedFiltrados = useMemo(() => {
-    const q = filtroBusca.trim().toLowerCase()
-    return pedidos.filter((p) => {
-      if (filtroStatus && p.status !== filtroStatus) return false
-      if (!q) return true
-      return (
-        (p.numero ?? '').toLowerCase().includes(q) ||
-        (p.cliente_nome ?? '').toLowerCase().includes(q) ||
-        (p.nf_numero ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [pedidos, filtroBusca, filtroStatus])
+  // #90 · arrastar para Faturado. Orçamento: converte e fatura (dois passos, na ordem). Pedido: fatura.
+  async function executarFaturaKanban() {
+    if (!confirmFatura) return
+    setFaturandoKanban(true)
+    try {
+      let pedidoId: string
+      if (confirmFatura.tipo === 'orcamento') {
+        const { data, error } = await supabase.rpc('fn_converter_orcamento_em_pedido', { p_orcamento_id: confirmFatura.orc.id })
+        if (error) throw new Error(error.message)
+        pedidoId = data as string
+      } else {
+        pedidoId = confirmFatura.ped.id
+      }
+      const { data: fat, error: errFat } = await supabase.rpc('fn_faturar', { p_pedido_id: pedidoId })
+      if (errFat) throw new Error(errFat.message)
+      const r = fat as { ok?: boolean; erro?: string } | null
+      if (r && r.ok === false) throw new Error(r.erro ?? 'Falha ao faturar')
+      flash(confirmFatura.tipo === 'orcamento' ? 'Orçamento convertido e faturado!' : 'Pedido faturado!')
+      setConfirmFatura(null)
+      await carregar()
+    } catch (e) {
+      flash('Erro ao faturar: ' + (e instanceof Error ? e.message : 'falha'))
+    } finally {
+      setFaturandoKanban(false)
+    }
+  }
 
   // KPIs Visao Geral
   const kpis = useMemo(() => {
@@ -389,7 +387,7 @@ function OTCPageInner() {
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Orçamento → Pedido → Faturamento</p>
           </div>
         </div>
-        {tab === 'orcamentos' && (
+        {tab === 'kanban' && (
           <button
             onClick={() => setShowNova(true)}
             disabled={!canCreate}
@@ -407,10 +405,8 @@ function OTCPageInner() {
         )}
       </header>
 
-      {/* Tabs */}
+      {/* Tabs — #90: só Kanban e Visão geral (Orçamentos/Pedidos viraram colunas do Kanban) */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}` }}>
-        <TabButton ativo={tab === 'orcamentos'} onClick={() => setTab('orcamentos')} icon={<FileText size={14} />} label="Orçamentos" count={orcamentos.length} />
-        <TabButton ativo={tab === 'pedidos'} onClick={() => setTab('pedidos')} icon={<ShoppingCart size={14} />} label="Pedidos" count={pedidos.length} />
         <TabButton ativo={tab === 'kanban'} onClick={() => setTab('kanban')} icon={<Columns3 size={14} />} label="Kanban" />
         <TabButton ativo={tab === 'visao'} onClick={() => setTab('visao')} icon={<BarChart3 size={14} />} label="Visão geral" />
       </div>
@@ -428,29 +424,6 @@ function OTCPageInner() {
       {msg && <div onClick={() => setMsg('')} style={{ marginBottom: 12, padding: '10px 14px', background: C.greenBg, border: `1px solid ${C.green}55`, borderRadius: 8, color: C.green, fontSize: 12, cursor: 'pointer' }}>{msg}</div>}
       {erro && <div style={{ marginBottom: 12, padding: '10px 14px', background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, color: C.red, fontSize: 12 }}>{erro}</div>}
 
-      {/* Filtros (orcamentos + pedidos) */}
-      {(tab === 'orcamentos' || tab === 'pedidos') && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-          <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
-            <input
-              type="text" placeholder={`Buscar por número, cliente${tab === 'pedidos' ? ', NF' : ''}…`}
-              value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }}
-            />
-          </div>
-          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, background: C.white, color: C.espresso, minWidth: 160 }}>
-            <option value="">Todos os status</option>
-            {Object.keys(tab === 'orcamentos' ? STATUS_ORC : STATUS_PED).map((s) => (
-              <option key={s} value={s}>{(tab === 'orcamentos' ? STATUS_ORC : STATUS_PED)[s].label}</option>
-            ))}
-          </select>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
-            {tab === 'orcamentos' ? orcFiltrados.length : pedFiltrados.length} de {tab === 'orcamentos' ? orcamentos.length : pedidos.length}
-          </span>
-        </div>
-      )}
-
       {/* Conteúdo */}
       {companiesLoading || loading ? (
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
@@ -458,20 +431,18 @@ function OTCPageInner() {
         <EmptyState titulo="Nenhuma empresa disponível" texto="Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular ou selecione uma no menu superior." />
       ) : !companyIdUnico ? (
         <EmptyState titulo="Selecione uma empresa" texto="OTC é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
-      ) : tab === 'orcamentos' ? (
-        <TabelaOrcamentos rows={orcFiltrados} total={orcamentos.length} onSelect={setOrcSel} canCreate={canCreate} onCreate={() => setShowNova(true)} />
-      ) : tab === 'pedidos' ? (
-        <TabelaPedidos rows={pedFiltrados} total={pedidos.length} orcamentos={orcamentos} onSelect={setPedSel} />
-      ) : tab === 'kanban' ? (
+      ) : tab === 'visao' ? (
+        <VisaoGeralKPIs kpis={kpis} />
+      ) : (
         <KanbanBoard
           orcamentos={orcamentos}
           pedidos={pedidos}
           onAbrirOrc={setOrcSel}
           onAbrirPed={setPedSel}
           onSoltarEmPedido={(o) => setConfirmConv(o)}
+          onFaturarOrc={(o) => setConfirmFatura({ tipo: 'orcamento', orc: o })}
+          onFaturarPed={(p) => setConfirmFatura({ tipo: 'pedido', ped: p })}
         />
-      ) : (
-        <VisaoGeralKPIs kpis={kpis} />
       )}
 
       {/* Drawer detalhe orcamento */}
@@ -501,6 +472,16 @@ function OTCPageInner() {
             setConvertendo(false)
             setConfirmConv(null)
           }}
+        />
+      )}
+
+      {/* #90 · confirmação Kanban: arrastar para Faturado (fatura; converte antes se for orçamento) */}
+      {confirmFatura && (
+        <ConfirmFaturarModal
+          info={confirmFatura}
+          loading={faturandoKanban}
+          onCancel={() => { if (!faturandoKanban) setConfirmFatura(null) }}
+          onConfirm={() => { void executarFaturaKanban() }}
         />
       )}
 
@@ -570,246 +551,147 @@ function EmptyState({ titulo, texto, cta }: { titulo: string; texto: string; cta
   )
 }
 
-function TabelaOrcamentos({ rows, total, onSelect, canCreate, onCreate }: { rows: Orcamento[]; total: number; onSelect: (o: Orcamento) => void; canCreate: boolean; onCreate: () => void }) {
-  if (total === 0) {
-    return <EmptyState titulo="Nenhum orçamento ainda" texto="Crie seu primeiro orçamento para iniciar o ciclo Order-to-Cash." cta={canCreate ? { label: '+ Novo orçamento', onClick: onCreate } : undefined} />
-  }
-  if (rows.length === 0) {
-    return <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum orçamento corresponde aos filtros.</div>
-  }
-  return (
-    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
-          <thead style={{ background: C.cream }}>
-            <tr>
-              <Th>Número</Th>
-              <Th>Cliente</Th>
-              <Th>Emissão</Th>
-              <Th>Validade</Th>
-              <Th align="right">Total</Th>
-              <Th>Status</Th>
-              <Th align="right">Views</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((o) => (
-              <tr key={o.id} onClick={() => onSelect(o)} style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <Td>
-                  <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600 }}>{o.numero ?? '—'}</div>
-                  {(o.versao ?? 0) > 1 && <span style={{ fontSize: 9, color: C.espressoM }}>v{o.versao}</span>}
-                </Td>
-                <Td>
-                  <div style={{ fontWeight: 600 }}>{o.cliente_nome ?? '—'}</div>
-                  {o.cliente_cnpj && <div style={{ fontSize: 10, color: C.espressoM }}>{o.cliente_cnpj}</div>}
-                </Td>
-                <Td>{fmtDate(o.data_emissao)}</Td>
-                <Td>{fmtDate(o.data_validade)}</Td>
-                <Td align="right"><strong>{fmtBRL(o.total)}</strong></Td>
-                <Td><StatusBadge status={o.status} mapa={STATUS_ORC} /></Td>
-                <Td align="right"><span style={{ color: C.espressoM }}>{o.qtd_visualizacoes ?? 0}</span></Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
+const DND_MIME = 'application/x-otc-card'
 
-function TabelaPedidos({ rows, total, orcamentos, onSelect }: { rows: Pedido[]; total: number; orcamentos: Orcamento[]; onSelect: (p: Pedido) => void }) {
-  const orcMap = useMemo(() => Object.fromEntries(orcamentos.map((o) => [o.id, o])), [orcamentos])
-  if (total === 0) {
-    return <EmptyState titulo="Nenhum pedido ainda" texto="Pedidos são criados ao converter orçamentos aprovados. Aprovação manual ou via cliente público." />
-  }
-  if (rows.length === 0) {
-    return <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum pedido corresponde aos filtros.</div>
-  }
-  return (
-    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 900 }}>
-          <thead style={{ background: C.cream }}>
-            <tr>
-              <Th>Número</Th>
-              <Th>Cliente</Th>
-              <Th>Data pedido</Th>
-              <Th>Prev. entrega</Th>
-              <Th align="right">Total</Th>
-              <Th>Status</Th>
-              <Th>NF-e</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => {
-              const orcOrigem = p.orcamento_origem_id ? orcMap[p.orcamento_origem_id] : null
-              return (
-                <tr key={p.id} onClick={() => onSelect(p)} style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <Td>
-                    <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600 }}>{p.numero ?? '—'}</div>
-                    {orcOrigem && <div style={{ fontSize: 9, color: C.purple }} title="Originado de orçamento">📂 {orcOrigem.numero}</div>}
-                  </Td>
-                  <Td><div style={{ fontWeight: 600 }}>{p.cliente_nome ?? '—'}</div></Td>
-                  <Td>{fmtDate(p.data_pedido)}</Td>
-                  <Td>{fmtDate(p.data_prevista_entrega)}</Td>
-                  <Td align="right"><strong>{fmtBRL(p.total)}</strong></Td>
-                  <Td><StatusBadge status={p.status} mapa={STATUS_PED} /></Td>
-                  <Td>{p.nf_emitida && p.nf_numero ? <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>{p.nf_numero}</span> : <span style={{ fontSize: 10, color: C.espressoL }}>—</span>}</Td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────
-// ⑨ #90 · Kanban "Vender e Faturar" — Orçamento → Pedido → Faturado
-//
-// Padrão visual reaproveitado de OportunidadesKanban (colunas + cards), mas
-// componente próprio — este tem regras fiscais que o de oportunidades não tem:
-//   • Só cards de ORÇAMENTO são arrastáveis (draggable). Pedido/Faturado não.
-//   • A ÚNICA coluna que aceita drop é "Pedido". Soltar ali NÃO converte direto:
-//     abre confirmação (converter cria documento fiscal — nunca por gesto só).
-//   • "Faturado" é SÓ LEITURA: não é drop-target, seus cards não arrastam. Não
-//     dá pra emitir nota arrastando (emissão é ação fiscal deliberada, na tela
-//     do pedido). Clicar em qualquer card abre o detalhe (drawer) normalmente.
-// ────────────────────────────────────────────────────────
-
-const DND_MIME = 'application/x-otc-orcamento'
-
+// ⑨ #90 · Kanban "Vender e Faturar". DnD robusto (preventDefault SEMPRE no dragover — habilitar o
+// drop nunca depende de estado React defasado). Orçamento arrasta p/ Pedido (converter) ou p/
+// Faturado (converter+faturar). Pedido arrasta p/ Faturado (faturar). Tudo com confirmação.
 function KanbanBoard({
-  orcamentos, pedidos, onAbrirOrc, onAbrirPed, onSoltarEmPedido,
+  orcamentos, pedidos, onAbrirOrc, onAbrirPed, onSoltarEmPedido, onFaturarOrc, onFaturarPed,
 }: {
   orcamentos: Orcamento[]
   pedidos: Pedido[]
   onAbrirOrc: (o: Orcamento) => void
   onAbrirPed: (p: Pedido) => void
   onSoltarEmPedido: (o: Orcamento) => void
+  onFaturarOrc: (o: Orcamento) => void
+  onFaturarPed: (p: Pedido) => void
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
-  const [dropAtivo, setDropAtivo] = useState(false)
+  const [dragKind, setDragKind] = useState<'orc' | 'ped' | null>(null)
+  const [dropCol, setDropCol] = useState<'ped' | 'fat' | null>(null)
+  const [busca, setBusca] = useState('')
+  const q = busca.trim().toLowerCase()
 
-  // Coluna "Orçamento": abertos e conversíveis (o que ainda pode virar pedido).
+  // Busca migrada da aba removida (nada se perde): filtra por número ou cliente.
   const colOrc = useMemo(
-    () => orcamentos.filter((o) => !o.pedido_id && ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(o.status)),
-    [orcamentos],
+    () => orcamentos.filter((o) => !o.pedido_id && ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(o.status)
+      && (!q || (o.numero ?? '').toLowerCase().includes(q) || (o.cliente_nome ?? '').toLowerCase().includes(q))),
+    [orcamentos, q],
   )
-  // Coluna "Pedido": pedidos vivos ainda não faturados.
   const colPed = useMemo(
-    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && !p.nf_emitida),
-    [pedidos],
+    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && !p.nf_emitida
+      && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
+    [pedidos, q],
   )
-  // Coluna "Faturado" (só leitura): faturado OU com NF emitida.
   const colFat = useMemo(
-    () => pedidos.filter((p) => p.status === 'faturado' || p.nf_emitida),
-    [pedidos],
+    () => pedidos.filter((p) => (p.status === 'faturado' || p.nf_emitida)
+      && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
+    [pedidos, q],
   )
 
-  const dragOrc = dragId ? colOrc.find((o) => o.id === dragId) ?? null : null
+  function iniciarDrag(e: React.DragEvent, id: string, kind: 'orc' | 'ped') {
+    setDragId(id); setDragKind(kind)
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData(DND_MIME, `${kind}:${id}`) } catch { /* alguns browsers travam custom mime */ }
+    e.dataTransfer.setData('text/plain', id)
+  }
+  function fimDrag() { setDragId(null); setDragKind(null); setDropCol(null) }
+  // preventDefault SEMPRE (o alvo aceita o drop). Decidir o que fazer fica no onDrop.
+  function permitirDrop(e: React.DragEvent, col: 'ped' | 'fat') {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'
+    if (dropCol !== col) setDropCol(col)
+  }
+
+  const cardOrc = (o: Orcamento) => (
+    <div key={o.id} draggable onDragStart={(e) => iniciarDrag(e, o.id, 'orc')} onDragEnd={fimDrag} onClick={() => onAbrirOrc(o)}
+      style={{ cursor: 'grab', opacity: dragId === o.id ? 0.5 : 1, background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.gold}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
+      title="Arraste para Pedido (converter) ou Faturado (converter e faturar); clique para abrir">
+      <KanbanCardTopo numero={o.numero} status={o.status} mapa={STATUS_ORC} />
+      <div style={{ fontWeight: 600, fontSize: 12 }}>{o.cliente_nome ?? '—'}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
+        <span>{fmtDate(o.data_validade) !== '—' ? `val. ${fmtDate(o.data_validade)}` : fmtDate(o.data_emissao)}</span>
+        <strong style={{ color: C.gold }}>{fmtBRL(o.total)}</strong>
+      </div>
+    </div>
+  )
+  const cardPed = (p: Pedido) => (
+    <div key={p.id} draggable onDragStart={(e) => iniciarDrag(e, p.id, 'ped')} onDragEnd={fimDrag} onClick={() => onAbrirPed(p)}
+      style={{ cursor: 'grab', opacity: dragId === p.id ? 0.5 : 1, background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
+      title="Arraste para Faturado para faturar, ou clique para abrir">
+      <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
+      <div style={{ fontWeight: 600, fontSize: 12 }}>{p.cliente_nome ?? '—'}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
+        <span>{fmtDate(p.data_pedido)}</span>
+        <strong style={{ color: C.blue }}>{fmtBRL(p.total)}</strong>
+      </div>
+    </div>
+  )
 
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
+          <input type="text" placeholder="Buscar por número ou cliente…" value={busca} onChange={(e) => setBusca(e.target.value)}
+            style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+        </div>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: C.espressoM }}>
         <Info size={13} />
-        <span>Arraste um orçamento para a coluna <strong>Pedido</strong> para convertê-lo — pediremos confirmação, pois isso cria o documento. A coluna <strong>Faturado</strong> é somente leitura.</span>
+        <span>Arraste um <strong>orçamento</strong> para <strong>Pedido</strong> (converter) ou direto para <strong>Faturado</strong> (converter e faturar). Arraste um <strong>pedido</strong> para <strong>Faturado</strong> para faturar. Cada passo pede confirmação.</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, alignItems: 'start' }}>
-        {/* ── Orçamento (origem: arrastável) ── */}
+        {/* ── Orçamento (arrastável) ── */}
         <KanbanColuna titulo="Orçamento" cor={C.gold} corBg={C.goldBg} qtd={colOrc.length} total={colOrc.reduce((s, o) => s + (Number(o.total) || 0), 0)}>
-          {colOrc.length === 0 ? (
-            <KanbanVazio texto="Nenhum orçamento em aberto." />
-          ) : (
-            colOrc.map((o) => (
-              <div
-                key={o.id}
-                draggable
-                onDragStart={(e) => {
-                  setDragId(o.id)
-                  e.dataTransfer.effectAllowed = 'move'
-                  try { e.dataTransfer.setData(DND_MIME, o.id) } catch { /* alguns browsers travam custom mime */ }
-                  e.dataTransfer.setData('text/plain', o.id)
-                }}
-                onDragEnd={() => { setDragId(null); setDropAtivo(false) }}
-                onClick={() => onAbrirOrc(o)}
-                style={{
-                  cursor: 'grab', opacity: dragId === o.id ? 0.5 : 1,
-                  background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.gold}`,
-                  borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6,
-                }}
-                title="Arraste para Pedido para converter, ou clique para abrir"
-              >
-                <KanbanCardTopo numero={o.numero} status={o.status} mapa={STATUS_ORC} />
-                <div style={{ fontWeight: 600, fontSize: 12 }}>{o.cliente_nome ?? '—'}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
-                  <span>{fmtDate(o.data_validade) !== '—' ? `val. ${fmtDate(o.data_validade)}` : fmtDate(o.data_emissao)}</span>
-                  <strong style={{ color: C.gold }}>{fmtBRL(o.total)}</strong>
-                </div>
-              </div>
-            ))
-          )}
+          {colOrc.length === 0 ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
         </KanbanColuna>
 
-        {/* ── Pedido (único drop-target) ── */}
+        {/* ── Pedido (drop-target: converter) ── */}
         <div
-          onDragOver={(e) => { if (dragOrc) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (!dropAtivo) setDropAtivo(true) } }}
-          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropAtivo(false) }}
+          onDragOver={(e) => { if (dragKind === 'orc') permitirDrop(e, 'ped') }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCol((c) => (c === 'ped' ? null : c)) }}
           onDrop={(e) => {
             e.preventDefault()
-            setDropAtivo(false)
-            const id = (() => { try { return e.dataTransfer.getData(DND_MIME) } catch { return '' } })() || e.dataTransfer.getData('text/plain') || dragId
-            const orc = id ? colOrc.find((o) => o.id === id) : null
-            setDragId(null)
+            const orc = dragKind === 'orc' && dragId ? colOrc.find((o) => o.id === dragId) ?? null : null
+            fimDrag()
             if (orc) onSoltarEmPedido(orc)
           }}
-          style={{ borderRadius: 12, outline: dropAtivo ? `2px dashed ${C.blue}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
+          style={{ borderRadius: 12, outline: dropCol === 'ped' ? `2px dashed ${C.blue}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
         >
           <KanbanColuna titulo="Pedido" cor={C.blue} corBg={C.blueBg} qtd={colPed.length} total={colPed.reduce((s, p) => s + (Number(p.total) || 0), 0)}>
-            {dropAtivo && (
+            {dropCol === 'ped' && (
               <div style={{ border: `2px dashed ${C.blue}`, borderRadius: 8, padding: 12, textAlign: 'center', fontSize: 11, color: C.blue, background: C.blueBg, fontWeight: 600 }}>
                 Soltar para converter em pedido
               </div>
             )}
-            {colPed.length === 0 && !dropAtivo ? (
-              <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." />
-            ) : (
-              colPed.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => onAbrirPed(p)}
-                  style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
-                >
-                  <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
-                  <div style={{ fontWeight: 600, fontSize: 12 }}>{p.cliente_nome ?? '—'}</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
-                    <span>{fmtDate(p.data_pedido)}</span>
-                    <strong style={{ color: C.blue }}>{fmtBRL(p.total)}</strong>
-                  </div>
-                </div>
-              ))
-            )}
+            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : colPed.map(cardPed)}
           </KanbanColuna>
         </div>
 
-        {/* ── Faturado (só leitura) ── */}
-        <KanbanColuna titulo="Faturado" cor={C.purple} corBg={C.purpleBg} qtd={colFat.length} total={colFat.reduce((s, p) => s + (Number(p.total) || 0), 0)} soLeitura>
-          {colFat.length === 0 ? (
-            <KanbanVazio texto="Nada faturado ainda." />
-          ) : (
-            colFat.map((p) => (
-              <div
-                key={p.id}
-                onClick={() => onAbrirPed(p)}
-                style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
-              >
+        {/* ── Faturado (drop-target: faturar) ── */}
+        <div
+          onDragOver={(e) => permitirDrop(e, 'fat')}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCol((c) => (c === 'fat' ? null : c)) }}
+          onDrop={(e) => {
+            e.preventDefault()
+            const orc = dragKind === 'orc' && dragId ? colOrc.find((o) => o.id === dragId) ?? null : null
+            const ped = dragKind === 'ped' && dragId ? colPed.find((p) => p.id === dragId) ?? null : null
+            fimDrag()
+            if (orc) onFaturarOrc(orc)
+            else if (ped) onFaturarPed(ped)
+          }}
+          style={{ borderRadius: 12, outline: dropCol === 'fat' ? `2px dashed ${C.purple}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
+        >
+          <KanbanColuna titulo="Faturado" cor={C.purple} corBg={C.purpleBg} qtd={colFat.length} total={colFat.reduce((s, p) => s + (Number(p.total) || 0), 0)}>
+            {dropCol === 'fat' && (
+              <div style={{ border: `2px dashed ${C.purple}`, borderRadius: 8, padding: 12, textAlign: 'center', fontSize: 11, color: C.purple, background: C.purpleBg, fontWeight: 600 }}>
+                Soltar para faturar
+              </div>
+            )}
+            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : colFat.map((p) => (
+              <div key={p.id} onClick={() => onAbrirPed(p)}
+                style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
                 <div style={{ fontWeight: 600, fontSize: 12 }}>{p.cliente_nome ?? '—'}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
@@ -817,9 +699,9 @@ function KanbanBoard({
                   <strong style={{ color: C.purple }}>{fmtBRL(p.total)}</strong>
                 </div>
               </div>
-            ))
-          )}
-        </KanbanColuna>
+            ))}
+          </KanbanColuna>
+        </div>
       </div>
     </div>
   )
@@ -880,6 +762,47 @@ function ConfirmConverterModal({ orc, loading, onCancel, onConfirm }: {
           <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Cancelar</button>
           <button onClick={onConfirm} disabled={loading} style={{ ...btnPri, background: C.blue, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
             <ArrowRight size={14} /> {loading ? 'Convertendo…' : 'Converter em pedido'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// #90 · confirmação ao arrastar para Faturado. Orçamento → "converter em pedido e faturar?"
+// (dois passos, na ordem). Pedido → "faturar pedido?". Emitir/faturar é ação séria, nunca por gesto só.
+function ConfirmFaturarModal({ info, loading, onCancel, onConfirm }: {
+  info: { tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido }
+  loading: boolean; onCancel: () => void; onConfirm: () => void
+}) {
+  const ehOrc = info.tipo === 'orcamento'
+  const doc = ehOrc ? info.orc : info.ped
+  const titulo = ehOrc ? 'Converter em pedido e faturar?' : 'Faturar pedido?'
+  const acao = ehOrc ? 'Converter e faturar' : 'Faturar'
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(460px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ArrowRight size={18} style={{ color: C.purple }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{titulo}</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            {ehOrc ? 'O orçamento ' : 'O pedido '}
+            <strong style={{ fontFamily: 'monospace' }}>{doc.numero ?? '—'}</strong> de <strong>{doc.cliente_nome ?? '—'}</strong> ({fmtBRL(doc.total)})
+            {ehOrc
+              ? <> vai <strong>virar pedido</strong> e depois ser <strong>faturado</strong> (baixa estoque e gera as contas a receber).</>
+              : <> vai ser <strong>faturado</strong> (baixa estoque e gera as contas a receber).</>}
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: 10, fontSize: 12, color: C.amber }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Cria documentos (pedido{ehOrc ? ' e ' : ' já existe; gera '}títulos) e não é desfeito por arrastar de volta. Confirme para prosseguir.</span>
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Cancelar</button>
+          <button onClick={onConfirm} disabled={loading} style={{ ...btnPri, background: C.purple, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
+            <ArrowRight size={14} /> {loading ? 'Processando…' : acao}
           </button>
         </div>
       </div>
