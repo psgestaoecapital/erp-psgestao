@@ -6,6 +6,7 @@ import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/
 import { CamposPix } from './CamposPix'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
+import GerarBoletosReceita from './GerarBoletosReceita'
 import Modal from '@/components/ui/Modal'
 import ClienteForm, { type ClienteFormInitial } from '@/components/clientes/ClienteForm'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
@@ -132,6 +133,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     | { modo: 'editar'; initial: ClienteFormInitial }
   >(null)
   const [toast, setToast] = useState<string | null>(null)
+  // #72 · após criar uma receita de boleto, mostra o passo de emitir o(s) boleto(s) aqui mesmo
+  const [boletos, setBoletos] = useState<{ ids: string[]; primeiroId: string } | null>(null)
 
   // Recarrega a lista do seletor (mesma query do load inicial) e devolve os clientes atualizados,
   // pra podermos auto-selecionar o recém-criado/editado sem esperar o estado propagar.
@@ -471,6 +474,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
     setLoading(false)
 
+    // #72 · receita de boleto → oferece emitir o(s) boleto(s) na PRÓPRIA tela (sem voltar à consulta).
+    // Parcelada = gera os N e baixa todos juntos. Só quando não é conciliação nem "já recebido".
+    if (formaRecebimento === 'boleto' && !origemConciliacao && !jaRecebido && ids.length > 0) {
+      setBoletos({ ids, primeiroId: ids[0] })
+      return
+    }
+
     const msg = `${VERBO_SUCESSO.criar}${parcelas >= 2 ? ` ${parcelas} parcelas · ${brl(somaParcelas)}` : ` ${brl(parseFloat(valor) || 0)}`}`
     const primeiroId = ids[0]
     if (origemConciliacao) {
@@ -483,6 +493,26 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       setToast(msg)
       router.push('/dashboard/financeiro/receber?area=gestao_empresarial')
     }
+  }
+
+  // #72 · fecha o passo de boleto — segue o mesmo destino do salvar normal.
+  function concluirBoleto() {
+    const primeiroId = boletos?.primeiroId
+    setBoletos(null)
+    if (primeiroId && onSucesso) onSucesso(primeiroId)
+    else router.push('/dashboard/financeiro/receber?area=gestao_empresarial')
+  }
+
+  // #72 · passo pós-criação: emitir o(s) boleto(s) da receita recém-criada, aqui mesmo.
+  if (boletos) {
+    return (
+      <div style={{ background: '#FAF7F2', minHeight: '100vh', padding: '32px 28px' }}>
+        <div style={{ maxWidth: 560, margin: '0 auto' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#3D2314' }}>Receita criada ✓</div>
+          <GerarBoletosReceita companyId={companyId} ids={boletos.ids} onConcluir={concluirBoleto} />
+        </div>
+      </div>
+    )
   }
 
   return (
