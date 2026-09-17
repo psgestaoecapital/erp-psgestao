@@ -1,14 +1,25 @@
 -- 🔴 #90/#82/#18 (Rodrigo/R.R, 16 dias) — a nota não emitia mesmo com a obra apontada.
--- Causa (provada): fn_receber_nfse_dados (chamada pela rota /api/fiscal/nfse/emitir antes do Focus)
--- carregava uma trava "Fase A" legada que (a) exigia CNO ou código de obra municipal e (b) mesmo
--- com a obra completa, BLOQUEAVA toda NFS-e de construção ("Fase B na próxima versão"). A obra 0002
--- da R.R tem endereço completo mas NÃO tem CNO → caía no erro "sem CNO nem código de obra municipal".
--- Mas a Fase B JÁ está implementada no caminho de emissão (#18/#82): o grupo de obra (endereço/CNO)
--- vai no payload ao Focus e o cLocIncid usa o IBGE da obra. A regra correta (E0370) é CNO **OU**
--- endereço — exigir CNO é bug.
 --
--- Correção: aceita CNO OU endereço completo (logradouro+CEP+IBGE) e NÃO bloqueia mais — segue para
--- a emissão normalmente (o grupo de obra é montado pela rota + provider Focus).
+-- Causa (provada, RD-38): a rota /api/fiscal/nfse/emitir chama fn_receber_nfse_dados antes do
+-- Focus (o NFSePreviewModal sempre manda servicoId). Essa função carregava uma SEGUNDA validação
+-- de obra — a trava "Fase A" legada — que exigia CNO/código municipal e IGNORAVA o endereço:
+--     IF cno='' AND codigo_obra_municipal='' THEN erro "sem CNO nem código de obra municipal…"
+-- A obra 0002 da R.R tem endereço completo (Rua Marques do Herval 3249, São Miguel do Oeste/SC,
+-- IBGE 4217204) mas NÃO tem CNO → caía nessa trava. É contra a regra E0370 (CNO **OU** endereço).
+--
+-- Duas validações para a mesma regra: fn_nfse_obra_pendente já está correta e provada (aceita CNO
+-- OU endereço, com guard IBGE↔UF e a mensagem certa "informe o CNO ou o endereço completo"), mas
+-- fn_receber_nfse_dados mantinha a sua própria cópia — que ficou velha. É o mesmo padrão dos 3 CRMs
+-- e dos 2 modelos de estoque: quando há duas regras, uma envelhece.
+--
+-- Correção: APAGA a validação duplicada e DELEGA a fn_nfse_obra_pendente (fonte única). Assim a
+-- regra da emissão passa a ser exatamente a mesma da tela, provada, para sempre. O grupo de obra
+-- continua sendo montado no payload pela rota + provider Focus (Fase B, entregue no #18/#82).
+--
+-- Provado no dado: fn_nfse_obra_pendente(R.R, '070202', obra 0002, NULL, NULL)
+--   → exige_obra=true, pendente=false, mensagem=null  (deixa passar — endereço basta).
+-- (Obs.: o registro de "exige obra" para o código municipal vive em
+--  erp_fiscal_servico_obra_obrigatoria — ex.: 070202 —, que é o que fn_nfse_obra_pendente usa.)
 
 CREATE OR REPLACE FUNCTION public.fn_receber_nfse_dados(p_receber_id uuid, p_servico_id uuid, p_obra_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
@@ -18,7 +29,7 @@ CREATE OR REPLACE FUNCTION public.fn_receber_nfse_dados(p_receber_id uuid, p_ser
 AS $function$
 DECLARE
   v_r record; v_s record; v_c record; v_doc text; v_tipo text; v_desc text;
-  v_exig jsonb; v_ob record; v_tem_cno boolean; v_tem_end boolean;
+  v_exig jsonb; v_pend jsonb; v_exige_obra boolean;
 BEGIN
   SELECT id, company_id, cliente_id, cliente_nome, descricao, valor INTO v_r FROM erp_receber WHERE id = p_receber_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('erro', 'Recebível não encontrado'); END IF;
@@ -29,24 +40,27 @@ BEGIN
   IF COALESCE(v_s.codigo_lc116, '') = '' OR COALESCE(v_s.codigo_servico_municipio, '') = '' THEN
     RETURN jsonb_build_object('erro', 'O serviço está sem item LC116 / código municipal — corrija em Cadastros > Serviços'); END IF;
 
-  -- E0370 (Fase B): serviço de construção exige obra com CNO **OU** endereço completo. Qualquer um
-  -- basta (nunca os dois). O grupo de obra é enviado no XML pela rota; aqui só validamos e liberamos.
+  -- E0370 (Fase B): serviço de construção exige obra com CNO **OU** endereço completo (nunca os dois).
+  -- REGRA ÚNICA: fn_nfse_obra_pendente (a mesma da tela). Aqui só perguntamos e liberamos; o grupo
+  -- de obra vai no XML pela rota. (fn_nfse_obra_exigencia é usada só p/ o rótulo do subitem quando
+  -- falta apontar a obra — paridade com o seletor do modal, que lê os subitens do LC116.)
   v_exig := public.fn_nfse_obra_exigencia(v_s.codigo_lc116);
-  IF (v_exig->>'exige')::boolean THEN
+  v_pend := public.fn_nfse_obra_pendente(v_r.company_id, v_s.codigo_servico_municipio, p_obra_id, NULL, NULL);
+  v_exige_obra := COALESCE((v_exig->>'exige')::boolean, false)
+               OR COALESCE((v_pend->>'exige_obra')::boolean, false);
+
+  IF v_exige_obra THEN
     IF p_obra_id IS NULL THEN
       RETURN jsonb_build_object('erro',
-        'Este serviço exige informação de obra (subitem ' || (v_exig->>'subitem_repr') || '). Selecione ou cadastre a obra do tomador.',
-        'exige_obra', true, 'subitens', v_exig->'subitens'); END IF;
-    SELECT id, nome, endereco, numero_endereco, bairro, cidade, uf, cep, codigo_ibge_municipio, cno, art, codigo_obra_municipal
-      INTO v_ob FROM projetos_obras WHERE id = p_obra_id AND company_id = v_r.company_id;
-    IF NOT FOUND THEN RETURN jsonb_build_object('erro', 'Obra não encontrada nesta empresa.', 'exige_obra', true); END IF;
-    v_tem_cno := COALESCE(v_ob.cno,'') <> '' OR COALESCE(v_ob.codigo_obra_municipal,'') <> '';
-    v_tem_end := COALESCE(v_ob.endereco,'') <> '' AND COALESCE(v_ob.cep,'') <> '' AND COALESCE(v_ob.codigo_ibge_municipio,'') <> '';
-    IF NOT v_tem_cno AND NOT v_tem_end THEN
+        'Este serviço exige informação de obra (subitem ' || COALESCE(v_exig->>'subitem_repr', v_s.codigo_lc116) || '). Selecione ou cadastre a obra do tomador.',
+        'exige_obra', true, 'subitens', COALESCE(v_exig->'subitens', '[]'::jsonb)); END IF;
+    -- verdito de completude vem SÓ da fn_nfse_obra_pendente (CNO OU endereço, guard IBGE↔UF).
+    IF COALESCE((v_pend->>'pendente')::boolean, false) THEN
       RETURN jsonb_build_object('erro',
-        'A obra "' || v_ob.nome || '" precisa de CNO OU endereço completo (logradouro, CEP e código IBGE) — complete na ficha da obra.',
-        'exige_obra', true, 'obra_id', v_ob.id); END IF;
-    -- obra OK (CNO ou endereço) → NÃO bloqueia: o grupo de obra vai no XML (Fase B). Segue o fluxo.
+        COALESCE(v_pend->>'mensagem',
+          'A obra precisa de CNO OU endereço completo (logradouro, número, município/IBGE, UF e CEP) — complete na ficha da obra.'),
+        'exige_obra', true, 'obra_id', p_obra_id); END IF;
+    -- obra OK (CNO ou endereço) → NÃO bloqueia: segue o fluxo normal.
   END IF;
 
   SELECT COALESCE(cnpj_cpf, cpf_cnpj) AS doc, email, razao_social INTO v_c FROM erp_clientes WHERE id = v_r.cliente_id;
