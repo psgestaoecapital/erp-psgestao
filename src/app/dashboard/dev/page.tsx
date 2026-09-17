@@ -260,6 +260,8 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   const [versoes,setVersoes]=useState<any[]>([]);   // A3 — histórico (todas as versões desta vertical)
   const [barra,setBarra]=useState<any|null>(null);   // A2 — as 3 barras desta vertical, resumidas
   const [verVersao,setVerVersao]=useState<any|null>(null); // A3 — versão antiga aberta para leitura
+  const [audit,setAudit]=useState<any|null>(null);   // ⑧ — número VERDADEIRO da auditoria (X de N · sem botão)
+  const [verSemBotao,setVerSemBotao]=useState(false); // ⑧ — expandir a lista das telas sem botão de auditoria
   async function carregarDoc(){
     setCarregando(true);setSemDoc(false);setDoc(null);setAprovadorNome(null);
     const{data}=await supabase.from('erp_documento_vertical')
@@ -283,6 +285,9 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     // A2 — as 3 barras desta vertical (mesma RPC da aba Leitura), pra não precisar trocar de aba.
     const{data:barras}=await supabase.rpc('fn_dev_central_barras');
     setBarra(((barras||[]) as any[]).find(b=>b.area_slug===vertical)||null);
+    // ⑧ — status VERDADEIRO da auditoria desta vertical (X de N auditadas · telas sem botão)
+    const{data:au}=await supabase.rpc('fn_dev_vertical_auditoria_status',{p_vertical:vertical});
+    setAudit(au||null); setVerSemBotao(false);
   })();},[vertical]);
 
   async function aprovarDoc(){
@@ -313,8 +318,9 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
         body:JSON.stringify({vertical})});
       const d=await res.json();
       if(!res.ok){setDisparo({ok:false,msg:d.error||'Falha ao disparar.'});}
-      else{setDisparo({ok:true,msg:`Auditoria disparada em ${d.rotas_disparadas}/${d.rotas_auditaveis} telas. ${d.aviso}`});
-        const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical}); if(o)setOrc(o as Orc);}
+      else{setDisparo({ok:true,msg:`Disparei a auditoria de ${d.rotas_disparadas} tela(s) com botão-ouro. Roda em minutos — o número "auditadas" abaixo atualiza quando terminar. Rode de novo para reforçar.`});
+        const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical}); if(o)setOrc(o as Orc);
+        const{data:au}=await supabase.rpc('fn_dev_vertical_auditoria_status',{p_vertical:vertical}); if(au)setAudit(au);}
     }catch(e:any){setDisparo({ok:false,msg:e.message||'Erro de rede.'});}
     setDisparando(false);
   }
@@ -428,6 +434,24 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
           </div>
           {!orc.pode&&orc.motivo&&<div style={{fontSize:10.5,color:Y,marginTop:8}}>{orc.motivo}</div>}
           {disparo&&<div style={{fontSize:11,color:disparo.ok?G:R,marginTop:8,lineHeight:1.5}}>{disparo.ok?'✅ ':'❌ '}{disparo.msg}</div>}
+          {/* ⑧ — número VERDADEIRO: X de N auditadas · telas sem botão (não-auditáveis) · última auditoria */}
+          {audit&&audit.total>0&&(
+            <div style={{fontSize:11,color:TX,marginTop:8,borderTop:`1px dashed ${BD}`,paddingTop:8,lineHeight:1.6}}>
+              <b style={{color:audit.auditadas>=audit.auditaveis?G:GO}}>{audit.auditadas} de {audit.total} auditadas</b>
+              {audit.sem_botao>0&&<> · <button type="button" onClick={()=>setVerSemBotao(v=>!v)} style={{background:'none',border:'none',color:Y,cursor:'pointer',fontSize:11,textDecoration:'underline',padding:0,fontFamily:'inherit'}}>{audit.sem_botao} sem botão de auditoria</button></>}
+              {audit.ultima_em&&<> · última {new Date(audit.ultima_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</>}
+              {audit.auditaveis>0&&audit.auditadas<audit.auditaveis&&<span style={{color:TXM}}> · rode de novo para as próximas</span>}
+              {audit.auditaveis>0&&audit.auditadas>=audit.auditaveis&&audit.sem_botao>0&&<span style={{color:TXM}}> · é o máximo hoje ({audit.auditaveis} de {audit.total} têm botão)</span>}
+              {verSemBotao&&audit.sem_botao_lista&&(
+                <div style={{marginTop:6,maxHeight:180,overflowY:'auto',background:BG3,borderRadius:8,border:`1px solid ${BD}`,padding:8}}>
+                  <div style={{fontSize:10,color:TXM,marginBottom:4}}>Telas sem botão-ouro (o robô ainda não consegue auditá-las):</div>
+                  {(audit.sem_botao_lista as any[]).map((t:any)=>(
+                    <div key={t.rota} style={{fontSize:10.5,color:TX,padding:'2px 0'}}>· <b>{t.titulo||'(sem título)'}</b> <span style={{color:TXD}}>{t.rota}</span></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div style={{fontSize:9.5,color:TXD,marginTop:8,borderTop:`1px dashed ${BD}`,paddingTop:8}}>
             ⏱ O <b>diagnóstico</b> do robô sai <b>em minutos</b>. A <b>análise cruzada com o blueprint</b> só sai <b>na próxima conversa com a Claude</b> — não vem sozinha. O roadmap como indicador separado entra depois.
           </div>
