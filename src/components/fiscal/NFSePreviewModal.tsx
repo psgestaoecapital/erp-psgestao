@@ -55,7 +55,7 @@ export default function NFSePreviewModal(props: Props) {
   const [subitem, setSubitem] = useState('')
   const [obra, setObra] = useState({ logradouro: '', numero: '', bairro: '', cidade: '', cep: '', uf: '', municipio: '', cno: '' })
   // #82① · apontar a obra do Hub (opcional): ao escolher, puxa endereço/CNO já salvos e passa obra_id.
-  const [obras, setObras] = useState<Array<{ id: string; numero: string; nome: string | null }>>([])
+  const [obras, setObras] = useState<Array<{ id: string; numero: string; nome: string | null; endereco: string | null; cidade: string | null; uf: string | null }>>([])
   const [obraId, setObraId] = useState('')
 
   useEffect(() => {
@@ -121,11 +121,11 @@ export default function NFSePreviewModal(props: Props) {
       if (!props.open || !props.companyId || subitens.length === 0) { if (alive) setObras([]); return }
       const { data } = await supabase
         .from('projetos_obras')
-        .select('id,numero,nome')
+        .select('id,numero,nome,endereco,cidade,uf')
         .eq('company_id', props.companyId)
         .order('numero', { ascending: false })
       if (!alive) return
-      setObras((data ?? []) as Array<{ id: string; numero: string; nome: string | null }>)
+      setObras((data ?? []) as Array<{ id: string; numero: string; nome: string | null; endereco: string | null; cidade: string | null; uf: string | null }>)
     })()
     return () => { alive = false }
   }, [props.open, props.companyId, subitens.length])
@@ -312,9 +312,16 @@ export default function NFSePreviewModal(props: Props) {
                         className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
                       >
                         <option value="">— Preencher manualmente —</option>
-                        {obras.map((o) => (
-                          <option key={o.id} value={o.id}>{o.numero}{o.nome ? ` · ${o.nome}` : ''}</option>
-                        ))}
+                        {/* #82/#18 · rótulo com endereço/cidade para o usuário DISTINGUIR as obras (evita
+                            o caso das 5 obras homônimas "Rodrigo Jantsch"); marca as sem endereço. */}
+                        {obras.map((o) => {
+                          const loc = [o.endereco, o.cidade && o.uf ? `${o.cidade}/${o.uf}` : o.cidade].filter(Boolean).join(' · ')
+                          return (
+                            <option key={o.id} value={o.id}>
+                              {o.numero}{loc ? ` · ${loc}` : (o.nome ? ` · ${o.nome}` : '')}{loc ? '' : ' · (sem endereço)'}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                   )}
