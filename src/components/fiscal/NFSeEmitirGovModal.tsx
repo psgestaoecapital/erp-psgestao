@@ -51,6 +51,13 @@ interface Props {
 
 type Municipio = { codigo_ibge: string; nome_municipio: string; uf: string }
 type Bloqueio = { codigo: string; mensagem: string; acao?: string; onde?: string }
+// #35 · serviço cadastrado (seleção) e resultado da resolução de ISS por município
+type ServicoLite = {
+  id: string; codigo: string | null; descricao_resumida: string | null; descricao_detalhada: string | null
+  codigo_servico_municipio: string | null; codigo_lc116: string | null
+  aliquota_iss: number | null; valor_unitario: number | null; iss_no_local_prestacao: boolean | null
+}
+type IssResolv = { ok?: boolean; aliquota?: number; municipio?: string; fonte?: string }
 
 function soDigitos(s: string): string {
   return s.replace(/\D/g, '')
@@ -135,6 +142,21 @@ export default function NFSeEmitirGovModal({
   // #32 · regime da empresa: no Simples Nacional o ISS vai no DAS e a NFS-e não destaca —
   // o campo de alíquota some (a edge grava 0). Não-Simples (Lucro Real/Presumido) mantém o campo.
   const [empresaSimples, setEmpresaSimples] = useState(false)
+  // #35 · serviços cadastrados (seleção rápida) + serviço escolhido no próprio modal
+  const [servicos, setServicos] = useState<ServicoLite[]>([])
+  const [servicoSelId, setServicoSelId] = useState('')
+  const [servicoIssLocal, setServicoIssLocal] = useState(false)
+  // #32 · alíquota buscada do município da execução (o sistema busca, como faz o portal nacional)
+  const [issInfo, setIssInfo] = useState('')
+  // #35 · busca do tomador por CNPJ/CPF (cadastro do cliente ou Receita) + endereço para conferência
+  const [tomEndereco, setTomEndereco] = useState('')
+  const [buscandoDoc, setBuscandoDoc] = useState(false)
+  const [buscaDocMsg, setBuscaDocMsg] = useState('')
+
+  // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
+  // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
+  const servicoIdEff = servicoId || servicoSelId || undefined
+  const issNoLocalEff = issNoLocalPrestacao || servicoIssLocal
 
   // FIX-O3B-NFSE-MODAL-SEED-v1
   // useState so roda no mount · se o pai renderiza com aberto=false antes
@@ -155,31 +177,42 @@ export default function NFSeEmitirGovModal({
     setMunIbge(municipioPrestacaoIbge ?? '')
     setMunLabel(municipioPrestacaoLabel ?? '')
     setMunBusca(''); setMunResultados([]); setBloqueios([]); setPodeEmitir(true)
+    setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
+    setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
   // #32 fase 2 · a PORTA ÚNICA: valida no banco (obra + ISS) e mostra os bloqueios. Roda ao abrir e
   // quando muda o município. Só quando há servico_id (emissão de catálogo); sem ele, nada a validar.
   useEffect(() => {
-    if (!aberto || !servicoId) { setBloqueios([]); setPodeEmitir(true); return }
+    if (!aberto || !servicoIdEff) { setBloqueios([]); setPodeEmitir(true); setIssInfo(''); return }
     let vivo = true
     setValidando(true)
     void (async () => {
       try {
         const { data } = await supabase.rpc('fn_nfse_validar_emissao', {
           p_company_id: companyId,
-          p_dados: { servico_id: servicoId, obra_id: obraId ?? null, municipio_prestacao_ibge: munIbge || null },
+          p_dados: { servico_id: servicoIdEff, obra_id: obraId ?? null, municipio_prestacao_ibge: munIbge || null },
         })
         if (!vivo) return
-        const v = data as { pode_emitir?: boolean; bloqueios?: Bloqueio[] } | null
+        const v = data as { pode_emitir?: boolean; bloqueios?: Bloqueio[]; iss?: IssResolv } | null
         setBloqueios(v?.bloqueios ?? [])
         setPodeEmitir(v?.pode_emitir !== false)
+        // #32 · o sistema BUSCA a alíquota do município da execução (fn_fiscal_iss_resolver) e preenche o
+        // campo — como Jordana pediu ("hoje o portal nacional faz isso"). Se o município não tem alíquota
+        // cadastrada, a própria porta única já devolve o bloqueio 'aliquota_iss_desconhecida' (não chuta).
+        if (v?.iss?.ok && v.iss.aliquota != null) {
+          setAliquota(String(v.iss.aliquota).replace('.', ','))
+          setIssInfo(`Alíquota buscada de ${v.iss.municipio ?? 'município da execução'}: ${String(v.iss.aliquota).replace('.', ',')}%${v.iss.fonte ? ` · ${v.iss.fonte}` : ''}`)
+        } else {
+          setIssInfo('')
+        }
       } finally {
         if (vivo) setValidando(false)
       }
     })()
     return () => { vivo = false }
-  }, [aberto, servicoId, obraId, munIbge, companyId])
+  }, [aberto, servicoIdEff, obraId, munIbge, companyId])
 
   // #32 · descobre o regime (Simples x não-Simples) da empresa ao abrir, p/ decidir se o ISS é
   // destacado. Simples (opção 2 MEI / 3 ME/EPP) → ISS no DAS, campo de alíquota some.
@@ -193,6 +226,19 @@ export default function NFSeEmitirGovModal({
       if (!vivo) return
       const op = (data as { opcao_simples_nacional?: number | null } | null)?.opcao_simples_nacional
       setEmpresaSimples(op === 2 || op === 3)
+    })()
+    return () => { vivo = false }
+  }, [aberto, companyId])
+
+  // #35 · serviços cadastrados da empresa, pra seleção rápida (traz LC116/código/alíquota/ISS-no-local).
+  useEffect(() => {
+    if (!aberto || !companyId) return
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('erp_servicos')
+        .select('id,codigo,descricao_resumida,descricao_detalhada,codigo_servico_municipio,codigo_lc116,aliquota_iss,valor_unitario,iss_no_local_prestacao')
+        .eq('company_id', companyId).eq('ativo', true).order('descricao_resumida', { nullsFirst: false })
+      if (vivo) setServicos((data ?? []) as ServicoLite[])
     })()
     return () => { vivo = false }
   }, [aberto, companyId])
@@ -218,6 +264,8 @@ export default function NFSeEmitirGovModal({
     setDescricao(descricaoServico ?? '')
     setValor(valorSeed)
     setCodigoTrib(codTribSeed); setAliquota(aliquotaSeed)
+    setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
+    setTomEndereco(''); setBuscaDocMsg('')
     setResultado(null); setErroLocal(null); setFase('form')
   }
 
@@ -225,6 +273,61 @@ export default function NFSeEmitirGovModal({
     if (fase === 'enviando') return
     resetForm()
     onFechar()
+  }
+
+  // #35 · escolher um serviço cadastrado preenche descrição, valor, código de tributação, alíquota e o
+  // regime de ISS no local. Guardar servicoSelId liga a porta única (validação + busca de alíquota).
+  function aplicarServico(id: string) {
+    setServicoSelId(id)
+    setIssInfo('')
+    const s = servicos.find((x) => x.id === id)
+    if (!s) { setServicoIssLocal(false); return }
+    if (s.descricao_detalhada || s.descricao_resumida) setDescricao(s.descricao_detalhada || s.descricao_resumida || '')
+    if (s.valor_unitario != null && Number(s.valor_unitario) > 0) setValor(Number(s.valor_unitario).toFixed(2).replace('.', ','))
+    if ((s.codigo_servico_municipio ?? '').trim()) setCodigoTrib((s.codigo_servico_municipio as string).trim())
+    if (s.aliquota_iss != null) setAliquota(String(s.aliquota_iss).replace('.', ','))
+    setServicoIssLocal(!!s.iss_no_local_prestacao)
+  }
+
+  // #35 · buscar o tomador pelo documento: primeiro no cadastro de clientes (traz o endereço já
+  // conferido); se não houver, consulta a Receita por CNPJ. Só preenche — nada é gravado aqui.
+  async function buscarTomador() {
+    const doc = soDigitos(tomDoc)
+    setBuscaDocMsg('')
+    if (tomTipo === 'CNPJ' && doc.length !== 14) { setBuscaDocMsg('Informe o CNPJ completo (14 dígitos).'); return }
+    if (tomTipo === 'CPF' && doc.length !== 11) { setBuscaDocMsg('Informe o CPF completo (11 dígitos).'); return }
+    setBuscandoDoc(true)
+    try {
+      const { data: cli } = await supabase.from('erp_clientes')
+        .select('razao_social,nome_fantasia,logradouro,numero,bairro,cidade,uf,cep,endereco,cidade_estado')
+        .eq('company_id', companyId).or(`cpf_cnpj.eq.${doc},cnpj_cpf.eq.${doc}`).limit(1).maybeSingle()
+      if (cli) {
+        const c = cli as Record<string, string | null>
+        setTomNome(c.razao_social || c.nome_fantasia || tomNome)
+        const endCad = [c.logradouro, c.numero, c.bairro, (c.cidade && c.uf) ? `${c.cidade}/${c.uf}` : (c.cidade || c.cidade_estado), c.cep]
+          .filter(Boolean).join(', ')
+        setTomEndereco(endCad || (c.endereco ?? ''))
+        setBuscaDocMsg('Cliente encontrado no cadastro.')
+        return
+      }
+      if (tomTipo === 'CNPJ') {
+        const r = await fetch(`/api/cnpj-lookup?cnpj=${doc}`)
+        const d = await r.json().catch(() => null) as Record<string, string> | null
+        if (r.ok && d && (d.razao_social || d.nome_fantasia)) {
+          setTomNome(d.razao_social || d.nome_fantasia)
+          setTomEndereco([d.logradouro, d.numero, d.bairro, (d.cidade && d.uf) ? `${d.cidade}/${d.uf}` : d.cidade, d.cep].filter(Boolean).join(', '))
+          setBuscaDocMsg('Dados encontrados na Receita — confira antes de emitir.')
+          return
+        }
+        setBuscaDocMsg('CNPJ não encontrado no cadastro nem na Receita — preencha manualmente.')
+      } else {
+        setBuscaDocMsg('CPF não está no cadastro — preencha o nome manualmente.')
+      }
+    } catch {
+      setBuscaDocMsg('Falha na busca — preencha os dados manualmente.')
+    } finally {
+      setBuscandoDoc(false)
+    }
   }
 
   // FIX-NFSE-MODAL-CLIQUE-FORA-v1 · clicar fora do card NÃO pode descartar dados de nota fiscal sem avisar
@@ -245,7 +348,7 @@ export default function NFSeEmitirGovModal({
     if (!isFinite(valorNum) || valorNum <= 0) { setErroLocal('Valor deve ser maior que zero.'); return }
     if (!codigoTrib.trim()) { setErroLocal('Informe o código de tributação ISS.'); return }
     // #32 · a trava: não deixa nem tentar enquanto houver bloqueio (o servidor barra de novo).
-    if (servicoId && !podeEmitir) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
+    if (servicoIdEff && !podeEmitir) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
 
     const aliquotaNum = Number(aliquota.replace(',', '.')) || 0
 
@@ -253,7 +356,7 @@ export default function NFSeEmitirGovModal({
       company_id: companyId,
       teste_homologacao: ambiente === 'homologacao',
       // #32 · contexto da trava do servidor: o município da execução e a alíquota saem do banco.
-      servico_id: servicoId,
+      servico_id: servicoIdEff,
       obra_id: obraId,
       municipio_prestacao_ibge: munIbge || undefined,
       servico: {
@@ -341,10 +444,10 @@ export default function NFSeEmitirGovModal({
                 <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">
                   Tomador (opcional)
                 </legend>
-                <div className="grid grid-cols-[100px_1fr] gap-2">
+                <div className="grid grid-cols-[92px_1fr_auto] gap-2">
                   <select
                     value={tomTipo}
-                    onChange={(e) => { setTomTipo(e.target.value as TomadorTipo); setTomDoc('') }}
+                    onChange={(e) => { setTomTipo(e.target.value as TomadorTipo); setTomDoc(''); setTomEndereco(''); setBuscaDocMsg('') }}
                     className="bg-white border border-[#3D2314]/15 rounded-md px-2 py-2 text-[13px] text-[#3D2314]"
                   >
                     <option value="CNPJ">CNPJ</option>
@@ -355,9 +458,20 @@ export default function NFSeEmitirGovModal({
                     inputMode="numeric"
                     value={tomDoc}
                     onChange={(e) => setTomDoc(mascaraDoc(e.target.value, tomTipo))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscarTomador() } }}
                     placeholder={tomTipo === 'CPF' ? '000.000.000-00' : '00.000.000/0000-00'}
                     className="bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
                   />
+                  {/* #35 · busca o tomador pelo documento (cadastro → Receita) */}
+                  <button
+                    type="button"
+                    onClick={() => void buscarTomador()}
+                    disabled={buscandoDoc}
+                    data-testid="nfse-buscar-tomador"
+                    className="px-3 py-2 rounded-md border border-[#3D2314]/15 text-[12.5px] text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    {buscandoDoc ? <Loader2 size={13} className="animate-spin" /> : 'Buscar'}
+                  </button>
                 </div>
                 <input
                   type="text"
@@ -366,12 +480,40 @@ export default function NFSeEmitirGovModal({
                   placeholder="Razão social / Nome"
                   className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
                 />
+                {/* #35 · endereço do cliente para conferência (não vai no corpo da nota — o provedor
+                    usa o endereço do cadastro/Receita; aqui é só pra Jordana confirmar que é o cliente certo). */}
+                {tomEndereco && (
+                  <div className="text-[11.5px] text-[#3D2314]/70 bg-white border border-[#3D2314]/12 rounded-md px-3 py-2">
+                    <span className="text-[#3D2314]/50">Endereço:</span> {tomEndereco}
+                  </div>
+                )}
+                {buscaDocMsg && <div className="text-[11px] text-[#3D2314]/60">{buscaDocMsg}</div>}
               </fieldset>
 
               <fieldset className="space-y-3 border-t border-[#3D2314]/10 pt-4">
                 <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">
                   Serviço
                 </legend>
+                {/* #35 · selecionar um serviço já cadastrado (traz descrição, valor, código e alíquota).
+                    Escolher também liga a busca de ISS por município quando o serviço é "fora do município". */}
+                {servicos.length > 0 && (
+                  <label className="block">
+                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Serviço cadastrado (opcional)</span>
+                    <select
+                      value={servicoSelId}
+                      onChange={(e) => aplicarServico(e.target.value)}
+                      data-testid="nfse-servico-select"
+                      className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
+                    >
+                      <option value="">— selecionar ou preencher manualmente —</option>
+                      {servicos.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.codigo ? `${s.codigo} · ` : ''}{s.descricao_resumida || s.descricao_detalhada || 'serviço'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <textarea
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
@@ -410,6 +552,12 @@ export default function NFSeEmitirGovModal({
                     </label>
                   )}
                 </div>
+                {/* #32 · quando o ISS é devido no município da execução, a alíquota é buscada de lá. */}
+                {!empresaSimples && issInfo && (
+                  <p className="text-[11px] text-[#234D08] bg-[#EAF3DE] border border-[#3B6D11]/25 rounded-md px-2.5 py-1.5">
+                    {issInfo}
+                  </p>
+                )}
                 <label className="block">
                   <span className="block text-[11px] text-[#3D2314]/60 mb-1">Código tributação nacional ISS</span>
                   <input
@@ -424,7 +572,7 @@ export default function NFSeEmitirGovModal({
 
               {/* #32 · Local da execução — quando o serviço tem ISS no local da prestação. Aparece
                   pela prop OU quando a própria porta pediu município (independe da fiação do chamador). */}
-              {(issNoLocalPrestacao || bloqueios.some((b) => b.codigo === 'municipio_prestacao_ausente' || b.codigo === 'aliquota_iss_desconhecida')) && (
+              {(issNoLocalEff || bloqueios.some((b) => b.codigo === 'municipio_prestacao_ausente' || b.codigo === 'aliquota_iss_desconhecida')) && (
                 <fieldset className="space-y-2 border-t border-[#3D2314]/10 pt-4">
                   <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">Local da execução do serviço</legend>
                   {munIbge ? (
@@ -455,7 +603,7 @@ export default function NFSeEmitirGovModal({
               )}
 
               {/* #32 · bloqueios da porta única — cada um leva ao lugar de resolver */}
-              {servicoId && bloqueios.length > 0 && (
+              {servicoIdEff && bloqueios.length > 0 && (
                 <div className="rounded-md border border-[#C94544] bg-[#FCEBEB] px-3 py-2.5">
                   <div className="flex items-center gap-2 text-[12.5px] font-medium text-[#791F1F] mb-1.5">
                     <AlertCircle size={14} /> Esta nota não pode ser emitida ainda
@@ -469,7 +617,7 @@ export default function NFSeEmitirGovModal({
                   </ul>
                 </div>
               )}
-              {servicoId && validando && <div className="text-[11px] text-[#3D2314]/50">Verificando obra e alíquota…</div>}
+              {servicoIdEff && validando && <div className="text-[11px] text-[#3D2314]/50">Verificando obra e alíquota…</div>}
 
               {erroLocal && (
                 <div className="flex items-start gap-2 bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-md px-3 py-2 text-[12px] text-[#791F1F]">
@@ -490,8 +638,8 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando' || validando || (!!servicoId && !podeEmitir)}
-                  title={(!!servicoId && !podeEmitir) ? 'Resolva os itens acima antes de emitir' : undefined}
+                  disabled={fase === 'enviando' || validando || (!!servicoIdEff && !podeEmitir)}
+                  title={(!!servicoIdEff && !podeEmitir) ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
                 >
