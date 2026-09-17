@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
 import { type Marca } from './FotoMarcador'
 import FotosChamado, { type FotoItem } from './FotosChamado'
+import { BotaoDitar } from './BotaoDitar'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', white: '#FFFFFF', cream: '#F0ECE3',
@@ -173,8 +174,10 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
         <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte ? 'Responder ao autor…' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical' }} />
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <FotosChamado value={fotos} onChange={setFotos} compact />
+          {/* #63 · ditar a mensagem por voz (fala→texto, editável antes de enviar) */}
+          <BotaoDitar onTexto={(frag) => setTexto((p) => (p ? p.trimEnd() + ' ' : '') + frag)} disabled={enviando} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
           <button disabled={enviando || (!texto.trim() && !fotos.length)} onClick={() => void enviar()}
