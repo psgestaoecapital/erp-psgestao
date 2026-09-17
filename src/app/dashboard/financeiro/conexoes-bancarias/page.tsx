@@ -718,6 +718,14 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   const [certA1Base64, setCertA1Base64] = useState('')
   const [certA1Nome, setCertA1Nome] = useState('')
   const [certSenha, setCertSenha] = useState('')
+  // #14 (Rodrigo/Bradesco): o certificado de COMUNICAÇÃO bancária costuma vir em .crt + .key (não .pfx).
+  // O mTLS espera .pfx, então convertemos o par em .pfx (server-side, /api/banco/cert-pfx) e seguimos
+  // pelo mesmo caminho de sempre. 'pfx' = um arquivo; 'crtkey' = dois arquivos (cert + chave).
+  const [certFormato, setCertFormato] = useState<'pfx' | 'crtkey'>('pfx')
+  const [crtPem, setCrtPem] = useState(''); const [crtNome, setCrtNome] = useState('')
+  const [keyPem, setKeyPem] = useState(''); const [keyNome, setKeyNome] = useState('')
+  const [keySenha, setKeySenha] = useState('')  // senha da própria chave .key (se cifrada)
+  const [convertendo, setConvertendo] = useState(false)
   // Sicredi Cobrança (auth OAuth2 real)
   const [apiKey, setApiKey] = useState('')
   const [codigoAcesso, setCodigoAcesso] = useState('')
@@ -755,9 +763,47 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
     setCertA1Base64(btoa(bin))
   }
 
+  // #14 · lê um arquivo PEM (.crt/.key/.pem) como texto
+  async function lerPem(e: React.ChangeEvent<HTMLInputElement>, alvo: 'crt' | 'key') {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const txt = await f.text()
+    if (alvo === 'crt') { setCrtPem(txt); setCrtNome(f.name) }
+    else { setKeyPem(txt); setKeyNome(f.name) }
+  }
+
+  // #14 · converte o par .crt + .key em .pfx (server-side) usando a MESMA senha do certificado
+  // (out_passphrase = certSenha), e injeta o base64 no caminho normal de cert. Devolve true/false.
+  async function converterCrtKeyEmPfx(): Promise<string | null> {
+    if (!crtPem || !keyPem) { setErro('Envie o certificado (.crt) e a chave (.key).'); return null }
+    if (!certSenha) { setErro('Defina a "Senha do certificado" — ela protege o .pfx gerado.'); return null }
+    setConvertendo(true); setErro(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/cert-pfx', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ cert_pem: crtPem, key_pem: keyPem, key_passphrase: keySenha || undefined, out_passphrase: certSenha }),
+      })
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; pfx_base64?: string; erro?: string }
+      if (!j.ok || !j.pfx_base64) { setErro(j.erro || 'Falha ao converter o certificado.'); return null }
+      setCertA1Base64(j.pfx_base64)
+      return j.pfx_base64
+    } catch (e) { setErro((e as Error).message); return null }
+    finally { setConvertendo(false) }
+  }
+
   async function salvar() {
     setSalvando(true); setErro(null)
     try {
+      // #14 · se o certificado veio como par .crt + .key, converte em .pfx AGORA (server-side) e usa
+      // o base64 resultante no caminho normal. Se já estava convertido (certA1Base64), reusa.
+      let certB64 = certA1Base64
+      if (banco.campos.includes('cert_a1') && certFormato === 'crtkey' && (crtPem || keyPem) && !certB64) {
+        const b = await converterCrtKeyEmPfx()
+        if (!b) { setSalvando(false); return }
+        certB64 = b
+      }
       // Bancos cujo adapter lê via fn_banco_obter_credencial (Vault *_vault_id):
       // Sicredi e Sicoob. Salvar via fn_banco_salvar_credencial — que grava os
       // segredos no Vault E seta banco_codigo + *_vault_id que o adapter lê. O fluxo
@@ -774,7 +820,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           Object.assign(params, { p_api_key: apiKey || null, p_client_secret: codigoAcesso || null, p_client_id: null, p_posto: posto || null })
         } else {
           // Sicoob: client_id + certificado A1 (mTLS) no Vault + conta. Sem api_key.
-          Object.assign(params, { p_client_id: clientId || null, p_cert_base64: certA1Base64 || null, p_cert_senha: certSenha || null, p_conta: conta || null })
+          Object.assign(params, { p_client_id: clientId || null, p_cert_base64: certB64 || null, p_cert_senha: certSenha || null, p_conta: conta || null })
         }
         const { data, error } = await supabase.rpc('fn_banco_salvar_credencial', params)
         if (error) throw error
@@ -796,7 +842,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         if (!j?.sucesso) throw new Error(j?.erro ?? `falha ao salvar ${chave}`)
       }
       if (clientSecret) await salvar1('client_secret', clientSecret, `${banco.nome} · client secret`)
-      if (certA1Base64) await salvar1('cert', certA1Base64, `${banco.nome} · cert A1 (base64)`)
+      if (certB64) await salvar1('cert', certB64, `${banco.nome} · certificado de comunicação (base64)`)
       if (certSenha) await salvar1('certpw', certSenha, `${banco.nome} · senha do cert A1`)
 
       // Cria/atualiza a linha em erp_banco_provider_config.
@@ -940,13 +986,51 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           )}
           {banco.campos.includes('cert_a1') && (
             <>
-              <Field label="Certificado A1 (.pfx)">
-                <input type="file" accept=".pfx,.p12" onChange={onCertFile} style={{ ...inp, padding: 5 }} />
-                {certA1Nome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {certA1Nome}</small>}
+              {/* #14 (Rodrigo/Bradesco): este é o certificado de COMUNICAÇÃO bancária (mTLS), diferente
+                  do A1 fiscal (que assina notas). O banco costuma entregar .pfx OU o par .crt + .key. */}
+              <div style={{ background: '#EFF6FF', border: `0.5px solid #BFDBFE`, color: '#1E40AF', borderRadius: 6, padding: '9px 11px', fontSize: 11.5, lineHeight: 1.45 }}>
+                🔐 <b>Certificado de comunicação bancária</b> — é o que {banco.nome} usa para autenticar a conexão (mTLS).
+                <b> Não é o certificado A1 fiscal</b> (o que assina NF-e/NFS-e); é um arquivo separado, emitido para o acesso à API do banco.
+              </div>
+              <Field label="Formato do certificado">
+                <div style={{ display: 'flex', gap: 14, fontSize: 12.5, color: ESP }}>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="radio" name="cert_formato" checked={certFormato === 'pfx'} onChange={() => setCertFormato('pfx')} />
+                    Um arquivo (.pfx / .p12)
+                  </label>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="radio" name="cert_formato" checked={certFormato === 'crtkey'} onChange={() => setCertFormato('crtkey')} />
+                    Dois arquivos (.crt + .key)
+                  </label>
+                </div>
               </Field>
-              <Field label="Senha do certificado">
+              {certFormato === 'pfx' ? (
+                <Field label="Certificado (.pfx)">
+                  <input type="file" accept=".pfx,.p12" onChange={onCertFile} style={{ ...inp, padding: 5 }} />
+                  {certA1Nome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {certA1Nome}</small>}
+                </Field>
+              ) : (
+                <>
+                  <Field label="Certificado (.crt / .pem)" hint="O certificado público que o banco entregou.">
+                    <input type="file" accept=".crt,.cer,.pem" onChange={(e) => lerPem(e, 'crt')} style={{ ...inp, padding: 5 }} />
+                    {crtNome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {crtNome}</small>}
+                  </Field>
+                  <Field label="Chave privada (.key / .pem)" hint="A chave privada do par. Fica cifrada no Vault — nunca em texto puro.">
+                    <input type="file" accept=".key,.pem" onChange={(e) => lerPem(e, 'key')} style={{ ...inp, padding: 5 }} />
+                    {keyNome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {keyNome}</small>}
+                  </Field>
+                  <Field label="Senha da chave (.key), se houver" hint="Deixe em branco se a chave não tiver senha própria.">
+                    <input type="password" autoComplete="off" value={keySenha} onChange={(e) => setKeySenha(e.target.value)} style={inp} />
+                  </Field>
+                </>
+              )}
+              <Field
+                label="Senha do certificado"
+                hint={certFormato === 'crtkey' ? 'Defina uma senha — ela protege o .pfx gerado a partir do .crt + .key (e será usada na conexão).' : undefined}
+              >
                 <input type="password" autoComplete="off" value={certSenha} onChange={(e) => setCertSenha(e.target.value)} style={inp} />
               </Field>
+              {convertendo && <small style={{ fontSize: 10, color: ESP60 }}>Convertendo o par .crt + .key em .pfx…</small>}
             </>
           )}
           <div style={{ marginTop: 4 }}>

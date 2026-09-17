@@ -149,11 +149,16 @@ export async function POST(req: NextRequest) {
       erro = 'Credencial não encontrada nesta empresa/ambiente. Salve a configuração antes de testar.'
     } else if (USA_CERTIFICADO.has(provider) && (cert.status === 'ausente' || cert.status === 'senha_invalida' || cert.status === 'vencido' || cert.status === 'erro')) {
       authOk = false
+      // #14 (Rodrigo/Bradesco) · regra 0e580f96 (dizer o que falta E o que é): o certificado que o
+      // banco exige para a CONEXÃO (mTLS) é o de COMUNICAÇÃO bancária — NÃO é o A1 fiscal (que assina
+      // NF-e/NFS-e). Antes a mensagem dizia "Certificado A1 não está salvo" mesmo com o A1 fiscal
+      // cadastrado há meses em outra tela, e o cliente ficava perdido. Agora nomeia o certificado certo.
+      const nomeBanco = provider === 'bradesco' ? 'o Bradesco' : provider === 'sicoob' ? 'o Sicoob' : 'o banco'
       erro = cert.status === 'vencido'
-        ? `Certificado vencido em ${cert.not_after ? new Date(cert.not_after).toLocaleDateString('pt-BR') : '—'}. Renove o A1 e salve de novo.`
-        : cert.status === 'senha_invalida' ? 'Senha do certificado não confere. Reenvie o A1 com a senha correta.'
-        : cert.status === 'ausente' ? 'Certificado A1 não está salvo nesta configuração.'
-        : (cert.erro ?? 'Certificado inválido.')
+        ? `O certificado de comunicação bancária venceu em ${cert.not_after ? new Date(cert.not_after).toLocaleDateString('pt-BR') : '—'}. Envie um novo (.pfx do banco, ou .crt + .key) e salve de novo.`
+        : cert.status === 'senha_invalida' ? 'A senha do certificado de comunicação bancária não confere. Reenvie o certificado com a senha correta.'
+        : cert.status === 'ausente' ? `O certificado de comunicação bancária não está salvo nesta configuração. Atenção: ele é diferente do certificado A1 fiscal (o que assina notas) — ${nomeBanco} exige o certificado da conexão (.pfx do banco, ou o par .crt + .key).`
+        : (cert.erro ?? 'Certificado de comunicação bancária inválido.')
     } else {
       const r = await autenticar(provider, ambiente, cred!)
       authOk = r.suportado ? r.ok : null
