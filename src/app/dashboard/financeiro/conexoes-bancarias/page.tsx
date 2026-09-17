@@ -726,6 +726,21 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   const [capExtrato, setCapExtrato] = useState(cfgExistente?.cap_extrato ?? true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // ② aviso por provider: campos que o manifesto exige e ainda faltam (avisa, não bloqueia · regra 0e580f96)
+  const [faltantes, setFaltantes] = useState<string[] | null>(null)
+
+  // Após salvar, checa (data-driven do manifesto) o que ainda falta pra este banco. Se faltar, mostra o
+  // aviso e mantém o modal aberto (a pessoa completa agora ou fecha); se estiver completo, fecha normal.
+  async function checarEFinalizar() {
+    try {
+      const { data } = await supabase.rpc('fn_banco_campos_faltantes', {
+        p_company_id: companyId, p_provider: banco.sigla, p_ambiente: ambiente,
+      })
+      const list = (data as string[] | null) ?? []
+      if (list.length > 0) { setFaltantes(list); return }
+    } catch { /* se a checagem falhar, não trava o salvamento */ }
+    onSucesso()
+  }
 
   async function onCertFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -765,7 +780,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         if (error) throw error
         const j = data as { ok?: boolean; erro?: string } | null
         if (!j?.ok) throw new Error(j?.erro ?? `falha ao salvar credencial ${banco.nome}`)
-        onSucesso(); return
+        await checarEFinalizar(); return
       }
       const provider = providerCanonico(banco.sigla, ambiente)
       // Salvar credenciais no Vault (fn_credencial_salvar — Cofre B.9).
@@ -814,7 +829,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         .eq('banco_codigo', String(banco.codigo))
         .eq('ambiente', ambiente)
         .or('estado_conexao.is.null,estado_conexao.eq.nao_iniciado')
-      onSucesso()
+      await checarEFinalizar()
     } catch (e) {
       setErro((e as Error).message)
     } finally {
@@ -851,6 +866,21 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           {/* Iscas invisíveis: o Chrome injeta e-mail/senha salvos AQUI, não nos campos reais. */}
           <input type="text" name="ps_decoy_user" autoComplete="username" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
           <input type="password" name="ps_decoy_pass" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
+          {/* ② aviso por provider: salvou, mas o manifesto do banco pede campos que ainda faltam pra emitir boleto */}
+          {faltantes && faltantes.length > 0 && (
+            <div style={{ background: '#FEF3C7', border: `0.5px solid ${GOLD}`, color: '#7A5A0F', borderRadius: 6, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.45 }}>
+              <b>Config salva ✓ — mas faltam campos para emitir boleto neste banco ({banco.nome}):</b>
+              <ul style={{ margin: '6px 0 8px', paddingLeft: 18 }}>
+                {faltantes.map((f) => <li key={f}>{f}</li>)}
+              </ul>
+              Você pode completar agora (preencha acima e salve de novo) ou depois. Enquanto faltar, a emissão de boleto pode falhar.
+              <div style={{ marginTop: 8 }}>
+                <button type="button" onClick={onSucesso} style={{ background: 'transparent', color: '#7A5A0F', border: `0.5px solid ${GOLD}`, padding: '6px 14px', borderRadius: 6, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>
+                  Fechar mesmo assim
+                </button>
+              </div>
+            </div>
+          )}
           {editMode && (
             <div style={{ background: '#FEF3C7', border: `0.5px solid ${GOLD}`, color: '#7A5A0F', borderRadius: 6, padding: '9px 12px', fontSize: 12, lineHeight: 1.4 }}>
               <b>Editar configuração.</b> Os campos podem ser alterados. Os campos de <b>segredo</b> (Código de Acesso / x-api-key / senha) estão em branco: se já houver segredo guardado no Vault, <b>deixar em branco MANTÉM o atual</b>; para informar pela 1ª vez ou TROCAR, preencha.
