@@ -42,6 +42,10 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   const [erro, setErro] = useState<string | null>(null)
   const [autorChamadoId, setAutorChamadoId] = useState<string | null>(null)
   const fimRef = useRef<HTMLDivElement>(null)
+  // IA-chamados (FALHA 2): a análise é disparada no ENVIO por um invoke fire-and-forget do navegador —
+  // se ele falha (parse ruim, rede, aba fechada) a foto/print fica sem leitura e ninguém percebe. Este
+  // ref evita re-disparar a mesma mensagem 2x na sessão.
+  const reprocessadosRef = useRef<Set<string>>(new Set())
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -66,6 +70,21 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   }, [sugestaoId])
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { if (msgs.length) setTimeout(() => fimRef.current?.scrollIntoView({ block: 'nearest' }), 40) }, [msgs.length])
+
+  // IA-chamados · auto-recuperação (só no lado PS — a IA é palpite pro atendente, RD-51). Ao abrir o
+  // chamado, re-dispara a análise das mensagens do AUTOR que têm FOTO mas ficaram sem ia_analise (o
+  // print nunca lido — caso do Rodrigo 15:22). O teto diário protege o custo; o ref evita repetir.
+  useEffect(() => {
+    if (!ehSuporte || !msgs.length) return
+    const pendentes = msgs.filter((m) => m.papel === 'autor' && !m.ia_analise && m.anexos.length > 0 && !reprocessadosRef.current.has(m.id))
+    if (!pendentes.length) return
+    pendentes.forEach((m) => reprocessadosRef.current.add(m.id))
+    void (async () => {
+      await Promise.allSettled(pendentes.map((m) =>
+        supabase.functions.invoke('sugestao-analisar', { body: { mensagem_id: m.id } })))
+      await carregar()   // recarrega uma vez para mostrar as análises que entraram
+    })()
+  }, [msgs, ehSuporte, carregar])
 
   const enviar = useCallback(async () => {
     if (!texto.trim() && !fotos.length) { setErro('Escreva uma mensagem ou anexe uma foto.'); return }
