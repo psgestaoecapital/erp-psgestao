@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { X, Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react'
+import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
 
 type TomadorTipo = 'CPF' | 'CNPJ'
 type Fase = 'form' | 'enviando' | 'concluido'
@@ -47,6 +48,9 @@ interface Props {
   obraId?: string
   municipioPrestacaoIbge?: string   // vindo da obra, pré-preenchido e editável
   municipioPrestacaoLabel?: string  // ex.: "vindo da obra 0042 · Marau/RS"
+  // A③ · reenvio de NFS-e rejeitada por E0370 (obra) sem obra_id: exibe o MESMO bloco de obra da venda
+  // (apontar/informar/criar no Hub) para a pessoa apontar a obra na correção. Só quando não veio obraId.
+  permitirObra?: boolean
 }
 
 type Municipio = { codigo_ibge: string; nome_municipio: string; uf: string }
@@ -103,6 +107,7 @@ export default function NFSeEmitirGovModal({
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
+  permitirObra = false,
 }: Props) {
   // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
   // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
@@ -152,6 +157,9 @@ export default function NFSeEmitirGovModal({
   const [tomEndereco, setTomEndereco] = useState('')
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [buscaDocMsg, setBuscaDocMsg] = useState('')
+  // A③ · obra escolhida no reenvio (só quando permitirObra e sem obraId da prop)
+  const [obraFiscal, setObraFiscal] = useState<ObraFiscalState>(obraFiscalStateInicial)
+  const mostrarObra = permitirObra && !obraId
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
   // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
@@ -179,6 +187,7 @@ export default function NFSeEmitirGovModal({
     setMunBusca(''); setMunResultados([]); setBloqueios([]); setPodeEmitir(true)
     setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
     setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
+    setObraFiscal(obraFiscalStateInicial)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
@@ -350,6 +359,18 @@ export default function NFSeEmitirGovModal({
     // #32 · a trava: não deixa nem tentar enquanto houver bloqueio (o servidor barra de novo).
     if (servicoIdEff && !podeEmitir) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
 
+    // A③ · reenvio E0370 sem obra: resolve a obra escolhida (apontar/informar/criar no Hub) → obra_id +
+    // município da obra. É o mesmo BlocoObraFiscal/resolver da venda (sem terceira implementação).
+    let obraIdFinal = obraId
+    let munIbgeFinal = munIbge
+    if (mostrarObra) {
+      const r = await resolverObraFiscal(obraFiscal, { companyId, clienteNome: tomNome || null })
+      if (!r.ok) { setErroLocal(r.erro); return }
+      obraIdFinal = r.obra.obra_id ?? undefined
+      if (!munIbgeFinal) munIbgeFinal = r.obra.obra_codigo_ibge ?? ''
+      if (!obraIdFinal && !munIbgeFinal) { setErroLocal('Aponte a obra cadastrada ou informe o endereço da obra (com município).'); return }
+    }
+
     const aliquotaNum = Number(aliquota.replace(',', '.')) || 0
 
     const body: Record<string, unknown> = {
@@ -357,8 +378,8 @@ export default function NFSeEmitirGovModal({
       teste_homologacao: ambiente === 'homologacao',
       // #32 · contexto da trava do servidor: o município da execução e a alíquota saem do banco.
       servico_id: servicoIdEff,
-      obra_id: obraId,
-      municipio_prestacao_ibge: munIbge || undefined,
+      obra_id: obraIdFinal,
+      municipio_prestacao_ibge: munIbgeFinal || undefined,
       servico: {
         descricao: descricao.trim(),
         valor: valorNum,
@@ -569,6 +590,11 @@ export default function NFSeEmitirGovModal({
                   />
                 </label>
               </fieldset>
+
+              {/* A③ · obra no reenvio de nota rejeitada por E0370 sem obra (mesmo bloco da venda) */}
+              {mostrarObra && (
+                <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
+              )}
 
               {/* #32 · Local da execução — quando o serviço tem ISS no local da prestação. Aparece
                   pela prop OU quando a própria porta pediu município (independe da fiação do chamador). */}
