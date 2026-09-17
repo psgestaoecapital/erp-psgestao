@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
+import { BotaoDitar } from '@/components/melhorias/BotaoDitar'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { type Marca } from '@/components/melhorias/FotoMarcador'
 import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
@@ -217,7 +218,11 @@ function Inner() {
           </label>
         </div>
         <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
-        <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
+        <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
+        {/* #63 · ditar a sugestão por voz (fala→texto, editável antes de enviar) */}
+        <div style={{ marginTop: 6 }}>
+          <BotaoDitar onTexto={(frag) => setF((prev) => ({ ...prev, descricao: (prev.descricao ? prev.descricao.trimEnd() + ' ' : '') + frag }))} disabled={busy} />
+        </div>
 
         {/* Fotos + marcação: lista (até 10). Colar/arrastar/escolher ACRESCENTA, na ordem. */}
         <div style={{ marginTop: 12 }}>
