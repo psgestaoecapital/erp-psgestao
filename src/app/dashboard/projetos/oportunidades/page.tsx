@@ -160,19 +160,33 @@ export default function OportunidadesPage() {
     )
   }
 
+  // Contador HONESTO (Wesley/Tryo): o topo mostrava só "Em aberto 8" e o cliente lançou 14 —
+  // parecia que 6 sumiram. Conta a partir da lista COMPLETA (rows já vem sem os excluídos):
+  // total = tudo; ganhas/perdidas = terminais; em aberto = o resto (o funil ativo).
+  const totalOps  = rows.length
+  const nGanhas   = rows.filter((r) => r.etapa === 'ganho').length
+  const nPerdidas = rows.filter((r) => r.etapa === 'perdido').length
+  const nAberto   = totalOps - nGanhas - nPerdidas
+  const mesAtual  = new Date().toLocaleDateString('pt-BR', { month: 'long' })
+
   return (
     <div className="px-4 py-4 w-full" style={{ color: ESPRESSO }}>
       <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
           <p className="text-sm opacity-70">CRM de obra: leads, propostas e negociação.</p>
+          {/* Contador honesto: nada some — as terminais (ganhas/perdidas) contam junto com o funil ativo. */}
+          <p className="text-sm font-medium mt-1">
+            {totalOps} oportunidade{totalOps === 1 ? '' : 's'} · {nAberto} em aberto · {nGanhas} ganha{nGanhas === 1 ? '' : 's'} · {nPerdidas} perdida{nPerdidas === 1 ? '' : 's'}
+          </p>
         </div>
         <button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button>
       </header>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4" style={{ maxWidth: 640 }}>
-        <Kpi titulo="Em aberto"     valor={String(resumo?.abertas ?? 0)} />
-        <Kpi titulo="Ganhas no mês" valor={String(resumo?.ganhas_mes ?? 0)} />
+        <Kpi titulo="Em aberto"     valor={String(nAberto)} />
+        {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; as ganhas da Tryo são de agosto */}
+        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} />
         <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque />
       </div>
 
