@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import NFSePreviewModal from '@/components/fiscal/NFSePreviewModal'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
@@ -123,6 +124,10 @@ export default function NFSeListClient() {
     permitirObra?: boolean  // A③ · nota rejeitada por E0370 sem obra → oferece o bloco de obra no reenvio
   }>(null)
   const [preparandoReenvio, setPreparandoReenvio] = useState<string | null>(null)
+  // #82 · nota rejeitada emitida pelo FOCUS (tem erp_receber_id) → o "Corrigir e Reenviar" abre o
+  // NFSePreviewModal (mesmo caminho que emitiu, com obra do Hub + E0370 embutidos), NÃO o modal gov
+  // (edge gov-nfse-emitir exige config gov_nfse_nacional; empresa focusnfe cai em 404). Roteamento.
+  const [reenviarFocus, setReenviarFocus] = useState<null | { erpReceberId: string; descricao?: string; valor?: number }>(null)
   // #82.3 — vínculo gerencial de obra à NFS-e já emitida (grava só erp_nfse_emitidas.obra_id; sem reemitir).
   const [obraLink, setObraLink] = useState<ObraLite | null | 'loading'>(null)
   const [obraPickerOpen, setObraPickerOpen] = useState(false)
@@ -280,11 +285,23 @@ export default function NFSeListClient() {
     try {
       const { data } = await supabase
         .from('erp_nfse_emitidas')
-        .select('codigo_servico, aliquota_iss, tomador_email')
+        .select('codigo_servico, aliquota_iss, tomador_email, erp_receber_id')
         .eq('id', row.id)
         .maybeSingle()
       const extra = (data ?? {}) as {
         codigo_servico?: string | null; aliquota_iss?: number | null; tomador_email?: string | null
+        erp_receber_id?: string | null
+      }
+      // #82 · a nota nasceu de uma receita (FOCUS) → reabre pelo MESMO caminho que emitiu: o
+      // NFSePreviewModal (obra do Hub + informar CNO/endereço + E0370 embutidos, emite via Focus).
+      // O modal gov (edge) só serve empresa com config gov_nfse_nacional — focusnfe cairia em 404.
+      if (extra.erp_receber_id) {
+        setReenviarFocus({
+          erpReceberId: extra.erp_receber_id,
+          descricao: row.descricao_servico ?? undefined,
+          valor: row.valor_servicos ?? undefined,
+        })
+        return
       }
       const cnpj = (row.tomador_cnpj ?? '').replace(/\D/g, '')
       const cpf = (row.tomador_cpf ?? '').replace(/\D/g, '')
@@ -447,6 +464,19 @@ export default function NFSeListClient() {
             codigoServicoMunicipio={reemitir?.codigoServicoMunicipio}
             aliquotaIss={reemitir?.aliquotaIss}
             permitirObra={reemitir?.permitirObra}
+          />
+        )}
+
+        {/* #82 · reenvio FOCUS de nota rejeitada (obra do Hub + E0370 embutidos no modal). */}
+        {companyId && reenviarFocus && (
+          <NFSePreviewModal
+            open
+            onClose={() => setReenviarFocus(null)}
+            companyId={companyId}
+            erpReceberId={reenviarFocus.erpReceberId}
+            descricaoSugerida={reenviarFocus.descricao}
+            valor={reenviarFocus.valor}
+            onSucesso={() => { setReenviarFocus(null); setPagina(1); carregar() }}
           />
         )}
 
