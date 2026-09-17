@@ -902,6 +902,12 @@ export default function OrcamentosPage(){
             <textarea value={form.observacoes} onChange={e=>setForm({...form,observacoes:e.target.value})} rows={3} style={{...inp,resize:"vertical"}} placeholder="Garantia, condições especiais, etc."/>
           </div>
 
+          {/* CRM ② (Wesley) · anexar o PDF do orçamento feito FORA do sistema + informar o valor.
+              Só em orçamento já salvo (precisa do id para o caminho no storage). */}
+          {editing?.id && (
+            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={loadOrcamentos} />
+          )}
+
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowForm(false);setEditing(null);}} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
             <button onClick={salvar} style={{padding:"10px 24px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:"pointer"}}>{editing?"Salvar Alterações":"Criar Orçamento"}</button>
@@ -975,6 +981,115 @@ export default function OrcamentosPage(){
       )}
 
       <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:20}}>PS Gestão e Capital — Orçamentos v1.0 · Link público · Histórico · IA de preço em breve</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// CRM ② (Wesley/Tryo) — anexo do PDF do orçamento (feito FORA) + valor manual.
+// O arquivo vai no bucket crm-anexos (privado) sob {company_id}/orcamentos/{id}/... (RLS por empresa).
+// A gravação (path + valor) passa pela RPC fn_orcamento_anexar_pdf (com guarda de empresa).
+function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: () => void }) {
+  const [path, setPath] = useState<string | null>(null);
+  const [em, setEm] = useState<string | null>(null);
+  const [valor, setValor] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from("erp_orcamentos").select("pdf_anexo_path, pdf_anexo_em, total").eq("id", orcamentoId).maybeSingle();
+      if (!alive || !data) return;
+      const d = data as { pdf_anexo_path: string | null; pdf_anexo_em: string | null; total: number | null };
+      setPath(d.pdf_anexo_path); setEm(d.pdf_anexo_em);
+      setValor(d.total != null && Number(d.total) > 0 ? String(d.total) : "");
+    })();
+    return () => { alive = false; };
+  }, [orcamentoId]);
+
+  const gravar = async (novoPath: string | null) => {
+    const valorNum = valor.trim() === "" ? null : Number(valor.replace(",", "."));
+    const { data, error } = await supabase.rpc("fn_orcamento_anexar_pdf", { p_orcamento_id: orcamentoId, p_path: novoPath, p_valor: Number.isFinite(valorNum as number) ? valorNum : null });
+    if (error) throw new Error(error.message);
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (!j?.ok) throw new Error(j?.erro ?? "falha ao gravar");
+  };
+
+  async function subir(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) { setErr("Envie um arquivo PDF."); return; }
+    setBusy(true); setErr(null);
+    try {
+      const safe = f.name.replace(/[^\w.\-]+/g, "_").slice(-80);
+      const novoPath = `${companyId}/orcamentos/${orcamentoId}/${Date.now()}-${safe}`;
+      const up = await supabase.storage.from("crm-anexos").upload(novoPath, f, { upsert: false, contentType: "application/pdf" });
+      if (up.error) throw new Error(up.error.message);
+      await gravar(novoPath);
+      setPath(novoPath); setEm(new Date().toISOString());
+      onSaved();
+    } catch (e2) { setErr((e2 as Error).message); }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  }
+
+  async function baixar() {
+    if (!path) return;
+    const { data } = await supabase.storage.from("crm-anexos").createSignedUrl(path, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+  }
+
+  async function remover() {
+    if (!window.confirm("Remover o PDF anexado deste orçamento?")) return;
+    setBusy(true); setErr(null);
+    try { await gravar(null); setPath(null); setEm(null); onSaved(); }
+    catch (e2) { setErr((e2 as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function salvarValor() {
+    setBusy(true); setErr(null);
+    try { await gravar(path); onSaved(); }
+    catch (e2) { setErr((e2 as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ marginBottom: 16, background: BG3, borderRadius: 8, padding: 14, border: `1px solid ${GO}40` }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: TX, marginBottom: 2 }}>📎 Orçamento em PDF</div>
+      <div style={{ fontSize: 10, color: TXD, marginBottom: 10 }}>
+        Anexe o PDF do orçamento feito fora do sistema e informe o valor — assim o funil soma e o card mostra a proposta.
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 10, color: TXD, marginBottom: 3 }}>Valor do orçamento (R$)</div>
+          <input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)}
+            style={{ padding: "8px 10px", border: `1px solid ${BD}`, borderRadius: 6, fontSize: 13, background: "#fff", color: TX, width: 160 }} placeholder="0,00" />
+        </div>
+        <button type="button" onClick={salvarValor} disabled={busy}
+          style={{ padding: "8px 14px", borderRadius: 6, background: "transparent", border: `1px solid ${GO}`, color: GO, fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : "pointer" }}>
+          Salvar valor
+        </button>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        {path ? (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: TXM }}>
+            <span style={{ color: G, fontWeight: 600 }}>✅ PDF anexado</span>
+            {em && <span style={{ color: TXD, fontSize: 11 }}>em {new Date(em).toLocaleString("pt-BR")}</span>}
+            <button type="button" onClick={baixar} disabled={busy} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${BD}`, color: TX, fontSize: 11, cursor: "pointer" }}>Ver / baixar</button>
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${BD}`, color: TX, fontSize: 11, cursor: "pointer" }}>Substituir</button>
+            <button type="button" onClick={remover} disabled={busy} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${R}`, color: R, fontSize: 11, cursor: "pointer" }}>Remover</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}
+            style={{ padding: "8px 14px", borderRadius: 6, background: GO, color: "#fff", fontSize: 12, fontWeight: 600, border: "none", cursor: busy ? "wait" : "pointer" }}>
+            {busy ? "Enviando…" : "📎 Anexar PDF do orçamento"}
+          </button>
+        )}
+        <input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={subir} style={{ display: "none" }} />
+      </div>
+      {err && <div style={{ marginTop: 8, fontSize: 12, color: R }}>❌ {err}</div>}
     </div>
   );
 }
