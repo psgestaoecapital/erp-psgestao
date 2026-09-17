@@ -120,6 +120,7 @@ export default function NFSeListClient() {
   const [reemitir, setReemitir] = useState<null | {
     tomadorDocumento?: string; tomadorTipo?: 'cpf' | 'cnpj'; tomadorNome?: string; tomadorEmail?: string
     descricaoServico?: string; valorServicos?: number; codigoServicoMunicipio?: string; aliquotaIss?: number
+    permitirObra?: boolean  // A③ · nota rejeitada por E0370 sem obra → oferece o bloco de obra no reenvio
   }>(null)
   const [preparandoReenvio, setPreparandoReenvio] = useState<string | null>(null)
   // #82.3 — vínculo gerencial de obra à NFS-e já emitida (grava só erp_nfse_emitidas.obra_id; sem reemitir).
@@ -296,6 +297,8 @@ export default function NFSeListClient() {
         valorServicos: row.valor_servicos ?? undefined,
         codigoServicoMunicipio: extra.codigo_servico ?? undefined,
         aliquotaIss: extra.aliquota_iss ?? undefined,
+        // A③ · rejeição E0370 = falta obra → oferece o bloco de obra no reenvio (o buraco do #18/#82)
+        permitirObra: /E0370/i.test(row.motivo_rejeicao ?? ''),
       })
       setEmitirAberto(true)
     } finally {
@@ -443,6 +446,7 @@ export default function NFSeListClient() {
             valorServicos={reemitir?.valorServicos}
             codigoServicoMunicipio={reemitir?.codigoServicoMunicipio}
             aliquotaIss={reemitir?.aliquotaIss}
+            permitirObra={reemitir?.permitirObra}
           />
         )}
 
