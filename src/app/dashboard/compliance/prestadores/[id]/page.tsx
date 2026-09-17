@@ -8,6 +8,7 @@ import { fmtData, fmtDataHora, fmtR } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
 import NovoFuncionarioModal from '../../_components/NovoFuncionarioModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
+import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../../_components/prestador-opts'
 
 type Prestador = {
   id: string
@@ -36,6 +37,11 @@ type Prestador = {
   obra_nome: string | null
   ativo: boolean
   observacoes: string | null
+  // #87 pré-cadastro (Compras/Manutenção) — base para as NRs (fase 2)
+  local_servico: string | null
+  classificacao_servico: string | null
+  tipos_servico: string[] | null
+  atividades_especiais: string[] | null
 }
 
 type MatrizLinha = {
@@ -363,6 +369,23 @@ function AbaDados({
         />
       </Field>
 
+      {/* #87 · pré-cadastro para as NRs — o que Compras/Manutenção informou (ou completa aqui).
+          Base da automação de NRs + link do terceiro (fase 2). */}
+      <div style={{ padding: 12, background: C.beigeLt, borderRadius: 8, margin: '4px 0 12px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: C.muted, marginBottom: 8 }}>Serviço e riscos (para as NRs)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+          <F label="Local do serviço" v={form.local_servico || ''} onChange={(v) => set('local_servico', v)} />
+          <Field label="Classificação">
+            <select value={form.classificacao_servico || ''} onChange={(e) => set('classificacao_servico', e.target.value || null)} style={inp()}>
+              <option value="">— selecione —</option>
+              {CLASSIFICACAO_SERVICO.map((o) => (<option key={o.v} value={o.v}>{o.l}</option>))}
+            </select>
+          </Field>
+        </div>
+        <ChecklistGroup titulo="Tipo de serviço executado" opts={TIPOS_SERVICO} sel={form.tipos_servico || []} onToggle={(v) => set('tipos_servico', ((form.tipos_servico || []).includes(v) ? (form.tipos_servico || []).filter((x) => x !== v) : [...(form.tipos_servico || []), v]))} />
+        <ChecklistGroup titulo="Atividades especiais" opts={ATIVIDADES_ESPECIAIS} sel={form.atividades_especiais || []} onToggle={(v) => set('atividades_especiais', ((form.atividades_especiais || []).includes(v) ? (form.atividades_especiais || []).filter((x) => x !== v) : [...(form.atividades_especiais || []), v]))} />
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Data início contrato">
           <input type="date" value={form.data_contrato_inicio || ''} onChange={(e: any) => set('data_contrato_inicio', e.target.value || null)} style={inp()} />
@@ -618,6 +641,25 @@ function AbaHistorico({ historico, onBaixar }: { historico: Documento[]; onBaixa
 
 function F({ label, v, onChange }: { label: string; v: string; onChange: (v: string) => void }) {
   return <Field label={label}><input value={v} onChange={(e: any) => onChange(e.target.value)} style={inp()} /></Field>
+}
+// #87 · grade de checkboxes para tipo de serviço / atividades especiais
+function ChecklistGroup({ titulo, opts, sel, onToggle }: { titulo: string; opts: readonly { v: string; l: string }[]; sel: string[]; onToggle: (v: string) => void }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{titulo}</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {opts.map((o) => {
+          const on = sel.includes(o.v)
+          return (
+            <button key={o.v} type="button" onClick={() => onToggle(o.v)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${on ? C.espresso : C.borderLt}`, background: on ? C.espresso : 'white', color: on ? 'white' : C.espresso }}>
+              {on ? '✓' : '+'} {o.l}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 function Field({ label, children }: { label: string; children: any }) {
   return (

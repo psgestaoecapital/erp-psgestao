@@ -17,6 +17,8 @@ const CAMPOS = [
   'valor_contrato_mensal', 'servico_descricao',
   'empresa_tomadora_id', 'empresa_tomadora_nome', 'obra_nome',
   'ativo', 'observacoes',
+  // #87 pré-cadastro (Compras/Manutenção) — base para as NRs (fase 2)
+  'local_servico', 'classificacao_servico', 'tipos_servico', 'atividades_especiais',
 ]
 
 function fail(status: number, mensagem_humana: string) {
