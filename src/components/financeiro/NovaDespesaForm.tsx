@@ -904,11 +904,11 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           {dupLogica.length > 0 && !dupLogicaIgnorado && dupContas.length === 0 && (
             <div style={{ gridColumn: '1 / -1', background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 8, padding: '12px 14px' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#854F0B', marginBottom: 6 }}>
-                🟡 Já existe uma conta parecida (mesmo fornecedor, valor e vencimento)
+                🟡 Já existe uma despesa parecida (mesmo fornecedor, valor e mês). É a mesma?
               </div>
               {dupLogica.slice(0, 3).map((c) => (
                 <div key={c.id} style={{ fontSize: 12, color: '#3D2314', marginBottom: 4 }}>
-                  “<b>{c.descricao || 'sem descrição'}</b>”, doc <b>{c.numero_documento || '—'}</b>{c.codigo_barras ? ` · cód …${c.codigo_barras.slice(-6)}` : ''}, lançada em <b>{fmtDataBr(c.criado_em)}</b>, situação <b>{situacaoLabel(c.status)}</b>.
+                  “<b>{c.descricao || 'sem descrição'}</b>”, vence em <b>{c.vencimento ? fmtDataBr(c.vencimento) : '—'}</b>, doc <b>{c.numero_documento || '—'}</b>{c.codigo_barras ? ` · cód …${c.codigo_barras.slice(-6)}` : ''}, situação <b>{situacaoLabel(c.status)}</b> (lançada em {fmtDataBr(c.criado_em)}).
                 </div>
               ))}
               <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)', marginTop: 2 }}>

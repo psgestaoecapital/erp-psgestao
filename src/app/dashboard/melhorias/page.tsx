@@ -102,6 +102,26 @@ function Inner() {
   }, [verArquivadas])
   useEffect(() => { void carregar() }, [carregar])
 
+  // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
+  // Rascunho em localStorage (restaura ao montar, salva a cada mudança, limpa ao enviar). Efeito em vez
+  // de initializer do useState pra não dar hydration mismatch (a abertura renderiza no SSR). RD-51: try/catch.
+  const DRAFT_ABERTURA = 'melhoria:abertura:v1'
+  const [rascunhoRestaurado, setRascunhoRestaurado] = useState(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_ABERTURA)
+      if (raw) { const d = JSON.parse(raw) as Partial<typeof f>; setF((prev) => ({ ...prev, ...d })) }
+    } catch { /* aba privada/bloqueado */ }
+    setRascunhoRestaurado(true)
+  }, [])
+  useEffect(() => {
+    if (!rascunhoRestaurado) return
+    try {
+      if ((f.titulo && f.titulo.trim()) || (f.descricao && f.descricao.trim())) localStorage.setItem(DRAFT_ABERTURA, JSON.stringify(f))
+      else localStorage.removeItem(DRAFT_ABERTURA)
+    } catch { /* aba privada/bloqueado */ }
+  }, [f, rascunhoRestaurado])
+
   // chegou pelo link do e-mail (?n=): rola até o chamado e o destaca por alguns segundos.
   useEffect(() => {
     if (!focoNumero || !minhas.length) return
