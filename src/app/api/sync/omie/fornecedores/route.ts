@@ -2,15 +2,10 @@
 // PS Gestão ERP — Sync Fornecedores Omie → PS Gestão
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
 
 export const maxDuration = 300 // 5 min
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // ═══ Mapeamento Omie → PS Gestão ═══
 // Campos Omie de Cliente/Fornecedor (tag tipo_cliente contém "Fornecedor")

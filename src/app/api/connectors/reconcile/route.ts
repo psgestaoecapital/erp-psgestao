@@ -10,17 +10,12 @@
 //   de company_data_sources. Não dispara nenhuma chamada externa.
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { reconcileCompany, pegarSlug } from '@/lib/connectors/reconciler'
 // Side-effect: registra os adapters no registry.
 import '@/lib/connectors/registry'
 
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 function baseUrlFromRequest(req: Request): string {
   const proto = req.headers.get('x-forwarded-proto') || 'https'
