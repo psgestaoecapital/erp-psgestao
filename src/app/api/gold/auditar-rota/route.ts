@@ -36,6 +36,9 @@ interface BotaoRow {
   destino_esperado_rota: string | null;
   destino_esperado_descricao: string | null;
   prioridade: string | null;
+  // B-correção: quando preenchida, um seletor não visível vira 'nao_testavel' (precondição não
+  // satisfeita pelo robô — ex.: exige planta selecionada), não 'vermelho'. "não testável ≠ quebrado".
+  precondicao: string | null;
 }
 
 export async function POST(req: Request) {
@@ -74,7 +77,7 @@ export async function POST(req: Request) {
 
   const { data: botoes, error: botoesErr } = await supabase
     .from('gold_screen_buttons')
-    .select('id, rota, botao_label, botao_selector_css, destino_esperado_rota, destino_esperado_descricao, prioridade')
+    .select('id, rota, botao_label, botao_selector_css, destino_esperado_rota, destino_esperado_descricao, prioridade, precondicao')
     .eq('rota', rota)
     .eq('ativo', true)
     .order('prioridade');
@@ -173,6 +176,12 @@ async function auditarBotao(
 
     if (!visivel) {
       await page.close();
+      // B-correção: botão com precondição declarada + seletor ausente = NÃO TESTÁVEL (o robô não
+      // satisfez a precondição, ex.: selecionar planta), não QUEBRADO. Sem precondição, segue vermelho.
+      if (botao.precondicao && botao.precondicao.trim()) {
+        return await gravarErro(supabase, botao, 'precondicao_nao_satisfeita',
+          `precondição não satisfeita pelo robô: ${botao.precondicao.trim()}`, 'nao_testavel');
+      }
       return await gravarErro(supabase, botao, 'seletor_nao_visivel', `${botao.botao_label} nao visivel`);
     }
 
@@ -315,10 +324,11 @@ async function gravarErro(
   botao: BotaoRow,
   tipo: string,
   msg: string,
+  veredito: 'vermelho' | 'nao_testavel' = 'vermelho',
 ) {
   await supabase.from('gold_camada2_validacoes').insert({
     botao_id: botao.id,
-    veredito_camada2: 'vermelho',
+    veredito_camada2: veredito,
     motivo_veredito: `${tipo}: ${msg}`,
     playwright_real: true,
     auth_status: tipo === 'redirected_login' ? 'redirected_login' : 'autenticado',
@@ -327,5 +337,7 @@ async function gravarErro(
     elementos_detectados: [],
     claude_custo_usd: 0,
   });
-  return { botao_id: botao.id, veredito: 'BLOQUEADO', custo_usd: 0, motivo: `${tipo}: ${msg}` };
+  // veredito de RETORNO da função (para o resumo): não testável não é bloqueado.
+  const vRet = veredito === 'nao_testavel' ? 'NAO_TESTAVEL' : 'BLOQUEADO';
+  return { botao_id: botao.id, veredito: vRet, custo_usd: 0, motivo: `${tipo}: ${msg}` };
 }
