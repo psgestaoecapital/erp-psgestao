@@ -69,6 +69,14 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   const [token, setToken] = useState('')
   const [salvandoToken, setSalvandoToken] = useState(false)
   const [trocarToken, setTrocarToken] = useState(false)
+  // #90 / Focus #242149 · Reforma Tributária (IBS/CBS) — OPCIONAL, recolhida, desligada por padrão.
+  const [reformaAberto, setReformaAberto] = useState(false)
+  const [rfFinalidade, setRfFinalidade] = useState('')
+  const [rfConsumidor, setRfConsumidor] = useState('')
+  const [rfIndDest, setRfIndDest] = useState('')
+  const [rfCst, setRfCst] = useState('')
+  const [rfClassif, setRfClassif] = useState('')
+  const [salvandoReforma, setSalvandoReforma] = useState(false)
 
   // carrega checklist inicial pra pre-preencher
   useEffect(() => {
@@ -105,6 +113,42 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
+
+  // #90 · carrega os valores atuais da Reforma (IBS/CBS) da config, para pré-preencher a seção recolhida.
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase
+        .from('erp_fiscal_provider_config')
+        .select('reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib')
+        .eq('company_id', companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      if (!alive || !data) return
+      const d = data as Record<string, unknown>
+      setRfFinalidade(d.reforma_finalidade_emissao != null ? String(d.reforma_finalidade_emissao) : '')
+      setRfConsumidor(d.reforma_consumidor_final != null ? String(d.reforma_consumidor_final) : '')
+      setRfIndDest(d.reforma_indicador_destinatario != null ? String(d.reforma_indicador_destinatario) : '')
+      setRfCst((d.reforma_ibs_cbs_cst as string | null) ?? '')
+      setRfClassif((d.reforma_ibs_cbs_classif_trib as string | null) ?? '')
+    })()
+    return () => { alive = false }
+  }, [companyId])
+
+  async function salvarReforma() {
+    setErro(null); setToast(null); setSalvandoReforma(true)
+    const { data, error } = await supabase.rpc('fn_fiscal_reforma_salvar', {
+      p_company_id: companyId,
+      p_campos: {
+        finalidade_emissao: rfFinalidade, consumidor_final: rfConsumidor, indicador_destinatario: rfIndDest,
+        ibs_cbs_cst: rfCst, ibs_cbs_classif_trib: rfClassif,
+      },
+    })
+    setSalvandoReforma(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string }
+    if (!r?.ok) { setErro(r?.erro === 'config_focusnfe_nao_encontrada' ? 'Configure o emissor Focus antes de preencher a Reforma.' : (r?.erro ?? 'Erro ao salvar')); return }
+    setToast('✅ Campos da Reforma (IBS/CBS) salvos.')
+    onSalvo?.(); setTimeout(() => setToast(null), 4000)
+  }
 
   async function checarAderencia(codigo: string) {
     if (!/^\d{7}$/.test(codigo)) { setAderidoSelo(null); return }
@@ -397,6 +441,43 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
               )
             })()}
           </Section>
+
+          {/* #90 / Focus #242149 · Reforma Tributária (IBS/CBS) — recolhida, opcional, desligada por padrão */}
+          <div className="border border-[#3D2314]/10 rounded-lg">
+            <button type="button" onClick={() => setReformaAberto((v) => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 text-left">
+              <span className="text-[12px] font-semibold text-[#3D2314]">Reforma Tributária (IBS/CBS)</span>
+              {reformaAberto ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {reformaAberto && (
+              <div className="px-3 pb-3 space-y-3">
+                <div className="text-[11px] text-[#3D2314]/60">Preencha só quando o emissor ou o contador pedir. Vazio = não vai na nota.</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Field label="Finalidade (finNFSe)">
+                    <input type="text" inputMode="numeric" value={rfFinalidade} onChange={(e) => setRfFinalidade(e.target.value.replace(/\D/g, ''))} placeholder="ex.: 0" className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+                  </Field>
+                  <Field label="Consumidor final (indFinal)">
+                    <input type="text" inputMode="numeric" value={rfConsumidor} onChange={(e) => setRfConsumidor(e.target.value.replace(/\D/g, ''))} placeholder="0 = não · 1 = sim" className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+                  </Field>
+                  <Field label="Indicador destinatário (indDest)">
+                    <input type="text" inputMode="numeric" value={rfIndDest} onChange={(e) => setRfIndDest(e.target.value.replace(/\D/g, ''))} placeholder="0 = tomador · 1 = outro" className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+                  </Field>
+                  <Field label="CST IBS/CBS">
+                    <input type="text" maxLength={3} value={rfCst} onChange={(e) => setRfCst(e.target.value.replace(/\D/g, ''))} placeholder="3 dígitos" className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+                  </Field>
+                  <Field label="Classificação (cClassTrib)">
+                    <input type="text" maxLength={6} value={rfClassif} onChange={(e) => setRfClassif(e.target.value.replace(/\D/g, ''))} placeholder="6 dígitos" className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+                  </Field>
+                </div>
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => void salvarReforma()} disabled={salvandoReforma}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#3D2314] text-white text-[12px] font-medium disabled:opacity-40">
+                    {salvandoReforma ? 'Salvando…' : 'Salvar campos da Reforma'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {erro && (
             <div className="bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-md px-3 py-2 text-[12px] text-[#791F1F]">

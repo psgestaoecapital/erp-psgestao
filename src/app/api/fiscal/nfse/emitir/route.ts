@@ -376,7 +376,7 @@ export const POST = withAuth(async (req: NextRequest) => {
           nfseReq.padraoNacional = true
           const { data: snCfg } = await supabaseAdmin
             .from('erp_fiscal_provider_config')
-            .select('opcao_simples_nacional, regime_apuracao_sn, percentual_total_tributos_sn')
+            .select('opcao_simples_nacional, regime_apuracao_sn, percentual_total_tributos_sn, reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib')
             .eq('company_id', body.companyId)
             .eq('provider', 'focusnfe')
             .eq('ativo', true)
@@ -384,6 +384,18 @@ export const POST = withAuth(async (req: NextRequest) => {
           nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
           nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
           if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
+          // #90 / Focus #242149 · campos da Reforma (IBS/CBS) por empresa — OPCIONAIS e desligados por
+          // padrão. Só entram no JSON quando a empresa preencheu na config (o builder ignora null/vazio).
+          const rf = {
+            finalidadeEmissao: (snCfg?.reforma_finalidade_emissao as number | null) ?? null,
+            consumidorFinal: (snCfg?.reforma_consumidor_final as number | null) ?? null,
+            indicadorDestinatario: (snCfg?.reforma_indicador_destinatario as number | null) ?? null,
+            ibsCbsCst: (snCfg?.reforma_ibs_cbs_cst as string | null) ?? null,
+            ibsCbsClassifTrib: (snCfg?.reforma_ibs_cbs_classif_trib as string | null) ?? null,
+          }
+          if (rf.finalidadeEmissao != null || rf.consumidorFinal != null || rf.indicadorDestinatario != null || rf.ibsCbsCst || rf.ibsCbsClassifTrib) {
+            nfseReq.reforma = rf
+          }
           // codigo_nbs do serviço (opcional — só enviado se preenchido)
           if (body.servicoId) {
             const { data: sv } = await supabaseAdmin
