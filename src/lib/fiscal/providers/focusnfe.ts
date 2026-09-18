@@ -267,7 +267,9 @@ export class FocusNFeProvider implements FiscalProvider {
         `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
         nacional
       )
-      return this.mapFocusNFSeResponse(referencia, data)
+      // #90/#64: devolve o payload ENVIADO (só o corpo da NFSe — cert/token ficam no header, não aqui)
+      // para persistir e parar de emitir no escuro.
+      return { ...this.mapFocusNFSeResponse(referencia, data), payloadEnviado: nacional }
     }
 
     // Padrão municipal (ABRASF) · /v2/nfse
@@ -319,7 +321,7 @@ export class FocusNFeProvider implements FiscalProvider {
       payload
     )
 
-    return this.mapFocusNFSeResponse(referencia, data)
+    return { ...this.mapFocusNFSeResponse(referencia, data), payloadEnviado: payload }
   }
 
   async consultarNFSe(referenceOrNumero: string): Promise<NFSeResponse> {
@@ -375,7 +377,13 @@ export class FocusNFeProvider implements FiscalProvider {
       xmlUrl: data.caminho_xml_nota_fiscal ? `${this.baseUrl}${data.caminho_xml_nota_fiscal}` : undefined,
       pdfUrl: data.url_danfse,
       status,
-      motivoRejeicao: data.mensagem_sefaz,
+      // #90: no layout NACIONAL o motivo da rejeição (ex.: E0370) NÃO vem em mensagem_sefaz — vem em
+      // mensagem OU erros[]. Sem esse fallback, a rejeição chegava sem texto ("Rejeitada" e nada mais).
+      motivoRejeicao: data.mensagem_sefaz
+        ?? data.mensagem
+        ?? (Array.isArray(data.erros) && data.erros.length
+              ? data.erros.map((e) => [e.codigo, e.mensagem].filter(Boolean).join(': ')).join(' | ')
+              : undefined),
       providerReference: referencia,
       providerRaw: data,
     }

@@ -461,6 +461,8 @@ export const POST = withAuth(async (req: NextRequest) => {
       xml_url: resposta.xmlUrl,
       pdf_url: resposta.pdfUrl,
       motivo_rejeicao: resposta.motivoRejeicao,
+      // #90/#64: guarda o payload enviado (sem cert/token) p/ depurar rejeição sem emitir no escuro.
+      payload_enviado: resposta.payloadEnviado ?? null,
     }
 
     const { data: registroId, error: rpcErr } = await supabaseAdmin.rpc(
