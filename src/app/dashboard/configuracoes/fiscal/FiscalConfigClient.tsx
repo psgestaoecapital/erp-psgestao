@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import CertificadoUploadCard from '@/components/fiscal/CertificadoUploadCard'
 import ConfigFiscalEditCard from '@/components/fiscal/ConfigFiscalEditCard'
@@ -206,10 +206,18 @@ export default function FiscalConfigClient() {
     erro: null,
   })
 
+  // HOTFIX Configuração Fiscal: o spinner de página inteira só aparece na PRIMEIRA carga. Nos
+  // refetches (após salvar certificado/config via onAtualizado/onSalvo) mantemos os cards montados e
+  // só atualizamos os dados no lugar. Antes, todo refetch trocava a árvore inteira pelo spinner —
+  // desmontava e remontava todos os cards (cada um refazendo seus fetches de montagem), o que
+  // multiplicava requisições a cada salvar. Uma fonte a menos de remonta em cascata na tela.
+  const jaCarregouRef = useRef(false)
+
   const carregar = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true }))
+    if (!jaCarregouRef.current) setState((s) => ({ ...s, loading: true }))
     const sel = resolveSelectedCompanyId()
     if (sel.kind === 'erro') {
+      jaCarregouRef.current = true
       setState({ loading: false, companyId: null, config: null, certificado: null, empresa: null, erro: sel.mensagem })
       return
     }
@@ -248,6 +256,7 @@ export default function FiscalConfigClient() {
       if (cfgRes.error) throw cfgRes.error
       if (empRes.error) throw empRes.error
 
+      jaCarregouRef.current = true
       setState({
         loading: false,
         companyId: sel.id,
@@ -258,6 +267,7 @@ export default function FiscalConfigClient() {
       })
     } catch (err) {
       const mensagem = err instanceof Error ? err.message : 'Erro ao carregar configuração'
+      jaCarregouRef.current = true
       setState({ loading: false, companyId: sel.id, config: null, certificado: null, empresa: null, erro: mensagem })
     }
   }, [])
