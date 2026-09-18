@@ -70,6 +70,9 @@ export interface NFSeResponse {
   motivoRejeicao?: string
   providerReference: string
   providerRaw?: unknown
+  // #90/#64: corpo (JSON) efetivamente enviado ao provider — sem cert/token (que vão no header).
+  // Persistido em erp_nfse_emitidas.payload_enviado para depurar rejeições sem emitir no escuro.
+  payloadEnviado?: unknown
 }
 
 export interface NFeProdutoItem {

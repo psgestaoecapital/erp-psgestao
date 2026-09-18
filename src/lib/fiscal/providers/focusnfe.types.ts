@@ -50,6 +50,9 @@ export interface FocusNFeNFSeResponse {
   url_danfse?: string
   codigo_verificacao?: string
   numero_rps?: string
+  // #90: em rejeição (status erro_autorizacao) o Focus pode devolver o motivo aqui, não em mensagem_sefaz.
+  mensagem?: string
+  erros?: Array<{ codigo?: string; mensagem?: string }>
 }
 
 export interface FocusNFeAPIError {
