@@ -7,7 +7,8 @@ import ConfigFiscalEditCard from '@/components/fiscal/ConfigFiscalEditCard'
 import FocusNFeConfigCard from '@/components/fiscal/FocusNFeConfigCard'
 import TestarConexaoButton from '@/components/fiscal/TestarConexaoButton'
 import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
-import { ShieldCheck, AlertCircle, Loader2, FileCheck, CheckCircle2, XCircle } from 'lucide-react'
+import CardBoundary from '@/components/fiscal/CardBoundary'
+import { ShieldCheck, AlertCircle, Loader2, FileCheck, CheckCircle2, XCircle, Lock } from 'lucide-react'
 
 // FIX-FISCAL-UX-v1 · Saneamento V1 Fase 1
 // Bugs corrigidos:
@@ -63,6 +64,10 @@ interface FiscalState {
   certificado: CertificadoRow | null
   empresa: EmpresaRow | null
   erro: string | null
+  // HOTFIX 0829eca5: usuário logado mas SEM vínculo à empresa selecionada. As queries diretas voltam
+  // vazias por RLS (não dá pra distinguir de "empresa nova"); o sinal confiável é fn_fiscal_config_checklist
+  // devolvendo {ok:false}. Quando true, mostramos a mensagem de acesso no lugar dos cards.
+  semAcesso: boolean
 }
 
 function resolveSelectedCompanyId(): { kind: 'ok'; id: string } | { kind: 'erro'; mensagem: string } {
@@ -204,6 +209,7 @@ export default function FiscalConfigClient() {
     certificado: null,
     empresa: null,
     erro: null,
+    semAcesso: false,
   })
 
   // HOTFIX Configuração Fiscal: o spinner de página inteira só aparece na PRIMEIRA carga. Nos
@@ -218,12 +224,15 @@ export default function FiscalConfigClient() {
     const sel = resolveSelectedCompanyId()
     if (sel.kind === 'erro') {
       jaCarregouRef.current = true
-      setState({ loading: false, companyId: null, config: null, certificado: null, empresa: null, erro: sel.mensagem })
+      setState({ loading: false, companyId: null, config: null, certificado: null, empresa: null, erro: sel.mensagem, semAcesso: false })
       return
     }
 
     try {
-      const [certRes, cfgRes, empRes] = await Promise.all([
+      // fn_fiscal_config_checklist devolve {ok:false} quando o usuário não pertence à empresa — é o
+      // único sinal que distingue "sem vínculo" de "empresa ainda não configurada" (as tabelas voltam
+      // vazias por RLS nos dois casos). Falha da RPC não bloqueia a tela (semAcesso só vira true no ok:false).
+      const [certRes, cfgRes, empRes, chkRes] = await Promise.all([
         supabase
           .from('erp_certificados_a1')
           .select(
@@ -250,11 +259,16 @@ export default function FiscalConfigClient() {
           .select('cnpj, razao_social, inscricao_municipal')
           .eq('id', sel.id)
           .maybeSingle(),
+        supabase.rpc('fn_fiscal_config_checklist', { p_company_id: sel.id }),
       ])
 
       if (certRes.error) throw certRes.error
       if (cfgRes.error) throw cfgRes.error
       if (empRes.error) throw empRes.error
+
+      // Só marca sem-acesso quando a RPC RESPONDE {ok:false}. Erro/timeout da RPC não bloqueia a tela.
+      const chk = (chkRes.data as { ok?: boolean } | null)
+      const semAcesso = !chkRes.error && chk != null && chk.ok === false
 
       jaCarregouRef.current = true
       setState({
@@ -264,11 +278,12 @@ export default function FiscalConfigClient() {
         config: (cfgRes.data as ConfigRow | null) ?? null,
         empresa: (empRes.data as EmpresaRow | null) ?? null,
         erro: null,
+        semAcesso,
       })
     } catch (err) {
       const mensagem = err instanceof Error ? err.message : 'Erro ao carregar configuração'
       jaCarregouRef.current = true
-      setState({ loading: false, companyId: sel.id, config: null, certificado: null, empresa: null, erro: mensagem })
+      setState({ loading: false, companyId: sel.id, config: null, certificado: null, empresa: null, erro: mensagem, semAcesso: false })
     }
   }, [])
 
@@ -287,6 +302,22 @@ export default function FiscalConfigClient() {
       <div className="bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-lg p-4 flex items-start gap-3">
         <AlertCircle className="text-[#C94544] flex-shrink-0 mt-0.5" size={18} />
         <div className="text-[13px] text-[#791F1F]">{state.erro}</div>
+      </div>
+    )
+  }
+
+  // HOTFIX 0829eca5: usuário logado mas sem vínculo à empresa selecionada — mensagem clara no lugar
+  // dos cards, em vez de tela preta. O vínculo é feito pelo admin (Administração → Acessos).
+  if (state.semAcesso) {
+    return (
+      <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-5 flex items-start gap-3">
+        <Lock className="text-[#BA7517] flex-shrink-0 mt-0.5" size={20} />
+        <div className="text-[13px] text-[#633806]">
+          <div className="font-medium">Você não está vinculado a esta empresa.</div>
+          <div className="mt-1 text-[#5C3A06]">
+            Peça ao administrador para liberar seu acesso em <strong>Administração → Acessos</strong>.
+          </div>
+        </div>
       </div>
     )
   }
@@ -396,11 +427,13 @@ export default function FiscalConfigClient() {
         <CertTrocarSenhaCard certificadoId={state.certificado.id} onSalvo={carregar} />
       )}
 
-      <CertificadoUploadCard
-        companyId={state.companyId!}
-        certificadoAtual={state.certificado as unknown as Record<string, unknown> | null}
-        onAtualizado={carregar}
-      />
+      <CardBoundary nome="CertificadoUploadCard">
+        <CertificadoUploadCard
+          companyId={state.companyId!}
+          certificadoAtual={state.certificado as unknown as Record<string, unknown> | null}
+          onAtualizado={carregar}
+        />
+      </CardBoundary>
 
       {/* BRAND-1 · atalho do logo (o upload mora em Dados da Empresa — fonte única, RD-52) */}
       <a
@@ -415,23 +448,29 @@ export default function FiscalConfigClient() {
         <span className="text-[12.5px] font-medium text-[#C8941A] whitespace-nowrap">Alterar →</span>
       </a>
 
-      <ConfigFiscalEditCard
-        companyId={state.companyId!}
-        imAtual={state.empresa?.inscricao_municipal ?? null}
-        onSalvo={carregar}
-      />
+      <CardBoundary nome="ConfigFiscalEditCard">
+        <ConfigFiscalEditCard
+          companyId={state.companyId!}
+          imAtual={state.empresa?.inscricao_municipal ?? null}
+          onSalvo={carregar}
+        />
+      </CardBoundary>
 
-      <FocusNFeConfigCard
-        companyId={state.companyId!}
-        configAtual={state.config as unknown as Record<string, unknown> | null}
-        certificadoOk={!!state.certificado}
-        onAtualizado={carregar}
-      />
+      <CardBoundary nome="FocusNFeConfigCard">
+        <FocusNFeConfigCard
+          companyId={state.companyId!}
+          configAtual={state.config as unknown as Record<string, unknown> | null}
+          certificadoOk={!!state.certificado}
+          onAtualizado={carregar}
+        />
+      </CardBoundary>
 
-      <WebhookConfigCard
-        companyId={state.companyId!}
-        habilitado={!!state.config && !!state.certificado && isFocusProvider(provider)}
-      />
+      <CardBoundary nome="WebhookConfigCard">
+        <WebhookConfigCard
+          companyId={state.companyId!}
+          habilitado={!!state.config && !!state.certificado && isFocusProvider(provider)}
+        />
+      </CardBoundary>
 
       <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 text-[12px] text-[#3D2314]/70 leading-relaxed">
         <strong className="text-[#3D2314] font-medium">Emissores disponíveis:</strong>{' '}
