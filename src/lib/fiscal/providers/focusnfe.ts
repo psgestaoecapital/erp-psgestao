@@ -119,19 +119,20 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     if (end.complemento) p.complemento_tomador = end.complemento
     if (end.bairro) p.bairro_tomador = end.bairro
   }
-  // #18 · E0370: grupo de OBRA (construção civil). O layout nacional exige CNO/CIB OU endereço da obra
-  // quando o código de tributação está na lista (07.02.01, 07.02.02, ...). Estrutura espelhada do
-  // padrão nacional (CNO=codigo_obra, CIB=inscricao_imobiliaria, endereço da obra).
-  // ⚠️ RD-59: os nomes EXATOS dos campos do Focus nacional para obra devem ser confirmados na
-  // homologação (1 nota real) — o egress do dev bloqueia a doc/API do Focus. Se o Focus recusar o
-  // objeto/nome, ajustar só este bloco.
+  // #18/#90 · E0370: grupo de OBRA (construção civil). Estrutura CONFIRMADA em 2 notas AUTORIZADAS da
+  // R.R (SMO): a obra é CNO (cObra) OU ENDEREÇO. O <end> da obra NÃO tem cMun nem endNac — só
+  // CEP/xLgr/nro/xCpl/xBairro (diferente do tomador, que tem endNac.cMun). O município da obra vai
+  // FORA do grupo, no cLocIncid (= codigo_municipio_prestacao), abaixo. Antes mandávamos
+  // codigo_municipio_obra DENTRO do grupo → o Focus montava um <end> inválido p/ obra → E0370 mesmo
+  // com endereço completo. Mantidas as chaves planas _obra (mesma convenção do tomador, que a
+  // prefeitura aceita nesta mesma nota). #1534 persiste o payload p/ conferir se o Focus recusar.
   const o = req.obra
   if (o && (o.cno || o.inscricaoImobiliaria || o.logradouro)) {
     const cc: Record<string, unknown> = {}
     if (o.cno) cc.codigo_obra = String(o.cno).replace(/\D/g, '')
     if (o.inscricaoImobiliaria) cc.inscricao_imobiliaria = String(o.inscricaoImobiliaria).replace(/\D/g, '')
     if (o.cep) cc.cep_obra = String(o.cep).replace(/\D/g, '')
-    if (o.codigoMunicipio) cc.codigo_municipio_obra = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
+    // NÃO enviar codigo_municipio_obra: o <end> da obra não aceita cMun (vide nota 19 autorizada).
     if (o.logradouro) cc.logradouro_obra = o.logradouro
     if (o.numero) cc.numero_obra = o.numero
     if (o.complemento) cc.complemento_obra = o.complemento
