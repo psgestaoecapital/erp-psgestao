@@ -25,6 +25,8 @@ const EMPRESA_PADRAO_BOT = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
 // filas por empresa: sem dados, a Camada 2 auditaria só o empty state. Para rotas /dashboard/oficina,
 // o auditor usa esta empresa e chama fn_gold_oficina_seed_reparar antes (idempotente + auto-reparável).
 const EMPRESA_BOT_OFICINA = 'b0700000-0000-4000-a000-000000000001';
+// Bot PRÓPRIO da agência (P&M) — mesma receita da Oficina. Dados-semente via fn_gold_pm_seed_reparar.
+const EMPRESA_BOT_PM = 'b0700000-0000-4000-a000-000000000002';
 
 type Body = { rota?: string; screen_id?: string };
 
@@ -105,11 +107,15 @@ export async function POST(req: Request) {
     });
     const storageKey = `sb-${PROJECT_REF}-auth-token`;
 
-    // Rota de oficina → empresa-bot própria + seed idempotente antes de auditar (garante filas populadas).
+    // Rota de oficina/P&M → empresa-bot própria + seed idempotente antes de auditar (filas populadas).
+    // O robô é PS_ADMIN (isento do gating de área/assinatura), então navega direto sem depender do menu.
     const ehOficina = rota.startsWith('/dashboard/oficina');
-    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : EMPRESA_PADRAO_BOT;
+    const ehPm = rota.startsWith('/dashboard/pm') || rota === '/dashboard/producao';
+    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : EMPRESA_PADRAO_BOT;
     if (ehOficina) {
       await supabase.rpc('fn_gold_oficina_seed_reparar', { p_company_id: EMPRESA_BOT_OFICINA });
+    } else if (ehPm) {
+      await supabase.rpc('fn_gold_pm_seed_reparar', { p_company_id: EMPRESA_BOT_PM });
     }
 
     const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
