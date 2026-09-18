@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { parseSaldoFechamento } from '@/lib/ofx-parser'
+import { parseSaldoFechamento, ehLinhaSaldoOFX } from '@/lib/ofx-parser'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
@@ -437,7 +437,13 @@ export default function InboxPage() {
     setImportando(true)
     try {
       const text = await arquivoOFX.text()
-      const movimentos = parseOFX(text)
+      const brutos = parseOFX(text)
+      // Adendo #1541 "Saldo Anterior": alguns bancos emitem o saldo como uma LINHA <STMTTRN>
+      // ("SALDO ANTERIOR" / "SALDO DO DIA" / só "SALDO"). Isso NÃO é movimento — separa aqui:
+      // as linhas de saldo NUNCA viram conciliacao_movimento; a mais recente serve de fallback
+      // do saldo de fechamento quando o arquivo não trouxe <LEDGERBAL>.
+      const linhasSaldo = brutos.filter((m) => ehLinhaSaldoOFX(m.descricao))
+      const movimentos = brutos.filter((m) => !ehLinhaSaldoOFX(m.descricao))
       if (movimentos.length === 0) {
         alert('Nenhuma transação encontrada no arquivo OFX.')
         setImportando(false)
@@ -447,6 +453,17 @@ export default function InboxPage() {
       // Saldo Bancário: extrai o saldo de fechamento (LEDGERBAL) do OFX e deixa o backend gravá-lo
       // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
       const saldo = parseSaldoFechamento(text)
+      // Fallback do saldo pela linha "SALDO ANTERIOR/DO DIA": só quando NÃO há LEDGERBAL (este tem
+      // prioridade). Pega a linha de saldo mais recente do arquivo (>= mantém a última em empate de
+      // data). O valor volta ao sinal contábil (débito → negativo). origem 'ofx_saldo_linha'.
+      const saldoLinha = (() => {
+        if (saldo.presente || linhasSaldo.length === 0) return null
+        let melhor = linhasSaldo[0]
+        for (const l of linhasSaldo) if (l.data_transacao >= melhor.data_transacao) melhor = l
+        const valorAssinado = melhor.natureza === 'debito' ? -melhor.valor : melhor.valor
+        return { valor: valorAssinado, dataISO: `${melhor.data_transacao}T00:00:00`, descricao: melhor.descricao }
+      })()
+      const temSaldo = saldo.presente || saldoLinha !== null
       const { data, error } = await supabase.rpc('fn_conciliacao_criar_lote', {
         p_company_id: empresaUnica,
         p_tipo: 'bancario',
@@ -457,9 +474,11 @@ export default function InboxPage() {
         p_storage_path: null,
         p_movimentos: movimentos,
         p_conta_bancaria_id: contaImportId,
-        p_saldo_fechamento: saldo.presente ? saldo.valor : null,
-        p_saldo_data: saldo.presente ? saldo.dataISO : null,
-        p_saldo_bruto: saldo.presente ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto } : null,
+        p_saldo_fechamento: saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null),
+        p_saldo_data: saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null),
+        p_saldo_bruto: saldo.presente
+          ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto, origem: 'ofx' }
+          : (saldoLinha ? { origem: 'ofx_saldo_linha', descricao_linha: saldoLinha.descricao } : null),
       })
       if (error) throw error
       const r = (data ?? {}) as { sucesso?: boolean; erro?: string; lote_id?: string | null; mensagem?: string; importados_novos?: number; ignorados_duplicados?: number; total_recebidos?: number; saldo?: { ok?: boolean; gravado?: boolean; motivo?: string; saldo_novo?: number } | null }
@@ -470,15 +489,19 @@ export default function InboxPage() {
       // Resumo honesto (importados / ignorados / já existiam) — dedup por transação (FIX #8).
       const novos = r.importados_novos ?? 0, ign = r.ignorados_duplicados ?? 0
       // Linha de saldo do banco: gravado, mantido (leitura mais antiga) ou não veio no arquivo.
+      // Valor/data efetivos: LEDGERBAL quando presente, senão a linha "SALDO ANTERIOR/DO DIA".
+      const saldoValor = saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null)
+      const saldoDataISO = saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null)
       let linhaSaldo = ''
-      if (!saldo.presente) {
+      if (!temSaldo) {
         linhaSaldo = '\nEste arquivo não trouxe o saldo do banco.'
       } else if (r.saldo?.gravado === false && r.saldo?.motivo === 'leitura_mais_antiga') {
         linhaSaldo = '\nSaldo mais antigo que o já registrado — mantido.'
-      } else if (r.saldo?.ok && saldo.valor != null) {
-        const dia = saldo.dataISO ? new Date(saldo.dataISO).toLocaleDateString('pt-BR') : '—'
-        const val = saldo.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-        linhaSaldo = `\nSaldo do banco em ${dia}: ${val}`
+      } else if (r.saldo?.ok && saldoValor != null) {
+        const dia = saldoDataISO ? new Date(saldoDataISO).toLocaleDateString('pt-BR') : '—'
+        const val = saldoValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+        const fonte = saldo.presente ? '' : ' (linha de saldo do extrato)'
+        linhaSaldo = `\nSaldo do banco em ${dia}: ${val}${fonte}`
       }
       alert((r.mensagem ?? (novos === 0
         ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já estavam no sistema.`
