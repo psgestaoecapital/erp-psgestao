@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
+import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -90,6 +91,8 @@ export default function LeadsPage() {
   const [form, setForm] = useState<FormLead>(FORM0)
   const [editando, setEditando] = useState<Lead | null>(null)   // Demanda 2: modal de edição
   const [menuLead, setMenuLead] = useState<string | null>(null) // Demanda 1: "⋯" do card (ganhar/perder/converter)
+  // #59 PDOIS parte 2: solicitar elaboração de contrato a partir do lead (modo manual, cliente pré-preenchido)
+  const [solicitarCli, setSolicitarCli] = useState<{ cliId: string | null } | null>(null)
   const [reuniaoLead, setReuniaoLead] = useState<Lead | null>(null) // modal de agendamento de reunião
   const [detalheLead, setDetalheLead] = useState<Lead | null>(null) // detalhe da reunião (clique no 📅)
   const [reunioesMap, setReunioesMap] = useState<Record<string, { data: string; hora: string | null; link: string | null; local: string | null }>>({})
@@ -494,6 +497,7 @@ export default function LeadsPage() {
                                   <button disabled={busy} onClick={() => { setMenuLead(null); ganhar(l) }} style={chip(GREEN)}>✓ Ganhar</button>
                                   <button onClick={() => { setMenuLead(null); perder(l) }} style={chip(RED)}>✕ Perder</button>
                                   <button disabled={busy} onClick={() => { setMenuLead(null); void converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
+                                  <button onClick={() => { setMenuLead(null); setSolicitarCli({ cliId: l.erp_cliente_id }) }} style={chip(DOURADO)}>🧾 Contrato</button>
                                   <button disabled={busy} onClick={() => { setMenuLead(null); void excluirLead(l) }} style={chip(RED)}>🗑 Excluir</button>
                                 </div>
                               )}
@@ -626,6 +630,12 @@ export default function LeadsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {solicitarCli && empresa && (
+        <SolicitarContratoModal companyId={empresa} clienteId={solicitarCli.cliId}
+          onClose={() => setSolicitarCli(null)}
+          onSolicitado={(r) => { setSolicitarCli(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.`) }} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}

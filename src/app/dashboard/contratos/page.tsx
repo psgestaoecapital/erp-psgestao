@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -76,7 +77,9 @@ export default function ContratosPage(){
 
   const [contratos,setContratos]=useState<Contrato[]>([]);
   const [clientes,setClientes]=useState<any[]>([]);
-  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'>('dashboard');
+  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'>('dashboard');
+  // #59 PDOIS parte 2: atalho ?tab=fee (usado pelo /dashboard/pm/contratos) abre direto a fila de fee
+  useEffect(()=>{ if(typeof window!=='undefined'){ const t=new URLSearchParams(window.location.search).get('tab'); if(t==='fee') setTab('fee'); } },[]);
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("ativo");
@@ -455,10 +458,15 @@ export default function ContratosPage(){
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${BD}`}}>
-        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
+        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)} style={{padding:"10px 20px",fontSize:12,fontWeight:tab===t.k?700:500,background:"transparent",border:"none",color:tab===t.k?GO:TXM,borderBottom:`3px solid ${tab===t.k?GO:"transparent"}`,cursor:"pointer",marginBottom:-1}}>{t.l}</button>
         ))}
       </div>
+
+      {/* TAB SOLICITAÇÕES & FEE (#59 PDOIS parte 2) */}
+      {tab==='fee'&&(
+        <ContratosFeePanel companyId={empresaUnica} />
+      )}
 
       {/* TAB DASHBOARD SAAS */}
       {tab==='dashboard'&&(
