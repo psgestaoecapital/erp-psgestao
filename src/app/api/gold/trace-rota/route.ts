@@ -14,7 +14,11 @@ import type { Browser } from 'playwright-core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// 300s como o /api/gold/auditar-rota (mesmo padrão chromium): o cold-launch do chromium-min
+// (baixa+extrai o pack ~50MB do GitHub) sozinho passa de 60s. Com 60 a função era morta pela
+// Vercel no meio → HTML "500: This page couldn't load" (não o nosso JSON). Foi essa a causa do
+// 500 no preview, não o alvo.
+export const maxDuration = 300;
 
 const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v147.0.0/chromium-v147.0.0-pack.x64.tar';
