@@ -140,6 +140,17 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA (fica FORA do grupo obra).
     if (o.codigoMunicipio) p.codigo_municipio_prestacao = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
   }
+  // #90 / Focus #242149 · campos da Reforma Tributária (IBS/CBS). PLANOS na raiz, OPCIONAIS: cada chave
+  // só entra quando a empresa preencheu na config (req.reforma). Config vazia → NENHUMA chave → o JSON
+  // fica IDÊNTICO ao de antes (diff zero). Nenhum valor default aqui — a Focus/contador definem os valores.
+  const rt = req.reforma
+  if (rt) {
+    if (rt.finalidadeEmissao != null) p.finalidade_emissao = rt.finalidadeEmissao
+    if (rt.consumidorFinal != null) p.consumidor_final = rt.consumidorFinal
+    if (rt.indicadorDestinatario != null) p.indicador_destinatario = rt.indicadorDestinatario
+    if (rt.ibsCbsCst != null && String(rt.ibsCbsCst).trim() !== '') p.ibs_cbs_situacao_tributaria = String(rt.ibsCbsCst).trim()
+    if (rt.ibsCbsClassifTrib != null && String(rt.ibsCbsClassifTrib).trim() !== '') p.ibs_cbs_classificacao_tributaria = String(rt.ibsCbsClassifTrib).trim()
+  }
   return p
 }
 

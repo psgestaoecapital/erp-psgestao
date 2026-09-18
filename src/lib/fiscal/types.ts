@@ -57,6 +57,16 @@ export interface NFSeRequest {
     logradouro?: string; numero?: string; complemento?: string; bairro?: string
     codigoMunicipio?: string; uf?: string; cep?: string
   }
+  // #90 / Focus #242149 · campos da Reforma Tributária (IBS/CBS) do layout NFS-e Nacional. OPCIONAIS
+  // e DESLIGADOS por padrão: só vão ao JSON quando a empresa preenche na Configuração Fiscal (nenhum
+  // valor default no código). Confirmar obrigatoriedade/valores com a Focus antes de exigir.
+  reforma?: {
+    finalidadeEmissao?: number | null       // finNFSe (0 = NFS-e regular)
+    consumidorFinal?: number | null          // indFinal (0 = não · 1 = sim)
+    indicadorDestinatario?: number | null    // indDest (0 = tomador é o destinatário · 1 = outro)
+    ibsCbsCst?: string | null                // ibs_cbs_situacao_tributaria (CST · String[3])
+    ibsCbsClassifTrib?: string | null        // ibs_cbs_classificacao_tributaria (cClassTrib · String[6])
+  }
 }
 
 export interface NFSeResponse {
