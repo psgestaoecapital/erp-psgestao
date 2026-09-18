@@ -32,7 +32,9 @@ BEGIN
   -- guarda de empresa: SÓ service_role passa direto; qualquer outro (authenticated, anon, sem jwt) é
   -- filtrado por get_user_company_ids(). O anon (sem login) cai aqui com lista vazia → sem_acesso.
   -- (Corrige o vazamento: "auth.uid() IS NOT NULL" deixava o anon passar, pois anon também tem uid NULL.)
-  IF auth.role() = 'service_role' THEN
+  -- HOTFIX 7f1cf73c: sem JWT (request.jwt.claims vazio) = chamada interna (cron/trigger/SQL) → passa;
+  -- service_role → passa; authenticated → filtra. anon segue sem EXECUTE (REVOKE abaixo).
+  IF coalesce(current_setting('request.jwt.claims', true), '') = '' OR auth.role() = 'service_role' THEN
     v_ids := p_company_ids;
   ELSE
     SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
@@ -116,7 +118,7 @@ AS $function$
 DECLARE v_ids uuid[]; v_data_efetiva date; v_contas jsonb; v_sem jsonb;
         v_ti numeric; v_tr numeric; v_tp numeric; v_ger numeric;
 BEGIN
-  IF auth.role() = 'service_role' THEN v_ids := p_company_ids;
+  IF coalesce(current_setting('request.jwt.claims', true), '') = '' OR auth.role() = 'service_role' THEN v_ids := p_company_ids;  -- HOTFIX 7f1cf73c: sem JWT = chamada interna
   ELSE SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids()); END IF;
   IF v_ids IS NULL OR array_length(v_ids,1) IS NULL THEN RETURN jsonb_build_object('sem_acesso', true); END IF;
 
@@ -159,7 +161,9 @@ DECLARE
   v_ger numeric; v_caixa_total numeric; v_caixa_n int; v_cartao_total numeric; v_cartao_n int;
   v_pend int; v_ultima timestamptz; v_tem_extrato boolean; v_contas jsonb; v_sem_conta jsonb;
 BEGIN
-  IF auth.role() = 'service_role' THEN
+  -- HOTFIX 7f1cf73c: sem JWT (request.jwt.claims vazio) = chamada interna (cron/trigger/SQL) → passa;
+  -- service_role → passa; authenticated → filtra. anon segue sem EXECUTE (REVOKE abaixo).
+  IF coalesce(current_setting('request.jwt.claims', true), '') = '' OR auth.role() = 'service_role' THEN
     v_ids := p_company_ids;
   ELSE
     SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
