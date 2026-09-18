@@ -33,10 +33,11 @@ interface ChecklistItem {
 
 interface ChecklistResp {
   ok: boolean
-  total: number
-  concluidos: number
+  total?: number
+  concluidos?: number
   pronto_para_emitir?: boolean
-  itens: ChecklistItem[]
+  // Opcional de propósito: quando ok===false (ex.: sem vínculo à empresa) a RPC NÃO manda `itens`.
+  itens?: ChecklistItem[]
   erro?: string
 }
 
@@ -77,6 +78,12 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
       if (!alive || error) return
       const c = data as ChecklistResp
       setResumo(c)
+      // HOTFIX 0829eca5: quando o usuário não tem vínculo à empresa, a RPC devolve {ok:false} SEM
+      // `itens`. NUNCA acessar .itens sem checar o array — era o TypeError que derrubava a tela.
+      if (!c || c.ok === false || !Array.isArray(c.itens)) {
+        if (c?.erro) setErro(c.erro)
+        return
+      }
       const passo2 = c.itens.find((i) => i.passo === 2)
       const passo3 = c.itens.find((i) => i.passo === 3)
       const passo4 = c.itens.find((i) => i.passo === 4)
@@ -179,7 +186,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     const c = data as ChecklistResp
     if (!c.ok) { setErro(c.erro ?? 'Erro ao salvar'); return }
     setResumo(c)
-    const passo3 = c.itens.find((i) => i.passo === 3)
+    const passo3 = c.itens?.find((i) => i.passo === 3)
     if (passo3?.valor) void checarAderencia(passo3.valor)   // re-verifica no vivo, não confia no persistido
     setToast(`✅ ALTEROU a configuração fiscal · ${c.concluidos} de ${c.total} OK`)
     onSalvo?.()
@@ -336,7 +343,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
           {/* Passo 6 · Token do emissor (Vault cifrado) */}
           <Section titulo="6. Token do emissor (cofre cifrado)">
             {(() => {
-              const passo6 = resumo?.itens.find((i) => i.passo === 6)
+              const passo6 = resumo?.itens?.find((i) => i.passo === 6)
               const temToken = passo6?.ok === true
               if (temToken && !trocarToken) {
                 return (
