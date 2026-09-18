@@ -27,6 +27,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const TETO_USD_DIA = Number(Deno.env.get("SUGESTAO_IA_TETO_USD") || "5");
+// mesmo segredo do insight-auditor: permite disparo server-side (RPC via net.http_post) da análise.
+const WATCHER_SECRET = Deno.env.get("WATCHER_SECRET") || "ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -82,6 +84,17 @@ Deno.serve(async (req: Request) => {
   const mensagemId = body.mensagem_id;
   if (!sugestaoId && !mensagemId) {
     return json({ ok: false, erro: "sugestao_id_ou_mensagem_id_obrigatorio" }, 400);
+  }
+  // Gate (verify_jwt=false p/ permitir disparo server-side por RPC via net.http_post): aceita se vier o
+  // x-watcher-secret (servidor/auditoria/backfill) OU um usuário autenticado (o navegador manda o
+  // Authorization: Bearer da sessão, que é validado aqui). Anônimo é barrado; o teto protege o custo.
+  const _secret = req.headers.get("x-watcher-secret") || "";
+  if (_secret !== WATCHER_SECRET) {
+    const _auth = req.headers.get("authorization") || "";
+    const _tok = _auth.toLowerCase().startsWith("bearer ") ? _auth.slice(7) : "";
+    if (!_tok) return json({ ok: false, erro: "nao_autorizado" }, 401);
+    const { data: { user: _u } } = await supabase.auth.getUser(_tok);
+    if (!_u) return json({ ok: false, erro: "nao_autorizado" }, 401);
   }
   if (!ANTHROPIC_API_KEY) {
     // sem chave, não bloqueia: a sugestão segue válida, só sem análise
@@ -155,13 +168,44 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
   content.push({ type: "text", text: prompt });
 
   const modelo = modeloPara("analise_imagem");
-  // chama a IA e devolve o JSON já parseado (robusto, nunca lança). max_tokens folgado p/ não truncar
-  // com vários prints — foi o truncamento/prosa que fez a análise das 15:22 do Rodrigo se perder.
-  async function chamarIA(maxTokens: number): Promise<{ analysis: any; custoUsd: number } | { httpErro: string; status: number }> {
+  // chama a IA e devolve a análise já estruturada (robusto, nunca lança).
+  //
+  // 18/09/2026 — RD-38: a análise do print das 16:14 do Rodrigo (msg 28463816) caía em
+  // "resposta_sem_json_parseavel (2 tentativas)" com claude-sonnet-5 — o modelo devolvia prosa
+  // antes/depois do JSON e o extrator de texto escorregava. Tentei PREFILL do assistant ("{") e a API
+  // respondeu 400: "This model does not support assistant message prefill". Fix definitivo: FORCED TOOL
+  // USE — declaramos uma ferramenta com o schema exato e forçamos tool_choice. O modelo devolve um bloco
+  // tool_use com .input JÁ ESTRUTURADO (objeto), sem NENHUM parsing de string frágil. Fallback: se por
+  // algum motivo vier texto, ainda tentamos extrairJson. `raw` volta para provar a causa em falha.
+  const TOOL_NAME = "registrar_analise";
+  const toolSchema = {
+    name: TOOL_NAME,
+    description: "Registra a análise técnica do chamado/print para orientar o atendente.",
+    input_schema: {
+      type: "object",
+      properties: {
+        resumo: { type: "string", description: "uma linha: o que está errado" },
+        tela_identificada: { type: "string", description: "nome da tela" },
+        rota_provavel: { type: ["string", "null"], description: "rota /dashboard/... se der para inferir, senão null" },
+        classificacao: { type: "string", enum: ["bug", "melhoria", "duvida", "erro_dado"] },
+        severidade: { type: "string", enum: ["critica", "alta", "media", "baixa"] },
+        proximo_passo: { type: "string", description: "próximo passo técnico sugerido" },
+        erro_assinatura: { type: ["string", "null"], description: "mensagem de erro legível na imagem NORMALIZADA (código como E0370/42501 OU frase-chave em minúsculas, sem ids/timestamps/valores). null se não houver erro legível. Nunca invente." },
+      },
+      required: ["resumo", "tela_identificada", "classificacao", "severidade", "proximo_passo"],
+    },
+  };
+  async function chamarIA(maxTokens: number): Promise<{ analysis: any; custoUsd: number; raw: string } | { httpErro: string; status: number }> {
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: modelo, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({
+        model: modelo,
+        max_tokens: maxTokens,
+        tools: [toolSchema],
+        tool_choice: { type: "tool", name: TOOL_NAME },
+        messages: [{ role: "user", content }],
+      }),
       signal: AbortSignal.timeout(45000),
     });
     if (!claudeResponse.ok) {
@@ -169,29 +213,35 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
       return { httpErro: `${claudeResponse.status}: ${t.slice(0, 200)}`, status: claudeResponse.status };
     }
     const claudeData = await claudeResponse.json();
-    const responseText = claudeData.content?.[0]?.text || "";
+    const blocks = Array.isArray(claudeData.content) ? claudeData.content : [];
+    const toolBlock = blocks.find((b: any) => b?.type === "tool_use" && b?.name === TOOL_NAME);
+    const textBlock = blocks.find((b: any) => b?.type === "text");
+    // caminho feliz: .input já é o objeto estruturado. Fallback: extrai de texto se vier assim.
+    const analysis = (toolBlock?.input && typeof toolBlock.input === "object") ? toolBlock.input : extrairJson(textBlock?.text);
+    const raw = toolBlock ? JSON.stringify(toolBlock.input) : (textBlock?.text || JSON.stringify(blocks).slice(0, 300));
     const it = claudeData.usage?.input_tokens || 0;
     const ot = claudeData.usage?.output_tokens || 0;
     // custo com as taxas do modelo default vivo (claude-sonnet-5): US$2/M entrada, US$10/M saída
-    return { analysis: extrairJson(responseText), custoUsd: (it * 2 / 1_000_000) + (ot * 10 / 1_000_000) };
+    return { analysis, custoUsd: (it * 2 / 1_000_000) + (ot * 10 / 1_000_000), raw };
   }
 
-  let analysis: any = null; let custoUsd = 0;
+  let analysis: any = null; let custoUsd = 0; let rawUltimo = "";
   try {
     const r = await chamarIA(2000);
     if ("httpErro" in r) {
       await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: r.status, erro: r.httpErro });
       return json({ ok: false, erro: "claude_api", detalhe: r.httpErro, analisada: false });
     }
-    analysis = r.analysis; custoUsd = r.custoUsd;
+    analysis = r.analysis; custoUsd = r.custoUsd; rawUltimo = r.raw;
     // FALHA 2: se o JSON não veio parseável (prosa/truncado/vazio), tenta UMA vez com mais tokens
     // antes de desistir — a análise deixa de se perder em silêncio pela primeira resposta ruim.
     if (!analysis) {
       const r2 = await chamarIA(3000);
-      if (!("httpErro" in r2) && r2.analysis) { analysis = r2.analysis; custoUsd += r2.custoUsd; }
+      if (!("httpErro" in r2)) { rawUltimo = r2.raw; if (r2.analysis) { analysis = r2.analysis; custoUsd += r2.custoUsd; } }
     }
     if (!analysis) {
-      await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: null, erro: "resposta_sem_json_parseavel (2 tentativas)" });
+      // RD-38: registra os primeiros bytes do que o modelo REALMENTE devolveu — nunca mais "sumiu em silêncio".
+      await registrarFalhaIA({ endpoint: "sugestao-analisar", finalidade: "analise_imagem", modelo, status: null, erro: `resposta_sem_json_parseavel (2 tentativas) :: ${rawUltimo.replace(/\s+/g, " ").slice(0, 160)}` });
       return json({ ok: false, erro: "falha_analise", detalhe: "resposta_sem_json_parseavel", analisada: false });
     }
   } catch (err) {
