@@ -2,7 +2,10 @@
 
 import { useRef, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
-import { parsePfxFile, type PfxParsedInfo } from '@/lib/fiscal/pfx-parser'
+// HOTFIX Configuração Fiscal: só o TIPO no bundle inicial. O parser puxa `node-forge` (biblioteca
+// grande), que só é usado quando o usuário escolhe um .pfx — não tem por que pesar o carregamento
+// da tela. Importamos parsePfxFile sob demanda (dynamic import) dentro do handler.
+import type { PfxParsedInfo } from '@/lib/fiscal/pfx-parser'
 import { Upload, FileCheck, AlertTriangle, Trash2, Loader2 } from 'lucide-react'
 
 interface Props {
@@ -26,6 +29,7 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
     setErro(null)
     setPrevia(null)
     try {
+      const { parsePfxFile } = await import('@/lib/fiscal/pfx-parser')
       const info = await parsePfxFile(arquivo, senha)
       setPrevia(info)
     } catch (err) {
