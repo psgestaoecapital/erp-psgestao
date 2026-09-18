@@ -215,6 +215,59 @@ export function detectarSaldoOFX(texto: string): SondaSaldoOFX {
   };
 }
 
+// Saldo Bancário (18/09): converte o saldo CRU lido por detectarSaldoOFX em valor numérico e data
+// timestamptz, para gravar erp_banco_contas.saldo_extrato via fn_conciliacao_criar_lote. REUSA
+// detectarSaldoOFX (não reescreve o leitor). Função PURA e testável.
+export interface SaldoFechamentoOFX {
+  presente: boolean         // havia <LEDGERBAL><BALAMT> no arquivo
+  valor: number | null      // BALAMT → number (aceita vírgula e sinal)
+  dataISO: string | null    // DTASOF → ISO timestamptz (respeita o fuso do OFX quando presente)
+  balamt_bruto: string | null
+  dtasof_bruto: string | null
+}
+
+// BALAMT cru → number. OFX padrão usa '.' decimal; bancos BR às vezes mandam ','. Preserva o sinal.
+export function parseValorOFX(raw: string | null): number | null {
+  if (!raw) return null
+  let s = raw.trim().replace(/\s/g, '')
+  if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.') // 1.234,56 → 1234.56
+  else if (s.includes(',')) s = s.replace(',', '.')                                   // 500,00 → 500.00
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+// DTASOF cru (YYYYMMDD[HHMMSS][.mmm][-3:BRT]) → ISO com offset quando o OFX traz o fuso.
+export function parseDataOFX(raw: string | null): string | null {
+  if (!raw) return null
+  const m = raw.trim().match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(?:\.\d+)?(?:\[\s*([+-]?\d+(?:\.\d+)?)\s*(?::[A-Za-z]+)?\s*\])?/)
+  if (!m) return null
+  const [, Y, Mo, D, h, mi, s, tz] = m
+  let offset = ''
+  if (tz !== undefined && tz !== '') {
+    const off = parseFloat(tz)
+    const sign = off < 0 ? '-' : '+'
+    const abs = Math.abs(off)
+    const oh = String(Math.floor(abs)).padStart(2, '0')
+    const om = String(Math.round((abs % 1) * 60)).padStart(2, '0')
+    offset = `${sign}${oh}:${om}`
+  }
+  return `${Y}-${Mo}-${D}T${h ?? '00'}:${mi ?? '00'}:${s ?? '00'}${offset}`
+}
+
+export function parseSaldoFechamento(texto: string): SaldoFechamentoOFX {
+  const sonda = detectarSaldoOFX(texto)
+  if (!sonda.ledgerbal_presente || !sonda.balamt_bruto) {
+    return { presente: false, valor: null, dataISO: null, balamt_bruto: sonda.balamt_bruto, dtasof_bruto: sonda.dtasof_bruto }
+  }
+  return {
+    presente: true,
+    valor: parseValorOFX(sonda.balamt_bruto),
+    dataISO: parseDataOFX(sonda.dtasof_bruto),
+    balamt_bruto: sonda.balamt_bruto,
+    dtasof_bruto: sonda.dtasof_bruto,
+  }
+}
+
 /**
  * Calcula hash SHA-256 de um File (para deduplicacao no backend).
  * Funciona apenas no browser (usa crypto.subtle).
