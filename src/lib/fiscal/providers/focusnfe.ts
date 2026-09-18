@@ -63,7 +63,7 @@ function isoBrasilia(d: Date = new Date()): string {
   const p = (x: number) => String(x).padStart(2, '0')
   return `${sp.getUTCFullYear()}-${p(sp.getUTCMonth() + 1)}-${p(sp.getUTCDate())}T${p(sp.getUTCHours())}:${p(sp.getUTCMinutes())}:${p(sp.getUTCSeconds())}-03:00`
 }
-function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
+export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
   const opc = req.opcaoSimplesNacional ?? 3
   const emissao = isoBrasilia()
@@ -119,31 +119,25 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     if (end.complemento) p.complemento_tomador = end.complemento
     if (end.bairro) p.bairro_tomador = end.bairro
   }
-  // #18/#90 · E0370: grupo de OBRA. A CHAVE do Focus é "obra" (ANINHADA), não "construcao_civil"
-  // achatada — a doc do Focus (guides/nfse/municipios-integrados/*) é unânime entre os municípios:
-  //   $.obra.codigo               -> cObra (CNO)
-  //   $.obra.codigo_cib           -> cCIB
-  //   $.obra.endereco.{cep,logradouro,numero,complemento,bairro} -> end.{CEP,xLgr,nro,xCpl,xBairro}
-  // Antes mandávamos construcao_civil.{cep_obra,...}: o Focus procurava obra.endereco.cep, não achava,
-  // DESCARTAVA o objeto em silêncio → a prefeitura devolvia E0370 mesmo com endereço completo.
-  // O município da obra vai FORA do grupo, no cLocIncid (= codigo_municipio_prestacao) — a doc confirma
-  // que o endereço da obra NÃO leva codigo_municipio na maioria dos municípios (só Itajaí, outro
-  // provedor). Prova: nota 18 (CNO) = só obra.codigo; nota 19 (endereço) = obra.endereco sem cMun.
+  // #90 · E0370: grupo de OBRA em CAMPOS PLANOS na RAIZ (layout NACIONAL da Focus —
+  // campos.focusnfe.com.br/nfse_nacional/EmissaoDPSXml.html). O #1536 usou o guia dos municípios
+  // INTEGRADOS (obra.endereco aninhado); no layout Nacional a Focus não acha a chave "obra" e a
+  // DESCARTA em silêncio → E0370. Mapa (raiz do JSON, ticket Focus #242149):
+  //   codigo_obra          -> cObra (CNO/CEI)
+  //   inscricao_imobiliaria-> inscImobFisc   (antes ia ERRADO para codigo_cib/cCIB)
+  //   codigo_cib_obra      -> cCIB (8 díg., só quando houver o campo — não temos, então não enviamos)
+  //   cep_obra/logradouro_obra/numero_obra/complemento_obra/bairro_obra -> endereço da obra
+  //   município da obra continua FORA, em codigo_municipio_prestacao (cLocIncid).
   const o = req.obra
   if (o && (o.cno || o.inscricaoImobiliaria || o.logradouro)) {
-    const obra: Record<string, unknown> = {}
-    if (o.cno) obra.codigo = String(o.cno).trim()                       // cObra (preserva o formato do CNO)
-    if (o.inscricaoImobiliaria) obra.codigo_cib = String(o.inscricaoImobiliaria).trim()  // cCIB
-    const end: Record<string, unknown> = {}
-    if (o.cep) end.cep = String(o.cep).replace(/\D/g, '')
-    if (o.logradouro) end.logradouro = o.logradouro
-    if (o.numero) end.numero = o.numero
-    if (o.complemento) end.complemento = o.complemento
-    if (o.bairro) end.bairro = o.bairro
-    if (Object.keys(end).length > 0) obra.endereco = end
-    p.obra = obra
-    // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA, não na sede do prestador
-    // (ex. nota 18: obra em Porto Belo, sede em SMO → ISS em Porto Belo). Fica FORA do grupo obra.
+    if (o.cno) p.codigo_obra = String(o.cno).trim()                                  // cObra (preserva o formato do CNO)
+    if (o.inscricaoImobiliaria) p.inscricao_imobiliaria = String(o.inscricaoImobiliaria).trim()  // inscImobFisc
+    if (o.cep) p.cep_obra = String(o.cep).replace(/\D/g, '')
+    if (o.logradouro) p.logradouro_obra = o.logradouro
+    if (o.numero) p.numero_obra = o.numero
+    if (o.complemento) p.complemento_obra = o.complemento
+    if (o.bairro) p.bairro_obra = o.bairro
+    // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA (fica FORA do grupo obra).
     if (o.codigoMunicipio) p.codigo_municipio_prestacao = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
   }
   return p
