@@ -29,11 +29,13 @@ CREATE OR REPLACE FUNCTION public.fn_saldo_gerencial_contas(p_company_ids uuid[]
 AS $function$
 DECLARE v_ids uuid[];
 BEGIN
-  -- guarda de empresa (padrão get_user_company_ids); service role (auth.uid() NULL) passa
-  IF auth.uid() IS NOT NULL THEN
-    SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
-  ELSE
+  -- guarda de empresa: SÓ service_role passa direto; qualquer outro (authenticated, anon, sem jwt) é
+  -- filtrado por get_user_company_ids(). O anon (sem login) cai aqui com lista vazia → sem_acesso.
+  -- (Corrige o vazamento: "auth.uid() IS NOT NULL" deixava o anon passar, pois anon também tem uid NULL.)
+  IF auth.role() = 'service_role' THEN
     v_ids := p_company_ids;
+  ELSE
+    SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
   END IF;
   IF v_ids IS NULL OR array_length(v_ids,1) IS NULL THEN RETURN; END IF;
 
@@ -114,8 +116,8 @@ AS $function$
 DECLARE v_ids uuid[]; v_data_efetiva date; v_contas jsonb; v_sem jsonb;
         v_ti numeric; v_tr numeric; v_tp numeric; v_ger numeric;
 BEGIN
-  IF auth.uid() IS NOT NULL THEN SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
-  ELSE v_ids := p_company_ids; END IF;
+  IF auth.role() = 'service_role' THEN v_ids := p_company_ids;
+  ELSE SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids()); END IF;
   IF v_ids IS NULL OR array_length(v_ids,1) IS NULL THEN RETURN jsonb_build_object('sem_acesso', true); END IF;
 
   SELECT MIN(data_saldo_inicial) INTO v_data_efetiva
@@ -157,10 +159,10 @@ DECLARE
   v_ger numeric; v_caixa_total numeric; v_caixa_n int; v_cartao_total numeric; v_cartao_n int;
   v_pend int; v_ultima timestamptz; v_tem_extrato boolean; v_contas jsonb; v_sem_conta jsonb;
 BEGIN
-  IF auth.uid() IS NOT NULL THEN
-    SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
-  ELSE
+  IF auth.role() = 'service_role' THEN
     v_ids := p_company_ids;
+  ELSE
+    SELECT array_agg(x) INTO v_ids FROM unnest(p_company_ids) x WHERE x IN (SELECT get_user_company_ids());
   END IF;
   IF v_ids IS NULL OR array_length(v_ids, 1) IS NULL THEN RETURN jsonb_build_object('sem_acesso', true); END IF;
 
@@ -250,3 +252,15 @@ BEGIN
     'contas', v_contas
   );
 END $function$;
+
+-- Segurança (item 2 · vazamento provado: as fns respondiam sem login). CREATE OR REPLACE preserva o
+-- GRANT antigo para anon → revogar explicitamente nas 4 e conceder só a authenticated/service_role.
+-- (fn_saldo_gerencial_contas já revogada acima; repetido aqui é idempotente/inofensivo.)
+REVOKE EXECUTE ON FUNCTION public.fn_saldo_gerencial_contas(uuid[]) FROM anon, public;
+REVOKE EXECUTE ON FUNCTION public.fn_saldo_bancos_dinamico(uuid[]) FROM anon, public;
+REVOKE EXECUTE ON FUNCTION public.fn_saldo_composicao(uuid[])      FROM anon, public;
+REVOKE EXECUTE ON FUNCTION public.fn_saldos_empresa(uuid[])        FROM anon, public;
+GRANT  EXECUTE ON FUNCTION public.fn_saldo_gerencial_contas(uuid[]) TO authenticated, service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_saldo_bancos_dinamico(uuid[])  TO authenticated, service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_saldo_composicao(uuid[])       TO authenticated, service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_saldos_empresa(uuid[])         TO authenticated, service_role;
