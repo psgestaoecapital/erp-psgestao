@@ -15,6 +15,7 @@ interface Conta {
   saldo_origem: 'lido' | 'sem_dado' | 'manual'
   saldo_extrato_em: string | null
   saldo_extrato_origem: string | null
+  gerencial?: number | null   // saldo gerencial POR CONTA (título conta na conta onde foi baixado)
   conciliacoes_pendentes: number
 }
 interface Data {
@@ -116,6 +117,12 @@ export default function ColunaContas({ companyId }: { companyId: string }) {
                             <span style={{ fontSize: 11, color: '#C8941A' }}>⚠ {c.conciliacoes_pendentes} pend.</span>
                           ) : null}
                         </div>
+                        {c.gerencial !== null && c.gerencial !== undefined ? (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 3 }}>
+                            <span style={{ fontSize: 10.5, color: CINZA }}>📊 gerencial (títulos baixados aqui)</span>
+                            <span style={{ fontSize: 11.5, fontWeight: 600, color: c.gerencial < 0 ? '#C0392B' : '#3D2314', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{fmt(c.gerencial)}</span>
+                          </div>
+                        ) : null}
                       </button>
                     )
                   })}
