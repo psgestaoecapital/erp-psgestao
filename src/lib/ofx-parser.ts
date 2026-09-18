@@ -268,6 +268,38 @@ export function parseSaldoFechamento(texto: string): SaldoFechamentoOFX {
   }
 }
 
+// Saldo Anterior (adendo #1541): alguns bancos (ex.: Sicredi/Sicoob) emitem o saldo do
+// extrato como uma LINHA <STMTTRN> com MEMO "SALDO ANTERIOR" / "SALDO DO DIA" / só "SALDO".
+// Isso NÃO é movimento — vira ruído em conciliacao_movimento e desalinha o total. Este helper
+// PURO decide se a descrição normalizada de uma linha OFX é, na verdade, uma linha de saldo.
+//
+// Aceita (é saldo, NÃO é movimento):
+//   "SALDO", "SALDO ANTERIOR", "SALDO DO DIA", "SALDO ANTERIOR 1234", "SALDO 123456"
+// Recusa (é movimento de verdade — mantém):
+//   "SALDO REMUNERADO", "SALDO DEVEDOR", "APLIC SALDO", "RESGATE SALDO REMUNERADO"
+//
+// Trabalha sobre o MESMO texto normalizado de descricao_limpa (upper, sem acento/pontuação).
+export function ehLinhaSaldoOFX(descricao: string): boolean {
+  if (!descricao) return false
+  const norm = descricao
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // remove acentos
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!norm.startsWith('SALDO')) return false
+  // Resto após "SALDO ": vazio, "ANTERIOR[...]", "DO DIA[...]", ou só dígitos → é linha de saldo.
+  // "REMUNERADO"/"DEVEDOR"/qualquer outra palavra → é movimento, não é saldo.
+  const resto = norm.slice('SALDO'.length).trim()
+  if (resto === '') return true
+  if (/^ANTERIOR(\s.*)?$/.test(resto)) return true
+  if (/^DO DIA(\s.*)?$/.test(resto)) return true
+  if (/^DIA(\s.*)?$/.test(resto)) return true
+  if (/^\d[\d\s]*$/.test(resto)) return true // "SALDO 123456" (valor colado)
+  return false
+}
+
 /**
  * Calcula hash SHA-256 de um File (para deduplicacao no backend).
  * Funciona apenas no browser (usa crypto.subtle).
