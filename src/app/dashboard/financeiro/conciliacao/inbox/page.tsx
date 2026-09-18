@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { parseSaldoFechamento } from '@/lib/ofx-parser'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
@@ -443,6 +444,9 @@ export default function InboxPage() {
         return
       }
       const hash = `${text.length}-${movimentos[0]?.id_externo ?? ''}-${movimentos[movimentos.length - 1]?.id_externo ?? ''}`
+      // Saldo Bancário: extrai o saldo de fechamento (LEDGERBAL) do OFX e deixa o backend gravá-lo
+      // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
+      const saldo = parseSaldoFechamento(text)
       const { data, error } = await supabase.rpc('fn_conciliacao_criar_lote', {
         p_company_id: empresaUnica,
         p_tipo: 'bancario',
@@ -453,20 +457,34 @@ export default function InboxPage() {
         p_storage_path: null,
         p_movimentos: movimentos,
         p_conta_bancaria_id: contaImportId,
+        p_saldo_fechamento: saldo.presente ? saldo.valor : null,
+        p_saldo_data: saldo.presente ? saldo.dataISO : null,
+        p_saldo_bruto: saldo.presente ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto } : null,
       })
       if (error) throw error
-      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; lote_id?: string | null; mensagem?: string; importados_novos?: number; ignorados_duplicados?: number; total_recebidos?: number }
+      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; lote_id?: string | null; mensagem?: string; importados_novos?: number; ignorados_duplicados?: number; total_recebidos?: number; saldo?: { ok?: boolean; gravado?: boolean; motivo?: string; saldo_novo?: number } | null }
       if (r.sucesso === false) {
         if (r.erro === 'arquivo_duplicado') { alert('Esse arquivo já foi importado antes.'); return }
         throw new Error(r.erro ?? 'Falha ao criar lote')
       }
       // Resumo honesto (importados / ignorados / já existiam) — dedup por transação (FIX #8).
       const novos = r.importados_novos ?? 0, ign = r.ignorados_duplicados ?? 0
-      alert(r.mensagem ?? (novos === 0
+      // Linha de saldo do banco: gravado, mantido (leitura mais antiga) ou não veio no arquivo.
+      let linhaSaldo = ''
+      if (!saldo.presente) {
+        linhaSaldo = '\nEste arquivo não trouxe o saldo do banco.'
+      } else if (r.saldo?.gravado === false && r.saldo?.motivo === 'leitura_mais_antiga') {
+        linhaSaldo = '\nSaldo mais antigo que o já registrado — mantido.'
+      } else if (r.saldo?.ok && saldo.valor != null) {
+        const dia = saldo.dataISO ? new Date(saldo.dataISO).toLocaleDateString('pt-BR') : '—'
+        const val = saldo.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+        linhaSaldo = `\nSaldo do banco em ${dia}: ${val}`
+      }
+      alert((r.mensagem ?? (novos === 0
         ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já estavam no sistema.`
         : ign > 0
           ? `✅ ${novos} novos importados. ${ign} já existiam e foram ignorados (sem duplicar).`
-          : `✅ ${novos} lançamentos importados.`))
+          : `✅ ${novos} lançamentos importados.`)) + linhaSaldo)
       setShowImport(false)
       setArquivoOFX(null)
       setContaImportId('')
