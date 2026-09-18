@@ -244,6 +244,13 @@ export async function POST(req: Request) {
   }
 
   const empresaId = (body.empresa_id || '').trim() || EMPRESA_PADRAO_BOT;
+  // LGPD (gate fa303195): o robô fotografa para o bucket PÚBLICO system-screenshots. Só pode ser a
+  // empresa-bot ([BOT] b0700000-…) ou a PS LTDA (b26c19c0-…). Empresa de cliente exigiria bucket
+  // privado (backlog) — recusa aqui, senão nomes/telefones de cliente vão para URL aberta.
+  const EMPRESA_PS_LTDA = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
+  if (empresaId !== EMPRESA_PS_LTDA && !empresaId.startsWith('b0700000-')) {
+    return NextResponse.json({ error: 'foto de empresa cliente exige bucket privado', empresa_id: empresaId }, { status: 403 });
+  }
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const SAAS_BASE_URL = process.env.SAAS_BASE_URL || 'https://erp-psgestao.vercel.app';
