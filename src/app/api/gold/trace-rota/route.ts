@@ -44,6 +44,11 @@ export async function POST(req: Request) {
   const rota = (body.rota || '').trim();
   if (!rota.startsWith('/')) return NextResponse.json({ error: 'rota deve comecar com /' }, { status: 400 });
   const empresaId = (body.empresa_id || 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725').trim(); // default PS LTDA
+  // LGPD (gate fa303195): o robô só abre a tela como [BOT] (b0700000-…) ou PS LTDA (b26c19c0-…).
+  // Empresa de cliente exigiria bucket privado — recusa aqui (mesma trava do screen-watcher).
+  if (empresaId !== 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725' && !empresaId.startsWith('b0700000-')) {
+    return NextResponse.json({ error: 'foto de empresa cliente exige bucket privado', empresa_id: empresaId }, { status: 403 });
+  }
   const segundos = Math.min(Math.max(Number(body.segundos) || 20, 5), 40);
 
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
