@@ -221,6 +221,26 @@ export default function OportunidadesKanban({
     if (etapaAtual === novaEtapa) return
     // Perdido EXIGE motivo (FIX B) — abre o modal com a lista; a baixa só ocorre ao confirmar.
     if (novaEtapa === 'perdido') { setPerda({ cardId, etapaAtual }); setPerdaMotivo(''); setPerdaObs(''); return }
+    // ① (CEO 17/09) · arrastar para "Orçando" CRIA a linha de orçamento (envelope do PDF), com
+    // confirmação e guarda se já existir. A RPC é idempotente: se a oportunidade já tem orçamento,
+    // devolve o mesmo (ja_existia) em vez de criar um segundo. Abre o orçamento para anexar o PDF.
+    if (novaEtapa === 'orcando') {
+      const card = (pipe?.etapas?.flatMap((e) => e.cards).find((c) => c.id === cardId)) as unknown as { cliente_nome?: string | null; titulo?: string | null } | undefined
+      const nome = card?.cliente_nome || card?.titulo || 'esta oportunidade'
+      if (!window.confirm(`Gerar orçamento para ${nome}?`)) return
+      setGerandoId(cardId)
+      const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: cardId })
+      setGerandoId(null)
+      const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; ja_existia?: boolean } | null
+      if (error || !j?.ok) {
+        onError(`Erro ao gerar orçamento: ${j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade antes.' : (error?.message ?? j?.erro ?? 'falha'))}`)
+        return
+      }
+      await aplicarMove(cardId, 'orcando', etapaAtual, null)
+      onMoved(j.ja_existia ? `Já existe o orçamento ${j.numero} — abrindo para anexar o PDF.` : `Orçamento ${j.numero} criado (envelope). Anexe o PDF do orçamento.`)
+      if (j.orcamento_id) router.push(`/dashboard/orcamentos?id=${j.orcamento_id}`)
+      return
+    }
     await aplicarMove(cardId, novaEtapa, etapaAtual, null)
   }
 
@@ -413,7 +433,9 @@ export default function OportunidadesKanban({
                               background: orcMap[c.id].itens === 0 ? '#FBF0D8' : '#F6F1E8',
                               color: orcMap[c.id].itens === 0 ? '#7A5A0F' : ESPRESSO,
                             }}>
-                            📄 {orcMap[c.id].numero} · {orcMap[c.id].itens === 0 ? 'sem itens' : `${brl(orcMap[c.id].total)} · ${orcMap[c.id].itens} ${orcMap[c.id].itens === 1 ? 'item' : 'itens'}`}
+                            📄 {orcMap[c.id].numero} · {orcMap[c.id].itens > 0
+                              ? `${brl(orcMap[c.id].total)} · ${orcMap[c.id].itens} ${orcMap[c.id].itens === 1 ? 'item' : 'itens'}`
+                              : (Number(orcMap[c.id].total) > 0 ? `📎 PDF · ${brl(orcMap[c.id].total)}` : 'aguardando o PDF do orçamento')}
                           </button>
                         ) : (
                           <button
