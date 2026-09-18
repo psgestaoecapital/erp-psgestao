@@ -33,6 +33,28 @@ const BASE_URLS: Record<FiscalAmbiente, FocusNFeBaseUrl> = {
   producao: 'https://api.focusnfe.com.br',
 }
 
+// #90 — Sanitização de texto livre para o XSD da NFS-e nacional. O schema aceita só o range
+// [ -ÿ] (0x20–0xFF); um "·" (ponto médio), travessão, aspas curvas ou reticências tipográficas
+// (que entram por copiar-colar OU que o próprio sistema montava, ex.: "NFSe emitida em … · ref …")
+// fazem a prefeitura REJEITAR a nota inteira com um erro de facet/pattern ilegível. Normaliza os
+// caracteres tipográficos para ASCII, remove o que estiver fora do range e apara (o XSD exige
+// começar/terminar com não-espaço). Aplicar a TODO texto livre: descrição do serviço e observações.
+export function sanitizeTextoFiscal(s: string | null | undefined): string {
+  if (!s) return ''
+  return String(s)
+    .normalize('NFC')
+    .replace(/[·•∙‧⋅]/g, '-')      // pontos médios / bullets
+    .replace(/[—–‒―]/g, '-')       // travessões (em/en dash)
+    .replace(/[“”„‟]/g, '"')       // aspas duplas curvas
+    .replace(/[‘’‚‛]/g, "'")       // aspas simples curvas
+    .replace(/…/g, '...')          // reticências
+    .replace(/ /g, ' ')       // espaço não-quebrável
+    .replace(/[\t\r\n]+/g, ' ')    // quebras/tabs viram espaço
+    .replace(/[^\x20-\xFF]/g, '')  // remove qualquer coisa fora do range aceito pelo XSD
+    .replace(/ {2,}/g, ' ')
+    .trim()
+}
+
 // ── NFSe Nacional (Focus POST /v2/nfsen) ────────────────────────────────────────────────
 // Layout do padrão nacional (doc Focus · exemplos Lages/SC e Porto Feliz/SP), pra a
 // emissão VIA FOCUS (município aderido) em vez do /v2/nfse municipal.
@@ -53,7 +75,7 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     codigo_municipio_prestacao: muni,
     cnpj_prestador: req.prestador.cnpj.replace(/\D/g, ''),
     codigo_tributacao_nacional_iss: req.codigoServico,
-    descricao_servico: req.descricaoServico,
+    descricao_servico: sanitizeTextoFiscal(req.descricaoServico),
     valor_servico: req.valorServicos,
     tributacao_iss: 1,
     tipo_retencao_iss: req.retemIss ? 2 : 1,
@@ -75,7 +97,10 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
   // Informações complementares do padrão nacional (DPS <infoCompl>/<xInfComp>, máx. 2000) —
   // é o campo livre da nota, onde vai o "valor aproximado dos tributos" da Lei 12.741/2012.
-  if (req.observacoes && req.observacoes.trim()) p.informacoes_complementares = req.observacoes.trim().slice(0, 2000)
+  {
+    const infoCompl = sanitizeTextoFiscal(req.observacoes).slice(0, 2000)
+    if (infoCompl) p.informacoes_complementares = infoCompl
+  }
   if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
     p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
   }
@@ -272,7 +297,7 @@ export class FocusNFeProvider implements FiscalProvider {
       },
       servico: {
         aliquota: req.aliquotaIss,
-        discriminacao: req.descricaoServico,
+        discriminacao: sanitizeTextoFiscal(req.descricaoServico),
         iss_retido: req.retemIss ? 'true' : 'false',
         codigo_cnae: req.cnaeServico,
         codigo_tributario_municipio: req.codigoServico,
@@ -283,7 +308,10 @@ export class FocusNFeProvider implements FiscalProvider {
     // Informações complementares do ABRASF municipal — onde vai o "valor aproximado dos
     // tributos" da Lei 12.741/2012. NÃO misturar na discriminação (que é o que o cliente lê
     // como "o que comprei").
-    if (req.observacoes && req.observacoes.trim()) payload.outras_informacoes = req.observacoes.trim().slice(0, 2000)
+    {
+      const outras = sanitizeTextoFiscal(req.observacoes).slice(0, 2000)
+      if (outras) payload.outras_informacoes = outras
+    }
 
     const data = await this.request<FocusNFeNFSeResponse>(
       'POST',

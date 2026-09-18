@@ -74,6 +74,19 @@ interface DadosNFSeRPC {
   }
 }
 
+// #90: o erro cru do schema ("... [facet 'pattern'] The value '...' is not accepted by the pattern
+// ...") é ilegível pro atendente. Traduz para uma ação; mantém o detalhe técnico no fim.
+function humanizarErroFiscal(msg: string | null | undefined): string | null | undefined {
+  if (!msg) return msg
+  const m = String(msg)
+  if (/facet '?pattern'?|is not accepted by the pattern|xInfComp|xDiscrim|caractere n[aã]o/i.test(m)) {
+    return 'A prefeitura recusou a nota por um símbolo não permitido no texto (ex.: •, — ou aspas curvas). ' +
+      'Revise a descrição do serviço e as observações, remova símbolos especiais, e emita de novo. ' +
+      '(Detalhe técnico: ' + m.slice(0, 200) + ')'
+  }
+  return m
+}
+
 export const POST = withAuth(async (req: NextRequest) => {
   try {
     const body = (await req.json()) as EmitirNFSeBody
@@ -489,16 +502,19 @@ export const POST = withAuth(async (req: NextRequest) => {
       codigoVerificacao: resposta.codigoVerificacao,
       xmlUrl: resposta.xmlUrl,
       pdfUrl: resposta.pdfUrl,
-      motivoRejeicao: resposta.motivoRejeicao,
+      motivoRejeicao: humanizarErroFiscal(resposta.motivoRejeicao),
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
     })
   } catch (err) {
     if (isFiscalError(err)) {
-      return NextResponse.json(err.toJSON(), { status: 502 })
+      const j = err.toJSON() as Record<string, unknown>
+      if (typeof j.mensagem === 'string') j.mensagem = humanizarErroFiscal(j.mensagem)
+      if (typeof j.motivoRejeicao === 'string') j.motivoRejeicao = humanizarErroFiscal(j.motivoRejeicao)
+      return NextResponse.json(j, { status: 502 })
     }
     return NextResponse.json(
-      { ok: false, mensagem: (err as Error)?.message ?? 'Erro interno' },
+      { ok: false, mensagem: humanizarErroFiscal((err as Error)?.message) ?? 'Erro interno' },
       { status: 500 }
     )
   }
