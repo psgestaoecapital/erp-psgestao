@@ -49,6 +49,12 @@ export interface NFSeRequest {
   opcaoSimplesNacional?: number   // 1=Não optante · 2=MEI · 3=ME/EPP
   regimeApuracaoSN?: number       // regime_tributario_simples_nacional (1/2/3)
   percentualTribSN?: number       // percentual_total_tributos_simples_nacional (totTrib p/ ME/EPP)
+  // #90 paridade OMIE · alíquota efetiva do Simples do MÊS (pAliq / percentual_aliquota_relativa_municipio).
+  // Só no regime SN com regApTribSN=1; vem da config por competência (nunca chutada). Regime 2 usa a municipal.
+  aliquotaISSSN?: number | null
+  // #90 · retenção do ISS escolhida no modal: 1=Não retido · 2=Retido pelo tomador · 3=Retido pelo intermediário.
+  // Default 1. Substitui o boolean retemIss quando informado (mantido p/ compat).
+  tipoRetencaoISS?: number
   // #18 · E0370: grupo de OBRA (serviço de construção civil). Endereço da obra OU CNO/CIB — o layout
   // nacional exige um dos dois quando o código de tributação está na lista E0370 (fn_fiscal_exige_obra).
   obra?: {

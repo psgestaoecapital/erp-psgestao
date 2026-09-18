@@ -51,6 +51,8 @@ interface EmitirNFSeBody {
   // Observação livre do usuário para as informações complementares da nota (o bloco da Lei
   // 12.741 é acrescentado automaticamente ao lado desta, não a substitui).
   observacoes?: string
+  // #90 · retenção do ISS escolhida no modal: 1=Não retido · 2=Retido pelo tomador · 3=Retido pelo intermediário.
+  tipoRetencaoIss?: number
 }
 
 interface DadosNFSeRPC {
@@ -185,6 +187,11 @@ export const POST = withAuth(async (req: NextRequest) => {
     // é acrescentado depois, sem sobrescrever esta.
     if (typeof body.observacoes === 'string' && body.observacoes.trim()) {
       nfseReq.observacoes = body.observacoes.trim()
+    }
+    // #90 · retenção 1/2/3 vinda do modal (default 1 no builder). Aplica-se aos dois caminhos (gov/focus).
+    if (typeof body.tipoRetencaoIss === 'number' && [1, 2, 3].includes(body.tipoRetencaoIss)) {
+      nfseReq.tipoRetencaoISS = body.tipoRetencaoIss
+      nfseReq.retemIss = body.tipoRetencaoIss !== 1  // mantém o boolean coerente p/ o caminho gov
     }
 
     // #82① · LIGA a emissão à OBRA. Prioridade: obra apontada na emissão (body.obraId); senão resolve a
@@ -395,6 +402,24 @@ export const POST = withAuth(async (req: NextRequest) => {
           }
           if (rf.finalidadeEmissao != null || rf.consumidorFinal != null || rf.indicadorDestinatario != null || rf.ibsCbsCst || rf.ibsCbsClassifTrib) {
             nfseReq.reforma = rf
+          }
+          // #90 paridade OMIE · pAliq: no regime SN com regApTribSN=1, a alíquota efetiva do MÊS é
+          // informada pelo emitente (config por competência). Sem alíquota da competência → BLOQUEIA
+          // (nunca chutar — mesmo princípio do #32). Regime 2 (ISS por fora) segue a municipal, sem pAliq.
+          if ((nfseReq.regimeApuracaoSN ?? 1) === 1) {
+            const bsb = new Date(Date.now() - 3 * 60 * 60 * 1000)  // competência = mês de Brasília (igual ao data_competencia da nota)
+            const compIso = `${bsb.getUTCFullYear()}-${String(bsb.getUTCMonth() + 1).padStart(2, '0')}-01`
+            const { data: aliq } = await supabaseAdmin
+              .from('erp_fiscal_aliquota_sn')
+              .select('aliquota')
+              .eq('company_id', body.companyId)
+              .eq('competencia', compIso)
+              .maybeSingle()
+            if (aliq?.aliquota == null) {
+              const mm = `${String(bsb.getUTCMonth() + 1).padStart(2, '0')}/${bsb.getUTCFullYear()}`
+              return NextResponse.json({ ok: false, mensagem: `Informe a alíquota de ISS do Simples de ${mm} na Configuração Fiscal antes de emitir.` }, { status: 400 })
+            }
+            nfseReq.aliquotaISSSN = Number(aliq.aliquota)
           }
           // codigo_nbs do serviço (opcional — só enviado se preenchido)
           if (body.servicoId) {

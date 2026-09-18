@@ -78,7 +78,8 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     descricao_servico: sanitizeTextoFiscal(req.descricaoServico),
     valor_servico: req.valorServicos,
     tributacao_iss: 1,
-    tipo_retencao_iss: req.retemIss ? 2 : 1,
+    // #90 · retenção 1/2/3 escolhida no modal (default 1). retemIss (boolean) mantido p/ compat.
+    tipo_retencao_iss: req.tipoRetencaoISS ?? (req.retemIss ? 2 : 1),
     // Grupo regTrib (Simples Nacional): opção + regEspTrib + regime.
     // regime_especial_tributacao (regEspTrib) é EXIGIDO pelo XSD dentro do grupo regTrib (0 = Nenhum · SN).
     codigo_opcao_simples_nacional: opc,
@@ -93,6 +94,13 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     if (req.percentualTribSN != null) p.percentual_total_tributos_simples_nacional = req.percentualTribSN
   } else {
     p.indicador_total_tributacao = '0'
+  }
+  // #90 paridade OMIE · pAliq: no regime SN com regApTribSN=1, o emitente informa a alíquota efetiva do
+  // MÊS (percentual_aliquota_relativa_municipio). Sem ela a prefeitura aplica a alíquota cheia municipal
+  // (foi o que aconteceu na nota 56). A rota BLOQUEIA a emissão quando não há alíquota da competência
+  // (nunca chuta) — aqui só monta quando veio. regApTribSN=2 (ISS por fora) segue a alíquota municipal.
+  if ((req.regimeApuracaoSN ?? 1) === 1 && req.aliquotaISSSN != null) {
+    p.percentual_aliquota_relativa_municipio = req.aliquotaISSSN
   }
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
   // Informações complementares do padrão nacional (DPS <infoCompl>/<xInfComp>, máx. 2000) —
