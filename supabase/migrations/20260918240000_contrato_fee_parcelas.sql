@@ -74,6 +74,10 @@ DECLARE
 BEGIN
   SELECT * INTO v_contrato FROM erp_contratos WHERE id = p_contrato_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'contrato nao encontrado'); END IF;
+  -- guarda de empresa (005d9881): sem JWT (cron/interno) ou service_role passa; usuário só na própria empresa.
+  IF coalesce(current_setting('request.jwt.claims', true), '') <> '' AND auth.role() <> 'service_role'
+     AND v_contrato.company_id NOT IN (SELECT get_user_company_ids()) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa' USING ERRCODE = '42501'; END IF;
   IF v_contrato.status != 'ativo' THEN
     RETURN jsonb_build_object('success', false, 'error', format('contrato esta com status %s, nao pode gerar fatura', v_contrato.status)); END IF;
   IF v_contrato.data_inicio > p_mes_referencia THEN
@@ -133,8 +137,11 @@ DECLARE
 BEGIN
   SELECT * INTO v_contrato FROM erp_contratos WHERE id = p_contrato_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'contrato nao encontrado'); END IF;
-  IF v_contrato.status != 'ativo' THEN
-    RETURN jsonb_build_object('success', false, 'error', format('contrato %s nao esta ativo', v_contrato.status)); END IF;
+  -- guarda de empresa (005d9881): sem JWT (cron/interno) ou service_role passa; usuário só na própria empresa.
+  IF coalesce(current_setting('request.jwt.claims', true), '') <> '' AND auth.role() <> 'service_role'
+     AND v_contrato.company_id NOT IN (SELECT get_user_company_ids()) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa' USING ERRCODE = '42501'; END IF;
+  IF v_contrato.status != 'ativo' THEN RETURN jsonb_build_object('success', false, 'error', format('contrato %s nao esta ativo', v_contrato.status)); END IF;
 
   FOR v_p IN SELECT * FROM erp_contrato_parcelas WHERE contrato_id = p_contrato_id ORDER BY numero LOOP
     v_ref := format('contrato:%s:parcela:%s', p_contrato_id, v_p.numero);
@@ -340,6 +347,9 @@ END;
 $function$;
 
 -- ── 10 · ACL: sem EXECUTE p/ anon/public; só authenticated/service_role (guarda de empresa no corpo) ─
+-- fn_contrato_gerar_receber já existia com EXECUTE p/ anon (vazamento pré-existente) — revoga aqui (005d9881).
+REVOKE EXECUTE ON FUNCTION public.fn_contrato_gerar_receber(uuid, date) FROM anon, public;
+GRANT  EXECUTE ON FUNCTION public.fn_contrato_gerar_receber(uuid, date) TO authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.fn_contrato_gerar_parcelas(uuid) FROM anon, public;
 REVOKE EXECUTE ON FUNCTION public.fn_contrato_solicitar(uuid, uuid, jsonb, date, text) FROM anon, public;
 REVOKE EXECUTE ON FUNCTION public.fn_contrato_parcelas_gerar(uuid, date, int, numeric, uuid) FROM anon, public;
