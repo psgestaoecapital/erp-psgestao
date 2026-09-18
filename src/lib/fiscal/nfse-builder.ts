@@ -140,6 +140,11 @@ export async function buildNFSeFromReceber(opts: {
           }
         : undefined,
     },
-    observacoes: rec.observacoes ?? undefined,
+    // #90: NÃO levar erp_receber.observacoes para a nota. Esse campo é INTERNO e o próprio sistema
+    // grava histórico nele ("NFSe emitida em … · ref …", "Cancelado: …") — que vazava para o xInfComp
+    // e o tomador lia na nota fiscal. A informação complementar fiscal legítima (Lei 12.741/2012) é
+    // montada à parte na rota de emissão. Se um dia houver observação fiscal digitada pelo usuário,
+    // ela deve vir de um campo próprio, não deste.
+    observacoes: undefined,
   }
 }
