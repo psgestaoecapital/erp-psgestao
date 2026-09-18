@@ -32,6 +32,7 @@ type Saldos = {
   cartao: { total: number; contas: number }
   tem_extrato: boolean
   diferenca: Diferenca | null
+  sem_conta?: { recebido: number; pago: number; n_titulos: number; valor: number }
 }
 
 function fmt(n: number | null | undefined): string {
@@ -161,6 +162,22 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
             {d.diferenca.movimentos_pendentes} movimento{d.diferenca.movimentos_pendentes === 1 ? '' : 's'} a conciliar
             {d.diferenca.ultima_conciliacao ? ` · última conciliação ${new Date(d.diferenca.ultima_conciliacao + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}
             {'  ·  Conciliar agora →'}
+          </div>
+        </button>
+      )}
+
+      {/* Títulos baixados SEM conta atribuída — não entram em conta nenhuma (regra por conta) */}
+      {d.sem_conta && d.sem_conta.n_titulos > 0 && (
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard/financeiro/pagar')}
+          style={{ width: '100%', textAlign: 'left', marginTop: 12, padding: '12px 16px', background: '#F6F1E7', border: `1px solid ${COLORS.linha}`, borderRadius: 12, cursor: 'pointer', font: 'inherit' }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.espresso }}>
+            📌 {d.sem_conta.n_titulos} título{d.sem_conta.n_titulos === 1 ? '' : 's'} baixado{d.sem_conta.n_titulos === 1 ? '' : 's'} sem conta — {fmt(Math.abs(d.sem_conta.valor))}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)', marginTop: 3 }}>
+            Não entram no saldo de nenhuma conta. Atribua a conta na baixa para eles contarem. Ver títulos →
           </div>
         </button>
       )}
