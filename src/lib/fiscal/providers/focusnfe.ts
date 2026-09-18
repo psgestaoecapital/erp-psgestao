@@ -119,29 +119,31 @@ function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
     if (end.complemento) p.complemento_tomador = end.complemento
     if (end.bairro) p.bairro_tomador = end.bairro
   }
-  // #18/#90 · E0370: grupo de OBRA (construção civil). Estrutura CONFIRMADA em 2 notas AUTORIZADAS da
-  // R.R (SMO): a obra é CNO (cObra) OU ENDEREÇO. O <end> da obra NÃO tem cMun nem endNac — só
-  // CEP/xLgr/nro/xCpl/xBairro (diferente do tomador, que tem endNac.cMun). O município da obra vai
-  // FORA do grupo, no cLocIncid (= codigo_municipio_prestacao), abaixo. Antes mandávamos
-  // codigo_municipio_obra DENTRO do grupo → o Focus montava um <end> inválido p/ obra → E0370 mesmo
-  // com endereço completo. Mantidas as chaves planas _obra (mesma convenção do tomador, que a
-  // prefeitura aceita nesta mesma nota). #1534 persiste o payload p/ conferir se o Focus recusar.
+  // #18/#90 · E0370: grupo de OBRA. A CHAVE do Focus é "obra" (ANINHADA), não "construcao_civil"
+  // achatada — a doc do Focus (guides/nfse/municipios-integrados/*) é unânime entre os municípios:
+  //   $.obra.codigo               -> cObra (CNO)
+  //   $.obra.codigo_cib           -> cCIB
+  //   $.obra.endereco.{cep,logradouro,numero,complemento,bairro} -> end.{CEP,xLgr,nro,xCpl,xBairro}
+  // Antes mandávamos construcao_civil.{cep_obra,...}: o Focus procurava obra.endereco.cep, não achava,
+  // DESCARTAVA o objeto em silêncio → a prefeitura devolvia E0370 mesmo com endereço completo.
+  // O município da obra vai FORA do grupo, no cLocIncid (= codigo_municipio_prestacao) — a doc confirma
+  // que o endereço da obra NÃO leva codigo_municipio na maioria dos municípios (só Itajaí, outro
+  // provedor). Prova: nota 18 (CNO) = só obra.codigo; nota 19 (endereço) = obra.endereco sem cMun.
   const o = req.obra
   if (o && (o.cno || o.inscricaoImobiliaria || o.logradouro)) {
-    const cc: Record<string, unknown> = {}
-    if (o.cno) cc.codigo_obra = String(o.cno).replace(/\D/g, '')
-    if (o.inscricaoImobiliaria) cc.inscricao_imobiliaria = String(o.inscricaoImobiliaria).replace(/\D/g, '')
-    if (o.cep) cc.cep_obra = String(o.cep).replace(/\D/g, '')
-    // NÃO enviar codigo_municipio_obra: o <end> da obra não aceita cMun (vide nota 19 autorizada).
-    if (o.logradouro) cc.logradouro_obra = o.logradouro
-    if (o.numero) cc.numero_obra = o.numero
-    if (o.complemento) cc.complemento_obra = o.complemento
-    if (o.bairro) cc.bairro_obra = o.bairro
-    p.construcao_civil = cc
-    // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA, não na sede do prestador.
-    // Ex. real (nota 18 da R.R): obra em Porto Belo, sede em São Miguel do Oeste → ISS retido em Porto Belo.
-    // Sem sobrescrever a prestação com o município da obra, o imposto iria para o município errado
-    // (mesmo erro do IBGE de Toledo, por outro caminho).
+    const obra: Record<string, unknown> = {}
+    if (o.cno) obra.codigo = String(o.cno).trim()                       // cObra (preserva o formato do CNO)
+    if (o.inscricaoImobiliaria) obra.codigo_cib = String(o.inscricaoImobiliaria).trim()  // cCIB
+    const end: Record<string, unknown> = {}
+    if (o.cep) end.cep = String(o.cep).replace(/\D/g, '')
+    if (o.logradouro) end.logradouro = o.logradouro
+    if (o.numero) end.numero = o.numero
+    if (o.complemento) end.complemento = o.complemento
+    if (o.bairro) end.bairro = o.bairro
+    if (Object.keys(end).length > 0) obra.endereco = end
+    p.obra = obra
+    // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA, não na sede do prestador
+    // (ex. nota 18: obra em Porto Belo, sede em SMO → ISS em Porto Belo). Fica FORA do grupo obra.
     if (o.codigoMunicipio) p.codigo_municipio_prestacao = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
   }
   return p
