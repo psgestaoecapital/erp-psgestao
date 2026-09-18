@@ -332,6 +332,22 @@ export const POST = withAuth(async (req: NextRequest) => {
     }
 
     // Default · Focus NFe (provider='focusnfe' ou nao configurado)
+    // Guard prestador (#90): sem o código do município do prestador, o Focus rejeita com a mensagem
+    // crua "parametro prestador.codigo_municipio nao informado". Bloqueia ANTES com texto acionável.
+    // Normalmente o campo é auto-preenchido do endereço da empresa (trigger cidade_estado->IBGE); só
+    // cai aqui se a cidade não bate no cadastro de municípios (fica pro humano confirmar).
+    {
+      const muniPrestador = String(nfseReq.prestador.codigoMunicipio ?? '').replace(/\D/g, '')
+      if (muniPrestador.length !== 7) {
+        return NextResponse.json({
+          ok: false,
+          mensagem:
+            'Configuração fiscal incompleta: falta o código do município (IBGE) da empresa emitente. ' +
+            'Ele costuma ser preenchido sozinho pelo endereço da empresa — confirme a cidade/UF da empresa ' +
+            'e o campo em Configurações › Fiscal › Município IBGE, e emita de novo.',
+        }, { status: 400 })
+      }
+    }
     // NFSe NACIONAL VIA FOCUS: se o município do prestador aderiu (erp_gov_nfse_municipios.aderido),
     // emite no layout nacional pelo endpoint /v2/nfsen (não migra pro gov.br direto). Carrega opção/regime
     // do Simples Nacional e a numeração atômica da DPS.
