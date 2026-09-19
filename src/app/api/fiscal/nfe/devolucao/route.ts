@@ -80,16 +80,30 @@ export const POST = withAuth(async (req: NextRequest) => {
     // IE do destinatario (contribuinte). SEFAZ rejeita a devolucao sem ela ("IE do destinatario
     // nao informada"). Fonte 1: cadastro do fornecedor. Fonte 2 (fallback, auto-cura): a IE do
     // emitente na propria NF-e de compra referenciada — o XML de entrada guardou emitente_ie.
+    // Busca a NF-e de compra referenciada (uma vez): serve pro fallback da IE E pra observação (#94).
+    const { data: notaCompra } = await supabaseAdmin
+      .from('erp_nfe_recebidas')
+      .select('numero, serie, emitente_ie, emitente_razao, emitente_cnpj, data_emissao')
+      .eq('company_id', body.companyId)
+      .eq('chave_acesso', chaveCompra)
+      .maybeSingle()
+
     let ieDest = String(forn.ie ?? '').replace(/\D/g, '')
     if (!ieDest) {
-      const { data: notaCompra } = await supabaseAdmin
-        .from('erp_nfe_recebidas')
-        .select('emitente_ie')
-        .eq('company_id', body.companyId)
-        .eq('chave_acesso', chaveCompra)
-        .maybeSingle()
       ieDest = String(notaCompra?.emitente_ie ?? '').replace(/\D/g, '')
     }
+
+    // #94: observação da NFD referenciando a NF de compra que originou a devolução (saía em branco).
+    // Compõe com os dados da nota recebida quando disponíveis; sempre inclui a chave de 44 dígitos.
+    const dataCompraBR = notaCompra?.data_emissao
+      ? new Date(notaCompra.data_emissao as string).toLocaleDateString('pt-BR')
+      : null
+    const refNota = notaCompra?.numero
+      ? `NF-e de compra nº ${notaCompra.numero}${notaCompra.serie ? `, série ${notaCompra.serie}` : ''}`
+        + `${notaCompra.emitente_razao ? `, emitida por ${notaCompra.emitente_razao}` : ''}`
+        + `${dataCompraBR ? ` em ${dataCompraBR}` : ''}`
+      : 'NF-e de compra'
+    const observacaoDevolucao = `Devolução referente à ${refNota}, chave de acesso ${chaveCompra}.`
 
     // indIEDest declarado no cadastro: contribuinte(1)/isento(2)/nao_contribuinte(9). undefined = nao declarado.
     const indMap: Record<string, 1 | 2 | 9> = { contribuinte: 1, isento: 2, nao_contribuinte: 9 }
@@ -152,6 +166,7 @@ export const POST = withAuth(async (req: NextRequest) => {
         naturezaOperacao: body.naturezaOperacao ?? 'Devolução de compra',
         finalidade: 'devolucao',
         chaveReferenciada: chaveCompra,
+        observacoes: observacaoDevolucao,  // #94: NF de compra na observação (infCpl)
         totais: {
           frete: body.frete, seguro: body.seguro, outrasDespesas: body.outrasDespesas,
           desconto: body.desconto, modalidadeFrete: body.modalidadeFrete,
