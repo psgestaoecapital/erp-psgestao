@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -14,15 +15,15 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     (async () => {
       const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const uid = await getUsuarioId();
+      if (!uid) {
         router.replace("/login");
         return;
       }
       const { data, error } = await supabase
         .from("bpo_companies_assignment")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", uid)
         .eq("papel", "supervisor")
         .eq("ativo", true)
         .limit(1);

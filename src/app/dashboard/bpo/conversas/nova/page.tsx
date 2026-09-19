@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 interface Empresa {
   id: string;
@@ -40,8 +41,8 @@ export default function NovaConversaPage() {
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { router.replace("/"); return; }
+        const uid = await getUsuarioId();
+        if (!uid) { router.replace("/"); return; }
 
         // Carregar empresas BPO ativas que o operador pode acessar
         const { data, error } = await supabase
@@ -70,8 +71,7 @@ export default function NovaConversaPage() {
     setEnviando(true);
     setErro(null);
     try {
-      const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
+      const uid = await getUsuarioId();
 
       const r = await rpc<any>("fn_bpo_conversa_iniciar", {
         p_company_id: companyId,
@@ -84,7 +84,7 @@ export default function NovaConversaPage() {
         p_cliente_email: clienteEmail || null,
         p_cliente_whatsapp: clienteWhatsapp || null,
         p_prioridade: prioridade,
-        p_user_id: user?.id,
+        p_user_id: uid,
       });
 
       if (!r.success) throw new Error("Falha ao criar conversa");
