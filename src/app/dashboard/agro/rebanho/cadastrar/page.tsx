@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, Plus, Trash2, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 
 const ESP = '#3D2314'
@@ -111,18 +112,23 @@ export default function CadastrarRebanho() {
     let alive = true
     setLoadingSel(true)
     ;(async () => {
-      const [a, l] = await Promise.all([
-        supabase.from('erp_pec_area').select('id, nome, tipo')
-          .eq('company_id', companyId).eq('propriedade_id', propriedadeId)
-          .eq('ativo', true).order('nome'),
-        supabase.from('erp_pec_lote').select('id, codigo, fase, modo')
-          .eq('company_id', companyId).eq('propriedade_id', propriedadeId)
-          .eq('status', 'ativo').order('codigo'),
-      ])
-      if (!alive) return
-      setAreas((a.data as Area[]) ?? [])
-      setLotes((l.data as Lote[]) ?? [])
-      setLoadingSel(false)
+      try {
+        const [a, l] = await comPrazo(() => Promise.all([
+          supabase.from('erp_pec_area').select('id, nome, tipo')
+            .eq('company_id', companyId).eq('propriedade_id', propriedadeId)
+            .eq('ativo', true).order('nome'),
+          supabase.from('erp_pec_lote').select('id, codigo, fase, modo')
+            .eq('company_id', companyId).eq('propriedade_id', propriedadeId)
+            .eq('status', 'ativo').order('codigo'),
+        ]), { ms: 8000, tentativas: 1, label: 'agro_cadastrar_sel' })
+        if (!alive) return
+        setAreas((a.data as Area[]) ?? [])
+        setLotes((l.data as Lote[]) ?? [])
+      } catch {
+        /* mantém selects vazios; o finally destrava o loading */
+      } finally {
+        if (alive) setLoadingSel(false)  // nunca "Carregando…" eterno
+      }
     })()
     return () => { alive = false }
   }, [companyId, propriedadeId])

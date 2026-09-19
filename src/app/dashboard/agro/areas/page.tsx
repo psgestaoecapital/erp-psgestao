@@ -4,6 +4,7 @@
 // Painel de rateio mostra o % CALCULADO (nunca digitado) com a memória visível.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
@@ -83,14 +84,18 @@ export default function AreasPropriedadePage() {
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
-    const [ar, bl, cf] = await Promise.all([
-      supabase.from('erp_propriedade_area').select('id,nome,uso,area_ha,business_line_id,entra_rateio,capacidade_ua,posse,contraparte,contrato_ref,observacao,ativo').eq('company_id', empresaUnica).order('ativo', { ascending: false }).order('uso').order('nome'),
-      supabase.from('business_lines').select('id,name').eq('company_id', empresaUnica).order('ln_number'),
-      supabase.from('rateio_config_empresa').select('id,driver,incluir_area_improdutiva').eq('company_id', empresaUnica).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
-    ])
-    setAreas((ar.data ?? []) as Area[])
-    setBls((bl.data ?? []) as BL[])
-    if (cf.data) { setCfgId(cf.data.id); setDriver(cf.data.driver ?? 'receita'); setIncluirImprod(!!cf.data.incluir_area_improdutiva) }
+    try {
+      const [ar, bl, cf] = await comPrazo(() => Promise.all([
+        supabase.from('erp_propriedade_area').select('id,nome,uso,area_ha,business_line_id,entra_rateio,capacidade_ua,posse,contraparte,contrato_ref,observacao,ativo').eq('company_id', empresaUnica).order('ativo', { ascending: false }).order('uso').order('nome'),
+        supabase.from('business_lines').select('id,name').eq('company_id', empresaUnica).order('ln_number'),
+        supabase.from('rateio_config_empresa').select('id,driver,incluir_area_improdutiva').eq('company_id', empresaUnica).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
+      ]), { ms: 8000, tentativas: 1, label: 'agro_areas' })
+      setAreas((ar.data ?? []) as Area[])
+      setBls((bl.data ?? []) as BL[])
+      if (cf.data) { setCfgId(cf.data.id); setDriver(cf.data.driver ?? 'receita'); setIncluirImprod(!!cf.data.incluir_area_improdutiva) }
+    } catch {
+      setMsg('❌ ' + MSG_CARREGAMENTO_FALHOU)
+    }
   }, [empresaUnica])
 
   useEffect(() => { void carregar() }, [carregar])

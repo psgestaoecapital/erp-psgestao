@@ -9,6 +9,7 @@ import {
   ResponsiveContainer, ComposedChart, LineChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
 import PeriodoSelector, { type SelecaoPeriodo, type Periodo } from '@/components/dashboard/PeriodoSelector'
 
@@ -53,6 +54,8 @@ export default function DashboardAgroPage() {
   const [dash, setDash] = useState<Dash | null>(null)
   const [bens, setBens] = useState<Bens | null>(null)
   const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState(false)
+  const [tentativa, setTentativa] = useState(0)
 
   // auto-select do último período com dados (o PeriodoSelector delega ao pai)
   const onPeriodos = useCallback((ps: Periodo[]) => {
@@ -68,18 +71,25 @@ export default function DashboardAgroPage() {
     let alive = true
     const { inicio, fim } = selToRange(selecao)
     ;(async () => {
-      setLoading(true)
-      const [d, b] = await Promise.all([
-        supabase.rpc('fn_agro_dashboard', { p_company_id: companyId, p_data_inicio: inicio, p_data_fim: fim }),
-        supabase.rpc('fn_bem_indicadores', { p_company_id: companyId }),
-      ])
-      if (!alive) return
-      setDash((d.data as Dash) ?? null)
-      setBens((b.data as Bens) ?? null)
-      setLoading(false)
+      setLoading(true); setErro(false)
+      try {
+        // comPrazo: nunca "Carregando…" eterno se uma RPC pendurar (a Promise.all sem prazo era a causa).
+        const [d, b] = await comPrazo(() => Promise.all([
+          supabase.rpc('fn_agro_dashboard', { p_company_id: companyId, p_data_inicio: inicio, p_data_fim: fim }),
+          supabase.rpc('fn_bem_indicadores', { p_company_id: companyId }),
+        ]), { ms: 8000, tentativas: 1, label: 'agro_dashboard' })
+        if (!alive) return
+        setDash((d.data as Dash) ?? null)
+        setBens((b.data as Bens) ?? null)
+      } catch {
+        if (!alive) return
+        setErro(true)
+      } finally {
+        if (alive) setLoading(false)
+      }
     })()
     return () => { alive = false }
-  }, [companyId, selecao])
+  }, [companyId, selecao, tentativa])
 
   const rf = dash?.resultado_fazenda
   const atividades = dash?.por_atividade ?? []
@@ -112,9 +122,18 @@ export default function DashboardAgroPage() {
       </header>
 
       {loading && <Info>Carregando…</Info>}
-      {!loading && dash?.sem_acesso && <Info>Sem acesso a esta empresa.</Info>}
+      {!loading && erro && (
+        <div className="rounded-xl p-6 text-sm text-center" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }}>
+          <div className="mb-3">{MSG_CARREGAMENTO_FALHOU}</div>
+          <button type="button" onClick={() => setTentativa((t) => t + 1)}
+            style={{ background: GOLD, color: ESP, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
+      {!loading && !erro && dash?.sem_acesso && <Info>Sem acesso a esta empresa.</Info>}
 
-      {!loading && dash && !dash.sem_acesso && (
+      {!loading && !erro && dash && !dash.sem_acesso && (
         <div className="space-y-4">
           {/* 3.1 Resultado da fazenda */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

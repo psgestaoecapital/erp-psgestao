@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada } from '@/hooks/useEmpresaSelecionada'
 import CapacidadeIdealModal from '@/components/agro/CapacidadeIdealModal'
 
@@ -65,17 +66,22 @@ export default function ManejoPastoPage() {
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true)
-    const [{ data }, fr, areasF] = await Promise.all([
-      supabase.rpc('fn_pec_manejo_pasto_painel', { p_company_id: companyId }),
-      supabase.rpc('fn_pec_forrageira_listar', { p_company_id: companyId }),
-      supabase.from('erp_pec_area').select('id,forrageira_id').eq('company_id', companyId).eq('tipo', 'piquete'),
-    ])
-    setP((data ?? null) as Painel | null)
-    setForrageiras(((fr.data as { forrageiras?: Forrageira[] } | null)?.forrageiras) ?? [])
-    const map: Record<string, string | null> = {}
-    for (const a of (areasF.data ?? []) as Array<{ id: string; forrageira_id: string | null }>) map[a.id] = a.forrageira_id
-    setForrDeArea(map)
-    setLoading(false)
+    try {
+      const [{ data }, fr, areasF] = await comPrazo(() => Promise.all([
+        supabase.rpc('fn_pec_manejo_pasto_painel', { p_company_id: companyId }),
+        supabase.rpc('fn_pec_forrageira_listar', { p_company_id: companyId }),
+        supabase.from('erp_pec_area').select('id,forrageira_id').eq('company_id', companyId).eq('tipo', 'piquete'),
+      ]), { ms: 8000, tentativas: 1, label: 'agro_pasto' })
+      setP((data ?? null) as Painel | null)
+      setForrageiras(((fr.data as { forrageiras?: Forrageira[] } | null)?.forrageiras) ?? [])
+      const map: Record<string, string | null> = {}
+      for (const a of (areasF.data ?? []) as Array<{ id: string; forrageira_id: string | null }>) map[a.id] = a.forrageira_id
+      setForrDeArea(map)
+    } catch {
+      setMsg('❌ ' + MSG_CARREGAMENTO_FALHOU)
+    } finally {
+      setLoading(false)  // nunca "Carregando…" eterno
+    }
   }, [companyId])
   useEffect(() => { carregar() }, [carregar])
 
