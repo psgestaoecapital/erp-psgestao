@@ -37,6 +37,9 @@ export interface NFeBuilderInput {
     finalidade?: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
     // fiscal-devolucao-compra-v1: chave 44 digitos da NFe original
     chaveReferenciada?: string
+    // #94: observação livre → informacoes_adicionais_contribuinte (infCpl). Ex.: na devolução, a NF de
+    // compra que a originou. Antes o builder ignorava este campo e a NFD saía com observação em branco.
+    observacoes?: string
     // frete/seguro/outras/desconto + modalidade (compõem o total e a base do ICMS — Lei Kandir)
     totais?: NFeRequest['totais']
   }
@@ -259,6 +262,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario,
     itens: itensNFe,
     chaveReferenciada: input.manual?.chaveReferenciada,
+    observacoes: input.manual?.observacoes,
     totais: input.manual?.totais,
   }
 }

@@ -120,6 +120,22 @@ export default function DevolucaoCompraClient() {
     return () => { alive = false }
   }, [companyId, chaveDig])
 
+  // #94: ao ter a chave (44 dígitos) e ainda SEM fornecedor selecionado, herda o fornecedor da NF-e de
+  // compra automaticamente — o usuário não precisa preenchê-lo (a nota recebida já sabe quem é). Só
+  // preenche se estiver vazio (não sobrescreve escolha manual). Cobre o caminho de chave colada direto,
+  // além do ?recebida_id= (que já herdava).
+  useEffect(() => {
+    if (!companyId || chaveDig.length !== 44 || fornecedorId) return
+    let alive = true
+    void supabase.from('erp_nfe_recebidas').select('fornecedor_id')
+      .eq('company_id', companyId).eq('chave_acesso', chaveDig).maybeSingle()
+      .then(({ data }) => {
+        const fid = (data as { fornecedor_id?: string | null } | null)?.fornecedor_id
+        if (alive && fid) setFornecedorId(String(fid))
+      })
+    return () => { alive = false }
+  }, [companyId, chaveDig, fornecedorId])
+
   // Pre-preenche o ICMS dos itens que ainda nao tem, quando o mapa de tributos chega (nao sobrescreve
   // o que o operador ja editou).
   useEffect(() => {

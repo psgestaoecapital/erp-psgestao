@@ -53,10 +53,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
-    const referenciaFocus = nfe.chave?.trim() || nfe.provider_reference?.trim()
+    // #94: a Focus identifica a NF-e para eventos (CC-e) pela REFERÊNCIA de emissão (o `ref` que enviamos
+    // ao emitir), não pela chave de acesso — o endpoint é POST /v2/nfe/{ref}/carta_correcao. Passar a chave
+    // fazia a Focus responder "NF não encontrada". Por isso prioriza provider_reference; chave é só fallback.
+    const referenciaFocus = nfe.provider_reference?.trim() || nfe.chave?.trim()
     if (!referenciaFocus) {
       return NextResponse.json(
-        { ok: false, mensagem: 'NFe sem chave nem provider_reference · sem como identificar na Focus' },
+        { ok: false, mensagem: 'NFe sem provider_reference nem chave · sem como identificar na Focus' },
         { status: 422 }
       )
     }
