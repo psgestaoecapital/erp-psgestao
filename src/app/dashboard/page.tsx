@@ -41,7 +41,9 @@ export default function DashboardIndex() {
         // (getUser preso na trava de sessão do mobile, rede que some) NÃO reprova no catch e prendia
         // a tela para sempre. comPrazo → se estourar/falhar (após 1 retry), cai no catch → GE.
         const areas = await comPrazo<AreaVisivel[]>(async () => {
-          const { data: { user } } = await supabase.auth.getUser();
+          // P0 Camada 2 (16bc8561): getSession lê a sessão do storage (sem ida ao servidor / trava do mobile).
+          const { data: { session } } = await supabase.auth.getSession();
+          const user = session?.user;
           if (!user) throw new Error('sem_sessao');
 
           // company: localStorage; se vazio, tenta a unica empresa do usuario.

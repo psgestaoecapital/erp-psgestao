@@ -1,130 +1,68 @@
-"use client";
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { supabase } from "@/lib/supabase";
+'use client'
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import type { User } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 
-// ══════════════════════════════════════════════════════════
-// CONTEXTO DE SEGURANÇA CENTRALIZADO
-// Todas as páginas usam este contexto.
-// Nenhuma página carrega empresas por conta própria.
-// Um único ponto de verificação = impossível esquecer.
-// ══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// SESSÃO ÚNICA (P0 · Camada 2 · contexto 16bc8561)
+// A sessão é lida UMA vez, do storage local via getSession() — sem ida ao servidor e sem
+// disputar a trava de sessão do mobile (navigator.locks), que era o que o supabase.auth.getUser()
+// fazia em ~100 telas e causava o "AbortError: Lock broken..." e o "Carregando…" eterno.
+// onAuthStateChange mantém a sessão em dia (login/logout/refresh). As telas usam useUsuario()
+// em vez de cada uma chamar getUser(). A autorização continua no banco (RLS/guardas) — nada muda
+// em segurança; as rotas /api seguem validando o token no servidor.
+// getSession() lê do storage (rápido), mas ainda pode pendurar na trava → comPrazo destrava
+// fail-closed (sem sessão) sem prender o app.
+// ══════════════════════════════════════════════════════════════════════════
 
-interface AuthContextType {
-  user: any | null;
-  userId: string;
-  role: string;
-  isAdmin: boolean;
-  companies: any[];
-  companyIds: string[];
-  groups: any[];
-  loading: boolean;
-  // Retorna true se o usuário pode acessar essa empresa
-  canAccess: (companyId: string) => boolean;
-  // Recarrega dados (após vincular nova empresa, etc.)
-  refresh: () => Promise<void>;
+interface SessaoCtx {
+  user: User | null
+  userId: string | null
+  email: string | null
+  loading: boolean
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null, userId: "", role: "", isAdmin: false,
-  companies: [], companyIds: [], groups: [], loading: true,
-  canAccess: () => false, refresh: async () => {},
-});
+const Ctx = createContext<SessaoCtx>({ user: null, userId: null, email: null, loading: true })
 
-export const useAuth = () => useContext(AuthContext);
+/** Hook único de sessão para componentes de TELA. Substitui supabase.auth.getUser() nas telas. */
+export function useUsuario(): SessaoCtx {
+  return useContext(Ctx)
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<any>(null);
-  const [userId, setUserId] = useState("");
-  const [role, setRole] = useState("");
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const isAdmin = role === "adm";
-  const companyIds = companies.map(c => c.id);
-
-  const canAccess = (companyId: string): boolean => {
-    if (isAdmin) return true;
-    return companyIds.includes(companyId);
-  };
-
-  const loadAuth = async () => {
-    try {
-      // 1. Verificar autenticação
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        setLoading(false);
-        return;
-      }
-      setUser(authUser);
-      setUserId(authUser.id);
-
-      // 2. Carregar role do usuário
-      const { data: profile } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", authUser.id)
-        .single();
-      
-      const userRole = profile?.role || "visualizador";
-      setRole(userRole);
-
-      // 3. Carregar grupos
-      const { data: grps } = await supabase
-        .from("company_groups")
-        .select("*")
-        .order("nome");
-      setGroups(grps || []);
-
-      // 4. Carregar empresas autorizadas
-      if (userRole === "adm") {
-        // Admin vê TUDO
-        const { data } = await supabase
-          .from("companies")
-          .select("*")
-          .order("created_at");
-        setCompanies(data || []);
-      } else {
-        // Outros roles: APENAS user_companies
-        const { data: uc } = await supabase
-          .from("user_companies")
-          .select("company_id, companies(*)")
-          .eq("user_id", authUser.id);
-        
-        const comps = (uc || [])
-          .map((u: any) => u.companies)
-          .filter(Boolean);
-        setCompanies(comps);
-      }
-    } catch (error) {
-      console.error("Auth error:", error);
-    }
-    setLoading(false);
-  };
-
-  const refresh = async () => {
-    setLoading(true);
-    await loadAuth();
-  };
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadAuth();
+    let alive = true
+    void comPrazo(() => supabase.auth.getSession(), { ms: 8000, tentativas: 1, label: 'sessao_getSession' })
+      .then(({ data }) => { if (!alive) return; setUser(data.session?.user ?? null); setLoading(false) })
+      .catch(() => { if (!alive) return; setUser(null); setLoading(false) })
 
-    // Escutar mudanças de auth (login/logout)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      loadAuth();
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+    // login/logout/refresh: o evento traz a sessão nova sem novo getUser/getSession.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return
+      setUser(session?.user ?? null)
+      setLoading(false)
+    })
+    return () => { alive = false; sub.subscription.unsubscribe() }
+  }, [])
 
   return (
-    <AuthContext.Provider value={{
-      user, userId, role, isAdmin,
-      companies, companyIds, groups, loading,
-      canAccess, refresh,
-    }}>
+    <Ctx.Provider value={{ user, userId: user?.id ?? null, email: user?.email ?? null, loading }}>
       {children}
-    </AuthContext.Provider>
-  );
+    </Ctx.Provider>
+  )
+}
+
+// Helpers para código FORA de componente (não-hook). Usam getSession() (local, sem trava de
+// servidor) no lugar de getUser(). Para validação server-side de token, use getUser() nas rotas /api.
+export async function getUsuarioId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession()
+  return data.session?.user?.id ?? null
+}
+export async function getUsuarioAtual(): Promise<User | null> {
+  const { data } = await supabase.auth.getSession()
+  return data.session?.user ?? null
 }

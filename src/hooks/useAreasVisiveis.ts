@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
+import { useUsuario } from '@/lib/AuthProvider'
 
 export interface AreaVisivel {
   ordem: number
@@ -20,16 +21,15 @@ export interface AreaVisivel {
 interface State {
   areas: AreaVisivel[]
   loading: boolean
-  // null = ok/carregando; 'sessao' = falha ao ler a sessão (trava); 'rpc' = falha nas RPCs.
-  // NUNCA confundir com lista vazia de verdade (error=null, areas=[]).
+  // null = ok/carregando; 'rpc' = falha nas RPCs. NUNCA confundir com lista vazia de verdade
+  // (error=null, areas=[]). 'sessao' mantido no tipo por compat; a sessão agora vem do provider.
   error: 'sessao' | 'rpc' | null
 }
 
 // Cache por companyId (evita refetch ao trocar de rota).
 const cache = new Map<string, AreaVisivel[]>()
-// HOTFIX mobile (16bc8561): dedup de chamada em andamento por companyId::userId. Antes, ~10
-// instâncias do hook (AreaSwitcher, Sidebar, MobileDrawer, guardas…) disparavam fn_listar_areas_visiveis
-// ao mesmo tempo. Agora todas compartilham UMA Promise → 1 chamada por troca de empresa.
+// HOTFIX mobile (#1579): dedup de chamada em andamento por companyId::userId — ~10 instâncias do hook
+// compartilham UMA Promise → 1 chamada fn_listar_areas_visiveis por troca de empresa (antes 10).
 const inflight = new Map<string, Promise<AreaVisivel[]>>()
 
 async function buscarAreas(companyId: string | null, userId: string): Promise<AreaVisivel[]> {
@@ -53,8 +53,7 @@ async function buscarAreas(companyId: string | null, userId: string): Promise<Ar
     const statusData = (statusRes.data ?? []) as Array<{ area_slug: string; habilitada: boolean }>
     statusData.forEach((s) => habilitadaPorSlug.set(s.area_slug, !!s.habilitada))
 
-    // seletor-fonte-unica-contratado (#446): OR lógico das duas fontes; promove false->true,
-    // nunca rebaixa (fn_listar_areas_visiveis pode já saber de assinaturas que o status não mapeou).
+    // seletor-fonte-unica-contratado (#446): OR lógico das duas fontes; promove false->true, nunca rebaixa.
     const areas: AreaVisivel[] = base.map((a) => {
       const habilitadaStatus = habilitadaPorSlug.get(a.area_slug)
       const ehContratada = !!a.empresa_tem_acesso || !!habilitadaStatus
@@ -72,8 +71,6 @@ async function buscarAreas(companyId: string | null, userId: string): Promise<Ar
   }
 }
 
-// seletor-fonte-unica-contratado · usa fn_empresa_areas_status como fonte
-// principal de "Contratado" (mesma do admin) + fn_listar_areas_visiveis (metadado visual).
 export function useAreasVisiveis(companyId: string | null): State & { reload: () => void } {
   const [state, setState] = useState<State>({
     areas: companyId ? cache.get(companyId) ?? [] : [],
@@ -82,32 +79,21 @@ export function useAreasVisiveis(companyId: string | null): State & { reload: ()
   })
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => {
-    if (companyId) { cache.delete(companyId); inflight.delete(`${companyId}::`) }
+    if (companyId) cache.delete(companyId)
     setTick((t) => t + 1)
   }, [companyId])
 
-  // HOTFIX mobile (16bc8561): a sessão vem de getSession() (lê o storage local — sem ida ao servidor e
-  // sem segurar a trava navigator.locks durante um round-trip, que era o que o getUser() fazia e provocava
-  // "Lock broken … steal" quando ~10 instâncias corriam juntas). Estados:
-  //   loading → sessão ainda carregando; erro → falha de leitura da trava (NÃO fail-closed; oferece retry);
-  //   ok → resolvida (userId pode ser null só quando NÃO há sessão de verdade → aí sim vazio).
-  const [userId, setUserId] = useState<string | null>(null)
-  const [sessao, setSessao] = useState<'loading' | 'ok' | 'erro'>('loading')
-  useEffect(() => {
-    let alive = true
-    setSessao('loading')
-    void comPrazo(() => supabase.auth.getSession(), { ms: 8000, tentativas: 1, label: 'areas_getSession' })
-      .then(({ data }) => { if (!alive) return; setUserId(data.session?.user?.id ?? null); setSessao('ok') })
-      .catch(() => { if (!alive) return; setSessao('erro') }) // erro de trava: mantém retry, nunca "sem áreas"
-    return () => { alive = false }
-  }, [tick])
+  // P0 Camada 2 (#1577) reconciliado com o hotfix #1579: a sessão vem do provider (useUsuario), lida
+  // UMA vez via getSession — sem getUser próprio aqui (que disputava a trava do mobile). loading do
+  // provider = sessão carregando; userId null com provider pronto = sem sessão (vazio real, fail-closed).
+  // O dedup in-flight + o estado de erro/reload (retry no AreaSwitcher) vêm do #1579.
+  const { userId, loading: sessaoLoading } = useUsuario()
 
   useEffect(() => {
     let mounted = true
     async function carregar() {
-      if (sessao === 'loading') { setState((s) => ({ ...s, loading: true, error: null })); return }
-      if (sessao === 'erro') { setState({ areas: companyId ? cache.get(companyId) ?? [] : [], loading: false, error: 'sessao' }); return }
-      if (!userId) { setState({ areas: [], loading: false, error: null }); return } // sessão ok e sem usuário = vazio real
+      if (sessaoLoading) { setState((s) => ({ ...s, loading: true, error: null })); return }
+      if (!userId) { setState({ areas: [], loading: false, error: null }); return }
       setState((s) => ({ ...s, loading: true, error: null }))
       try {
         const areas = await buscarAreas(companyId, userId)
@@ -120,7 +106,7 @@ export function useAreasVisiveis(companyId: string | null): State & { reload: ()
     }
     carregar()
     return () => { mounted = false }
-  }, [companyId, userId, sessao, tick])
+  }, [companyId, userId, sessaoLoading, tick])
 
   return { ...state, reload }
 }
