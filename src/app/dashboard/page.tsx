@@ -16,6 +16,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { comPrazo } from '@/lib/comPrazo';
 
 const AREA_GE = 'gestao_empresarial';
 const ROTA_GE = '/dashboard/gestao-empresarial';
@@ -36,23 +37,27 @@ export default function DashboardIndex() {
     let alive = true;
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { router.replace(ROTA_GE); return; }
+        // P0 (16bc8561): TODO o roteamento inicial corre contra um prazo. Uma promessa pendurada
+        // (getUser preso na trava de sessão do mobile, rede que some) NÃO reprova no catch e prendia
+        // a tela para sempre. comPrazo → se estourar/falhar (após 1 retry), cai no catch → GE.
+        const areas = await comPrazo<AreaVisivel[]>(async () => {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error('sem_sessao');
 
-        // company: localStorage; se vazio, tenta a unica empresa do usuario.
-        let companyId = lerCompanyId();
-        if (!companyId) {
-          const { data: ucs } = await supabase
-            .from('user_companies').select('company_id').eq('user_id', user.id).limit(2);
-          if (ucs && ucs.length === 1) companyId = (ucs[0] as { company_id: string }).company_id;
-        }
-
-        const { data } = await supabase.rpc('fn_listar_areas_visiveis', {
-          p_company_id: companyId, p_user_id: user.id,
-        });
+          // company: localStorage; se vazio, tenta a unica empresa do usuario.
+          let companyId = lerCompanyId();
+          if (!companyId) {
+            const { data: ucs } = await supabase
+              .from('user_companies').select('company_id').eq('user_id', user.id).limit(2);
+            if (ucs && ucs.length === 1) companyId = (ucs[0] as { company_id: string }).company_id;
+          }
+          const { data } = await supabase.rpc('fn_listar_areas_visiveis', {
+            p_company_id: companyId, p_user_id: user.id,
+          });
+          return (data ?? []) as AreaVisivel[];
+        }, { ms: 8000, tentativas: 1, label: 'dashboard_index_areas' });
         if (!alive) return;
 
-        const areas = (data ?? []) as AreaVisivel[];
         // 1c (Agenda Comercial) · quem tem acesso ao P&M abre direto no Kanban de leads (decisão CEO —
         // "só quem tem acesso ao P&M", não todos). Prioriza P&M sobre GE. Os demais seguem a regra abaixo.
         const temPM = areas.some((a) => a.area_slug === 'pm' && a.empresa_tem_acesso !== false);

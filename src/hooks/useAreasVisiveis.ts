@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 
 export interface AreaVisivel {
   ordem: number
@@ -55,11 +56,12 @@ export function useAreasVisiveis(companyId: string | null): State {
   const [userResolvido, setUserResolvido] = useState(false)
   useEffect(() => {
     let alive = true
-    void supabase.auth.getUser().then(({ data }) => {
-      if (!alive) return
-      setUserId(data?.user?.id ?? null)
-      setUserResolvido(true)
-    })
+    // P0 (16bc8561): getUser pode pendurar na trava de sessão do mobile e NUNCA resolver → userResolvido
+    // ficava false p/ sempre → loading eterno. comPrazo destrava: no timeout/erro, resolve fail-closed
+    // (sem usuário) mas SEGUE (userResolvido=true), então a tela sai do "Carregando".
+    void comPrazo(() => supabase.auth.getUser(), { ms: 8000, tentativas: 1, label: 'areas_getUser' })
+      .then(({ data }) => { if (!alive) return; setUserId(data?.user?.id ?? null); setUserResolvido(true) })
+      .catch(() => { if (!alive) return; setUserId(null); setUserResolvido(true) })
     return () => { alive = false }
   }, [])
 
@@ -71,12 +73,22 @@ export function useAreasVisiveis(companyId: string | null): State {
       if (!userId) { setState({ areas: [], loading: false, error: null }); return } // sem usuário = sem áreas (fail-closed)
       setState((s) => ({ ...s, loading: true, error: null }))
 
-      const [visiveisRes, statusRes] = await Promise.all([
-        supabase.rpc('fn_listar_areas_visiveis', { p_company_id: companyId, p_user_id: userId }),
-        companyId
-          ? supabase.rpc('fn_empresa_areas_status', { p_company_id: companyId })
-          : Promise.resolve({ data: [], error: null }),
-      ])
+      // P0 (16bc8561): as RPCs correm contra um prazo. Penduraram/estouraram → não fica em "Carregando":
+      // usa o cache (se houver) ou lista vazia, com erro, e loading=false. Guardas seguem fail-closed.
+      let visiveisRes: { data: unknown; error: { message: string } | null }
+      let statusRes: { data: unknown; error: { message: string } | null }
+      try {
+        [visiveisRes, statusRes] = await comPrazo(() => Promise.all([
+          supabase.rpc('fn_listar_areas_visiveis', { p_company_id: companyId, p_user_id: userId }),
+          companyId
+            ? supabase.rpc('fn_empresa_areas_status', { p_company_id: companyId })
+            : Promise.resolve({ data: [], error: null }),
+        ]), { ms: 8000, tentativas: 1, label: 'areas_rpc' })
+      } catch {
+        if (!mounted) return
+        setState({ areas: companyId ? cache.get(companyId) ?? [] : [], loading: false, error: 'timeout' })
+        return
+      }
 
       if (!mounted) return
 

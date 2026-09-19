@@ -501,6 +501,8 @@ export default function AdminPage(){
         <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
         <a href="/dashboard/conectores" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none"}}>🔌 Conectores</a>
         <a href="/dashboard/bpo" style={{padding:"8px 16px",border:`1px solid ${G}`,borderRadius:8,color:G,fontSize:11,textDecoration:"none"}}>📊 BPO</a>
+        {/* P0 (16bc8561) · painel de travamentos de carregamento (registro Camada 4) */}
+        <a href="/dashboard/admin/travamentos" style={{padding:"8px 16px",border:`1px solid ${R}`,borderRadius:8,color:R,fontSize:11,textDecoration:"none"}}>⏱️ Travamentos</a>
       </div>
     </div>
 

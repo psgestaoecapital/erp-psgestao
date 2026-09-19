@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 // Card de area-raiz para planos novos (M.A.7.5).
@@ -76,11 +77,19 @@ export default function AreaRootPlaceholder({ areaId, fallbackNome, fallbackIcon
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const { data } = await supabase.rpc('fn_areas_menu_lateral')
-      if (!alive) return
-      const match = Array.isArray(data) ? data.find((a: AreaMenu) => a.id === areaId) : null
-      setArea(match ?? null)
-      setLoading(false)
+      // P0 (16bc8561): a RPC pode pendurar → "Carregando…" eterno na raiz da área (Hub). comPrazo
+      // garante que sai do loading em ≤ 8s (1 retry); no timeout usa o fallback (nome/ícone).
+      try {
+        const { data } = await comPrazo(async () => await supabase.rpc('fn_areas_menu_lateral'), { ms: 8000, tentativas: 1, label: 'area_root_menu' })
+        if (!alive) return
+        const match = Array.isArray(data) ? data.find((a: AreaMenu) => a.id === areaId) : null
+        setArea(match ?? null)
+      } catch {
+        if (!alive) return
+        setArea(null)
+      } finally {
+        if (alive) setLoading(false)
+      }
     })()
     return () => { alive = false }
   }, [areaId])
