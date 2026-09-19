@@ -1135,7 +1135,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
   async function criar(comoRascunho: boolean) {
     setSalvando(true)
     const numero = `COT-${Date.now().toString().slice(-6)}`
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data: cot, error } = await supabase.from('erp_cotacoes').insert({
       company_id: companyId,
       numero,

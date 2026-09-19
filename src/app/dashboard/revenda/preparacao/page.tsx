@@ -66,7 +66,7 @@ function Inner() {
 
   async function abrirOS(veiculoId: string) {
     setAbrindo(veiculoId)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_preparacao_abrir', { p_veiculo_id: veiculoId, p_dados: {}, p_user: user?.id ?? null })
     setAbrindo(null)
     const r = data as { ok?: boolean; erro?: string; numero?: string } | null

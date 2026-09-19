@@ -1376,7 +1376,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
     const { data: numData } = await supabase.rpc('next_orcamento_numero', { p_company_id: companyId })
     const numero = (numData as string | null) || `ORC-${new Date().getFullYear()}-0001`
     const validade = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
 
     // #82② / A③ — obra congelada no orçamento (autossuficiência fiscal) + obra_id (rastreio), resolvida
     // pelo helper ÚNICO (mesmo do reenvio de NFS-e). Não bloqueia o rascunho: sem obra, grava tudo nulo

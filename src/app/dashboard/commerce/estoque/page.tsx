@@ -364,7 +364,7 @@ function EstoqueInner() {
     // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
     // passados aqui ainda (gap conhecido F2.3).
     if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('registrar_movimento_estoque', {
       p_company_id: companyIdUnico,
       p_produto_id: args.produto_id,
@@ -392,7 +392,7 @@ function EstoqueInner() {
     quantidade: number; custo_unitario: number; motivo: string; observacoes: string | null;
   }) {
     if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('registrar_movimento_estoque', {
       p_company_id: companyIdUnico,
       p_produto_id: args.produto_id,
@@ -1949,7 +1949,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
     try {
       // Numero
       const { data: numero } = await supabase.rpc('next_inventario_numero', { p_company_id: companyId })
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
       const { data: inv, error: e1 } = await supabase.from('erp_inventarios').insert({
         company_id: companyId,
         numero: numero ?? `INV-${Date.now().toString().slice(-6)}`,
@@ -2072,7 +2072,7 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
     setSalvandoIdx(it.id)
     // FIX-INVENTARIO-CONTAGEM-PERSIST-v1
     // UPDATE direto falhava silenciosamente (diferenca e GENERATED) · usa RPC.
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('fn_inventario_registrar_contagem', {
       p_item_id: it.id,
       p_quantidade_contada: novaQtd,
@@ -2094,7 +2094,7 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
   async function fechar() {
     if (!confirm('Fechar o inventário? Vai gerar movimentações de ajuste pelas diferenças.')) return
     setFechando(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('fechar_inventario', {
       p_inventario_id: inventario.id,
       p_usuario_id: user?.id ?? null,

@@ -200,7 +200,7 @@ function ProcuraModal({ companyId, onClose, onSaved, onErro }: { companyId: stri
     setErro(null)
     if (!f.marca.trim() && !f.modelo.trim()) { setErro('Informe ao menos marca ou modelo.'); return }
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_procura_registrar', {
       p_company_id: companyId,
       p_dados: { cliente_nome: f.cliente_nome.trim() || null, contato: f.contato.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_min: f.ano_min || null, ano_max: f.ano_max || null, valor_ate: f.valor_ate || null, cambio: f.cambio.trim() || null, observacao: f.observacao.trim() || null },

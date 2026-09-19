@@ -50,7 +50,7 @@ function Inner() {
   const [salvando, setSalvando] = useState(false)
   const [cfgAberto, setCfgAberto] = useState(false)
 
-  async function userId() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+  async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   const carregar = useCallback(async () => {
     if (!veiculoId) return
@@ -201,7 +201,7 @@ function ConfigEncargos({ companyId, cfg, onSaved, onErro }: { companyId: string
     setBusy(true)
     // escrita por RPC com guard de tenant (padrão da vertical). A RPC faz upsert e preserva
     // o semáforo (Onda 1) e a margem existentes; vazio nos encargos = NULL ("não configurado").
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data } = await supabase.rpc('fn_veic_config_salvar', {
       p_company_id: companyId,
       p_dados: { impostos_venda_pct: imp, comissao_venda_pct: com, provisao_garantia_pct: gar, margem_alvo_pct: mg },

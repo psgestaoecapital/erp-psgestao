@@ -103,7 +103,7 @@ function Inner() {
   const custoAcumulado = useMemo(() => (v?.valor_aquisicao ?? 0) + custos.reduce((s, c) => s + (Number(c.valor) || 0), 0), [v, custos])
   const precoMinimo = useMemo(() => custoAcumulado * (1 + margem / 100), [custoAcumulado, margem])
 
-  async function userId() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+  async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   async function mudarSituacao(nova: string) {
     const { data, error } = await supabase.rpc('fn_veic_mudar_situacao', { p_veiculo_id: id, p_nova: nova, p_user: await userId(), p_obs: null })
@@ -299,7 +299,7 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
     if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
     if (!sinalOk) { setErro('Para lançar o sinal em contas a receber, informe um valor maior que zero.'); setCampo('valor_sinal'); return }
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_reserva_criar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
       p_reserva: { cliente_nome: f.cliente_nome.trim() || null, valor_sinal: f.valor_sinal ? sinalNum : null, forma_sinal: f.forma_sinal, reservado_ate: f.reservado_ate || null },
@@ -365,7 +365,7 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
     if (!vvOk) { setErro('Informe o valor da venda (maior que zero).'); setCampo('valor_venda'); return }
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
     if (Number(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: Number(f.valor_entrada) })
     if (Number(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: Number(f.valor_financiado) })
@@ -471,7 +471,7 @@ function LancarPagarModal({ custo, onClose, onSaved, onErro }: { custo: Custo; o
     setErro(null)
     if (!f.vencimento) { setErro('Informe o vencimento — o título precisa de uma data para nascer certo na GE.'); return }
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_custo_gerar_pagar', {
       p_custo_id: custo.id,
       p_dados: { fornecedor_nome: f.fornecedor_nome.trim() || null, vencimento: f.vencimento },
@@ -520,7 +520,7 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
     if (!valorOk) { setErro('Informe um valor maior que zero.'); setCampo('valor'); return }
     if (!f.descricao.trim()) { setErro('Descreva o custo (ex.: "troca de pneus").'); setCampo('descricao'); return }
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_custo_salvar', {
       p_veiculo_id: veiculoId,
       p_custo: { categoria: f.categoria, valor: valorNum, descricao: f.descricao.trim(), fornecedor_nome: f.fornecedor_nome.trim() || null, data_custo: f.data_custo || null },
@@ -689,7 +689,7 @@ function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { ve
 
   async function concluir(os: PrepOS) {
     setBusy(os.os_id)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_preparacao_concluir', { p_os_id: os.os_id, p_user: user?.id ?? null })
     setBusy(null)
     const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean; valor?: number; sem_custo?: boolean } | null
@@ -761,7 +761,7 @@ function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: s
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_preparacao_abrir', {
       p_veiculo_id: veiculoId,
       p_dados: { descricao_servico: f.descricao_servico.trim() || null, prioridade: f.prioridade, data_prevista: f.data_prevista || null },
@@ -862,7 +862,7 @@ function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErr
     if (!f.nome.trim()) { setErro('Informe o nome do interessado.'); return }
     if (proc.on && !proc.marca.trim() && !proc.modelo.trim()) { setErro('Para registrar a procura, informe ao menos marca ou modelo.'); return }
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const uid = user?.id ?? null
     const { data, error } = await supabase.rpc('fn_veic_oportunidade_abrir', {
       p_veiculo_id: veiculoId,
@@ -1060,7 +1060,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
   const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
   async function salvar() {
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: v.id, p_dados: f, p_user: user?.id ?? null })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
@@ -1122,7 +1122,7 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
-  async function uid() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+  async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   async function subir(files: FileList | null) {
     if (!files || !files.length) return

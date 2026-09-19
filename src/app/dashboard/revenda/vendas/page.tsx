@@ -48,7 +48,7 @@ function Inner() {
 
   const visiveis = useMemo(() => filtro === 'todos' ? rows : rows.filter((r) => r.situacao === filtro), [rows, filtro])
 
-  async function userId() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+  async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
   async function entregar(v: Venda) {
     const { data, error } = await supabase.rpc('fn_veic_venda_entregar', { p_venda_id: v.id, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null

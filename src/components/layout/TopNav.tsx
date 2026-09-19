@@ -82,7 +82,7 @@ export default function TopNav() {
   useEffect(() => {
     let ignore = false
     ;(async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession(); const authUser = session?.user
       if (authUser?.email && !ignore) {
         const partes = authUser.email.split('@')[0].split('.')
         const iniciais = (partes[0]?.[0] ?? '') + (partes[1]?.[0] ?? '')
