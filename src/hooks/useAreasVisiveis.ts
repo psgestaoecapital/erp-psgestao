@@ -30,7 +30,11 @@ interface State {
 const cache = new Map<string, AreaVisivel[]>()
 // HOTFIX mobile (#1579): dedup de chamada em andamento por companyId::userId — ~10 instâncias do hook
 // compartilham UMA Promise → 1 chamada fn_listar_areas_visiveis por troca de empresa (antes 10).
+// P0 (item d): as ~10 instâncias montam ESCALONADAS (o 1º pedido resolve e sai do mapa antes de o 10º
+// chegar) → voltavam a ser 10 chamadas. Agora a Promise resolvida fica no mapa por uma JANELA DE
+// GRAÇA curta, então montagens escalonadas dentro dela ainda compartilham o mesmo resultado.
 const inflight = new Map<string, Promise<AreaVisivel[]>>()
+const GRACA_DEDUP_MS = 1500
 
 async function buscarAreas(companyId: string | null, userId: string): Promise<AreaVisivel[]> {
   const key = `${companyId ?? '-'}::${userId}`
@@ -64,11 +68,10 @@ async function buscarAreas(companyId: string | null, userId: string): Promise<Ar
     return areas
   })()
   inflight.set(key, p)
-  try {
-    return await p
-  } finally {
-    inflight.delete(key)
-  }
+  // Janela de graça: só remove do mapa 1.5s depois de resolver/rejeitar — montagens escalonadas dentro
+  // da janela reusam esta Promise (sucesso OU falha), sem virar 10 chamadas nem 10 retries.
+  void p.finally(() => { setTimeout(() => { if (inflight.get(key) === p) inflight.delete(key) }, GRACA_DEDUP_MS) })
+  return p
 }
 
 export function useAreasVisiveis(companyId: string | null): State & { reload: () => void } {
