@@ -66,6 +66,8 @@ const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_tele
 // PM-2 · proposta ligada ao lead. propMap (chip) usa só critérios FORTES (lead_id/erp_cliente_id);
 // o clique chama o resolvedor de cascata no servidor (fn_pm_proposta_do_lead), que é a autoridade.
 type PropRef = { id: string; titulo: string; status: string; valor_total: number | null; lead_id: string | null; erp_cliente_id: string | null }
+// #59 PDOIS · contrato de fee por cliente (erp_contratos.cliente_id = lead.erp_cliente_id) → "Ver contrato".
+type ContratoRef = { id: string; numero: string | null; status: string | null }
 type PropCascata = { id: string; titulo: string; status: string; valor_total: number | null; criterio: string }
 
 export default function LeadsPage() {
@@ -110,6 +112,7 @@ export default function LeadsPage() {
   const [semaforoMap, setSemaforoMap] = useState<Record<string, string>>({})
   // PM-2 · propostas fortes por lead (chip) + seletor quando há várias / match fraco por título
   const [propMap, setPropMap] = useState<Record<string, PropRef[]>>({})
+  const [contratoMap, setContratoMap] = useState<Record<string, ContratoRef>>({}) // #59 · por erp_cliente_id
   const [seletor, setSeletor] = useState<{ lead: Lead; propostas: PropCascata[]; fraco: boolean } | null>(null)
 
   const carregarEtapas = useCallback(async () => {
@@ -142,6 +145,21 @@ export default function LeadsPage() {
       if (fortes.length) pm[l.id] = fortes
     }
     setPropMap(pm)
+    // #59 PDOIS · contrato de fee por cliente (erp_contratos.cliente_id = lead.erp_cliente_id). Se existe
+    // solicitação/ativo, o botão do card vira "Ver contrato" (abre a aba fee no contrato). Mapa por cliente.
+    const cliIds = Array.from(new Set(rows.map((l) => l.erp_cliente_id).filter(Boolean))) as string[]
+    const cm: Record<string, ContratoRef> = {}
+    if (cliIds.length) {
+      const { data: cts } = await supabase.from('erp_contratos')
+        .select('id, numero, status, cliente_id, created_at')
+        .eq('company_id', empresa).in('cliente_id', cliIds)
+        .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
+        .order('created_at', { ascending: false })
+      for (const c of (cts ?? []) as { id: string; numero: string | null; status: string | null; cliente_id: string }[]) {
+        if (c.cliente_id && !cm[c.cliente_id]) cm[c.cliente_id] = { id: c.id, numero: c.numero, status: c.status } // 1º = mais recente
+      }
+    }
+    setContratoMap(cm)
     // PM-1 · semáforo do MOTOR ÚNICO (RD-52) — régua da crm_alerta_config (PDois 7/10), fallback 3/7.
     const { data: sems } = await supabase.rpc('fn_crm_leads_tempo', { p_company_id: empresa })
     const sm: Record<string, string> = {}
@@ -312,6 +330,8 @@ export default function LeadsPage() {
   // PM-2 · Proposta: resolve o destino no SERVIDOR por cascata (lead_id → erp_cliente_id → título).
   //  1 forte → abre direto · várias → seletor · só título → lista com aviso · nenhuma → cria pré-preenchida.
   function abrirProposta(id: string) { router.push(`/dashboard/pm/propostas?proposta=${id}&from=leads`) }
+  // #59 PDOIS · abre a aba "Solicitações & Fee" já no contrato (ContratosFeePanel aceita ?c=<id>).
+  function verContrato(id: string) { router.push(`/dashboard/contratos?tab=fee&c=${id}`) }
   async function criarPropostaDoLead(l: Lead) {
     // cria vinculada + pré-preenchida (grava lead_id sempre; total vem dos itens — trava do PR-B)
     const { data: c, error } = await supabase.rpc('fn_agency_lead_proposta_criar', { p_lead_id: l.id })
@@ -430,6 +450,7 @@ export default function LeadsPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
                     {items.map((l) => {
                       const fim = fechadas.has(l.etapa)
+                      const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
                       // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
                       const dEtapa = Math.floor(diasDesde(l.etapa_desde))
                       const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
@@ -481,7 +502,11 @@ export default function LeadsPage() {
                             )
                           })()}
                           {fim && (
-                            <div style={{ marginTop: 6 }}>
+                            // #59 PDOIS · no fechamento (Ganho/Perda) o contrato é a AÇÃO PRINCIPAL, ao lado de Excluir.
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+                              {ct
+                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato{ct.numero ? ` nº ${ct.numero}` : ''}</button>
+                                : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
                               <button disabled={busy} onClick={() => void excluirLead(l)} style={chip(RED)}>🗑 Excluir</button>
                             </div>
                           )}
@@ -490,6 +515,10 @@ export default function LeadsPage() {
                               {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
                               <button onClick={() => agendar(l)} style={chip(DOURADO)}>📅 Reunião</button>
                               <button disabled={busy} onClick={() => void proposta(l)} style={chip(ESPRESSO)}>📄 Proposta</button>
+                              {/* #59 PDOIS · botão de contrato VISÍVEL no rodapé (não mais escondido no ⋯). */}
+                              {ct
+                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato</button>
+                                : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
                               <button onClick={() => setEditando(l)} style={chip('#2F5AA8')}>✏️ Editar</button>
                               <button onClick={() => setMenuLead(menuLead === l.id ? null : l.id)} title="Mais ações" style={{ ...chip(TEXTM), fontWeight: 700 }}>⋯</button>
                               {menuLead === l.id && (
@@ -497,7 +526,6 @@ export default function LeadsPage() {
                                   <button disabled={busy} onClick={() => { setMenuLead(null); ganhar(l) }} style={chip(GREEN)}>✓ Ganhar</button>
                                   <button onClick={() => { setMenuLead(null); perder(l) }} style={chip(RED)}>✕ Perder</button>
                                   <button disabled={busy} onClick={() => { setMenuLead(null); void converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
-                                  <button onClick={() => { setMenuLead(null); setSolicitarCli({ cliId: l.erp_cliente_id }) }} style={chip(DOURADO)}>🧾 Contrato</button>
                                   <button disabled={busy} onClick={() => { setMenuLead(null); void excluirLead(l) }} style={chip(RED)}>🗑 Excluir</button>
                                 </div>
                               )}
@@ -635,7 +663,7 @@ export default function LeadsPage() {
       {solicitarCli && empresa && (
         <SolicitarContratoModal companyId={empresa} clienteId={solicitarCli.cliId}
           onClose={() => setSolicitarCli(null)}
-          onSolicitado={(r) => { setSolicitarCli(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.`) }} />
+          onSolicitado={(r) => { setSolicitarCli(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}

@@ -79,7 +79,7 @@ export default function ContratosPage(){
   const [clientes,setClientes]=useState<any[]>([]);
   const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'>('dashboard');
   // #59 PDOIS parte 2: atalho ?tab=fee (usado pelo /dashboard/pm/contratos) abre direto a fila de fee
-  useEffect(()=>{ if(typeof window!=='undefined'){ const t=new URLSearchParams(window.location.search).get('tab'); if(t==='fee') setTab('fee'); } },[]);
+  useEffect(()=>{ if(typeof window!=='undefined'){ const q=new URLSearchParams(window.location.search); if(q.get('tab')==='fee'||q.get('aba')==='fee') setTab('fee'); } },[]);
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("ativo");

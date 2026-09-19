@@ -79,6 +79,7 @@ export default function PropostasPage() {
   const [destaque, setDestaque] = useState<string | null>(null)
   // #59 PDOIS parte 2: solicitar elaboração de contrato a partir de uma proposta
   const [solicitarProp, setSolicitarProp] = useState<{ id: string; label: string } | null>(null)
+  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null }>>({}) // #59 · contrato de fee por proposta_id
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
@@ -94,7 +95,23 @@ export default function PropostasPage() {
       supabase.from('agency_clientes').select('id, nome, nome_fantasia, telefone').eq('company_id', empresa).order('nome'),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: empresa }),
     ])
-    setPropostas((p.data ?? []) as Proposta[])
+    const propRows = (p.data ?? []) as Proposta[]
+    setPropostas(propRows)
+    // #59 PDOIS · contrato de fee ligado à proposta (erp_contratos.proposta_id). Se existe, o botão vira
+    // "Ver contrato" (abre a aba Fee no contrato). Mapa por proposta_id (1º = mais recente).
+    const pIds = propRows.map((x) => x.id)
+    const fm: Record<string, { id: string; numero: string | null }> = {}
+    if (pIds.length) {
+      const { data: cts } = await supabase.from('erp_contratos')
+        .select('id, numero, status, proposta_id, created_at')
+        .eq('company_id', empresa).in('proposta_id', pIds)
+        .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
+        .order('created_at', { ascending: false })
+      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null }[]) {
+        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero }
+      }
+    }
+    setFeeMap(fm)
     setClientes((c.data ?? []) as ClienteOpt[])
     setCatalogo(((cat.data as { servicos?: ServicoOpt[] } | null)?.servicos ?? []) as ServicoOpt[])
     const { data: cfg } = await supabase.from('agency_proposta_config')
@@ -378,9 +395,13 @@ export default function PropostasPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => abrirEditar(p)} style={btnSec}>✏️ Editar</button>
                       <button onClick={() => void excluir(p)} style={{ ...btnSec, borderColor: RED, color: RED }}>🗑️ Excluir</button>
-                      <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo })} style={btnSec}>🧾 Solicitar contrato</button>
+                      {/* #59 PDOIS · contrato de fee: se já existe (por proposta) vira "Ver contrato"; senão
+                          "Solicitar contrato" — em DESTAQUE quando a proposta está aprovada. */}
+                      {feeMap[p.id]
+                        ? <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}>🧾 Ver contrato</button>
+                        : <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo })} style={p.status === 'aprovada' ? btnGanhar : btnSec}>🧾 Solicitar contrato</button>}
                       {p.status === 'aprovada' && p.contrato_id && (
-                        <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>
+                        <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>
                       )}
                     </div>
                   </div>
@@ -588,7 +609,7 @@ export default function PropostasPage() {
       {solicitarProp && empresa && (
         <SolicitarContratoModal companyId={empresa} propostaId={solicitarProp.id} propostaLabel={solicitarProp.label}
           onClose={() => setSolicitarProp(null)}
-          onSolicitado={(r) => { setSolicitarProp(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.${r.aviso ? ' ' + r.aviso : ''}`) }} />
+          onSolicitado={(r) => { setSolicitarProp(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.${r.aviso ? ' ' + r.aviso : ''}`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
