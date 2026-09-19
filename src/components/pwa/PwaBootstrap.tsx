@@ -27,6 +27,7 @@ export default function PwaBootstrap() {
     } catch { /* a guarda nunca pode derrubar o boot */ }
 
     let controllerHandler: (() => void) | null = null
+    let visibilityHandler: (() => void) | null = null
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => { /* SW é opcional — não quebra o app */ })
 
@@ -55,9 +56,23 @@ export default function PwaBootstrap() {
       navigator.serviceWorker.addEventListener('controllerchange', controllerHandler)
 
       // Se já existe um SW novo esperando (waiting) com um controller ativo, avisa (não recarrega sozinho).
-      navigator.serviceWorker.getRegistration()
-        .then((reg) => { if (reg?.waiting && navigator.serviceWorker.controller) setNovaVersao(true) })
-        .catch(() => { /* sem registro ainda */ })
+      // FIX (print CEO 19/09): força um update() na ABERTURA e ao voltar o foco, para DETECTAR o SW novo
+      // prontamente — antes o celular ficava no bundle antigo ~30 min após o deploy (esperando a checagem
+      // periódica do browser). getRegistration().update() busca o sw.js novo agora; se houver, o waiting
+      // aparece e mostramos o aviso "Nova versão · Atualizar".
+      const checarAtualizacao = () => {
+        navigator.serviceWorker.getRegistration()
+          .then((reg) => {
+            if (!reg) return
+            if (reg.waiting && navigator.serviceWorker.controller) { setNovaVersao(true); return }
+            void reg.update().catch(() => { /* rede/instância — nunca quebra */ })
+          })
+          .catch(() => { /* sem registro ainda */ })
+      }
+      checarAtualizacao()
+      const onVisivel = () => { if (document.visibilityState === 'visible') checarAtualizacao() }
+      document.addEventListener('visibilitychange', onVisivel)
+      visibilityHandler = onVisivel
     }
 
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
@@ -68,6 +83,7 @@ export default function PwaBootstrap() {
       if (controllerHandler && 'serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('controllerchange', controllerHandler)
       }
+      if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler)
     }
   }, [])
 
