@@ -20,6 +20,7 @@ import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
 import { salvarRascunhoAnexos, lerRascunhoAnexos, limparRascunhoAnexos } from '@/lib/rascunhoAnexos'
+import { marcarFormSujo, marcarFormLimpo } from '@/lib/formSujo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -144,6 +145,13 @@ function Inner() {
     if (fotos.length) void salvarRascunhoAnexos(draftKey, fotos)
     else void limparRascunhoAnexos(draftKey)
   }, [fotos, rascunhoRestaurado, draftKey])
+  // #61 (sistêmico): enquanto há conteúdo na abertura, marca "formulário sujo" → o PwaBootstrap NÃO
+  // recarrega a aba por baixo do formulário quando um deploy assume o service worker (mostra aviso).
+  useEffect(() => {
+    const sujo = !!(f.titulo && f.titulo.trim()) || !!(f.descricao && f.descricao.trim()) || fotos.length > 0
+    if (sujo) marcarFormSujo('melhoria-abertura'); else marcarFormLimpo('melhoria-abertura')
+    return () => marcarFormLimpo('melhoria-abertura')
+  }, [f.titulo, f.descricao, fotos.length])
 
   // chegou pelo link do e-mail (?n=): rola até o chamado e o destaca por alguns segundos.
   useEffect(() => {
