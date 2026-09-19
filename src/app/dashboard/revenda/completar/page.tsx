@@ -58,7 +58,7 @@ function Inner() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
-  async function uid() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+  async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   async function aplicarModelo(m: Modelo) {
     const { data, error } = await supabase.rpc('fn_veic_modelo_aplicar', { p_company_id: companyId, p_modelo_id: m.id, p_veiculo_ids: null, p_user: await uid() })
@@ -120,7 +120,7 @@ function NovoModelo({ companyId, onSaved, onErro }: { companyId: string; onSaved
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_modelo_salvar', { p_company_id: companyId, p_modelo: f, p_user: user?.id ?? null })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
@@ -146,7 +146,7 @@ function LinhaLote({ r, onSaved, onErro }: { r: Row; onSaved: () => void; onErro
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: r.id, p_dados: f, p_user: user?.id ?? null })
     setBusy(false)
     const rr = data as { ok?: boolean; erro?: string } | null

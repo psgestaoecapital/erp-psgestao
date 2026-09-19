@@ -217,7 +217,7 @@ function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: strin
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_criar', {
       p_company_id: companyId,
       p_veiculo: { chassi: f.chassi.trim(), placa: f.placa.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_modelo: f.ano_modelo ? Number(f.ano_modelo) : null, cor: f.cor.trim() || null, origem: f.origem, valor_aquisicao: f.valor_aquisicao ? Number(f.valor_aquisicao) : null },

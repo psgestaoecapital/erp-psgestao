@@ -14,7 +14,7 @@ export default function ConsentGuard() {
   useEffect(() => {
     let ignore = false
     ;(async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
       if (ignore || !user) return
       const { data, error } = await supabase.rpc('fn_lgpd_consentimento_pendente')
       if (ignore || error) return

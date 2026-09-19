@@ -48,7 +48,7 @@ function Inner() {
   const [saveState, setSaveState] = useState<Record<string, 'salvando' | 'salvo' | 'falhou'>>({})
   const bootRef = useRef(false)
 
-  async function userId() { const { data: { user } } = await supabase.auth.getUser(); return user?.id ?? null }
+  async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   const carregarVistoria = useCallback(async (vid: string) => {
     const { data: j } = await supabase.rpc('fn_insp_vistoria_obter', { p_vistoria_id: vid })

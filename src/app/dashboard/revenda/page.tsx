@@ -214,7 +214,7 @@ function MarcarModal({ ocorrencia, companyId, onClose, onDone, onErro }: { ocorr
   const [busy, setBusy] = useState(false)
   async function confirmar() {
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     // A ocorrencia da fila pode ter sido detectada AO VIVO (ainda sem linha persistida). Nesse caso,
     // avaliar primeiro (idempotente) para materializar a ocorrencia e obter o id, depois marcar.
     let ocId = ocorrencia.ocorrencia_id
