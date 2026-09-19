@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2, Plus } from "lucide-react";
 import NovaEmpresaWizard from "./_components/NovaEmpresaWizard";
+import EquipePsSection from "./_components/EquipePsSection";
 
 const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
   BD = "var(--ps-border,#E0D8CC)", TX = "var(--ps-text,#3D2314)", TXM = "var(--ps-text-m,#6B5D4F)", TXD = "var(--ps-text-d,#9C8E80)",
@@ -131,6 +132,9 @@ export default function AcessosCascataPage() {
       )}
 
       {erro && <div style={{ background: "#FEF2F2", border: `1px solid ${R}`, color: R, padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+
+      {/* Equipe PS (acesso a todas as empresas, exceto Wealth/[BOT]) — só PS_ADMIN. Contexto 9a38849b. */}
+      {isAdmin && <EquipePsSection />}
 
       {ctx && (
         <>
