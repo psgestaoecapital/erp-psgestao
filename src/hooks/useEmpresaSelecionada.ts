@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getUsuarioId } from '@/lib/AuthProvider'
 
 // Resolve a empresa atual. Lê ps_empresa_sel (canônico) com polling 800ms.
 // FALLBACK (RD-52 / dívida d51bd363): quando o localStorage vem null/consolidado/group,
@@ -23,9 +24,11 @@ export function useEmpresaSelecionada(): { companyId: string | null } {
 
     async function empresasDoUsuario(): Promise<string[]> {
       if (empresasUsuario) return empresasUsuario
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return []
-      const { data } = await supabase.from('user_companies').select('company_id').eq('user_id', user.id)
+      // Camada 2b: getUsuarioId() usa getSession (storage local) — sem getUser() disputando a trava
+      // navigator.locks do mobile (causa do "Carregando…" eterno).
+      const uid = await getUsuarioId()
+      if (!uid) return []
+      const { data } = await supabase.from('user_companies').select('company_id').eq('user_id', uid)
       empresasUsuario = ((data ?? []) as { company_id: string }[]).map((r) => r.company_id).filter(Boolean)
       return empresasUsuario
     }

@@ -5,6 +5,7 @@
 // PAPEL (não por usuário/empresa): qualquer RH industrial herda o mesmo comportamento.
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getUsuarioId } from '@/lib/AuthProvider'
 
 export function usePapelUsuario(): { papel: string | null; resolvido: boolean } {
   const [papel, setPapel] = useState<string | null>(null)
@@ -12,9 +13,10 @@ export function usePapelUsuario(): { papel: string | null; resolvido: boolean } 
   useEffect(() => {
     let alive = true
     void (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { if (alive) { setPapel(null); setResolvido(true) } return }
-      const { data } = await supabase.from('users').select('role').eq('id', user.id).maybeSingle()
+      // Camada 2b: getUsuarioId() usa getSession (sem disputar a trava navigator.locks do mobile).
+      const uid = await getUsuarioId()
+      if (!uid) { if (alive) { setPapel(null); setResolvido(true) } return }
+      const { data } = await supabase.from('users').select('role').eq('id', uid).maybeSingle()
       if (alive) { setPapel((data as { role?: string | null } | null)?.role ?? null); setResolvido(true) }
     })()
     return () => { alive = false }

@@ -5,6 +5,7 @@
 // O gating de UI é conveniência — a defesa real é no backend (RPCs não devolvem R$ a OPERATOR).
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getUsuarioId } from '@/lib/AuthProvider'
 
 export type PapelGestao =
   | 'CLIENT_OWNER' | 'CLIENT_MANAGER' | 'CLIENT_OPERATOR' | 'CLIENT_VIEWER'
@@ -20,10 +21,11 @@ export function useAcesso(companyId: string | null) {
     let alive = true
     setCarregando(true)
     ;(async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      // Camada 2b: getUsuarioId() usa getSession (sem disputar a trava navigator.locks do mobile).
+      const uid = await getUsuarioId()
       if (!alive) return
-      if (!user) { setPapel(null); setCarregando(false); return }
-      const { data } = await supabase.rpc('fn_acesso_efetivo', { p_user: user.id, p_company: companyId })
+      if (!uid) { setPapel(null); setCarregando(false); return }
+      const { data } = await supabase.rpc('fn_acesso_efetivo', { p_user: uid, p_company: companyId })
       if (!alive) return
       const p = (data as { papel_gestao?: string | null } | null)?.papel_gestao ?? null
       setPapel((p as PapelGestao) ?? null)
