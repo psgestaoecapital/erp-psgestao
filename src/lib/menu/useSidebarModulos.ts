@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import {
   SIDEBAR_GESTAO_EMPRESARIAL,
   type SidebarModuleNode,
@@ -363,7 +364,10 @@ export function useSidebarModulos(): State {
           p_company_id: companyId,
           p_user_id: userId,
         }
-        const { data, error } = await supabase.rpc(rpcName, rpcArgs)
+        // P0 (16bc8561): a RPC do menu pode pendurar (trava de sessão do mobile, rede que some) →
+        // rpcLoading nunca desligava → Sidebar presa em "Carregando…" eterno. comPrazo corre contra
+        // um prazo (1 retry); estourou → cai no catch abaixo (rpcErro → fallback hardcoded GE), nunca fica preso.
+        const { data, error } = await comPrazo(async () => await supabase.rpc(rpcName, rpcArgs), { ms: 8000, tentativas: 1, label: 'sidebar_modulos' })
         if (!alive) return
         if (error) {
           // eslint-disable-next-line no-console

@@ -13,6 +13,7 @@ const SHOW_LEGACY_HOME = false;
 import { useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { supabase } from '@/lib/supabase';
+import { comPrazo } from '@/lib/comPrazo';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useCompanyIds } from '@/lib/useCompanyIds';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
@@ -165,8 +166,12 @@ function DashboardUniversalInner() {
     }
 
     try {
-      const r = await authFetch(`/api/dashboard/universal?${params}`);
-      const d = await r.json();
+      // P0 (16bc8561): authFetch pode pendurar na trava de sessão do mobile e o finally nunca rodar →
+      // "Carregando Dashboard..." eterno. comPrazo garante que estoura em ≤ 8s (1 retry) → cai no catch.
+      const d = await comPrazo(async () => {
+        const r = await authFetch(`/api/dashboard/universal?${params}`);
+        return await r.json();
+      }, { ms: 8000, tentativas: 1, label: 'dashboard_home_universal' });
       // Defesa contra resposta malformada (API retornou erro ou shape inesperado)
       if (!d || d.error || !d.contexto || !d.camada1) {
         throw new Error(d?.error || 'Resposta inválida do dashboard');
@@ -175,7 +180,7 @@ function DashboardUniversalInner() {
       setErroData(null);
     } catch (e: any) {
       console.error(e);
-      setErroData(e?.message || 'Não foi possível carregar o dashboard');
+      setErroData('Não conseguimos carregar o dashboard. Tente de novo.');
     } finally {
       setLoading(false);
     }
@@ -242,12 +247,22 @@ function DashboardUniversalInner() {
   
   const planoLabel = PLANOS.find(p => p.id === plano)?.label || plano;
   
+  if (erroData && !data) {
+    // P0 (16bc8561): nunca mais spinner infinito — na falha/timeout, aviso amigável + tentar de novo.
+    return <div style={{ padding: 40, background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <div style={{ color: '#3D2314', fontSize: 15, textAlign: 'center', maxWidth: 360 }}>Não conseguimos carregar o dashboard. Verifique a conexão e tente de novo.</div>
+      <button type="button" onClick={() => { setErroData(null); void carregar(); }}
+        style={{ background: '#C8941A', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
+        Tentar de novo
+      </button>
+    </div>;
+  }
   if (loading && !data) {
     return <div style={{ padding: 40, background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ color: '#3D2314' }}>Carregando Dashboard...</div>
     </div>;
   }
-  
+
   return (
     <div style={{ background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
