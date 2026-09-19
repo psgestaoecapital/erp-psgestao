@@ -2,6 +2,7 @@
 import { useEffect, useState, type CSSProperties, type DragEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
@@ -161,34 +162,39 @@ export default function OportunidadesKanban({
 
   async function carregar() {
     setLoading(true)
-    const [p, gp, tempo, quem, orc] = await Promise.all([
-      supabase.rpc('fn_crm_pipeline', { p_company_id: companyId }),
-      supabase
-        .from('erp_crm_oportunidade')
-        .select('etapa, valor_estimado')
-        .eq('company_id', companyId)
-        .in('etapa', ['ganho', 'perdido']),
-      supabase.rpc('fn_crm_tempo_etapa', { p_company_id: companyId }),
-      supabase.rpc('fn_crm_quem_moveu', { p_company_id: companyId }),
-      supabase.rpc('fn_crm_orcamento_do_card', { p_company_id: companyId }),
-    ])
-    setPipe((p.data ?? { etapas: [] }) as Pipeline)
-    // F2.6 · monta os mapas (se a RPC ainda não deployou, fica vazio — não quebra o board).
-    const tm: Record<string, TempoRow> = {}
-    for (const r of ((tempo.data ?? []) as TempoRow[])) tm[r.oportunidade_id] = r
-    setTempoMap(tm)
-    const qm: Record<string, QuemRow> = {}
-    for (const r of ((quem.data ?? []) as QuemRow[])) qm[r.oportunidade_id] = r
-    setQuemMap(qm)
-    const om: Record<string, OrcRow> = {}
-    for (const r of ((orc.data ?? []) as OrcRow[])) om[r.oportunidade_id] = r
-    setOrcMap(om)
-    const rows = (gp.data ?? []) as Array<{ etapa: string; valor_estimado: number | null }>
-    const g = rows.filter((r) => r.etapa === 'ganho')
-    const pd = rows.filter((r) => r.etapa === 'perdido')
-    setGanhos({ qtd: g.length, total: g.reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0) })
-    setPerdidos({ qtd: pd.length, total: pd.reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0) })
-    setLoading(false)
+    try {
+      const [p, gp, tempo, quem, orc] = await comPrazo(() => Promise.all([
+        supabase.rpc('fn_crm_pipeline', { p_company_id: companyId }),
+        supabase
+          .from('erp_crm_oportunidade')
+          .select('etapa, valor_estimado')
+          .eq('company_id', companyId)
+          .in('etapa', ['ganho', 'perdido']),
+        supabase.rpc('fn_crm_tempo_etapa', { p_company_id: companyId }),
+        supabase.rpc('fn_crm_quem_moveu', { p_company_id: companyId }),
+        supabase.rpc('fn_crm_orcamento_do_card', { p_company_id: companyId }),
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_crm_kanban' })
+      setPipe((p.data ?? { etapas: [] }) as Pipeline)
+      // F2.6 · monta os mapas (se a RPC ainda não deployou, fica vazio — não quebra o board).
+      const tm: Record<string, TempoRow> = {}
+      for (const r of ((tempo.data ?? []) as TempoRow[])) tm[r.oportunidade_id] = r
+      setTempoMap(tm)
+      const qm: Record<string, QuemRow> = {}
+      for (const r of ((quem.data ?? []) as QuemRow[])) qm[r.oportunidade_id] = r
+      setQuemMap(qm)
+      const om: Record<string, OrcRow> = {}
+      for (const r of ((orc.data ?? []) as OrcRow[])) om[r.oportunidade_id] = r
+      setOrcMap(om)
+      const rows = (gp.data ?? []) as Array<{ etapa: string; valor_estimado: number | null }>
+      const g = rows.filter((r) => r.etapa === 'ganho')
+      const pd = rows.filter((r) => r.etapa === 'perdido')
+      setGanhos({ qtd: g.length, total: g.reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0) })
+      setPerdidos({ qtd: pd.length, total: pd.reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0) })
+    } catch {
+      /* rede pendurou: não trava o board */
+    } finally {
+      setLoading(false)  // nunca "Carregando…" eterno
+    }
   }
 
   useEffect(() => { carregar() }, [companyId, refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect

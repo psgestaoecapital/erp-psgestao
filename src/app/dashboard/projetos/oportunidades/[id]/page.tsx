@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeFormModal'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
@@ -137,21 +138,26 @@ export default function OportunidadeFichaPage() {
   const reload = useCallback(async () => {
     if (!id) return
     setLoading(true)
-    const [o, i, v, h] = await Promise.all([
-      supabase
-        .from('erp_crm_oportunidade')
-        .select('*, erp_clientes(id, nome_fantasia, razao_social, cpf_cnpj, telefone, email)')
-        .eq('id', id)
-        .maybeSingle(),
-      supabase.from('erp_crm_interacao').select('*').eq('oportunidade_id', id).order('data_interacao', { ascending: false }),
-      supabase.from('erp_crm_visita').select('*').eq('oportunidade_id', id).order('created_at', { ascending: false }),
-      supabase.from('erp_crm_oportunidade_historico').select('*').eq('oportunidade_id', id).order('criado_em', { ascending: false }),
-    ])
-    setOp((o.data ?? null) as unknown as Oport | null)
-    setInteracoes((i.data ?? []) as Interacao[])
-    setVisitas((v.data ?? []) as unknown as Visita[])
-    setHistorico((h.data ?? []) as unknown as HistItem[])
-    setLoading(false)
+    try {
+      const [o, i, v, h] = await comPrazo(() => Promise.all([
+        supabase
+          .from('erp_crm_oportunidade')
+          .select('*, erp_clientes(id, nome_fantasia, razao_social, cpf_cnpj, telefone, email)')
+          .eq('id', id)
+          .maybeSingle(),
+        supabase.from('erp_crm_interacao').select('*').eq('oportunidade_id', id).order('data_interacao', { ascending: false }),
+        supabase.from('erp_crm_visita').select('*').eq('oportunidade_id', id).order('created_at', { ascending: false }),
+        supabase.from('erp_crm_oportunidade_historico').select('*').eq('oportunidade_id', id).order('criado_em', { ascending: false }),
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_oportunidade_detalhe' })
+      setOp((o.data ?? null) as unknown as Oport | null)
+      setInteracoes((i.data ?? []) as Interacao[])
+      setVisitas((v.data ?? []) as unknown as Visita[])
+      setHistorico((h.data ?? []) as unknown as HistItem[])
+    } catch {
+      /* rede pendurou: não trava a tela de detalhe */
+    } finally {
+      setLoading(false)  // nunca "Carregando…" eterno
+    }
   }, [id])
 
   useEffect(() => { reload() }, [reload])
