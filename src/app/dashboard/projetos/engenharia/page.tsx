@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ruler, Plus, Check, Sparkles, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 
 function useEmpresaSelecionada(): { companyId: string | null } {
   const [companyId, setCompanyId] = useState<string | null>(null)
@@ -180,14 +181,14 @@ export default function EngenhariaPage() {
       if (error) throw error
       // Resultado real (linhas geradas no orçamento) + BOM/mão-de-obra dos serviços usados.
       const usados = Array.from(new Set(prontos.map((a) => a.servico_id).filter(Boolean))) as string[]
-      const [{ data: itens }, { data: bomRows }] = await Promise.all([
+      const [{ data: itens }, { data: bomRows }] = await comPrazo(() => Promise.all([
         supabase.from('erp_orcamentos_itens')
           .select('id,produto_nome,servico_descricao,unidade,quantidade,preco_unitario,subtotal')
           .eq('orcamento_id', orcId).eq('company_id', companyId).order('ordem'),
         supabase.from('v_projetos_bom_completo')
           .select('servico_id,servico_nome,tipo,item_nome,item_categoria,quantidade,unidade,custo_unitario,custo_total')
           .in('servico_id', usados).order('servico_nome'),
-      ])
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_engenharia_bom' })
       setItensGerados((itens as ItemGerado[]) ?? [])
       setBom((bomRows as BomRow[]) ?? [])
       setMsg(`Orçamento gerado: ${data} item(ns) de serviço explodidos.`)

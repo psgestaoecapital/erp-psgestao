@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { comPrazo } from "@/lib/comPrazo";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
@@ -97,7 +98,7 @@ export default function InsumosPage() {
     setErro(null);
     try {
       const supabase = supabaseBrowser();
-      const [insR, catR] = await Promise.all([
+      const [insR, catR] = await comPrazo(() => Promise.all([
         supabase
           .from("v_projetos_insumos_ui")
           .select("*")
@@ -110,7 +111,7 @@ export default function InsumosPage() {
           .or(`company_id.is.null,company_id.eq.${companyId}`)
           .eq("ativo", true)
           .order("ordem"),
-      ]);
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_insumos' });
       if (insR.error) throw insR.error;
       if (catR.error && catR.error.code !== "PGRST116") {
         // categorias é nice-to-have; sem ela ainda funciona

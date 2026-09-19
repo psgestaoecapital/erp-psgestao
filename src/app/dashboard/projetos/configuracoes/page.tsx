@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
 import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
 import ProdutividadePanel from "@/components/projetos/ProdutividadePanel";
@@ -141,7 +142,7 @@ export default function ConfiguracoesPage() {
     setErro(null);
     try {
       const supabase = supabaseBrowser();
-      const [cfgR, impR] = await Promise.all([
+      const [cfgR, impR] = await comPrazo(() => Promise.all([
         supabase
           .from("projetos_modulo_config")
           .select("*")
@@ -153,7 +154,7 @@ export default function ConfiguracoesPage() {
           .eq("company_id", companyId)
           .order("custo", { ascending: false })
           .limit(10),
-      ]);
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_configuracoes' });
       if (cfgR.error && cfgR.error.code !== "PGRST116") throw cfgR.error;
       // Impactos: view pode nao existir em todos ambientes; ignora erro silenciosamente
       let dadosImp: ImpactoServico[] = [];

@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
@@ -71,19 +72,24 @@ export default function OportunidadesPage() {
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setResumo(null); setLoading(false); return }
     setLoading(true)
-    const [lista, pipe] = await Promise.all([
-      supabase
-        .from('erp_crm_oportunidade')
-        .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, origem, obra_endereco, obra_cidade, obra_bairro, probabilidade, responsavel_id, responsavel_nome, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
-        .eq('company_id', empresaUnica)
-        .is('deleted_at', null)   // excluídas (soft-delete) somem do funil
-        .order('created_at', { ascending: false }),
-      supabase.rpc('fn_crm_pipeline', { p_company_id: empresaUnica }),
-    ])
-    setRows((lista.data ?? []) as unknown as Row[])
-    const r = pipe.data as { resumo?: ResumoCRM } | null
-    setResumo(r?.resumo ?? null)
-    setLoading(false)
+    try {
+      const [lista, pipe] = await comPrazo(() => Promise.all([
+        supabase
+          .from('erp_crm_oportunidade')
+          .select('id, company_id, cliente_id, titulo, etapa, valor_estimado, origem, obra_endereco, obra_cidade, obra_bairro, probabilidade, responsavel_id, responsavel_nome, data_prevista_fechamento, observacoes, created_at, erp_clientes(nome_fantasia, razao_social)')
+          .eq('company_id', empresaUnica)
+          .is('deleted_at', null)   // excluídas (soft-delete) somem do funil
+          .order('created_at', { ascending: false }),
+        supabase.rpc('fn_crm_pipeline', { p_company_id: empresaUnica }),
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_oportunidades' })
+      setRows((lista.data ?? []) as unknown as Row[])
+      const r = pipe.data as { resumo?: ResumoCRM } | null
+      setResumo(r?.resumo ?? null)
+    } catch {
+      /* rede pendurou: não trava o funil — segue com o que houver */
+    } finally {
+      setLoading(false)  // nunca "Carregando…" eterno
+    }
   }, [empresaUnica])
 
   useEffect(() => {

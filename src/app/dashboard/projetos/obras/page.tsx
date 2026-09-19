@@ -8,6 +8,7 @@ import Link from 'next/link'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import CepEndereco from '@/components/comum/CepEndereco'
 
@@ -48,13 +49,18 @@ export default function ObrasPage() {
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
-    const [{ data: k, error: ek }, { data: l, error: el }] = await Promise.all([
-      supabase.rpc('fn_obras_kpis', { p_company_ids: companyIds }),
-      supabase.rpc('fn_obras_listar', { p_company_ids: companyIds, p_status: null }),
-    ])
-    setLoading(false)
-    if (ek || el) { setErro((ek ?? el)!.message); return }
-    setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
+    try {
+      const [{ data: k, error: ek }, { data: l, error: el }] = await comPrazo(() => Promise.all([
+        supabase.rpc('fn_obras_kpis', { p_company_ids: companyIds }),
+        supabase.rpc('fn_obras_listar', { p_company_ids: companyIds, p_status: null }),
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_obras' })
+      if (ek || el) { setErro((ek ?? el)!.message); return }
+      setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
+    } catch {
+      setErro(MSG_CARREGAMENTO_FALHOU)
+    } finally {
+      setLoading(false)  // nunca "Carregando…" eterno se a RPC pendurar
+    }
   }, [companyIds])
 
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -218,12 +224,17 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_obra_escopo', { p_obra_id: obra.id })
-    setCarregando(false)
-    if (error) { setErro(error.message); return }
-    const j = data as Escopo
-    if (!j?.ok) { setErro(j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (j?.erro ?? 'Falha ao carregar o escopo.')); return }
-    setEsc(j)
+    try {
+      const { data, error } = await comPrazo(async () => await supabase.rpc('fn_obra_escopo', { p_obra_id: obra.id }), { ms: 8000, tentativas: 1, label: 'projetos_obra_escopo' })
+      if (error) { setErro(error.message); return }
+      const j = data as Escopo
+      if (!j?.ok) { setErro(j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (j?.erro ?? 'Falha ao carregar o escopo.')); return }
+      setEsc(j)
+    } catch {
+      setErro(MSG_CARREGAMENTO_FALHOU)
+    } finally {
+      setCarregando(false)  // nunca "Carregando…" eterno
+    }
   }, [obra.id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 

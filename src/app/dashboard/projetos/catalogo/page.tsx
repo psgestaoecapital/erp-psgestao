@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { comPrazo } from "@/lib/comPrazo";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 
@@ -81,7 +82,7 @@ export default function CatalogoServicosPage() {
     setErro(null);
     try {
       const supabase = supabaseBrowser();
-      const [servR, cfgR] = await Promise.all([
+      const [servR, cfgR] = await comPrazo(() => Promise.all([
         supabase
           .from("v_projetos_servicos_catalogo")
           .select("*")
@@ -93,7 +94,7 @@ export default function CatalogoServicosPage() {
           .select("bdi_total_pct, bdi_lucro_pct, margem_minima_pct")
           .eq("company_id", companyId)
           .maybeSingle(),
-      ]);
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_catalogo' });
       if (servR.error) throw servR.error;
       if (cfgR.error && cfgR.error.code !== "PGRST116") throw cfgR.error;
       setServicos((servR.data as Servico[]) || []);
