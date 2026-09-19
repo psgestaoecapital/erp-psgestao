@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser } from 'playwright-core';
+import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,12 +44,9 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   const rota = (body.rota || '').trim();
   if (!rota.startsWith('/')) return NextResponse.json({ error: 'rota deve comecar com /' }, { status: 400 });
-  const empresaId = (body.empresa_id || 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725').trim(); // default PS LTDA
-  // LGPD (gate fa303195): o robô só abre a tela como [BOT] (b0700000-…) ou PS LTDA (b26c19c0-…).
-  // Empresa de cliente exigiria bucket privado — recusa aqui (mesma trava do screen-watcher).
-  if (empresaId !== 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725' && !empresaId.startsWith('b0700000-')) {
-    return NextResponse.json({ error: 'foto de empresa cliente exige bucket privado', empresa_id: empresaId }, { status: 403 });
-  }
+  // RD-69 P1/RD-70: o robô SÓ opera em empresa de demonstração (is_demo=true). Sem default PS LTDA,
+  // sem id fixo — a permissão é conferida no banco logo abaixo (após criar o client). Fail-closed.
+  const empresaId = (body.empresa_id || '').trim();
   const segundos = Math.min(Math.max(Number(body.segundos) || 20, 5), 40);
 
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -60,6 +58,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'env faltando' }, { status: 500 });
   }
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+  if (!(await empresaPermitidaParaRobo(supabase, empresaId))) {
+    return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaId }, { status: 403 });
+  }
   const PROJECT_REF = SUPABASE_URL.replace('https://', '').split('.')[0];
 
   let browser: Browser | null = null;
