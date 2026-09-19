@@ -107,6 +107,10 @@ export default function ContratosPage() {
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Contratos</div>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Contratos</h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>O contrato oficial vive na Gestão Empresarial. Aqui você amarra o escopo à produção: contratado × realizado por serviço e por mês.</p>
+          {/* #59 PDOIS parte 2: atalho para solicitar/elaborar contratos de fee (fluxo na GE) */}
+          <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', marginTop: 10, background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
+            🧾 Solicitar / elaborar contrato de fee →
+          </a>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>

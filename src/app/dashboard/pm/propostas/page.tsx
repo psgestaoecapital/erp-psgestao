@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
+import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -76,6 +77,8 @@ export default function PropostasPage() {
 
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
+  // #59 PDOIS parte 2: solicitar elaboração de contrato a partir de uma proposta
+  const [solicitarProp, setSolicitarProp] = useState<{ id: string; label: string } | null>(null)
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
@@ -375,6 +378,7 @@ export default function PropostasPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => abrirEditar(p)} style={btnSec}>✏️ Editar</button>
                       <button onClick={() => void excluir(p)} style={{ ...btnSec, borderColor: RED, color: RED }}>🗑️ Excluir</button>
+                      <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo })} style={btnSec}>🧾 Solicitar contrato</button>
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>
                       )}
@@ -579,6 +583,12 @@ export default function PropostasPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {solicitarProp && empresa && (
+        <SolicitarContratoModal companyId={empresa} propostaId={solicitarProp.id} propostaLabel={solicitarProp.label}
+          onClose={() => setSolicitarProp(null)}
+          onSolicitado={(r) => { setSolicitarProp(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.${r.aviso ? ' ' + r.aviso : ''}`) }} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
