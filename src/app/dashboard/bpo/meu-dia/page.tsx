@@ -6,7 +6,8 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { rpc } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 import FiltroEmpresas from "@/components/bpo/FiltroEmpresas";
 
 interface Item {
@@ -95,14 +96,13 @@ export default function MeuDiaPage() {
     setLoading(true);
     setErro(null);
     try {
-      const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const uid = await getUsuarioId();
+      if (!uid) {
         router.replace("/");
         return;
       }
-      setUserId(user.id);
-      const r = await rpc<MeuDiaData>("fn_bpo_meu_dia_v2", { p_user_id: user.id });
+      setUserId(uid);
+      const r = await rpc<MeuDiaData>("fn_bpo_meu_dia_v2", { p_user_id: uid });
       setData(r);
     } catch (e: any) {
       setErro(e.message || "Não foi possível carregar seu dia");

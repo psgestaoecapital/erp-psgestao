@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { getUsuarioId } from "@/lib/AuthProvider";
 import { authFetch } from "@/lib/authFetch";
 import { PSGC_COLORS } from "@/lib/psgc-tokens";
 import PSGCButton from "@/components/psgc/PSGCButton";
@@ -67,15 +68,15 @@ export default function BPOPage() {
 
   const loadBPOData = async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
+    const uid = await getUsuarioId();
+    if (!uid) { setLoading(false); return; }
+    const { data: up } = await supabase.from("users").select("role").eq("id", uid).single();
     let companies: any[] = [];
     if (up?.role === "adm" || up?.role === "acesso_total") {
       const { data } = await supabase.from("companies").select("*").order("created_at");
       companies = data || [];
     } else {
-      const { data: uc } = await supabase.from("user_companies").select("companies(*)").eq("user_id", user.id);
+      const { data: uc } = await supabase.from("user_companies").select("companies(*)").eq("user_id", uid);
       companies = (uc || []).map((u: any) => u.companies).filter(Boolean);
     }
     if (companies.length === 0) { setLoading(false); return; }

@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 interface Fechamento {
   id: string;
@@ -59,15 +60,15 @@ export default function FechamentoLandingPage() {
 
   async function verificarSupervisor() {
     const supabase = supabaseBrowser();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const uid = await getUsuarioId();
+    if (!uid) {
       router.replace("/");
       return false;
     }
     const { data: sup } = await supabase
       .from("bpo_companies_assignment")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", uid)
       .eq("papel", "supervisor")
       .eq("ativo", true)
       .limit(1);
@@ -100,11 +101,10 @@ export default function FechamentoLandingPage() {
     setExecutando(true);
     setErro(null);
     try {
-      const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
+      const uid = await getUsuarioId();
       const r = await rpc<any>("fn_bpo_fechamento_executar_lote", {
         p_mes_ref: mesRef,
-        p_user_id: user?.id || null,
+        p_user_id: uid || null,
       });
       setAviso(`Lote executado: ${r.prontos_gerados} prontos, ${r.bloqueados} bloqueados de ${r.total_empresas} empresas`);
       setTimeout(() => setAviso(null), 7000);

@@ -5,6 +5,7 @@
 
 import { useEffect, useState, use } from "react";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 import { APP_URL } from "@/lib/appUrl";
 
 interface Dados {
@@ -90,13 +91,12 @@ export default function FechamentoDetalhePage({
     if (!f) return;
     setEnviando(true);
     try {
-      const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
+      const uid = await getUsuarioId();
       await rpc("fn_bpo_fechamento_marcar_enviado", {
         p_fechamento_id: f.id,
         p_canal: canal,
         p_destinatario: destinatario,
-        p_user_id: user?.id,
+        p_user_id: uid,
       });
       setAviso(`Marcado como enviado via ${canal}.`);
       setTimeout(() => setAviso(null), 5000);

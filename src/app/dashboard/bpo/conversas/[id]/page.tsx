@@ -6,6 +6,7 @@
 import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 interface Mensagem {
   id: string;
@@ -66,9 +67,9 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
     setLoading(true);
     try {
       const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.replace("/"); return; }
-      setUserId(user.id);
+      const uid = await getUsuarioId();
+      if (!uid) { router.replace("/"); return; }
+      setUserId(uid);
 
       const { data: conv, error: errConv } = await supabase
         .from("bpo_conversas")
@@ -94,7 +95,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
       setMensagens((msgs || []) as Mensagem[]);
 
       // Marcar como lida
-      await rpc("fn_bpo_conversa_marcar_lida", { p_conversa_id: id, p_user_id: user.id });
+      await rpc("fn_bpo_conversa_marcar_lida", { p_conversa_id: id, p_user_id: uid });
     } catch (e: any) {
       setErro(e.message);
     } finally {

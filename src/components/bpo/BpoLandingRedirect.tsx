@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 const ROTAS_BPO_PROTEGIDAS = ["/dashboard", "/dashboard/"];
 
@@ -22,14 +23,14 @@ export default function BpoLandingRedirect() {
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        const uid = await getUsuarioId();
+        if (!uid) return;
 
         // E supervisor de alguma empresa? (entao NAO redireciona)
         const { data: sup } = await supabase
           .from("bpo_companies_assignment")
           .select("id")
-          .eq("user_id", user.id)
+          .eq("user_id", uid)
           .eq("papel", "supervisor")
           .eq("ativo", true)
           .limit(1);
@@ -40,7 +41,7 @@ export default function BpoLandingRedirect() {
         const { data: op } = await supabase
           .from("bpo_companies_assignment")
           .select("id")
-          .eq("user_id", user.id)
+          .eq("user_id", uid)
           .in("papel", ["titular", "backup"])
           .eq("ativo", true)
           .limit(1);
