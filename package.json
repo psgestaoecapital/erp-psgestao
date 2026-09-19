@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "tsx scripts/check-modelo-estoque.ts && next build",
     "start": "next start",
     "lint": "eslint",
+    "check:modelo-estoque": "tsx scripts/check-modelo-estoque.ts",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
     "check:menu": "tsx scripts/check-menu-rotas.ts",
     "proof:barras": "tsx scripts/cnab-barras-autoridade-proof.ts",

@@ -18,7 +18,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
-  X, Info, Trash2, Pencil,
+  X, Info, Trash2, Pencil, Download, Upload,
 } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -611,6 +611,16 @@ function EstoqueInner() {
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Multi-depósito, movimentações e classificação ABC</p>
           </div>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {/* Migração por planilha padrão (contexto 9c43a93d) — sempre visível */}
+        <a href="/modelos/MODELO_migracao_estoque_PS.xlsx" download title="Baixar a planilha padrão PS de migração de estoque"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${C.gold}`, color: C.gold, textDecoration: 'none', background: '#fff' }}>
+          <Download size={14} /> Baixar planilha padrão
+        </a>
+        <a href="/dashboard/commerce/estoque/importar" title="Importar/migrar estoque pela planilha padrão"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', color: '#fff', textDecoration: 'none', background: C.gold }}>
+          <Upload size={14} /> Importar planilha
+        </a>
         {tab === 'locais' && (
           <button onClick={() => setLocalEdit('new')} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'} style={btnPrincipal(canCreate)}>
             <Plus size={14} /> Novo Local
@@ -621,7 +631,7 @@ function EstoqueInner() {
             <button
               onClick={() => setShowAjuste(true)}
               disabled={!canCreate || locais.length === 0 || produtos.length === 0}
-              title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')}
+              title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local de estoque primeiro' : (produtos.length === 0 ? 'Importe ou cadastre produtos primeiro (use a planilha padrão acima)' : ''))}
               data-testid="estoque-nova-mov-btn"
               style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
               <Plus size={14} /> Nova Movimentação
@@ -632,12 +642,13 @@ function EstoqueInner() {
           <button
             onClick={() => setShowNovoInventario(true)}
             disabled={!canCreate || locais.length === 0 || produtos.length === 0}
-            title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')}
+            title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local de estoque primeiro' : (produtos.length === 0 ? 'Importe ou cadastre produtos primeiro (use a planilha padrão acima)' : ''))}
             data-testid="estoque-inventario-btn"
             style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
             📋 Iniciar inventário
           </button>
         )}
+        </div>
       </header>
 
       {/* Tabs */}
