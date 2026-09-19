@@ -6,11 +6,15 @@ import RecoveryGuard from '@/components/layout/RecoveryGuard'
 import ConsentGuard from '@/components/layout/ConsentGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
+import { AuthProvider } from '@/lib/AuthProvider'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
 import ChatWidget from '@/components/chat/ChatWidget'
 
+// P0 · Camada 2 (16bc8561): AuthProvider lê a sessão UMA vez (getSession) e expõe useUsuario()
+// para todas as telas — fim do getUser() por tela disputando a trava de sessão do mobile.
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
+    <AuthProvider>
     <SelectedCompanyProvider>
       <Suspense fallback={null}><AreaRedirectGuard /></Suspense>
       <Suspense fallback={null}><RecoveryGuard /></Suspense>
@@ -36,5 +40,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <ChatWidget />
       </div>
     </SelectedCompanyProvider>
+    </AuthProvider>
   )
 }

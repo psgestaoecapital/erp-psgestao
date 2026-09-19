@@ -101,9 +101,10 @@ export default function AreaRootPlaceholder({ areaId, fallbackNome, fallbackIcon
     if (loading || isPS) return
     let alive = true
     ;(async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      // P0 Camada 2 (16bc8561): getSession (storage local) no lugar de getUser (trava do mobile).
+      const { data: { session } } = await supabase.auth.getSession()
       const { data } = await supabase.rpc('fn_modulos_sidebar_por_area', {
-        p_area_id: areaId, p_company_id: companyId, p_user_id: user?.id ?? null,
+        p_area_id: areaId, p_company_id: companyId, p_user_id: session?.user?.id ?? null,
       })
       if (!alive) return
       const vistos = new Set<string>()

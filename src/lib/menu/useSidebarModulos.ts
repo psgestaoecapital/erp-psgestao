@@ -20,6 +20,7 @@ import {
   type SidebarStatus,
 } from './sidebar-config'
 import { useAreasVisiveis } from '@/hooks/useAreasVisiveis'
+import { useUsuario } from '@/lib/AuthProvider'
 import { ramoConfig, RAMOS, type Ramo } from '@/lib/oficina/ramo'
 
 const AREA_STORAGE_KEY = 'ps_area_sel'
@@ -181,8 +182,10 @@ export function useSidebarModulos(): State {
   const searchParams = useSearchParams()
   const queryArea = searchParams?.get('area') ?? null
 
+  // P0 · Camada 2 (16bc8561): userId vem da sessão única (useUsuario) — a Sidebar não chama mais
+  // supabase.auth.getUser() (eram 4 chamadas por montagem, todas disputando a trava de sessão do mobile).
+  const { userId } = useUsuario()
   const [companyId, setCompanyId] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
   const [areaPersistida, setAreaPersistida] = useState<string | null>(null)
   const [rpcRows, setRpcRows] = useState<RpcRow[] | null>(null)
   const [rpcErro, setRpcErro] = useState<string | null>(null)
@@ -203,15 +206,13 @@ export function useSidebarModulos(): State {
     aplicar(resolveCompanyId())
     setAreaPersistida(lerAreaPersistida())
 
-    // Auto-select user_companies se localStorage nao deu
+    // Auto-select user_companies se localStorage nao deu (usa o userId da sessão única)
     ;(async () => {
-      if (resolveCompanyId()) return
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (resolveCompanyId() || !userId) return
       const { data } = await supabase
         .from('user_companies')
         .select('company_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .limit(2)
       if (!alive) return
       if (data && data.length === 1) aplicar((data[0] as { company_id: string }).company_id)
@@ -224,18 +225,7 @@ export function useSidebarModulos(): State {
       setAreaPersistida((prev) => (prev === areaAtual ? prev : areaAtual))
     }, 800)
     return () => { alive = false; clearInterval(interval) }
-  }, [])
-
-  // user_id
-  useEffect(() => {
-    let alive = true
-    void (async () => {
-      const { data } = await supabase.auth.getUser()
-      if (!alive) return
-      setUserId(data?.user?.id ?? null)
-    })()
-    return () => { alive = false }
-  }, [])
+  }, [userId])
 
   // RD-41 Fase 2 · ramo da oficina → renomeia itens de menu (Recepção da Peça / Entregas)
   // quando ramo≠automotiva. So consulta na area oficina; automotiva mantem os nomes da RPC.
@@ -262,35 +252,31 @@ export function useSidebarModulos(): State {
   useEffect(() => {
     let alive = true
     void (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { if (alive) { setOwnerAtalho(false); setIsPS(false) } return }
-      const { data: up } = await supabase.from('users').select('system_role').eq('id', user.id).maybeSingle()
+      if (!userId) { if (alive) { setOwnerAtalho(false); setIsPS(false) } return }
+      const { data: up } = await supabase.from('users').select('system_role').eq('id', userId).maybeSingle()
       if (alive) setIsPS(up?.system_role === 'PS_ADMIN')
       if (up?.system_role) { if (alive) setOwnerAtalho(false); return } // PS_ADMIN ja tem o painel via RPC
       const { data: owner } = await supabase
         .from('tenant_user_roles')
         .select('company_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('role', 'CLIENT_OWNER')
         .eq('is_active', true)
         .limit(1)
       if (alive) setOwnerAtalho(!!(owner && owner.length > 0))
     })()
     return () => { alive = false }
-  }, [])
+  }, [userId])
 
   // B.3 · OFICINA_DONO desta empresa? (papel por empresa → filtra por companyId)
   useEffect(() => {
-    if (!companyId) { setOficinaDono(false); return }
+    if (!companyId || !userId) { setOficinaDono(false); return }
     let alive = true
     void (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!alive) return
-      if (!user) { setOficinaDono(false); return }
       const { data } = await supabase
         .from('tenant_user_roles')
         .select('company_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('company_id', companyId)
         .eq('role', 'OFICINA_DONO')
         .eq('is_active', true)
@@ -298,7 +284,7 @@ export function useSidebarModulos(): State {
       if (alive) setOficinaDono(!!(data && data.length > 0))
     })()
     return () => { alive = false }
-  }, [companyId])
+  }, [companyId, userId])
 
   // Resolve area atual (cascata: ?area= > persistida > path > primeira permitida > GE)
   const { areas } = useAreasVisiveis(companyId)

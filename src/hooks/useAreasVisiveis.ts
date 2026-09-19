@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
+import { useUsuario } from '@/lib/AuthProvider'
 
 export interface AreaVisivel {
   ordem: number
@@ -48,22 +49,12 @@ export function useAreasVisiveis(companyId: string | null): State {
     error: null,
   })
 
-  // FIX-VAZAMENTO-AREAS: resolve o usuário ANTES de chamar a RPC. Antes, o efeito dependia só de
-  // [companyId] e chamava fn_listar_areas_visiveis mesmo com getUser ainda null → a RPC (que falhava
-  // aberta) devolvia TODAS as áreas para um usuário restrito, e como não havia refetch ao resolver o
-  // usuário, o resultado errado grudava. Agora: userId em estado, nas deps, e a RPC só roda com usuário.
-  const [userId, setUserId] = useState<string | null>(null)
-  const [userResolvido, setUserResolvido] = useState(false)
-  useEffect(() => {
-    let alive = true
-    // P0 (16bc8561): getUser pode pendurar na trava de sessão do mobile e NUNCA resolver → userResolvido
-    // ficava false p/ sempre → loading eterno. comPrazo destrava: no timeout/erro, resolve fail-closed
-    // (sem usuário) mas SEGUE (userResolvido=true), então a tela sai do "Carregando".
-    void comPrazo(() => supabase.auth.getUser(), { ms: 8000, tentativas: 1, label: 'areas_getUser' })
-      .then(({ data }) => { if (!alive) return; setUserId(data?.user?.id ?? null); setUserResolvido(true) })
-      .catch(() => { if (!alive) return; setUserId(null); setUserResolvido(true) })
-    return () => { alive = false }
-  }, [])
+  // FIX-VAZAMENTO-AREAS: a RPC só roda com o usuário resolvido (senão fn_listar_areas_visiveis,
+  // que falha aberta, devolveria TODAS as áreas a um usuário restrito). P0 Camada 2 (16bc8561):
+  // o usuário vem da SESSÃO ÚNICA (useUsuario/getSession) — sem getUser() próprio aqui, que pendurava
+  // na trava do mobile. userResolvido = a sessão terminou de carregar (fail-closed: sem sessão = sem áreas).
+  const { userId, loading: sessaoLoading } = useUsuario()
+  const userResolvido = !sessaoLoading
 
   useEffect(() => {
     let mounted = true
