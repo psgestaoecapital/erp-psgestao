@@ -15,6 +15,7 @@ import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser } from 'playwright-core';
 import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-truth/executor';
+import { empresaPermitidaParaRobo } from '@/lib/gold/travaLgpd';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -244,13 +245,10 @@ export async function POST(req: Request) {
   }
 
   const empresaId = (body.empresa_id || '').trim() || EMPRESA_PADRAO_BOT;
-  // LGPD (gate fa303195): o robô fotografa para o bucket PÚBLICO system-screenshots. Só pode ser a
-  // empresa-bot ([BOT] b0700000-…) ou a PS LTDA (b26c19c0-…). Empresa de cliente exigiria bucket
-  // privado (backlog) — recusa aqui, senão nomes/telefones de cliente vão para URL aberta.
-  const EMPRESA_PS_LTDA = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
-  if (empresaId !== EMPRESA_PS_LTDA && !empresaId.startsWith('b0700000-')) {
-    return NextResponse.json({ error: 'foto de empresa cliente exige bucket privado', empresa_id: empresaId }, { status: 403 });
-  }
+  // LGPD (gate fa303195 · RD-69): o robô fotografa para o bucket PÚBLICO system-screenshots. Só pode
+  // ser empresa de DEMONSTRAÇÃO (companies.is_demo=true) ou a PS LTDA — nunca cliente real (evita
+  // nome/telefone/placa em URL aberta). A checagem por is_demo roda logo após criar o cliente
+  // service_role (empresaPermitidaParaRobo), pois precisa consultar o banco. Fail-closed.
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const SAAS_BASE_URL = process.env.SAAS_BASE_URL || 'https://erp-psgestao.vercel.app';
@@ -268,6 +266,11 @@ export async function POST(req: Request) {
   const authClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
   const PROJECT_REF = SUPABASE_URL.replace('https://', '').split('.')[0];
   const storageKey = `sb-${PROJECT_REF}-auth-token`;
+
+  // Trava LGPD (RD-69): só empresa de demonstração (is_demo) ou PS LTDA. Fail-closed (erro/dúvida → nega).
+  if (!(await empresaPermitidaParaRobo(supabase, empresaId))) {
+    return NextResponse.json({ error: 'robô só abre empresa de demonstração (is_demo) ou PS LTDA', empresa_id: empresaId }, { status: 403 });
+  }
 
   async function obterSessionPayload(): Promise<string> {
     const { data, error } = await authClient.auth.signInWithPassword({ email: PLAYWRIGHT_USER_EMAIL!, password: PLAYWRIGHT_USER_PASSWORD! });
