@@ -15,6 +15,7 @@ import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser } from 'playwright-core';
 import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-truth/executor';
+import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,6 @@ const CHROMIUM_PACK_URL =
 type Body = { rota?: string; rotas?: string[]; empresa_id?: string };
 
 // PR #148: empresa default segura - Ps Gestao LTDA (bot vinculado SÓ a ela em user_companies).
-const EMPRESA_PADRAO_BOT = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
 
 function sanitizePathComponent(s: string): string {
   return s
@@ -243,14 +243,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Informe rota (string) ou rotas (array), começando com /' }, { status: 400 });
   }
 
-  const empresaId = (body.empresa_id || '').trim() || EMPRESA_PADRAO_BOT;
-  // LGPD (gate fa303195): o robô fotografa para o bucket PÚBLICO system-screenshots. Só pode ser a
-  // empresa-bot ([BOT] b0700000-…) ou a PS LTDA (b26c19c0-…). Empresa de cliente exigiria bucket
-  // privado (backlog) — recusa aqui, senão nomes/telefones de cliente vão para URL aberta.
-  const EMPRESA_PS_LTDA = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
-  if (empresaId !== EMPRESA_PS_LTDA && !empresaId.startsWith('b0700000-')) {
-    return NextResponse.json({ error: 'foto de empresa cliente exige bucket privado', empresa_id: empresaId }, { status: 403 });
-  }
+  // RD-69 P1/RD-70: o robô SÓ fotografa empresa de DEMONSTRAÇÃO (is_demo=true) — bucket público não
+  // pode receber tela de cliente (LGPD). Sem default PS LTDA e sem id fixo: a permissão é conferida
+  // no banco logo após criar o client (fail-closed). Empresa não-demo ⇒ 403 (a rota fica "NÃO AUDITADA").
+  const empresaId = (body.empresa_id || '').trim();
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const SAAS_BASE_URL = process.env.SAAS_BASE_URL || 'https://erp-psgestao.vercel.app';
@@ -265,6 +261,9 @@ export async function POST(req: Request) {
   // Foi exatamente o "Upload falhou: new row violates row-level security policy" do preview do #1246.
   // Por isso o login do bot roda num cliente SEPARADO (authClient), deixando `supabase` intocado.
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+  if (!(await empresaPermitidaParaRobo(supabase, empresaId))) {
+    return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaId }, { status: 403 });
+  }
   const authClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
   const PROJECT_REF = SUPABASE_URL.replace('https://', '').split('.')[0];
   const storageKey = `sb-${PROJECT_REF}-auth-token`;

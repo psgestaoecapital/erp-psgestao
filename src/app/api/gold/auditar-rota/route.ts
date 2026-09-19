@@ -12,6 +12,7 @@ import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
 import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -112,6 +113,11 @@ export async function POST(req: Request) {
     const ehOficina = rota.startsWith('/dashboard/oficina');
     const ehPm = rota.startsWith('/dashboard/pm') || rota === '/dashboard/producao';
     const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : EMPRESA_PADRAO_BOT;
+    // RD-69 P1/RD-70: o robô SÓ audita empresa de DEMONSTRAÇÃO (is_demo=true). Rota sem demo da vertical
+    // (ex.: genérica que caía na PS LTDA) ⇒ 403 e a rota fica "NÃO AUDITADA" no painel. Fail-closed.
+    if (!(await empresaPermitidaParaRobo(supabase, empresaAudit))) {
+      return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaAudit, rota }, { status: 403 });
+    }
     if (ehOficina) {
       await supabase.rpc('fn_gold_oficina_seed_reparar', { p_company_id: EMPRESA_BOT_OFICINA });
     } else if (ehPm) {
