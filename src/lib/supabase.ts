@@ -7,6 +7,23 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY não configurados')
 }
 
+// P0 · "nunca operar como visitante" (contexto 16bc8561): quando o token vence em segundo plano, os
+// pedidos saem SEM JWT e voltam 401 (ex.: fn_empresa_areas_status deu 401 no celular do CEO). Este
+// evento é um SINAL SUAVE — o AuthProvider é quem decide (confere a sessão; tenta refresh; só então
+// marca "sessão expirada"). Nunca desloga por um 401 isolado. Não lê o corpo (custo zero, sem consumir
+// o stream): status 401 já cobre "JWT expired"/PGRST301 do PostgREST.
+export const EVENTO_SESSAO_SUSPEITA = 'ps:sessao-suspeita'
+function sinalizarSessaoSuspeita(): void {
+  try {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENTO_SESSAO_SUSPEITA))
+  } catch { /* nunca quebra o fetch */ }
+}
+const fetchComGuarda: typeof fetch = async (input, init) => {
+  const res = await fetch(input, init)
+  try { if (res.status === 401) sinalizarSessaoSuspeita() } catch { /* noop */ }
+  return res
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // CLIENTE ÚNICO DE NAVEGADOR (P0 · Camada 3 · contexto 16bc8561)
 // Este é o ÚNICO GoTrueClient do browser. Toda tela importa ESTE singleton.
@@ -31,4 +48,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
+  // Interceptor de 401 (P0): sinaliza sessão suspeita para o AuthProvider verificar/refazer o login.
+  global: { fetch: fetchComGuarda },
 })
