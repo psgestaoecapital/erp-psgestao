@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade, usePainelRebanho } from '@/lib/agro/usePecuaria'
 import { exportToExcel } from '@/lib/export-utils'
 import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
@@ -137,7 +138,7 @@ export default function RebanhoPage() {
     if (!online || !companyId || !propriedadeId) return
     let alive = true
     void (async () => {
-      const [a, l, p] = await Promise.all([
+      const res = await comPrazo(() => Promise.all([
         supabase.from('erp_pec_animal')
           .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem,observacao')
           .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
@@ -146,7 +147,9 @@ export default function RebanhoPage() {
           .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
         supabase.from('erp_pec_area').select('id,nome,area_ha,capacidade_ua')
           .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('ativo', true).eq('tipo', 'piquete').order('nome'),
-      ])
+      ]), { ms: 8000, tentativas: 1, label: 'agro_rebanho_snapshot' }).catch(() => null)
+      if (!res) return
+      const [a, l, p] = res
       if (!alive || a.error) return
       const s: RebanhoSnapshot = {
         companyId, ts: Date.now(),
@@ -172,7 +175,7 @@ export default function RebanhoPage() {
     // NAO paginamos aqui porque as contagens precisam do total. 5000 e
     // suficiente pra rebanhos medios; se um dia passar disso, virar RPC
     // agregada.
-    const [a, l, p] = await Promise.all([
+    const res = await comPrazo(() => Promise.all([
       supabase.from('erp_pec_animal')
         .select('id,lote_id,area_atual_id')
         .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo')
@@ -183,7 +186,9 @@ export default function RebanhoPage() {
       supabase.from('erp_pec_area')
         .select('id,nome,area_ha,capacidade_ua')
         .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('ativo', true).eq('tipo', 'piquete').order('nome'),
-    ])
+    ]), { ms: 8000, tentativas: 1, label: 'agro_rebanho_contagens' }).catch(() => null)
+    if (!res) return
+    const [a, l, p] = res
     const animList = (a.data ?? []) as Array<{ id: string; lote_id: string | null; area_atual_id: string | null }>
     const loteList = (l.data ?? []) as Lote[]
     const piqList = (p.data ?? []) as Piquete[]

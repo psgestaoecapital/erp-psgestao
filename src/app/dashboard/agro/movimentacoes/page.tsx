@@ -5,6 +5,7 @@
 // e o animal volta ao rebanho, cancelando a receita vinculada (RD-55, com confirmação + motivo).
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.6)'
@@ -63,13 +64,18 @@ export default function MovimentacoesPage() {
   const carregar = useCallback(async () => {
     if (!companyId) return
     setCarregando(true)
-    const { data } = await supabase.rpc('fn_pec_movimentacoes_listar', {
-      p_company_id: companyId, p_propriedade_id: propriedadeId, p_tipo: tipo || null,
-      p_de: de || null, p_ate: ate || null, p_lote_id: fLote || null, p_incluir_estornadas: incluirEstornadas,
-    })
-    const r = data as { ok?: boolean; movimentacoes?: Mov[] } | null
-    setLista(r?.ok ? (r.movimentacoes ?? []) : [])
-    setCarregando(false)
+    try {
+      const { data } = await comPrazo(async () => await supabase.rpc('fn_pec_movimentacoes_listar', {
+        p_company_id: companyId, p_propriedade_id: propriedadeId, p_tipo: tipo || null,
+        p_de: de || null, p_ate: ate || null, p_lote_id: fLote || null, p_incluir_estornadas: incluirEstornadas,
+      }), { ms: 8000, tentativas: 1, label: 'agro_movimentacoes' })
+      const r = data as { ok?: boolean; movimentacoes?: Mov[] } | null
+      setLista(r?.ok ? (r.movimentacoes ?? []) : [])
+    } catch {
+      setMsg('❌ ' + MSG_CARREGAMENTO_FALHOU)
+    } finally {
+      setCarregando(false)  // nunca "Carregando…" eterno se a RPC pendurar
+    }
   }, [companyId, propriedadeId, tipo, de, ate, fLote, incluirEstornadas])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -81,13 +87,15 @@ export default function MovimentacoesPage() {
     if (!companyId || !propriedadeId) { setLotes([]); setPiquetes([]); return }
     let alive = true
     void (async () => {
-      const [l, p] = await Promise.all([
-        supabase.from('erp_pec_lote').select('id,codigo').eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
-        supabase.from('erp_pec_area').select('id,nome').eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('tipo', 'piquete').eq('ativo', true).order('nome'),
-      ])
-      if (!alive) return
-      setLotes((l.data ?? []) as { id: string; codigo: string }[])
-      setPiquetes((p.data ?? []) as { id: string; nome: string }[])
+      try {
+        const [l, p] = await comPrazo(() => Promise.all([
+          supabase.from('erp_pec_lote').select('id,codigo').eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
+          supabase.from('erp_pec_area').select('id,nome').eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('tipo', 'piquete').eq('ativo', true).order('nome'),
+        ]), { ms: 8000, tentativas: 1, label: 'agro_mov_filtros' })
+        if (!alive) return
+        setLotes((l.data ?? []) as { id: string; codigo: string }[])
+        setPiquetes((p.data ?? []) as { id: string; nome: string }[])
+      } catch { /* filtros: silencioso, não trava a tela */ }
     })()
     return () => { alive = false }
   }, [companyId, propriedadeId])

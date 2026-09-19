@@ -6,6 +6,7 @@
 // Indicadores (card por lote; sem dado = diz o que falta, RD-51).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 
 const ESP = '#3D2314'
@@ -67,12 +68,16 @@ export default function CustoProducaoPage() {
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
-    const [lo, la] = await Promise.all([
-      supabase.from('erp_pec_lote').select('id,codigo,fase,modo').eq('company_id', empresaUnica).eq('ativo', true).order('codigo'),
-      supabase.from('erp_pec_custo_lancamento').select('id,lote_id,tipo_apropriacao,categoria,descricao,valor,data_competencia,meses_diluicao,ciclo_ref,origem').eq('company_id', empresaUnica).order('data_competencia', { ascending: false }).limit(500),
-    ])
-    setLotes((lo.data ?? []) as Lote[])
-    setLancs((la.data ?? []) as Lancamento[])
+    try {
+      const [lo, la] = await comPrazo(() => Promise.all([
+        supabase.from('erp_pec_lote').select('id,codigo,fase,modo').eq('company_id', empresaUnica).eq('ativo', true).order('codigo'),
+        supabase.from('erp_pec_custo_lancamento').select('id,lote_id,tipo_apropriacao,categoria,descricao,valor,data_competencia,meses_diluicao,ciclo_ref,origem').eq('company_id', empresaUnica).order('data_competencia', { ascending: false }).limit(500),
+      ]), { ms: 8000, tentativas: 1, label: 'agro_custo_arroba' })
+      setLotes((lo.data ?? []) as Lote[])
+      setLancs((la.data ?? []) as Lancamento[])
+    } catch {
+      setMsg('❌ ' + MSG_CARREGAMENTO_FALHOU)
+    }
   }, [empresaUnica])
 
   useEffect(() => { void carregar() }, [carregar])
