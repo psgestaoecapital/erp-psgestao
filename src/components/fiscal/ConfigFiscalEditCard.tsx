@@ -77,6 +77,11 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   const [rfCst, setRfCst] = useState('')
   const [rfClassif, setRfClassif] = useState('')
   const [salvandoReforma, setSalvandoReforma] = useState(false)
+  // #90 paridade OMIE · alíquota efetiva do Simples por competência (mês). Bloqueia a emissão quando falta.
+  const mesAtualISO = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
+  const [aliqCompetencia, setAliqCompetencia] = useState(mesAtualISO)
+  const [aliqValor, setAliqValor] = useState('')
+  const [salvandoAliq, setSalvandoAliq] = useState(false)
 
   // carrega checklist inicial pra pre-preencher
   useEffect(() => {
@@ -147,6 +152,22 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     const r = data as { ok?: boolean; erro?: string }
     if (!r?.ok) { setErro(r?.erro === 'config_focusnfe_nao_encontrada' ? 'Configure o emissor Focus antes de preencher a Reforma.' : (r?.erro ?? 'Erro ao salvar')); return }
     setToast('✅ Campos da Reforma (IBS/CBS) salvos.')
+    onSalvo?.(); setTimeout(() => setToast(null), 4000)
+  }
+
+  async function salvarAliquota() {
+    setErro(null); setToast(null)
+    const v = Number(String(aliqValor).replace(',', '.'))
+    if (!aliqCompetencia || !Number.isFinite(v) || v < 0 || v > 100) { setErro('Informe a competência (mês) e a alíquota (0–100).'); return }
+    setSalvandoAliq(true)
+    const { data, error } = await supabase.rpc('fn_fiscal_aliquota_sn_salvar', {
+      p_company_id: companyId, p_competencia: `${aliqCompetencia}-01`, p_aliquota: v,
+    })
+    setSalvandoAliq(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string }
+    if (!r?.ok) { setErro(r?.erro ?? 'Erro ao salvar alíquota'); return }
+    setToast(`✅ Alíquota do Simples de ${aliqCompetencia} salva: ${v}%`)
     onSalvo?.(); setTimeout(() => setToast(null), 4000)
   }
 
@@ -440,6 +461,25 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                 </div>
               )
             })()}
+          </Section>
+
+          {/* #90 paridade OMIE · Alíquota do Simples por competência (pAliq) — exigida na emissão (regime 1) */}
+          <Section titulo="Alíquota do ISS (Simples Nacional) por mês">
+            <div className="text-[11px] text-[#3D2314]/60 mb-2">Informe a alíquota efetiva do Simples do mês (o contador calcula). Sem ela, a emissão do mês fica bloqueada.</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <Field label="Competência (mês)">
+                <input type="month" value={aliqCompetencia} onChange={(e) => setAliqCompetencia(e.target.value)}
+                  className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+              </Field>
+              <Field label="Alíquota (%)">
+                <input type="text" inputMode="decimal" value={aliqValor} onChange={(e) => setAliqValor(e.target.value)} placeholder="ex.: 3,68"
+                  className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+              </Field>
+              <button type="button" onClick={() => void salvarAliquota()} disabled={salvandoAliq}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-[#C8941A] text-white text-[12px] font-medium disabled:opacity-40">
+                {salvandoAliq ? 'Salvando…' : 'Salvar alíquota do mês'}
+              </button>
+            </div>
           </Section>
 
           {/* #90 / Focus #242149 · Reforma Tributária (IBS/CBS) — recolhida, opcional, desligada por padrão */}

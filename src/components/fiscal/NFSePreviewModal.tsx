@@ -43,7 +43,9 @@ export default function NFSePreviewModal(props: Props) {
   const [status, setStatus] = useState<Status>('preview')
   const [descricao, setDescricao] = useState(props.descricaoSugerida ?? '')
   const [aliquota, setAliquota] = useState('5')
-  const [retemIss, setRetemIss] = useState(false)
+  // #90 · retenção 1/2/3 (default 1 = não retido) + informações complementares (xInfComp) livres.
+  const [tipoRetencao, setTipoRetencao] = useState('1')
+  const [infoCompl, setInfoCompl] = useState('')
   const [resposta, setResposta] = useState<RespostaEmissao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   // receber-nfse-seletor-servico-v1: lista de servicos da empresa
@@ -198,8 +200,11 @@ export default function NFSePreviewModal(props: Props) {
           overrides: {
             descricaoServico: descricao,
             aliquotaIss: parseFloat(aliquota),
-            retemIss,
+            retemIss: tipoRetencao !== '1',
           },
+          // #90 · retenção escolhida (1/2/3) + informações complementares (xInfComp, só o que o usuário digitar).
+          tipoRetencaoIss: Number(tipoRetencao),
+          ...(infoCompl.trim() ? { observacoes: infoCompl.trim() } : {}),
         }),
       })
       const json = (await r.json()) as RespostaEmissao
@@ -383,17 +388,30 @@ export default function NFSePreviewModal(props: Props) {
                 </div>
                 <div>
                   <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-                    Retem ISS?
+                    Retenção do ISS
                   </label>
                   <select
-                    value={retemIss ? '1' : '0'}
-                    onChange={(e) => setRetemIss(e.target.value === '1')}
+                    value={tipoRetencao}
+                    onChange={(e) => setTipoRetencao(e.target.value)}
                     className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
                   >
-                    <option value="0">Nao</option>
-                    <option value="1">Sim</option>
+                    <option value="1">Não retido</option>
+                    <option value="2">Retido pelo tomador</option>
+                    <option value="3">Retido pelo intermediário</option>
                   </select>
                 </div>
+              </div>
+              <div>
+                <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
+                  Informações complementares (opcional)
+                </label>
+                <textarea
+                  value={infoCompl}
+                  onChange={(e) => setInfoCompl(e.target.value)}
+                  rows={2}
+                  placeholder="Texto livre que sai no campo de informações complementares da nota"
+                  className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40"
+                />
               </div>
               {erro && (
                 <div className="flex items-start gap-2 text-[12px] text-[#791F1F] bg-[#FCEBEB] p-2.5 rounded-lg">
