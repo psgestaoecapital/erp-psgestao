@@ -49,7 +49,11 @@ export default function SidebarHeader() {
   useEffect(() => {
     let ignore = false
     ;(async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      // HOTFIX mobile (16bc8561): getSession (storage local) no lugar de getUser. Com getUser, sob a
+      // disputa da trava no celular, esta chamada falhava → empresas ficava [] → empresaAtual null →
+      // o seletor de EMPRESA sumia do menu (só sobrava "Selecionar área"). getSession não disputa a trava.
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user
       if (!user) return
       const { data: roleData } = await supabase.from('users').select('role').eq('id', user.id).maybeSingle()
       let rows: CompanyRow[] = []

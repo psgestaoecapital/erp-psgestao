@@ -138,7 +138,9 @@ function AreaSwitcherInner() {
     // se o usuário tem EXATAMENTE UMA empresa, usamos ela. Multi-empresa NUNCA é chutada.
     async function empresasDoUsuario(): Promise<string[]> {
       if (empresasUsuario) return empresasUsuario
-      const { data: { user } } = await supabase.auth.getUser()
+      // HOTFIX mobile (16bc8561): getSession (local) no lugar de getUser (disputa a trava do mobile).
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user
       if (!user) return []
       const { data } = await supabase.from('user_companies').select('company_id').eq('user_id', user.id)
       empresasUsuario = ((data ?? []) as { company_id: string }[]).map((r) => r.company_id).filter(Boolean)
@@ -179,7 +181,7 @@ function AreaSwitcherInner() {
     return () => { alive = false }
   }, [companyId])
 
-  const { areas, loading } = useAreasVisiveis(companyId)
+  const { areas, loading, error, reload } = useAreasVisiveis(companyId)
 
   const areaAtiva: AreaVisivel | null = useMemo(() => {
     // Cascata alinhada ao useSidebarModulos: query > persistida (escolha
@@ -285,6 +287,20 @@ function AreaSwitcherInner() {
           {loading && areas.length === 0 ? (
             <div className="px-3 py-6 text-[12px] text-center" style={{ color: 'rgba(61,35,20,0.55)' }}>
               Carregando áreas…
+            </div>
+          ) : error ? (
+            /* HOTFIX mobile (16bc8561): erro de carregamento (trava/RPC) NUNCA vira "Nenhuma área
+               disponível" — essa frase é só para lista vazia de verdade. Aqui, oferece nova tentativa. */
+            <div className="px-3 py-6 text-[12px] text-center flex flex-col items-center gap-2" style={{ color: 'rgba(61,35,20,0.65)' }}>
+              <span>Não conseguimos carregar as áreas.</span>
+              <button
+                type="button"
+                onClick={() => reload()}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-semibold"
+                style={{ background: '#C8941A', color: '#FFF' }}
+              >
+                Tentar de novo
+              </button>
             </div>
           ) : areas.length === 0 ? (
             <div className="px-3 py-6 text-[12px] text-center" style={{ color: 'rgba(61,35,20,0.55)' }}>
