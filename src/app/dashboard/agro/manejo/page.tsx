@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 import { parseNumBR, parseDataBR } from '@/lib/num'
 
@@ -83,26 +84,40 @@ export default function ManejoPage() {
 function Painel({ companyId, propriedadeId, refresh }: { companyId: string; propriedadeId: string; refresh: number }) {
   const [data, setData] = useState<Painel | null>(null)
   const [loading, setLoading] = useState(true)
+  const [erroPainel, setErroPainel] = useState(false)
+  const [tentativa, setTentativa] = useState(0)
   const [totalPesagens, setTotalPesagens] = useState<number | null>(null)
   useEffect(() => {
     if (!companyId || !propriedadeId) return
     let alive = true
-    setLoading(true)
+    setLoading(true); setErroPainel(false)
     ;(async () => {
-      const [r1, r2] = await Promise.all([
-        supabase.rpc('fn_pec_manejo_painel', { p_company_id: companyId, p_propriedade_id: propriedadeId }),
-        supabase.from('erp_pec_pesagem').select('id', { count: 'exact', head: true })
-          .eq('company_id', companyId).eq('propriedade_id', propriedadeId),
-      ])
-      if (!alive) return
-      setData(r1.data as Painel)
-      setTotalPesagens(r2.count ?? 0)
-      setLoading(false)
+      try {
+        const [r1, r2] = await comPrazo(() => Promise.all([
+          supabase.rpc('fn_pec_manejo_painel', { p_company_id: companyId, p_propriedade_id: propriedadeId }),
+          supabase.from('erp_pec_pesagem').select('id', { count: 'exact', head: true })
+            .eq('company_id', companyId).eq('propriedade_id', propriedadeId),
+        ]), { ms: 8000, tentativas: 1, label: 'agro_manejo_painel' })
+        if (!alive) return
+        setData(r1.data as Painel)
+        setTotalPesagens(r2.count ?? 0)
+      } catch {
+        if (!alive) return
+        setErroPainel(true)
+      } finally {
+        if (alive) setLoading(false)  // nunca "Carregando…" eterno
+      }
     })()
     return () => { alive = false }
-  }, [companyId, propriedadeId, refresh])
+  }, [companyId, propriedadeId, refresh, tentativa])
 
   if (loading) return <div className="text-sm" style={{ color: ESP60 }}>Carregando…</div>
+  if (erroPainel) return (
+    <div className="text-sm" style={{ color: ESP60 }}>
+      {MSG_CARREGAMENTO_FALHOU}{' '}
+      <button type="button" onClick={() => setTentativa((t) => t + 1)} style={{ color: '#C8941A', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}>Tentar de novo</button>
+    </div>
+  )
   if (!data) return <div className="text-sm" style={{ color: ESP60 }}>Sem dados de painel.</div>
 
   // Defensivos: tolera ambos schemas de RPC.
@@ -220,13 +235,14 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
     if (!companyId || !propriedadeId) return
     let alive = true
     ;(async () => {
-      const [l, a] = await Promise.all([
+      const res = await comPrazo(() => Promise.all([
         supabase.from('erp_pec_lote').select('id, codigo')
           .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('status', 'ativo').order('codigo'),
         supabase.from('erp_pec_area').select('id, nome, tipo')
           .eq('company_id', companyId).eq('propriedade_id', propriedadeId).eq('ativo', true).order('nome'),
-      ])
-      if (!alive) return
+      ]), { ms: 8000, tentativas: 1, label: 'agro_manejo_filtros' }).catch(() => null)
+      if (!alive || !res) return
+      const [l, a] = res
       setLotes((l.data as Lote[]) ?? [])
       setAreas((a.data as Area[]) ?? [])
     })()

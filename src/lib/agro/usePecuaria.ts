@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
+import { getUsuarioId } from '@/lib/AuthProvider'
 
 // Padrao das telas verticais: companyId via ps_empresa_sel + polling.
 // FALLBACK PR#448: quando ps_empresa_sel e null/'consolidado'/'group_*'
@@ -28,12 +30,14 @@ export function useEmpresaSelecionada(): { companyId: string | null } {
     ;(async () => {
       const local = readLocal()
       if (local) return
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      // Camada 2b: getUsuarioId() usa getSession (storage local) — sem getUser() disputando a trava
+      // navigator.locks do mobile (causa do "Carregando…" eterno).
+      const uid = await getUsuarioId()
+      if (!uid) return
       const { data } = await supabase
         .from('user_companies')
         .select('company_id')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .limit(2)
       if (!alive) return
       if (data && data.length === 1) aplicar((data[0] as { company_id: string }).company_id)
@@ -58,17 +62,24 @@ export function usePropriedade(companyId: string | null): { propriedade: Proprie
     let alive = true
     setLoading(true)
     ;(async () => {
-      // Colunas do schema real (auditado): id, nome existem em erp_pec_propriedade.
-      const { data, error } = await supabase.from('erp_pec_propriedade')
-        .select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome').limit(1)
-      if (!alive) return
-      if (error) {
-        // eslint-disable-next-line no-console
-        console.warn('[agro] usePropriedade query falhou', error.message, { companyId })
+      try {
+        // Colunas do schema real (auditado): id, nome existem em erp_pec_propriedade.
+        const { data, error } = await comPrazo(async () => await supabase.from('erp_pec_propriedade')
+          .select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome').limit(1),
+          { ms: 8000, tentativas: 1, label: 'agro_propriedade' })
+        if (!alive) return
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('[agro] usePropriedade query falhou', error.message, { companyId })
+        }
+        const lst = (data ?? []) as Propriedade[]
+        setPropriedade(lst[0] ?? null)
+      } catch {
+        if (!alive) return
+        setPropriedade(null)
+      } finally {
+        if (alive) setLoading(false)  // nunca "Carregando…" eterno se pendurar
       }
-      const lst = (data ?? []) as Propriedade[]
-      setPropriedade(lst[0] ?? null)
-      setLoading(false)
     })()
     return () => { alive = false }
   }, [companyId])
@@ -86,20 +97,27 @@ export type PainelRebanho = {
 export function usePainelRebanho(companyId: string | null, propriedadeId: string | null, refresh: number) {
   const [data, setData] = useState<PainelRebanho | null>(null)
   const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState(false)
   useEffect(() => {
     if (!companyId || !propriedadeId) { setData(null); return }
     let alive = true
-    setLoading(true)
+    setLoading(true); setErro(false)
     ;(async () => {
-      const { data: r } = await supabase.rpc('fn_pec_painel_rebanho', {
-        p_company_id: companyId, p_propriedade_id: propriedadeId,
-      })
-      if (!alive) return
-      setData(r as PainelRebanho)
-      setLoading(false)
+      try {
+        const { data: r } = await comPrazo(async () => await supabase.rpc('fn_pec_painel_rebanho', {
+          p_company_id: companyId, p_propriedade_id: propriedadeId,
+        }), { ms: 8000, tentativas: 1, label: 'agro_painel_rebanho' })
+        if (!alive) return
+        setData(r as PainelRebanho)
+      } catch {
+        if (!alive) return
+        setErro(true)
+      } finally {
+        if (alive) setLoading(false)  // nunca "Carregando…" eterno se a RPC pendurar
+      }
     })()
     return () => { alive = false }
   }, [companyId, propriedadeId, refresh])
-  return { data, loading }
+  return { data, loading, erro }
 }
 
