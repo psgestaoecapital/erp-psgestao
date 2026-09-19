@@ -1126,20 +1126,33 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
 
   async function subir(files: FileList | null) {
     if (!files || !files.length) return
+    // R0 (23752d5a): sem company_id o path vira "undefined/…" e a RLS do bucket (split_part(name,'/',1)
+    // IN get_user_company_ids) NEGA o upload — a foto "aparecia enviada" mas não subia. Guarda como a vistoria.
+    if (!companyId) { onErro('Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'); return }
     setBusy(true)
     try {
       const user = await uid()
+      let ok = 0, falhas = 0
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
         const path = `${companyId}/${veiculoId}/${Date.now()}-${i}.${ext}`
         const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
-        if (upErr) { onErro('Falha no upload: ' + upErr.message); continue }
+        if (upErr) { falhas++; onErro('Falha no upload: ' + upErr.message); continue }
         const { data, error } = await supabase.rpc('fn_veic_foto_registrar', { p_veiculo_id: veiculoId, p_storage_path: path, p_user: user })
         const r = data as { ok?: boolean; erro?: string } | null
-        if (error || !r?.ok) onErro(r?.erro || error?.message || 'Falha ao registrar foto')
+        if (error || !r?.ok) {
+          // upload subiu mas o registro falhou → remove o objeto órfão (mesmo padrão provado na vistoria)
+          falhas++
+          onErro(r?.erro || error?.message || 'Falha ao registrar foto')
+          await supabase.storage.from('revenda-veiculos').remove([path])
+          continue
+        }
+        ok++
       }
-      onMsg('Foto(s) enviada(s).')
+      // R0: só diz "enviada" se ALGUMA foto realmente persistiu (antes dizia sempre — a mentira do "aparece enviada mas não vai").
+      if (ok > 0) onMsg(ok === 1 ? 'Foto enviada.' : `${ok} fotos enviadas.`)
+      else if (falhas > 0) onErro('Não foi possível salvar a(s) foto(s). Tente de novo.')
       await load()
     } finally { setBusy(false) }
   }
