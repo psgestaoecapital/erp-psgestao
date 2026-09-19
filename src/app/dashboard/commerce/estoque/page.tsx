@@ -238,7 +238,8 @@ function EstoqueInner() {
   // F2.1 · Filtros saldo
   const [filtroSaldoProduto, setFiltroSaldoProduto] = useState('')
   const [filtroSaldoLocal, setFiltroSaldoLocal] = useState('')
-  const [filtroSaldoSomenteComSaldo, setFiltroSaldoSomenteComSaldo] = useState(true)
+  // cf980ce1 · filtro por situação do saldo (todos / com saldo / zerados / negativos)
+  const [filtroSaldoTipo, setFiltroSaldoTipo] = useState<'todos' | 'com' | 'zero' | 'neg'>('todos')
 
   // Filtros movimentacoes
   const [filtroTipo, setFiltroTipo] = useState('')
@@ -269,34 +270,41 @@ function EstoqueInner() {
     }
     setLoading(true)
     setErro('')
-    const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
-      supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
-      supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
-        .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
-      // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
-      supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
-      supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
-      supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
-      // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
-      supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
-    ])
-    if (loc.error) setErro('Locais: ' + loc.error.message)
-    else setLocais((loc.data ?? []) as Local[])
-    if (prod.error) setErro('Produtos: ' + prod.error.message)
-    else setProdutos((prod.data ?? []) as Produto[])
-    if (mov.error) setErro('Movimentações: ' + mov.error.message)
-    else setMovimentacoes((mov.data ?? []) as Movimentacao[])
-    if (abc.error) setErro('Curva ABC: ' + abc.error.message)
-    else setCurva((abc.data ?? []) as CurvaABCRow[])
-    if (inv.error) setErro('Inventários: ' + inv.error.message)
-    else setInventarios((inv.data ?? []) as Inventario[])
-    // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
-    if (!rsv.error) {
-      const m: Record<string, number> = {}
-      for (const r of ((rsv.data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
-      setReservas(m)
-    } else setReservas({})
-    setLoading(false)
+    // FIX cf980ce1 · "Carregando" preso: qualquer falha de rede fazia o Promise.all rejeitar e o
+    // setLoading(false) nunca rodava. try/finally garante que a tela SEMPRE sai do "Carregando…".
+    try {
+      const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
+        supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
+        supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
+          .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
+        // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
+        supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
+        supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
+        supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
+        // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
+        supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
+      ])
+      if (loc.error) setErro('Locais: ' + loc.error.message)
+      else setLocais((loc.data ?? []) as Local[])
+      if (prod.error) setErro('Produtos: ' + prod.error.message)
+      else setProdutos((prod.data ?? []) as Produto[])
+      if (mov.error) setErro('Movimentações: ' + mov.error.message)
+      else setMovimentacoes((mov.data ?? []) as Movimentacao[])
+      if (abc.error) setErro('Curva ABC: ' + abc.error.message)
+      else setCurva((abc.data ?? []) as CurvaABCRow[])
+      if (inv.error) setErro('Inventários: ' + inv.error.message)
+      else setInventarios((inv.data ?? []) as Inventario[])
+      // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
+      if (!rsv.error) {
+        const m: Record<string, number> = {}
+        for (const r of ((rsv.data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
+        setReservas(m)
+      } else setReservas({})
+    } catch (e) {
+      setErro('Não conseguimos carregar os dados do estoque. Tente de novo. ' + ((e as Error)?.message ?? ''))
+    } finally {
+      setLoading(false)
+    }
   }, [companyIdUnico])
 
   useEffect(() => {
@@ -539,32 +547,41 @@ function EstoqueInner() {
     classe_abc: 'A' | 'B' | 'C' | null
     reservado: number; disponivel: number  // Bloco D · três números onde antes existia um
   }
+  // cf980ce1 · a aba Saldo lista TODOS os produtos (ativos), não só os da curva ABC. A classe ABC
+  // (quando existe) vem por um mapa auxiliar. Saldo/valor saem de erp_produtos (fonte da verdade).
+  const classeAbcMap = useMemo(() => {
+    const m: Record<string, 'A' | 'B' | 'C' | null> = {}
+    for (const r of curva) m[r.produto_id] = r.classe_abc ?? null
+    return m
+  }, [curva])
   const saldoRows = useMemo<SaldoRow[]>(() => {
     const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
-    return curva.map((r) => {
-      const saldo = Number(r.estoque_atual ?? 0)
-      const reservado = Number(reservas[r.produto_id] ?? 0)
+    return produtos.map((p) => {
+      const saldo = Number(p.estoque_atual ?? 0)
+      const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      const reservado = Number(reservas[p.id] ?? 0)
       return {
-        produto_id: r.produto_id,
-        produto_nome: r.nome,
-        produto_codigo: r.codigo,
+        produto_id: p.id,
+        produto_nome: p.nome,
+        produto_codigo: p.codigo,
         local_id: principal?.id ?? null,
         local_nome: principal?.nome ?? 'Estoque Principal',
         saldo,
-        custo_medio: Number(r.preco_custo_medio ?? 0),
-        valor_total: Number(r.valor_total ?? 0),
-        classe_abc: r.classe_abc ?? null,
+        custo_medio: custo,
+        valor_total: saldo * custo,   // pode ser negativo se o saldo for negativo — honesto
+        classe_abc: classeAbcMap[p.id] ?? null,
         reservado,
-        disponivel: saldo - reservado,  // pode ficar negativo — é honesto: prometeu mais do que tem
+        disponivel: saldo - reservado,
       }
     })
-  }, [curva, locais, reservas])
+  }, [produtos, locais, reservas, classeAbcMap])
 
   const saldoFiltrado = useMemo(() => {
     const q = filtroSaldoProduto.trim().toLowerCase()
     return saldoRows.filter((r) => {
-      // Bloco D · "só com saldo" ainda mostra o que tem reserva (físico 0 + reservado = furo a ver)
-      if (filtroSaldoSomenteComSaldo && r.saldo <= 0 && r.reservado <= 0) return false
+      if (filtroSaldoTipo === 'com' && !(r.saldo > 0)) return false
+      if (filtroSaldoTipo === 'zero' && !(r.saldo === 0)) return false
+      if (filtroSaldoTipo === 'neg' && !(r.saldo < 0)) return false
       if (filtroSaldoLocal && r.local_id !== filtroSaldoLocal) return false
       if (q) {
         const hay = `${r.produto_nome} ${r.produto_codigo ?? ''}`.toLowerCase()
@@ -572,16 +589,17 @@ function EstoqueInner() {
       }
       return true
     })
-  }, [saldoRows, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoSomenteComSaldo])
+  }, [saldoRows, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoTipo])
 
   const saldoKpis = useMemo(() => {
     const totalSku = saldoRows.length
     const skusComSaldo = saldoRows.filter((r) => r.saldo > 0).length
-    const skusZerados = saldoRows.filter((r) => r.saldo <= 0).length
-    const valorImobilizado = saldoRows.reduce((s, r) => s + r.valor_total, 0)
-    // Bloco D · quantos SKUs têm peça reservada em OS pronta/entregue não faturada
+    const skusZerados = saldoRows.filter((r) => r.saldo === 0).length
+    const skusNegativos = saldoRows.filter((r) => r.saldo < 0).length
+    const qtdLiquida = saldoRows.reduce((s, r) => s + r.saldo, 0)
+    const valorLiquido = saldoRows.reduce((s, r) => s + r.valor_total, 0)
     const skusReservados = saldoRows.filter((r) => r.reservado > 0).length
-    return { totalSku, skusComSaldo, skusZerados, valorImobilizado, skusReservados }
+    return { totalSku, skusComSaldo, skusZerados, skusNegativos, qtdLiquida, valorLiquido, skusReservados }
   }, [saldoRows])
 
   // F2.1 · ref_tipos unicos pro filtro de movimentacoes
@@ -686,7 +704,7 @@ function EstoqueInner() {
           locais={locais} produtos={produtos}
           filtroSaldoProduto={filtroSaldoProduto} setFiltroSaldoProduto={setFiltroSaldoProduto}
           filtroSaldoLocal={filtroSaldoLocal} setFiltroSaldoLocal={setFiltroSaldoLocal}
-          filtroSaldoSomenteComSaldo={filtroSaldoSomenteComSaldo} setFiltroSaldoSomenteComSaldo={setFiltroSaldoSomenteComSaldo}
+          filtroSaldoTipo={filtroSaldoTipo} setFiltroSaldoTipo={setFiltroSaldoTipo}
         />
       ) : tab === 'locais' ? (
         <TabLocais locais={locais} onEdit={(l) => setLocalEdit(l)} onDelete={deletarLocal} canCreate={canCreate} onCreate={() => setLocalEdit('new')} />
@@ -1081,26 +1099,34 @@ function TabSaldo({
   rows, total, kpis, locais, produtos,
   filtroSaldoProduto, setFiltroSaldoProduto,
   filtroSaldoLocal, setFiltroSaldoLocal,
-  filtroSaldoSomenteComSaldo, setFiltroSaldoSomenteComSaldo,
+  filtroSaldoTipo, setFiltroSaldoTipo,
 }: {
   rows: { produto_id: string; produto_nome: string; produto_codigo: string | null;
     local_id: string | null; local_nome: string; saldo: number; custo_medio: number; valor_total: number;
     classe_abc?: 'A' | 'B' | 'C' | null; reservado: number; disponivel: number }[];
   total: number;
-  kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; valorImobilizado: number; skusReservados: number };
+  kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; skusNegativos: number; qtdLiquida: number; valorLiquido: number; skusReservados: number };
   locais: Local[]; produtos: Produto[];
   filtroSaldoProduto: string; setFiltroSaldoProduto: (v: string) => void;
   filtroSaldoLocal: string; setFiltroSaldoLocal: (v: string) => void;
-  filtroSaldoSomenteComSaldo: boolean; setFiltroSaldoSomenteComSaldo: (v: boolean) => void;
+  filtroSaldoTipo: 'todos' | 'com' | 'zero' | 'neg'; setFiltroSaldoTipo: (v: 'todos' | 'com' | 'zero' | 'neg') => void;
 }) {
+  const chips: { k: 'todos' | 'com' | 'zero' | 'neg'; label: string; n: number; cor?: string }[] = [
+    { k: 'todos', label: 'Todos', n: kpis.totalSku },
+    { k: 'com', label: 'Com saldo', n: kpis.skusComSaldo, cor: C.green },
+    { k: 'zero', label: 'Zerados', n: kpis.skusZerados, cor: C.amber },
+    { k: 'neg', label: 'Negativos', n: kpis.skusNegativos, cor: C.red },
+  ]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-        <KpiCard label="Valor imobilizado" valor={fmtBRL(kpis.valorImobilizado)} cor={C.gold} destaque />
-        <KpiCard label="SKUs com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} />
-        <KpiCard label="SKUs reservados" valor={String(kpis.skusReservados)} cor={C.blue} />
-        <KpiCard label="SKUs zerados" valor={String(kpis.skusZerados)} cor={C.amber} />
+      {/* KPIs (cf980ce1 · a realidade: total, com saldo, zerados, NEGATIVOS, qtd líquida, valor líquido) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+        <KpiCard label="Total de itens" valor={String(kpis.totalSku)} cor={C.espressoM} />
+        <KpiCard label="Com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} />
+        <KpiCard label="Zerados" valor={String(kpis.skusZerados)} cor={C.amber} />
+        <KpiCard label="Negativos" valor={String(kpis.skusNegativos)} cor={C.red} destaque={kpis.skusNegativos > 0} />
+        <KpiCard label="Quantidade líquida" valor={fmtNum(kpis.qtdLiquida)} cor={kpis.qtdLiquida < 0 ? C.red : C.espresso} />
+        <KpiCard label="Valor do estoque líquido" valor={fmtBRL(kpis.valorLiquido)} cor={C.gold} destaque />
       </div>
 
       {/* Filtros */}
@@ -1127,22 +1153,26 @@ function TabSaldo({
             {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </label>
-        <label style={{ fontSize: 12, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'end', paddingBottom: 8 }}>
-          <input
-            type="checkbox"
-            checked={filtroSaldoSomenteComSaldo}
-            onChange={(e) => setFiltroSaldoSomenteComSaldo(e.target.checked)}
-            data-testid="saldo-filtro-com-saldo"
-          />
-          Só com saldo
-        </label>
+        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {chips.map((c) => {
+            const on = filtroSaldoTipo === c.k
+            return (
+              <button key={c.k} type="button" onClick={() => setFiltroSaldoTipo(c.k)} data-testid={`saldo-filtro-${c.k}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+                  fontSize: 12, fontWeight: 700, border: `1px solid ${on ? (c.cor ?? C.gold) : C.border}`,
+                  background: on ? (c.cor ?? C.gold) : C.white, color: on ? C.white : C.espressoM }}>
+                {c.label} <span style={{ opacity: 0.85 }}>({c.n})</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
 
       {rows.length === 0 ? (
         total === 0
-          ? <EmptyState titulo="Sem saldo no estoque" texto="Quando você receber a primeira compra, o estoque aparece aqui." />
+          ? <EmptyState titulo="Sem produtos no estoque" texto="Baixe a planilha padrão, preencha e importe pelo botão “Importar planilha” acima — o estoque (inclusive negativos) aparece aqui." />
           : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum item bate com os filtros.</div>
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -1173,7 +1203,7 @@ function TabSaldo({
                         {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
                       </Td>
                       <Td>{r.local_nome}</Td>
-                      <Td align="right"><span style={{ color: r.saldo > 0 ? C.espresso : C.espressoL }}>{fmtNum(r.saldo)}</span></Td>
+                      <Td align="right"><span style={{ color: r.saldo < 0 ? C.red : (r.saldo > 0 ? C.espresso : C.espressoL), fontWeight: r.saldo < 0 ? 700 : 400 }}>{fmtNum(r.saldo)}</span></Td>
                       <Td align="right">{r.reservado > 0 ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(r.reservado)}</span> : <span style={{ color: C.espressoL }}>—</span>}</Td>
                       <Td align="right"><strong style={{ color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(r.disponivel)}</strong></Td>
                       <Td align="right">{r.custo_medio > 0 ? fmtBRL(r.custo_medio) : '—'}</Td>

@@ -59,6 +59,9 @@ Deno.serve(async (req: Request) => {
   const rotaEspecifica = body.rota || null;
   const limit = body.limit || 3;
   const modo = body.modo || "baseline"; // baseline = so nao analisadas
+  // cf980ce1 (item 4) — empresa fotografada: usada p/ montar o bloco "DADOS REAIS" (nº produtos,
+  // saldo, negativos, valor...) e ensinar o auditor a NAO confundir "vazio por nao ter dado" com "quebrado".
+  const companyIdAudit = body.company_id || null;
 
   // Query: telas com screenshot mas SEM analise recente
   let queryBuilder;
@@ -131,6 +134,29 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // cf980ce1 (item 4) — DADOS REAIS da empresa/rota fotografada, do banco, no momento da análise.
+  // Sem isso o auditor confunde "contador 0 porque a empresa não tem dado" com "tela quebrada".
+  // Por enquanto cobre /commerce/estoque (os 6 números da tela de saldo); outras rotas: bloco vazio.
+  async function dadosReaisBloco(rota: string): Promise<string> {
+    if (!companyIdAudit) return "";
+    if (rota.startsWith("/dashboard/commerce/estoque")) {
+      const { data } = await supabase.from("erp_produtos")
+        .select("estoque_atual, preco_custo_medio, preco_custo")
+        .eq("company_id", companyIdAudit).eq("ativo", true).limit(10000);
+      const rows = (data || []) as any[];
+      const q = rows.map((r) => Number(r.estoque_atual ?? 0));
+      const n = rows.length;
+      const pos = q.filter((x) => x > 0).length;
+      const zero = q.filter((x) => x === 0).length;
+      const neg = q.filter((x) => x < 0).length;
+      const qtd = q.reduce((s, x) => s + x, 0);
+      const valor = rows.reduce((s, r) => s + Number(r.estoque_atual ?? 0) * Number(r.preco_custo_medio ?? r.preco_custo ?? 0), 0);
+      return `\n\nDADOS REAIS DESTA EMPRESA/ROTA (do banco, agora): produtos=${n}, com_saldo=${pos}, zerados=${zero}, negativos=${neg}, quantidade_liquida=${qtd}, valor_liquido=${valor.toFixed(2)}.`;
+    }
+    return "";
+  }
+  const REGRA_DADOS_REAIS = "\n\nREGRA (dados reais x blueprint): um CONTADOR/lista em 0 quando os DADOS REAIS acima mostram 0 NAO e bug — a empresa apenas nao tem esse dado ainda; nao rebaixe o score por isso nem liste como bug. Ja uma feature prometida no BLUEPRINT e ausente na tela E gap (coloque em features_faltando). Nao confunda \"vazio por nao ter dado\" com \"quebrado\".";
+
   for (const screen of screens) {
     try {
       const { data: detalhe } = await supabase.rpc("fn_admin_insight_get", {
@@ -162,12 +188,14 @@ Deno.serve(async (req: Request) => {
         ? `\n\nBLUEPRINT DA VERTICAL "${verticalTela}" — DOCUMENTO MESTRE VIVO (versao ${bp.versao}, md5 ${bp.md5}):\nEsta e a BALIZA do que a vertical deve ser. ATENCAO (§3.0): esta vertical ainda e uma CASCA em construcao — e ESPERADO que muita coisa do blueprint ainda NAO esteja na tela. Liste o que o blueprint promete e ainda nao aparece em features_faltando (isso NAO e ruido, e o mapa do que falta). Compare a tela com a INTENCAO do blueprint, nao invente o que nao esta escrito nele.\n--- INICIO DO BLUEPRINT ---\n${bp.conteudo}\n--- FIM DO BLUEPRINT ---`
         : "";
 
+      const dadosReais = await dadosReaisBloco(screen.rota);
+
       const prompt = `Voce e um Engenheiro de Produto Senior analisando uma tela do SaaS PS Gestao ERP.
 
 TELA ANALISADA:
 - Rota: ${screen.rota}
 - Area: ${screen.area}
-- Titulo: ${screen.titulo}${blueprintBloco}
+- Titulo: ${screen.titulo}${blueprintBloco}${dadosReais}${dadosReais ? REGRA_DADOS_REAIS : ""}
 
 FEATURES ESPERADAS NESTA TELA (do Manual Vivo):
 ${featuresEsperadas.length > 0 ? featuresEsperadas.map((f: any, i: number) =>
