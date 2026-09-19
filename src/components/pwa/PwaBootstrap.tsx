@@ -35,9 +35,14 @@ export default function PwaBootstrap() {
       // deploy (~15 em 18/09), perdendo qualquer formulário aberto. Agora só recarrega sozinho quando é
       // seguro (aba OCULTA e nenhum formulário sujo); caso contrário mostra um aviso "Nova versão" e deixa
       // o usuário recarregar quando quiser. O rascunho do #61 (localStorage+IndexedDB) é a 2ª proteção.
+      // Havia um controller ANTES desta troca? No 1º acesso de uma sessão nova (sem SW ainda), o
+      // primeiro controllerchange é só o SW assumindo o controle inicial — NÃO é "versão nova", então
+      // não mostra aviso nem recarrega. Só tratamos troca quando já existia um controller antes.
+      const hadController = !!navigator.serviceWorker.controller
       let recarregando = false
       controllerHandler = () => {
         if (recarregando) return
+        if (!hadController) return   // controle inicial da sessão — nada a avisar
         try {
           if (document.visibilityState === 'hidden' && !haFormSujo()) {
             recarregando = true
