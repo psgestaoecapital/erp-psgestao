@@ -19,6 +19,8 @@ import { type Marca } from '@/components/melhorias/FotoMarcador'
 import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
+import { salvarRascunhoAnexos, lerRascunhoAnexos, limparRascunhoAnexos } from '@/lib/rascunhoAnexos'
+import { marcarFormSujo, marcarFormLimpo } from '@/lib/formSujo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -107,22 +109,49 @@ function Inner() {
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
   // Rascunho em localStorage (restaura ao montar, salva a cada mudança, limpa ao enviar). Efeito em vez
   // de initializer do useState pra não dar hydration mismatch (a abertura renderiza no SSR). RD-51: try/catch.
-  const DRAFT_ABERTURA = 'melhoria:abertura:v1'
+  // Rascunho por USUÁRIO+EMPRESA: TEXTO em localStorage, ANEXOS pendentes em IndexedDB (File não cabe
+  // no localStorage). O que zerava a foto era o reload que o service worker dispara ao voltar pra aba
+  // (PwaBootstrap controllerchange); o rascunho sobrevive a isso. Restaura ao reabrir; limpa só após
+  // enviar (com o número do chamado na tela). RD-51: tudo em try/catch, funciona sem storage.
+  const DRAFT_LEGADO = 'melhoria:abertura:v1'   // chave antiga (global) — migra o que houver
+  const draftKey = userId ? `melhoria:abertura:${userId}:${companyId ?? 'sel'}:v2` : null
   const [rascunhoRestaurado, setRascunhoRestaurado] = useState(false)
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(DRAFT_ABERTURA)
-      if (raw) { const d = JSON.parse(raw) as Partial<typeof f>; setF((prev) => ({ ...prev, ...d })) }
-    } catch { /* aba privada/bloqueado */ }
-    setRascunhoRestaurado(true)
-  }, [])
+    if (!draftKey || rascunhoRestaurado) return
+    let vivo = true
+    ;(async () => {
+      try {
+        const raw = localStorage.getItem(draftKey) ?? localStorage.getItem(DRAFT_LEGADO)
+        if (raw && vivo) { const d = JSON.parse(raw) as Partial<typeof f>; setF((prev) => ({ ...prev, ...d })) }
+      } catch { /* aba privada/bloqueado */ }
+      const anexos = await lerRascunhoAnexos<FotoItem[]>(draftKey)
+      if (anexos && anexos.length && vivo) setFotos(anexos)
+      if (vivo) setRascunhoRestaurado(true)
+    })()
+    return () => { vivo = false }
+  }, [draftKey, rascunhoRestaurado])
+  // salva o TEXTO a cada mudança (só depois de restaurar, pra não sobrescrever o que voltou)
   useEffect(() => {
-    if (!rascunhoRestaurado) return
+    if (!rascunhoRestaurado || !draftKey) return
     try {
-      if ((f.titulo && f.titulo.trim()) || (f.descricao && f.descricao.trim())) localStorage.setItem(DRAFT_ABERTURA, JSON.stringify(f))
-      else localStorage.removeItem(DRAFT_ABERTURA)
+      if ((f.titulo && f.titulo.trim()) || (f.descricao && f.descricao.trim())) localStorage.setItem(draftKey, JSON.stringify(f))
+      else localStorage.removeItem(draftKey)
+      localStorage.removeItem(DRAFT_LEGADO)   // consolidou na chave nova por usuário+empresa
     } catch { /* aba privada/bloqueado */ }
-  }, [f, rascunhoRestaurado])
+  }, [f, rascunhoRestaurado, draftKey])
+  // salva os ANEXOS pendentes a cada mudança (IndexedDB)
+  useEffect(() => {
+    if (!rascunhoRestaurado || !draftKey) return
+    if (fotos.length) void salvarRascunhoAnexos(draftKey, fotos)
+    else void limparRascunhoAnexos(draftKey)
+  }, [fotos, rascunhoRestaurado, draftKey])
+  // #61 (sistêmico): enquanto há conteúdo na abertura, marca "formulário sujo" → o PwaBootstrap NÃO
+  // recarrega a aba por baixo do formulário quando um deploy assume o service worker (mostra aviso).
+  useEffect(() => {
+    const sujo = !!(f.titulo && f.titulo.trim()) || !!(f.descricao && f.descricao.trim()) || fotos.length > 0
+    if (sujo) marcarFormSujo('melhoria-abertura'); else marcarFormLimpo('melhoria-abertura')
+    return () => marcarFormLimpo('melhoria-abertura')
+  }, [f.titulo, f.descricao, fotos.length])
 
   // chegou pelo link do e-mail (?n=): rola até o chamado e o destaca por alguns segundos.
   useEffect(() => {
@@ -187,8 +216,19 @@ function Inner() {
       // dispara a IA sem bloquear (se falhar, a sugestão continua válida)
       void supabase.functions.invoke('sugestao-analisar', { body: { sugestao_id: r.id } }).catch(() => {})
 
+      // limpa o rascunho (texto + anexos) só agora que ENVIOU de verdade
+      try { if (draftKey) localStorage.removeItem(draftKey); localStorage.removeItem(DRAFT_LEGADO) } catch { /* sem storage */ }
+      if (draftKey) void limparRascunhoAnexos(draftKey)
+      // mostra o NÚMERO do chamado na tela — o usuário confia que registrou (e sabe o que citar depois)
+      let numeroTxt = ''
+      try {
+        const { data: s } = await supabase.from('sugestoes').select('numero').eq('id', r.id).maybeSingle()
+        const n = (s as { numero?: number | null } | null)?.numero
+        if (n) numeroTxt = ` #${n}`
+      } catch { /* segue sem o número */ }
+
       setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([])
-      setMsg('Sugestão registrada. A IA vai analisar em instantes.'); void carregar()
+      setMsg(`Chamado${numeroTxt} registrado. A IA vai analisar em instantes.`); void carregar()
     } finally { setBusy(false) }
   }
 
