@@ -223,6 +223,9 @@ BEGIN
     'ponto_equilibrio', jsonb_build_object(
       'carros_necessarios', v_carros_neces, 'vendidos', v_vendas_mes,
       'status', CASE WHEN v_carros_neces IS NULL THEN 'nao_configurado' ELSE 'ok' END),
+    -- lista COMPLETA dos veículos do pátio (sangria/dia, vira-prejuízo, ROI por veículo) — o pátio (R3c)
+    -- casa por veiculo_id; o ranking abaixo é só uma fatia dela.
+    'itens', v_itens,
     'vira_prejuizo_30d', (SELECT COALESCE(jsonb_agg(e ORDER BY (e->>'data_vira_prejuizo')), '[]'::jsonb)
                           FROM jsonb_array_elements(v_vira) e),
     'ranking_roi_melhores', (SELECT COALESCE(jsonb_agg(e), '[]'::jsonb) FROM (
