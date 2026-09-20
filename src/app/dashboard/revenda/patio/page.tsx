@@ -15,7 +15,10 @@ const C = {
 }
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
+// R3c · conta por veículo (fn_veic_patio_conta.itens): sangria/dia e vira-prejuízo por card.
+type ItemPatio = { veiculo_id: string; sangria_dia: number | null; data_vira_prejuizo: string | null; roi_anualizado_pct: number | null }
 const semColor = (s: string) => s === 'verde' ? { c: C.green, bg: C.greenBg } : s === 'amarelo' ? { c: C.amber, bg: C.amberBg } : { c: C.red, bg: C.redBg }
 
 type Veic = { id: string; chassi: string; placa: string | null; modelo: string | null; ano_modelo: number | null; situacao: string; dias_patio: number; custo_acumulado: number; semaforo: string; foto_url: string | null; tem_custo: boolean; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
@@ -39,6 +42,8 @@ function Inner() {
   const [emPreparacao, setEmPreparacao] = useState<Set<string>>(new Set()) // Onda 9: ids com OS de preparação aberta
   const [interessados, setInteressados] = useState<Map<string, number>>(new Map()) // Onda 10: veiculo -> nº de oportunidades abertas
   const [resumoFiscal, setResumoFiscal] = useState<{ total: number; aptos: number; pendentes: number } | null>(null) // Onda 0
+  const [conta, setConta] = useState<Map<string, ItemPatio>>(new Map()) // R3c: sangria/vira por veículo
+  const [ordem, setOrdem] = useState<'dias' | 'sangria' | 'vira'>('dias') // R3c: ordenação
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
 
@@ -76,22 +81,38 @@ function Inner() {
     const mp = new Map<string, number>()
     ;((ops as { veic_interesse_id: string }[]) ?? []).forEach((o) => mp.set(o.veic_interesse_id, (mp.get(o.veic_interesse_id) ?? 0) + 1))
     setInteressados(mp)
+    // R3c: a conta do pátio (sangria/dia + vira-prejuízo por veículo) — fonte única fn_veic_patio_conta
+    const { data: pc } = await supabase.rpc('fn_veic_patio_conta', { p_company_id: companyId })
+    const pcr = pc as { ok?: boolean; itens?: ItemPatio[] } | null
+    const cm = new Map<string, ItemPatio>()
+    ;(pcr?.ok ? (pcr.itens ?? []) : []).forEach((it) => { if (it.veiculo_id) cm.set(it.veiculo_id, it) })
+    setConta(cm)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
-  const visiveis = useMemo(() => rows.filter((r) =>
-    (filtro === 'todos' || r.situacao === filtro) &&
-    (compl === 'todos'
-      || (compl === 'sem_custo' && !r.tem_custo)
-      || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0)
-      || (compl === 'sem_vistoria' && !comVistoria.has(r.id))
-      || (compl === 'sem_foto' && !r.foto_url)
-      || (compl === 'nao_precificado' && !precificados.has(r.id))
-      || (compl === 'pronto_nota' && (r.fiscais_faltantes?.length ?? 0) === 0)
-      || (compl === 'em_preparacao_os' && emPreparacao.has(r.id))
-      || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0))
-  ), [rows, filtro, compl, comVistoria, precificados, emPreparacao])
+  const visiveis = useMemo(() => {
+    const filtrados = rows.filter((r) =>
+      (filtro === 'todos' || r.situacao === filtro) &&
+      (compl === 'todos'
+        || (compl === 'sem_custo' && !r.tem_custo)
+        || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0)
+        || (compl === 'sem_vistoria' && !comVistoria.has(r.id))
+        || (compl === 'sem_foto' && !r.foto_url)
+        || (compl === 'nao_precificado' && !precificados.has(r.id))
+        || (compl === 'pronto_nota' && (r.fiscais_faltantes?.length ?? 0) === 0)
+        || (compl === 'em_preparacao_os' && emPreparacao.has(r.id))
+        || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0)))
+    // R3c: ordenação por maior sangria ou por vira-prejuízo mais próximo (senão dias, ordem da view)
+    if (ordem === 'sangria') {
+      return [...filtrados].sort((a, b) => (conta.get(b.id)?.sangria_dia ?? -1) - (conta.get(a.id)?.sangria_dia ?? -1))
+    }
+    if (ordem === 'vira') {
+      const t = (id: string) => { const d = conta.get(id)?.data_vira_prejuizo; return d ? new Date(d + 'T00:00:00').getTime() : Number.POSITIVE_INFINITY }
+      return [...filtrados].sort((a, b) => t(a.id) - t(b.id))
+    }
+    return filtrados
+  }, [rows, filtro, compl, comVistoria, precificados, emPreparacao, ordem, conta])
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
   const nSemVistoria = useMemo(() => rows.filter((r) => !comVistoria.has(r.id)).length, [rows, comVistoria])
@@ -147,7 +168,14 @@ function Inner() {
             <option value="faltam_nota">faltam campos p/ nota{resumoFiscal ? ` (${resumoFiscal.pendentes})` : ''}</option>
           </select>
         </label>
-        <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s) · ordenado por dias parados</span>
+        <label style={{ fontSize: 12, color: C.espM }}>Ordenar&nbsp;
+          <select value={ordem} onChange={(e) => setOrdem(e.target.value as 'dias' | 'sangria' | 'vira')} style={inp}>
+            <option value="dias">dias parados</option>
+            <option value="sangria">maior sangria</option>
+            <option value="vira">vira prejuízo antes</option>
+          </select>
+        </label>
+        <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s)</span>
       </div>
 
       {/* Onda 0: contador de completude fiscal (toque aplica o filtro dos pendentes) */}
@@ -194,6 +222,19 @@ function Inner() {
                   {v.tem_custo
                     ? <div style={{ marginTop: 8, fontSize: 12, color: C.espM }}>custo acumulado <b style={{ color: C.esp }}>{brl(v.custo_acumulado)}</b></div>
                     : <div style={{ marginTop: 8, fontSize: 11, color: '#8A4B08', background: '#FAEEDA', borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}>⚠️ sem custo de aquisição — margem não calcula</div>}
+                  {/* R3c · sangria/dia e vira-prejuízo (semáforo real: vermelho só quando ≤ 15 dias) */}
+                  {(() => {
+                    const it = conta.get(v.id); if (!it) return null
+                    const dv = it.data_vira_prejuizo ? new Date(it.data_vira_prejuizo + 'T00:00:00') : null
+                    const dias = dv ? Math.round((dv.getTime() - Date.now()) / 86400000) : null
+                    const urgente = dias != null && dias <= 15
+                    return (
+                      <div style={{ marginTop: 6, display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5 }}>
+                        {it.sangria_dia != null && <span style={{ color: C.espM }}>sangria <b style={{ color: C.esp }}>{brl(it.sangria_dia)}/dia</b></span>}
+                        {dv && <span style={{ color: urgente ? C.red : C.amber, fontWeight: 700 }}>{urgente ? '🔴' : '🟡'} vira em {brDate(it.data_vira_prejuizo)}</span>}
+                      </div>
+                    )
+                  })()}
                   {(v.fiscais_faltantes?.length ?? 0) > 0 && (
                     <div style={{ marginTop: 6, fontSize: 10.5, color: C.blue, background: '#EEF3FB', borderRadius: 6, padding: '4px 8px', lineHeight: 1.35 }}
                       title="Necessário para veículo novo; para usado, a confirmar com o contador">
