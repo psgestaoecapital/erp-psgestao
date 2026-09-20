@@ -10,7 +10,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
-  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
 }
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const brl = (v: number | null) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -58,7 +58,7 @@ function Inner() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 880, margin: '0 auto', color: C.esp }}>
-      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.blue, textDecoration: 'none' }}>← voltar ao pátio</a>
+      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar ao pátio</a>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
         <div>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏆 Comércio · Revenda</div>
@@ -144,7 +144,7 @@ function PatioBloco({ r }: { r: Resumo }) {
         <div key={ix} style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8, padding: '9px 11px', marginBottom: 8, fontSize: 12, color: '#8A4B08', lineHeight: 1.5 }}>
           ⚠️ <b>{s.grafias.length} grafias parecem ser a mesma marca</b> ({s.grafias.join(' · ')}) — <b>{s.veiculos} veículos</b> no total. Padronize no cadastro.
           {s.placas.length > 0 && <div style={{ fontSize: 11, color: C.espM, marginTop: 3, fontFamily: 'monospace' }}>{s.placas.join(' · ')}</div>}
-          <a href="/dashboard/revenda/patio" style={{ display: 'inline-block', marginTop: 4, fontSize: 11.5, color: C.blue, textDecoration: 'none', fontWeight: 700 }}>ver no pátio →</a>
+          <a href="/dashboard/revenda/patio" style={{ display: 'inline-block', marginTop: 4, fontSize: 11.5, color: C.gold, textDecoration: 'none', fontWeight: 700 }}>ver no pátio →</a>
         </div>
       ))}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
