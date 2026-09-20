@@ -3,6 +3,7 @@ import { Fragment, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { APP_URL } from "@/lib/appUrl";
 import AreasContratadasModal from "@/components/admin/AreasContratadasModal";
+import ScreenshotAssinado from "@/components/admin/ScreenshotAssinado";
 import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
 
 // ═══ CORES COM CSS VARIABLES (adapta ao tema claro/escuro) ═══
@@ -1020,8 +1021,11 @@ export default function AdminPage(){
                                 return (
                                   <div key={t.id} onClick={()=>abrirRota(t.rota)} style={{background:BG2,border:`1px solid ${cor}`,borderRadius:8,overflow:"hidden",cursor:"pointer"}}>
                                     {t.screenshot_url?(
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={t.screenshot_url} alt={t.titulo||t.rota} loading="lazy" style={{width:"100%",aspectRatio:"16/10",objectFit:"cover",display:"block"}}/>
+                                      // LGPD: bucket privado — screenshot_url é o PATH; assina na hora (PS_ADMIN)
+                                      <ScreenshotAssinado valor={t.screenshot_url} alt={t.titulo||t.rota}
+                                        style={{width:"100%",aspectRatio:"16/10",objectFit:"cover",display:"block"}}
+                                        fallbackStyle={{width:"100%",aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",color:TXD,fontSize:10}}
+                                        fallbackTexto="Sem screenshot"/>
                                     ):(
                                       <div style={{width:"100%",aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",color:TXD,fontSize:10}}>Sem screenshot</div>
                                     )}
@@ -1069,7 +1073,7 @@ export default function AdminPage(){
                         <span style={{color:h.status==="ok"?G:R,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h.status||"—"}</span>
                       </div>
                       {h.html_hash&&<div style={{color:TXD,fontSize:9,fontFamily:"monospace",marginBottom:4}}>hash: {String(h.html_hash).substring(0,24)}…</div>}
-                      {h.screenshot_url&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver imagem ↗</a>}
+                      {h.screenshot_url&&/^https?:\/\//.test(h.screenshot_url)&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver imagem ↗</a>}
                     </div>
                   ))}
                 </div>
