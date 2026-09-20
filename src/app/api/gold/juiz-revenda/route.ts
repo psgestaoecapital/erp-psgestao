@@ -39,11 +39,11 @@ const REGRAS_V7 = [
   'Um requisito da régua que simplesmente não aparece na tela é "ausente" (gap), não "quebrado".',
 ]
 
-type Body = { rota?: string; tela_num?: number; veiculo_id?: string; empresa_id?: string }
+type Body = { rota?: string; tela_num?: number; veiculo_id?: string; empresa_id?: string; origem?: string }
 type Requisito = { id: string; tela_num: number; requisito: string; tipo: string | null; prioridade: string }
 type Veredito = { ref: string; status: string; evidencia?: string; nota_funcional?: string; nota_conteudo?: string; nota_visual?: string }
 
-const STATUS_VALIDOS = new Set(['atendido', 'parcial', 'ausente', 'quebrado'])
+const STATUS_VALIDOS = new Set(['atendido', 'parcial', 'ausente', 'quebrado', 'nao_avaliavel'])
 
 function normalizarRota(rota: string): string {
   // troca segmentos uuid por [id] para casar com rota_padrao da régua
@@ -171,12 +171,13 @@ INVENTÁRIO DO DOM: ${JSON.stringify(dom)}
 REQUISITOS A JULGAR (devolva o "ref" de cada um):
 ${JSON.stringify(reqParaPrompt)}
 
-Para CADA requisito devolva: status ∈ atendido|parcial|ausente|quebrado; evidencia (o que viu na tela/dado que justifica); nota_funcional, nota_conteudo, nota_visual (1 frase cada).
+Para CADA requisito devolva: status ∈ atendido|parcial|ausente|quebrado|nao_avaliavel; evidencia (o que viu na tela/dado que justifica); nota_funcional, nota_conteudo, nota_visual (1 frase cada).
 "quebrado" = existe mas contraria uma regra de negócio ou diverge do banco. "ausente" = a régua pede e a tela não tem.
+"nao_avaliavel" = o requisito só aparece APÓS interação (clique/preenchimento/próximo passo) e esta foto é do ESTADO INICIAL — não dá para afirmar ausência a partir daqui. Ex.: a tela abre em "Iniciar vistoria" e os 4 níveis / a foto obrigatória / o fluxo só surgem depois de iniciar. Use nao_avaliavel em vez de "ausente" nesses casos (ele NÃO conta no placar, nem a favor nem contra).
 Contador 0 com dado real 0 = atendido (honesto), não bug.
 Responda SOMENTE com um objeto JSON válido (sem markdown, sem texto antes ou depois, sem comentários).
 Seja conciso nas evidências/notas (1 frase curta cada) para não truncar. Formato exato:
-{"vereditos":[{"ref":"R1","status":"atendido|parcial|ausente|quebrado","evidencia":"...","nota_funcional":"...","nota_conteudo":"...","nota_visual":"..."}]}`
+{"vereditos":[{"ref":"R1","status":"atendido|parcial|ausente|quebrado|nao_avaliavel","evidencia":"...","nota_funcional":"...","nota_conteudo":"...","nota_visual":"..."}]}`
 
     const claude = await chamarClaude({
       finalidade: 'auditoria_jornada',
@@ -222,11 +223,12 @@ Seja conciso nas evidências/notas (1 frase curta cada) para não truncar. Forma
     // grava a cobertura (uma execução por chamada)
     const execucaoId = crypto.randomUUID()
     const linhas: Record<string, unknown>[] = []
-    let atendido = 0, parcial = 0
+    let atendido = 0, parcial = 0, naoAvaliavel = 0
     for (let i = 0; i < requisitos.length; i++) {
       const v = vereditos.find((x) => x.ref === `R${i + 1}`)
-      const status = v && STATUS_VALIDOS.has(v.status) ? v.status : 'ausente'
-      if (status === 'atendido') atendido++; else if (status === 'parcial') parcial++
+      // requisito que o juiz não retornou NÃO é penalizado como ausente → nao_avaliavel (fora do placar)
+      const status = v && STATUS_VALIDOS.has(v.status) ? v.status : 'nao_avaliavel'
+      if (status === 'atendido') atendido++; else if (status === 'parcial') parcial++; else if (status === 'nao_avaliavel') naoAvaliavel++
       const notas = v ? [v.nota_funcional && `FUNCIONAL: ${v.nota_funcional}`, v.nota_conteudo && `CONTEÚDO: ${v.nota_conteudo}`, v.nota_visual && `VISUAL: ${v.nota_visual}`].filter(Boolean).join(' · ') : ''
       linhas.push({
         requisito_id: requisitos[i].id, status,
@@ -237,11 +239,21 @@ Seja conciso nas evidências/notas (1 frase curta cada) para não truncar. Forma
     const { error: insErr } = await supabase.from('blueprint_tela_cobertura').insert(linhas)
     if (insErr) return NextResponse.json({ error: 'falha ao gravar cobertura: ' + insErr.message }, { status: 500 })
 
-    const score = (atendido + parcial * 0.5) / requisitos.length
+    // Item 2: registra o CUSTO real desta execução no ledger (fn_juiz_registrar_execucao) — reflete no teto
+    // (fn_juiz_orcamento) e no painel. O próprio juiz grava (independe do sweep), então o custo nunca fica 0.
+    await supabase.rpc('fn_juiz_registrar_execucao', {
+      p_execucao_id: execucaoId, p_rota: rotaConcreta, p_tela_num: telaNum,
+      p_custo_usd: custoUsd, p_origem: (body.origem || 'manual'), p_vertical: VERTICAL,
+    }).then(() => {}, (e: unknown) => console.error('[juiz-revenda] fn_juiz_registrar_execucao falhou:', e instanceof Error ? e.message : String(e)))
+
+    // placar da tela: só sobre os AVALIÁVEIS (nao_avaliavel sai do denominador)
+    const avaliaveis = requisitos.length - naoAvaliavel
+    const score = avaliaveis > 0 ? (atendido + parcial * 0.5) / avaliaveis : null
     return NextResponse.json({
       ok: true, rota: rotaConcreta, tela_num: telaNum, execucao_id: execucaoId,
-      requisitos: requisitos.length, atendido, parcial,
-      pct_tela: Math.round(1000 * score) / 10, foto_url: fotoPath, signed_url: fotoUrlAssinada, custo_usd: custoUsd,
+      requisitos: requisitos.length, avaliaveis, nao_avaliavel: naoAvaliavel, atendido, parcial,
+      pct_tela: score != null ? Math.round(1000 * score) / 10 : null,
+      foto_url: fotoPath, signed_url: fotoUrlAssinada, custo_usd: custoUsd,
     })
   } catch (e: unknown) {
     return NextResponse.json({ error: 'falha geral', detalhe: e instanceof Error ? e.message : String(e) }, { status: 500 })
