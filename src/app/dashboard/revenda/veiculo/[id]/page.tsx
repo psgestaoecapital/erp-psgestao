@@ -247,6 +247,7 @@ function Inner() {
       <PrecificacaoBloco veiculoId={id} />
 
       <Bloco titulo="Custos no chassi">
+        <a href={`/dashboard/revenda/veiculo/${id}/custos`} style={{ display: 'inline-block', fontSize: 12, color: C.gold, textDecoration: 'underline', marginBottom: 8 }}>→ abrir a tela de custos (previsto × realizado, carrego, fora da curva)</a>
         <NovoCusto veiculoId={id} onSaved={() => { setMsg('Custo lançado.'); void carregar() }} onErro={setErro} />
         {custos.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Nenhum custo ainda.</div> : (
           <div style={{ marginTop: 10 }}>
