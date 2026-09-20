@@ -148,8 +148,10 @@ export async function POST(req: Request) {
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
     const fotoPath = `juiz-revenda/tela-${telaNum}/${ts}.jpg`
     await supabase.storage.from('system-screenshots').upload(fotoPath, buffer, { contentType: 'image/jpeg', upsert: true })
-    const { data: pub } = supabase.storage.from('system-screenshots').getPublicUrl(fotoPath)
-    const fotoUrl = pub?.publicUrl ?? null
+    // LGPD: bucket system-screenshots é PRIVADO. Guarda o PATH na cobertura (o painel assina sob demanda);
+    // o Claude já recebeu o buffer em base64 (acima), não a URL. signed_url (10 min) só p/ a resposta.
+    const { data: signed } = await supabase.storage.from('system-screenshots').createSignedUrl(fotoPath, 600)
+    const fotoUrlAssinada = signed?.signedUrl ?? null
 
     await page.close().catch(() => {})
 
@@ -209,7 +211,7 @@ Responda APENAS JSON sem markdown: {"vereditos":[{"ref":"R1","status":"...","evi
       linhas.push({
         requisito_id: requisitos[i].id, status,
         evidencia: [v?.evidencia, notas].filter(Boolean).join(' — ').slice(0, 2000) || null,
-        foto_url: fotoUrl, execucao_id: execucaoId,
+        foto_url: fotoPath, execucao_id: execucaoId,
       })
     }
     const { error: insErr } = await supabase.from('blueprint_tela_cobertura').insert(linhas)
@@ -219,7 +221,7 @@ Responda APENAS JSON sem markdown: {"vereditos":[{"ref":"R1","status":"...","evi
     return NextResponse.json({
       ok: true, rota: rotaConcreta, tela_num: telaNum, execucao_id: execucaoId,
       requisitos: requisitos.length, atendido, parcial,
-      pct_tela: Math.round(1000 * score) / 10, foto_url: fotoUrl, custo_usd: custoUsd,
+      pct_tela: Math.round(1000 * score) / 10, foto_url: fotoPath, signed_url: fotoUrlAssinada, custo_usd: custoUsd,
     })
   } catch (e: unknown) {
     return NextResponse.json({ error: 'falha geral', detalhe: e instanceof Error ? e.message : String(e) }, { status: 500 })

@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import ScreenshotAssinado from '@/components/admin/ScreenshotAssinado'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -112,7 +113,7 @@ export default function PainelCobertura() {
               </div>
               <div style={{ fontSize: 13, marginTop: 4 }}>{a.blueprint_tela_requisito?.requisito}</div>
               {a.evidencia && <div style={{ fontSize: 12, color: C.espM, marginTop: 3 }}>{a.evidencia}</div>}
-              {a.foto_url && <a href={a.foto_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.gold, textDecoration: 'underline' }}>ver foto</a>}
+              {a.foto_url && <div style={{ marginTop: 6, maxWidth: 260 }}><ScreenshotAssinado valor={a.foto_url} alt={`evidência T${a.blueprint_tela_requisito?.tela_num}`} style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 6, border: `1px solid ${C.border}` }} /></div>}
             </div>
           ))}
         </div>
@@ -126,8 +127,10 @@ export default function PainelCobertura() {
           {execs.map((e) => (
             <div key={e.execucao_id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
               {e.foto
-                // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={e.foto} alt={`tela ${e.tela}`} style={{ width: '100%', height: 110, objectFit: 'cover' }} />
+                ? <ScreenshotAssinado valor={e.foto} alt={`tela ${e.tela}`}
+                    style={{ width: '100%', height: 110, objectFit: 'cover' }}
+                    fallbackStyle={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.espL, fontSize: 12, background: C.cream }}
+                    fallbackTexto="sem foto" />
                 : <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.espL, fontSize: 12 }}>sem foto</div>}
               <div style={{ padding: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 700 }}>T{e.tela ?? '—'} · {e.n} req.</div>
