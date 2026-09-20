@@ -8,8 +8,10 @@
 // (1ª foto = principal, ordem sequencial, veic_veiculo.foto_url = principal → aparece no card do Pátio).
 //
 // Guardas (RD-69/RD-70, fail-closed):
-//   • PS_ADMIN apenas (system_role IN PS_ADMIN, PS_ADMIN_CVM);
-//   • empresa OBRIGATORIAMENTE is_demo=true (empresaPermitidaParaRobo) — nunca toca empresa de cliente;
+//   • autenticação: sessão PS_ADMIN (system_role IN PS_ADMIN, PS_ADMIN_CVM) OU header x-watcher-secret
+//     (mesmo padrão do screen-watcher/juiz) — assim o Eng. Chefe roda a FILA-4 só com o secret;
+//   • empresa OBRIGATORIAMENTE is_demo=true (empresaPermitidaParaRobo) — nunca toca empresa de cliente,
+//     valha o secret ou a sessão (a trava de demo é o que protege, não o tipo de credencial);
 //   • idempotente: veículo que já tem foto é PULADO (não duplica em re-execução).
 //
 // Prova (RD-38, RD-70): rodar → abrir /dashboard/revenda/patio na demo → cards com foto; recarregar →
@@ -53,15 +55,18 @@ function svgSintetico(modelo: string, angulo: string, id: string): string {
 </svg>`
 }
 
-async function handlerCore(req: NextRequest, ctx: { userId: string }) {
+async function handlerCore(req: NextRequest, ctx: { userId: string | null; viaSecret?: boolean }) {
   const supabase = supabaseAdmin
 
-  // Guarda 1: PS_ADMIN
-  const { data: perfil, error: perfilErr } = await supabase
-    .from('users').select('system_role').eq('id', ctx.userId).maybeSingle()
-  if (perfilErr) return NextResponse.json({ erro: 'falha_perfil', detalhe: perfilErr.message }, { status: 500 })
-  if (!perfil || !['PS_ADMIN', 'PS_ADMIN_CVM'].includes(String(perfil.system_role))) {
-    return NextResponse.json({ erro: 'apenas_ps_admin' }, { status: 403 })
+  // Guarda 1 (autenticação): só quando NÃO veio pelo x-watcher-secret. O secret já é a autorização
+  // (validado no POST); a trava real que impede tocar cliente é a Guarda 2 (is_demo), abaixo.
+  if (!ctx.viaSecret) {
+    const { data: perfil, error: perfilErr } = await supabase
+      .from('users').select('system_role').eq('id', ctx.userId!).maybeSingle()
+    if (perfilErr) return NextResponse.json({ erro: 'falha_perfil', detalhe: perfilErr.message }, { status: 500 })
+    if (!perfil || !['PS_ADMIN', 'PS_ADMIN_CVM'].includes(String(perfil.system_role))) {
+      return NextResponse.json({ erro: 'apenas_ps_admin' }, { status: 403 })
+    }
   }
 
   let body: { empresa_id?: string; max?: number } = {}
@@ -137,4 +142,13 @@ async function handlerCore(req: NextRequest, ctx: { userId: string }) {
   })
 }
 
-export const POST = withAuth(handlerCore)
+// Dois caminhos de auth: x-watcher-secret (Eng. Chefe/robô, sem sessão) OU sessão PS_ADMIN (withAuth).
+// Em ambos, a Guarda 2 (is_demo) recusa empresa real com 403.
+export async function POST(req: NextRequest, routeCtx: unknown) {
+  const secret = req.headers.get('x-watcher-secret')
+  const expected = process.env.WATCHER_SECRET
+  if (expected && secret === expected) {
+    return handlerCore(req, { userId: null, viaSecret: true })
+  }
+  return withAuth((r, c) => handlerCore(r, { userId: c.userId, viaSecret: false }))(req, routeCtx)
+}
