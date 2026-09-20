@@ -38,12 +38,6 @@ async function orcamento(): Promise<{ ok: boolean; gasto_dia_usd: number; gasto_
   return resp.json()
 }
 
-async function registrar(execucaoId: string, rota: string, tela: number, custo: number): Promise<void> {
-  await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_juiz_registrar_execucao`, {
-    method: 'POST', headers: restHeaders,
-    body: JSON.stringify({ p_execucao_id: execucaoId, p_rota: rota, p_tela_num: tela, p_custo_usd: custo, p_origem: ORIGEM }),
-  }).catch(() => {})
-}
 
 async function veiculoDemo(): Promise<string | null> {
   const resp = await fetch(
@@ -69,11 +63,11 @@ async function main(): Promise<void> {
     const resp = await fetch(`${BASE}/api/gold/juiz-revenda`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-watcher-secret': WATCHER },
-      body: JSON.stringify({ rota: r.rota, tela_num: r.tela, empresa_id: DEMO_REVENDA, veiculo_id: r.precisaVeiculo ? veh : undefined }),
+      body: JSON.stringify({ rota: r.rota, tela_num: r.tela, empresa_id: DEMO_REVENDA, veiculo_id: r.precisaVeiculo ? veh : undefined, origem: ORIGEM }),
     })
     const body = await resp.json().catch(() => ({})) as { ok?: boolean; execucao_id?: string; custo_usd?: number; pct_tela?: number; error?: string }
     if (resp.ok && body.ok) {
-      await registrar(body.execucao_id || crypto.randomUUID(), r.rota, r.tela, body.custo_usd || 0)
+      // o próprio juiz registra a execução no ledger (fn_juiz_registrar_execucao) — não duplicar aqui.
       processadas++
       console.log(`✓ tela ${r.tela} ${r.rota} · ${body.pct_tela}% · US$ ${(body.custo_usd || 0).toFixed(4)}`)
       resumo.push({ tela: r.tela, rota: r.rota, pct: body.pct_tela, custo_usd: body.custo_usd })
