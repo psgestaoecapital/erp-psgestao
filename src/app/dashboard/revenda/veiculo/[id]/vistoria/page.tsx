@@ -47,7 +47,11 @@ function Inner() {
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [saveState, setSaveState] = useState<Record<string, 'salvando' | 'salvo' | 'falhou'>>({})
   const [modoAtivo, setModoAtivo] = useState<'rapida' | 'completa' | null>(null)  // R0.3
-  const [trocando, setTrocando] = useState(false)
+  // R0.3b: abrir a página NÃO cria vistoria (evita fantasmas a cada espiada). Sem vistoria em andamento,
+  // mostra "Iniciar vistoria" com a escolha; só o botão cria.
+  const [precisaIniciar, setPrecisaIniciar] = useState(false)
+  const [modoPadrao, setModoPadrao] = useState<'rapida' | 'completa'>('rapida')
+  const [iniciando, setIniciando] = useState(false)
   const bootRef = useRef(false)
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
@@ -90,13 +94,15 @@ function Inner() {
     await carregarVistoria(abr.vistoria_id)
   }, [veiculoId, carregarVistoria])
 
-  async function trocarModo(modo: 'rapida' | 'completa') {
-    if (!companyId || trocando || modo === modoAtivo) return
-    setTrocando(true); setErro(null)
-    try { await abrirNoModo(companyId, await userId(), modo) } finally { setTrocando(false) }
+  // R0.3b: só o clique cria a vistoria (no modo escolhido).
+  async function iniciar(m: 'rapida' | 'completa') {
+    if (!companyId || iniciando) return
+    setIniciando(true); setErro(null)
+    try { await abrirNoModo(companyId, await userId(), m); setPrecisaIniciar(false) } finally { setIniciando(false) }
   }
 
-  // boot: descobre empresa, garante modelo, abre (ou retoma) a vistoria
+  // boot: descobre empresa e RETOMA a vistoria em andamento existente (SEM criar nada). Se não houver,
+  // pede para iniciar (a tela mostra "Iniciar vistoria"). Abrir a página nunca cria vistoria (sem fantasmas).
   useEffect(() => {
     if (bootRef.current || !veiculoId) return
     bootRef.current = true
@@ -107,16 +113,28 @@ function Inner() {
         const comp = (veic as { company_id?: string } | null)?.company_id
         if (!comp) { setErro('Veículo não encontrado.'); return }
         setCompanyId(comp)
-        const uid = await userId()
-        // R0.3: modo padrão da empresa (Config da garagem); fallback 'completa' (preserva o comportamento
-        // de quem não configurou). Abre no modo escolhido — completa segue disponível pelo seletor abaixo.
+        // modo padrão da empresa (Config da garagem); fallback 'completa'
         const { data: cfg } = await supabase.from('veic_config').select('vistoria_modo_padrao').eq('company_id', comp).maybeSingle()
-        const modo = ((cfg as { vistoria_modo_padrao?: string } | null)?.vistoria_modo_padrao === 'rapida') ? 'rapida' : 'completa'
-        await abrirNoModo(comp, uid, modo)
-      } catch { setErro('Falha ao iniciar a vistoria.') }
+        setModoPadrao(((cfg as { vistoria_modo_padrao?: string } | null)?.vistoria_modo_padrao === 'rapida') ? 'rapida' : 'completa')
+        // vistoria EM ANDAMENTO já existente? retoma (mantém o modelo em que começou); senão, oferece iniciar.
+        const { data: vx } = await supabase.from('insp_vistoria')
+          .select('id, modelo_id').eq('company_id', comp).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
+          .eq('situacao', 'em_andamento').order('iniciada_em', { ascending: false }).limit(1).maybeSingle()
+        const existente = vx as { id?: string; modelo_id?: string } | null
+        if (existente?.id) {
+          if (existente.modelo_id) {
+            const { data: m } = await supabase.from('insp_modelo').select('modo').eq('id', existente.modelo_id).maybeSingle()
+            setModoAtivo(((m as { modo?: string } | null)?.modo === 'rapida') ? 'rapida' : 'completa')
+          }
+          setVistoriaId(existente.id)
+          await carregarVistoria(existente.id)
+        } else {
+          setPrecisaIniciar(true)
+        }
+      } catch { setErro('Falha ao abrir a vistoria.') }
       finally { setCarregando(false) }
     })()
-  }, [veiculoId, abrirNoModo])
+  }, [veiculoId, carregarVistoria])
 
   const regioes = useMemo(() => data?.regioes ?? [], [data])
   const regiao = regioes[regIdx] ?? null
@@ -206,7 +224,36 @@ function Inner() {
   }, [regioes, data])
 
   if (carregando) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Preparando a vistoria…</div>
-  if (erro && !data) return <div style={{ padding: 28, background: C.bg, minHeight: '100vh' }}><div style={{ background: C.redBg, color: C.red, padding: 14, borderRadius: 10 }}>{erro}</div><a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ color: C.blue, fontSize: 13, display: 'inline-block', marginTop: 12 }}>← voltar à ficha</a></div>
+  if (erro && !data) return <div style={{ padding: 28, background: C.bg, minHeight: '100vh' }}><div style={{ background: C.redBg, color: C.red, padding: 14, borderRadius: 10 }}>{erro}</div><a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ color: C.espM, fontSize: 13, display: 'inline-block', marginTop: 12 }}>← voltar à ficha</a></div>
+
+  // R0.3b: sem vistoria em andamento — a página NÃO cria nada; o operador escolhe e o BOTÃO cria.
+  if (precisaIniciar && !vistoriaId) {
+    const opcoes: { m: 'rapida' | 'completa'; titulo: string; sub: string }[] = [
+      { m: 'rapida', titulo: 'Vistoria rápida', sub: '9 itens · foto só no que for reparo/troca' },
+      { m: 'completa', titulo: 'Vistoria completa', sub: '80 itens · checklist detalhado por região' },
+    ]
+    return (
+      <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 560, margin: '0 auto', padding: '18px 16px 40px' }}>
+        <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ fontSize: 12, color: C.espM, textDecoration: 'none' }}>← voltar à ficha</a>
+        <h1 style={{ fontSize: 20, fontWeight: 700, margin: '10px 0 4px' }}>Iniciar vistoria</h1>
+        <p style={{ fontSize: 13, color: C.espM, margin: '0 0 16px' }}>Escolha o tipo de vistoria para começar. Nada é criado até você iniciar.</p>
+        {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
+        <div style={{ display: 'grid', gap: 12 }}>
+          {opcoes.map((o) => (
+            <button key={o.m} onClick={() => void iniciar(o.m)} disabled={iniciando}
+              style={{ textAlign: 'left', border: `1px solid ${o.m === modoPadrao ? C.gold : C.border}`, background: C.white, borderRadius: 12, padding: 14, cursor: iniciando ? 'wait' : 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: C.esp }}>{o.titulo}</span>
+                {o.m === modoPadrao && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: C.gold, borderRadius: 999, padding: '2px 8px' }}>padrão</span>}
+              </div>
+              <div style={{ fontSize: 12, color: C.espM, marginTop: 3 }}>{o.sub}</div>
+            </button>
+          ))}
+        </div>
+        {iniciando && <div style={{ fontSize: 12, color: C.espM, marginTop: 12 }}>Iniciando…</div>}
+      </div>
+    )
+  }
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 560, margin: '0 auto', paddingBottom: 40 }}>
@@ -222,18 +269,10 @@ function Inner() {
         </div>
       </div>
 
-      {/* R0.3: modo da vistoria — rápida (9 itens) é o padrão da empresa; completa (80) fica disponível.
-          Só aparece no INÍCIO (nada avaliado ainda), pra não trocar de modelo no meio e perder respostas. */}
-      {!concluida && totais.avaliados === 0 && modoAtivo && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 14px', fontSize: 12, color: C.espM, borderBottom: `1px solid ${C.border}` }}>
-          <span>Modo:</span>
-          {(['rapida', 'completa'] as const).map((m) => (
-            <button key={m} onClick={() => void trocarModo(m)} disabled={trocando}
-              style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: trocando ? 'wait' : 'pointer',
-                border: `1px solid ${modoAtivo === m ? C.gold : C.border}`, background: modoAtivo === m ? C.gold : C.white, color: modoAtivo === m ? '#fff' : C.espM }}>
-              {m === 'rapida' ? 'Rápida (9 itens)' : 'Completa (80 itens)'}
-            </button>
-          ))}
+      {/* R0.3b: o modo é escolhido na tela "Iniciar vistoria" (antes de criar). Aqui mostramos só qual está ativo. */}
+      {!concluida && modoAtivo && (
+        <div style={{ padding: '6px 14px', fontSize: 11, color: C.espM, borderBottom: `1px solid ${C.border}` }}>
+          Vistoria {modoAtivo === 'rapida' ? 'rápida (9 itens)' : 'completa (80 itens)'}
         </div>
       )}
 
