@@ -29,7 +29,6 @@ type Precif = {
   historico?: { preco_venda: number | null; preco_minimo: number | null; margem_alvo_pct: number | null; premissas: Record<string, unknown> | null; observacao: string | null; criado_em: string }[]
 }
 type Estat = { ok?: boolean; tem_historico?: boolean; n_vendas?: number; dias_medio_patio?: number; margem_media_pct?: number }
-type Cfg = { semaforo_verde_ate_dias?: number; semaforo_amarelo_ate_dias?: number; margem_alvo_pct?: number; impostos_venda_pct?: number | null; comissao_venda_pct?: number | null; provisao_garantia_pct?: number | null; vistoria_modo_padrao?: string | null }
 
 export default function PrecificacaoPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -38,17 +37,14 @@ export default function PrecificacaoPage() {
 function Inner() {
   const params = useParams()
   const veiculoId = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params!.id[0] : ''
-  const [companyId, setCompanyId] = useState<string | null>(null)
   const [p, setP] = useState<Precif | null>(null)
   const [estat, setEstat] = useState<Estat | null>(null)
-  const [cfg, setCfg] = useState<Cfg | null>(null)
   const [precoVenda, setPrecoVenda] = useState('')
   const [margem, setMargem] = useState('')
   const [obs, setObs] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
-  const [cfgAberto, setCfgAberto] = useState(false)
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
@@ -56,7 +52,6 @@ function Inner() {
     if (!veiculoId) return
     const { data: veic } = await supabase.from('veic_veiculo').select('company_id, marca, modelo').eq('id', veiculoId).maybeSingle()
     const comp = (veic as { company_id?: string; marca?: string; modelo?: string } | null)?.company_id ?? null
-    setCompanyId(comp)
     const { data: pr } = await supabase.rpc('fn_veic_precificacao_obter', { p_veiculo_id: veiculoId })
     const r = pr as Precif | null
     if (r?.ok) {
@@ -69,8 +64,6 @@ function Inner() {
       const modelo = (veic as { modelo?: string } | null)?.modelo ?? null
       const { data: es } = await supabase.rpc('fn_veic_modelo_estatisticas', { p_company_id: comp, p_marca: marca, p_modelo: modelo })
       setEstat(es as Estat | null)
-      const { data: cf } = await supabase.from('veic_config').select('*').eq('company_id', comp).maybeSingle()
-      setCfg((cf as Cfg | null) ?? null)
     }
   }, [veiculoId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -142,8 +135,8 @@ function Inner() {
           <Linha l={`Preço mínimo (com margem ${p.margem_alvo_pct ?? '—'}%)`} v={p.preco_minimo != null ? brl(p.preco_minimo) : '—'} forte />
         </div>
         {p.piso_incompleto && <div style={{ background: C.amberBg, color: '#8A4B08', borderRadius: 8, padding: '7px 10px', marginTop: 8, fontSize: 12 }}>⚠️ Piso incompleto: alguns encargos não estão configurados — o mínimo pode estar otimista.</div>}
-        <button onClick={() => setCfgAberto((x) => !x)} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12.5, cursor: 'pointer', padding: '8px 0 0', textDecoration: 'underline' }}>⚙️ configurar encargos da loja</button>
-        {cfgAberto && companyId && <ConfigEncargos companyId={companyId} cfg={cfg} onSaved={() => { setMsg('Encargos configurados.'); setCfgAberto(false); void carregar() }} onErro={setErro} />}
+        {/* RD-65: um só lugar para os parâmetros da loja — a tela de Configuração da garagem (Onda R2). */}
+        <a href="/dashboard/revenda/config" style={{ display: 'inline-block', color: C.blue, fontSize: 12.5, padding: '8px 0 0', textDecoration: 'underline' }}>⚙️ configurar encargos da loja</a>
       </Bloco>
 
       {/* QUERO VENDER POR */}
@@ -191,50 +184,6 @@ function Inner() {
           ))}
         </Bloco>
       )}
-    </div>
-  )
-}
-
-function ConfigEncargos({ companyId, cfg, onSaved, onErro }: { companyId: string; cfg: Cfg | null; onSaved: () => void; onErro: (m: string) => void }) {
-  const [imp, setImp] = useState(cfg?.impostos_venda_pct != null ? String(cfg.impostos_venda_pct) : '')
-  const [com, setCom] = useState(cfg?.comissao_venda_pct != null ? String(cfg.comissao_venda_pct) : '')
-  const [gar, setGar] = useState(cfg?.provisao_garantia_pct != null ? String(cfg.provisao_garantia_pct) : '')
-  const [mg, setMg] = useState(cfg?.margem_alvo_pct != null ? String(cfg.margem_alvo_pct) : '')
-  // R0.3: vistoria padrão da garagem (rápida 9 itens / completa 80). Default rápida.
-  const [vmodo, setVmodo] = useState<'rapida' | 'completa'>(cfg?.vistoria_modo_padrao === 'completa' ? 'completa' : 'rapida')
-  const [busy, setBusy] = useState(false)
-  async function salvar() {
-    setBusy(true)
-    // escrita por RPC com guard de tenant (padrão da vertical). A RPC faz upsert e preserva
-    // o semáforo (Onda 1) e a margem existentes; vazio nos encargos = NULL ("não configurado").
-    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
-    const { data } = await supabase.rpc('fn_veic_config_salvar', {
-      p_company_id: companyId,
-      p_dados: { impostos_venda_pct: imp, comissao_venda_pct: com, provisao_garantia_pct: gar, margem_alvo_pct: mg, vistoria_modo_padrao: vmodo },
-      p_user: user?.id ?? null,
-    })
-    setBusy(false)
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (!r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao configurar encargos.')); return }
-    onSaved()
-  }
-  const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: 9, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }
-  return (
-    <div style={{ background: C.cream, borderRadius: 10, padding: 12, marginTop: 8 }}>
-      <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 8 }}>Percentuais da loja (deixe em branco o que não se aplica — a tela avisa o que falta, nunca finge zero).</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <label style={{ fontSize: 11.5, color: C.espM }}>Impostos %<input value={imp} onChange={(e) => setImp(e.target.value)} inputMode="decimal" style={inp} /></label>
-        <label style={{ fontSize: 11.5, color: C.espM }}>Comissão %<input value={com} onChange={(e) => setCom(e.target.value)} inputMode="decimal" style={inp} /></label>
-        <label style={{ fontSize: 11.5, color: C.espM }}>Garantia %<input value={gar} onChange={(e) => setGar(e.target.value)} inputMode="decimal" style={inp} /></label>
-        <label style={{ fontSize: 11.5, color: C.espM }}>Margem alvo %<input value={mg} onChange={(e) => setMg(e.target.value)} inputMode="decimal" style={inp} /></label>
-        <label style={{ fontSize: 11.5, color: C.espM, gridColumn: '1 / -1' }}>Vistoria padrão
-          <select value={vmodo} onChange={(e) => setVmodo(e.target.value === 'completa' ? 'completa' : 'rapida')} style={inp}>
-            <option value="rapida">Rápida (9 itens)</option>
-            <option value="completa">Completa (80 itens)</option>
-          </select>
-        </label>
-      </div>
-      <button disabled={busy} onClick={() => void salvar()} style={{ marginTop: 10, background: busy ? C.espL : C.esp, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar encargos'}</button>
     </div>
   )
 }
