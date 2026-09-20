@@ -22,6 +22,7 @@ type Venda = {
   data_venda: string; valor_venda: number | null; desconto_embutido_troca: number | null
   valor_entrada: number | null; valor_financiado: number | null; banco_nome: string | null; retorno_banco: number | null
   situacao: string; total_cliente: number; total_banco: number; vendedor_nome: string | null
+  nfe_autorizada: boolean  // R0.2: entrega exige NF-e autorizada
 }
 
 export default function VendasPage() {
@@ -108,7 +109,12 @@ function Inner() {
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <button onClick={() => router.push(`/dashboard/revenda/veiculo/${v.veiculo_id}`)} style={{ padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.blue, cursor: 'pointer', fontSize: 12 }}>ver veículo</button>
-                {v.situacao !== 'entregue' && v.situacao !== 'cancelada' && <button onClick={() => void entregar(v)} style={{ padding: '6px 12px', border: 'none', borderRadius: 8, background: C.green, color: C.white, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>marcar entregue</button>}
+                {/* R0.2: entrega só com NF-e autorizada. Sem nota → aviso, não botão (a função também recusa). Botão em espresso/dourado (sem verde decorativo). */}
+                {v.situacao !== 'entregue' && v.situacao !== 'cancelada' && (
+                  v.nfe_autorizada
+                    ? <button onClick={() => void entregar(v)} style={{ padding: '6px 12px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>marcar entregue</button>
+                    : <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                )}
                 {v.situacao !== 'cancelada' && <button onClick={() => void cancelar(v)} style={{ padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.red, cursor: 'pointer', fontSize: 12 }}>cancelar</button>}
               </div>
             </div>
