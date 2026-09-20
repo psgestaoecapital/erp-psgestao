@@ -116,7 +116,7 @@ function Inner() {
       </Bloco>
 
       {/* CUSTOS LANÇADOS */}
-      <Bloco titulo="Custos lançados">
+      <Bloco titulo="Custos lançados" hint="⚠️ Custo acima de 2× a mediana da categoria (no histórico da empresa) é sinalizado como “fora da curva”.">
         {custos.length === 0 ? <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Nenhum custo ainda.</div> : (
           <div>
             {custos.map((c) => {
