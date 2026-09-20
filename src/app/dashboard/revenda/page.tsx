@@ -16,6 +16,7 @@ const C = {
 }
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const int = (v: number) => (v ?? 0).toLocaleString('pt-BR')
+const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 
 type Ocorrencia = { venda_id: string; numero: string | null; cliente_nome: string | null; valor_especie: number; limite_aplicado: number; ocorrencia_id: string | null; situacao: string }
 type Coaf = { ok: boolean; limite_configurado: boolean; limite_vigente: number | null; ocorrencias: Ocorrencia[]; pendentes: number; nao_classificado: { recebimentos: number; valor: number } }
@@ -31,6 +32,20 @@ type Painel = {
   marcas: Marca[]; concentracao: Conc[]; coaf: Coaf;
   config: { carrego: boolean; coaf: boolean; encargos: boolean };
 }
+// R3b · a conta do pátio (fn_veic_patio_conta) — sangria, lucro real do mês, ponto de equilíbrio, ranking.
+type ItemRoi = { veiculo_id: string; modelo: string | null; placa: string | null; roi_anualizado_pct: number | null; lucro_real_projetado: number | null; sangria_dia: number | null; data_vira_prejuizo: string | null }
+type Vira = { veiculo_id: string; modelo: string | null; placa: string | null; data_vira_prejuizo: string; quanto_falta: number | null }
+type Patio = {
+  ok?: boolean
+  sangria_dia_total: number | null; sangria_30d: number | null; capital_parado: number | null
+  lucro_real_mes: number | null; vendas_mes: number | null; encargos_configurados: boolean
+  ponto_equilibrio: { carros_necessarios: number | null; vendidos: number | null; status: string }
+  vira_prejuizo_30d: Vira[]; ranking_roi_melhores: ItemRoi[]; ranking_roi_piores: ItemRoi[]
+}
+type CarregoParams = {
+  ok?: boolean; ocupacao_status?: string; capital_status?: string
+  depreciacao?: { fonte?: string; status?: string }
+}
 
 export default function PainelRevendaPage() {
   const { selInfo, sel } = useCompanyIds()
@@ -39,15 +54,25 @@ export default function PainelRevendaPage() {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [marcar, setMarcar] = useState<Ocorrencia | null>(null)
+  const [patio, setPatio] = useState<Patio | null>(null)
+  const [carr, setCarr] = useState<CarregoParams | null>(null)
 
   const carregar = useCallback(async () => {
-    if (!companyId) { setP(null); setCarregando(false); return }
+    if (!companyId) { setP(null); setPatio(null); setCarr(null); setCarregando(false); return }
     setCarregando(true)
     const { data, error } = await supabase.rpc('fn_veic_painel', { p_company_id: companyId })
     if (error) { setErro(error.message); setCarregando(false); return }
     const r = data as Painel
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar o painel.'); setCarregando(false); return }
-    setErro(null); setP(r); setCarregando(false)
+    setErro(null); setP(r)
+    // R3b · a conta do pátio + parâmetros do carrego (para os status por componente)
+    const [pc, cp] = await Promise.all([
+      supabase.rpc('fn_veic_patio_conta', { p_company_id: companyId }),
+      supabase.rpc('fn_veic_carrego_parametros', { p_company_id: companyId }),
+    ])
+    const pcr = pc.data as Patio | null; setPatio(pcr?.ok ? pcr : null)
+    const cpr = cp.data as CarregoParams | null; setCarr(cpr?.ok ? cpr : null)
+    setCarregando(false)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -113,6 +138,66 @@ export default function PainelRevendaPage() {
             <Card titulo="Veículos" valor={`${int(p.veiculos.total)}`} sub={`${p.veiculos.vendidos_mes} vendido(s) no mês`} />
             <Card titulo="Giro" valor={p.giro.vendas > 0 ? `${int(p.giro.vendas)} venda(s)` : 'sem vendas'} sub={p.giro.dias_medio != null ? `${int(p.giro.dias_medio)} dia(s) médios em estoque` : 'histórico ainda curto'} />
           </div>
+
+          {/* R3b · A CONTA DO PÁTIO — lucro real do mês, ponto de equilíbrio, sangria, vira prejuízo, ROI */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, margin: '14px 0' }}>
+            <Card
+              titulo="Lucro real do mês"
+              valor={patio?.lucro_real_mes != null ? brl(patio.lucro_real_mes) : 'não configurado'}
+              sub={patio ? `${patio.vendas_mes ?? 0} venda(s) faturada(s)/entregue(s) no mês` : 'configure a garagem'} />
+            <Card
+              titulo="Ponto de equilíbrio"
+              valor={patio?.ponto_equilibrio?.status === 'ok' && patio.ponto_equilibrio.carros_necessarios != null
+                ? `${patio.ponto_equilibrio.vendidos ?? 0} de ${patio.ponto_equilibrio.carros_necessarios}`
+                : 'não configurado'}
+              sub={patio?.ponto_equilibrio?.status === 'ok' ? 'vendidos de necessários (custo fixo ÷ margem média)' : 'depende do custo fixo e de vendas no mês'} />
+          </div>
+
+          {/* Sangria do pátio */}
+          <Bloco titulo="Sangria do pátio" hint="O que o pátio custa por dia só por estar parado (carrego).">
+            {patio?.sangria_dia_total != null ? (
+              <>
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                  <div><span style={{ fontSize: 22, fontWeight: 800, color: C.esp }}>{brl(patio.sangria_dia_total)}</span><span style={{ fontSize: 12, color: C.espM }}> / dia</span></div>
+                  <div><span style={{ fontSize: 16, fontWeight: 700, color: C.espM }}>{brl(patio.sangria_30d ?? 0)}</span><span style={{ fontSize: 12, color: C.espL }}> em 30 dias</span></div>
+                </div>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 12.5 }}>
+                  <SangriaComp l="Ocupação" status={carr?.ocupacao_status} />
+                  <SangriaComp l="Capital" status={carr?.capital_status} />
+                  <SangriaComp l="Depreciação" status={carr?.depreciacao?.status} />
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: C.espM }}>Sangria não configurada — informe vagas, custo fixo e taxa de capital.{' '}
+                <a href="/dashboard/revenda/config" style={{ color: C.gold, fontWeight: 700, textDecoration: 'underline' }}>configurar</a></div>
+            )}
+          </Bloco>
+
+          {/* Vira prejuízo em breve */}
+          <Bloco titulo="Vira prejuízo em breve" hint="Carros cujo lucro projetado zera nos próximos 30 dias, mantendo o preço anunciado.">
+            {(patio?.vira_prejuizo_30d?.length ?? 0) === 0 ? (
+              <div style={{ fontSize: 13, color: C.green }}>Nenhum carro vira prejuízo nos próximos 30 dias. ✅</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {patio!.vira_prejuizo_30d.map((v) => (
+                  <a key={v.veiculo_id} href={`/dashboard/revenda/veiculo/${v.veiculo_id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textDecoration: 'none', padding: '9px 12px', borderRadius: 9, fontSize: 13, background: C.amberBg, border: `1px solid ${C.amber}55`, color: '#8A4B08', fontWeight: 600 }}>
+                    <span>{v.modelo || 'Veículo'} {v.placa ? `· ${v.placa}` : ''}</span>
+                    <span style={{ fontWeight: 800 }}>{brDate(v.data_vira_prejuizo)} {v.quanto_falta != null ? `· falta ${brl(v.quanto_falta)}` : ''} ›</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </Bloco>
+
+          {/* Ranking por ROI anualizado */}
+          {patio && ((patio.ranking_roi_melhores?.length ?? 0) > 0 || (patio.ranking_roi_piores?.length ?? 0) > 0) && (
+            <Bloco titulo="Ranking por ROI anualizado" hint="Quem devolve mais rápido o capital — e quem trava.">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+                <RankingRoi titulo="Melhores" itens={patio.ranking_roi_melhores} tom={C.green} />
+                <RankingRoi titulo="Piores" itens={patio.ranking_roi_piores} tom={C.red} />
+              </div>
+            </Bloco>
+          )}
 
           {/* Semaforo em dinheiro */}
           <Bloco titulo="Tempo no pátio" hint="Contagem sem valor esconde o problema — quatro carros parados podem valer mais que dez que giram.">
@@ -205,6 +290,37 @@ function Bloco({ titulo, hint, children }: { titulo: string; hint?: string; chil
       <div style={{ fontSize: 14, fontWeight: 800, color: C.esp }}>{titulo}</div>
       {hint && <div style={{ fontSize: 12, color: C.espL, margin: '2px 0 10px' }}>{hint}</div>}
       {children}
+    </div>
+  )
+}
+
+// R3b · status de um componente da sangria (RD-51: badge honesto quando faltar config).
+function SangriaComp({ l, status }: { l: string; status?: string }) {
+  const ok = status === 'ok'
+  const txt = ok ? 'incluída' : status === 'travado_d7' ? 'FIPE em breve' : status === 'nao_calcular' ? 'não calcula' : 'não configurado'
+  const cor = ok ? C.green : status === 'nao_calcular' ? C.espL : C.amber
+  return (
+    <span style={{ color: C.espM }}>{l}: <b style={{ color: cor }}>{txt}</b>
+      {(!ok && status !== 'nao_calcular' && status !== 'travado_d7') && <> · <a href="/dashboard/revenda/config" style={{ color: C.gold, textDecoration: 'underline' }}>configurar</a></>}
+    </span>
+  )
+}
+
+// R3b · ranking por ROI anualizado (melhores/piores), clicável para a ficha.
+function RankingRoi({ titulo, itens, tom }: { titulo: string; itens: ItemRoi[]; tom: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espM, fontWeight: 700, marginBottom: 6 }}>{titulo}</div>
+      {(itens?.length ?? 0) === 0 ? <div style={{ fontSize: 12.5, color: C.espL }}>Sem dados.</div> : (
+        <div style={{ display: 'grid', gap: 4 }}>
+          {itens.map((r) => (
+            <a key={r.veiculo_id} href={`/dashboard/revenda/veiculo/${r.veiculo_id}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, textDecoration: 'none', color: C.esp, fontSize: 12.5, padding: '4px 6px', borderBottom: `1px solid ${C.cream}` }}>
+              <span>{r.modelo || 'Veículo'} {r.placa ? `· ${r.placa}` : ''}</span>
+              <span style={{ fontWeight: 700, color: tom }}>{r.roi_anualizado_pct != null ? `${r.roi_anualizado_pct}%` : '—'}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
