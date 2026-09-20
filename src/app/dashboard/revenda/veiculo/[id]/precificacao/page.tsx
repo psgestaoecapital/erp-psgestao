@@ -29,7 +29,7 @@ type Precif = {
   historico?: { preco_venda: number | null; preco_minimo: number | null; margem_alvo_pct: number | null; premissas: Record<string, unknown> | null; observacao: string | null; criado_em: string }[]
 }
 type Estat = { ok?: boolean; tem_historico?: boolean; n_vendas?: number; dias_medio_patio?: number; margem_media_pct?: number }
-type Cfg = { semaforo_verde_ate_dias?: number; semaforo_amarelo_ate_dias?: number; margem_alvo_pct?: number; impostos_venda_pct?: number | null; comissao_venda_pct?: number | null; provisao_garantia_pct?: number | null }
+type Cfg = { semaforo_verde_ate_dias?: number; semaforo_amarelo_ate_dias?: number; margem_alvo_pct?: number; impostos_venda_pct?: number | null; comissao_venda_pct?: number | null; provisao_garantia_pct?: number | null; vistoria_modo_padrao?: string | null }
 
 export default function PrecificacaoPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -200,6 +200,8 @@ function ConfigEncargos({ companyId, cfg, onSaved, onErro }: { companyId: string
   const [com, setCom] = useState(cfg?.comissao_venda_pct != null ? String(cfg.comissao_venda_pct) : '')
   const [gar, setGar] = useState(cfg?.provisao_garantia_pct != null ? String(cfg.provisao_garantia_pct) : '')
   const [mg, setMg] = useState(cfg?.margem_alvo_pct != null ? String(cfg.margem_alvo_pct) : '')
+  // R0.3: vistoria padrão da garagem (rápida 9 itens / completa 80). Default rápida.
+  const [vmodo, setVmodo] = useState<'rapida' | 'completa'>(cfg?.vistoria_modo_padrao === 'completa' ? 'completa' : 'rapida')
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
@@ -208,7 +210,7 @@ function ConfigEncargos({ companyId, cfg, onSaved, onErro }: { companyId: string
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data } = await supabase.rpc('fn_veic_config_salvar', {
       p_company_id: companyId,
-      p_dados: { impostos_venda_pct: imp, comissao_venda_pct: com, provisao_garantia_pct: gar, margem_alvo_pct: mg },
+      p_dados: { impostos_venda_pct: imp, comissao_venda_pct: com, provisao_garantia_pct: gar, margem_alvo_pct: mg, vistoria_modo_padrao: vmodo },
       p_user: user?.id ?? null,
     })
     setBusy(false)
@@ -225,6 +227,12 @@ function ConfigEncargos({ companyId, cfg, onSaved, onErro }: { companyId: string
         <label style={{ fontSize: 11.5, color: C.espM }}>Comissão %<input value={com} onChange={(e) => setCom(e.target.value)} inputMode="decimal" style={inp} /></label>
         <label style={{ fontSize: 11.5, color: C.espM }}>Garantia %<input value={gar} onChange={(e) => setGar(e.target.value)} inputMode="decimal" style={inp} /></label>
         <label style={{ fontSize: 11.5, color: C.espM }}>Margem alvo %<input value={mg} onChange={(e) => setMg(e.target.value)} inputMode="decimal" style={inp} /></label>
+        <label style={{ fontSize: 11.5, color: C.espM, gridColumn: '1 / -1' }}>Vistoria padrão
+          <select value={vmodo} onChange={(e) => setVmodo(e.target.value === 'completa' ? 'completa' : 'rapida')} style={inp}>
+            <option value="rapida">Rápida (9 itens)</option>
+            <option value="completa">Completa (80 itens)</option>
+          </select>
+        </label>
       </div>
       <button disabled={busy} onClick={() => void salvar()} style={{ marginTop: 10, background: busy ? C.espL : C.esp, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar encargos'}</button>
     </div>

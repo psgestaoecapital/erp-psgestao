@@ -46,6 +46,8 @@ function Inner() {
   const [itemIdx, setItemIdx] = useState(0)
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [saveState, setSaveState] = useState<Record<string, 'salvando' | 'salvo' | 'falhou'>>({})
+  const [modoAtivo, setModoAtivo] = useState<'rapida' | 'completa' | null>(null)  // R0.3
+  const [trocando, setTrocando] = useState(false)
   const bootRef = useRef(false)
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
@@ -65,6 +67,35 @@ function Inner() {
     }
   }, [])
 
+  // R0.3: abre (ou retoma) a vistoria no MODO pedido — pega o modelo desse modo (semeia a rápida se faltar).
+  const abrirNoModo = useCallback(async (comp: string, uid: string | null, modo: 'rapida' | 'completa') => {
+    let modeloId: string | null = null
+    const { data: mod } = await supabase.from('insp_modelo').select('id')
+      .eq('company_id', comp).eq('escopo', 'veiculo_revenda').eq('modo', modo).eq('ativo', true)
+      .order('padrao', { ascending: false }).limit(1).maybeSingle()
+    modeloId = (mod as { id?: string } | null)?.id ?? null
+    if (!modeloId) {
+      const rpc = modo === 'rapida' ? 'fn_insp_modelo_semear_rapido' : 'fn_insp_modelo_semear'
+      const args = modo === 'rapida' ? { p_company_id: comp } : { p_company_id: comp, p_escopo: 'veiculo_revenda', p_tipo_alvo: 'carro' }
+      const { data: sem } = await supabase.rpc(rpc, args)
+      modeloId = (sem as { modelo_id?: string } | null)?.modelo_id ?? null
+    }
+    if (!modeloId) { setErro('Não foi possível preparar o checklist da vistoria.'); return }
+    const { data: ab } = await supabase.rpc('fn_insp_vistoria_abrir', { p_company_id: comp, p_alvo_tabela: 'veic_veiculo', p_alvo_id: veiculoId, p_modelo_id: modeloId, p_user: uid })
+    const abr = ab as { ok?: boolean; vistoria_id?: string; erro?: string } | null
+    if (!abr?.ok || !abr.vistoria_id) { setErro(abr?.erro || 'Não foi possível abrir a vistoria.'); return }
+    setModoAtivo(modo)
+    setVistoriaId(abr.vistoria_id)
+    setRegIdx(0)
+    await carregarVistoria(abr.vistoria_id)
+  }, [veiculoId, carregarVistoria])
+
+  async function trocarModo(modo: 'rapida' | 'completa') {
+    if (!companyId || trocando || modo === modoAtivo) return
+    setTrocando(true); setErro(null)
+    try { await abrirNoModo(companyId, await userId(), modo) } finally { setTrocando(false) }
+  }
+
   // boot: descobre empresa, garante modelo, abre (ou retoma) a vistoria
   useEffect(() => {
     if (bootRef.current || !veiculoId) return
@@ -77,24 +108,15 @@ function Inner() {
         if (!comp) { setErro('Veículo não encontrado.'); return }
         setCompanyId(comp)
         const uid = await userId()
-        // modelo padrão da empresa (semeia se faltar — §2.1)
-        let modeloId: string | null = null
-        const { data: mod } = await supabase.from('insp_modelo').select('id').eq('company_id', comp).eq('escopo', 'veiculo_revenda').eq('padrao', true).limit(1).maybeSingle()
-        modeloId = (mod as { id?: string } | null)?.id ?? null
-        if (!modeloId) {
-          const { data: sem } = await supabase.rpc('fn_insp_modelo_semear', { p_company_id: comp, p_escopo: 'veiculo_revenda', p_tipo_alvo: 'carro' })
-          modeloId = (sem as { modelo_id?: string } | null)?.modelo_id ?? null
-        }
-        if (!modeloId) { setErro('Não foi possível preparar o checklist da vistoria.'); return }
-        const { data: ab } = await supabase.rpc('fn_insp_vistoria_abrir', { p_company_id: comp, p_alvo_tabela: 'veic_veiculo', p_alvo_id: veiculoId, p_modelo_id: modeloId, p_user: uid })
-        const abr = ab as { ok?: boolean; vistoria_id?: string; erro?: string } | null
-        if (!abr?.ok || !abr.vistoria_id) { setErro(abr?.erro || 'Não foi possível abrir a vistoria.'); return }
-        setVistoriaId(abr.vistoria_id)
-        await carregarVistoria(abr.vistoria_id)
+        // R0.3: modo padrão da empresa (Config da garagem); fallback 'completa' (preserva o comportamento
+        // de quem não configurou). Abre no modo escolhido — completa segue disponível pelo seletor abaixo.
+        const { data: cfg } = await supabase.from('veic_config').select('vistoria_modo_padrao').eq('company_id', comp).maybeSingle()
+        const modo = ((cfg as { vistoria_modo_padrao?: string } | null)?.vistoria_modo_padrao === 'rapida') ? 'rapida' : 'completa'
+        await abrirNoModo(comp, uid, modo)
       } catch { setErro('Falha ao iniciar a vistoria.') }
       finally { setCarregando(false) }
     })()
-  }, [veiculoId, carregarVistoria])
+  }, [veiculoId, abrirNoModo])
 
   const regioes = useMemo(() => data?.regioes ?? [], [data])
   const regiao = regioes[regIdx] ?? null
@@ -199,6 +221,21 @@ function Inner() {
           <div style={{ width: `${totais.total ? (totais.avaliados / totais.total * 100) : 0}%`, height: '100%', background: C.gold, transition: 'width .3s' }} />
         </div>
       </div>
+
+      {/* R0.3: modo da vistoria — rápida (9 itens) é o padrão da empresa; completa (80) fica disponível.
+          Só aparece no INÍCIO (nada avaliado ainda), pra não trocar de modelo no meio e perder respostas. */}
+      {!concluida && totais.avaliados === 0 && modoAtivo && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 14px', fontSize: 12, color: C.espM, borderBottom: `1px solid ${C.border}` }}>
+          <span>Modo:</span>
+          {(['rapida', 'completa'] as const).map((m) => (
+            <button key={m} onClick={() => void trocarModo(m)} disabled={trocando}
+              style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: trocando ? 'wait' : 'pointer',
+                border: `1px solid ${modoAtivo === m ? C.gold : C.border}`, background: modoAtivo === m ? C.gold : C.white, color: modoAtivo === m ? '#fff' : C.espM }}>
+              {m === 'rapida' ? 'Rápida (9 itens)' : 'Completa (80 itens)'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 14px', fontSize: 13 }} onClick={() => setErro(null)}>{erro}</div>}
 
