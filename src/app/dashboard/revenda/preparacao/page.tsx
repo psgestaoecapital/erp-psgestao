@@ -22,10 +22,12 @@ type PrepOS = { os_id: string; numero: string; status: string; prioridade: strin
 type Pend = { veiculo_id: string; placa: string | null; marca: string | null; modelo: string | null; previsto: number }
 type Pendentes = { ok: boolean; em_andamento: { os: number; valor: number }; concluidas_mes: { os: number; valor: number }; aguardando_os: { veiculos: number; lista: Pend[] }; total_veiculos: number; sem_vistoria: number }
 
+// R0.6: paleta PS (espresso/creme/dourado) — sem azul/verde decorativo nas colunas do Kanban.
+// Semáforo (verde/amarelo/vermelho) fica reservado só para desempenho, não para status de fluxo.
 const COLUNAS: { key: string; titulo: string; cor: string; bg: string }[] = [
   { key: 'a_fazer', titulo: 'A Fazer', cor: C.espM, bg: C.cream },
-  { key: 'fazendo', titulo: 'Fazendo', cor: C.blue, bg: '#EEF3FB' },
-  { key: 'finalizado', titulo: 'Finalizado', cor: C.green, bg: C.greenBg },
+  { key: 'fazendo', titulo: 'Fazendo', cor: C.gold, bg: '#FBF3E0' },
+  { key: 'finalizado', titulo: 'Finalizado', cor: C.esp, bg: C.cream },
 ]
 
 export default function PreparacaoKanbanPage() {
@@ -80,7 +82,7 @@ function Inner() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 1180, margin: '0 auto', color: C.esp }}>
-      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.blue, textDecoration: 'none' }}>← voltar ao pátio</a>
+      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.espM, textDecoration: 'none' }}>← voltar ao pátio</a>
       <div style={{ marginTop: 8 }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🔧 Comércio · Revenda</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Preparação</h1>
@@ -92,8 +94,8 @@ function Inner() {
       {/* cabeçalho com números reais */}
       {pend && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-          <Stat titulo="Em andamento" a={`${pend.em_andamento.os} OS`} b={brl(pend.em_andamento.valor)} cor={C.blue} />
-          <Stat titulo="Concluídas no mês" a={`${pend.concluidas_mes.os} OS`} b={brl(pend.concluidas_mes.valor)} cor={C.green} />
+          <Stat titulo="Em andamento" a={`${pend.em_andamento.os} OS`} b={brl(pend.em_andamento.valor)} cor={C.gold} />
+          <Stat titulo="Concluídas no mês" a={`${pend.concluidas_mes.os} OS`} b={brl(pend.concluidas_mes.valor)} cor={C.esp} />
           <Stat titulo="Aguardando OS" a={`${pend.aguardando_os.veiculos} veículo(s)`} b="com reparo previsto, sem OS" cor={C.amber} />
         </div>
       )}
@@ -130,7 +132,7 @@ function Inner() {
                             {o.dias_corridos != null && <span style={{ fontSize: 10.5, color: C.espL }}>{o.dias_corridos} dia(s)</span>}
                             {o.tecnico_nome && <span style={{ fontSize: 10.5, color: C.espL }}>· {o.tecnico_nome}</span>}
                             {o.data_prevista && <span style={{ fontSize: 10.5, color: atrasada ? C.amber : C.espL, fontWeight: atrasada ? 700 : 400 }}>· prazo {brDate(o.data_prevista)}{atrasada ? ' (vencido)' : ''}</span>}
-                            {o.custo_id && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: '#E8EEF9', color: C.blue, fontWeight: 700 }}>custo lançado</span>}
+                            {o.custo_id && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>custo lançado</span>}
                           </div>
                         </div>
                       )
