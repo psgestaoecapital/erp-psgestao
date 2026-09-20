@@ -54,6 +54,8 @@ function Inner() {
   const [compl, setCompl] = useState<Compl | null>(null)
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
+  // R0.1 (RD-65): preço mínimo vem da FONTE ÚNICA no banco (fn_veic_preco_minimo) — a ficha NÃO calcula.
+  const [pm, setPm] = useState<{ preco_minimo: number | null; piso_sem_margem: number | null; margem_pct: number | null } | null>(null)
   const [fiscalKey, setFiscalKey] = useState(0) // Onda 0: força recarregar a barra de completude após salvar dados
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -82,6 +84,10 @@ function Inner() {
     setCompl((cp.data as Compl | null) ?? null)
     const m = (cfg.data as { margem_alvo_pct?: number } | null)?.margem_alvo_pct
     if (m != null) setMargem(Number(m))
+    // R0.1: preço mínimo pela fonte única (fn_veic_preco_minimo). Mesma conta da precificação.
+    const { data: pmData } = await supabase.rpc('fn_veic_preco_minimo', { p_veiculo_id: id })
+    const pmr = pmData as { ok?: boolean; preco_minimo?: number | null; piso_sem_margem?: number | null; margem_pct?: number | null } | null
+    setPm(pmr?.ok ? { preco_minimo: pmr.preco_minimo ?? null, piso_sem_margem: pmr.piso_sem_margem ?? null, margem_pct: pmr.margem_pct ?? null } : null)
   }, [id])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -101,7 +107,9 @@ function Inner() {
   }, [venda?.id])
 
   const custoAcumulado = useMemo(() => (v?.valor_aquisicao ?? 0) + custos.reduce((s, c) => s + (Number(c.valor) || 0), 0), [v, custos])
-  const precoMinimo = useMemo(() => custoAcumulado * (1 + margem / 100), [custoAcumulado, margem])
+  // R0.1 (RD-65): preço mínimo NÃO é calculado aqui — vem de fn_veic_preco_minimo (pm), a mesma fonte da
+  // tela de precificação. Assim ficha e precificação nunca divergem.
+  const margemPm = pm?.margem_pct ?? margem
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
@@ -171,7 +179,7 @@ function Inner() {
         <Card l="Entrada" v={brDate(v.data_entrada)} />
         <Card l="Aquisição" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(v.valor_aquisicao) : 'sem custo'} />
         <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
-        <Card l={`Preço mínimo (margem ${margem}%)`} v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(precoMinimo) : 'não calcula'} sub={v.valor_aquisicao && v.valor_aquisicao > 0 ? 'antes de impostos — cálculo fiscal é a Onda 4' : 'informe a aquisição primeiro'} />
+        <Card l={`Preço mínimo (margem ${margemPm}%)`} v={pm?.preco_minimo != null ? brl(pm.preco_minimo) : 'não calcula'} sub={pm?.preco_minimo != null ? `cobre custo + encargos + margem · piso sem margem ${brl(pm.piso_sem_margem ?? 0)}` : 'informe a aquisição primeiro'} />
       </div>
 
       <CompletudeFiscalBloco veiculoId={id} refreshKey={fiscalKey} />

@@ -23,7 +23,7 @@ type Precif = {
   veiculo?: { id: string; marca: string | null; modelo: string | null; placa: string | null }
   custo?: { aquisicao: number | null; custos_lancados: number; previsao_gastos: number | null; custo_base: number; custo_total: number }
   encargos?: { impostos: Encargo; comissao: Encargo; garantia: Encargo }
-  preco_minimo?: number; preco_sugerido?: number | null; margem_alvo_pct?: number | null
+  preco_minimo?: number; piso_sem_margem?: number | null; preco_sugerido?: number | null; margem_alvo_pct?: number | null
   preco_venda?: number | null; precificado_em?: string | null; margem_projetada?: number | null
   incerteza?: Record<string, boolean>; piso_incompleto?: boolean
   historico?: { preco_venda: number | null; preco_minimo: number | null; margem_alvo_pct: number | null; premissas: Record<string, unknown> | null; observacao: string | null; criado_em: string }[]
@@ -76,7 +76,8 @@ function Inner() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
-  // simulação client-side (RD-42: não bate no servidor a cada tecla). Mesma fórmula da fn_..._simular.
+  // simulação client-side (RD-42: não bate no servidor a cada tecla). RD-65: mesma conta POR DENTRO da
+  // fonte única — encargos e margem incidem sobre o PREÇO. O piso vem do servidor (piso_sem_margem).
   const sim = useMemo(() => {
     if (!p?.custo) return null
     const pv = numOrNull(precoVenda)
@@ -84,14 +85,16 @@ function Inner() {
     const imp = p.encargos?.impostos.pct ?? 0
     const com = p.encargos?.comissao.pct ?? 0
     const gar = p.encargos?.garantia.pct ?? 0
-    const somaPct = mg + imp + com + gar
+    const encFrac = (imp + com + gar) / 100
     const custoTotal = p.custo.custo_total
-    const encargos = custoTotal * (imp + com + gar) / 100
-    const precoMin = custoTotal + encargos
-    const teto = pv != null ? (pv / (1 + somaPct / 100)) - (p.custo.previsao_gastos ?? 0) - p.custo.custos_lancados : null
-    const margemProj = pv != null ? pv - precoMin : null
-    const abaixoPiso = pv != null && pv < precoMin
-    return { pv, precoMin, teto, margemProj, abaixoPiso, prejuizo: abaixoPiso && pv != null ? precoMin - pv : 0 }
+    // piso = ponto onde a margem projetada zera (custo + encargos, por dentro). Fonte única do servidor.
+    const precoMin = p.piso_sem_margem ?? (encFrac < 1 ? custoTotal / (1 - encFrac) : null)
+    // teto de compra: o quanto pode pagar na aquisição p/ vender por pv com a margem mg (por dentro).
+    const teto = pv != null ? pv * (1 - encFrac - mg / 100) - (p.custo.previsao_gastos ?? 0) - p.custo.custos_lancados : null
+    // margem projetada (R$) = o que sobra depois de cobrir custo + encargos sobre o preço.
+    const margemProj = pv != null ? Math.round((pv * (1 - encFrac) - custoTotal) * 100) / 100 : null
+    const abaixoPiso = pv != null && precoMin != null && pv < precoMin
+    return { pv, precoMin, teto, margemProj, abaixoPiso, prejuizo: abaixoPiso && pv != null && precoMin != null ? precoMin - pv : 0 }
   }, [p, precoVenda, margem])
 
   async function salvar() {
@@ -135,7 +138,8 @@ function Inner() {
         <EncargoLinha l="Comissão" e={p.encargos?.comissao} />
         <EncargoLinha l="Garantia" e={p.encargos?.garantia} />
         <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 6, paddingTop: 6 }}>
-          <Linha l="Preço mínimo" v={brl(p.preco_minimo)} forte />
+          <Linha l="Piso sem margem" v={p.piso_sem_margem != null ? brl(p.piso_sem_margem) : '—'} />
+          <Linha l={`Preço mínimo (com margem ${p.margem_alvo_pct ?? '—'}%)`} v={p.preco_minimo != null ? brl(p.preco_minimo) : '—'} forte />
         </div>
         {p.piso_incompleto && <div style={{ background: C.amberBg, color: '#8A4B08', borderRadius: 8, padding: '7px 10px', marginTop: 8, fontSize: 12 }}>⚠️ Piso incompleto: alguns encargos não estão configurados — o mínimo pode estar otimista.</div>}
         <button onClick={() => setCfgAberto((x) => !x)} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12.5, cursor: 'pointer', padding: '8px 0 0', textDecoration: 'underline' }}>⚙️ configurar encargos da loja</button>
