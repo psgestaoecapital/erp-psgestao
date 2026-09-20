@@ -12,7 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
   border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5',
-  red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  red: '#B42318', redBg: '#FDECEC',
 }
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
@@ -152,7 +152,7 @@ export default function ConfigGaragemPage() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 640, margin: '0 auto', padding: '18px 16px 64px' }}>
-      <a href="/dashboard/revenda" style={{ fontSize: 12, color: C.blue, textDecoration: 'none' }}>← voltar ao painel</a>
+      <a href="/dashboard/revenda" style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar ao painel</a>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700, marginTop: 8 }}>🚗 Comércio · Revenda</div>
       <h1 style={{ fontSize: 23, fontWeight: 700, margin: '2px 0 6px' }}>Configuração da garagem</h1>
       <p style={{ fontSize: 12.5, color: C.espM, margin: '0 0 14px', lineHeight: 1.5 }}>

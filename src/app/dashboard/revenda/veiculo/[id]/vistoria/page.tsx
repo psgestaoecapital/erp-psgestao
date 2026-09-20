@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase'
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
   border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5',
-  red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  red: '#B42318', redBg: '#FDECEC',
 }
 const BUCKET = 'revenda-veiculos'
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -260,7 +260,7 @@ function Inner() {
       {/* Barra de progresso permanente (§2.6) */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.white, borderBottom: `1px solid ${C.border}`, padding: '10px 14px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5 }}>
-          <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ color: C.blue, textDecoration: 'none' }}>← ficha</a>
+          <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ color: C.gold, textDecoration: 'none' }}>← ficha</a>
           <span style={{ fontWeight: 700, color: C.esp }}>{totais.avaliados}/{totais.total} itens</span>
           <span style={{ color: C.gold, fontWeight: 700 }}>{brl(totais.previsao)}</span>
         </div>

@@ -11,7 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
-  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
 }
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -195,7 +195,7 @@ function Inner() {
                     ? <div style={{ marginTop: 8, fontSize: 12, color: C.espM }}>custo acumulado <b style={{ color: C.esp }}>{brl(v.custo_acumulado)}</b></div>
                     : <div style={{ marginTop: 8, fontSize: 11, color: '#8A4B08', background: '#FAEEDA', borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}>⚠️ sem custo de aquisição — margem não calcula</div>}
                   {(v.fiscais_faltantes?.length ?? 0) > 0 && (
-                    <div style={{ marginTop: 6, fontSize: 10.5, color: C.blue, background: '#EEF3FB', borderRadius: 6, padding: '4px 8px', lineHeight: 1.35 }}
+                    <div style={{ marginTop: 6, fontSize: 10.5, color: C.gold, background: C.cream, borderRadius: 6, padding: '4px 8px', lineHeight: 1.35 }}
                       title="Necessário para veículo novo; para usado, a confirmar com o contador">
                       🚙 faltam dados do veículo: {v.fiscais_faltantes!.join(', ')}
                     </div>
