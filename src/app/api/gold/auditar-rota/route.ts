@@ -13,6 +13,7 @@ import { chromium as playwright } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
 import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
+import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,13 +22,12 @@ export const maxDuration = 300;
 const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v147.0.0/chromium-v147.0.0-pack.x64.tar';
 
-const EMPRESA_PADRAO_BOT = 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725';
-// Bot PRÓPRIO da oficina (ambiente_tenant='auditoria', sintético e isolado). As telas da oficina são
-// filas por empresa: sem dados, a Camada 2 auditaria só o empty state. Para rotas /dashboard/oficina,
-// o auditor usa esta empresa e chama fn_gold_oficina_seed_reparar antes (idempotente + auto-reparável).
-const EMPRESA_BOT_OFICINA = 'b0700000-0000-4000-a000-000000000001';
-// Bot PRÓPRIO da agência (P&M) — mesma receita da Oficina. Dados-semente via fn_gold_pm_seed_reparar.
-const EMPRESA_BOT_PM = 'b0700000-0000-4000-a000-000000000002';
+// INCIDENTE LGPD 20/09 (0e8add26): o default NÃO pode ser empresa real. Cada vertical aponta para a sua
+// DEMONSTRAÇÃO (is_demo). Sem demo da vertical ⇒ empresaPermitidaParaRobo recusa e a rota fica "NÃO AUDITADA".
+const EMPRESA_BOT_OFICINA = 'b0700000-0000-4000-a000-000000000001'; // Demonstração · Oficina
+const EMPRESA_BOT_PM = 'b0700000-0000-4000-a000-000000000002';      // Demonstração · Agência (P&M)
+const EMPRESA_BOT_REVENDA = 'b0700000-0000-4000-a000-000000000003'; // Demonstração · Revenda
+const EMPRESA_BOT_GE = 'b0700000-0000-4000-a000-000000000004';      // Demonstração · Comércio (GE) — default geral
 
 type Body = { rota?: string; screen_id?: string };
 
@@ -112,7 +112,9 @@ export async function POST(req: Request) {
     // O robô é PS_ADMIN (isento do gating de área/assinatura), então navega direto sem depender do menu.
     const ehOficina = rota.startsWith('/dashboard/oficina');
     const ehPm = rota.startsWith('/dashboard/pm') || rota === '/dashboard/producao';
-    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : EMPRESA_PADRAO_BOT;
+    const ehRevenda = rota.startsWith('/dashboard/revenda');
+    // vertical → demo por is_demo (item 4 do incidente). Default geral = Demonstração Comércio (GE), NUNCA PS LTDA.
+    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : ehRevenda ? EMPRESA_BOT_REVENDA : EMPRESA_BOT_GE;
     // RD-69 P1/RD-70: o robô SÓ audita empresa de DEMONSTRAÇÃO (is_demo=true). Rota sem demo da vertical
     // (ex.: genérica que caía na PS LTDA) ⇒ 403 e a rota fica "NÃO AUDITADA" no painel. Fail-closed.
     if (!(await empresaPermitidaParaRobo(supabase, empresaAudit))) {
@@ -210,6 +212,13 @@ async function auditarBotao(
   }
 
   const tempoMs = Date.now() - t0;
+
+  // INCIDENTE LGPD 20/09: só fotografa se a empresa RENDERIZADA for a pedida e NÃO estiver em modo grupo.
+  const render = await conferirEmpresaRenderizada(page);
+  if (!render.ok) {
+    await page.close();
+    return await gravarErro(supabase, botao, 'empresa_renderizada_diverge', render.motivo || 'render diverge', 'nao_testavel');
+  }
 
   const buffer = await page.screenshot({
     type: 'jpeg', quality: 70, fullPage: false,

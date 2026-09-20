@@ -12,6 +12,7 @@ import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser } from 'playwright-core';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
+import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
   const consoleErros: string[] = [];
   const navegacoes: string[] = [];
   let totalReq = 0;
+  let renderOk = true; let renderMotivo = ''; // INCIDENTE LGPD 20/09: só devolve dados se a empresa renderizada = pedida
 
   try {
     const { data: signIn, error: signErr } = await supabase.auth.signInWithPassword({ email: BOT_EMAIL, password: BOT_PASSWORD });
@@ -98,12 +100,18 @@ export async function POST(req: Request) {
       await page.goto(`${SAAS_BASE_URL}${rota}`, { waitUntil: 'commit', timeout: 20000 });
     } catch { /* pode estourar; seguimos coletando */ }
     await page.waitForTimeout(segundos * 1000).catch(() => {});
+    const chk = await conferirEmpresaRenderizada(page, empresaId);
+    renderOk = chk.ok; renderMotivo = chk.motivo || '';
     await page.close().catch(() => {});
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: 'falha geral', detalhe: msg, total_requisicoes: totalReq }, { status: 500 });
   } finally {
     if (browser) await browser.close().catch(() => {});
+  }
+
+  if (!renderOk) {
+    return NextResponse.json({ error: 'empresa_renderizada_diverge', motivo: renderMotivo, empresa_id: empresaId }, { status: 409 });
   }
 
   const top10 = [...contagem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([url, n]) => ({ url, n }));

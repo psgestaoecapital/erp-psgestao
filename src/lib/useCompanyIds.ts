@@ -120,6 +120,24 @@ export function useCompanyIds() {
     };
   }
 
+  // INCIDENTE LGPD 20/09 (0e8add26): expõe a empresa EFETIVAMENTE renderizada (não a pedida) num marcador
+  // determinístico. O auditor/robô lê window.__psEmpresaEfetiva ANTES de fotografar: se estiver em modo
+  // grupo (isGroup) ou a efetiva divergir da pedida (fallback "consolidado" por não-membro), ele descarta a
+  // foto. Sem isso, a tela caía em "Todas as Empresas" e fotografava CNPJs reais no bucket público.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      (window as unknown as { __psEmpresaEfetiva?: unknown }).__psEmpresaEfetiva = {
+        pedida: sel,            // o que estava no localStorage (ps_empresa_sel)
+        efetiva: selValido,     // o que REALMENTE vai renderizar (após validação de pertencimento)
+        isGroup: selInfo.isGroup,
+        nome: selInfo.nome,
+        // divergiu = pediu uma empresa específica mas caiu no consolidado/grupo (não é membro)
+        divergiu: sel !== "consolidado" && !sel.startsWith("group_") && selValido !== sel,
+      };
+    } catch { /* ambiente sem window */ }
+  }, [sel, selValido, selInfo.isGroup, selInfo.nome]);
+
   // sel exposto e o VALIDADO — consumidores que fazem companyIdUnico=sel
   // ganham a validacao automaticamente sem breaking change.
   return { companyIds, selInfo, loading, sel: selValido, companies, groups };
