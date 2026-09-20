@@ -72,6 +72,11 @@ export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: 'ANTHROPIC_API_KEY ausente' }, { status: 500 })
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+  // RLS FIX: o login do bot roda num cliente SEPARADO. signInWithPassword SETA a sessão no cliente que o
+  // chama — se fosse no `supabase`, o Authorization viraria o JWT do bot (authenticated) e o INSERT em
+  // blueprint_tela_cobertura (RLS sem policy de INSERT p/ authenticated) seria RECUSADO. `supabase` fica
+  // intocado como service_role (bypassa RLS) para gravar a cobertura.
+  const authClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
   const empresaId = (body.empresa_id || DEMO_REVENDA).trim()
   if (!(await empresaPermitidaParaRobo(supabase, empresaId))) {
     return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaId }, { status: 403 })
@@ -100,7 +105,7 @@ export async function POST(req: Request) {
 
   let browser: Browser | null = null
   try {
-    const { data: signIn, error: signErr } = await supabase.auth.signInWithPassword({ email: BOT_EMAIL, password: BOT_PASSWORD })
+    const { data: signIn, error: signErr } = await authClient.auth.signInWithPassword({ email: BOT_EMAIL, password: BOT_PASSWORD })
     if (signErr || !signIn?.session) throw new Error(`login bot: ${signErr?.message || 'sem session'}`)
     const s = signIn.session
     const sessionPayload = JSON.stringify({
@@ -169,14 +174,16 @@ ${JSON.stringify(reqParaPrompt)}
 Para CADA requisito devolva: status ∈ atendido|parcial|ausente|quebrado; evidencia (o que viu na tela/dado que justifica); nota_funcional, nota_conteudo, nota_visual (1 frase cada).
 "quebrado" = existe mas contraria uma regra de negócio ou diverge do banco. "ausente" = a régua pede e a tela não tem.
 Contador 0 com dado real 0 = atendido (honesto), não bug.
-Responda APENAS JSON sem markdown: {"vereditos":[{"ref":"R1","status":"...","evidencia":"...","nota_funcional":"...","nota_conteudo":"...","nota_visual":"..."}]}`
+Responda SOMENTE com um objeto JSON válido (sem markdown, sem texto antes ou depois, sem comentários).
+Seja conciso nas evidências/notas (1 frase curta cada) para não truncar. Formato exato:
+{"vereditos":[{"ref":"R1","status":"atendido|parcial|ausente|quebrado","evidencia":"...","nota_funcional":"...","nota_conteudo":"...","nota_visual":"..."}]}`
 
     const claude = await chamarClaude({
       finalidade: 'auditoria_jornada',
       endpoint: '/api/gold/juiz-revenda',
       companyId: empresaId,
       payload: {
-        max_tokens: 2500,
+        max_tokens: 8000,
         messages: [{
           role: 'user',
           content: [
@@ -190,14 +197,27 @@ Responda APENAS JSON sem markdown: {"vereditos":[{"ref":"R1","status":"...","evi
     const usage = claude?.usage
     const custoUsd = usage ? (usage.input_tokens * 2 + usage.output_tokens * 10) / 1_000_000 : 0
     const textBlock = (claude?.content || []).find((c: { type: string }) => c.type === 'text') as { text?: string } | undefined
+    const bruto = textBlock?.text ?? ''
     let vereditos: Veredito[] = []
-    if (textBlock?.text) {
-      try {
-        const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim())
-        vereditos = Array.isArray(parsed?.vereditos) ? parsed.vereditos : []
-      } catch { /* parse falho → vereditos vazio, tratado abaixo */ }
+    let parseErro: string | null = null
+    if (bruto) {
+      const limpo = bruto.replace(/```json|```/g, '').trim()
+      // tenta o texto inteiro; se falhar, extrai o 1º objeto {...} (tolera prosa em volta)
+      const candidatos = [limpo]
+      const ini = limpo.indexOf('{'); const fim = limpo.lastIndexOf('}')
+      if (ini >= 0 && fim > ini) candidatos.push(limpo.slice(ini, fim + 1))
+      for (const c of candidatos) {
+        try {
+          const p = JSON.parse(c)
+          if (Array.isArray(p?.vereditos)) { vereditos = p.vereditos as Veredito[]; break }
+        } catch (e) { parseErro = e instanceof Error ? e.message : String(e) }
+      }
     }
-    if (!vereditos.length) return NextResponse.json({ error: 'juiz não retornou vereditos', tela_num: telaNum }, { status: 502 })
+    if (!vereditos.length) {
+      // RD-38: nunca só "não retornou vereditos" — loga a resposta crua p/ diagnóstico e devolve um trecho.
+      console.error('[juiz-revenda] sem vereditos parseáveis', { tela_num: telaNum, parse_erro: parseErro, bruto: bruto.slice(0, 1500) })
+      return NextResponse.json({ error: 'juiz não retornou vereditos', tela_num: telaNum, parse_erro: parseErro, resposta_crua: bruto.slice(0, 1500) }, { status: 502 })
+    }
 
     // grava a cobertura (uma execução por chamada)
     const execucaoId = crypto.randomUUID()
