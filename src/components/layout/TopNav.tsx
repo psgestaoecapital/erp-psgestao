@@ -304,7 +304,7 @@ export default function TopNav() {
                   role="menuitem"
                   data-testid="logout-button"
                   onClick={() => { setMenuAberto(false); void sair() }}
-                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-[#A32D2D] hover:bg-[#A32D2D]/8 transition-colors text-left"
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-[#B42318] hover:bg-[#B42318]/8 transition-colors text-left"
                 >
                   <LogOut size={15} /> Sair
                 </button>
@@ -321,7 +321,7 @@ export default function TopNav() {
             title="Sair"
             data-testid="header-logout"
             onClick={() => void sair()}
-            className="w-9 h-9 rounded-lg hover:bg-[#A32D2D]/10 flex items-center justify-center transition-colors text-[#A32D2D]"
+            className="w-9 h-9 rounded-lg hover:bg-[#B42318]/10 flex items-center justify-center transition-colors text-[#B42318]"
           >
             <LogOut size={18} />
           </button>
