@@ -165,21 +165,25 @@ Deno.serve(async (req: Request) => {
 
       const featuresEsperadas = detalhe?.features_esperadas || [];
 
-      const imageResponse = await fetch(screen.screenshot_url, {
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!imageResponse.ok) {
-        resultados.push({ rota: screen.rota, status: "erro", erro: `Imagem download falhou: ${imageResponse.status}` });
+      // LGPD (bucket system-screenshots PRIVADO): screenshot_url agora guarda o PATH; baixa os bytes pelo
+      // service_role (Storage API) — nunca URL pública. Linha legada (URL http completa) não abre mais no
+      // bucket privado → pula com erro claro, sem gastar chamada ao Claude.
+      const ref: string = screen.screenshot_url as string;
+      if (/^https?:\/\//i.test(ref)) {
+        resultados.push({ rota: screen.rota, status: "erro", erro: "screenshot legado (URL pública) — bucket privado; recapturar" });
         continue;
       }
-
-      const imageBuffer = await imageResponse.arrayBuffer();
+      const { data: blob, error: dlErr } = await supabase.storage.from("system-screenshots").download(ref);
+      if (dlErr || !blob) {
+        resultados.push({ rota: screen.rota, status: "erro", erro: `download da foto falhou: ${dlErr?.message || "sem blob"}` });
+        continue;
+      }
+      const imageBuffer = await blob.arrayBuffer();
       const imageBase64 = btoa(
         new Uint8Array(imageBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
       );
-      // v3: media_type derivado da URL (jpg apos PR #113, png em legados)
-      const mediaType = detectMediaType(screen.screenshot_url);
+      // media_type pela extensao do PATH (jpg atual, png em legados)
+      const mediaType = detectMediaType(ref);
 
       // Item A — blueprint da vertical desta tela (baliza). NULL se a área não tem blueprint mapeado.
       const verticalTela = AREA_TO_VERTICAL[screen.area as string] || null;

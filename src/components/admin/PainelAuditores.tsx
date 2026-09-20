@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { categorizeRota, colorForScore, type CategoriaArea } from '@/lib/auditores/categorizeRota'
+import ScreenshotAssinado from './ScreenshotAssinado'
 
 interface Insight {
   rota: string
@@ -407,12 +408,7 @@ function ModalDrillDown({ insight, onClose }: { insight: Insight; onClose: () =>
           {insight.screenshot_url_analisado && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 10, color: COLORS.espressoLight, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, fontWeight: 700 }}>Screenshot analisado</div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={insight.screenshot_url_analisado}
-                alt={`Screenshot de ${insight.rota}`}
-                style={{ width: '100%', maxHeight: 420, objectFit: 'contain', background: '#FFFFFF', border: COLORS.border, borderRadius: 8 }}
-              />
+              <ScreenshotAssinado key={insight.screenshot_url_analisado} valor={insight.screenshot_url_analisado} alt={`Screenshot de ${insight.rota}`} style={{ width: '100%', maxHeight: 420, objectFit: 'contain', background: '#FFFFFF', border: COLORS.border, borderRadius: 8 }} />
             </div>
           )}
 
