@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
   border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5',
-  red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  red: '#B42318', redBg: '#FDECEC',
 }
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
@@ -107,7 +107,7 @@ function Inner() {
   const semVistoria = !!p.incerteza?.sem_previsao_de_gastos
   return (
     <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 620, margin: '0 auto', padding: '18px 16px 48px' }}>
-      <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ fontSize: 12, color: C.blue, textDecoration: 'none' }}>← voltar à ficha</a>
+      <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar à ficha</a>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700, marginTop: 8 }}>Precificação</div>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 14px' }}>{v?.marca} {v?.modelo} {v?.placa ? `· ${v.placa}` : ''}</h1>
 
@@ -122,7 +122,7 @@ function Inner() {
         <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 6, paddingTop: 6 }}>
           <Linha l="Custo total" v={brl(p.custo?.custo_total)} forte />
         </div>
-        {semVistoria && <a href={`/dashboard/revenda/veiculo/${veiculoId}/vistoria`} style={{ fontSize: 12, color: C.blue, textDecoration: 'none' }}>→ fazer a vistoria (faz o custo da preparação aparecer)</a>}
+        {semVistoria && <a href={`/dashboard/revenda/veiculo/${veiculoId}/vistoria`} style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>→ fazer a vistoria (faz o custo da preparação aparecer)</a>}
       </Bloco>
 
       {/* ENCARGOS */}
@@ -136,7 +136,7 @@ function Inner() {
         </div>
         {p.piso_incompleto && <div style={{ background: C.amberBg, color: '#8A4B08', borderRadius: 8, padding: '7px 10px', marginTop: 8, fontSize: 12 }}>⚠️ Piso incompleto: alguns encargos não estão configurados — o mínimo pode estar otimista.</div>}
         {/* RD-65: um só lugar para os parâmetros da loja — a tela de Configuração da garagem (Onda R2). */}
-        <a href="/dashboard/revenda/config" style={{ display: 'inline-block', color: C.blue, fontSize: 12.5, padding: '8px 0 0', textDecoration: 'underline' }}>⚙️ configurar encargos da loja</a>
+        <a href="/dashboard/revenda/config" style={{ display: 'inline-block', color: C.gold, fontSize: 12.5, padding: '8px 0 0', textDecoration: 'underline' }}>⚙️ configurar encargos da loja</a>
       </Bloco>
 
       {/* QUERO VENDER POR */}

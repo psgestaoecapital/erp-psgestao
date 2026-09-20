@@ -10,7 +10,7 @@ import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
-  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
 }
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -154,7 +154,7 @@ function Inner() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}>
-      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.blue, textDecoration: 'none' }}>← voltar ao pátio</a>
+      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar ao pátio</a>
       {msg && <div style={{ background: C.amberBg, color: C.amber, padding: '9px 13px', borderRadius: 8, fontSize: 13, margin: '10px 0' }} onClick={() => setMsg(null)}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, margin: '10px 0' }} onClick={() => setErro(null)}>{erro}</div>}
 
@@ -212,7 +212,7 @@ function Inner() {
         {venda && (
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginTop: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: venda.situacao === 'entregue' ? C.greenBg : '#E8EEF9', color: venda.situacao === 'entregue' ? C.green : C.blue, fontWeight: 700 }}>{venda.situacao.toUpperCase()}</span>
+              <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: venda.situacao === 'entregue' ? C.greenBg : C.cream, color: venda.situacao === 'entregue' ? C.green : C.gold, fontWeight: 700 }}>{venda.situacao.toUpperCase()}</span>
               <b>{venda.cliente_nome || '—'}</b>
               <span style={{ fontWeight: 700 }}>{brl(venda.valor_venda ?? 0)}</span>
             </div>
@@ -263,8 +263,8 @@ function Inner() {
                   : c.entra_base_fiscal
                     ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.greenBg, color: C.green }}>entra na base fiscal</span>
                     : <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>fora da base</span>}
-                {c.pagar_id && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#E8EEF9', color: C.blue }}>tem título</span>}
-                {!c.pagar_id && <button onClick={() => setLancarPagar(c)} style={{ marginLeft: 'auto', border: `1px solid ${C.blue}`, background: C.white, color: C.blue, borderRadius: 7, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>lançar conta a pagar</button>}
+                {c.pagar_id && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.gold }}>tem título</span>}
+                {!c.pagar_id && <button onClick={() => setLancarPagar(c)} style={{ marginLeft: 'auto', border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 7, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>lançar conta a pagar</button>}
                 <button onClick={() => void excluirCusto(c.id)} style={{ marginLeft: c.pagar_id ? 'auto' : 8, border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontSize: 12 }}>excluir</button>
               </div>
             ))}
@@ -702,7 +702,7 @@ function VistoriaBloco({ veiculoId }: { veiculoId: string }) {
           </div>
           <div style={{ fontSize: 12.5, color: C.espM, marginTop: 8 }}>{st.reparo} em reparo · {st.troca} em troca · fotos {st.fotosOk}/{st.fotosObrig} regiões</div>
           <div style={{ fontSize: 11.5, color: C.espL, marginTop: 6 }}>A previsão alimenta a precificação. O custo em Contas a Pagar nasce quando o gasto acontece (lançar como custo — Onda 9).</div>
-          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.blue, fontSize: 13, textDecoration: 'none' }}>ver detalhes da vistoria →</a>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.gold, fontSize: 13, textDecoration: 'none' }}>ver detalhes da vistoria →</a>
         </div>
       ) : (
         <div>
@@ -742,7 +742,7 @@ function PrecificacaoBloco({ veiculoId }: { veiculoId: string }) {
             <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Preço de venda</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.preco_venda)}</div></div>
             {st.preco_minimo != null && <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Piso</div><div style={{ fontSize: 15, fontWeight: 700 }}>{brl(st.preco_minimo)}</div></div>}
           </div>
-          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.blue, fontSize: 13, textDecoration: 'none' }}>ver / reprecificar →</a>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.gold, fontSize: 13, textDecoration: 'none' }}>ver / reprecificar →</a>
         </div>
       )}
     </Bloco>
@@ -825,7 +825,7 @@ function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { ve
               <span style={{ color: C.espM }}>{brl(os.total)}</span>
               {os.dias_corridos != null && <span style={{ color: C.espL, fontSize: 11 }}>{os.dias_corridos} dia(s)</span>}
               {os.custo_id
-                ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#E8EEF9', color: C.blue }}>custo lançado</span>
+                ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.gold }}>custo lançado</span>
                 : <button disabled={busy === os.os_id} onClick={() => void concluir(os)} style={{ marginLeft: 'auto', border: `1px solid ${C.green}`, background: C.white, color: C.green, borderRadius: 7, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: busy === os.os_id ? 'wait' : 'pointer' }}>{busy === os.os_id ? '…' : 'concluir → vira custo'}</button>}
             </div>
           ))}
@@ -1164,7 +1164,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
   return (
     <div>
       {(faltantes?.length ?? 0) > 0 && (
-        <div style={{ background: '#EEF3FB', border: `1px solid ${C.blue}44`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, color: '#1E3A6B', lineHeight: 1.5 }}>
+        <div style={{ background: C.cream, border: `1px solid ${C.gold}44`, borderLeft: `4px solid ${C.gold}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, color: C.esp, lineHeight: 1.5 }}>
           🚙 <b>Faltam dados do veículo:</b> {faltantes!.join(', ')}. <span style={{ color: C.espM }}>Necessário para veículo novo; para usado, a confirmar com o contador (item 6.1). Preencha abaixo.</span>
         </div>
       )}

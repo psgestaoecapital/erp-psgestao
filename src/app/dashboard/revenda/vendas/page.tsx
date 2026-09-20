@@ -10,7 +10,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
-  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
 }
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -99,7 +99,7 @@ function Inner() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: C.gold }}>{brl(v.valor_venda ?? 0)}</div>
-                  <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: v.situacao === 'entregue' ? C.greenBg : v.situacao === 'cancelada' ? C.redBg : '#E8EEF9', color: v.situacao === 'entregue' ? C.green : v.situacao === 'cancelada' ? C.red : C.blue, fontWeight: 700 }}>{v.situacao}</span>
+                  <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: v.situacao === 'entregue' ? C.greenBg : v.situacao === 'cancelada' ? C.redBg : C.cream, color: v.situacao === 'entregue' ? C.green : v.situacao === 'cancelada' ? C.red : C.gold, fontWeight: 700 }}>{v.situacao}</span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: C.espM, marginTop: 8 }}>
@@ -109,7 +109,7 @@ function Inner() {
                 {v.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(v.desconto_embutido_troca)}</span> : null}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button onClick={() => router.push(`/dashboard/revenda/veiculo/${v.veiculo_id}`)} style={{ padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.blue, cursor: 'pointer', fontSize: 12 }}>ver veículo</button>
+                <button onClick={() => router.push(`/dashboard/revenda/veiculo/${v.veiculo_id}`)} style={{ padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.gold, cursor: 'pointer', fontSize: 12 }}>ver veículo</button>
                 {/* R0.2: entrega só com NF-e autorizada. R0.2b: na DEMO (is_demo) uma venda faturada entrega
                     sem nota real, com selo. Sem nota e não-demo → aviso (a função também recusa). Botão dourado. */}
                 {v.situacao !== 'entregue' && v.situacao !== 'cancelada' && (
