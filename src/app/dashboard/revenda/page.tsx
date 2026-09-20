@@ -74,6 +74,7 @@ export default function PainelRevendaPage() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <a href="/dashboard/revenda/patio" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>🚗 Pátio</a>
           <a href="/dashboard/revenda/demanda" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>🏆 O que comprar</a>
+          <a href="/dashboard/revenda/config" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>⚙️ Configuração</a>
         </div>
       </div>
 
@@ -174,9 +175,9 @@ export default function PainelRevendaPage() {
           {!p.config.carrego && (
             <div style={{ background: C.cream, border: `1px solid ${C.border}`, borderRadius: 12, padding: '13px 15px', marginTop: 16, fontSize: 12.5, color: C.espM, lineHeight: 1.5 }}>
               <b style={{ color: C.esp }}>Esta tela mostra o capital parado, não o lucro.</b><br />
-              Custo de pátio, capital e depreciação (o &quot;carrego&quot;) ainda não estão configurados — depende do plano de contas na Gestão Empresarial.
+              Custo de pátio, capital e depreciação (o &quot;carrego&quot;) ainda não estão configurados — informe vagas, custo fixo e taxa de capital na Configuração da garagem.
               <div style={{ marginTop: 8 }}>
-                <a href="/dashboard/cadastros/plano-contas" style={{ padding: '7px 13px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 12.5 }}>configurar</a>
+                <a href="/dashboard/revenda/config" style={{ padding: '7px 13px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 12.5 }}>configurar</a>
               </div>
             </div>
           )}
