@@ -1,0 +1,54 @@
+name: Juiz Revenda (gatilho + semanal)
+
+# Revenda R1e: após cada merge que toca a Revenda, roda as jornadas (R1b) + o juiz (R1d) nas rotas da
+# Demonstração Revenda, com TETO de custo (fn_juiz_orcamento: US$ 5/dia · US$ 50/mês). Varredura completa
+# semanal. Só empresa is_demo. Depende de R1b (script jornadas), R1d (endpoint do juiz) e R1e (orçamento).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/dashboard/revenda/**'
+  schedule:
+    - cron: '0 8 * * 1' # segunda 05h BRT — varredura completa semanal
+  workflow_dispatch:
+
+concurrency:
+  group: juiz-revenda
+  cancel-in-progress: false
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROD_BASE_URL: https://erp-psgestao.vercel.app
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      WATCHER_SECRET: ${{ secrets.WATCHER_SECRET }}
+      PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+      PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+      JUIZ_ORIGEM: ${{ github.event_name == 'schedule' && 'semanal' || 'gatilho' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+      - name: Jornadas da Revenda (R1b)
+        run: npm run jornadas:revenda
+      - name: Juiz nas rotas da Revenda (R1d), com teto de custo (R1e)
+        run: npx tsx scripts/juiz-revenda-sweep.ts
+      - name: Upload relatório (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: juiz-revenda-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
