@@ -1,0 +1,34 @@
+name: Retenção screenshots (30 dias)
+
+# INCIDENTE LGPD (0e8add26): depois da limpeza do acervo, o bucket system-screenshots guarda só fotos de
+# demonstração. Retenção: apaga o que for mais velho que 30 dias (pela rota de limpeza, que usa a Storage
+# API e invalida a CDN). Diário, de madrugada.
+on:
+  schedule:
+    - cron: '0 6 * * *' # 03h BRT (06h UTC)
+  workflow_dispatch:
+    inputs:
+      dias:
+        description: 'Dias de retenção (padrão 30)'
+        required: false
+        default: '30'
+
+jobs:
+  retencao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Apagar screenshots mais velhos que N dias
+        env:
+          PROD_BASE_URL: https://erp-psgestao.vercel.app
+          WATCHER_SECRET: ${{ secrets.WATCHER_SECRET }}
+          DIAS: ${{ github.event.inputs.dias || '30' }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" -X POST \
+            "$PROD_BASE_URL/api/screen-watcher/remover-fotos" \
+            -H "content-type: application/json" \
+            -H "x-watcher-secret: $WATCHER_SECRET" \
+            -d "{\"retencao_dias\": ${DIAS}}")
+          echo "HTTP $code"; cat /tmp/resp.json; echo
+          test "$code" = "200"
