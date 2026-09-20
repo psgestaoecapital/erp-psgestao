@@ -19,6 +19,9 @@ const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reve
 const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
 // R3c · conta por veículo (fn_veic_patio_conta.itens): sangria/dia e vira-prejuízo por card.
 type ItemPatio = { veiculo_id: string; sangria_dia: number | null; data_vira_prejuizo: string | null; roi_anualizado_pct: number | null }
+// R3-fix T3 · piso hoje, anunciado e KM por veículo (colunas de veic_veiculo — v_veic_patio não expõe).
+type Detalhe = { preco_minimo: number | null; preco_venda: number | null; km_atual: number | null; km_entrada: number | null }
+const km = (v: number | null) => v != null ? `${v.toLocaleString('pt-BR')} km` : null
 const semColor = (s: string) => s === 'verde' ? { c: C.green, bg: C.greenBg } : s === 'amarelo' ? { c: C.amber, bg: C.amberBg } : { c: C.red, bg: C.redBg }
 
 type Veic = { id: string; chassi: string; placa: string | null; modelo: string | null; ano_modelo: number | null; situacao: string; dias_patio: number; custo_acumulado: number; semaforo: string; foto_url: string | null; tem_custo: boolean; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
@@ -43,6 +46,7 @@ function Inner() {
   const [interessados, setInteressados] = useState<Map<string, number>>(new Map()) // Onda 10: veiculo -> nº de oportunidades abertas
   const [resumoFiscal, setResumoFiscal] = useState<{ total: number; aptos: number; pendentes: number } | null>(null) // Onda 0
   const [conta, setConta] = useState<Map<string, ItemPatio>>(new Map()) // R3c: sangria/vira por veículo
+  const [detalhe, setDetalhe] = useState<Map<string, Detalhe>>(new Map()) // R3-fix T3: piso/anunciado/KM
   const [ordem, setOrdem] = useState<'dias' | 'sangria' | 'vira'>('dias') // R3c: ordenação
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
@@ -87,6 +91,11 @@ function Inner() {
     const cm = new Map<string, ItemPatio>()
     ;(pcr?.ok ? (pcr.itens ?? []) : []).forEach((it) => { if (it.veiculo_id) cm.set(it.veiculo_id, it) })
     setConta(cm)
+    // R3-fix T3: piso hoje (preco_minimo), anunciado (preco_venda) e KM — colunas de veic_veiculo
+    const { data: det } = await supabase.from('veic_veiculo').select('id, preco_minimo, preco_venda, km_atual, km_entrada').eq('company_id', companyId).is('deleted_at', null)
+    const dm = new Map<string, Detalhe>()
+    ;((det as ({ id: string } & Detalhe)[]) ?? []).forEach((d) => dm.set(d.id, { preco_minimo: d.preco_minimo, preco_venda: d.preco_venda, km_atual: d.km_atual, km_entrada: d.km_entrada }))
+    setDetalhe(dm)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -204,7 +213,7 @@ function Inner() {
                 </div>
                 <div style={{ padding: 12 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{v.modelo || '—'} {v.ano_modelo ? `· ${v.ano_modelo}` : ''}</div>
-                  <div style={{ fontSize: 12, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'} · {v.chassi.slice(-6)}</div>
+                  <div style={{ fontSize: 12, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'} · {v.chassi.slice(-6)}{(() => { const k = km(detalhe.get(v.id)?.km_atual ?? detalhe.get(v.id)?.km_entrada ?? null); return k ? ` · ${k}` : '' })()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700 }}>● {v.dias_patio} dia(s)</span>
                     <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>{v.situacao.replace('_', ' ')}</span>
@@ -222,6 +231,16 @@ function Inner() {
                   {v.tem_custo
                     ? <div style={{ marginTop: 8, fontSize: 12, color: C.espM }}>custo acumulado <b style={{ color: C.esp }}>{brl(v.custo_acumulado)}</b></div>
                     : <div style={{ marginTop: 8, fontSize: 11, color: '#8A4B08', background: '#FAEEDA', borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}>⚠️ sem custo de aquisição — margem não calcula</div>}
+                  {/* R3-fix T3: piso hoje (preço mínimo) e anunciado no card */}
+                  {(() => {
+                    const d = detalhe.get(v.id); if (!d) return null
+                    return (
+                      <div style={{ marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11.5 }}>
+                        <span style={{ color: C.espM }}>piso hoje <b style={{ color: C.esp }}>{d.preco_minimo != null ? brl(d.preco_minimo) : '—'}</b></span>
+                        <span style={{ color: C.espM }}>anunciado <b style={{ color: d.preco_venda != null ? C.gold : C.espL }}>{d.preco_venda != null ? brl(d.preco_venda) : 'sem preço'}</b></span>
+                      </div>
+                    )
+                  })()}
                   {/* R3c · sangria/dia e vira-prejuízo (semáforo real: vermelho só quando ≤ 15 dias) */}
                   {(() => {
                     const it = conta.get(v.id); if (!it) return null

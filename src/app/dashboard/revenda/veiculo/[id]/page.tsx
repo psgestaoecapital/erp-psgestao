@@ -49,6 +49,7 @@ function Inner() {
   const [v, setV] = useState<Veic | null>(null)
   const [custos, setCustos] = useState<Custo[]>([])
   const [eventos, setEventos] = useState<Evento[]>([])
+  const [precoHist, setPrecoHist] = useState<{ preco_venda: number | null; preco_minimo: number | null; criado_em: string }[]>([]) // R3-fix T4: linha do tempo do valor
   const [reserva, setReserva] = useState<Reserva | null>(null)
   const [venda, setVenda] = useState<Venda | null>(null)
   const [compl, setCompl] = useState<Compl | null>(null)
@@ -79,6 +80,9 @@ function Inner() {
     ])
     setCustos((cs.data as Custo[]) ?? [])
     setEventos((es.data as Evento[]) ?? [])
+    // R3-fix T4: linha do tempo do VALOR (piso × anunciado ao longo do tempo) — histórico de precificação
+    const { data: ph } = await supabase.from('veic_precificacao_hist').select('preco_venda, preco_minimo, criado_em').eq('veiculo_id', id).order('criado_em', { ascending: false })
+    setPrecoHist((ph as { preco_venda: number | null; preco_minimo: number | null; criado_em: string }[]) ?? [])
     setReserva(((rs.data as Reserva[]) ?? [])[0] ?? null)
     setVenda(((vs.data as Venda[]) ?? [])[0] ?? null)
     setCompl((cp.data as Compl | null) ?? null)
@@ -170,6 +174,9 @@ function Inner() {
 
       {/* R3d · A CONTA DESTE CARRO — faixa em linguagem de dono, fonte única fn_veic_conta_do_carro. */}
       <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} />
+
+      {/* R3-fix T4 · Trilha de estado (entrada→…→garantia) com o motivo da trava atual. */}
+      <TrilhaEstado situacao={v.situacao} temReserva={!!reserva} venda={venda} temCusto={custos.length > 0} temPreco={precoHist.length > 0} />
 
       {/* Alliance · veículo sem custo de aquisição não pode passar como completo (margem/preço mínimo
           não calculam). Não bloqueia a entrada rápida no pátio — só não finge que está pronto. */}
@@ -272,10 +279,23 @@ function Inner() {
         )}
       </Bloco>
 
-      <Bloco titulo="Linha do tempo">
-        {eventos.length === 0 ? <div style={{ fontSize: 12, color: C.espL }}>Sem eventos.</div> : eventos.map((e) => (
+      {/* R3-fix T4 · Histórico do veículo (CRIOU/ALTEROU/EXCLUIU) — eventos reais do veículo. */}
+      <Bloco titulo="Histórico de alterações">
+        {eventos.length === 0 ? <div style={{ fontSize: 12, color: C.espL }}>Nenhuma alteração registrada ainda.</div> : eventos.map((e) => (
           <div key={e.id} style={{ fontSize: 12.5, borderLeft: `2px solid ${C.gold}`, paddingLeft: 10, margin: '6px 0' }}>
             <b>{e.tipo}</b> · {e.descricao} <span style={{ color: C.espL }}>· {brDate(e.data_evento)} {String(e.data_evento).slice(11, 16)}</span>
+          </div>
+        ))}
+      </Bloco>
+
+      {/* R3-fix T4 · Linha do tempo do VALOR — piso × anunciado a cada reprecificação (fonte: precificação hist). */}
+      <Bloco titulo="Linha do tempo do valor">
+        {precoHist.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.espL }}>Sem reprecificações ainda — o histórico do piso e do anúncio aparece aqui a cada mudança de preço.</div>
+        ) : precoHist.map((h, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, borderTop: i ? `1px solid ${C.cream}` : 'none', padding: '6px 0' }}>
+            <span style={{ color: C.espM }}>{brDate(h.criado_em)}</span>
+            <span style={{ fontFamily: 'monospace' }}>piso {h.preco_minimo != null ? brl(h.preco_minimo) : '—'} · anunciado <b>{h.preco_venda != null ? brl(h.preco_venda) : '—'}</b></span>
           </div>
         ))}
       </Bloco>
@@ -642,6 +662,50 @@ function Item({ l, v, forte }: { l: string; v: React.ReactNode; forte?: boolean 
     <div>
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: '#C9B79F' }}>{l}</div>
       <div style={{ fontSize: forte ? 17 : 14, fontWeight: forte ? 800 : 600, marginTop: 2 }}>{v}</div>
+    </div>
+  )
+}
+
+// R3-fix T4 · Trilha de estado do veículo: entrada → vistoria → preparação → anúncio → negociação →
+// venda → entrega → garantia. Marca feito/atual pelo estado REAL e diz o motivo da trava atual.
+function TrilhaEstado({ situacao, temReserva, venda, temCusto, temPreco }: { situacao: string; temReserva: boolean; venda: Venda | null; temCusto: boolean; temPreco: boolean }) {
+  const entregue = situacao === 'entregue' || venda?.situacao === 'entregue'
+  const vendido = !!venda || situacao === 'vendido' || entregue
+  const negociando = temReserva || vendido
+  const anunciado = temPreco || ['disponivel', 'reservado', 'vendido', 'entregue'].includes(situacao)
+  const preparado = temCusto || anunciado || negociando || situacao !== 'em_preparacao'
+  const passos = [
+    { k: 'entrada', l: 'Entrada', ok: true },
+    { k: 'preparacao', l: 'Preparação', ok: preparado },
+    { k: 'anuncio', l: 'Anúncio', ok: anunciado },
+    { k: 'negociacao', l: 'Negociação', ok: negociando },
+    { k: 'venda', l: 'Venda', ok: vendido },
+    { k: 'entrega', l: 'Entrega', ok: entregue },
+    { k: 'garantia', l: 'Garantia', ok: entregue },
+  ]
+  const atualIdx = passos.findIndex((p) => !p.ok)
+  const motivo = atualIdx < 0 ? null
+    : passos[atualIdx].k === 'anuncio' ? 'trava: defina o preço na precificação'
+    : passos[atualIdx].k === 'preparacao' ? 'trava: conclua a preparação/lance os custos'
+    : passos[atualIdx].k === 'venda' ? 'trava: registre a venda'
+    : passos[atualIdx].k === 'entrega' ? 'trava: entrega exige nota (ou selo demo)'
+    : `próximo passo: ${passos[atualIdx].l.toLowerCase()}`
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, margin: '14px 0' }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Trilha do veículo</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {passos.map((p, i) => (
+          <span key={p.k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11.5, padding: '3px 9px', borderRadius: 999, fontWeight: 700,
+              background: p.ok ? C.greenBg : i === atualIdx ? C.amberBg : C.cream,
+              color: p.ok ? C.green : i === atualIdx ? C.amber : C.espL }}>
+              {p.ok ? '✓ ' : i === atualIdx ? '➤ ' : ''}{p.l}
+            </span>
+            {i < passos.length - 1 && <span style={{ color: C.espL, fontSize: 11 }}>→</span>}
+          </span>
+        ))}
+      </div>
+      {motivo && <div style={{ marginTop: 8, fontSize: 12, color: C.amber }}>{motivo}</div>}
     </div>
   )
 }
