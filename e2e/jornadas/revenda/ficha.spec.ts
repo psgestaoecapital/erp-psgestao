@@ -2,12 +2,17 @@
 // editar "detalhes" → salvar → recarregar → persiste; apagar → salvar → recarregar → persiste VAZIO.
 
 import { test, expect, exigirEmpresaDemo, aguardarConteudo } from '../../support/fixtures'
-import { dbSelect, dbPatch, veiculoIdPorModelo } from '../../support/api'
+import { dbSelect, dbPatch, veiculoIdPorModelo, registrarJornada } from '../../support/api'
 
 test.describe('Ficha — detalhes gravam e limpam (#49)', () => {
   let veh = ''
   let versaoOriginal: string | null = null
   const VALOR = 'E2E VERSAO DEMO'
+
+  // R1 item 1c: registra verde/vermelho — a jornada verde prova o requisito e prevalece sobre a foto.
+  test.afterEach(async ({}, testInfo) => {
+    await registrarJornada('ficha', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
+  })
 
   test.beforeAll(async () => {
     veh = await veiculoIdPorModelo('Duster')

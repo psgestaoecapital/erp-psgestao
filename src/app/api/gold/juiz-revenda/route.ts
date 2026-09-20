@@ -28,12 +28,16 @@ const CHROMIUM_PACK_URL =
 const DEMO_REVENDA = 'b0700000-0000-4000-a000-000000000003'
 const VERTICAL = 'revenda_veiculos'
 
+// Paleta PS (VISUAL PREMIUM). Fora dela, em link/texto/botão, é desvio — exceto verde/amarelo/vermelho,
+// que só valem como SEMÁFORO de desempenho. O achado clássico: links em azul #2F5AA8 (rgb 47,90,168).
+const PALETA_PS = 'espresso #3D2314 · off-white #FAF7F2 · dourado #C8941A · neutros (creme #F0ECE3, borda #E0D8CC, cinzas #6B5D4F/#9C8E80, branco/preto)'
+
 // Regras de negócio do Documento Vivo V7 que o juiz deve aplicar (não são "opinião visual").
 const REGRAS_V7 = [
   'Entrega de venda EXIGE NF-e autorizada — exceção só empresa is_demo (com selo "Demonstração — sem nota fiscal real"). Botão de entregar numa venda sem nota e não-demo é QUEBRADO.',
   'Preço mínimo vem de fonte única (fn_veic_preco_minimo): tem de ser IGUAL na ficha e na precificação. Dois valores diferentes para o mesmo veículo é QUEBRADO.',
   'Abrir a tela de vistoria NÃO pode criar vistoria (só o botão Iniciar). Se ao abrir já existir vistoria criada sem ação, é QUEBRADO.',
-  'Verde/amarelo/vermelho só valem como SEMÁFORO (dias no pátio, margem). Cor decorativa fora de semáforo é problema VISUAL.',
+  `VISUAL PREMIUM (rubrica dura): a paleta PS é ${PALETA_PS}. Qualquer cor de link/texto/botão FORA dela é desvio VISUAL — cite o hex/rgb. Verde/amarelo/vermelho SÓ valem como SEMÁFORO de desempenho (dias no pátio, margem); fora disso são desvio. O DOM traz "cores_fora_paleta" já apurado: se não estiver vazio (ex.: azul rgb(47,90,168) = #2F5AA8 nos links), APONTE na nota_visual do(s) requisito(s) da tela e trate como desvio (nunca "atendido" no quesito visual).`,
   'Contador em 0 quando o DADO REAL também é 0 NÃO é bug (é honesto). Só é bug se o número da tela DIVERGE do banco.',
   'Número exibido na tela que diverge do banco (dados reais abaixo) é bug GRAVE (quebrado).',
   'Um requisito da régua que simplesmente não aparece na tela é "ausente" (gap), não "quebrado".',
@@ -129,7 +133,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'bot caiu no login', url_final: urlFinal }, { status: 502 })
     }
 
-    // inventário do DOM: botões, campos, cards/valores, textos
+    // inventário do DOM: botões, campos, cards/valores, textos, e CORES (VISUAL PREMIUM)
     const dom = await page.evaluate(() => {
       const txt = (document.body?.innerText || '')
       const botoes = Array.from(document.querySelectorAll('button')).map((b) => (b.textContent || '').trim()).filter(Boolean).slice(0, 60)
@@ -137,6 +141,18 @@ export async function POST(req: Request) {
         const e = el as HTMLInputElement
         return (e.getAttribute('placeholder') || e.getAttribute('name') || e.getAttribute('id') || e.getAttribute('aria-label') || '').trim()
       }).filter(Boolean).slice(0, 60)
+      // Cores dos LINKS/botões: a paleta PS não tem azul. Detecção determinística (não "opinião") —
+      // devolve as cores fora da paleta para o juiz apontar sem depender de acertar o pixel na foto.
+      const parseRgb = (s: string): number[] | null => { const m = s.match(/\d+/g); return m ? m.slice(0, 3).map(Number) : null }
+      const PALETA = [[61, 35, 20], [107, 93, 79], [156, 142, 128], [250, 247, 242], [240, 236, 227], [224, 216, 204], [255, 255, 255], [200, 148, 26], [0, 0, 0]]
+      const SEMAFORO = [[22, 101, 52], [186, 117, 23], [180, 35, 24], [138, 75, 8], [138, 42, 34]]
+      const perto = (c: number[], set: number[][]) => set.some((p) => Math.abs(p[0] - c[0]) + Math.abs(p[1] - c[1]) + Math.abs(p[2] - c[2]) <= 30)
+      const alvos = Array.from(document.querySelectorAll('a,button')) as HTMLElement[]
+      const coresLink = Array.from(new Set(alvos.map((el) => getComputedStyle(el).color).filter(Boolean)))
+      const foraPaleta = Array.from(new Set(
+        coresLink.map(parseRgb).filter((c): c is number[] => !!c)
+          .filter((c) => !perto(c, PALETA) && !perto(c, SEMAFORO))
+          .map((c) => `rgb(${c.join(',')})`)))
       return {
         title: document.title,
         h1: document.querySelector('h1')?.textContent?.trim() || null,
@@ -144,6 +160,8 @@ export async function POST(req: Request) {
         valores_brl: (txt.match(/R\$\s*[\d.,]+/g) || []).slice(0, 40),
         tem_tabela: !!document.querySelector('table'),
         tem_grafico: !!document.querySelector('canvas, svg'),
+        cores_link: coresLink.slice(0, 20),
+        cores_fora_paleta: foraPaleta.slice(0, 12),
         texto: txt.replace(/\s+/g, ' ').slice(0, 4000),
         possui_erro: /erro|error|404|não encontrad/i.test(txt.slice(0, 800)),
       }
@@ -253,6 +271,7 @@ Seja conciso nas evidências/notas (1 frase curta cada) para não truncar. Forma
       ok: true, rota: rotaConcreta, tela_num: telaNum, execucao_id: execucaoId,
       requisitos: requisitos.length, avaliaveis, nao_avaliavel: naoAvaliavel, atendido, parcial,
       pct_tela: score != null ? Math.round(1000 * score) / 10 : null,
+      cores_fora_paleta: dom.cores_fora_paleta,
       foto_url: fotoPath, signed_url: fotoUrlAssinada, custo_usd: custoUsd,
     })
   } catch (e: unknown) {

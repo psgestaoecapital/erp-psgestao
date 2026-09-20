@@ -3,7 +3,7 @@
 // marcar 1 reparo sem foto → concluir BLOQUEIA → com foto conclui → previsão vai à precificação.
 
 import { test, expect, exigirEmpresaDemo, aguardarConteudo } from '../../support/fixtures'
-import { DEMO_REVENDA, dbSelect, dbDelete, dbPatch, veiculoIdPorModelo } from '../../support/api'
+import { DEMO_REVENDA, dbSelect, dbDelete, dbPatch, veiculoIdPorModelo, registrarJornada } from '../../support/api'
 
 const PNG_1x1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -26,6 +26,11 @@ async function limparVistorias(veh: string): Promise<void> {
 
 test.describe('Vistoria — rápida, foto obrigatória bloqueia, previsão à precificação', () => {
   let veh = ''
+
+  // R1 item 1c: registra verde/vermelho (jornada verde prova o requisito e prevalece sobre a foto).
+  test.afterEach(async ({}, testInfo) => {
+    await registrarJornada('vistoria', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
+  })
 
   test.beforeAll(async () => {
     veh = await veiculoIdPorModelo('Ka')

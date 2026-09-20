@@ -78,6 +78,19 @@ export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })
 }
 
+// R1 item 1c · grava o resultado da jornada (verde/vermelho) em gold_jornada_resultado. A jornada VERDE
+// prova o requisito mapeado (jornada_requisito) e prevalece sobre a foto do juiz (fn_blueprint_cobertura).
+// Nunca lança: o registro é observabilidade, não pode derrubar a suíte.
+export async function registrarJornada(jornada: string, status: 'verde' | 'vermelho', detalhe?: string): Promise<void> {
+  try {
+    await rpc('fn_jornada_registrar_resultado', {
+      p_jornada: jornada, p_status: status, p_detalhe: detalhe ?? null, p_vertical: 'revenda_veiculos',
+    })
+  } catch (e) {
+    console.error(`[jornada ${jornada}] não gravou resultado (${status}):`, e instanceof Error ? e.message : String(e))
+  }
+}
+
 // id do veículo da demo pelo modelo (robusto a mudança de id).
 export async function veiculoIdPorModelo(modelo: string): Promise<string> {
   const rows = await dbSelect<{ id: string }>('veic_veiculo',

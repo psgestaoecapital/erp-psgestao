@@ -2,7 +2,7 @@
 // Civic (sem NF, aberta) NÃO tem botão de entrega; HB20 (demo, faturada) entrega COM o selo; banco registra.
 
 import { test, expect, exigirEmpresaDemo, aguardarConteudo } from '../../support/fixtures'
-import { DEMO_REVENDA, dbSelect, dbPatch, veiculoIdPorModelo } from '../../support/api'
+import { DEMO_REVENDA, dbSelect, dbPatch, veiculoIdPorModelo, registrarJornada } from '../../support/api'
 
 async function vendaDoVeiculo(veh: string): Promise<{ id: string; situacao: string }> {
   const r = await dbSelect<{ id: string; situacao: string }>('veic_venda',
@@ -14,6 +14,11 @@ async function vendaDoVeiculo(veh: string): Promise<{ id: string; situacao: stri
 test.describe('Vendas — entrega só com NF ou demo (com selo)', () => {
   let hb20Venda = ''
   let civicVenda = ''
+
+  // R1 item 1c: registra verde/vermelho (jornada verde prova o requisito e prevalece sobre a foto).
+  test.afterEach(async ({}, testInfo) => {
+    await registrarJornada('vendas', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
+  })
 
   test.beforeAll(async () => {
     const hb20 = await veiculoIdPorModelo('HB20')
