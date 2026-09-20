@@ -229,8 +229,9 @@ async function auditarBotao(
   await supabase.storage.from('system-screenshots').upload(path, buffer, {
     contentType: 'image/jpeg', upsert: true,
   });
-  const { data: pub } = supabase.storage.from('system-screenshots').getPublicUrl(path);
-  const screenshotUrl = pub?.publicUrl ?? null;
+  // LGPD: bucket system-screenshots é PRIVADO — guarda o PATH (nunca URL pública). O Claude usa o buffer
+  // em base64 (abaixo), não a URL; o painel Gold assina sob demanda (PS_ADMIN).
+  const screenshotUrl = path;
 
   const domResumo = await page.evaluate(() => {
     const allText = document.body?.innerText || '';

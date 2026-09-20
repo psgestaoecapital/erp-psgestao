@@ -43,7 +43,8 @@ interface Resultado {
   success: boolean;
   capture_status: 'sucesso' | 'erro' | 'rota_nao_alcancada' | 'nao_carregou';
   rota_alcancada: boolean;
-  screenshot_url: string | null;
+  screenshot_url: string | null;   // PATH no bucket privado (LGPD) — não é URL pública
+  signed_url?: string | null;      // URL assinada (10 min) só p/ uso imediato do chamador
   error?: string | null;
   motivo?: string | null;
   page_load_ms: number;
@@ -74,7 +75,8 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
   const { data: screenRow } = await supabase.from('system_screens').select('id').eq('rota', rotaBase).maybeSingle();
   const screenId = screenRow?.id ?? sanitizePathComponent(rotaBase);
 
-  let screenshotUrl: string | null = null;
+  let screenshotUrl: string | null = null;   // LGPD: signed_url (10 min) só p/ a resposta da API
+  let screenshotPath: string | null = null;  // LGPD: o PATH é o que fica no banco (bucket privado)
   let captureStatus: Resultado['capture_status'] = 'sucesso';
   let rotaAlcancada = false;
   let errorMsg: string | null = null;
@@ -195,14 +197,15 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
       const path = `${sanitizePathComponent(rotaBase)}/${ts}.jpg`;
       const { error: errUp } = await supabase.storage.from('system-screenshots').upload(path, buffer, { contentType: 'image/jpeg', upsert: false });
       if (errUp) throw new Error('Upload falhou: ' + errUp.message);
-      const { data: pub } = supabase.storage.from('system-screenshots').getPublicUrl(path);
-      screenshotUrl = pub?.publicUrl ?? null;
-      if (screenshotUrl) {
-        await supabase.from('system_screens').update({
-          screenshot_url: screenshotUrl, screenshot_atualizado_em: new Date().toISOString(),
-          auditavel_robo: true, motivo_nao_auditavel: null, auditabilidade_em: new Date().toISOString(),
-        }).eq('id', screenId);
-      }
+      // LGPD: bucket system-screenshots é PRIVADO. Guarda o PATH no banco (nunca URL pública) e devolve
+      // uma URL ASSINADA de 10 min só na resposta da API (uso imediato). O painel reassina sob demanda.
+      screenshotPath = path;
+      const { data: signed } = await supabase.storage.from('system-screenshots').createSignedUrl(path, 600);
+      screenshotUrl = signed?.signedUrl ?? null;
+      await supabase.from('system_screens').update({
+        screenshot_url: path, screenshot_atualizado_em: new Date().toISOString(),
+        auditavel_robo: true, motivo_nao_auditavel: null, auditabilidade_em: new Date().toISOString(),
+      }).eq('id', screenId);
       try {
         visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
       } catch (vtErr) { console.error('[visual-truth] erro nao fatal:', vtErr); }
@@ -217,7 +220,7 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
   const pageLoadMs = Date.now() - startedAt;
   if (screenRow?.id) {
     const { error: histErr } = await supabase.from('system_screens_history').insert({
-      screen_id: screenRow.id, rota: rotaCompleta, screenshot_url: screenshotUrl, errors_count: errorsCount,
+      screen_id: screenRow.id, rota: rotaCompleta, screenshot_url: screenshotPath, errors_count: errorsCount,
       errors_snapshot: errorMsg, page_load_ms: pageLoadMs, capture_method: 'playwright', capture_status: captureStatus,
       captured_at: new Date().toISOString(),
     });
@@ -233,7 +236,7 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
   return {
     rota: rotaCompleta, rota_base: rotaBase, screen_id: screenId,
     success: captureStatus === 'sucesso', capture_status: captureStatus, rota_alcancada: captureStatus === 'sucesso',
-    screenshot_url: screenshotUrl, error: captureStatus === 'erro' ? errorMsg : undefined, motivo: errorMsg,
+    screenshot_url: screenshotPath, signed_url: screenshotUrl, error: captureStatus === 'erro' ? errorMsg : undefined, motivo: errorMsg,
     page_load_ms: pageLoadMs, errors_count: errorsCount, visual_truth: visualTruth,
     url_final_visitada: urlFinalVisitada, redirect_detectado: redirectDetectado, auth_state: authState,
     login_retentado: loginRetentado, empresa_id_usada: empresaId,
