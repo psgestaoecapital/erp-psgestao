@@ -41,6 +41,9 @@ Deno.serve(async (req: Request) => {
   const prioridadeFiltro = bodyData.prioridade || ["critica", "alta"];
   const rotaEspecifica = bodyData.rota || null;
   const limitMax = bodyData.limit || 30; // limita para nao timeout
+  // FILA-2 (LGPD/RD-69): o pg_cron manda a lista de areas COM demo mapeada. Area sem demo -> NAO fotografa
+  // (nao rende empresa real). Compat: sem areas_demo no body, comportamento antigo (nenhum filtro).
+  const areasDemo = Array.isArray(bodyData.areas_demo) ? bodyData.areas_demo as string[] : null;
 
   let query = supabase
     .from("system_screens")
@@ -50,6 +53,7 @@ Deno.serve(async (req: Request) => {
     query = query.eq("rota", rotaEspecifica);
   } else {
     query = query.in("prioridade_monitoramento", prioridadeFiltro).limit(limitMax);
+    if (areasDemo && areasDemo.length > 0) query = query.in("area", areasDemo);
   }
 
   const { data: screens, error: screensError } = await query;
