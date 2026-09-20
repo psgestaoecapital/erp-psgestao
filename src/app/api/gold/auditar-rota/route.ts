@@ -14,6 +14,7 @@ import type { Browser, Page } from 'playwright-core';
 import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
+import { classificarEstadoConteudo, estadoNaoEhBug } from '@/lib/gold/estadoConteudo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
   if (!botoes?.length) return NextResponse.json({ erro: 'sem botoes', rota }, { status: 200 });
 
   let browser: Browser | null = null;
-  const resultados: Array<{ botao_id: string; veredito: string; custo_usd: number; motivo: string }> = [];
+  const resultados: Array<{ botao_id: string; veredito: string; custo_usd: number; motivo: string; estado_conteudo?: string }> = [];
   let custoTotal = 0;
   let authStatus = 'desconhecido';
 
@@ -245,7 +246,15 @@ async function auditarBotao(
       valores_brl: (allText.match(/R\$\s*[\d.,]+/g) || []).slice(0, 30),
       possui_empty_state: /Nenhum[ao]?\s+\w+\s+encontrad/.test(allText),
       possui_erro: /erro|error|404|não encontrad/i.test(allText.slice(0, 800)),
+      texto: allText.replace(/\s+/g, ' ').slice(0, 4000),
     };
+  });
+
+  // FILA-3: estado de conteúdo (após a tela assentar — não afrouxa o settle). vazio_legítimo / sem_plano /
+  // sem_acesso NÃO são bug: o auditor não deve rebaixar por isso.
+  const estadoConteudo = classificarEstadoConteudo({
+    texto: domResumo.texto, temTabela: domResumo.tem_tabela, temGrafico: domResumo.tem_grafico,
+    qtdValoresBrl: domResumo.valores_brl.length, emptyState: domResumo.possui_empty_state,
   });
 
   const elementosDetectados: string[] = [];
@@ -266,11 +275,12 @@ async function auditarBotao(
 Destino esperado: ${botao.destino_esperado_rota || rota} (${botao.destino_esperado_descricao || 'mesma tela'})
 Destino real: ${urlAposClique}
 DOM: ${JSON.stringify(domResumo)}
+ESTADO DE CONTEÚDO (classificado, pós-assentar): ${estadoConteudo}${estadoNaoEhBug(estadoConteudo) ? ' — NÃO é bug (vazio legítimo / área não contratada / sem acesso): não rebaixe por isso' : ''}
 
 Veredito em UMA categoria:
 - OURO: tela perfeita, dados coerentes
 - PRATA: funcional com micro-bugs visuais
-- BRONZE: carregou mas problema funcional (KPI errado, lista vazia indevida, R$ 0,00 onde devia ter valor)
+- BRONZE: carregou mas problema funcional (KPI errado, lista vazia INDEVIDA, R$ 0,00 onde devia ter valor). Lista vazia LEGÍTIMA (estado_conteudo=vazio_legitimo), área não contratada (sem_plano) e sem acesso (sem_acesso) NÃO são BRONZE.
 - BLOQUEADO: 404, erro, ou quebrada
 
 Responda APENAS JSON sem markdown:
@@ -332,12 +342,12 @@ Responda APENAS JSON sem markdown:
     veredito_camada2: veredito2,
     motivo_veredito: analise.motivo || 'sem motivo',
     spec_fix_preliminar: analise.spec_fix_preliminar || null,
-    dom_resumo: domResumo,
+    dom_resumo: { ...domResumo, estado_conteudo: estadoConteudo },
     playwright_real: true,
     auth_status: 'autenticado',
   });
 
-  return { botao_id: botao.id, veredito: analise.veredito, custo_usd: custoUsd, motivo: analise.motivo || '' };
+  return { botao_id: botao.id, veredito: analise.veredito, custo_usd: custoUsd, motivo: analise.motivo || '', estado_conteudo: estadoConteudo };
 }
 
 async function gravarErro(
