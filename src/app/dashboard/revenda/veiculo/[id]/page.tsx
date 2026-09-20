@@ -168,6 +168,9 @@ function Inner() {
         </label>
       </div>
 
+      {/* R3d · A CONTA DESTE CARRO — faixa em linguagem de dono, fonte única fn_veic_conta_do_carro. */}
+      <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} />
+
       {/* Alliance · veículo sem custo de aquisição não pode passar como completo (margem/preço mínimo
           não calculam). Não bloqueia a entrada rápida no pátio — só não finge que está pronto. */}
       {!(v.valor_aquisicao && v.valor_aquisicao > 0) && (
@@ -559,6 +562,85 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
       </div>
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erro}</div>}
       <div style={{ fontSize: 10.5, color: C.espL, marginTop: 4 }}>* valor, categoria e descrição são obrigatórios.</div>
+    </div>
+  )
+}
+
+// R3d · A conta deste carro (fonte única fn_veic_conta_do_carro — a ficha NÃO recalcula). RD-51: componente
+// sem dado mostra "não configurado · configurar" (link /config), nunca R$ 0.
+type Comp3 = { valor: number | null; status: string }
+type Conta = {
+  ok?: boolean; comprei: number | null; custos_lancados: number | null; previsao_vistoria: number | null
+  carrego: { ocupacao: Comp3; capital: Comp3; depreciacao: Comp3 & { fonte?: string }; total: number | null; total_status: string; sangria_dia: number | null }
+  custo_real_total: number | null; piso_sem_margem: number | null; preco_minimo: number | null; anunciado: number | null
+  lucro_real_projetado: number | null; roi_anualizado_pct: number | null; sangria_dia: number | null
+  data_vira_prejuizo: string | null; dias_parado: number | null
+}
+function ContaDoCarroFaixa({ veiculoId, situacao }: { veiculoId: string; situacao: string }) {
+  const [c, setC] = useState<Conta | null>(null)
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_veic_conta_do_carro', { p_veiculo_id: veiculoId })
+      const r = data as Conta | null
+      if (vivo) setC(r?.ok ? r : null)
+    })()
+    return () => { vivo = false }
+  }, [veiculoId])
+  if (!c) return null
+
+  const cfgLink = <a href="/dashboard/revenda/config" style={{ color: C.gold, fontSize: 11, textDecoration: 'underline' }}>configurar</a>
+  const compTxt = (x: Comp3) => x.status === 'ok' ? brl(x.valor ?? 0)
+    : x.status === 'travado_d7' ? <span style={{ color: C.amber, fontSize: 11.5 }}>FIPE em breve (D7)</span>
+    : x.status === 'nao_calcular' ? <span style={{ color: C.espL, fontSize: 11.5 }}>não calcula</span>
+    : <span style={{ color: C.amber, fontSize: 11.5 }}>não configurado · {cfgLink}</span>
+
+  const vira = c.data_vira_prejuizo ? new Date(c.data_vira_prejuizo + 'T00:00:00') : null
+  const diasAteVira = vira ? Math.round((vira.getTime() - Date.now()) / 86400000) : null
+  const viraUrgente = diasAteVira != null && diasAteVira <= 15
+  const lucro = c.lucro_real_projetado
+  const vendido = ['vendido', 'entregue'].includes(situacao)
+
+  return (
+    <div style={{ background: C.esp, color: '#fff', borderRadius: 14, padding: '16px 18px', margin: '16px 0 0' }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: '#E9C77A', fontWeight: 700, marginBottom: 10 }}>A conta deste carro</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px 18px' }}>
+        <Item l="Comprei por" v={c.comprei != null ? brl(c.comprei) : '—'} />
+        <Item l="Gastei (custos)" v={brl(c.custos_lancados ?? 0)} />
+        <Item l="Previsão da vistoria" v={c.previsao_vistoria != null ? brl(c.previsao_vistoria) : '—'} />
+        <Item l={`Carrego (${c.dias_parado ?? '—'} dias parado)`} v={c.carrego.total_status === 'ok' ? brl(c.carrego.total ?? 0) : <span>{brl(c.carrego.total ?? 0)} <span style={{ color: C.amber, fontSize: 10.5 }}>parcial</span></span>} />
+        <Item l="Custo real" v={c.custo_real_total != null ? brl(c.custo_real_total) : '—'} forte />
+        <Item l="Posso vender no mínimo" v={c.preco_minimo != null ? brl(c.preco_minimo) : <span style={{ color: C.amber, fontSize: 12 }}>informe a aquisição</span>} />
+        <Item l="Anunciei por" v={c.anunciado != null ? brl(c.anunciado) : <span style={{ color: '#C9B79F', fontSize: 12 }}>sem preço</span>} />
+        <Item l={vendido ? 'Lucro real' : 'Lucro real hoje'} v={lucro != null ? <span style={{ color: lucro >= 0 ? '#7ED4A0' : '#F0A0A0', fontWeight: 800 }}>{brl(lucro)}</span> : '—'} forte />
+        <Item l="ROI anualizado" v={c.roi_anualizado_pct != null ? `${c.roi_anualizado_pct}%` : '—'} />
+      </div>
+
+      {/* carrego aberto em 3 componentes (RD-51: badge honesto quando faltar) */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12, paddingTop: 10, borderTop: '1px solid #5A4636', fontSize: 12.5 }}>
+        <span style={{ color: '#C9B79F' }}>Ocupação: <b style={{ color: '#fff' }}>{compTxt(c.carrego.ocupacao)}</b></span>
+        <span style={{ color: '#C9B79F' }}>Capital: <b style={{ color: '#fff' }}>{compTxt(c.carrego.capital)}</b></span>
+        <span style={{ color: '#C9B79F' }}>Depreciação: <b style={{ color: '#fff' }}>{compTxt(c.carrego.depreciacao)}</b></span>
+        {c.sangria_dia != null && <span style={{ color: '#C9B79F' }}>Sangria/dia: <b style={{ color: '#fff' }}>{brl(c.sangria_dia)}</b></span>}
+      </div>
+
+      {/* vira prejuízo (semáforo real: vermelho só quando ≤ 15 dias) */}
+      {!vendido && vira && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: viraUrgente ? '#F0A0A0' : '#E9C77A' }}>
+          {viraUrgente ? '🔴 ' : '🟡 '}Vira prejuízo em <b>{brDate(c.data_vira_prejuizo!)}</b>{diasAteVira != null ? ` (${diasAteVira} dias)` : ''} — mantendo o preço anunciado.
+        </div>
+      )}
+      {!vendido && !vira && lucro != null && lucro <= 0 && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: '#F0A0A0' }}>🔴 Já está no prejuízo com o preço anunciado.</div>
+      )}
+    </div>
+  )
+}
+function Item({ l, v, forte }: { l: string; v: React.ReactNode; forte?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: '#C9B79F' }}>{l}</div>
+      <div style={{ fontSize: forte ? 17 : 14, fontWeight: forte ? 800 : 600, marginTop: 2 }}>{v}</div>
     </div>
   )
 }
