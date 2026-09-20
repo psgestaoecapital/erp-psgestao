@@ -16,6 +16,7 @@ import { chromium as playwright } from 'playwright-core';
 import type { Browser } from 'playwright-core';
 import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-truth/executor';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
+import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -177,6 +178,17 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
     } else if (!(await aguardarConteudo())) {
       captureStatus = 'nao_carregou';
       errorMsg = `Página não assentou (loading) em ${rotaBase} — não fotografada para não medir foto no meio do load`;
+    } else if (!(await conferirEmpresaRenderizada(page, empresaId)).ok) {
+      // INCIDENTE LGPD 20/09: a empresa RENDERIZADA diverge (modo grupo/consolidado ou não-membro).
+      // NÃO fotografa (bucket é público). Marca a rota como não auditável e segue o lote.
+      const chk = await conferirEmpresaRenderizada(page, empresaId);
+      captureStatus = 'erro';
+      errorMsg = `LGPD: não fotografada — ${chk.motivo}`;
+      await supabase.from('system_screens').update({
+        screenshot_url: null, screenshot_atualizado_em: new Date().toISOString(),
+        auditavel_robo: false, motivo_nao_auditavel: `empresa renderizada ≠ demo pedida: ${chk.motivo}`,
+        auditabilidade_em: new Date().toISOString(),
+      }).eq('id', screenId);
     } else {
       const buffer = await page.screenshot({ type: 'jpeg', quality: 75, fullPage: false, clip: { x: 0, y: 0, width: 1280, height: 800 } });
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
