@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { registrarTentativaFiscal, pareceJaCancelada } from '@/lib/fiscal/tentativaLog'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -39,6 +40,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         { status: 404 }
       )
     }
+
+    // Guarda de pertencimento: a empresa é a DA NOTA (nunca o corpo). Bloqueia acesso cruzado + loga.
+    const negado = await guardaEmpresaFiscal({
+      userId, companyId: nfe.company_id, papelMinimo: 'membro',
+      log: { notaTipo: 'nfe', notaId: nfe.id, operacao: 'cancelamento', endpoint: 'nfe/cancelar' },
+    })
+    if (negado) return negado
 
     if (justificativa.length < 15) {
       await registrarTentativaFiscal({
