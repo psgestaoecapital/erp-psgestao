@@ -43,6 +43,10 @@ export default function FiscalPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const [contadorOpen, setContadorOpen] = useState(false)
+  const [contadorEmail, setContadorEmail] = useState('')
+  const [contadorLink, setContadorLink] = useState<string | null>(null)
+  const [contadorInfo, setContadorInfo] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setObter(null); setCarregando(false); return }
@@ -98,7 +102,24 @@ export default function FiscalPage() {
     setMsg('Perfil aprovado e vigente.'); void carregar()
   }
   function enviarContador() {
-    setMsg('O link do contador (sem login) é liberado na próxima entrega (PF-b). Por ora, preencha aqui ou peça à equipe PS.')
+    setContadorLink(null); setContadorInfo(null); setContadorEmail(''); setContadorOpen(true)
+  }
+  async function gerarConvite() {
+    if (!companyId || busy) return
+    setBusy(true); setContadorInfo(null)
+    const base = typeof window !== 'undefined' ? window.location.origin : ''
+    const { data } = await supabase.rpc('fn_veic_perfil_convite_criar', {
+      p_company_id: companyId, p_email: contadorEmail.trim() || null, p_user: await userId(), p_ip: null, p_base_url: base,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; url_path?: string; email_enfileirado?: boolean } | null
+    if (!r?.ok || !r.url_path) { setContadorInfo(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Não foi possível gerar o link.'); return }
+    setContadorLink(base + r.url_path)
+    setContadorInfo(r.email_enfileirado ? 'Link gerado e e-mail enviado ao contador. Vale 15 dias.' : 'Link gerado. Vale 15 dias — copie e envie ao contador.')
+  }
+  async function copiarLink() {
+    if (!contadorLink) return
+    try { await navigator.clipboard.writeText(contadorLink); setContadorInfo('Link copiado.') } catch { /* fallback: seleção manual */ }
   }
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
@@ -199,6 +220,32 @@ export default function FiscalPage() {
             </div>
           ))}
         </Bloco>
+      )}
+
+      {/* ENVIAR AO CONTADOR — link sem login (PF-b) + e-mail pela fila */}
+      {contadorOpen && (
+        <div onClick={() => setContadorOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 14, width: '100%', maxWidth: 460, padding: 20 }}>
+            <h2 style={{ fontSize: 17, fontWeight: 800, color: C.esp, margin: '0 0 4px' }}>Enviar ao meu contador</h2>
+            <p style={{ fontSize: 12.5, color: C.espM, margin: '0 0 12px', lineHeight: 1.5 }}>Gera um link <b>sem login</b> (vale 15 dias, uso único ao enviar) para o contador preencher o perfil fiscal. Informe o e-mail para enviarmos o link, ou apenas gere e copie.</p>
+            <label style={{ fontSize: 11.5, color: C.espM, display: 'block' }}>E-mail do contador (opcional)
+              <input value={contadorEmail} onChange={(e) => setContadorEmail(e.target.value)} placeholder="contador@escritorio.com.br" type="email"
+                style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 9, fontSize: 13.5, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }} />
+            </label>
+            {contadorLink && (
+              <div style={{ marginTop: 12, background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 11, color: C.espM, fontWeight: 600, marginBottom: 4 }}>Link do contador</div>
+                <div style={{ fontSize: 12, color: C.esp, wordBreak: 'break-all', fontFamily: 'monospace' }}>{contadorLink}</div>
+                <button onClick={() => void copiarLink()} style={{ marginTop: 8, padding: '6px 12px', background: C.gold, color: C.white, border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Copiar link</button>
+              </div>
+            )}
+            {contadorInfo && <div style={{ marginTop: 10, fontSize: 12.5, color: C.green }}>{contadorInfo}</div>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={() => setContadorOpen(false)} style={{ padding: '9px 16px', background: C.cream, color: C.esp, border: `1px solid ${C.border}`, borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Fechar</button>
+              <button disabled={busy} onClick={() => void gerarConvite()} style={{ padding: '9px 16px', background: C.esp, color: C.white, border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>{busy ? 'Gerando…' : contadorLink ? 'Gerar novo link' : 'Gerar link'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
