@@ -177,6 +177,32 @@ export default function NFSePreviewModal(props: Props) {
     setStatus('enviando')
     setErro(null)
     try {
+      // #E0370 (print Rodrigo 21/09): no modo "Preencher manualmente" (sem obra do Hub), a porta única
+      // exige obra_id. Antes de emitir, cadastramos/reaproveitamos a obra pelo endereço digitado e seguimos
+      // com o obra_id — o mesmo "informar + criar no Hub". Endereço incompleto → mensagem clara, não emite.
+      let obraIdFinal = obraId
+      if (subitens.length > 0 && !obraIdFinal) {
+        const { data: rObra } = await supabase.rpc('fn_hub_obra_resolver_endereco', {
+          p_company_id: props.companyId,
+          p_logradouro: obra.logradouro.trim() || null,
+          p_numero: obra.numero.trim() || null,
+          p_bairro: obra.bairro.trim() || null,
+          p_cidade: obra.cidade.trim() || null,
+          p_uf: obra.uf.trim() || null,
+          p_cep: obra.cep.trim() || null,
+          p_codigo_ibge: obra.municipio.trim() || null,
+          p_cno: obra.cno.trim() || null,
+        })
+        const rr = rObra as { ok?: boolean; obra_id?: string; erro?: string } | null
+        if (!rr?.ok || !rr.obra_id) {
+          setErro(rr?.erro === 'obra_endereco_incompleto'
+            ? 'Complete o endereço da obra (rua, número, bairro, CEP e município) — ou escolha uma obra do Hub.'
+            : 'Não foi possível vincular a obra. Escolha uma obra do Hub ou complete o endereço.')
+          setStatus('rejeitada')
+          return
+        }
+        obraIdFinal = rr.obra_id
+      }
       const r = await authFetch('/api/fiscal/nfse/emitir', {
         method: 'POST',
         body: JSON.stringify({
@@ -186,7 +212,7 @@ export default function NFSePreviewModal(props: Props) {
           // #18 · construção: subitem escolhido por nota + endereço da obra (E0370)
           ...(subitens.length > 0 ? {
             codigoServicoTributacao: subitem || undefined,
-            obraId: obraId || undefined,
+            obraId: obraIdFinal || undefined,
             obra: {
               cno: obra.cno.trim() || undefined,
               logradouro: obra.logradouro.trim() || undefined,
