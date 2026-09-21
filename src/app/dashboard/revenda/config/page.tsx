@@ -88,6 +88,10 @@ function dadosDe(f: Form): Record<string, unknown> {
   }
 }
 
+// Regras de comissão do vendedor (veic_comissao_regra) — a marcada precifica o estoque (item 3).
+type RegraComissao = { tipo_atendimento: string; base: '' | 'fipe' | 'fixo' | 'preco' | 'lucro'; percentual: string; valor_fixo: string; rotulo: string; usar_na_precificacao: boolean; ativo: boolean }
+const regraVazia = (): RegraComissao => ({ tipo_atendimento: '', base: '', percentual: '', valor_fixo: '', rotulo: '', usar_na_precificacao: false, ativo: true })
+
 export default function ConfigGaragemPage() {
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
@@ -103,6 +107,9 @@ export default function ConfigGaragemPage() {
   const [entTermo, setEntTermo] = useState('')
   const [entFonte, setEntFonte] = useState<string>('fabrica')
   const [entSalvando, setEntSalvando] = useState(false)
+  // item 2c-b · regras de comissão do vendedor (a marcada precifica o estoque).
+  const [regras, setRegras] = useState<RegraComissao[]>([])
+  const [regrasSalvando, setRegrasSalvando] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setObter(null); setCarregando(false); return }
@@ -136,6 +143,38 @@ export default function ConfigGaragemPage() {
     if (!r?.ok) { setErro(r?.mensagem || (r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar a entrega.'))); return }
     setMsg('Checklist e termo de entrega salvos.'); setEntFonte('empresa'); void carregarEntrega()
   }
+
+  const carregarRegras = useCallback(async () => {
+    if (!companyId) { setRegras([]); return }
+    const { data } = await supabase.rpc('fn_veic_comissao_regras_obter', { p_company_id: companyId })
+    const r = data as { ok?: boolean; regras?: { tipo_atendimento: string; base: string; percentual: number | null; valor_fixo: number | null; rotulo: string | null; usar_na_precificacao: boolean; ativo: boolean }[] } | null
+    if (!r?.ok) return
+    setRegras((r.regras ?? []).map((x) => ({
+      tipo_atendimento: x.tipo_atendimento ?? '', base: (x.base as RegraComissao['base']) ?? '',
+      percentual: x.percentual == null ? '' : String(x.percentual), valor_fixo: x.valor_fixo == null ? '' : String(x.valor_fixo),
+      rotulo: x.rotulo ?? '', usar_na_precificacao: !!x.usar_na_precificacao, ativo: x.ativo !== false,
+    })))
+  }, [companyId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarRegras() }, [carregarRegras])
+
+  async function salvarRegras() {
+    if (!companyId) return
+    setRegrasSalvando(true); setErro(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const payload = regras.filter((r) => r.tipo_atendimento.trim() && r.base)
+    const { data } = await supabase.rpc('fn_veic_comissao_regras_salvar', { p_company_id: companyId, p_regras: payload, p_user: session?.user?.id ?? null })
+    setRegrasSalvando(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) {
+      setErro(r?.erro === 'mais_de_uma_regra_precifica' ? 'Só uma regra pode precificar o estoque — marque apenas uma.'
+        : r?.erro === 'base_invalida' ? 'Escolha a base de cada regra.'
+        : r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar as regras.')); return
+    }
+    setMsg('Regras de comissão salvas.'); void carregarRegras()
+  }
+  // marcar uma regra p/ precificar desmarca as outras (só uma pode).
+  const marcarPrecifica = (i: number) => setRegras((xs) => xs.map((x, j) => ({ ...x, usar_na_precificacao: j === i })))
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((prev) => ({ ...prev, [k]: v }))
 
@@ -273,6 +312,49 @@ export default function ConfigGaragemPage() {
             <option value="venda">Valor da venda</option>
           </select>
         </label>
+      </Bloco>
+
+      {/* REGRAS DE COMISSÃO (item 2c-b) — por tipo de atendimento; a marcada precifica o estoque */}
+      <Bloco titulo="Regras de comissão do vendedor" hint="Por tipo de atendimento (ex.: trouxe a venda, atendeu na loja). A regra marcada como 'usa no preço mínimo' é a que entra no preço mínimo (item 3) — só uma pode. Em branco = não configurado.">
+        <div style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
+          {regras.map((r, i) => {
+            const upd = (patch: Partial<RegraComissao>) => setRegras((xs) => xs.map((x, j) => j === i ? { ...x, ...patch } : x))
+            return (
+              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <input value={r.rotulo} onChange={(e) => upd({ rotulo: e.target.value })} placeholder="rótulo (ex.: Trouxe a venda — 1% FIPE)"
+                    style={{ flex: '2 1 180px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }} />
+                  <input value={r.tipo_atendimento} onChange={(e) => upd({ tipo_atendimento: e.target.value })} placeholder="tipo (ex.: trouxe_venda)"
+                    style={{ flex: '1 1 130px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white, fontFamily: 'monospace' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select value={r.base} onChange={(e) => upd({ base: e.target.value as RegraComissao['base'] })} style={{ flex: '1 1 120px', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }}>
+                    <option value="">— base —</option>
+                    <option value="fipe">% da FIPE</option>
+                    <option value="fixo">R$ fixo</option>
+                    <option value="preco">% do preço</option>
+                    <option value="lucro">% do lucro</option>
+                  </select>
+                  {r.base === 'fixo'
+                    ? <input value={r.valor_fixo} onChange={(e) => upd({ valor_fixo: e.target.value })} inputMode="decimal" placeholder="R$ fixo" style={{ flex: '1 1 90px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }} />
+                    : <input value={r.percentual} onChange={(e) => upd({ percentual: e.target.value })} inputMode="decimal" placeholder="%" disabled={!r.base} style={{ flex: '1 1 90px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: r.base ? C.white : C.cream }} />}
+                  <label style={{ fontSize: 11.5, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                    <input type="radio" name="usar_precifica" checked={r.usar_na_precificacao} onChange={() => marcarPrecifica(i)} style={{ accentColor: C.gold }} />usa no preço mínimo
+                  </label>
+                  <label style={{ fontSize: 11.5, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                    <input type="checkbox" checked={r.ativo} onChange={(e) => upd({ ativo: e.target.checked })} style={{ width: 15, height: 15, accentColor: C.gold }} />ativa
+                  </label>
+                  <button onClick={() => setRegras((xs) => xs.filter((_, j) => j !== i))} style={{ border: `1px solid ${C.border}`, background: C.white, color: C.red, borderRadius: 8, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>remover</button>
+                </div>
+              </div>
+            )
+          })}
+          {regras.length === 0 && <div style={{ fontSize: 12, color: C.espL }}>Nenhuma regra — o preço mínimo usa a Comissão % da config abaixo.</div>}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setRegras((xs) => [...xs, regraVazia()])} style={{ border: `1px dashed ${C.border}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5 }}>+ adicionar regra</button>
+          <button disabled={regrasSalvando} onClick={() => void salvarRegras()} style={{ border: 'none', background: C.gold, color: '#fff', borderRadius: 8, padding: '7px 14px', cursor: regrasSalvando ? 'wait' : 'pointer', fontSize: 12.5, fontWeight: 700 }}>{regrasSalvando ? 'Salvando…' : 'Salvar regras de comissão'}</button>
+        </div>
       </Bloco>
 
       {/* IMPOSTOS E MARGENS */}
