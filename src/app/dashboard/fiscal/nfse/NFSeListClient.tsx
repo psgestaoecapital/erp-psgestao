@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import NFSePreviewModal from '@/components/fiscal/NFSePreviewModal'
@@ -217,10 +218,12 @@ export default function NFSeListClient() {
   }, [expandida, companyId])
 
   // ao expandir uma nota, carrega o histórico de tentativas fiscais (cancelamento/emissão/consulta).
-  const carregarTentativas = useCallback(async (notaId: string) => {
+  const carregarTentativas = useCallback(async (notaId: string): Promise<TentativaFiscalRow[]> => {
     const { data } = await supabase.rpc('fn_fiscal_tentativas', { p_nota_tipo: 'nfse', p_nota_id: notaId })
     const r = data as { ok?: boolean; tentativas?: TentativaFiscalRow[] } | null
-    setTentativas(r?.ok ? (r.tentativas ?? []) : [])
+    const list = r?.ok ? (r.tentativas ?? []) : []
+    setTentativas(list)
+    return list
   }, [])
   useEffect(() => {
     if (!expandida) { setTentativas(null); return }
@@ -234,15 +237,26 @@ export default function NFSeListClient() {
     const just = cancelJust.trim()
     if (just.length < 15) { setCancelErro('A justificativa precisa de no mínimo 15 caracteres.'); return }
     setCancelando(true); setCancelErro(null)
+    const notaId = cancelModal.id
     try {
-      const resp = await fetch('/api/fiscal/nfse/cancelar', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notaId: cancelModal.id, justificativa: just }),
+      // authFetch envia o Authorization: Bearer <access_token> da sessão central (o fetch cru dava 401
+      // antes de chegar ao handler — o cancelamento nunca alcançava a Focus e nada era registrado).
+      const resp = await authFetch('/api/fiscal/nfse/cancelar', {
+        method: 'POST',
+        body: JSON.stringify({ notaId, justificativa: just }),
       })
-      const data = (await resp.json()) as { ok?: boolean; mensagem?: string; jaCancelada?: boolean }
-      if (!data.ok) { setCancelErro(data.mensagem ?? 'Não foi possível cancelar. Veja o histórico da nota.'); return }
+      let data: { ok?: boolean; mensagem?: string } = {}
+      try { data = await resp.json() } catch { /* corpo não-JSON (ex.: 401 do withAuth) */ }
+      if (!resp.ok || !data.ok) {
+        // mensagem com o motivo REAL; "veja o histórico" só quando há linha registrada.
+        const hist = expandida === notaId ? await carregarTentativas(notaId) : (tentativas ?? [])
+        const msg = resp.status === 401 ? 'Sua sessão expirou. Entre de novo e tente cancelar.'
+          : resp.status === 403 ? 'Você não tem permissão para cancelar notas desta empresa.'
+          : (data.mensagem ?? (hist.length > 0 ? 'Não foi possível cancelar. Veja o histórico da nota abaixo.' : 'Não foi possível cancelar a NFS-e.'))
+        setCancelErro(msg)
+        return
+      }
       // sucesso (ou já cancelada + sincronizada): fecha, recarrega lista e o histórico.
-      const notaId = cancelModal.id
       setCancelModal(null); setCancelJust('')
       await carregar()
       if (expandida === notaId) await carregarTentativas(notaId)
