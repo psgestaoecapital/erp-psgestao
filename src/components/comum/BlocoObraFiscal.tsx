@@ -42,10 +42,10 @@ export const obraFiscalStateInicial: ObraFiscalState = {
   obraCno: '', criarNoHub: false,
 }
 
-// Obra incompleta = mesma regra do backend (obra_pendente): sem CNO E (sem endereço OU sem IBGE).
+// Obra incompleta = mesma regra do backend (obra_endereco_incompleto): a prefeitura exige o ENDEREÇO
+// completo (rua, número, bairro, CEP e município/IBGE) — o CNO é opcional (a nota segue pelo endereço).
 export function obraIncompleta(o: ObraLite): boolean {
-  const cno = (o.cno || '').trim(); const log = (o.endereco || '').trim(); const ibge = (o.codigo_ibge_municipio || '').trim()
-  return cno === '' && (log === '' || ibge === '')
+  return [o.endereco, o.numero_endereco, o.bairro, o.cep, o.codigo_ibge_municipio].some((c) => (c || '').trim() === '')
 }
 export function obraResumo(o: ObraLite): string {
   const partes = [o.endereco, o.numero_endereco, o.cidade && o.uf ? `${o.cidade}/${o.uf}` : o.cidade].filter(Boolean)
@@ -190,7 +190,7 @@ export default function BlocoObraFiscal({
           {value.obraSel && obraIncompleta(value.obraSel) && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, color: '#B45309' }}>
               <AlertTriangle size={13} style={{ marginTop: 1, flexShrink: 0 }} />
-              <span>Esta obra não tem CNO nem endereço/IBGE completos — preencha antes de faturar.{' '}
+              <span>Esta obra está com o endereço incompleto (rua, número, bairro, CEP e município) — complete antes de faturar.{' '}
                 <a href={`/dashboard/projetos/obras/${value.obraSel.id}`} target="_blank" rel="noreferrer"
                   style={{ color: C.goldD, textDecoration: 'underline', whiteSpace: 'nowrap' }}>
                   abrir a obra <ExternalLink size={10} style={{ verticalAlign: 'middle' }} />

@@ -73,11 +73,10 @@ interface ObraLite {
   cno: string | null
   codigo_ibge_municipio: string | null
 }
+// Obra incompleta = regra do backend (obra_endereco_incompleto): endereço completo é o que a prefeitura
+// exige (rua, número, bairro, CEP e município/IBGE). CNO é opcional — a nota segue pelo endereço.
 function obraIncompleta(o: ObraLite): boolean {
-  const cno = (o.cno || '').trim()
-  const log = (o.endereco || '').trim()
-  const ibge = (o.codigo_ibge_municipio || '').trim()
-  return cno === '' && (log === '' || ibge === '')
+  return [o.endereco, o.numero_endereco, o.bairro, o.cep, o.codigo_ibge_municipio].some((c) => (c || '').trim() === '')
 }
 function obraResumo(o: ObraLite): string {
   const partes = [o.endereco, o.numero_endereco, o.cidade && o.uf ? `${o.cidade}/${o.uf}` : o.cidade].filter(Boolean)

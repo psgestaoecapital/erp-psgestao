@@ -11,8 +11,9 @@ import { supabase } from '@/lib/supabase'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
 
-// bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos)
-const CODIGOS_OBRA = ['obra_obrigatoria', 'obra_nao_encontrada', 'obra_sem_cno']
+// bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
+// obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
+const CODIGOS_OBRA = ['obra_obrigatoria', 'obra_nao_encontrada', 'obra_endereco_incompleto', 'obra_sem_cno']
 
 type TomadorTipo = 'CPF' | 'CNPJ'
 type Fase = 'form' | 'enviando' | 'concluido'
@@ -458,8 +459,11 @@ export default function NFSeEmitirGovModal({
   // "cadastrar no Hub" + IBGE + CNO), libera — a obra é criada no emit e o servidor revalida. Apontar uma
   // obra já cadastrada é validado ao vivo (obraIdEff entra na porta única), então não precisa de exceção.
   const bloqueiosNaoObra = bloqueios.filter((b) => !CODIGOS_OBRA.includes(b.codigo))
+  // CNO é opcional (a prefeitura aceita endereço) — a obra informada precisa é do endereço COMPLETO.
+  const e = obraFiscal.obraEnd
   const obraInformarOk = mostrarObra && obraFiscal.modo === 'informar' && obraFiscal.criarNoHub
-    && !!obraFiscal.obraEnd.codigo_ibge_municipio && !!obraFiscal.obraCno.trim()
+    && !!e.codigo_ibge_municipio && !!(e.logradouro || '').trim() && !!(e.numero || '').trim()
+    && !!(e.bairro || '').trim() && !!(e.cep || '').trim()
   const emissaoTravada = !!servicoIdEff && !podeEmitir && !(obraInformarOk && bloqueiosNaoObra.length === 0)
   // item 3 · ISS: Simples não destaca (vai no DAS) — nudge pra confirmar regime/alíquota com o contador;
   // fora do Simples, alíquota 0 sem resolução do município é provável configuração faltando.
