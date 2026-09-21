@@ -47,9 +47,13 @@ function Inner() {
   const [resumoFiscal, setResumoFiscal] = useState<{ total: number; aptos: number; pendentes: number } | null>(null) // Onda 0
   const [conta, setConta] = useState<Map<string, ItemPatio>>(new Map()) // R3c: sangria/vira por veículo
   const [detalhe, setDetalhe] = useState<Map<string, Detalhe>>(new Map()) // R3-fix T3: piso/anunciado/KM
-  const [ordem, setOrdem] = useState<'dias' | 'sangria' | 'vira'>('dias') // R3c: ordenação
+  const [ordem, setOrdem] = useState<'dias' | 'sangria' | 'vira' | 'roi'>('dias') // R3c/R7a: ordenação (+ROI)
   const [erro, setErro] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
+  // R7a (T3): busca por modelo/placa, filtro PS por sinal, e modo lista densa (mobile).
+  const [busca, setBusca] = useState('')
+  const [filtroPS, setFiltroPS] = useState<'todos' | 'vira_prejuizo' | 'abaixo_piso' | 'sem_custo' | 'sem_nota' | 'roi_negativo'>('todos')
+  const [densa, setDensa] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); return }
@@ -101,6 +105,18 @@ function Inner() {
   useEffect(() => { void carregar() }, [carregar])
 
   const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    // R7a · filtro PS por sinal (sobre a fonte única: conta do pátio + piso/anunciado por veículo).
+    const passaPS = (r: Veic) => {
+      if (filtroPS === 'todos') return true
+      if (filtroPS === 'sem_custo') return !r.tem_custo
+      if (filtroPS === 'sem_nota') return (r.fiscais_faltantes?.length ?? 0) > 0
+      const d = detalhe.get(r.id); const it = conta.get(r.id)
+      if (filtroPS === 'abaixo_piso') return d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
+      if (filtroPS === 'vira_prejuizo') return !!it?.data_vira_prejuizo
+      if (filtroPS === 'roi_negativo') return it?.roi_anualizado_pct != null && it.roi_anualizado_pct < 0
+      return true
+    }
     const filtrados = rows.filter((r) =>
       (filtro === 'todos' || r.situacao === filtro) &&
       (compl === 'todos'
@@ -111,8 +127,11 @@ function Inner() {
         || (compl === 'nao_precificado' && !precificados.has(r.id))
         || (compl === 'pronto_nota' && (r.fiscais_faltantes?.length ?? 0) === 0)
         || (compl === 'em_preparacao_os' && emPreparacao.has(r.id))
-        || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0)))
-    // R3c: ordenação por maior sangria ou por vira-prejuízo mais próximo (senão dias, ordem da view)
+        || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0)) &&
+      passaPS(r) &&
+      // R7a · busca por modelo/placa (também casa marca embutida no modelo e o fim do chassi).
+      (q === '' || (r.modelo ?? '').toLowerCase().includes(q) || (r.placa ?? '').toLowerCase().includes(q) || r.chassi.toLowerCase().includes(q)))
+    // R3c/R7a: ordenação por maior sangria, vira-prejuízo mais próximo, ou pior ROI (senão dias, ordem da view)
     if (ordem === 'sangria') {
       return [...filtrados].sort((a, b) => (conta.get(b.id)?.sangria_dia ?? -1) - (conta.get(a.id)?.sangria_dia ?? -1))
     }
@@ -120,8 +139,12 @@ function Inner() {
       const t = (id: string) => { const d = conta.get(id)?.data_vira_prejuizo; return d ? new Date(d + 'T00:00:00').getTime() : Number.POSITIVE_INFINITY }
       return [...filtrados].sort((a, b) => t(a.id) - t(b.id))
     }
+    if (ordem === 'roi') {
+      const roi = (id: string) => conta.get(id)?.roi_anualizado_pct ?? Number.POSITIVE_INFINITY // pior ROI primeiro; sem ROI ao fim
+      return [...filtrados].sort((a, b) => roi(a.id) - roi(b.id))
+    }
     return filtrados
-  }, [rows, filtro, compl, comVistoria, precificados, emPreparacao, ordem, conta])
+  }, [rows, filtro, compl, comVistoria, precificados, emPreparacao, ordem, conta, detalhe, busca, filtroPS])
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
   const nSemVistoria = useMemo(() => rows.filter((r) => !comVistoria.has(r.id)).length, [rows, comVistoria])
@@ -178,12 +201,28 @@ function Inner() {
           </select>
         </label>
         <label style={{ fontSize: 12, color: C.espM }}>Ordenar&nbsp;
-          <select value={ordem} onChange={(e) => setOrdem(e.target.value as 'dias' | 'sangria' | 'vira')} style={inp}>
+          <select value={ordem} onChange={(e) => setOrdem(e.target.value as 'dias' | 'sangria' | 'vira' | 'roi')} style={inp}>
             <option value="dias">dias parados</option>
             <option value="sangria">maior sangria</option>
             <option value="vira">vira prejuízo antes</option>
+            <option value="roi">pior ROI</option>
           </select>
         </label>
+        {/* R7a · filtro PS por sinal (o que o dono quer caçar no pátio) */}
+        <label style={{ fontSize: 12, color: C.espM }}>Sinal&nbsp;
+          <select value={filtroPS} onChange={(e) => setFiltroPS(e.target.value as typeof filtroPS)} style={inp}>
+            <option value="todos">todos</option>
+            <option value="vira_prejuizo">vai virar prejuízo</option>
+            <option value="abaixo_piso">anunciado abaixo do piso</option>
+            <option value="roi_negativo">ROI negativo</option>
+            <option value="sem_custo">sem custo de aquisição</option>
+            <option value="sem_nota">sem dados p/ nota</option>
+          </select>
+        </label>
+        {/* R7a · busca por modelo/placa */}
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar modelo/placa" style={{ ...inp, width: 170 }} />
+        {/* R7a · modo lista densa (bom no celular / pátios grandes) */}
+        <button onClick={() => setDensa((v) => !v)} style={{ ...inp, cursor: 'pointer', fontWeight: 700, color: densa ? C.gold : C.espM }}>{densa ? '▤ lista' : '▦ cards'}</button>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s)</span>
       </div>
 
@@ -197,6 +236,32 @@ function Inner() {
 
       {visiveis.length === 0 ? (
         <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Nenhum veículo no pátio. Cadastre o primeiro.</div>
+      ) : densa ? (
+        /* R7a · modo lista densa — uma linha por carro, boa no celular e em pátios grandes */
+        <div style={{ display: 'grid', gap: 6 }}>
+          {visiveis.map((v) => {
+            const sc = semColor(v.semaforo)
+            const d = detalhe.get(v.id); const it = conta.get(v.id)
+            const kmv = km(d?.km_atual ?? d?.km_entrada ?? null)
+            const abaixo = d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
+            return (
+              <div key={v.id} onClick={() => router.push(`/dashboard/revenda/veiculo/${v.id}`)}
+                style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700, whiteSpace: 'nowrap' }}>● {v.dias_patio}d</span>
+                <div style={{ minWidth: 0, flex: '1 1 160px' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.modelo || '—'}{v.ano_modelo ? ` · ${v.ano_modelo}` : ''}</div>
+                  <div style={{ fontSize: 11, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'}{kmv ? ` · ${kmv}` : ''}</div>
+                </div>
+                <span style={{ fontSize: 11.5, color: C.espM, whiteSpace: 'nowrap' }}>piso <b style={{ color: C.esp }}>{d?.preco_minimo != null ? brl(d.preco_minimo) : '—'}</b></span>
+                <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: abaixo ? C.red : C.espM }}>anunc. <b style={{ color: abaixo ? C.red : (d?.preco_venda != null ? C.gold : C.espL) }}>{d?.preco_venda != null ? brl(d.preco_venda) : 'sem preço'}</b></span>
+                {it?.data_vira_prejuizo && <span style={{ fontSize: 11, color: C.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🟡 vira {brDate(it.data_vira_prejuizo)}</span>}
+                {!v.tem_custo && <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: '#FAEEDA', color: '#8A4B08', fontWeight: 600 }}>sem custo</span>}
+                {(v.fiscais_faltantes?.length ?? 0) > 0 && <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>faltam {v.fiscais_faltantes!.length}</span>}
+                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, whiteSpace: 'nowrap' }}>{v.situacao.replace('_', ' ')}</span>
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
           {visiveis.map((v) => {
