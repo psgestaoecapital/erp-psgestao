@@ -17,6 +17,15 @@ const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
+// R7a-2 · mapa de calor: faixas de dias parados. A cor segue o semáforo (dia parado é sinal), a barra
+// mostra o quanto de dinheiro (custo acumulado) está preso em cada faixa. Clicar filtra o pátio pela faixa.
+const FAIXAS_DIAS: { label: string; min: number; max: number | null; sev: string }[] = [
+  { label: '0–15 dias', min: 0, max: 15, sev: 'verde' },
+  { label: '16–30 dias', min: 16, max: 30, sev: 'amarelo' },
+  { label: '31–60 dias', min: 31, max: 60, sev: 'amarelo' },
+  { label: '61–90 dias', min: 61, max: 90, sev: 'vermelho' },
+  { label: '90+ dias', min: 91, max: null, sev: 'vermelho' },
+]
 // R3c · conta por veículo (fn_veic_patio_conta.itens): sangria/dia e vira-prejuízo por card.
 type ItemPatio = { veiculo_id: string; sangria_dia: number | null; data_vira_prejuizo: string | null; roi_anualizado_pct: number | null }
 // R3-fix T3 · piso hoje, anunciado e KM por veículo (colunas de veic_veiculo — v_veic_patio não expõe).
@@ -54,6 +63,11 @@ function Inner() {
   const [busca, setBusca] = useState('')
   const [filtroPS, setFiltroPS] = useState<'todos' | 'vira_prejuizo' | 'abaixo_piso' | 'sem_custo' | 'sem_nota' | 'roi_negativo'>('todos')
   const [densa, setDensa] = useState(false)
+  // R7a-2 · no celular o pátio abre em Lista (cards ocupam demais). Só define no mount.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches) setDensa(true) }, [])
+  // R7a-2 · faixa de dias escolhida no mapa de calor (clique). null = sem filtro de faixa.
+  const [faixaDias, setFaixaDias] = useState<{ min: number; max: number | null; label: string } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); return }
@@ -129,6 +143,8 @@ function Inner() {
         || (compl === 'em_preparacao_os' && emPreparacao.has(r.id))
         || (compl === 'faltam_nota' && (r.fiscais_faltantes?.length ?? 0) > 0)) &&
       passaPS(r) &&
+      // R7a-2 · faixa de dias do mapa de calor
+      (faixaDias === null || (r.dias_patio >= faixaDias.min && (faixaDias.max === null || r.dias_patio <= faixaDias.max))) &&
       // R7a · busca por modelo/placa (também casa marca embutida no modelo e o fim do chassi).
       (q === '' || (r.modelo ?? '').toLowerCase().includes(q) || (r.placa ?? '').toLowerCase().includes(q) || r.chassi.toLowerCase().includes(q)))
     // R3c/R7a: ordenação por maior sangria, vira-prejuízo mais próximo, ou pior ROI (senão dias, ordem da view)
@@ -144,7 +160,14 @@ function Inner() {
       return [...filtrados].sort((a, b) => roi(a.id) - roi(b.id))
     }
     return filtrados
-  }, [rows, filtro, compl, comVistoria, precificados, emPreparacao, ordem, conta, detalhe, busca, filtroPS])
+  }, [rows, filtro, compl, comVistoria, precificados, emPreparacao, ordem, conta, detalhe, busca, filtroPS, faixaDias])
+  // R7a-2 · mapa de calor: por faixa de dias parados, quantos carros e quanto dinheiro (custo acumulado)
+  // está preso. Fonte: as próprias linhas do pátio (dias_patio + custo_acumulado). Sem query nova.
+  const heat = useMemo(() => FAIXAS_DIAS.map((f) => {
+    const na = rows.filter((r) => r.dias_patio >= f.min && (f.max === null || r.dias_patio <= f.max))
+    return { ...f, count: na.length, dinheiro: na.reduce((s, r) => s + (r.custo_acumulado || 0), 0) }
+  }), [rows])
+  const maxDinheiro = useMemo(() => Math.max(1, ...heat.map((h) => h.dinheiro)), [heat])
   const nSemCusto = useMemo(() => rows.filter((r) => !r.tem_custo).length, [rows])
   const nSemDados = useMemo(() => rows.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [rows])
   const nSemVistoria = useMemo(() => rows.filter((r) => !comVistoria.has(r.id)).length, [rows, comVistoria])
@@ -221,8 +244,13 @@ function Inner() {
         </label>
         {/* R7a · busca por modelo/placa */}
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar modelo/placa" style={{ ...inp, width: 170 }} />
-        {/* R7a · modo lista densa (bom no celular / pátios grandes) */}
-        <button onClick={() => setDensa((v) => !v)} style={{ ...inp, cursor: 'pointer', fontWeight: 700, color: densa ? C.gold : C.espM }}>{densa ? '▤ lista' : '▦ cards'}</button>
+        {/* R7a-2 · controle segmentado Lista | Cards (comunica a alternância; no celular abre em Lista) */}
+        <div style={{ display: 'inline-flex', border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+          <button onClick={() => setDensa(true)} title="lista densa — uma linha por carro"
+            style={{ padding: '8px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer', background: densa ? C.gold : C.white, color: densa ? C.white : C.espM }}>☰ Lista</button>
+          <button onClick={() => setDensa(false)} title="cards com foto"
+            style={{ padding: '8px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', borderLeft: `1px solid ${C.border}`, cursor: 'pointer', background: !densa ? C.gold : C.white, color: !densa ? C.white : C.espM }}>▦ Cards</button>
+        </div>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s)</span>
       </div>
 
@@ -234,8 +262,46 @@ function Inner() {
         </button>
       )}
 
+      {/* R7a-2 · mapa de calor: dias parados × dinheiro parado. Clique numa faixa filtra o pátio. */}
+      {rows.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espM, fontWeight: 700, marginBottom: 6 }}>
+            Onde o dinheiro está parado <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· por tempo no pátio</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+            {heat.map((h) => {
+              const sc = semColor(h.sev)
+              const ativo = faixaDias?.label === h.label
+              const share = h.dinheiro / maxDinheiro
+              return (
+                <button key={h.label}
+                  onClick={() => setFaixaDias(ativo ? null : { min: h.min, max: h.max, label: h.label })}
+                  title={h.count ? `${h.count} veículo(s) · ${brl(h.dinheiro)} em custo acumulado — clique para filtrar` : 'sem veículos nesta faixa'}
+                  style={{ textAlign: 'left', cursor: h.count ? 'pointer' : 'default', background: C.white, border: `1px solid ${ativo ? sc.c : C.border}`, boxShadow: ativo ? `0 0 0 2px ${sc.c}33` : 'none', borderRadius: 10, padding: '10px 12px', opacity: h.count ? 1 : 0.55 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.esp }}>{h.label}</span>
+                    <span style={{ fontSize: 10.5, padding: '1px 7px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700 }}>{h.count}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.esp, marginTop: 4 }}>{brl(h.dinheiro)}</div>
+                  {/* barra: participação do dinheiro parado nesta faixa (cor do semáforo da faixa) */}
+                  <div style={{ height: 6, borderRadius: 999, background: C.cream, marginTop: 6, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.round(share * 100)}%`, background: sc.c, borderRadius: 999 }} />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+          {faixaDias && (
+            <div style={{ marginTop: 6, fontSize: 12, color: C.espM }}>
+              Filtrando <b style={{ color: C.esp }}>{faixaDias.label}</b> ·{' '}
+              <button onClick={() => setFaixaDias(null)} style={{ border: 'none', background: 'none', color: C.gold, cursor: 'pointer', fontWeight: 700, padding: 0 }}>limpar</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {visiveis.length === 0 ? (
-        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Nenhum veículo no pátio. Cadastre o primeiro.</div>
+        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Nenhum veículo no pátio{faixaDias ? ` na faixa ${faixaDias.label}` : ''}. {faixaDias ? '' : 'Cadastre o primeiro.'}</div>
       ) : densa ? (
         /* R7a · modo lista densa — uma linha por carro, boa no celular e em pátios grandes */
         <div style={{ display: 'grid', gap: 6 }}>
