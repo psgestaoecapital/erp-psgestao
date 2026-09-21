@@ -28,6 +28,12 @@ ALTER TABLE veic_veiculo ADD COLUMN IF NOT EXISTS valor_fipe numeric;
 ALTER TABLE veic_veiculo ADD COLUMN IF NOT EXISTS valor_fipe_informado_em timestamptz;
 ALTER TABLE veic_veiculo ADD COLUMN IF NOT EXISTS valor_fipe_informado_por uuid;
 ALTER TABLE veic_veiculo ADD COLUMN IF NOT EXISTS ncm text;
+ALTER TABLE veic_veiculo ADD COLUMN IF NOT EXISTS lugares int DEFAULT 5;   -- capacidade (inclui condutor); define .10/.90 do NCM
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='veic_veiculo_ncm_fmt') THEN
+    ALTER TABLE veic_veiculo ADD CONSTRAINT veic_veiculo_ncm_fmt CHECK (ncm IS NULL OR ncm ~ '^[0-9]{8}$');
+  END IF;
+END $$;
 ALTER TABLE veic_perfil_fiscal ADD COLUMN IF NOT EXISTS ncm_padrao text;
 
 -- ── (4) NCM por TABELA de faixas (referência TIPI, cap. 87) — sugestão editável por veículo ─────────
@@ -37,7 +43,9 @@ CREATE TABLE IF NOT EXISTS veic_ncm_faixa (
   combustivel text,                                     -- gasolina|flex|diesel|eletrico|hibrido | NULL (qualquer)
   cilindrada_min numeric NOT NULL DEFAULT 0,
   cilindrada_max numeric,                               -- NULL = sem teto
-  ncm text NOT NULL,
+  lugares_min int,                                      -- capacidade de passageiros (inclui condutor); NULL = qualquer
+  lugares_max int,                                      -- ≤6 → subitem .10; >6 → .90 (TIPI 8703.22/.23/.24/.31/.32/.33)
+  ncm text NOT NULL CHECK (ncm ~ '^[0-9]{8}$'),         -- SEMPRE 8 dígitos (a NF-e rejeita 6+00)
   vigente_desde date NOT NULL DEFAULT current_date,
   fonte text NOT NULL DEFAULT 'TIPI — Capítulo 87 (conferir vigência na fonte oficial)',
   ativo boolean NOT NULL DEFAULT true,
@@ -56,21 +64,34 @@ END $$;
 GRANT SELECT ON public.veic_ncm_faixa TO authenticated;
 GRANT ALL ON public.veic_ncm_faixa TO service_role;
 
--- Faixas de referência (TIPI cap. 87). Editáveis/complementáveis; a fonte fica registrada.
-INSERT INTO veic_ncm_faixa (tipo, combustivel, cilindrada_min, cilindrada_max, ncm) VALUES
-  ('carro','gasolina',0,1000,'87032100'), ('carro','flex',0,1000,'87032100'), ('carro',NULL,0,1000,'87032100'),
-  ('carro','gasolina',1000,1500,'87032210'), ('carro','flex',1000,1500,'87032210'), ('carro',NULL,1000,1500,'87032210'),
-  ('carro','gasolina',1500,3000,'87032310'), ('carro','flex',1500,3000,'87032310'), ('carro',NULL,1500,3000,'87032310'),
-  ('carro','gasolina',3000,NULL,'87032410'), ('carro','flex',3000,NULL,'87032410'), ('carro',NULL,3000,NULL,'87032410'),
-  ('carro','diesel',0,1500,'87033100'), ('carro','diesel',1500,2500,'87033200'), ('carro','diesel',2500,NULL,'87033300'),
-  ('carro','hibrido',0,NULL,'87034000'), ('carro','eletrico',0,NULL,'87038000'),
-  ('moto',NULL,0,50,'87111000'), ('moto',NULL,50,250,'87112010'), ('moto',NULL,250,500,'87113000'),
-  ('moto',NULL,500,800,'87114000'), ('moto',NULL,800,NULL,'87115000'),
-  ('caminhao','diesel',0,NULL,'87042100'), ('maquina',NULL,0,NULL,'87051000')
+-- Faixas de referência (TIPI cap. 87, códigos de 8 dígitos). Editáveis/complementáveis; a fonte fica
+-- registrada. Automóveis 8703: .21 (≤1000 cc, sem subdivisão por lugares) e, de .22 a .24 (otto) e .31 a
+-- .33 (diesel), o subitem .10 = capacidade ≤ 6 pessoas (inclui o condutor) e .90 = mais de 6. Motos 8711
+-- por cilindrada. Carga (8704) NÃO é semeada em faixa genérica: exige o subtipo (basculante/frigorífico/
+-- outros), então o veículo sem subtipo fica 'nao_configurado' — nunca um código inventado.
+INSERT INTO veic_ncm_faixa (tipo, combustivel, cilindrada_min, cilindrada_max, lugares_min, lugares_max, ncm) VALUES
+  ('carro','gasolina',0,1000,NULL,NULL,'87032100'), ('carro','flex',0,1000,NULL,NULL,'87032100'), ('carro',NULL,0,1000,NULL,NULL,'87032100'),
+  -- otto 8703.22/.23/.24 por lugares (.10 ≤6 · .90 >6)
+  ('carro','gasolina',1000,1500,0,6,'87032210'), ('carro','flex',1000,1500,0,6,'87032210'), ('carro',NULL,1000,1500,0,6,'87032210'),
+  ('carro','gasolina',1000,1500,7,NULL,'87032290'), ('carro','flex',1000,1500,7,NULL,'87032290'), ('carro',NULL,1000,1500,7,NULL,'87032290'),
+  ('carro','gasolina',1500,3000,0,6,'87032310'), ('carro','flex',1500,3000,0,6,'87032310'), ('carro',NULL,1500,3000,0,6,'87032310'),
+  ('carro','gasolina',1500,3000,7,NULL,'87032390'), ('carro','flex',1500,3000,7,NULL,'87032390'), ('carro',NULL,1500,3000,7,NULL,'87032390'),
+  ('carro','gasolina',3000,NULL,0,6,'87032410'), ('carro','flex',3000,NULL,0,6,'87032410'), ('carro',NULL,3000,NULL,0,6,'87032410'),
+  ('carro','gasolina',3000,NULL,7,NULL,'87032490'), ('carro','flex',3000,NULL,7,NULL,'87032490'), ('carro',NULL,3000,NULL,7,NULL,'87032490'),
+  -- diesel 8703.31/.32/.33 por lugares
+  ('carro','diesel',0,1500,0,6,'87033110'), ('carro','diesel',0,1500,7,NULL,'87033190'),
+  ('carro','diesel',1500,2500,0,6,'87033210'), ('carro','diesel',1500,2500,7,NULL,'87033290'),
+  ('carro','diesel',2500,NULL,0,6,'87033310'), ('carro','diesel',2500,NULL,7,NULL,'87033390'),
+  -- híbrido/elétrico (sem subdivisão por lugares no seed de referência)
+  ('carro','hibrido',0,NULL,NULL,NULL,'87034000'), ('carro','eletrico',0,NULL,NULL,NULL,'87038000'),
+  -- motos 8711 por cilindrada (8 dígitos, subitem .00 onde não há divisão relevante)
+  ('moto',NULL,0,50,NULL,NULL,'87111000'), ('moto',NULL,50,250,NULL,NULL,'87112090'), ('moto',NULL,250,500,NULL,NULL,'87113000'),
+  ('moto',NULL,500,800,NULL,NULL,'87114000'), ('moto',NULL,800,NULL,NULL,NULL,'87115000')
 ON CONFLICT DO NOTHING;
 
--- fn_veic_ncm_sugerido(tipo, combustivel, cilindradas) → NCM da faixa, ou NULL (nao_configurado, RD-51).
-CREATE OR REPLACE FUNCTION public.fn_veic_ncm_sugerido(p_tipo text, p_combustivel text, p_cilindradas numeric)
+-- fn_veic_ncm_sugerido(tipo, combustivel, cilindradas, lugares) → NCM (8 díg.) da faixa, ou NULL
+-- (nao_configurado, RD-51). lugares define o subitem .10 (≤6) / .90 (>6) dos automóveis.
+CREATE OR REPLACE FUNCTION public.fn_veic_ncm_sugerido(p_tipo text, p_combustivel text, p_cilindradas numeric, p_lugares int DEFAULT NULL)
  RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
   SELECT ncm FROM veic_ncm_faixa
@@ -78,12 +99,14 @@ AS $function$
      AND (combustivel IS NULL OR combustivel = lower(btrim(coalesce(p_combustivel,''))))
      AND COALESCE(p_cilindradas,0) >= cilindrada_min
      AND (cilindrada_max IS NULL OR COALESCE(p_cilindradas,0) < cilindrada_max)
+     AND (lugares_min IS NULL OR COALESCE(p_lugares,5) >= lugares_min)
+     AND (lugares_max IS NULL OR COALESCE(p_lugares,5) <= lugares_max)
      AND vigente_desde <= current_date
-   ORDER BY (combustivel IS NULL), vigente_desde DESC   -- prefere a faixa do combustível específico
+   ORDER BY (combustivel IS NULL), (lugares_min IS NULL), vigente_desde DESC   -- prefere combustível e faixa de lugares específicos
    LIMIT 1
 $function$;
-REVOKE ALL ON FUNCTION public.fn_veic_ncm_sugerido(text, text, numeric) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_veic_ncm_sugerido(text, text, numeric) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_veic_ncm_sugerido(text, text, numeric, int) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_ncm_sugerido(text, text, numeric, int) TO authenticated, service_role;
 
 -- ── (2) modelo de comissão de vendedor por tipo de atendimento ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS veic_comissao_regra (
@@ -239,12 +262,12 @@ BEGIN
   SELECT id, combustivel, cilindradas INTO v_onix, v_comb, v_cil FROM veic_veiculo WHERE company_id=v_bot AND chassi='DEMO0REVENDA00003' LIMIT 1;
   IF v_onix IS NOT NULL THEN
     UPDATE veic_veiculo SET valor_fipe = 47000, valor_fipe_informado_em = now() - interval '3 days', valor_fipe_informado_por = v_robo,
-      ncm = fn_veic_ncm_sugerido('carro', v_comb, v_cil) WHERE id = v_onix;
+      lugares = COALESCE(lugares, 5), ncm = fn_veic_ncm_sugerido('carro', v_comb, v_cil, COALESCE(lugares, 5)) WHERE id = v_onix;
   END IF;
   SELECT id, cilindradas INTO v_cb, v_cil FROM veic_veiculo WHERE company_id=v_bot AND chassi='DEMO0REVENDA00010' LIMIT 1;
   IF v_cb IS NOT NULL THEN
     UPDATE veic_veiculo SET valor_fipe = 34000, valor_fipe_informado_em = now() - interval '3 days', valor_fipe_informado_por = v_robo,
-      ncm = fn_veic_ncm_sugerido('moto', NULL, COALESCE(v_cil, 500)) WHERE id = v_cb;
+      ncm = fn_veic_ncm_sugerido('moto', NULL, COALESCE(v_cil, 500), NULL) WHERE id = v_cb;
   END IF;
 
   RETURN jsonb_build_object('ok', true, 'perfil', v_perfil,
