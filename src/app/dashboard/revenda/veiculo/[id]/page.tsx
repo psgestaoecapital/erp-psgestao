@@ -16,9 +16,11 @@ const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const brDate = (d: string) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
+// R7b (Tela 5): tipo do veículo — valor gravado (sem acento) × rótulo exibido.
+const TIPOS: { v: string; l: string }[] = [{ v: 'carro', l: 'carro' }, { v: 'moto', l: 'moto' }, { v: 'caminhao', l: 'caminhão' }, { v: 'maquina', l: 'máquina' }]
 const CATS = ['aquisicao', 'documentacao', 'despachante', 'preparacao', 'peca', 'mao_de_obra', 'debito_assumido', 'frete', 'comissao', 'outro']
 
-type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null }
+type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null; tipo: string | null; crlv_storage_path: string | null }
 type Compl = { fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
 type Custo = { id: string; categoria: string; descricao: string | null; valor: number; fornecedor_nome: string | null; data_custo: string; entra_base_fiscal: boolean | null; pagar_id: string | null }
 type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
@@ -201,6 +203,12 @@ function Inner() {
 
       <Bloco titulo="Fotos do veículo">
         <FotosVeiculo veiculoId={id} companyId={v.company_id} onErro={setErro} onMsg={setMsg} />
+      </Bloco>
+
+      {/* R7b (Tela 5) · CRLV do veículo — documento (PDF ou foto) no bucket privado; caminho, nunca URL pública. */}
+      <Bloco titulo="CRLV (documento do veículo)">
+        <CrlvVeiculo veiculoId={id} companyId={v.company_id} crlvPath={v.crlv_storage_path}
+          onErro={setErro} onMsg={setMsg} onChange={() => { setFiscalKey((k) => k + 1); void carregar() }} />
       </Bloco>
 
       <Bloco titulo="Negociação">
@@ -1211,14 +1219,17 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     combustivel: v.combustivel ?? '', potencia_cv: num(v.potencia_cv), cilindradas: num(v.cilindradas),
     portas: num(v.portas), cambio: v.cambio ?? '', ano_fabricacao: num(v.ano_fabricacao),
     ano_modelo: num(v.ano_modelo), renavam: v.renavam ?? '',
+    // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
+    tipo: v.tipo ?? '',
     // item 2c-c: fiscal do veículo
     valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
   const [busy, setBusy] = useState(false)
-  const [tipoNcm, setTipoNcm] = useState<'carro' | 'moto'>('carro')
   const [ncmMsg, setNcmMsg] = useState<string | null>(null)
   async function sugerirNcm() {
-    const { data } = await supabase.rpc('fn_veic_veiculo_fiscal', { p_veiculo_id: v.id, p_tipo: tipoNcm })
+    // a tabela de NCM sugere por carro/moto; caminhão/máquina caem no padrão da empresa (contador confirma)
+    const tp = f.tipo === 'moto' ? 'moto' : 'carro'
+    const { data } = await supabase.rpc('fn_veic_veiculo_fiscal', { p_veiculo_id: v.id, p_tipo: tp })
     const r = data as { ok?: boolean; ncm_sugerido?: string | null; ncm_padrao?: string | null } | null
     const sug = r?.ncm_sugerido ?? r?.ncm_padrao ?? null
     if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
@@ -1253,6 +1264,9 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
+          <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+        </select>
         {F('marca', 'marca', 130)}{F('modelo', 'modelo', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
         <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
           <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -1268,10 +1282,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
           <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130 }} />
           <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace' }} />
           {F('lugares', 'lugares', 80)}
-          <select value={tipoNcm} onChange={(e) => setTipoNcm(e.target.value as 'carro' | 'moto')} style={{ ...inp, width: 90 }}>
-            <option value="carro">carro</option><option value="moto">moto</option>
-          </select>
-          <button type="button" onClick={() => void sugerirNcm()} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
+          <button type="button" onClick={() => void sugerirNcm()} title={f.tipo ? `sugere pelo tipo: ${f.tipo}` : 'defina o tipo acima para uma sugestão melhor'} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
         </div>
         {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
       </div>
@@ -1390,6 +1401,88 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+// R7b (Tela 5) · CRLV do veículo — um documento (PDF ou foto) por veículo. Reusa o bucket PRIVADO
+// 'revenda-veiculos' (mesma RLS por company_id/'/' das fotos) → URL assinada para visualizar. O caminho
+// é persistido em veic_veiculo.crlv_storage_path via fn_veic_atualizar_dados; trocar remove o anterior.
+function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }: { veiculoId: string; companyId: string; crlvPath: string | null; onErro: (m: string) => void; onMsg: (m: string) => void; onChange: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const ehPdf = !!crlvPath && crlvPath.toLowerCase().endsWith('.pdf')
+
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      if (!crlvPath) { if (vivo) setUrl(null); return }
+      const { data } = await supabase.storage.from('revenda-veiculos').createSignedUrl(crlvPath, 3600)
+      if (vivo) setUrl(data?.signedUrl ?? null)
+    })()
+    return () => { vivo = false }
+  }, [crlvPath])
+
+  async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
+
+  async function enviar(files: FileList | null) {
+    if (!files || !files.length) return
+    // mesma guarda das fotos: sem company_id o path vira "undefined/…" e a RLS do bucket NEGA o upload.
+    if (!companyId) { onErro('Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'); return }
+    setBusy(true)
+    try {
+      const file = files[0]
+      const ext = ((file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'pdf'
+      const path = `${companyId}/${veiculoId}/crlv-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'application/pdf', upsert: false })
+      if (upErr) { onErro('Falha no upload: ' + upErr.message); return }
+      const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: path }, p_user: await uid() })
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || !r?.ok) {
+        // registro falhou → remove o objeto órfão (mesmo padrão das fotos/vistoria)
+        onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (r?.erro || error?.message || 'Falha ao registrar o CRLV'))
+        await supabase.storage.from('revenda-veiculos').remove([path])
+        return
+      }
+      // troca: remove o CRLV anterior (se havia e mudou) para não deixar órfão no bucket
+      if (crlvPath && crlvPath !== path) await supabase.storage.from('revenda-veiculos').remove([crlvPath])
+      onMsg('CRLV anexado.'); onChange()
+    } finally { setBusy(false) }
+  }
+
+  async function remover() {
+    if (!crlvPath) return
+    setBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: '' }, p_user: await uid() })
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || !r?.ok) { onErro(r?.erro || error?.message || 'Falha ao remover o CRLV'); return }
+      await supabase.storage.from('revenda-veiculos').remove([crlvPath])
+      onMsg('CRLV removido.'); onChange()
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 14px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>
+          {busy ? 'Enviando…' : (crlvPath ? '📄 Trocar CRLV' : '📄 Anexar CRLV')}
+          <input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e) => { void enviar(e.target.files); e.currentTarget.value = '' }} style={{ display: 'none' }} />
+        </label>
+        {crlvPath && url && <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: C.gold, fontWeight: 700, textDecoration: 'underline' }}>abrir em nova aba</a>}
+        {crlvPath && <button onClick={() => void remover()} disabled={busy} style={{ border: 'none', background: 'none', color: C.red, cursor: busy ? 'wait' : 'pointer', fontSize: 12.5 }}>remover</button>}
+      </div>
+      <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>PDF ou foto do documento. Fica no armazenamento privado da empresa — só quem tem acesso ao veículo consegue abrir.</div>
+      {!crlvPath ? (
+        <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem CRLV anexado ainda.</div>
+      ) : !url ? (
+        <div style={{ fontSize: 12, color: C.espL, marginTop: 10 }}>carregando documento…</div>
+      ) : ehPdf ? (
+        <iframe title="CRLV do veículo" src={url} style={{ width: '100%', height: 460, border: `1px solid ${C.border}`, borderRadius: 10, marginTop: 12, background: C.cream }} />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="CRLV do veículo" style={{ maxWidth: '100%', maxHeight: 460, border: `1px solid ${C.border}`, borderRadius: 10, marginTop: 12 }} />
       )}
     </div>
   )
