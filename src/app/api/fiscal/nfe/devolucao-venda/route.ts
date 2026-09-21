@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -17,7 +18,7 @@ interface DevolVendaBody {
   ambiente?: 'homologacao' | 'producao'
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = (await req.json()) as DevolVendaBody
 
@@ -44,6 +45,10 @@ export const POST = withAuth(async (req: NextRequest) => {
         { status: 404 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: nfeVenda.company_id, papelMinimo: 'membro', log: { notaTipo: 'nfe', notaId: nfeVenda.id, operacao: 'devolucao_venda', endpoint: 'nfe/devolucao-venda' } })
+    if (negado) return negado
+
     if (nfeVenda.status !== 'autorizada') {
       return NextResponse.json(
         { ok: false, mensagem: `NFe de venda nao esta autorizada (status: ${nfeVenda.status})` },

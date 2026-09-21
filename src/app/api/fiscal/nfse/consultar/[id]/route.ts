@@ -3,13 +3,14 @@ import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export const GET = withAuth(async (
   _req: NextRequest,
-  _ctx,
+  { userId },
   routeCtx?: { params: Promise<{ id: string }> }
 ) => {
   try {
@@ -28,6 +29,9 @@ export const GET = withAuth(async (
     if (error || !nota) {
       return NextResponse.json({ ok: false, mensagem: 'NFSe nao encontrada' }, { status: 404 })
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: nota.company_id, papelMinimo: 'membro', log: { notaTipo: 'nfse', notaId: id, operacao: 'consulta', endpoint: 'nfse/consultar' } })
+    if (negado) return negado
 
     if (nota.status === 'processando') {
       try {

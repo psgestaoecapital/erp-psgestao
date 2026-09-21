@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,7 +29,7 @@ interface DevolucaoBody {
   modalidadeFrete?: number
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = (await req.json()) as DevolucaoBody
 
@@ -58,6 +59,9 @@ export const POST = withAuth(async (req: NextRequest) => {
         { status: 400 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'devolucao', endpoint: 'nfe/devolucao' } })
+    if (negado) return negado
 
     // Busca o fornecedor (vira destinatario da NF-e de devolucao)
     const { data: forn, error: errForn } = await supabaseAdmin

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,6 +29,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     ) {
       return NextResponse.json({ ok: false, erro: 'Campos obrigatórios ausentes' }, { status: 400 })
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', notaId: null, operacao: 'certificado_upload', endpoint: 'certificado/upload' } })
+    if (negado) return negado
 
     const inicioDate = new Date(validadeInicio).toISOString().slice(0, 10)
     const fimDate = new Date(validadeFim).toISOString().slice(0, 10)

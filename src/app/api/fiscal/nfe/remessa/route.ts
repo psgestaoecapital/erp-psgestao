@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -20,7 +21,7 @@ interface RemessaBody {
   ambiente?: 'homologacao' | 'producao'
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = (await req.json()) as RemessaBody
 
@@ -45,6 +46,9 @@ export const POST = withAuth(async (req: NextRequest) => {
     if (!Array.isArray(body.itens) || body.itens.length === 0) {
       return NextResponse.json({ ok: false, mensagem: 'Informe pelo menos 1 item' }, { status: 400 })
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'remessa', endpoint: 'nfe/remessa' } })
+    if (negado) return negado
 
     // Busca o destinatario (cliente ou fornecedor)
     const cols = 'id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, logradouro, numero, complemento, bairro, cidade, uf, cep'

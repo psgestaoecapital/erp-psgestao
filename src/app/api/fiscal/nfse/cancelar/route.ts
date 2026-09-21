@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { registrarTentativaFiscal, mensagemCancelamentoAmigavel, pareceJaCancelada } from '@/lib/fiscal/tentativaLog'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -38,6 +39,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     if (!nota) {
       return NextResponse.json({ ok: false, mensagem: 'NFS-e não encontrada.' }, { status: 404 })
     }
+
+    // Guarda de pertencimento: a empresa é a DA NOTA (nunca o corpo). Bloqueia acesso cruzado + loga.
+    const negado = await guardaEmpresaFiscal({
+      userId, companyId: nota.company_id, papelMinimo: 'membro',
+      log: { notaTipo: 'nfse', notaId, operacao: 'cancelamento', endpoint: 'nfse/cancelar' },
+    })
+    if (negado) return negado
 
     // Justificativa curta: aponta o mínimo de 15 na própria tela (e registra a tentativa).
     if (justificativa.length < 15) {

@@ -6,16 +6,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const companyId = req.nextUrl.searchParams.get('companyId')
     if (!companyId) {
       return NextResponse.json({ ok: false, mensagem: 'companyId obrigatorio' }, { status: 400 })
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'diagnostico', endpoint: 'nfe/diagnostico' } })
+    if (negado) return negado
+
     const svc = await createFiscalService(companyId)
     const diag = await svc.diagnosticoEmpresas()
     const alvo = diag.empresas.find((e) => e.cnpj.replace(/\D/g, '') === '55081828000103') ?? null
