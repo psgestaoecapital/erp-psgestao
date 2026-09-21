@@ -2,6 +2,14 @@
 --
 -- A Tela 11 (dono e equipe PS) lê e edita o perfil por estas RPCs. Guarda de empresa, sem anon.
 -- O modelo por UF×regime é ponto de partida; nada é regra fixa (RD-51/65). Idempotente/aditivo.
+--
+-- SEGURANÇA (ajuste obrigatório do juiz, PF-c): a policy FOR ALL de veic_perfil_fiscal (PF-a) deixa
+-- qualquer membro da empresa dar UPDATE direto na linha — inclusive virar status='aprovado' na unha.
+-- Isso NÃO pode. A máquina de estados fica travada por TRIGGER: status/aprovado_por/aprovado_em só
+-- mudam quando um GUC local (app.perfil_fiscal_transicao='on') está ligado, e esse GUC só é ligado
+-- dentro das RPCs oficiais (salvar/enviar/aprovar). Aprovar, além disso, exige papel adm/master (dono)
+-- ou PS_ADMIN e grava audit_log_global (quem/quando/versão/o que muda). O contador (link PF-b) só chega
+-- a 'rascunho' e 'enviar para aprovação' — nunca aprova. Mesma família do escape RD-30 (GUC local).
 
 -- Estado + rascunho editável + histórico para a tela.
 CREATE OR REPLACE FUNCTION public.fn_veic_perfil_fiscal_obter(p_company_id uuid)
@@ -53,6 +61,8 @@ DECLARE v_id uuid; v_op jsonb;
 BEGIN
   IF NOT (p_company_id IN (SELECT get_user_company_ids()) OR is_admin()) THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
+  -- transição legítima (mantém 'rascunho'; recolhe de 'aguardando' se for reeditar). Libera o trigger.
+  PERFORM set_config('app.perfil_fiscal_transicao', 'on', true);
 
   SELECT id INTO v_id FROM veic_perfil_fiscal
    WHERE company_id = p_company_id AND status IN ('rascunho','aguardando_aprovacao') ORDER BY versao DESC LIMIT 1;
@@ -105,25 +115,75 @@ BEGIN
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'erro', 'perfil_nao_encontrado'); END IF;
   IF NOT (v_comp IN (SELECT get_user_company_ids()) OR is_admin()) THEN RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
   IF v_status <> 'rascunho' THEN RETURN jsonb_build_object('ok', false, 'erro', 'nao_e_rascunho'); END IF;
+  PERFORM set_config('app.perfil_fiscal_transicao', 'on', true);  -- transição legítima (rascunho→aguardando)
   UPDATE veic_perfil_fiscal SET status = 'aguardando_aprovacao', updated_at = now() WHERE id = p_perfil_id;
   RETURN jsonb_build_object('ok', true, 'status', 'aguardando_aprovacao');
 END $function$;
 
--- Aprovar (o dono/PS). Supersede o aprovado anterior; passa a vigente na data informada (ou hoje).
+-- Aprovar — SÓ dono (papel adm/master via tenant_user_roles) ou PS_ADMIN (is_admin). Supersede o
+-- aprovado anterior; passa a vigente na data informada (ou hoje). Grava audit_log_global. O gate de
+-- permissão usa auth.uid() (o caller real), nunca o p_user do corpo (que é só para o registro).
 CREATE OR REPLACE FUNCTION public.fn_veic_perfil_fiscal_aprovar(p_perfil_id uuid, p_user uuid DEFAULT NULL, p_vigente_desde date DEFAULT NULL)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_comp uuid; v_status text; v_vig date;
+DECLARE v_comp uuid; v_status text; v_vig date; v_versao int; v_regime text; v_quem uuid;
 BEGIN
-  SELECT company_id, status INTO v_comp, v_status FROM veic_perfil_fiscal WHERE id = p_perfil_id;
+  SELECT company_id, status, versao, regime INTO v_comp, v_status, v_versao, v_regime
+    FROM veic_perfil_fiscal WHERE id = p_perfil_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'erro', 'perfil_nao_encontrado'); END IF;
   IF NOT (v_comp IN (SELECT get_user_company_ids()) OR is_admin()) THEN RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso'); END IF;
+  -- GATE de aprovação: adm/master da empresa (dono) OU PS_ADMIN. Recusa clara (RD-51).
+  IF NOT (is_admin() OR EXISTS (
+            SELECT 1 FROM tenant_user_roles
+             WHERE user_id = auth.uid() AND company_id = v_comp
+               AND role IN ('CLIENT_OWNER','CLIENT_MANAGER') AND is_active = true)) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'sem_permissao_aprovar',
+      'mensagem', 'Só o dono/administrador da revenda (ou o suporte PS) aprova o perfil fiscal.'); END IF;
   IF v_status NOT IN ('rascunho','aguardando_aprovacao') THEN RETURN jsonb_build_object('ok', false, 'erro', 'estado_invalido', 'status', v_status); END IF;
   v_vig := COALESCE(p_vigente_desde, current_date);
+  v_quem := COALESCE(p_user, auth.uid());
+  -- transição protegida: liga o GUC local para o trigger deixar passar status/aprovado_por/aprovado_em.
+  PERFORM set_config('app.perfil_fiscal_transicao', 'on', true);
   -- supersede aprovados anteriores que passam a valer até esta data (mantém histórico)
   UPDATE veic_perfil_fiscal SET status = 'substituido', updated_at = now()
    WHERE company_id = v_comp AND status = 'aprovado' AND id <> p_perfil_id AND vigente_desde <= v_vig;
-  UPDATE veic_perfil_fiscal SET status = 'aprovado', aprovado_por = p_user, aprovado_em = now(), vigente_desde = v_vig, updated_at = now()
+  UPDATE veic_perfil_fiscal SET status = 'aprovado', aprovado_por = v_quem, aprovado_em = now(), vigente_desde = v_vig, updated_at = now()
    WHERE id = p_perfil_id;
-  RETURN jsonb_build_object('ok', true, 'status', 'aprovado', 'vigente_desde', v_vig);
+  -- trilha de auditoria (quem, quando, versão, o que muda) — exigência do juiz.
+  INSERT INTO audit_log_global (company_id, user_id, tabela, registro_id, acao, valor_novo)
+  VALUES (v_comp, v_quem, 'veic_perfil_fiscal', p_perfil_id::text, 'perfil_fiscal_aprovado',
+          jsonb_build_object('versao', v_versao, 'vigente_desde', v_vig, 'regime', v_regime,
+                             'status_anterior', v_status, 'aprovado_por', v_quem));
+  RETURN jsonb_build_object('ok', true, 'status', 'aprovado', 'vigente_desde', v_vig, 'versao', v_versao);
 END $function$;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────
+-- TRIGGER de proteção: status/aprovado_por/aprovado_em só mudam dentro das RPCs oficiais (GUC local).
+-- INSERT direto só nasce 'rascunho' e sem aprovação; UPDATE que mexa nesses campos fora da RPC é barrado.
+-- (SECURITY INVOKER: só lê o GUC e NEW/OLD, não precisa de privilégio elevado.)
+-- ─────────────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_veic_perfil_fiscal_guard()
+ RETURNS trigger LANGUAGE plpgsql SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF current_setting('app.perfil_fiscal_transicao', true) = 'on' THEN
+    RETURN NEW;  -- transição legítima (salvar/enviar/aprovar ligaram o GUC nesta transação)
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF COALESCE(NEW.status,'rascunho') <> 'rascunho' OR NEW.aprovado_por IS NOT NULL OR NEW.aprovado_em IS NOT NULL THEN
+      RAISE EXCEPTION 'perfil_fiscal: status/aprovação só mudam via fn_veic_perfil_fiscal_enviar/_aprovar';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status
+     OR NEW.aprovado_por IS DISTINCT FROM OLD.aprovado_por
+     OR NEW.aprovado_em IS DISTINCT FROM OLD.aprovado_em THEN
+    RAISE EXCEPTION 'perfil_fiscal: status/aprovação só mudam via fn_veic_perfil_fiscal_enviar/_aprovar';
+  END IF;
+  RETURN NEW;
+END $function$;
+
+DROP TRIGGER IF EXISTS trg_veic_perfil_fiscal_guard ON veic_perfil_fiscal;
+CREATE TRIGGER trg_veic_perfil_fiscal_guard
+  BEFORE INSERT OR UPDATE ON veic_perfil_fiscal
+  FOR EACH ROW EXECUTE FUNCTION public.fn_veic_perfil_fiscal_guard();
