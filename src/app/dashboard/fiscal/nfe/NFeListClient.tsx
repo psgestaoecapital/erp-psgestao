@@ -471,9 +471,9 @@ export default function NFeListClient() {
       {/* Modal de cancelamento */}
       {cancelando && (
         <div onClick={() => !enviandoCancel && setCancelando(null)} className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl max-w-md w-full p-5 border border-[#A32D2D]/40">
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl max-w-md w-full p-5 border border-[#3D2314]/10">
             <div className="flex items-start gap-3 mb-4">
-              <XCircle size={20} className="text-[#A32D2D] flex-shrink-0 mt-0.5" />
+              <Ban size={20} className="text-[#BA7517] flex-shrink-0 mt-0.5" />
               <div>
                 <h3 className="text-[15px] font-semibold text-[#3D2314]">Cancelar NF-e nº {cancelando.numero ?? cancelando.id}</h3>
                 <p className="text-[12px] text-[#3D2314]/70 mt-1">Prazo legal: 24 horas após a autorização (SEFAZ-SC). Após esse prazo, use carta de correção ou nota de ajuste.</p>
@@ -495,8 +495,8 @@ export default function NFeListClient() {
               <button type="button" onClick={() => setCancelando(null)} disabled={enviandoCancel} className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50">Voltar</button>
               <button type="button" onClick={cancelarNFe} disabled={enviandoCancel || justifCancel.trim().length < 15}
                 data-testid="nfe-cancelar-confirmar"
-                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#A32D2D] text-white hover:bg-[#8A2525] disabled:opacity-50 flex items-center gap-1.5">
-                {enviandoCancel ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}{enviandoCancel ? 'Cancelando…' : 'Cancelar nota'}
+                className="px-4 py-2 text-[12.5px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-50 flex items-center gap-1.5">
+                {enviandoCancel ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}{enviandoCancel ? 'Cancelando…' : 'Cancelar nota'}
               </button>
             </div>
           </div>
@@ -585,8 +585,8 @@ function DocumentoLinhas(props: {
                     <Edit3 size={12} /> Carta de correção
                   </button>
                   <button type="button" onClick={onCancelar} data-testid="nfe-cancelar"
-                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#A32D2D]/40 text-[#A32D2D] hover:bg-[#A32D2D]/10 flex items-center gap-1.5">
-                    <XCircle size={12} /> Cancelar nota
+                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/25 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5">
+                    <Ban size={12} /> Cancelar nota
                   </button>
                 </>
               )}
