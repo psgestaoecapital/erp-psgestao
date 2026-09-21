@@ -17,11 +17,11 @@ const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', {
 const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return s.trim() !== '' && Number.isFinite(n) ? n : null }
 
-type Encargo = { pct: number | null; valor: number | null; configurado: boolean }
+type Encargo = { pct: number | null; valor: number | null; configurado: boolean; fonte?: string | null; base?: string | null; rotulo?: string | null; na_precificacao?: boolean; status?: string | null }
 type Precif = {
   ok?: boolean
   veiculo?: { id: string; marca: string | null; modelo: string | null; placa: string | null }
-  custo?: { aquisicao: number | null; custos_lancados: number; previsao_gastos: number | null; custo_base: number; custo_total: number }
+  custo?: { aquisicao: number | null; custos_lancados: number; previsao_gastos: number | null; custo_base: number; custo_total: number; comissao_reais?: number | null }
   encargos?: { impostos: Encargo; comissao: Encargo; garantia: Encargo }
   preco_minimo?: number; piso_sem_margem?: number | null; preco_sugerido?: number | null; margem_alvo_pct?: number | null
   preco_venda?: number | null; precificado_em?: string | null; margem_projetada?: number | null
@@ -104,12 +104,14 @@ function Inner() {
     const gar = p.encargos?.garantia.pct ?? 0
     const encFrac = (imp + com + gar) / 100
     const custoTotal = p.custo.custo_total
-    // piso = ponto onde a margem projetada zera (custo + encargos, por dentro). Fonte única do servidor.
-    const precoMin = p.piso_sem_margem ?? (encFrac < 1 ? custoTotal / (1 - encFrac) : null)
+    // comissão em R$ (base FIPE/fixo) entra no numerador; base preço/lucro já está no % acima. Fonte única.
+    const comR = p.custo.comissao_reais ?? 0
+    // piso = ponto onde a margem projetada zera (custo + comissão R$ + encargos, por dentro). Servidor manda.
+    const precoMin = p.piso_sem_margem ?? (encFrac < 1 ? (custoTotal + comR) / (1 - encFrac) : null)
     // teto de compra: o quanto pode pagar na aquisição p/ vender por pv com a margem mg (por dentro).
-    const teto = pv != null ? pv * (1 - encFrac - mg / 100) - (p.custo.previsao_gastos ?? 0) - p.custo.custos_lancados : null
-    // margem projetada (R$) = o que sobra depois de cobrir custo + encargos sobre o preço.
-    const margemProj = pv != null ? Math.round((pv * (1 - encFrac) - custoTotal) * 100) / 100 : null
+    const teto = pv != null ? pv * (1 - encFrac - mg / 100) - (p.custo.previsao_gastos ?? 0) - p.custo.custos_lancados - comR : null
+    // margem projetada (R$) = o que sobra depois de cobrir custo + comissão R$ + encargos sobre o preço.
+    const margemProj = pv != null ? Math.round((pv * (1 - encFrac) - custoTotal - comR) * 100) / 100 : null
     const abaixoPiso = pv != null && precoMin != null && pv < precoMin
     return { pv, precoMin, teto, margemProj, abaixoPiso, prejuizo: abaixoPiso && pv != null && precoMin != null ? precoMin - pv : 0 }
   }, [p, precoVenda, margem])
@@ -290,10 +292,16 @@ function Linha({ l, v, alerta, forte }: { l: string; v: string; alerta?: string;
 }
 function EncargoLinha({ l, e }: { l: string; e?: Encargo }) {
   if (!e) return null
+  const naoConfig = !e.configurado || e.status === 'nao_configurado'
+  // comissão por R$ (base FIPE/fixo) tem pct 0 → mostra só o R$; base preço/lucro tem %; regra traz rótulo.
+  const valorTxt = naoConfig ? '—' : (e.pct ? `${e.pct}% · ${brl(e.valor)}` : brl(e.valor))
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: 13.5 }}>
-      <span style={{ color: C.espM }}>{l}{!e.configurado && <span style={{ color: C.amber, fontSize: 11 }}> · ⚠️ não configurado</span>}</span>
-      <span style={{ fontFamily: 'monospace' }}>{e.configurado ? `${e.pct}% · ${brl(e.valor)}` : '—'}</span>
+    <div style={{ padding: '3px 0', fontSize: 13.5 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ color: C.espM }}>{l}{naoConfig && <span style={{ color: C.amber, fontSize: 11 }}> · ⚠️ não configurado</span>}</span>
+        <span style={{ fontFamily: 'monospace' }}>{valorTxt}</span>
+      </div>
+      {e.rotulo && !naoConfig && <div style={{ fontSize: 10.5, color: C.espL, marginTop: 1 }}>{e.rotulo}{e.na_precificacao ? ' · marcada p/ precificar' : ''}</div>}
     </div>
   )
 }
