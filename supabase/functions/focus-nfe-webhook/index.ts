@@ -125,6 +125,16 @@ Deno.serve(async (req: Request) => {
     companyId = data?.company_id ?? null
   }
 
+  // Fallback por CNPJ do prestador (resolvida pela provider_reference OU cnpj) — cobre a corrida em que o
+  // aviso chega antes da nota estar indexada pela provider_reference. companies.cnpj é 14 dígitos.
+  if (!companyId) {
+    const cnpj = String(payload.cnpj_prestador ?? payload.cnpj ?? "").replace(/\D/g, "")
+    if (cnpj.length === 14) {
+      const { data } = await sb.from("companies").select("id").eq("cnpj", cnpj).maybeSingle()
+      companyId = data?.id ?? null
+    }
+  }
+
   let webhookSecret: string | null = null
   if (companyId) {
     const { data: config } = await sb
