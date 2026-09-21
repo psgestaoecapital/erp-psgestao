@@ -29,6 +29,21 @@ type Precif = {
   historico?: { preco_venda: number | null; preco_minimo: number | null; margem_alvo_pct: number | null; premissas: Record<string, unknown> | null; observacao: string | null; criado_em: string }[]
 }
 type Estat = { ok?: boolean; tem_historico?: boolean; n_vendas?: number; dias_medio_patio?: number; margem_media_pct?: number }
+type Cenario = { dias: number; lucro_real: number | null }
+type Cenarios = {
+  ok?: boolean; preco_referencia?: number | null; preco_referencia_fonte?: string | null; sangria_dia?: number | null
+  cenarios?: Cenario[]
+  giro_modelo?: { dias_medios: number | null; amostra: number; este_dias: number | null; recomendacao: string }
+  comparacao_estoque?: { veiculo_id: string; placa: string | null; preco_venda: number | null; dias_parado: number | null }[]
+  frescor?: { dias_desde: number | null }
+}
+type ItemAval = { resposta_id: string; item: string; gasto_previsto: number | null; recusado: boolean; motivo: string | null }
+type Itens = { ok?: boolean; itens?: ItemAval[]; previsao?: { ajustada: number | null; recusada: number | null; bruta: number | null } }
+const GIRO_LABEL: Record<string, { t: string; fg: string; bg: string }> = {
+  acima_do_giro: { t: 'acima do giro', fg: '#B42318', bg: '#FDECEC' },
+  dentro_do_giro: { t: 'dentro do giro', fg: '#166534', bg: '#ECFDF5' },
+  sem_historico: { t: 'sem histórico', fg: '#6B5D4F', bg: '#F0ECE3' },
+}
 
 export default function PrecificacaoPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -45,6 +60,9 @@ function Inner() {
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [cen, setCen] = useState<Cenarios | null>(null)
+  const [itens, setItens] = useState<Itens | null>(null)
+  const [busyItem, setBusyItem] = useState(false)
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
@@ -65,6 +83,12 @@ function Inner() {
       const { data: es } = await supabase.rpc('fn_veic_modelo_estatisticas', { p_company_id: comp, p_marca: marca, p_modelo: modelo })
       setEstat(es as Estat | null)
     }
+    // R6: cenários (carrego), giro, comparação, frescor e itens da avaliação — da fonte única.
+    const [{ data: c }, { data: it }] = await Promise.all([
+      supabase.rpc('fn_veic_precificacao_cenarios', { p_veiculo_id: veiculoId }),
+      supabase.rpc('fn_veic_avaliacao_itens', { p_veiculo_id: veiculoId }),
+    ])
+    setCen(c as Cenarios | null); setItens(it as Itens | null)
   }, [veiculoId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -99,6 +123,19 @@ function Inner() {
     const r = data as { ok?: boolean; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro === 'preco_venda_invalido' ? 'Preço de venda inválido.' : (r?.erro || 'Falha ao salvar.')); return }
     setMsg('Preço salvo.'); setObs(''); void carregar()
+  }
+
+  async function recusarItem(it: ItemAval) {
+    const motivo = window.prompt(`Recusar "${it.item}" (${brl(it.gasto_previsto)})?\nMotivo (o cliente aceita sem consertar, etc.):`)
+    if (!motivo || !motivo.trim()) return
+    setBusyItem(true)
+    await supabase.rpc('fn_veic_avaliacao_recusar', { p_veiculo_id: veiculoId, p_resposta_id: it.resposta_id, p_motivo: motivo.trim() })
+    await carregar(); setBusyItem(false)   // recarrega TUDO: o preço mínimo cai igual na ficha e aqui
+  }
+  async function reativarItem(it: ItemAval) {
+    setBusyItem(true)
+    await supabase.rpc('fn_veic_avaliacao_reativar', { p_veiculo_id: veiculoId, p_resposta_id: it.resposta_id })
+    await carregar(); setBusyItem(false)
   }
 
   if (!p) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando precificação…'}</div>
@@ -165,6 +202,58 @@ function Inner() {
         <button disabled={salvando} onClick={() => void salvar()} style={{ marginTop: 12, background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Salvando…' : 'SALVAR PREÇO'}</button>
         {p.precificado_em && <span style={{ fontSize: 11.5, color: C.espL, marginLeft: 10 }}>precificado em {brDate(p.precificado_em)}</span>}
       </Bloco>
+
+      {/* CENÁRIOS — o carrego corrói o lucro a cada dia no pátio */}
+      {cen?.cenarios && (
+        <Bloco titulo="Se vender hoje × daqui a…">
+          <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 8 }}>Sobre {cen.preco_referencia_fonte === 'anunciado' ? 'o preço anunciado' : 'o preço mínimo sugerido'} ({brl(cen.preco_referencia)}). Carrego {brl(cen.sangria_dia)}/dia.</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {cen.cenarios.map(c => (
+              <div key={c.dias} style={{ flex: '1 1 100px', background: c.dias === 0 ? C.cream : C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 10px' }}>
+                <div style={{ fontSize: 10.5, color: C.espM, fontWeight: 700 }}>{c.dias === 0 ? 'Hoje' : `+${c.dias} dias`}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: c.lucro_real == null ? C.espL : (c.lucro_real < 0 ? C.red : C.green) }}>{c.lucro_real == null ? 'não configurado' : brl(c.lucro_real)}</div>
+                <div style={{ fontSize: 10, color: C.espL }}>lucro real</div>
+              </div>
+            ))}
+          </div>
+        </Bloco>
+      )}
+
+      {/* ITENS DA AVALIAÇÃO — recusar/reativar (o preço mínimo cai igual na ficha) */}
+      {itens?.itens && itens.itens.length > 0 && (
+        <Bloco titulo="Itens da avaliação">
+          <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>Previsão de gastos: <b>{brl(itens.previsao?.ajustada)}</b>{Number(itens.previsao?.recusada) > 0 && <span style={{ color: C.amber }}> (recusado {brl(itens.previsao?.recusada)} de {brl(itens.previsao?.bruta)})</span>}. Recusar um item derruba a previsão e o custo — o preço mínimo cai igual em todas as telas.</div>
+          {itens.itens.map(it => (
+            <div key={it.resposta_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: `1px solid ${C.cream}` }}>
+              <div><div style={{ fontSize: 13, textDecoration: it.recusado ? 'line-through' : 'none', color: C.esp }}>{it.item} — {brl(it.gasto_previsto)}</div>{it.recusado && it.motivo && <div style={{ fontSize: 11, color: C.amber }}>recusado: {it.motivo}</div>}</div>
+              {it.recusado
+                ? <button disabled={busyItem} onClick={() => void reativarItem(it)} style={{ padding: '6px 12px', background: C.white, color: C.esp, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Reativar</button>
+                : <button disabled={busyItem} onClick={() => void recusarItem(it)} style={{ padding: '6px 12px', background: C.white, color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Recusar</button>}
+            </div>
+          ))}
+        </Bloco>
+      )}
+
+      {/* GIRO DO MODELO + COMPARAÇÃO DE ESTOQUE + FRESCOR */}
+      {cen?.giro_modelo && (
+        <Bloco titulo="Giro e mercado do modelo">
+          <div style={{ fontSize: 13, color: C.esp }}>
+            {cen.giro_modelo.dias_medios == null ? 'Sem histórico de venda deste modelo ainda. ' : <>Modelos como este vendem em <b>{cen.giro_modelo.dias_medios} dias</b> (amostra {cen.giro_modelo.amostra}); este está há <b>{cen.giro_modelo.este_dias ?? '—'}</b>. </>}
+            {cen.giro_modelo.recomendacao !== 'sem_historico' && <span style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, color: GIRO_LABEL[cen.giro_modelo.recomendacao].fg, background: GIRO_LABEL[cen.giro_modelo.recomendacao].bg }}>{GIRO_LABEL[cen.giro_modelo.recomendacao].t}</span>}
+          </div>
+          {(cen.comparacao_estoque?.length ?? 0) > 0 && (
+            <div style={{ marginTop: 8, borderTop: `1px solid ${C.cream}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 11.5, color: C.espM, fontWeight: 600, marginBottom: 4 }}>Mesmo modelo no pátio</div>
+              {cen.comparacao_estoque!.map(o => (
+                <div key={o.veiculo_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '3px 0' }}>
+                  <span style={{ color: C.espM }}>{o.placa || 'sem placa'} · {o.dias_parado ?? '—'} dias</span><b>{o.preco_venda == null ? 'sem preço' : brl(o.preco_venda)}</b>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11.5, color: C.espL, marginTop: 8 }}>Fonte do valor: manual{cen.frescor?.dias_desde != null ? ` · há ${cen.frescor.dias_desde} dias` : ''} · FIPE 🔒 (D7).</div>
+        </Bloco>
+      )}
 
       {/* SOBRE ESTE MODELO */}
       <Bloco titulo="Sobre este modelo">
