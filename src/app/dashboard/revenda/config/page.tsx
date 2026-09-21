@@ -98,6 +98,11 @@ export default function ConfigGaragemPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [previa, setPrevia] = useState<Previa | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // R4c · bloco Entrega (checklist + termo) — save próprio, fora da prévia de preço mínimo.
+  const [entItens, setEntItens] = useState<{ item: string; obrigatorio: boolean }[]>([])
+  const [entTermo, setEntTermo] = useState('')
+  const [entFonte, setEntFonte] = useState<string>('fabrica')
+  const [entSalvando, setEntSalvando] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setObter(null); setCarregando(false); return }
@@ -109,6 +114,28 @@ export default function ConfigGaragemPage() {
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
+
+  const carregarEntrega = useCallback(async () => {
+    if (!companyId) { setEntItens([]); setEntTermo(''); return }
+    const { data } = await supabase.rpc('fn_veic_config_entrega_obter', { p_company_id: companyId })
+    const r = data as { ok?: boolean; fonte?: string; itens?: { item: string; obrigatorio: boolean }[]; termo?: string | null } | null
+    if (!r?.ok) return
+    setEntItens((r.itens ?? []).map((i) => ({ item: i.item, obrigatorio: !!i.obrigatorio })))
+    setEntTermo(r.termo ?? ''); setEntFonte(r.fonte ?? 'fabrica')
+  }, [companyId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarEntrega() }, [carregarEntrega])
+
+  async function salvarEntrega() {
+    if (!companyId) return
+    setEntSalvando(true); setErro(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const { data } = await supabase.rpc('fn_veic_config_entrega_salvar', { p_company_id: companyId, p_itens: entItens, p_termo: entTermo || null, p_user: session?.user?.id ?? null })
+    setEntSalvando(false)
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string } | null
+    if (!r?.ok) { setErro(r?.mensagem || (r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar a entrega.'))); return }
+    setMsg('Checklist e termo de entrega salvos.'); setEntFonte('empresa'); void carregarEntrega()
+  }
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((prev) => ({ ...prev, [k]: v }))
 
@@ -280,6 +307,29 @@ export default function ConfigGaragemPage() {
             <option value="completa">Completa (80 itens)</option>
           </select>
         </label>
+      </Bloco>
+
+      {/* ENTREGA (R4c) — checklist e termo por empresa. Save próprio, não mexe no preço mínimo. */}
+      <Bloco titulo="Entrega (checklist e termo)" hint="Os itens que o cliente confere na entrega e o texto padrão do termo. Os obrigatórios travam a conclusão da entrega.">
+        <div style={{ fontSize: 11, color: entFonte === 'empresa' ? C.green : C.espL, marginBottom: 8 }}>{entFonte === 'empresa' ? 'Usando o checklist desta empresa.' : 'Usando o checklist padrão de fábrica — edite e salve para personalizar.'}</div>
+        <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
+          {entItens.map((it, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input value={it.item} onChange={(e) => setEntItens((xs) => xs.map((x, j) => j === i ? { ...x, item: e.target.value } : x))} placeholder="item do checklist"
+                style={{ flex: 1, boxSizing: 'border-box', padding: 9, fontSize: 13.5, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }} />
+              <label style={{ fontSize: 11, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={it.obrigatorio} onChange={(e) => setEntItens((xs) => xs.map((x, j) => j === i ? { ...x, obrigatorio: e.target.checked } : x))} style={{ width: 15, height: 15, accentColor: C.gold }} />obrig.
+              </label>
+              <button onClick={() => setEntItens((xs) => xs.filter((_, j) => j !== i))} style={{ border: `1px solid ${C.border}`, background: C.white, color: C.red, borderRadius: 8, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>remover</button>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setEntItens((xs) => [...xs, { item: '', obrigatorio: true }])} style={{ border: `1px dashed ${C.border}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, marginBottom: 10 }}>+ adicionar item</button>
+        <label style={{ fontSize: 11.5, color: C.espM, display: 'block' }}>Texto padrão do termo (opcional — se vazio, usa o modelo do sistema)
+          <textarea value={entTermo} onChange={(e) => setEntTermo(e.target.value)} rows={4} placeholder="Ex.: cláusulas próprias da loja…"
+            style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, fontSize: 13.5, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white, resize: 'vertical' }} />
+        </label>
+        <button disabled={entSalvando} onClick={() => void salvarEntrega()} style={{ marginTop: 10, background: entSalvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontSize: 14, fontWeight: 700, cursor: entSalvando ? 'wait' : 'pointer' }}>{entSalvando ? 'Salvando…' : 'Salvar checklist e termo'}</button>
       </Bloco>
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
