@@ -6,9 +6,13 @@
 // Defaults KGF: codigo tributacao 140101 · aliquota 0 (Simples Nacional).
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { X, Loader2, CheckCircle2, AlertCircle, Info } from 'lucide-react'
+import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
+
+// bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos)
+const CODIGOS_OBRA = ['obra_obrigatoria', 'obra_nao_encontrada', 'obra_sem_cno']
 
 type TomadorTipo = 'CPF' | 'CNPJ'
 type Fase = 'form' | 'enviando' | 'concluido'
@@ -157,9 +161,15 @@ export default function NFSeEmitirGovModal({
   const [tomEndereco, setTomEndereco] = useState('')
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [buscaDocMsg, setBuscaDocMsg] = useState('')
-  // A③ · obra escolhida no reenvio (só quando permitirObra e sem obraId da prop)
+  // A③ / print Rodrigo 21/09 · obra escolhida no modal. Antes só aparecia no reenvio (permitirObra); agora
+  // também quando a PRÓPRIA porta única diz que o serviço EXIGE obra (E0370) — senão o usuário via o
+  // bloqueio sem ter como vincular a obra (o beco sem saída do print). Mesmo componente da venda/reenvio.
   const [obraFiscal, setObraFiscal] = useState<ObraFiscalState>(obraFiscalStateInicial)
-  const mostrarObra = permitirObra && !obraId
+  const [exigeObra, setExigeObra] = useState(false)
+  // aviso (não bloqueia): produção + tomador é um usuário da própria empresa → "nota REAL pra você mesmo"
+  const [avisoAutoTomador, setAvisoAutoTomador] = useState(false)
+  const obraIdEff = obraId ?? (obraFiscal.modo === 'apontar' ? (obraFiscal.obraSel?.id ?? undefined) : undefined)
+  const mostrarObra = !obraId && (permitirObra || exigeObra)
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
   // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
@@ -188,8 +198,31 @@ export default function NFSeEmitirGovModal({
     setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
     setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
     setObraFiscal(obraFiscalStateInicial)
+    setExigeObra(false); setAvisoAutoTomador(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
+
+  // Item 2 (print Rodrigo) · em PRODUÇÃO, se o tomador for um usuário da própria empresa (mesmo CPF),
+  // avisa que a nota é REAL para si mesmo — não bloqueia, só alerta (best-effort; falha silenciosa = sem aviso).
+  useEffect(() => {
+    if (!aberto || ambiente !== 'producao' || !companyId) { setAvisoAutoTomador(false); return }
+    const doc = soDigitos(tomDoc)
+    if (tomTipo !== 'CPF' || doc.length !== 11) { setAvisoAutoTomador(false); return }
+    let vivo = true
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await supabase.from('user_companies').select('user:users(cpf)').eq('company_id', companyId)
+        if (!vivo) return
+        const rows = (data ?? []) as { user?: { cpf?: string | null } | { cpf?: string | null }[] | null }[]
+        const bate = rows.some((r) => {
+          const u = Array.isArray(r.user) ? r.user : (r.user ? [r.user] : [])
+          return u.some((x) => soDigitos(x?.cpf ?? '') === doc)
+        })
+        setAvisoAutoTomador(bate)
+      } catch { if (vivo) setAvisoAutoTomador(false) }
+    }, 300)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [aberto, ambiente, companyId, tomDoc, tomTipo])
 
   // #32 fase 2 · a PORTA ÚNICA: valida no banco (obra + ISS) e mostra os bloqueios. Roda ao abrir e
   // quando muda o município. Só quando há servico_id (emissão de catálogo); sem ele, nada a validar.
@@ -201,12 +234,13 @@ export default function NFSeEmitirGovModal({
       try {
         const { data } = await supabase.rpc('fn_nfse_validar_emissao', {
           p_company_id: companyId,
-          p_dados: { servico_id: servicoIdEff, obra_id: obraId ?? null, municipio_prestacao_ibge: munIbge || null },
+          p_dados: { servico_id: servicoIdEff, obra_id: obraIdEff ?? null, municipio_prestacao_ibge: munIbge || null },
         })
         if (!vivo) return
-        const v = data as { pode_emitir?: boolean; bloqueios?: Bloqueio[]; iss?: IssResolv } | null
+        const v = data as { pode_emitir?: boolean; bloqueios?: Bloqueio[]; iss?: IssResolv; exige_obra?: boolean } | null
         setBloqueios(v?.bloqueios ?? [])
         setPodeEmitir(v?.pode_emitir !== false)
+        setExigeObra(!!v?.exige_obra) // mantém o bloco de obra visível enquanto o serviço exigir obra
         // #32 · o sistema BUSCA a alíquota do município da execução (fn_fiscal_iss_resolver) e preenche o
         // campo — como Jordana pediu ("hoje o portal nacional faz isso"). Se o município não tem alíquota
         // cadastrada, a própria porta única já devolve o bloqueio 'aliquota_iss_desconhecida' (não chuta).
@@ -221,7 +255,7 @@ export default function NFSeEmitirGovModal({
       }
     })()
     return () => { vivo = false }
-  }, [aberto, servicoIdEff, obraId, munIbge, companyId])
+  }, [aberto, servicoIdEff, obraIdEff, munIbge, companyId])
 
   // #32 · descobre o regime (Simples x não-Simples) da empresa ao abrir, p/ decidir se o ISS é
   // destacado. Simples (opção 2 MEI / 3 ME/EPP) → ISS no DAS, campo de alíquota some.
@@ -356,8 +390,9 @@ export default function NFSeEmitirGovModal({
     if (!descricao.trim()) { setErroLocal('Informe a descrição do serviço.'); return }
     if (!isFinite(valorNum) || valorNum <= 0) { setErroLocal('Valor deve ser maior que zero.'); return }
     if (!codigoTrib.trim()) { setErroLocal('Informe o código de tributação ISS.'); return }
-    // #32 · a trava: não deixa nem tentar enquanto houver bloqueio (o servidor barra de novo).
-    if (servicoIdEff && !podeEmitir) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
+    // #32 · a trava: não deixa nem tentar enquanto houver bloqueio (o servidor barra de novo). Exceção: só
+    // faltava a obra e o usuário vai criá-la agora (informar + cadastrar no Hub) — a criação é no resolve abaixo.
+    if (emissaoTravada) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
 
     // A③ · reenvio E0370 sem obra: resolve a obra escolhida (apontar/informar/criar no Hub) → obra_id +
     // município da obra. É o mesmo BlocoObraFiscal/resolver da venda (sem terceira implementação).
@@ -419,6 +454,18 @@ export default function NFSeEmitirGovModal({
     }
   }
 
+  // gating da emissão (item 1): quando o único bloqueio é obra e o usuário vai CRIAR a obra (informar +
+  // "cadastrar no Hub" + IBGE + CNO), libera — a obra é criada no emit e o servidor revalida. Apontar uma
+  // obra já cadastrada é validado ao vivo (obraIdEff entra na porta única), então não precisa de exceção.
+  const bloqueiosNaoObra = bloqueios.filter((b) => !CODIGOS_OBRA.includes(b.codigo))
+  const obraInformarOk = mostrarObra && obraFiscal.modo === 'informar' && obraFiscal.criarNoHub
+    && !!obraFiscal.obraEnd.codigo_ibge_municipio && !!obraFiscal.obraCno.trim()
+  const emissaoTravada = !!servicoIdEff && !podeEmitir && !(obraInformarOk && bloqueiosNaoObra.length === 0)
+  // item 3 · ISS: Simples não destaca (vai no DAS) — nudge pra confirmar regime/alíquota com o contador;
+  // fora do Simples, alíquota 0 sem resolução do município é provável configuração faltando.
+  const aliquotaNumView = Number(aliquota.replace(',', '.')) || 0
+  const avisoAliquotaZero = !empresaSimples && aliquotaNumView === 0 && !issInfo
+
   const statusLocal = resultado?.status_local
   const sucessoFinal = statusLocal === 'autorizada'
   const processando = statusLocal === 'processando'
@@ -458,6 +505,14 @@ export default function NFSeEmitirGovModal({
               ) : (
                 <div className="rounded-lg border border-[#BA7517]/30 bg-[#FAEEDA] px-3 py-2 text-[12px] text-[#5C3B0B]">
                   <span className="font-medium">Ambiente: Homologação</span> — emissão de <b>teste</b>, não vale como nota fiscal. Para emitir de verdade, configure Produção em Administração.
+                </div>
+              )}
+
+              {/* item 2 (print Rodrigo) · produção + tomador é usuário da própria empresa → nota REAL pra si mesmo */}
+              {avisoAutoTomador && (
+                <div className="flex items-start gap-2 rounded-lg border border-[#C94544]/40 bg-[#FCEBEB] px-3 py-2 text-[12px] text-[#791F1F]">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>O tomador é um usuário desta empresa: isto gera uma <b>nota fiscal REAL para você mesmo</b>. Para testar, use <b>Homologação</b>.</span>
                 </div>
               )}
 
@@ -579,6 +634,26 @@ export default function NFSeEmitirGovModal({
                     {issInfo}
                   </p>
                 )}
+                {/* item 3 · Simples: ISS no DAS. Nudge pra confirmar regime/alíquota do mês com o contador. */}
+                {empresaSimples && (
+                  <p className="text-[11px] text-[#3D2314]/60">
+                    O contador ainda não confirmou o regime/alíquota do mês?{' '}
+                    <Link href="/dashboard/configuracoes/fiscal" className="text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2 inline-flex items-center gap-0.5">
+                      Conferir na Configuração Fiscal <ExternalLink size={10} />
+                    </Link>
+                  </p>
+                )}
+                {/* item 3 · fora do Simples com alíquota 0 e sem resolução do município: provável config faltando. */}
+                {avisoAliquotaZero && (
+                  <div className="flex items-start gap-2 rounded-md border border-[#BA7517]/40 bg-[#FAEEDA] px-2.5 py-1.5 text-[11.5px] text-[#5C3B0B]">
+                    <AlertCircle size={13} className="mt-0.5 flex-shrink-0" />
+                    <span>Alíquota de ISS não configurada (0%) — confirme com o contador.{' '}
+                      <Link href="/dashboard/configuracoes/fiscal" className="text-[#8B5612] underline underline-offset-2 inline-flex items-center gap-0.5">
+                        Configuração Fiscal <ExternalLink size={10} />
+                      </Link>
+                    </span>
+                  </div>
+                )}
                 <label className="block">
                   <span className="block text-[11px] text-[#3D2314]/60 mb-1">Código tributação nacional ISS</span>
                   <input
@@ -664,8 +739,8 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando' || validando || (!!servicoIdEff && !podeEmitir)}
-                  title={(!!servicoIdEff && !podeEmitir) ? 'Resolva os itens acima antes de emitir' : undefined}
+                  disabled={fase === 'enviando' || validando || emissaoTravada}
+                  title={emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
                 >
