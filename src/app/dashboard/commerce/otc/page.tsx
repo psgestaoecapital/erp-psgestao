@@ -1281,7 +1281,13 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           </Card>
         </div>
       </aside>
-      {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · modal de emissao pre-preenchido */}
+      {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · modal de emissao pre-preenchido.
+          HOTFIX (print Rodrigo 21/09): o modal é irmão do <aside> DENTRO do wrapper que fecha no onClick.
+          Todo clique no modal (escolher obra, digitar) borbulhava pela árvore React até o wrapper → onClose
+          → o painel do pedido fechava. O stopPropagation aqui contém o clique: o overlay do próprio modal
+          fecha só o modal; o fundo do painel (sem modal) continua fechando o painel. O modal fica ACIMA do
+          <aside> (fixed z-50 dentro do contexto de empilhamento do wrapper z-90). */}
+      <div onClick={(e) => e.stopPropagation()}>
       <NFSeEmitirGovModal
         companyId={ped.company_id}
         aberto={nfseModalAberto}
@@ -1308,6 +1314,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           await carregarNfseDados()
         }}
       />
+      </div>
     </div>
   )
 }
