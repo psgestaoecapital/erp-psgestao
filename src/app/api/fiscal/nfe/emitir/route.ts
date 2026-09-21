@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -39,7 +40,7 @@ interface EmitirNFeBody {
   }
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = (await req.json()) as EmitirNFeBody
 
@@ -52,6 +53,9 @@ export const POST = withAuth(async (req: NextRequest) => {
         { status: 400 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir' } })
+    if (negado) return negado
 
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,

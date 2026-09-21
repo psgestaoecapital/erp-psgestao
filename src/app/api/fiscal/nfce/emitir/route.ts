@@ -5,6 +5,7 @@ import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 // NFC-e (modelo 65 · consumidor final / balcão). Opção A: sai de um PEDIDO (reusa a
 // fn_faturar que baixa estoque + gera financeiro). Régua fiscal: NASCE EM HOMOLOGAÇÃO
@@ -24,7 +25,7 @@ interface EmitirNFCeBody {
   }
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = (await req.json()) as EmitirNFCeBody
 
@@ -37,6 +38,9 @@ export const POST = withAuth(async (req: NextRequest) => {
     if (!body.pedidoId && !body.manual) {
       return NextResponse.json({ ok: false, mensagem: 'Informe pedidoId ou itens (manual)' }, { status: 400 })
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfce', operacao: 'emissao', endpoint: 'nfce/emitir' } })
+    if (negado) return negado
 
     const nfceReq = await buildNFeRequest({
       companyId: body.companyId,

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const { companyId } = (await req.json()) as { companyId?: string }
 
@@ -23,6 +24,9 @@ export const POST = withAuth(async (req: NextRequest) => {
         { status: 400 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'testar_conexao', endpoint: 'testar-conexao' } })
+    if (negado) return negado
 
     const svc = await createFiscalService(companyId)
     const resultado = await svc.testarConexao()

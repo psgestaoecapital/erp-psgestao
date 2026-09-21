@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -22,6 +23,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     if (typeof companyId !== 'string' || typeof ambiente !== 'string') {
       return NextResponse.json({ ok: false, erro: 'companyId e ambiente são obrigatórios' }, { status: 400 })
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', operacao: 'provider_config', endpoint: 'provider-config' } })
+    if (negado) return negado
 
     const providerFinal =
       typeof provider === 'string' && provider.length > 0 ? provider : 'focusnfe'

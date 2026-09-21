@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { decryptApiKey } from '@/lib/fiscal/decrypt'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -12,7 +13,7 @@ function buildWebhookUrl(): string {
 }
 
 // GET · retorna URL pública do webhook + secret pra exibicao na tela de config
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, { userId }) => {
   const url = new URL(req.url)
   const companyId = url.searchParams.get('companyId')
 
@@ -25,6 +26,9 @@ export const GET = withAuth(async (req: NextRequest) => {
       { status: 400 }
     )
   }
+
+  const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', operacao: 'webhook_config', endpoint: 'webhook-config' } })
+  if (negado) return negado
 
   const { data: config, error } = await supabaseAdmin
     .from('erp_fiscal_provider_config')
@@ -49,7 +53,7 @@ export const GET = withAuth(async (req: NextRequest) => {
 })
 
 // POST · configura webhook no painel Focus NFe via /v2/hooks
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const { companyId } = (await req.json()) as { companyId?: string }
     if (!companyId) {
@@ -61,6 +65,9 @@ export const POST = withAuth(async (req: NextRequest) => {
         { status: 400 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'gerente', log: { notaTipo: 'nfe', operacao: 'webhook_config', endpoint: 'webhook-config' } })
+    if (negado) return negado
 
     const { data: config, error } = await supabaseAdmin
       .from('erp_fiscal_provider_config')

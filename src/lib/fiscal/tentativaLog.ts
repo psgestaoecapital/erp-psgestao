@@ -8,7 +8,9 @@ export interface TentativaFiscal {
   companyId: string
   notaTipo: 'nfse' | 'nfe' | 'nfce'
   notaId?: string | null
-  operacao: 'cancelamento' | 'emissao' | 'consulta'
+  // texto livre no banco: 'cancelamento' | 'emissao' | 'consulta' | 'carta_correcao' | 'devolucao' |
+  // 'certificado_upload' | 'certificado_remover' | 'provider_config' | 'webhook_config' | 'testar_conexao' | ...
+  operacao: string
   provider?: string | null
   endpoint?: string | null
   referencia?: string | null

@@ -3,6 +3,7 @@ import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -46,6 +47,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         { status: 404 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: nfe.company_id, papelMinimo: 'membro', log: { notaTipo: 'nfe', notaId: nfe.id, operacao: 'carta_correcao', endpoint: 'nfe/carta-correcao' } })
+    if (negado) return negado
+
     if (nfe.status !== 'autorizada') {
       return NextResponse.json(
         { ok: false, mensagem: `NFe nao esta autorizada (status atual: ${nfe.status})` },

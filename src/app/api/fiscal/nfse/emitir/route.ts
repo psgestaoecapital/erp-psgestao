@@ -6,6 +6,7 @@ import { buildNFSeFromReceber } from '@/lib/fiscal/nfse-builder'
 import { validateNFSeRequest } from '@/lib/fiscal/nfse-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import type { NFSeRequest } from '@/lib/fiscal/types'
 
 export const dynamic = 'force-dynamic'
@@ -89,7 +90,7 @@ function humanizarErroFiscal(msg: string | null | undefined): string | null | un
   return m
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = (await req.json()) as EmitirNFSeBody
 
@@ -102,6 +103,9 @@ export const POST = withAuth(async (req: NextRequest) => {
         { status: 400 }
       )
     }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfse', operacao: 'emissao', endpoint: 'nfse/emitir' } })
+    if (negado) return negado
 
     // receber-nfse-seletor-servico-v1: quando servicoId vem junto, busca os
     // dados via RPC (servico + tomador) e injeta como overrides confiaveis,
