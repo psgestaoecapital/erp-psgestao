@@ -1,5 +1,10 @@
 'use client'
 
+// Fiscal · NF-e — lista por DOCUMENTO (print do CEO 21/09). Uma linha por documento de origem
+// (fn_fiscal_documentos, fonte única RD-65), não por tentativa. Ao expandir, a LINHA DO TEMPO do
+// documento (fn_fiscal_documento_timeline): cada recusa, a autorização, o cancelamento e as tentativas
+// fiscais registradas. Documento só com recusas = "Não emitida". Toggle volta à visão antiga.
+
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -8,36 +13,49 @@ import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
   FileCode, FileText, ChevronLeft, ChevronRight as ChevR, XCircle, Edit3,
+  History, CheckCircle2, Ban, Clock, FileSignature, AlertTriangle,
 } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
 
-interface NFeRow {
-  id: string
+interface Documento {
+  grupo_chave: string
+  status_principal: string
+  nao_emitida: boolean
+  pode_reenviar: boolean
   numero: string | null
-  serie: string | null
-  chave: string | null
-  data_emissao: string | null
-  destinatario_razao_social: string | null
-  destinatario_cnpj: string | null
-  destinatario_cpf: string | null
-  valor_total: number | null
-  valor_icms: number | null
-  valor_ipi: number | null
-  natureza_operacao: string | null
+  data: string | null
+  contraparte_nome: string | null
+  contraparte_doc: string | null
+  valor: number | null
+  origem_rotulo: string | null
   finalidade: string | null
-  chave_referenciada: string | null
-  origem_tipo: string | null
-  origem_id: string | null
-  status: string
   motivo_rejeicao: string | null
-  protocolo: string | null
+  tentativas_recusadas: number
+  ultima_recusa: string | null
+  qtd_registros: number
+  principal_id: string
+  doc_ids: string[]
+}
+interface TimelineEvento {
+  quando: string | null
+  categoria: 'recusa' | 'autorizacao' | 'cancelamento' | 'processando' | 'tentativa' | string
+  status: string
+  numero: string | null
+  chave: string | null
   xml_url: string | null
-  danfe_url: string | null
+  pdf_url: string | null
   xml_storage_path: string | null
-  danfe_storage_path: string | null
-  provider_reference: string | null
-  criado_em: string | null
-  total_geral: number
+  pdf_storage_path: string | null
+  detalhe: string | null
+  usuario_id: string | null
+  nota_id: string | null
+  operacao: string | null
+  http_status: number | null
+  provider_codigo: string | null
+}
+// registro principal (para ações que precisam de campos crus da nota)
+interface NotaPrincipal {
+  id: string; numero: string | null; status: string; finalidade: string | null; chave_referenciada: string | null
 }
 
 const PAGE_SIZE = 50
@@ -45,18 +63,12 @@ const PAGE_SIZE = 50
 function resolveCompanyId(): { kind: 'ok'; id: string } | { kind: 'erro'; mensagem: string } {
   if (typeof window === 'undefined') return { kind: 'erro', mensagem: 'Carregando…' }
   const sel = localStorage.getItem('ps_empresa_sel')
-  if (!sel || sel === 'consolidado') {
-    return { kind: 'erro', mensagem: 'Selecione uma empresa específica no trocador da TopNav.' }
-  }
-  if (sel.startsWith('group_')) {
-    return { kind: 'erro', mensagem: 'Lista fiscal é por empresa — selecione uma empresa do grupo.' }
-  }
+  if (!sel || sel === 'consolidado') return { kind: 'erro', mensagem: 'Selecione uma empresa específica no trocador da TopNav.' }
+  if (sel.startsWith('group_')) return { kind: 'erro', mensagem: 'Lista fiscal é por empresa — selecione uma empresa do grupo.' }
   return { kind: 'ok', id: sel }
 }
 
-const fmtBRL = (v: number | null) =>
-  v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-
+const fmtBRL = (v: number | null) => v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 const fmtDoc = (cnpj: string | null, cpf: string | null) => {
   const v = cnpj ?? cpf ?? ''
   if (!v) return '—'
@@ -64,144 +76,50 @@ const fmtDoc = (cnpj: string | null, cpf: string | null) => {
   if (v.length === 11) return v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
   return v
 }
+const fmtData = (iso: string | null) => { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString('pt-BR') } catch { return '—' } }
+const fmtDataHora = (iso: string | null) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('pt-BR') } catch { return '—' } }
 
-const fmtData = (iso: string | null) => {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleDateString('pt-BR')
-  } catch {
-    return '—'
-  }
+const FINALIDADE_BADGE: Record<string, string> = { devolucao: 'DEVOLUÇÃO', complementar: 'COMPLEMENTAR', ajuste: 'AJUSTE' }
+const RESULTADO_ROTULO: Record<string, { t: string; cor: string }> = {
+  ok: { t: 'confirmado', cor: '#166534' }, ja_cancelada: { t: 'já cancelada (sincronizada)', cor: '#166534' },
+  processando: { t: 'processando', cor: '#8A4B08' }, rejeitada: { t: 'rejeitada', cor: '#B42318' }, erro: { t: 'erro', cor: '#B42318' },
 }
-
-// data + hora — pra rejeição não parecer "de agora" quando é de outro dia (Jordana viu rejeição
-// antiga e achou que tinha tentado de novo). Mostra quando a tentativa foi feita.
-const fmtDataHora = (iso: string | null) => {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return '—'
-  }
-}
-
-const fmtChave = (c: string | null) => {
-  if (!c) return '—'
-  // 44 digitos · agrupa de 4 em 4 pra leitura
-  return c.replace(/(\d{4})(?=\d)/g, '$1 ')
-}
-
-// origem da nota (#18): de onde ela nasceu — a nº 9 (devolução de compra) deixa de ser invisível.
-const ORIGEM_ROTULO: Record<string, string> = {
-  os: 'Ordem de serviço', obra: 'Obra', pedido: 'Pedido', venda: 'Venda',
-  devolucao_compra: 'Devolução de compra', avulsa: 'Avulsa',
-}
-const rotuloOrigem = (t: string | null) => (t ? (ORIGEM_ROTULO[t] ?? t) : '—')
 
 export default function NFeListClient() {
   const router = useRouter()
   const [reabrindo, setReabrindo] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [erroEmpresa, setErroEmpresa] = useState<string | null>(null)
-  const [lista, setLista] = useState<NFeRow[]>([])
-  const [totalGeral, setTotalGeral] = useState(0)
+  const [documentos, setDocumentos] = useState<Documento[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [pagina, setPagina] = useState(1)
   const [statusFiltro, setStatusFiltro] = useState<string>('')
   const [finalidadeFiltro, setFinalidadeFiltro] = useState<string>('')
-  // rejeitada é tentativa, não documento fiscal → escondida por padrão (decisão do CEO)
-  const [ocultarRejeitadas, setOcultarRejeitadas] = useState<boolean>(true)
+  const [mostrarRecusadas, setMostrarRecusadas] = useState<boolean>(false) // visão antiga (1 linha/registro)
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [busca, setBusca] = useState('')
   const [buscaSubmit, setBuscaSubmit] = useState('')
-  const [expandida, setExpandida] = useState<string | null>(null)
+  const [aberta, setAberta] = useState<Documento | null>(null)
   const [baixando, setBaixando] = useState<string | null>(null)
-  // fiscal-cancelamento-nfe-v1
-  const [cancelando, setCancelando] = useState<NFeRow | null>(null)
+  const [timeline, setTimeline] = useState<TimelineEvento[] | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  // cancelamento
+  const [cancelando, setCancelando] = useState<{ id: string; numero: string | null } | null>(null)
   const [justifCancel, setJustifCancel] = useState('')
   const [enviandoCancel, setEnviandoCancel] = useState(false)
   const [erroCancel, setErroCancel] = useState<string | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
-  // fiscal-carta-correcao-nfe-v1
-  const [ccAberta, setCcAberta] = useState<NFeRow | null>(null)
+  // carta de correção
+  const [ccAberta, setCcAberta] = useState<{ id: string; numero: string | null } | null>(null)
   const [ccCorrecao, setCcCorrecao] = useState('')
   const [enviandoCC, setEnviandoCC] = useState(false)
   const [erroCC, setErroCC] = useState<string | null>(null)
   type EventoCC = { id: string; sequencia: number; correcao: string | null; status: string; protocolo: string | null; motivo_rejeicao: string | null; criado_em: string }
-  const [historicoCC, setHistoricoCC] = useState<Record<string, EventoCC[]>>({})
+  const [historicoCC, setHistoricoCC] = useState<EventoCC[]>([])
 
-  async function carregarHistoricoCC(nfeId: string) {
-    const { data } = await supabase
-      .from('erp_nfe_eventos')
-      .select('id, sequencia, correcao, status, protocolo, motivo_rejeicao, criado_em')
-      .eq('nfe_id', nfeId)
-      .eq('tipo', 'carta_correcao')
-      .order('sequencia', { ascending: true })
-    setHistoricoCC((m) => ({ ...m, [nfeId]: (data ?? []) as EventoCC[] }))
-  }
-
-  async function emitirCartaCorrecao() {
-    if (!ccAberta) return
-    const correcao = ccCorrecao.trim()
-    if (correcao.length < 15 || correcao.length > 1000) {
-      setErroCC('Correção precisa ter entre 15 e 1000 caracteres.')
-      return
-    }
-    if (!confirm(`EMITIR carta de correção para a NF-e nº ${ccAberta.numero ?? ccAberta.id}?\n\nAtenção: CC-e NÃO pode alterar valores, impostos ou dados do destinatário.`)) return
-    setEnviandoCC(true); setErroCC(null)
-    try {
-      const resp = await authFetch('/api/fiscal/nfe/carta-correcao', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nfeId: ccAberta.id, correcao }),
-      })
-      const json = await resp.json()
-      if (!resp.ok || json?.ok === false) {
-        setErroCC(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir CC-e')
-        setEnviandoCC(false)
-        return
-      }
-      alert(`EMITIU carta de correção nº ${json.sequencia} (status: ${json.status}).`)
-      void carregarHistoricoCC(ccAberta.id)
-      setCcAberta(null); setCcCorrecao(''); setErroCC(null); setEnviandoCC(false)
-    } catch (e) {
-      setErroCC((e as Error)?.message ?? 'Erro ao emitir CC-e')
-      setEnviandoCC(false)
-    }
-  }
-
-  async function cancelarNFe() {
-    if (!cancelando) return
-    if (justifCancel.trim().length < 15) {
-      setErroCancel('Justificativa precisa de no minimo 15 caracteres (regra SEFAZ).')
-      return
-    }
-    if (!confirm(`Tem certeza? Esta acao eh definitiva.\n\nCANCELAR a NF-e nº ${cancelando.numero ?? cancelando.id} na SEFAZ?`)) return
-    setEnviandoCancel(true); setErroCancel(null)
-    try {
-      const resp = await authFetch('/api/fiscal/nfe/cancelar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nfeId: cancelando.id, justificativa: justifCancel.trim() }),
-      })
-      const json = await resp.json()
-      if (!resp.ok || json?.ok === false) {
-        setErroCancel(json?.mensagem ?? 'Falha ao cancelar')
-        setEnviandoCancel(false)
-        return
-      }
-      // sucesso · fecha modal + recarrega lista
-      setCancelando(null); setJustifCancel(''); setErroCancel(null)
-      setEnviandoCancel(false)
-      alert(`CANCELOU a nota nº ${cancelando.numero ?? cancelando.id}.`)
-      setReloadKey((k) => k + 1)
-    } catch (e) {
-      setErroCancel((e as Error)?.message ?? 'Erro ao cancelar')
-      setEnviandoCancel(false)
-    }
-  }
+  const chaveAberta = aberta?.grupo_chave ?? null
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -211,59 +129,111 @@ export default function NFeListClient() {
 
   const carregar = useCallback(async () => {
     if (!companyId) return
-    setLoading(true)
-    setErro(null)
+    setLoading(true); setErro(null)
     try {
-      const { data, error } = await supabase.rpc('fn_listar_nfes_emitidas', {
+      const { data, error } = await supabase.rpc('fn_fiscal_documentos', {
         p_company_id: companyId,
+        p_tipo: 'nfe',
         p_status: statusFiltro || null,
         p_data_inicio: dataInicio || null,
         p_data_fim: dataFim || null,
         p_busca: buscaSubmit || null,
         p_finalidade: finalidadeFiltro || null,
+        p_agrupar: !mostrarRecusadas,
         p_limit: PAGE_SIZE,
         p_offset: (pagina - 1) * PAGE_SIZE,
-        p_ocultar_rejeitadas: statusFiltro === 'rejeitada' ? false : ocultarRejeitadas,
       })
       if (error) throw error
-      const rows = (data ?? []) as NFeRow[]
-      setLista(rows)
-      setTotalGeral(rows[0]?.total_geral ?? 0)
+      const r = data as { ok?: boolean; erro?: string; total?: number; documentos?: Documento[] } | null
+      if (!r?.ok) throw new Error(r?.erro === 'sem_acesso' ? 'Você não tem acesso às notas desta empresa.' : (r?.erro ?? 'Erro ao carregar'))
+      setDocumentos(r.documentos ?? [])
+      setTotal(r.total ?? 0)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar')
     } finally {
       setLoading(false)
     }
-  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, pagina, reloadKey, ocultarRejeitadas])
+  }, [companyId, statusFiltro, finalidadeFiltro, dataInicio, dataFim, buscaSubmit, mostrarRecusadas, pagina, reloadKey])
 
   useEffect(() => { carregar() }, [carregar])
 
-  async function baixar(row: NFeRow, tipo: 'xml' | 'pdf') {
-    setBaixando(`${row.id}-${tipo}`)
+  const carregarTimeline = useCallback(async (chave: string): Promise<TimelineEvento[]> => {
+    if (!companyId) return []
+    const { data } = await supabase.rpc('fn_fiscal_documento_timeline', { p_company_id: companyId, p_tipo: 'nfe', p_grupo_chave: chave })
+    const r = data as { ok?: boolean; eventos?: TimelineEvento[] } | null
+    const list = r?.ok ? (r.eventos ?? []) : []
+    setTimeline(list)
+    return list
+  }, [companyId])
+
+  const carregarHistoricoCC = useCallback(async (nfeId: string) => {
+    const { data } = await supabase
+      .from('erp_nfe_eventos')
+      .select('id, sequencia, correcao, status, protocolo, motivo_rejeicao, criado_em')
+      .eq('nfe_id', nfeId).eq('tipo', 'carta_correcao').order('sequencia', { ascending: true })
+    setHistoricoCC((data ?? []) as EventoCC[])
+  }, [])
+
+  useEffect(() => {
+    if (!aberta) { setTimeline(null); setHistoricoCC([]); return }
+    setTimeline(null); setHistoricoCC([])
+    void carregarTimeline(aberta.grupo_chave)
+    if (!aberta.nao_emitida) void carregarHistoricoCC(aberta.principal_id)
+  }, [aberta, carregarTimeline, carregarHistoricoCC])
+
+  async function emitirCartaCorrecao() {
+    if (!ccAberta) return
+    const correcao = ccCorrecao.trim()
+    if (correcao.length < 15 || correcao.length > 1000) { setErroCC('Correção precisa ter entre 15 e 1000 caracteres.'); return }
+    if (!confirm(`EMITIR carta de correção para a NF-e nº ${ccAberta.numero ?? ccAberta.id}?\n\nAtenção: CC-e NÃO pode alterar valores, impostos ou dados do destinatário.`)) return
+    setEnviandoCC(true); setErroCC(null)
     try {
-      if (tipo === 'xml' && row.xml_url) {
-        window.open(row.xml_url, '_blank', 'noopener,noreferrer')
-        return
-      }
-      if (tipo === 'pdf' && row.danfe_url) {
-        window.open(row.danfe_url, '_blank', 'noopener,noreferrer')
-        return
-      }
-      const { data, error } = await supabase.rpc('fn_fiscal_get_storage_url', {
-        p_tabela: 'nfe',
-        p_doc_id: row.id,
-        p_tipo: tipo,
+      const resp = await authFetch('/api/fiscal/nfe/carta-correcao', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nfeId: ccAberta.id, correcao }),
       })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false) { setErroCC(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir CC-e'); setEnviandoCC(false); return }
+      alert(`EMITIU carta de correção nº ${json.sequencia} (status: ${json.status}).`)
+      void carregarHistoricoCC(ccAberta.id)
+      setCcAberta(null); setCcCorrecao(''); setErroCC(null); setEnviandoCC(false)
+    } catch (e) {
+      setErroCC((e as Error)?.message ?? 'Erro ao emitir CC-e'); setEnviandoCC(false)
+    }
+  }
+
+  async function cancelarNFe() {
+    if (!cancelando) return
+    if (justifCancel.trim().length < 15) { setErroCancel('Justificativa precisa de no minimo 15 caracteres (regra SEFAZ).'); return }
+    if (!confirm(`Tem certeza? Esta acao eh definitiva.\n\nCANCELAR a NF-e nº ${cancelando.numero ?? cancelando.id} na SEFAZ?`)) return
+    setEnviandoCancel(true); setErroCancel(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfe/cancelar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nfeId: cancelando.id, justificativa: justifCancel.trim() }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false) { setErroCancel(json?.mensagem ?? 'Falha ao cancelar'); setEnviandoCancel(false); return }
+      setCancelando(null); setJustifCancel(''); setErroCancel(null); setEnviandoCancel(false)
+      alert(`CANCELOU a nota nº ${cancelando.numero ?? cancelando.id}.`)
+      setReloadKey((k) => k + 1)
+      if (chaveAberta) await carregarTimeline(chaveAberta)
+    } catch (e) {
+      setErroCancel((e as Error)?.message ?? 'Erro ao cancelar'); setEnviandoCancel(false)
+    }
+  }
+
+  async function baixarNota(notaId: string, tipo: 'xml' | 'pdf', urlDireta?: string | null) {
+    setBaixando(`${notaId}-${tipo}`)
+    try {
+      if (urlDireta) { window.open(urlDireta, '_blank', 'noopener,noreferrer'); return }
+      const { data, error } = await supabase.rpc('fn_fiscal_get_storage_url', { p_tabela: 'nfe', p_doc_id: notaId, p_tipo: tipo })
       if (error) throw error
       const payload = (data ?? {}) as { ok?: boolean; erro?: string; storage_path?: string; bucket?: string }
-      if (!payload.ok || !payload.storage_path) {
-        throw new Error(payload.erro ?? 'Arquivo não disponível')
-      }
+      if (!payload.ok || !payload.storage_path) throw new Error(payload.erro ?? 'Arquivo não disponível')
       const bucket = payload.bucket ?? 'fiscal-xmls'
       const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600)
-      if (signed.error || !signed.data?.signedUrl) {
-        throw new Error(signed.error?.message ?? 'Erro ao gerar URL assinada')
-      }
+      if (signed.error || !signed.data?.signedUrl) throw new Error(signed.error?.message ?? 'Erro ao gerar URL assinada')
       window.open(signed.data.signedUrl, '_blank', 'noopener,noreferrer')
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao baixar')
@@ -272,30 +242,27 @@ export default function NFeListClient() {
     }
   }
 
-  function aplicarBusca() {
-    setBuscaSubmit(busca.trim())
-    setPagina(1)
-  }
+  function aplicarBusca() { setBuscaSubmit(busca.trim()); setPagina(1) }
 
-  // "Corrigir e reenviar" uma NF-e rejeitada (mesmo padrão do #1356 para NFS-e). Devolução: reabre a
-  // tela de devolução PRÉ-PREENCHIDA a partir da nota de compra referenciada (mesma prefill do
-  // recebida_id) — o usuário conserta o que a SEFAZ recusou e reenvia, sem refazer a nota inteira.
-  // A rejeitada continua no histórico.
-  async function corrigirEReenviar(row: NFeRow) {
-    if (row.finalidade !== 'devolucao' || !row.chave_referenciada) return
-    setReabrindo(row.id)
+  // "Corrigir e reenviar" documento não emitido — só devolução (reabre a tela de devolução pré-preenchida
+  // pela nota de compra referenciada). Busca a finalidade/chave_referenciada no registro principal.
+  async function corrigirEReenviar(doc: Documento) {
+    setReabrindo(doc.grupo_chave)
     try {
       const { data } = await supabase
-        .from('erp_nfe_recebidas')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('chave_acesso', row.chave_referenciada)
-        .maybeSingle()
-      const recebidaId = (data as { id?: string } | null)?.id
-      if (!recebidaId) {
-        alert('Não encontrei a nota de compra original para pré-preencher. Abra a devolução pela chave referenciada.')
+        .from('erp_nfe_emitidas')
+        .select('finalidade, chave_referenciada')
+        .eq('id', doc.principal_id).maybeSingle()
+      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null }
+      if (nota.finalidade !== 'devolucao' || !nota.chave_referenciada) {
+        alert('Só a devolução tem reenvio pré-preenchido. Reemita esta nota pela tela de origem (venda/pedido).')
         return
       }
+      const { data: rec } = await supabase
+        .from('erp_nfe_recebidas').select('id')
+        .eq('company_id', companyId).eq('chave_acesso', nota.chave_referenciada).maybeSingle()
+      const recebidaId = (rec as { id?: string } | null)?.id
+      if (!recebidaId) { alert('Não encontrei a nota de compra original para pré-preencher. Abra a devolução pela chave referenciada.'); return }
       router.push(`/dashboard/fiscal/nfe/devolucao?recebida_id=${recebidaId}`)
     } finally {
       setReabrindo(null)
@@ -303,13 +270,7 @@ export default function NFeListClient() {
   }
 
   function resetFiltros() {
-    setStatusFiltro('')
-    setFinalidadeFiltro('')
-    setDataInicio('')
-    setDataFim('')
-    setBusca('')
-    setBuscaSubmit('')
-    setPagina(1)
+    setStatusFiltro(''); setFinalidadeFiltro(''); setDataInicio(''); setDataFim(''); setBusca(''); setBuscaSubmit(''); setPagina(1)
   }
 
   if (erroEmpresa) {
@@ -323,74 +284,50 @@ export default function NFeListClient() {
     )
   }
 
-  const totalPaginas = Math.max(1, Math.ceil(totalGeral / PAGE_SIZE))
+  const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const inicio = (pagina - 1) * PAGE_SIZE + 1
-  const fim = Math.min(pagina * PAGE_SIZE, totalGeral)
+  const fim = Math.min(pagina * PAGE_SIZE, total)
 
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
       <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
-        <Link
-          href="/dashboard/fiscal"
-          className="inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:text-[#8B5612] mb-3"
-        >
+        <Link href="/dashboard/fiscal" className="inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:text-[#8B5612] mb-3">
           <ArrowLeft size={13} /> Voltar pro Hub Fiscal
         </Link>
         <header className="mb-5">
-          <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">
-            NFes Emitidas
-          </h1>
+          <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">NFes Emitidas</h1>
           <p className="text-[13px] text-[#3D2314]/70 mt-1">
-            Histórico de notas fiscais eletrônicas (modelo 55) · {totalGeral} {totalGeral === 1 ? 'nota' : 'notas'}
+            {mostrarRecusadas ? 'Todas as tentativas' : 'Uma linha por documento'} (modelo 55) · {total} {total === 1 ? (mostrarRecusadas ? 'registro' : 'documento') : (mostrarRecusadas ? 'registros' : 'documentos')}
           </p>
         </header>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="lg:col-span-2">
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">
-                Buscar destinatário / número / chave
-              </label>
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Buscar destinatário / número / natureza</label>
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
-                <input
-                  type="text"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && aplicarBusca()}
-                  placeholder="XYZ Eireli, 000001, 35..."
-                  className="w-full pl-8 pr-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40"
-                />
+                <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aplicarBusca()}
+                  placeholder="XYZ Eireli, 000001, venda..."
+                  className="w-full pl-8 pr-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40" />
               </div>
             </div>
             <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Status</label>
-              <select
-                value={statusFiltro}
-                onChange={(e) => { setStatusFiltro(e.target.value); setPagina(1) }}
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
-              >
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Status (principal)</label>
+              <select value={statusFiltro} onChange={(e) => { setStatusFiltro(e.target.value); setPagina(1) }}
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white">
                 <option value="">Todos</option>
                 <option value="autorizada">Autorizada</option>
                 <option value="processando">Processando</option>
-                <option value="rejeitada">Rejeitada</option>
+                <option value="rejeitada">Não emitida (só recusas)</option>
                 <option value="cancelada">Cancelada</option>
                 <option value="denegada">Denegada</option>
               </select>
-              {/* rejeitada = tentativa, não documento fiscal → escondida por padrão */}
-              <label className="mt-2 flex items-center gap-1.5 text-[11px] text-[#3D2314]/70 cursor-pointer">
-                <input type="checkbox" checked={!ocultarRejeitadas} disabled={statusFiltro === 'rejeitada'}
-                  onChange={(e) => { setOcultarRejeitadas(!e.target.checked); setPagina(1) }} />
-                Mostrar rejeitadas (tentativas)
-              </label>
             </div>
             <div>
               <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Finalidade</label>
-              <select
-                value={finalidadeFiltro}
-                onChange={(e) => { setFinalidadeFiltro(e.target.value); setPagina(1) }}
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white"
-              >
+              <select value={finalidadeFiltro} onChange={(e) => { setFinalidadeFiltro(e.target.value); setPagina(1) }}
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white">
                 <option value="">Todas</option>
                 <option value="normal">Venda / normal</option>
                 <option value="devolucao">Devolução</option>
@@ -400,39 +337,30 @@ export default function NFeListClient() {
             </div>
             <div>
               <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">De</label>
-              <input
-                type="date"
-                value={dataInicio}
-                onChange={(e) => { setDataInicio(e.target.value); setPagina(1) }}
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Até</label>
-              <input
-                type="date"
-                value={dataFim}
-                onChange={(e) => { setDataFim(e.target.value); setPagina(1) }}
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg"
-              />
+              <input type="date" value={dataInicio} onChange={(e) => { setDataInicio(e.target.value); setPagina(1) }}
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
             </div>
           </div>
-          <div className="flex justify-end gap-2 mt-3">
-            <button
-              type="button"
-              onClick={resetFiltros}
-              className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5"
-            >
-              Limpar
-            </button>
-            <button
-              type="button"
-              onClick={aplicarBusca}
-              data-testid="nfe-aplicar-filtro"
-              className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5"
-            >
-              <Search size={12} /> Filtrar
-            </button>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mt-3">
+            <div>
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Até</label>
+              <input type="date" value={dataFim} onChange={(e) => { setDataFim(e.target.value); setPagina(1) }}
+                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
+            <label className="inline-flex items-center gap-2 text-[12px] text-[#3D2314]/80 cursor-pointer select-none">
+              <input type="checkbox" checked={mostrarRecusadas} onChange={(e) => { setMostrarRecusadas(e.target.checked); setPagina(1) }}
+                data-testid="nfe-mostrar-recusadas" className="accent-[#C8941A]" />
+              Mostrar tentativas recusadas (visão antiga)
+            </label>
+            <div className="flex gap-2">
+              <button type="button" onClick={resetFiltros} className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5">Limpar</button>
+              <button type="button" onClick={aplicarBusca} data-testid="nfe-aplicar-filtro"
+                className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5">
+                <Search size={12} /> Filtrar
+              </button>
+            </div>
           </div>
         </div>
 
@@ -445,20 +373,16 @@ export default function NFeListClient() {
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
           {loading ? (
-            <div className="py-12 flex justify-center">
-              <Loader2 className="animate-spin text-[#C8941A]" size={24} />
-            </div>
-          ) : lista.length === 0 ? (
-            <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">
-              Nenhuma NFe encontrada com esses filtros.
-            </div>
+            <div className="py-12 flex justify-center"><Loader2 className="animate-spin text-[#C8941A]" size={24} /></div>
+          ) : documentos.length === 0 ? (
+            <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">Nenhum documento encontrado com esses filtros.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 uppercase tracking-[0.5px]">
                   <tr>
                     <th className="px-3 py-2.5 w-8"></th>
-                    <th className="text-left px-3 py-2.5 font-medium">Nº/Série</th>
+                    <th className="text-left px-3 py-2.5 font-medium">Documento</th>
                     <th className="text-left px-3 py-2.5 font-medium">Data</th>
                     <th className="text-left px-3 py-2.5 font-medium">Destinatário</th>
                     <th className="text-right px-3 py-2.5 font-medium">Valor</th>
@@ -466,209 +390,38 @@ export default function NFeListClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lista.map((row) => {
-                    const aberto = expandida === row.id
-                    return (
-                      <>
-                        <tr
-                          key={row.id}
-                          data-testid="nfe-list-row"
-                          className="border-t border-[#3D2314]/8 hover:bg-[#FAEEDA]/30 cursor-pointer"
-                          onClick={() => {
-                            const nv = aberto ? null : row.id
-                            setExpandida(nv)
-                            if (nv) void carregarHistoricoCC(row.id)
-                          }}
-                        >
-                          <td className="px-3 py-2.5">
-                            {aberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono text-[12px]">
-                            {row.numero ?? '—'}
-                            {row.serie && <span className="text-[#3D2314]/55 ml-1">/{row.serie}</span>}
-                          </td>
-                          <td className="px-3 py-2.5 text-[12.5px]">{fmtData(row.data_emissao ?? row.criado_em)}</td>
-                          <td className="px-3 py-2.5">
-                            <div className="text-[12.5px] text-[#3D2314]">{row.destinatario_razao_social ?? '—'}</div>
-                            <div className="text-[10.5px] text-[#3D2314]/60 font-mono">
-                              {fmtDoc(row.destinatario_cnpj, row.destinatario_cpf)}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums font-medium">
-                            {fmtBRL(row.valor_total)}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <FiscalStatusBadge status={row.status} motivo={row.motivo_rejeicao} />
-                          </td>
-                        </tr>
-                        {aberto && (
-                          <tr key={`${row.id}-detalhe`} className="bg-[#FAF7F2]/60 border-t border-[#3D2314]/8">
-                            <td colSpan={6} className="px-5 py-4">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
-                                <div className="sm:col-span-2">
-                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Chave de acesso (44 dígitos)</div>
-                                  <div className="text-[#3D2314] mt-0.5 font-mono text-[11px] break-all">
-                                    {fmtChave(row.chave)}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Natureza da operação</div>
-                                  <div className="text-[#3D2314] mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                    {row.finalidade && row.finalidade !== 'normal' && (
-                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#FBF3E0', color: '#7A5A0B' }}>
-                                        {row.finalidade === 'devolucao' ? 'DEVOLUÇÃO' : row.finalidade === 'complementar' ? 'COMPLEMENTAR' : row.finalidade === 'ajuste' ? 'AJUSTE' : String(row.finalidade).toUpperCase()}
-                                      </span>
-                                    )}
-                                    <span>{row.natureza_operacao ?? '—'}</span>
-                                  </div>
-                                  {row.finalidade === 'devolucao' && row.chave_referenciada && (
-                                    <div className="text-[10px] text-[#3D2314]/45 mt-0.5 break-all">ref: {row.chave_referenciada}</div>
-                                  )}
-                                  {row.origem_tipo && (
-                                    <div className="text-[10px] text-[#3D2314]/55 mt-0.5">origem: <b className="text-[#3D2314]/75">{rotuloOrigem(row.origem_tipo)}</b></div>
-                                  )}
-                                </div>
-                                <div>
-                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Impostos / Valor</div>
-                                  <div className="text-[#3D2314] mt-0.5">
-                                    Total: {fmtBRL(row.valor_total)} · ICMS: {fmtBRL(row.valor_icms)} · IPI: {fmtBRL(row.valor_ipi)}
-                                  </div>
-                                </div>
-                                {row.protocolo && (
-                                  <div>
-                                    <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Protocolo</div>
-                                    <div className="text-[#3D2314] mt-0.5 font-mono text-[11.5px]">{row.protocolo}</div>
-                                  </div>
-                                )}
-                                {row.motivo_rejeicao && (
-                                  <div className="sm:col-span-2">
-                                    <div className="text-[10.5px] text-[#791F1F] uppercase tracking-[0.5px]">
-                                      Motivo rejeição · tentativa de {fmtDataHora(row.criado_em ?? row.data_emissao)}
-                                    </div>
-                                    <div className="text-[#791F1F] mt-0.5">{row.motivo_rejeicao}</div>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex gap-2 mt-3 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                                {row.status === 'rejeitada' && row.finalidade === 'devolucao' && row.chave_referenciada && (
-                                  <button
-                                    type="button"
-                                    onClick={() => corrigirEReenviar(row)}
-                                    disabled={reabrindo === row.id}
-                                    data-testid="nfe-corrigir-reenviar"
-                                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50"
-                                  >
-                                    {reabrindo === row.id ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />}
-                                    Corrigir e reenviar
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => baixar(row, 'xml')}
-                                  disabled={baixando === `${row.id}-xml`}
-                                  data-testid="nfe-download-xml"
-                                  className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5 disabled:opacity-50"
-                                >
-                                  {baixando === `${row.id}-xml` ? (
-                                    <Loader2 size={12} className="animate-spin" />
-                                  ) : (
-                                    <FileCode size={12} />
-                                  )}
-                                  XML
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => baixar(row, 'pdf')}
-                                  disabled={baixando === `${row.id}-pdf`}
-                                  data-testid="nfe-download-danfe"
-                                  className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5 disabled:opacity-50"
-                                >
-                                  {baixando === `${row.id}-pdf` ? (
-                                    <Loader2 size={12} className="animate-spin" />
-                                  ) : (
-                                    <FileText size={12} />
-                                  )}
-                                  DANFE
-                                </button>
-                                {row.status === 'autorizada' && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => { setCcAberta(row); setCcCorrecao(''); setErroCC(null) }}
-                                      data-testid="nfe-carta-correcao"
-                                      className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#C8941A]/40 text-[#3D2314] hover:bg-[#C8941A]/10 flex items-center gap-1.5"
-                                    >
-                                      <Edit3 size={12} /> Carta de correção
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => { setCancelando(row); setJustifCancel(''); setErroCancel(null) }}
-                                      data-testid="nfe-cancelar"
-                                      className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#A32D2D]/40 text-[#A32D2D] hover:bg-[#A32D2D]/10 flex items-center gap-1.5"
-                                    >
-                                      <XCircle size={12} /> Cancelar nota
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-
-                              {/* fiscal-carta-correcao-nfe-v1 · historico CC-e */}
-                              {(historicoCC[row.id] ?? []).length > 0 && (
-                                <div className="mt-4 pt-3 border-t border-[#3D2314]/8">
-                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-2">
-                                    Cartas de correção (CC-e)
-                                  </div>
-                                  <div className="flex flex-col gap-1.5">
-                                    {(historicoCC[row.id] ?? []).map((ev) => (
-                                      <div key={ev.id} className="text-[11.5px] text-[#3D2314] bg-[#FAF7F2]/80 rounded px-2 py-1.5">
-                                        <div className="flex justify-between gap-2 flex-wrap">
-                                          <span className="font-semibold">CC-e {ev.sequencia}</span>
-                                          <span className={
-                                            ev.status === 'registrado' ? 'text-[#3B6D11]' :
-                                            ev.status === 'rejeitado' ? 'text-[#A32D2D]' :
-                                            'text-[#C8941A]'
-                                          }>
-                                            {ev.status === 'registrado' ? '✓ registrado' : ev.status === 'rejeitado' ? '✕ rejeitado' : '⏳ processando'}
-                                          </span>
-                                        </div>
-                                        <div className="mt-0.5 text-[#3D2314]/85 break-words">{ev.correcao}</div>
-                                        {ev.protocolo && <div className="mt-0.5 text-[10.5px] text-[#3D2314]/55 font-mono">prot {ev.protocolo}</div>}
-                                        {ev.motivo_rejeicao && <div className="mt-0.5 text-[10.5px] text-[#A32D2D]">{ev.motivo_rejeicao}</div>}
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    )
-                  })}
+                  {documentos.map((doc) => (
+                    <DocumentoLinhas
+                      key={doc.grupo_chave}
+                      doc={doc}
+                      aberto={chaveAberta === doc.grupo_chave}
+                      onToggle={() => setAberta(chaveAberta === doc.grupo_chave ? null : doc)}
+                      timeline={chaveAberta === doc.grupo_chave ? timeline : null}
+                      historicoCC={chaveAberta === doc.grupo_chave ? historicoCC : []}
+                      reabrindo={reabrindo}
+                      baixando={baixando}
+                      onReenviar={() => corrigirEReenviar(doc)}
+                      onCancelar={() => { setJustifCancel(''); setErroCancel(null); setCancelando({ id: doc.principal_id, numero: doc.numero }) }}
+                      onCartaCorrecao={() => { setCcCorrecao(''); setErroCC(null); setCcAberta({ id: doc.principal_id, numero: doc.numero }) }}
+                      onBaixar={(notaId, tipo, url) => baixarNota(notaId, tipo, url)}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
 
-          {totalGeral > 0 && (
+          {total > 0 && (
             <div className="px-4 py-3 border-t border-[#3D2314]/10 flex flex-wrap items-center justify-between gap-3 text-[12px] text-[#3D2314]/70">
-              <div>Mostrando {inicio}–{fim} de {totalGeral}</div>
+              <div>Mostrando {inicio}–{fim} de {total}</div>
               <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                  disabled={pagina <= 1}
-                  className="px-2.5 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40 flex items-center gap-1"
-                >
+                <button type="button" onClick={() => setPagina((p) => Math.max(1, p - 1))} disabled={pagina <= 1}
+                  className="px-2.5 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40 flex items-center gap-1">
                   <ChevronLeft size={12} /> Anterior
                 </button>
                 <span className="px-2 text-[12px]">Página {pagina} de {totalPaginas}</span>
-                <button
-                  type="button"
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                  disabled={pagina >= totalPaginas}
-                  className="px-2.5 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40 flex items-center gap-1"
-                >
+                <button type="button" onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={pagina >= totalPaginas}
+                  className="px-2.5 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40 flex items-center gap-1">
                   Próxima <ChevR size={12} />
                 </button>
               </div>
@@ -677,7 +430,7 @@ export default function NFeListClient() {
         </div>
       </div>
 
-      {/* fiscal-carta-correcao-nfe-v1 · Modal de CC-e */}
+      {/* Modal de CC-e */}
       {ccAberta && (
         <div onClick={() => !enviandoCC && setCcAberta(null)} className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl max-w-lg w-full p-5 border border-[#C8941A]/40">
@@ -686,71 +439,36 @@ export default function NFeListClient() {
               <div>
                 <h3 className="text-[15px] font-semibold text-[#3D2314]">Carta de correção · NF-e nº {ccAberta.numero ?? ccAberta.id}</h3>
                 <p className="text-[11.5px] text-[#3D2314]/70 mt-1.5 leading-snug">
-                  Use para corrigir <strong>informações complementares</strong>. CC-e <strong>NÃO</strong> pode alterar:
-                  valores/impostos, dados do destinatário, data de emissão ou regra tributária.
+                  Use para corrigir <strong>informações complementares</strong>. CC-e <strong>NÃO</strong> pode alterar: valores/impostos, dados do destinatário, data de emissão ou regra tributária.
                 </p>
-                <p className="text-[10.5px] text-[#3D2314]/55 mt-1">
-                  Limite legal: 20 CC-e por NF-e (a última válida prevalece).
-                </p>
+                <p className="text-[10.5px] text-[#3D2314]/55 mt-1">Limite legal: 20 CC-e por NF-e (a última válida prevalece).</p>
               </div>
             </div>
-
             <div className="mb-3">
-              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">
-                Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span>
-              </label>
-              <textarea
-                value={ccCorrecao}
-                onChange={(e) => setCcCorrecao(e.target.value)}
-                rows={5}
-                maxLength={1000}
+              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span></label>
+              <textarea value={ccCorrecao} onChange={(e) => setCcCorrecao(e.target.value)} rows={5} maxLength={1000}
                 placeholder="Ex: Onde se lê 'Av. das Flores 123', leia-se 'Av. das Flores 132'."
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A] resize-none"
-                disabled={enviandoCC}
-                data-testid="nfe-cc-texto"
-              />
+                disabled={enviandoCC} data-testid="nfe-cc-texto" />
               <div className="flex justify-between mt-1 text-[10.5px]">
-                <span className={ccCorrecao.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>
-                  {ccCorrecao.length}/15 mínimo
-                </span>
-                <span className={ccCorrecao.length > 1000 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>
-                  {ccCorrecao.length}/1000
-                </span>
+                <span className={ccCorrecao.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{ccCorrecao.length}/15 mínimo</span>
+                <span className={ccCorrecao.length > 1000 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{ccCorrecao.length}/1000</span>
               </div>
             </div>
-
-            {erroCC && (
-              <div className="mb-3 p-2 bg-[#FCEBEB] text-[#A32D2D] text-[12px] rounded-lg flex items-start gap-2">
-                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-                <span>{erroCC}</span>
-              </div>
-            )}
-
+            {erroCC && <div className="mb-3 p-2 bg-[#FCEBEB] text-[#A32D2D] text-[12px] rounded-lg flex items-start gap-2"><AlertCircle size={14} className="flex-shrink-0 mt-0.5" /><span>{erroCC}</span></div>}
             <div className="flex gap-2 justify-end">
-              <button
-                type="button"
-                onClick={() => setCcAberta(null)}
-                disabled={enviandoCC}
-                className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                onClick={emitirCartaCorrecao}
-                disabled={enviandoCC || ccCorrecao.trim().length < 15 || ccCorrecao.trim().length > 1000}
+              <button type="button" onClick={() => setCcAberta(null)} disabled={enviandoCC} className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50">Voltar</button>
+              <button type="button" onClick={emitirCartaCorrecao} disabled={enviandoCC || ccCorrecao.trim().length < 15 || ccCorrecao.trim().length > 1000}
                 data-testid="nfe-cc-confirmar"
-                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12] disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {enviandoCC ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />}
-                {enviandoCC ? 'Emitindo…' : 'Emitir CC-e'}
+                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12] disabled:opacity-50 flex items-center gap-1.5">
+                {enviandoCC ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />}{enviandoCC ? 'Emitindo…' : 'Emitir CC-e'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* fiscal-cancelamento-nfe-v1 · Modal de cancelamento */}
+      {/* Modal de cancelamento */}
       {cancelando && (
         <div onClick={() => !enviandoCancel && setCancelando(null)} className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl max-w-md w-full p-5 border border-[#A32D2D]/40">
@@ -758,64 +476,208 @@ export default function NFeListClient() {
               <XCircle size={20} className="text-[#A32D2D] flex-shrink-0 mt-0.5" />
               <div>
                 <h3 className="text-[15px] font-semibold text-[#3D2314]">Cancelar NF-e nº {cancelando.numero ?? cancelando.id}</h3>
-                <p className="text-[12px] text-[#3D2314]/70 mt-1">
-                  Prazo legal: 24 horas após a autorização (SEFAZ-SC). Após esse prazo, use carta de correção ou nota de ajuste.
-                </p>
+                <p className="text-[12px] text-[#3D2314]/70 mt-1">Prazo legal: 24 horas após a autorização (SEFAZ-SC). Após esse prazo, use carta de correção ou nota de ajuste.</p>
               </div>
             </div>
-
             <div className="mb-3">
-              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">
-                Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span>
-              </label>
-              <textarea
-                value={justifCancel}
-                onChange={(e) => setJustifCancel(e.target.value)}
-                rows={3}
-                maxLength={255}
+              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span></label>
+              <textarea value={justifCancel} onChange={(e) => setJustifCancel(e.target.value)} rows={3} maxLength={255}
                 placeholder="Ex: Erro no destinatário · Reemissão necessária"
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#A32D2D] resize-none"
-                disabled={enviandoCancel}
-                data-testid="nfe-cancelar-justificativa"
-              />
+                disabled={enviandoCancel} data-testid="nfe-cancelar-justificativa" />
               <div className="flex justify-between mt-1 text-[10.5px]">
-                <span className={justifCancel.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>
-                  {justifCancel.length}/15 mínimo
-                </span>
+                <span className={justifCancel.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{justifCancel.length}/15 mínimo</span>
                 <span className="text-[#3D2314]/55">{justifCancel.length}/255</span>
               </div>
             </div>
-
-            {erroCancel && (
-              <div className="mb-3 p-2 bg-[#FCEBEB] text-[#A32D2D] text-[12px] rounded-lg flex items-start gap-2">
-                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-                <span>{erroCancel}</span>
-              </div>
-            )}
-
+            {erroCancel && <div className="mb-3 p-2 bg-[#FCEBEB] text-[#A32D2D] text-[12px] rounded-lg flex items-start gap-2"><AlertCircle size={14} className="flex-shrink-0 mt-0.5" /><span>{erroCancel}</span></div>}
             <div className="flex gap-2 justify-end">
-              <button
-                type="button"
-                onClick={() => setCancelando(null)}
-                disabled={enviandoCancel}
-                className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                onClick={cancelarNFe}
-                disabled={enviandoCancel || justifCancel.trim().length < 15}
+              <button type="button" onClick={() => setCancelando(null)} disabled={enviandoCancel} className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50">Voltar</button>
+              <button type="button" onClick={cancelarNFe} disabled={enviandoCancel || justifCancel.trim().length < 15}
                 data-testid="nfe-cancelar-confirmar"
-                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#A32D2D] text-white hover:bg-[#8A2525] disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {enviandoCancel ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
-                {enviandoCancel ? 'Cancelando…' : 'Cancelar nota'}
+                className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-[#A32D2D] text-white hover:bg-[#8A2525] disabled:opacity-50 flex items-center gap-1.5">
+                {enviandoCancel ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}{enviandoCancel ? 'Cancelando…' : 'Cancelar nota'}
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+// ── Linha do documento + detalhe ───────────────────────────────────────────────────────────────────
+function DocumentoLinhas(props: {
+  doc: Documento; aberto: boolean; onToggle: () => void
+  timeline: TimelineEvento[] | null
+  historicoCC: { id: string; sequencia: number; correcao: string | null; status: string; protocolo: string | null; motivo_rejeicao: string | null; criado_em: string }[]
+  reabrindo: string | null; baixando: string | null
+  onReenviar: () => void; onCancelar: () => void; onCartaCorrecao: () => void
+  onBaixar: (notaId: string, tipo: 'xml' | 'pdf', url?: string | null) => void
+}) {
+  const { doc, aberto, onToggle, timeline, historicoCC, reabrindo, baixando, onReenviar, onCancelar, onCartaCorrecao, onBaixar } = props
+  const finBadge = doc.finalidade && doc.finalidade !== 'normal' ? (FINALIDADE_BADGE[doc.finalidade] ?? doc.finalidade.toUpperCase()) : null
+
+  return (
+    <>
+      <tr data-testid="nfe-list-row" className="border-t border-[#3D2314]/8 hover:bg-[#FAEEDA]/30 cursor-pointer" onClick={onToggle}>
+        <td className="px-3 py-2.5">{aberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</td>
+        <td className="px-3 py-2.5">
+          <div className="font-mono text-[12px] text-[#3D2314] flex items-center gap-1.5">
+            {doc.numero ?? (doc.nao_emitida ? 'sem número' : '—')}
+            {finBadge && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#FBF3E0', color: '#7A5A0B' }}>{finBadge}</span>}
+          </div>
+          {doc.origem_rotulo && <div className="text-[10.5px] text-[#3D2314]/55">{doc.origem_rotulo}</div>}
+        </td>
+        <td className="px-3 py-2.5 text-[12.5px]">{fmtData(doc.data)}</td>
+        <td className="px-3 py-2.5">
+          <div className="text-[12.5px] text-[#3D2314]">{doc.contraparte_nome ?? '—'}</div>
+          <div className="text-[10.5px] text-[#3D2314]/60 font-mono">{fmtDoc(doc.contraparte_doc, null)}</div>
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums font-medium">{fmtBRL(doc.valor)}</td>
+        <td className="px-3 py-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {doc.nao_emitida ? (
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-[#791F1F] bg-[#FDECEC] border border-[#B42318]/30">
+                <XCircle size={11} /> Não emitida
+              </span>
+            ) : (
+              <FiscalStatusBadge status={doc.status_principal} motivo={doc.motivo_rejeicao} />
+            )}
+            {doc.tentativas_recusadas > 0 && (
+              <span title={`${doc.tentativas_recusadas} tentativa(s) recusada(s) neste documento`}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-[#8A4B08] bg-[#FFF6E5] border border-[#BA7517]/40">
+                <AlertTriangle size={10} /> {doc.tentativas_recusadas} recusada{doc.tentativas_recusadas > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </td>
+      </tr>
+      {aberto && (
+        <tr className="bg-[#FAF7F2]/60 border-t border-[#3D2314]/8">
+          <td colSpan={6} className="px-5 py-4">
+            <div className="flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+              {doc.pode_reenviar && (
+                <button type="button" onClick={onReenviar} disabled={reabrindo === doc.grupo_chave}
+                  data-testid="nfe-corrigir-reenviar"
+                  className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50">
+                  {reabrindo === doc.grupo_chave ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />} Corrigir e reenviar
+                </button>
+              )}
+              {!doc.nao_emitida && (
+                <>
+                  <button type="button" onClick={() => onBaixar(doc.principal_id, 'xml')} disabled={baixando === `${doc.principal_id}-xml`}
+                    data-testid="nfe-download-xml"
+                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5 disabled:opacity-50">
+                    {baixando === `${doc.principal_id}-xml` ? <Loader2 size={12} className="animate-spin" /> : <FileCode size={12} />} XML
+                  </button>
+                  <button type="button" onClick={() => onBaixar(doc.principal_id, 'pdf')} disabled={baixando === `${doc.principal_id}-pdf`}
+                    data-testid="nfe-download-danfe"
+                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5 disabled:opacity-50">
+                    {baixando === `${doc.principal_id}-pdf` ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />} DANFE
+                  </button>
+                </>
+              )}
+              {doc.status_principal === 'autorizada' && (
+                <>
+                  <button type="button" onClick={onCartaCorrecao} data-testid="nfe-carta-correcao"
+                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#C8941A]/40 text-[#3D2314] hover:bg-[#C8941A]/10 flex items-center gap-1.5">
+                    <Edit3 size={12} /> Carta de correção
+                  </button>
+                  <button type="button" onClick={onCancelar} data-testid="nfe-cancelar"
+                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#A32D2D]/40 text-[#A32D2D] hover:bg-[#A32D2D]/10 flex items-center gap-1.5">
+                    <XCircle size={12} /> Cancelar nota
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Linha do tempo do documento */}
+            <div className="mt-4">
+              <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-2 flex items-center gap-1.5">
+                <History size={12} /> Linha do tempo do documento
+              </div>
+              {timeline === null ? (
+                <div className="text-[12px] text-[#3D2314]/55 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Carregando…</div>
+              ) : timeline.length === 0 ? (
+                <div className="text-[12px] text-[#3D2314]/55">Sem eventos registrados.</div>
+              ) : (
+                <ol className="relative border-l border-[#3D2314]/15 ml-1.5">
+                  {timeline.map((ev, i) => <TimelineItem key={i} ev={ev} onBaixar={onBaixar} baixando={baixando} />)}
+                </ol>
+              )}
+            </div>
+
+            {/* Histórico de cartas de correção */}
+            {historicoCC.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-[#3D2314]/8">
+                <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-2">Cartas de correção (CC-e)</div>
+                <div className="flex flex-col gap-1.5">
+                  {historicoCC.map((ev) => (
+                    <div key={ev.id} className="text-[11.5px] text-[#3D2314] bg-[#FAF7F2]/80 rounded px-2 py-1.5">
+                      <div className="flex justify-between gap-2 flex-wrap">
+                        <span className="font-semibold">CC-e {ev.sequencia}</span>
+                        <span className={ev.status === 'registrado' ? 'text-[#3B6D11]' : ev.status === 'rejeitado' ? 'text-[#A32D2D]' : 'text-[#C8941A]'}>
+                          {ev.status === 'registrado' ? '✓ registrado' : ev.status === 'rejeitado' ? '✕ rejeitado' : '⏳ processando'}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[#3D2314]/85 break-words">{ev.correcao}</div>
+                      {ev.protocolo && <div className="mt-0.5 text-[10.5px] text-[#3D2314]/55 font-mono">prot {ev.protocolo}</div>}
+                      {ev.motivo_rejeicao && <div className="mt-0.5 text-[10.5px] text-[#A32D2D]">{ev.motivo_rejeicao}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+function TimelineItem({ ev, onBaixar, baixando }: {
+  ev: TimelineEvento
+  onBaixar: (notaId: string, tipo: 'xml' | 'pdf', url?: string | null) => void
+  baixando: string | null
+}) {
+  const meta = ((): { icon: React.ReactNode; titulo: string; cor: string } => {
+    switch (ev.categoria) {
+      case 'recusa': return { icon: <XCircle size={13} />, titulo: 'Recusada pela SEFAZ', cor: '#B42318' }
+      case 'autorizacao': return { icon: <CheckCircle2 size={13} />, titulo: ev.numero ? `Autorizada · nº ${ev.numero}` : 'Autorizada', cor: '#166534' }
+      case 'cancelamento': return { icon: <Ban size={13} />, titulo: 'Cancelada', cor: '#8A4B08' }
+      case 'processando': return { icon: <Clock size={13} />, titulo: 'Enviada — aguardando retorno', cor: '#8A4B08' }
+      case 'tentativa': {
+        const rot = RESULTADO_ROTULO[ev.status] ?? { t: ev.status, cor: '#6B5D4F' }
+        return { icon: <FileSignature size={13} />, titulo: `Tentativa: ${ev.operacao ?? '—'} · ${rot.t}`, cor: rot.cor }
+      }
+      default: return { icon: <History size={13} />, titulo: ev.categoria, cor: '#6B5D4F' }
+    }
+  })()
+  const temArquivo = ev.categoria === 'autorizacao' && (ev.xml_url || ev.pdf_url || ev.xml_storage_path || ev.pdf_storage_path)
+  return (
+    <li className="ml-4 pb-3 last:pb-0">
+      <span className="absolute -left-[6.5px] mt-0.5 flex h-3 w-3 items-center justify-center rounded-full" style={{ background: meta.cor }} />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span style={{ color: meta.cor }} className="inline-flex items-center gap-1 text-[12px] font-semibold">{meta.icon} {meta.titulo}</span>
+        <span className="text-[10.5px] text-[#3D2314]/50 font-mono">{fmtDataHora(ev.quando)}</span>
+        {ev.http_status != null && <span className="text-[10.5px] text-[#3D2314]/45 font-mono">HTTP {ev.http_status}</span>}
+        {ev.provider_codigo && <span className="text-[10.5px] text-[#3D2314]/60 font-mono">{ev.provider_codigo}</span>}
+      </div>
+      {ev.detalhe && <div className="text-[11.5px] text-[#3D2314]/75 mt-0.5">{ev.detalhe}</div>}
+      {ev.chave && <div className="text-[10.5px] text-[#3D2314]/50 font-mono mt-0.5 break-all">chave: {ev.chave}</div>}
+      {temArquivo && ev.nota_id && (
+        <div className="flex gap-2 mt-1">
+          <button type="button" onClick={() => onBaixar(ev.nota_id!, 'xml', ev.xml_url)} disabled={baixando === `${ev.nota_id}-xml`}
+            className="px-2 py-1 text-[10.5px] font-medium rounded-md border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1 disabled:opacity-50">
+            {baixando === `${ev.nota_id}-xml` ? <Loader2 size={10} className="animate-spin" /> : <FileCode size={10} />} XML
+          </button>
+          <button type="button" onClick={() => onBaixar(ev.nota_id!, 'pdf', ev.pdf_url)} disabled={baixando === `${ev.nota_id}-pdf`}
+            className="px-2 py-1 text-[10.5px] font-medium rounded-md border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1 disabled:opacity-50">
+            {baixando === `${ev.nota_id}-pdf` ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />} DANFE
+          </button>
+        </div>
+      )}
+    </li>
   )
 }
