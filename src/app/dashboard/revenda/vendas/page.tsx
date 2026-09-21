@@ -34,6 +34,7 @@ type Acerto = {
   previsto: { preco_venda: number | null; custo_real_total: number | null; lucro_projetado: number | null }
   realizado: { recebido: number; em_aberto: number; em_aberto_cliente: number; em_aberto_banco: number; custos_pos_venda: number; lucro_real: number | null }
 }
+type Receb = { venda_id: string; tipo: string; devedor: string; valor: number; receber_id: string | null; numero: string | null; status: string | null }
 
 export default function VendasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -58,12 +59,43 @@ function Inner() {
   const [assinaNome, setAssinaNome] = useState('')
   const [acertoVenda, setAcertoVenda] = useState<Venda | null>(null)
   const [acerto, setAcerto] = useState<Acerto | null>(null)
+  const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
+  const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
 
   const carregar = useCallback(async () => {
-    if (!companyId) { setRows([]); return }
+    if (!companyId) { setRows([]); setRecebs(new Map()); setAcResumo(new Map()); return }
     const { data, error } = await supabase.from('v_veic_venda').select('*').eq('company_id', companyId).order('data_venda', { ascending: false })
     if (error) { setErro(error.message); return }
-    setRows((data as Venda[]) ?? [])
+    const vs = (data as Venda[]) ?? []
+    setRows(vs)
+    // Títulos na GE por venda: recebimento ↔ erp_receber (rastreabilidade ponta a ponta, RD-65).
+    const ids = vs.map((v) => v.id)
+    const m = new Map<string, Receb[]>()
+    if (ids.length) {
+      const { data: rr } = await supabase.from('veic_venda_recebimento').select('venda_id, tipo, devedor, valor, receber_id').in('venda_id', ids)
+      const recs = (rr as { venda_id: string; tipo: string; devedor: string; valor: number; receber_id: string | null }[]) ?? []
+      const recIds = recs.map((r) => r.receber_id).filter((x): x is string => !!x)
+      const numById = new Map<string, { numero: string | null; status: string | null }>()
+      if (recIds.length) {
+        const { data: er } = await supabase.from('erp_receber').select('id, numero_documento, status').in('id', recIds)
+        ;((er as { id: string; numero_documento: string | null; status: string | null }[]) ?? []).forEach((e) => numById.set(e.id, { numero: e.numero_documento, status: e.status }))
+      }
+      recs.forEach((r) => {
+        const info = r.receber_id ? numById.get(r.receber_id) : null
+        const arr = m.get(r.venda_id) ?? []
+        arr.push({ venda_id: r.venda_id, tipo: r.tipo, devedor: r.devedor, valor: r.valor, receber_id: r.receber_id, numero: info?.numero ?? null, status: info?.status ?? null })
+        m.set(r.venda_id, arr)
+      })
+    }
+    setRecebs(m)
+    // Acerto resumo (lucro previsto × realizado) das vendas entregues — sem exigir clique.
+    const am = new Map<string, { previsto: number | null; realizado: number | null }>()
+    for (const v of vs.filter((x) => x.situacao === 'entregue')) {
+      const { data: ac } = await supabase.rpc('fn_veic_venda_acerto', { p_venda_id: v.id })
+      const r = ac as ({ ok?: boolean } & Acerto) | null
+      if (r?.ok) am.set(v.id, { previsto: r.previsto.lucro_projetado, realizado: r.realizado.lucro_real })
+    }
+    setAcResumo(am)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -206,6 +238,38 @@ function Inner() {
                   {v.retorno_banco ? <span>retorno banco {brl(v.retorno_banco)}</span> : null}
                   {v.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(v.desconto_embutido_troca)}</span> : null}
                 </div>
+
+                {/* Títulos no financeiro (GE): cada recebimento aponta o título gerado no Contas a Receber (RD-65). */}
+                {(recebs.get(v.id)?.length ?? 0) > 0 && (
+                  <div style={{ marginTop: 8, borderTop: `1px solid ${C.cream}`, paddingTop: 8 }}>
+                    <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)</div>
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      {recebs.get(v.id)!.map((t, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: C.espM }}>
+                          <span>{t.tipo} · {t.devedor} · {brl(t.valor)}</span>
+                          {t.receber_id
+                            ? <>
+                                <span style={{ color: t.status === 'pago' ? C.green : t.status === 'vencido' ? C.red : C.espM }}>
+                                  título GE {t.numero ? `nº ${t.numero}` : `#${t.receber_id.slice(0, 8)}`}{t.status ? ` · ${t.status}` : ''}
+                                </span>
+                                <a href={`/dashboard/financeiro/receber?q=${encodeURIComponent(t.numero || t.receber_id)}`} style={{ color: C.gold, textDecoration: 'none', fontWeight: 700 }}>ver</a>
+                              </>
+                            : <span style={{ color: C.amber }}>sem título na GE</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Acerto resumo no card entregue — sem exigir clique (o detalhe fica no botão "Acerto de contas"). */}
+                {entregue && acResumo.get(v.id) && (
+                  <div style={{ marginTop: 6, fontSize: 12 }}>
+                    <span style={{ color: C.espM }}>lucro previsto </span>
+                    <b>{acResumo.get(v.id)!.previsto != null ? brl(acResumo.get(v.id)!.previsto!) : '—'}</b>
+                    <span style={{ color: C.espM }}> · realizado </span>
+                    <b style={{ color: (acResumo.get(v.id)!.realizado ?? 0) < 0 ? C.red : C.green }}>{acResumo.get(v.id)!.realizado != null ? brl(acResumo.get(v.id)!.realizado!) : '—'}</b>
+                  </div>
+                )}
 
                 {v.situacao === 'devolvida' && v.devolucao_motivo ? (
                   <div style={{ marginTop: 8, fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px' }}>Devolvida{v.devolvido_em ? ` em ${brDate(v.devolvido_em)}` : ''}: {v.devolucao_motivo}</div>
