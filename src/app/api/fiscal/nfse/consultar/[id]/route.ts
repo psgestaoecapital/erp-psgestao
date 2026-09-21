@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -52,6 +53,21 @@ export const GET = withAuth(async (
             })
             .eq('id', id)
         }
+
+        // Registra a consulta (nada de falha silenciosa): resultado real da prefeitura.
+        await registrarTentativaFiscal({
+          companyId: nota.company_id,
+          notaTipo: 'nfse',
+          notaId: id,
+          operacao: 'consulta',
+          endpoint: 'nfse/consultar',
+          referencia: nota.provider_reference,
+          providerMensagem: atual.motivoRejeicao ?? null,
+          resultado: atual.status === 'autorizada' ? 'ok'
+            : atual.status === 'rejeitada' ? 'rejeitada'
+            : atual.status === 'processando' ? 'processando' : 'ok',
+          usuarioId: userId,
+        })
 
         return NextResponse.json({
           ok: atual.status === 'autorizada',

@@ -7,6 +7,7 @@ import { validateNFSeRequest } from '@/lib/fiscal/nfse-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import type { NFSeRequest } from '@/lib/fiscal/types'
 
 export const dynamic = 'force-dynamic'
@@ -536,6 +537,22 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     if (registroId && obraIdFinal) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
     }
+
+    // Registra a EMISSÃO (nada de falha silenciosa) — antes só cancelamento/consulta gravavam tentativa.
+    await registrarTentativaFiscal({
+      companyId: body.companyId,
+      notaTipo: 'nfse',
+      notaId: (registroId as string | null) ?? null,
+      operacao: 'emissao',
+      provider: 'focusnfe',
+      endpoint: 'nfse/emitir',
+      referencia: resposta.providerReference,
+      providerMensagem: resposta.motivoRejeicao ?? null,
+      resultado: resposta.status === 'autorizada' ? 'ok'
+        : resposta.status === 'rejeitada' ? 'rejeitada'
+        : resposta.status === 'processando' ? 'processando' : 'ok',
+      usuarioId: userId,
+    })
 
     return NextResponse.json({
       ok: resposta.ok,
