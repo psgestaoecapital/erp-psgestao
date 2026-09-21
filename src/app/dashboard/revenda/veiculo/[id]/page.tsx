@@ -1205,13 +1205,25 @@ function ComposicaoBloco({ comp, margemAlvo }: { comp: Composicao; margemAlvo: n
 const COMBS = ['gasolina', 'etanol', 'flex', 'diesel', 'gnv', 'elétrico', 'híbrido']
 function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic; faltantes: string[] | null; sugestaoAno: number | null; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
+  const vf = v as unknown as { valor_fipe?: number | null; ncm?: string | null; lugares?: number | null }
   const [f, setF] = useState({
     marca: v.marca ?? '', modelo: v.modelo ?? '', versao: v.versao ?? '', cor: v.cor ?? '',
     combustivel: v.combustivel ?? '', potencia_cv: num(v.potencia_cv), cilindradas: num(v.cilindradas),
     portas: num(v.portas), cambio: v.cambio ?? '', ano_fabricacao: num(v.ano_fabricacao),
     ano_modelo: num(v.ano_modelo), renavam: v.renavam ?? '',
+    // item 2c-c: fiscal do veículo
+    valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
   const [busy, setBusy] = useState(false)
+  const [tipoNcm, setTipoNcm] = useState<'carro' | 'moto'>('carro')
+  const [ncmMsg, setNcmMsg] = useState<string | null>(null)
+  async function sugerirNcm() {
+    const { data } = await supabase.rpc('fn_veic_veiculo_fiscal', { p_veiculo_id: v.id, p_tipo: tipoNcm })
+    const r = data as { ok?: boolean; ncm_sugerido?: string | null; ncm_padrao?: string | null } | null
+    const sug = r?.ncm_sugerido ?? r?.ncm_padrao ?? null
+    if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
+    else setNcmMsg('Sem sugestão para este veículo — informe o NCM com o seu contador.')
+  }
   const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
   async function salvar() {
     setBusy(true)
@@ -1219,7 +1231,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: v.id, p_dados: f, p_user: user?.id ?? null })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao salvar'); return }
+    if (error || !r?.ok) { onErro(error?.message || (r?.erro === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos (ou deixe em branco).' : r?.erro) || 'Falha ao salvar'); return }
     onSaved()
   }
   const F = (k: keyof typeof f, ph: string, w?: number) => (
@@ -1249,7 +1261,21 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
-      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar).</div>
+      {/* item 2c-c: Fiscal do veículo — FIPE (comissão/frescor) e NCM (nota; 8 dígitos) */}
+      <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE e NCM</span></div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130 }} />
+          <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace' }} />
+          {F('lugares', 'lugares', 80)}
+          <select value={tipoNcm} onChange={(e) => setTipoNcm(e.target.value as 'carro' | 'moto')} style={{ ...inp, width: 90 }}>
+            <option value="carro">carro</option><option value="moto">moto</option>
+          </select>
+          <button type="button" onClick={() => void sugerirNcm()} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
+        </div>
+        {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
+      </div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
     </div>
   )
 }
