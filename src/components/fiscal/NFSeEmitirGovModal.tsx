@@ -10,7 +10,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
-import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
+import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -451,11 +451,35 @@ export default function NFSeEmitirGovModal({
     let obraIdFinal = obraId
     let munIbgeFinal = munIbge
     if (mostrarObra) {
-      const r = await resolverObraFiscal(obraFiscal, { companyId, clienteNome: tomNome || null })
-      if (!r.ok) { setErroLocal(r.erro); return }
-      obraIdFinal = r.obra.obra_id ?? undefined
-      if (!munIbgeFinal) munIbgeFinal = r.obra.obra_codigo_ibge ?? ''
-      if (!obraIdFinal && !munIbgeFinal) { setErroLocal('Aponte a obra cadastrada ou informe o endereço da obra (com município).'); return }
+      if (obraFiscal.modo === 'apontar') {
+        obraIdFinal = obraFiscal.obraSel?.id ?? undefined
+        if (!munIbgeFinal) munIbgeFinal = obraFiscal.obraSel?.codigo_ibge_municipio ?? ''
+        if (!obraIdFinal) { setErroLocal('Aponte uma obra cadastrada ou informe o endereço da obra.'); return }
+      } else {
+        // "informar": cadastra/reaproveita a obra pelo endereço digitado (mesmo caminho da NFSePreviewModal).
+        // CNO opcional — o E0370 é atendido pelo endereço. Endereço incompleto → mensagem clara.
+        const ee = obraFiscal.obraEnd
+        const { data: rObra } = await supabase.rpc('fn_hub_obra_resolver_endereco', {
+          p_company_id: companyId,
+          p_logradouro: (ee.logradouro || '').trim() || null,
+          p_numero: (ee.numero || '').trim() || null,
+          p_bairro: (ee.bairro || '').trim() || null,
+          p_cidade: (ee.cidade || '').trim() || null,
+          p_uf: (ee.uf || '').trim() || null,
+          p_cep: (ee.cep || '').trim() || null,
+          p_codigo_ibge: (ee.codigo_ibge_municipio || '').trim() || null,
+          p_cno: (obraFiscal.obraCno || '').trim() || null,
+        })
+        const rr = rObra as { ok?: boolean; obra_id?: string; erro?: string } | null
+        if (!rr?.ok || !rr.obra_id) {
+          setErroLocal(rr?.erro === 'obra_endereco_incompleto'
+            ? 'Complete o endereço da obra (rua, número, bairro, CEP e município).'
+            : 'Não foi possível vincular a obra. Aponte uma obra do Hub ou complete o endereço.')
+          return
+        }
+        obraIdFinal = rr.obra_id
+        if (!munIbgeFinal) munIbgeFinal = (ee.codigo_ibge_municipio || '').trim()
+      }
     }
 
     const aliquotaNum = Number(aliquota.replace(',', '.')) || 0
@@ -574,7 +598,9 @@ export default function NFSeEmitirGovModal({
   const bloqueiosNaoObra = bloqueios.filter((b) => !CODIGOS_OBRA.includes(b.codigo))
   // CNO é opcional (a prefeitura aceita endereço) — a obra informada precisa é do endereço COMPLETO.
   const e = obraFiscal.obraEnd
-  const obraInformarOk = mostrarObra && obraFiscal.modo === 'informar' && obraFiscal.criarNoHub
+  // informar: basta o endereço COMPLETO (a obra é criada/reaproveitada no emit). CNO e "criar no Hub" não
+  // são mais exigência — a prefeitura aceita o endereço (regra da porta única).
+  const obraInformarOk = mostrarObra && obraFiscal.modo === 'informar'
     && !!e.codigo_ibge_municipio && !!(e.logradouro || '').trim() && !!(e.numero || '').trim()
     && !!(e.bairro || '').trim() && !!(e.cep || '').trim()
   const emissaoTravada = !!servicoIdEff && !podeEmitir && !(obraInformarOk && bloqueiosNaoObra.length === 0)
