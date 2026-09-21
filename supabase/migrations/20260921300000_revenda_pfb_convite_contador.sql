@@ -106,6 +106,8 @@ BEGIN
   IF NOT FOUND OR c.status <> 'ativo' OR c.expira_em <= now() THEN RETURN jsonb_build_object('ok', false, 'erro', 'token_invalido_ou_expirado'); END IF;
   UPDATE veic_perfil_convite SET acessos = acessos + 1, ip_ultimo_acesso = COALESCE(p_ip, ip_ultimo_acesso) WHERE id = c.id;
 
+  -- transição legítima do contador (mantém 'rascunho') — libera o trigger de proteção do PF-c.
+  PERFORM set_config('app.perfil_fiscal_transicao', 'on', true);
   UPDATE veic_perfil_fiscal SET
     status='rascunho', preenchido_por='contador',
     regime=p_dados->>'regime', anexo_faixa=p_dados->>'anexo_faixa',
@@ -139,6 +141,8 @@ DECLARE c record;
 BEGIN
   SELECT * INTO c FROM veic_perfil_convite WHERE token_hash = encode(digest(coalesce(p_token,''),'sha256'),'hex');
   IF NOT FOUND OR c.status <> 'ativo' OR c.expira_em <= now() THEN RETURN jsonb_build_object('ok', false, 'erro', 'token_invalido_ou_expirado'); END IF;
+  -- transição legítima do contador (rascunho→aguardando) — libera o trigger de proteção do PF-c.
+  PERFORM set_config('app.perfil_fiscal_transicao', 'on', true);
   UPDATE veic_perfil_fiscal SET status='aguardando_aprovacao', updated_at=now() WHERE id = c.perfil_id AND status='rascunho';
   UPDATE veic_perfil_convite SET status='usado', usado_em=now(), ip_ultimo_acesso=COALESCE(p_ip, ip_ultimo_acesso) WHERE id = c.id;
   RETURN jsonb_build_object('ok', true, 'status', 'aguardando_aprovacao');
