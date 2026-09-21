@@ -1,5 +1,6 @@
-// Revenda R1b · Jornada VENDAS E ENTREGA (V7 tela 10 / trava R0.2 + selo demo R0.2b).
-// Civic (sem NF, aberta) NÃO tem botão de entrega; HB20 (demo, faturada) entrega COM o selo; banco registra.
+// Revenda R4b · Jornada VENDAS E ENTREGA (Tela 10). Fluxo novo: "Entregar" abre o checklist
+// (obrigatórios travam), conclui a entrega; termo + acerto previsto × realizado; títulos na GE visíveis.
+// Civic (sem NF, aberta) NÃO entrega; HB20 (demo, faturada) entrega pelo checklist com selo; banco registra.
 
 import { test, expect, exigirEmpresaDemo, aguardarConteudo } from '../../support/fixtures'
 import { DEMO_REVENDA, dbSelect, dbPatch, veiculoIdPorModelo, registrarJornada } from '../../support/api'
@@ -11,7 +12,7 @@ async function vendaDoVeiculo(veh: string): Promise<{ id: string; situacao: stri
   return r[0]
 }
 
-test.describe('Vendas — entrega só com NF ou demo (com selo)', () => {
+test.describe('Vendas e entrega — checklist, títulos na GE e acerto', () => {
   let hb20Venda = ''
   let civicVenda = ''
 
@@ -30,32 +31,58 @@ test.describe('Vendas — entrega só com NF ou demo (com selo)', () => {
     await dbPatch('veic_venda', `id=eq.${civicVenda}`, { situacao: 'aberta' })
   })
 
-  test('Civic sem botão de entrega; HB20 entrega com selo e o banco registra', async ({ page }) => {
+  test('HB20 entrega pelo checklist (obrigatórios) com selo; banco e títulos na GE aparecem', async ({ page }) => {
     await page.goto('/dashboard/revenda/vendas')
     await aguardarConteudo(page)
     await exigirEmpresaDemo(page)
 
-    // Civic (aberta, sem NF) → aviso "Emitir nota antes de entregar", sem botão de entrega
+    // Civic (aberta, sem NF) → aviso "Emitir nota antes de entregar"
     await expect(page.getByText(/Emitir nota antes de entregar/i).first()).toBeVisible({ timeout: 20000 })
-    // HB20 (demo, faturada) → selo de demonstração + botão de entrega
+    // HB20 (demo, faturada) → selo + botão "Entregar"
     await expect(page.getByText(/Demonstração — sem nota fiscal real/i).first()).toBeVisible()
-    const entregar = page.getByRole('button', { name: /marcar entregue/i })
-    await expect(entregar.first()).toBeVisible()
+    // Títulos na GE (rastreabilidade recebimento ↔ erp_receber) visíveis na tela
+    await expect(page.getByText(/Títulos no financeiro \(GE\)/i).first()).toBeVisible()
+    await expect(page.getByText(/título GE/i).first()).toBeVisible()
 
-    // entrega o HB20 (único faturado/demo → único botão)
-    await entregar.first().click()
+    // abre o checklist da entrega
+    await page.getByRole('button', { name: /^Entregar$/ }).first().click()
+    await expect(page.getByText(/Marque os itens conferidos/i)).toBeVisible({ timeout: 15000 })
+    // marca todos os itens do checklist (garante os obrigatórios)
+    const boxes = page.locator('input[type="checkbox"]')
+    const n = await boxes.count()
+    for (let i = 0; i < n; i++) { const b = boxes.nth(i); if (!(await b.isChecked())) await b.check() }
+    await page.getByPlaceholder(/ex\.: 71000/).fill('71500')
+    await page.getByRole('button', { name: /Concluir entrega/i }).click()
+
     await expect.poll(async () => (await dbSelect<{ situacao: string }>('veic_venda',
       `id=eq.${hb20Venda}&select=situacao`))[0]?.situacao, { timeout: 20000 }).toBe('entregue')
 
-    // registro do selo em audit_log_global (entrega demo sem nota real)
+    // selo em audit_log_global (entrega demo sem nota real)
     const audit = await dbSelect('audit_log_global',
       `registro_id=eq.${hb20Venda}&acao=eq.entrega_demo_sem_nota&select=id`)
     expect(audit.length, 'a entrega demo sem nota fica registrada em audit_log_global').toBeGreaterThan(0)
 
     // o banco registra (recebimento do banco na venda)
-    const v = await dbSelect<{ total_banco: number }>('v_veic_venda',
-      `id=eq.${hb20Venda}&select=total_banco`)
+    const v = await dbSelect<{ total_banco: number }>('v_veic_venda', `id=eq.${hb20Venda}&select=total_banco`)
     expect(Number(v[0]?.total_banco) || 0, 'o banco deve aparecer como devedor na venda').toBeGreaterThan(0)
     expect(DEMO_REVENDA).toBe('b0700000-0000-4000-a000-000000000003')
+  })
+
+  test('acerto_previsto_realizado — a venda entregue mostra previsto × realizado', async ({ page }) => {
+    await page.goto('/dashboard/revenda/vendas')
+    await aguardarConteudo(page)
+    await exigirEmpresaDemo(page)
+
+    // abre o acerto de contas de uma venda entregue (Compass é entregue no seed)
+    const acerto = page.getByRole('button', { name: /Acerto de contas/i })
+    await expect(acerto.first()).toBeVisible({ timeout: 20000 })
+    await acerto.first().click()
+
+    // modal com as duas colunas e o lucro dos dois lados
+    await expect(page.getByText(/^Previsto$/).first()).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText(/^Realizado$/).first()).toBeVisible()
+    await expect(page.getByText(/Lucro projetado/i).first()).toBeVisible()
+    await expect(page.getByText(/Lucro real/i).first()).toBeVisible()
+    await expect(page.getByText(/Em aberto — banco/i).first()).toBeVisible()
   })
 })
