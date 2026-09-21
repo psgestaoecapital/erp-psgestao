@@ -15,7 +15,11 @@ const C = {
 const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const OPS = ['compra_pf', 'compra_pj', 'venda', 'troca_entrada', 'consignacao_entrada', 'consignacao_venda', 'consignacao_retorno', 'devolucao_venda']
 
-type Op = { operacao: string; cfop_dentro_uf?: string | null; cfop_fora_uf?: string | null; cst_ou_csosn?: string | null; emite_nota_entrada?: boolean; observacao?: string | null }
+type Op = {
+  operacao: string; cfop_dentro_uf?: string | null; cfop_fora_uf?: string | null; cst_ou_csosn?: string | null; emite_nota_entrada?: boolean; observacao?: string | null
+  cbenef?: string | null; cst_icms?: string | null; reducao_base_icms_pct?: number | string | null; reducao_base_icms_base_legal?: string | null
+  ibs_cbs_cst?: string | null; ibs_cbs_cclasstrib?: string | null; inf_complementar_texto?: string | null; natureza_operacao?: string | null
+}
 type Editavel = {
   id: string; status: string; regime?: string | null; anexo_faixa?: string | null
   usa_trib_diferenca_pis_cofins?: boolean | null; usa_trib_diferenca_irpj_csll?: boolean | null
@@ -73,7 +77,8 @@ export default function FiscalPage() {
     if (!companyId) return null
     setBusy(true); setErro(null)
     const dados = { ...f, justificativas: { icms_saida_regra: { base_legal: f.icms_saida_base_legal ?? null } } }
-    const opsArr = OPS.map((o) => ops[o]).filter((x) => x && (x.cfop_dentro_uf || x.cfop_fora_uf || x.cst_ou_csosn || x.emite_nota_entrada))
+    const opsArr = OPS.map((o) => ops[o]).filter((x) => x && (x.cfop_dentro_uf || x.cfop_fora_uf || x.cst_ou_csosn || x.emite_nota_entrada
+      || x.cst_icms || x.cbenef || x.reducao_base_icms_pct || x.reducao_base_icms_base_legal || x.ibs_cbs_cst || x.ibs_cbs_cclasstrib || x.inf_complementar_texto || x.natureza_operacao))
     const { data } = await supabase.rpc('fn_veic_perfil_fiscal_salvar', { p_company_id: companyId, p_dados: dados, p_operacoes: opsArr, p_por: 'empresa', p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; perfil_id?: string } | null
@@ -189,7 +194,7 @@ export default function FiscalPage() {
         <Campo l="Observações gerais" v={f.observacao as string} onC={(x) => set('observacao', x)} full />
       </Bloco>
 
-      <Bloco titulo="Operações fiscais (CFOP / CST-CSOSN)" hint="A emissão da nota do veículo lê o CFOP e o CST/CSOSN daqui — sem código fixo.">
+      <Bloco titulo="Operações fiscais (CFOP / CST / cBenef / IBS-CBS)" hint="A emissão da nota do veículo lê estes campos daqui — sem código fixo. Preencha só o que o seu contador indicar; o que ficar em branco é tratado como 'não configurado'.">
         <div style={{ display: 'grid', gap: 8 }}>
           {OPS.map((o) => (
             <div key={o} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 8 }}>
@@ -198,6 +203,16 @@ export default function FiscalPage() {
                 <MiniCampo l="CFOP dentro UF" v={ops[o]?.cfop_dentro_uf} onC={(x) => setOp(o, 'cfop_dentro_uf', x)} />
                 <MiniCampo l="CFOP fora UF" v={ops[o]?.cfop_fora_uf} onC={(x) => setOp(o, 'cfop_fora_uf', x)} />
                 <MiniCampo l="CST/CSOSN" v={ops[o]?.cst_ou_csosn} onC={(x) => setOp(o, 'cst_ou_csosn', x)} />
+                <MiniCampo l="CST ICMS" v={ops[o]?.cst_icms} onC={(x) => setOp(o, 'cst_icms', x)} />
+                <MiniCampo l="cBenef" v={ops[o]?.cbenef} onC={(x) => setOp(o, 'cbenef', x)} />
+                <MiniCampo l="Redução base ICMS (%)" v={ops[o]?.reducao_base_icms_pct == null ? '' : String(ops[o]?.reducao_base_icms_pct)} onC={(x) => setOp(o, 'reducao_base_icms_pct', x)} />
+                <MiniCampo l="IBS/CBS CST" v={ops[o]?.ibs_cbs_cst} onC={(x) => setOp(o, 'ibs_cbs_cst', x)} />
+                <MiniCampo l="IBS/CBS cClassTrib" v={ops[o]?.ibs_cbs_cclasstrib} onC={(x) => setOp(o, 'ibs_cbs_cclasstrib', x)} />
+              </div>
+              <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                <MiniCampo l="Base legal da redução" v={ops[o]?.reducao_base_icms_base_legal} onC={(x) => setOp(o, 'reducao_base_icms_base_legal', x)} />
+                <MiniCampo l="Natureza da operação" v={ops[o]?.natureza_operacao} onC={(x) => setOp(o, 'natureza_operacao', x)} />
+                <MiniCampo l="Texto complementar (infCpl)" v={ops[o]?.inf_complementar_texto} onC={(x) => setOp(o, 'inf_complementar_texto', x)} />
               </div>
             </div>
           ))}
