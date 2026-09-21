@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
 
@@ -28,6 +29,19 @@ interface EmitirResp {
   numero?: string | null
   mensagem?: string | null
   erro?: string
+}
+
+// FIX-NFSE-PEDIDO-PROVIDER-v1 · resposta da rota REST do Focus (/api/fiscal/nfse/emitir), no mesmo
+// formato que o NFSePreviewModal já consome. Mapeada para EmitirResp p/ reaproveitar a tela de resultado.
+interface RespFocus {
+  ok?: boolean
+  status?: string
+  numero?: string | null
+  codigoVerificacao?: string | null
+  motivoRejeicao?: string | null
+  mensagem?: string | null
+  providerReference?: string | null
+  nfseId?: string | null
 }
 
 interface Props {
@@ -56,6 +70,10 @@ interface Props {
   // A③ · reenvio de NFS-e rejeitada por E0370 (obra) sem obra_id: exibe o MESMO bloco de obra da venda
   // (apontar/informar/criar no Hub) para a pessoa apontar a obra na correção. Só quando não veio obraId.
   permitirObra?: boolean
+  // FIX-NFSE-PEDIDO-PROVIDER-v1 · o pedido de origem, p/ resolver a parcela a receber (erp_receber) quando
+  // o provedor ativo é Focus (emissão pela rota REST /api/fiscal/nfse/emitir, que emite POR parcela).
+  pedidoId?: string
+  pedidoNumero?: string
 }
 
 type Municipio = { codigo_ibge: string; nome_municipio: string; uf: string }
@@ -112,7 +130,7 @@ export default function NFSeEmitirGovModal({
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
-  permitirObra = false,
+  permitirObra = false, pedidoId, pedidoNumero,
 }: Props) {
   // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
   // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
@@ -152,6 +170,11 @@ export default function NFSeEmitirGovModal({
   // #32 · regime da empresa: no Simples Nacional o ISS vai no DAS e a NFS-e não destaca —
   // o campo de alíquota some (a edge grava 0). Não-Simples (Lucro Real/Presumido) mantém o campo.
   const [empresaSimples, setEmpresaSimples] = useState(false)
+  // FIX-NFSE-PEDIDO-PROVIDER-v1 · provedor fiscal ATIVO da empresa. undefined = ainda carregando;
+  // null = nenhum ativo (não dá pra emitir, leva pra Config Fiscal). Roteia a emissão: 'focusnfe' pela
+  // rota REST; 'gov_nfse_nacional' pela edge. Era o gargalo do chamado: o modal chamava a edge do gov
+  // pra todo mundo e a edge devolvia 404 para empresas Focus (R.R).
+  const [providerAtivo, setProviderAtivo] = useState<string | null | undefined>(undefined)
   // #35 · serviços cadastrados (seleção rápida) + serviço escolhido no próprio modal
   const [servicos, setServicos] = useState<ServicoLite[]>([])
   const [servicoSelId, setServicoSelId] = useState('')
@@ -199,7 +222,7 @@ export default function NFSeEmitirGovModal({
     setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
     setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
     setObraFiscal(obraFiscalStateInicial)
-    setExigeObra(false); setAvisoAutoTomador(false)
+    setExigeObra(false); setAvisoAutoTomador(false); setProviderAtivo(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
@@ -258,18 +281,21 @@ export default function NFSeEmitirGovModal({
     return () => { vivo = false }
   }, [aberto, servicoIdEff, obraIdEff, munIbge, companyId])
 
-  // #32 · descobre o regime (Simples x não-Simples) da empresa ao abrir, p/ decidir se o ISS é
-  // destacado. Simples (opção 2 MEI / 3 ME/EPP) → ISS no DAS, campo de alíquota some.
+  // #32 · descobre o PROVEDOR ATIVO e o regime (Simples x não-Simples) da empresa ao abrir. Lê a config
+  // fiscal ATIVA sem filtrar por provider (o filtro fixo em 'gov_nfse_nacional' era o bug: pra empresa
+  // Focus a config nunca casava, e a emissão caía sempre na edge do gov — 404). O provider roteia a
+  // emissão; opção 2 (MEI) / 3 (ME/EPP) do Simples → ISS no DAS, campo de alíquota some.
   useEffect(() => {
     if (!aberto || !companyId) return
     let vivo = true
     void (async () => {
       const { data } = await supabase.from('erp_fiscal_provider_config')
-        .select('opcao_simples_nacional').eq('company_id', companyId)
-        .eq('provider', 'gov_nfse_nacional').eq('ativo', true).maybeSingle()
+        .select('provider, opcao_simples_nacional').eq('company_id', companyId)
+        .eq('ativo', true).maybeSingle()
       if (!vivo) return
-      const op = (data as { opcao_simples_nacional?: number | null } | null)?.opcao_simples_nacional
-      setEmpresaSimples(op === 2 || op === 3)
+      const cfg = data as { provider?: string | null; opcao_simples_nacional?: number | null } | null
+      setProviderAtivo(cfg?.provider ?? null)
+      setEmpresaSimples(cfg?.opcao_simples_nacional === 2 || cfg?.opcao_simples_nacional === 3)
     })()
     return () => { vivo = false }
   }, [aberto, companyId])
@@ -384,6 +410,31 @@ export default function NFSeEmitirGovModal({
     fechar()
   }
 
+  // FIX-NFSE-PEDIDO-PROVIDER-v1 · resolve a parcela a receber (erp_receber) do pedido para emitir via Focus.
+  // 1º pela FK pedido_id; se não achar, cai no nº do pedido na descrição — o fn_faturar legado gravou o
+  // vínculo só no texto ("Pedido PED-… - parcela N/M"), não no pedido_id (a ser corrigido à parte). Havendo
+  // várias parcelas, prefere uma SEM NFS-e ativa (autorizada/processando); senão, a primeira.
+  async function resolverReceberDoPedido(): Promise<string | undefined> {
+    if (!pedidoId && !pedidoNumero) return undefined
+    let ids: string[] = []
+    if (pedidoId) {
+      const { data } = await supabase.from('erp_receber')
+        .select('id').eq('company_id', companyId).eq('pedido_id', pedidoId).is('deleted_at', null)
+      ids = (data ?? []).map((r) => (r as { id: string }).id)
+    }
+    if (ids.length === 0 && pedidoNumero) {
+      const { data } = await supabase.from('erp_receber')
+        .select('id').eq('company_id', companyId).ilike('descricao', `%${pedidoNumero}%`).is('deleted_at', null)
+      ids = (data ?? []).map((r) => (r as { id: string }).id)
+    }
+    if (ids.length === 0) return undefined
+    if (ids.length === 1) return ids[0]
+    const { data: comNota } = await supabase.from('erp_nfse_emitidas')
+      .select('erp_receber_id').in('erp_receber_id', ids).in('status', ['autorizada', 'processando'])
+    const usados = new Set((comNota ?? []).map((n) => (n as { erp_receber_id: string }).erp_receber_id))
+    return ids.find((id) => !usados.has(id)) ?? ids[0]
+  }
+
   async function emitir() {
     setErroLocal(null)
 
@@ -409,44 +460,106 @@ export default function NFSeEmitirGovModal({
 
     const aliquotaNum = Number(aliquota.replace(',', '.')) || 0
 
-    const body: Record<string, unknown> = {
-      company_id: companyId,
-      teste_homologacao: ambiente === 'homologacao',
-      // #32 · contexto da trava do servidor: o município da execução e a alíquota saem do banco.
-      servico_id: servicoIdEff,
-      obra_id: obraIdFinal,
-      municipio_prestacao_ibge: munIbgeFinal || undefined,
-      servico: {
-        descricao: descricao.trim(),
-        valor: valorNum,
-        codigo_tributacao_nacional_iss: codigoTrib.trim(),
-        aliquota_iss: aliquotaNum,
-      },
+    // FIX-NFSE-PEDIDO-PROVIDER-v1 · ROTEAMENTO POR PROVEDOR (o coração do chamado).
+    // Sem provedor ativo não há como emitir — leva pra Config Fiscal (não tenta e falha no escuro).
+    if (providerAtivo == null) {
+      setErroLocal('Configure o emissor fiscal da empresa antes de emitir (Configurações › Fiscal).')
+      return
     }
-    const docDigitos = soDigitos(tomDoc)
-    if (docDigitos.length === 11 || docDigitos.length === 14) {
-      body.tomador = {
-        cpf_cnpj: docDigitos,
-        razao_social: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
+
+    // Focus → rota REST /api/fiscal/nfse/emitir, que emite POR parcela a receber (erp_receber). Resolve
+    // a parcela do pedido AGORA (antes de "enviando"), pra falha de resolução aparecer no formulário.
+    let erpReceberIdFocus: string | undefined
+    if (providerAtivo === 'focusnfe') {
+      erpReceberIdFocus = await resolverReceberDoPedido()
+      if (!erpReceberIdFocus) {
+        setErroLocal('Este pedido ainda não tem uma parcela a receber para faturar a NFS-e. Fature o pedido (gere o financeiro) e tente de novo.')
+        return
       }
     }
 
     setFase('enviando')
     try {
-      const { data, error } = await supabase.functions.invoke<EmitirResp>('gov-nfse-emitir', { body })
-      // FIX-NFSE-TRIBUTOS-SIMPLES-v1: preferimos data quando existir
-      // (mesmo com error setado, o body pode trazer mensagem real da Focus)
-      if (data) {
-        setResultado(data)
-        // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1
-        // Vincula pedido<->NFS-e assim que a edge retorna ref (autorizada OU
-        // processando OU rejeitada). Antes so disparava se usuario clicasse
-        // "Fechar" · agora pedido_id grava sozinho · idempotente.
-        if (data.ref) onEmitida(data.ref)
-      } else if (error) {
-        setResultado({ erro: error.message })
+      if (providerAtivo === 'focusnfe') {
+        // Mesmo formato do NFSePreviewModal/EmitirNFSeButton: authFetch (Bearer) + emissão por erp_receber.
+        // A rota já roteia internamente (Focus municipal/nacional), aplica travas (obra E0370, duplicidade,
+        // Simples) e devolve a mensagem da prefeitura JÁ em português (humanizarErroFiscal) — nunca o
+        // "Edge Function returned a non-2xx status code".
+        const resp = await authFetch('/api/fiscal/nfse/emitir', {
+          method: 'POST',
+          body: JSON.stringify({
+            companyId,
+            erpReceberId: erpReceberIdFocus,
+            servicoId: servicoIdEff,
+            codigoServicoTributacao: codigoTrib.trim() || undefined,
+            obraId: obraIdFinal || undefined,
+            overrides: {
+              descricaoServico: descricao.trim(),
+              aliquotaIss: aliquotaNum,
+              retemIss: false,
+            },
+            tipoRetencaoIss: 1,
+          }),
+        })
+        const json = (await resp.json().catch(() => null)) as RespFocus | null
+        if (!json) {
+          setResultado({ erro: 'Sem resposta do emissor fiscal.' })
+        } else {
+          const st = json.status
+          const okEmissao = resp.ok && (json.ok || st === 'processando' || st === 'autorizada')
+          if (!okEmissao) {
+            setResultado({ erro: json.motivoRejeicao ?? json.mensagem ?? 'Falha ao emitir NFS-e.' })
+          } else {
+            const ref = json.providerReference ?? json.nfseId ?? undefined
+            setResultado({
+              ok: json.ok,
+              status_local: st === 'autorizada' ? 'autorizada' : st === 'rejeitada' ? 'rejeitada' : 'processando',
+              ref: ref ?? undefined,
+              numero: json.numero ?? null,
+              chave_acesso: json.codigoVerificacao ?? null,
+              mensagem: json.motivoRejeicao ?? json.mensagem ?? null,
+            })
+            if (ref) onEmitida(ref)
+          }
+        }
       } else {
-        setResultado({ erro: 'Sem resposta da função.' })
+        // gov_nfse_nacional (ou outro provedor gov) → edge function atual, inalterada.
+        const body: Record<string, unknown> = {
+          company_id: companyId,
+          teste_homologacao: ambiente === 'homologacao',
+          // #32 · contexto da trava do servidor: o município da execução e a alíquota saem do banco.
+          servico_id: servicoIdEff,
+          obra_id: obraIdFinal,
+          municipio_prestacao_ibge: munIbgeFinal || undefined,
+          servico: {
+            descricao: descricao.trim(),
+            valor: valorNum,
+            codigo_tributacao_nacional_iss: codigoTrib.trim(),
+            aliquota_iss: aliquotaNum,
+          },
+        }
+        const docDigitos = soDigitos(tomDoc)
+        if (docDigitos.length === 11 || docDigitos.length === 14) {
+          body.tomador = {
+            cpf_cnpj: docDigitos,
+            razao_social: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
+          }
+        }
+        const { data, error } = await supabase.functions.invoke<EmitirResp>('gov-nfse-emitir', { body })
+        // FIX-NFSE-TRIBUTOS-SIMPLES-v1: preferimos data quando existir
+        // (mesmo com error setado, o body pode trazer mensagem real da Focus)
+        if (data) {
+          setResultado(data)
+          // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1
+          // Vincula pedido<->NFS-e assim que a edge retorna ref (autorizada OU
+          // processando OU rejeitada). Antes so disparava se usuario clicasse
+          // "Fechar" · agora pedido_id grava sozinho · idempotente.
+          if (data.ref) onEmitida(data.ref)
+        } else if (error) {
+          setResultado({ erro: error.message })
+        } else {
+          setResultado({ erro: 'Sem resposta da função.' })
+        }
       }
     } catch (e) {
       setResultado({ erro: e instanceof Error ? e.message : 'Erro inesperado' })
@@ -500,6 +613,18 @@ export default function NFSeEmitirGovModal({
         <div className="px-5 py-5 space-y-4">
           {fase !== 'concluido' && (
             <>
+              {/* FIX-NFSE-PEDIDO-PROVIDER-v1 · sem emissor fiscal ativo não há como emitir — leva pra Config Fiscal. */}
+              {providerAtivo === null && (
+                <div className="flex items-start gap-2 rounded-lg border border-[#C94544]/40 bg-[#FCEBEB] px-3 py-2 text-[12px] text-[#791F1F]">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>Nenhum emissor fiscal ativo para esta empresa. Configure o emissor fiscal antes de emitir.{' '}
+                    <Link href="/dashboard/configuracoes/fiscal" className="text-[#8B5612] underline underline-offset-2 inline-flex items-center gap-0.5">
+                      Configuração Fiscal <ExternalLink size={10} />
+                    </Link>
+                  </span>
+                </div>
+              )}
+
               {/* Ambiente é READ-ONLY: vem da configuração da empresa, não se escolhe na emissão (chamado #16).
                   Produção = nota real; Homologação = teste. Trocar em Administração, não aqui. */}
               {ambiente === 'producao' ? (
@@ -743,8 +868,8 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando' || validando || emissaoTravada}
-                  title={emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
+                  disabled={fase === 'enviando' || validando || emissaoTravada || providerAtivo === null}
+                  title={providerAtivo === null ? 'Configure o emissor fiscal da empresa' : emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
                 >

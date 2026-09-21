@@ -1291,6 +1291,8 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
       <NFSeEmitirGovModal
         companyId={ped.company_id}
         aberto={nfseModalAberto}
+        pedidoId={ped.id}
+        pedidoNumero={ped.numero ?? undefined}
         producaoDisponivel={nfseProducaoDisponivel}
         tomadorDocumento={nfseDados?.tomador?.documento ?? undefined}
         tomadorTipo={nfseDados?.tomador?.tipo ?? undefined}
