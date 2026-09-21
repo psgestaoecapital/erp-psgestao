@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomBytes } from 'crypto'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { decryptApiKey } from '@/lib/fiscal/decrypt'
@@ -45,10 +46,13 @@ export const GET = withAuth(async (req: NextRequest, { userId }) => {
     )
   }
 
+  // O segredo é um TOKEN de acesso (a Focus o devolve no header) — NUNCA expor na tela.
+  // A tela mostra só o aviso automático ativo/inativo: registrado = já há segredo gravado.
   return NextResponse.json({
     ok: true,
     webhookUrl: buildWebhookUrl(),
-    webhookSecret: config.webhook_secret ?? null,
+    authorizationHeader: 'X-PS-Webhook-Token',
+    webhookAtivo: !!(config.webhook_secret && String(config.webhook_secret).length >= 32),
   })
 })
 
@@ -71,7 +75,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
     const { data: config, error } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('api_key_encrypted, ambiente')
+      .select('api_key_encrypted, ambiente, webhook_secret')
       .eq('company_id', companyId)
       .eq('provider', 'focusnfe')
       .eq('ativo', true)
@@ -103,52 +107,90 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       }
       apiKey = tokStr
     }
+
+    // CNPJ da empresa (a Focus cadastra o gatilho por CNPJ).
+    const { data: empresa } = await supabaseAdmin
+      .from('companies').select('cnpj').eq('id', companyId).maybeSingle()
+    const cnpj = String(empresa?.cnpj ?? '').replace(/\D/g, '')
+    if (cnpj.length !== 14) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'CNPJ da empresa ausente/inválido — necessário para cadastrar o webhook na Focus.' },
+        { status: 400 }
+      )
+    }
+
+    // FIX-FOCUS-WEBHOOK-TOKEN: a Focus NÃO assina o corpo. Cadastramos o gatilho com um TOKEN próprio
+    // (authorization) que ela devolve no header authorization_header. Geramos um segredo forte por empresa
+    // (32 bytes), guardamos em webhook_secret (server-side, nunca exposto) e o receptor valida por igualdade.
+    let webhookSecret = (config.webhook_secret ?? '').trim()
+    if (webhookSecret.length < 32) {
+      webhookSecret = randomBytes(32).toString('hex')
+      const { error: upErr } = await supabaseAdmin
+        .from('erp_fiscal_provider_config')
+        .update({ webhook_secret: webhookSecret })
+        .eq('company_id', companyId).eq('provider', 'focusnfe').eq('ativo', true)
+      if (upErr) {
+        return NextResponse.json({ ok: false, mensagem: 'Falha ao gravar o segredo do webhook: ' + upErr.message }, { status: 500 })
+      }
+    }
+
     const baseUrl =
       config.ambiente === 'producao'
         ? 'https://api.focusnfe.com.br'
         : 'https://homologacao.focusnfe.com.br'
     const webhookUrl = buildWebhookUrl()
+    const AUTH_HEADER = 'X-PS-Webhook-Token'
+    const basic = `Basic ${Buffer.from(apiKey + ':').toString('base64')}`
+    // Eventos que a empresa emite (nomes conforme doc Focus /v2/hooks). 'nfsen' = NFS-e Nacional.
+    const EVENTOS = ['nfse', 'nfsen', 'nfe', 'nfce'] as const
 
-    const resp = await fetch(`${baseUrl}/v2/hooks`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(apiKey + ':').toString('base64')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: webhookUrl,
-        eventos: ['nfe.status', 'nfse.status', 'mde.disponivel'],
-      }),
-    })
-
-    const text = await resp.text()
-    let data: unknown = null
+    // Gatilhos já cadastrados (evita duplicar): lista e indexa por url+event.
+    let existentes: Array<{ id?: string; url?: string; event?: string }> = []
     try {
-      data = text ? JSON.parse(text) : null
-    } catch {
-      data = { raw: text }
+      const rList = await fetch(`${baseUrl}/v2/hooks`, { headers: { Authorization: basic } })
+      if (rList.ok) {
+        const arr = (await rList.json().catch(() => null)) as unknown
+        if (Array.isArray(arr)) existentes = arr as typeof existentes
+      }
+    } catch { /* segue pro cadastro */ }
+
+    const relatorio: Array<{ evento: string; acao: string; ok: boolean; id: string | null; erro?: string }> = []
+    for (const evento of EVENTOS) {
+      try {
+        const jaTem = existentes.find((h) => h?.event === evento && h?.url === webhookUrl)
+        // upsert limpo: se já existe pra este url+evento, remove e recria com o token atual.
+        if (jaTem?.id) {
+          await fetch(`${baseUrl}/v2/hooks/${jaTem.id}`, { method: 'DELETE', headers: { Authorization: basic } }).catch(() => {})
+        }
+        const r = await fetch(`${baseUrl}/v2/hooks`, {
+          method: 'POST',
+          headers: { Authorization: basic, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cnpj, event: evento, url: webhookUrl, authorization: webhookSecret, authorization_header: AUTH_HEADER }),
+        })
+        const txt = await r.text()
+        let d: unknown = null
+        try { d = txt ? JSON.parse(txt) : null } catch { d = { raw: txt } }
+        const dd = d as { id?: string; hook_id?: string; mensagem?: string; erro?: string } | null
+        relatorio.push({
+          evento,
+          acao: jaTem?.id ? 'atualizado' : 'registrado',
+          ok: r.ok,
+          id: dd?.id ?? dd?.hook_id ?? null,
+          erro: r.ok ? undefined : (dd?.mensagem ?? dd?.erro ?? `HTTP ${r.status}`),
+        })
+      } catch (e) {
+        relatorio.push({ evento, acao: 'falha', ok: false, id: null, erro: e instanceof Error ? e.message : 'erro' })
+      }
     }
 
-    if (!resp.ok) {
-      const errPayload = data as { mensagem?: string; codigo?: string } | null
-      return NextResponse.json(
-        {
-          ok: false,
-          mensagem: errPayload?.mensagem ?? `HTTP ${resp.status} ao configurar webhook no Focus NFe`,
-          status: resp.status,
-          detalhes: data,
-        },
-        { status: 502 }
-      )
-    }
-
-    const respData = data as { id?: string; hook_id?: string } | null
+    const algumOk = relatorio.some((r) => r.ok)
     return NextResponse.json({
-      ok: true,
-      webhookId: respData?.id ?? respData?.hook_id ?? null,
+      ok: algumOk,
       webhookUrl,
+      authorizationHeader: AUTH_HEADER,
       ambiente: config.ambiente,
-    })
+      eventos: relatorio,
+    }, { status: algumOk ? 200 : 502 })
   } catch (err) {
     return NextResponse.json(
       { ok: false, mensagem: err instanceof Error ? err.message : 'Erro' },

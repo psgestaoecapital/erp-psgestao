@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Bell, Copy, Eye, EyeOff, Loader2, AlertCircle, CheckCircle2, Zap } from 'lucide-react'
+import { Bell, Copy, Loader2, AlertCircle, CheckCircle2, Zap } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
 
 interface Props {
@@ -11,19 +11,20 @@ interface Props {
 
 interface WebhookConfig {
   webhookUrl: string
-  webhookSecret: string | null
+  authorizationHeader: string
+  webhookAtivo: boolean
 }
 
+interface EventoResultado { evento: string; acao: string; ok: boolean; id: string | null; erro?: string }
 interface ConfigResultado {
   ok: boolean
   mensagem?: string
-  webhookId?: string | null
+  eventos?: EventoResultado[]
   ambiente?: string
 }
 
 export default function WebhookConfigCard({ companyId, habilitado }: Props) {
   const [config, setConfig] = useState<WebhookConfig | null>(null)
-  const [showSecret, setShowSecret] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [configurando, setConfigurando] = useState(false)
@@ -45,7 +46,7 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
       if (!resp.ok || !json.ok) {
         setErro(json.mensagem ?? 'Erro ao carregar config webhook')
       } else {
-        setConfig({ webhookUrl: json.webhookUrl, webhookSecret: json.webhookSecret })
+        setConfig({ webhookUrl: json.webhookUrl, authorizationHeader: json.authorizationHeader ?? 'X-PS-Webhook-Token', webhookAtivo: !!json.webhookAtivo })
       }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro')
@@ -78,12 +79,8 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
         body: JSON.stringify({ companyId }),
       })
       const json = (await resp.json()) as ConfigResultado
-      setResultado({
-        ok: !!json.ok,
-        mensagem: json.mensagem,
-        webhookId: json.webhookId ?? null,
-        ambiente: json.ambiente,
-      })
+      setResultado({ ok: !!json.ok, mensagem: json.mensagem, eventos: json.eventos, ambiente: json.ambiente })
+      await carregar() // reflete o aviso automático ativo/inativo
     } catch (e) {
       setResultado({ ok: false, mensagem: e instanceof Error ? e.message : 'Erro' })
     } finally {
@@ -98,15 +95,26 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
           <div className="text-[11px] text-[#3D2314]/55 tracking-[0.8px] uppercase font-medium">Passo 3</div>
           <h2 className="text-[15px] font-medium text-[#3D2314] flex items-center gap-1.5">
             <Bell size={14} className="text-[#C8941A]" />
-            Notificacoes Automaticas
+            Notificações Automáticas
           </h2>
         </div>
+        {habilitado && !carregando && config && (
+          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+            config.webhookAtivo
+              ? 'bg-[#E8F4DC] text-[#1B3608] border border-[#C0DD97]'
+              : 'bg-[#FAEEDA] text-[#633806] border border-[#E8C387]'
+          }`}>
+            {config.webhookAtivo ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+            Aviso automático: {config.webhookAtivo ? 'ativo' : 'inativo'}
+          </span>
+        )}
       </div>
 
       <div className="p-5 space-y-4">
         <p className="text-[12.5px] text-[#3D2314]/70 leading-relaxed">
-          Configure no Focus NFe pra receber atualizacoes automaticas quando uma nota mudar de
-          status. Sem isso, voce precisa atualizar manualmente.
+          Com o aviso automático ativo, a Focus NFe avisa o sistema assim que uma nota muda de status
+          (autorizada/recusada) e a atualização acontece sozinha. Sem ele, é preciso usar “Consultar na
+          prefeitura” manualmente.
         </p>
 
         {!habilitado && (
@@ -133,7 +141,7 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
           <>
             <div>
               <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-                URL do webhook (copie pro Focus NFe)
+                URL do webhook (a Focus chama esta URL)
               </label>
               <div className="flex gap-2">
                 <input
@@ -152,31 +160,13 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
                   {copiado ? 'Copiado' : 'Copiar'}
                 </button>
               </div>
+              <p className="text-[11px] text-[#3D2314]/55 mt-1.5">
+                A validação é por token no cabeçalho <code className="font-mono">{config.authorizationHeader}</code>,
+                gerado e guardado no servidor — não é exibido aqui por segurança.
+              </p>
             </div>
 
-            <div>
-              <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-                Secret (valida assinatura HMAC do webhook)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type={showSecret ? 'text' : 'password'}
-                  readOnly
-                  value={config.webhookSecret ?? '—'}
-                  className="flex-1 px-3 py-2 text-[12px] font-mono border border-[#3D2314]/15 rounded-lg bg-[#3D2314]/5 text-[#3D2314]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowSecret((s) => !s)}
-                  className="px-3 py-2 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5"
-                >
-                  {showSecret ? <EyeOff size={13} /> : <Eye size={13} />}
-                  {showSecret ? 'Ocultar' : 'Mostrar'}
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+            <div className="pt-1 flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
                 onClick={configurarAuto}
@@ -185,71 +175,37 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
                 className="px-4 py-2.5 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 {configurando ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-                Configurar automaticamente no Focus NFe
+                {config.webhookAtivo ? 'Reconfigurar aviso automático' : 'Ativar aviso automático na Focus NFe'}
               </button>
             </div>
 
             {resultado && (
               <div
-                className={`flex items-start gap-2 text-[12px] p-2.5 rounded-lg ${
+                className={`text-[12px] p-2.5 rounded-lg ${
                   resultado.ok
                     ? 'bg-[#E8F4DC] text-[#1B3608] border border-[#C0DD97]'
                     : 'bg-[#FCEBEB] text-[#791F1F] border border-[#E8A6A5]'
                 }`}
               >
-                {resultado.ok ? (
-                  <CheckCircle2 size={14} className="flex-shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-                )}
-                <div>
-                  {resultado.ok ? (
-                    <>
-                      Webhook configurado
-                      {resultado.webhookId && (
-                        <span className="font-mono ml-1">· ID {resultado.webhookId}</span>
-                      )}
-                      {resultado.ambiente && (
-                        <span className="ml-1 text-[11px] opacity-80">({resultado.ambiente})</span>
-                      )}
-                    </>
-                  ) : (
-                    resultado.mensagem
-                  )}
+                <div className="flex items-center gap-2 font-medium">
+                  {resultado.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                  {resultado.ok ? 'Aviso automático configurado' : (resultado.mensagem ?? 'Falha ao configurar')}
+                  {resultado.ambiente && <span className="text-[11px] opacity-80">({resultado.ambiente})</span>}
                 </div>
+                {resultado.eventos && resultado.eventos.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {resultado.eventos.map((ev) => (
+                      <li key={ev.evento} className="flex items-center gap-1.5">
+                        {ev.ok ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
+                        <span className="font-mono">{ev.evento}</span>
+                        <span className="opacity-80">— {ev.ok ? ev.acao : (ev.erro ?? 'falha')}</span>
+                        {ev.id && <span className="font-mono opacity-60">· {ev.id}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
-
-            <details className="text-[12px] text-[#3D2314]/70">
-              <summary className="cursor-pointer hover:text-[#3D2314] py-1">
-                Prefere configurar manualmente no painel Focus NFe?
-              </summary>
-              <div className="mt-2 p-3 bg-[#3D2314]/5 rounded-lg text-[11.5px] leading-relaxed space-y-1">
-                <p>
-                  <strong>1.</strong> Acesse{' '}
-                  <a
-                    href="https://app.focusnfe.com.br"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#BA7517] underline"
-                  >
-                    app.focusnfe.com.br
-                  </a>
-                </p>
-                <p>
-                  <strong>2.</strong> Menu Empresa → Webhooks
-                </p>
-                <p>
-                  <strong>3.</strong> Adicione novo webhook com a URL acima
-                </p>
-                <p>
-                  <strong>4.</strong> Eventos: NFe Status, NFSe Status, MDe Disponivel
-                </p>
-                <p>
-                  <strong>5.</strong> Salve
-                </p>
-              </div>
-            </details>
           </>
         )}
       </div>
