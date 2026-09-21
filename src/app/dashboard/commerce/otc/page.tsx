@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
   Plus, Search, ShoppingCart, BarChart3,
@@ -1010,6 +1011,36 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
 
   useEffect(() => { void carregarNfseDados() }, [carregarNfseDados])
 
+  // HOTFIX-NFSE-PROCESSANDO-v1 · "Atualizar status" precisa CONSULTAR a Focus (a rota grava número/chave/
+  // XML/PDF ou o motivo da recusa), não só reler o banco — sem webhook a nota fica presa em 'processando'.
+  const consultarERecarregar = useCallback(async () => {
+    const id = nfseUltima?.id
+    if (id) {
+      setNfseAtualizando(true)
+      try { await authFetch(`/api/fiscal/nfse/consultar/${id}`) } catch { /* a rota loga a tentativa; recarrega abaixo */ }
+    }
+    await carregarNfseDados()
+  }, [nfseUltima?.id, carregarNfseDados])
+
+  // Após emitir pelo pedido, consulta a Focus algumas vezes (3× a cada 5s), como o NFSePreviewModal faz:
+  // a autorização costuma sair em segundos, então o número aparece sozinho sem depender de webhook.
+  const pollAposEmitir = useCallback(async () => {
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 5000))
+      const { data } = await supabase
+        .from('erp_nfse_emitidas')
+        .select('id,status')
+        .eq('pedido_id', ped.id)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const nota = data as { id: string; status: string } | null
+      if (!nota?.id || nota.status !== 'processando') { await carregarNfseDados(); break }
+      try { await authFetch(`/api/fiscal/nfse/consultar/${nota.id}`) } catch { /* segue tentando */ }
+      await carregarNfseDados()
+    }
+  }, [ped.id, carregarNfseDados])
+
   // Consolidacao multi-servico: junta descricoes + soma valor + usa servicos[0] pra LC116/codigo/aliquota
   const nfseSeed = useMemo(() => {
     if (!nfseDados || !nfseDados.tem_servico || nfseDados.servicos.length === 0) return null
@@ -1099,7 +1130,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             const btnAtualizar = (
               <button
                 type="button"
-                onClick={() => void carregarNfseDados()}
+                onClick={() => void consultarERecarregar()}
                 disabled={nfseAtualizando}
                 data-testid="nfse-atualizar-status"
                 style={{
@@ -1314,6 +1345,9 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             })
           }
           await carregarNfseDados()
+          // HOTFIX-NFSE-PROCESSANDO-v1: sem webhook, a nota fica em 'processando' — consulta a Focus
+          // algumas vezes logo após emitir para o número/recusa aparecer sozinho.
+          void pollAposEmitir()
         }}
       />
       </div>

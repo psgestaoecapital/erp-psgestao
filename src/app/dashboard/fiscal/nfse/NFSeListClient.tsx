@@ -376,13 +376,15 @@ export default function NFSeListClient() {
     }
   }
 
+  // HOTFIX-NFSE-PROCESSANDO-v1 · consultar pela rota REST /api/fiscal/nfse/consultar/{id}, que roteia pelo
+  // provedor ativo (Focus municipal/nacional) e grava número/chave/XML/PDF ou o motivo — como faz o
+  // NFSePreviewModal. Antes chamava a edge do gov (gov-nfse-consultar), que não serve empresas Focus.
   async function consultarStatus(recordId: string) {
     setConsultando(recordId)
     try {
-      const { data, error } = await supabase.functions.invoke('gov-nfse-consultar', { body: { record_id: recordId } })
-      if (error) throw new Error(error.message)
-      const resp = data as { ok?: boolean; erro?: string; detalhe?: string } | null
-      if (resp && resp.ok === false) throw new Error(resp.erro ?? resp.detalhe ?? 'Falha ao consultar')
+      const r = await authFetch(`/api/fiscal/nfse/consultar/${recordId}`)
+      const resp = await r.json().catch(() => null) as { ok?: boolean; mensagem?: string; motivoRejeicao?: string } | null
+      if (!r.ok && resp?.ok === false) throw new Error(resp.mensagem ?? resp.motivoRejeicao ?? 'Falha ao consultar')
       await carregar()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Falha ao consultar status')
@@ -397,18 +399,18 @@ export default function NFSeListClient() {
     setConsultando('all')
     try {
       const results = await Promise.allSettled(
-        pendentes.map((id) => supabase.functions.invoke('gov-nfse-consultar', { body: { record_id: id } })),
+        pendentes.map((id) => authFetch(`/api/fiscal/nfse/consultar/${id}`)),
       )
       const falhas: string[] = []
-      results.forEach((r, i) => {
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]
         if (r.status === 'rejected') {
           falhas.push(`Documento ${i + 1}: ${r.reason instanceof Error ? r.reason.message : 'falha'}`)
-        } else {
-          const resp = r.value.data as { ok?: boolean; erro?: string; detalhe?: string } | null
-          if (r.value.error) falhas.push(`Documento ${i + 1}: ${r.value.error.message}`)
-          else if (resp && resp.ok === false) falhas.push(`Documento ${i + 1}: ${resp.erro ?? resp.detalhe ?? 'falha'}`)
+        } else if (!r.value.ok) {
+          const resp = await r.value.json().catch(() => null) as { mensagem?: string; motivoRejeicao?: string } | null
+          falhas.push(`Documento ${i + 1}: ${resp?.mensagem ?? resp?.motivoRejeicao ?? 'falha'}`)
         }
-      })
+      }
       await carregar()
       if (falhas.length > 0) {
         alert(`Algumas consultas falharam:\n\n${falhas.slice(0, 5).join('\n')}${falhas.length > 5 ? `\n…e mais ${falhas.length - 5}` : ''}`)
@@ -717,9 +719,10 @@ function DocumentoLinhas(props: {
             {doc.status_principal === 'processando' && (
               <button type="button" onClick={(e) => { e.stopPropagation(); onConsultar() }}
                 disabled={consultando === doc.principal_id || consultando === 'all'}
-                data-testid="nfse-atualizar-status" title="Consultar retorno na Focus"
-                className="text-[#BA7517] hover:text-[#8B5612] disabled:opacity-40">
+                data-testid="nfse-atualizar-status" title="Consultar o retorno na prefeitura"
+                className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[#BA7517] hover:text-[#8B5612] disabled:opacity-40">
                 {consultando === doc.principal_id ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                Consultar na prefeitura
               </button>
             )}
           </div>
