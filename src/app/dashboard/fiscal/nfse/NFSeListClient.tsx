@@ -10,7 +10,7 @@ import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
   Download, FileCode, FileText, ChevronLeft, ChevronRight as ChevR, Plus, RefreshCw,
-  Building2, AlertTriangle,
+  Building2, AlertTriangle, Ban, X, History,
 } from 'lucide-react'
 
 interface NFSeRow {
@@ -63,6 +63,19 @@ function obraResumo(o: ObraLite): string {
   return partes.length ? partes.join(', ') : 'sem endereço cadastrado'
 }
 const OBRA_SELECT = 'id,numero,nome,cliente_nome,endereco,numero_endereco,bairro,cidade,uf,cep,cno,codigo_ibge_municipio'
+
+type TentativaFiscalRow = {
+  operacao: string; endpoint: string | null; resultado: string
+  http_status: number | null; provider_codigo: string | null; provider_mensagem: string | null
+  criado_em: string
+}
+const RESULTADO_ROTULO: Record<string, { t: string; cor: string; bg: string }> = {
+  ok: { t: 'confirmado', cor: '#166534', bg: '#ECFDF5' },
+  ja_cancelada: { t: 'já cancelada (sincronizada)', cor: '#166534', bg: '#ECFDF5' },
+  processando: { t: 'processando', cor: '#8A4B08', bg: '#FFF6E5' },
+  rejeitada: { t: 'rejeitada', cor: '#B42318', bg: '#FDECEC' },
+  erro: { t: 'erro', cor: '#B42318', bg: '#FDECEC' },
+}
 
 const PAGE_SIZE = 50
 
@@ -135,6 +148,13 @@ export default function NFSeListClient() {
   const [obras, setObras] = useState<ObraLite[]>([])
   const [vinculando, setVinculando] = useState(false)
   const [confirmDesvincular, setConfirmDesvincular] = useState(false) // desvincular perde rastreio → confirma
+  // Histórico de tentativas fiscais (cancelamento/emissão/consulta) — nada de falha silenciosa (bug R.R 56).
+  const [tentativas, setTentativas] = useState<TentativaFiscalRow[] | null>(null)
+  // Cancelamento de NFS-e (o botão que faltava na tela — cliente R.R não conseguia cancelar).
+  const [cancelModal, setCancelModal] = useState<{ id: string; numero: string | null } | null>(null)
+  const [cancelJust, setCancelJust] = useState('')
+  const [cancelando, setCancelando] = useState(false)
+  const [cancelErro, setCancelErro] = useState<string | null>(null)
 
   useEffect(() => {
     const sel = resolveCompanyId()
@@ -195,6 +215,43 @@ export default function NFSeListClient() {
     })()
     return () => { alive = false }
   }, [expandida, companyId])
+
+  // ao expandir uma nota, carrega o histórico de tentativas fiscais (cancelamento/emissão/consulta).
+  const carregarTentativas = useCallback(async (notaId: string) => {
+    const { data } = await supabase.rpc('fn_fiscal_tentativas', { p_nota_tipo: 'nfse', p_nota_id: notaId })
+    const r = data as { ok?: boolean; tentativas?: TentativaFiscalRow[] } | null
+    setTentativas(r?.ok ? (r.tentativas ?? []) : [])
+  }, [])
+  useEffect(() => {
+    if (!expandida) { setTentativas(null); return }
+    setTentativas(null)
+    void carregarTentativas(expandida)
+  }, [expandida, carregarTentativas])
+
+  // Cancelar NFS-e: justificativa >=15, POST na rota (que loga toda tentativa e devolve o motivo real).
+  async function cancelarNFSe() {
+    if (!cancelModal) return
+    const just = cancelJust.trim()
+    if (just.length < 15) { setCancelErro('A justificativa precisa de no mínimo 15 caracteres.'); return }
+    setCancelando(true); setCancelErro(null)
+    try {
+      const resp = await fetch('/api/fiscal/nfse/cancelar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notaId: cancelModal.id, justificativa: just }),
+      })
+      const data = (await resp.json()) as { ok?: boolean; mensagem?: string; jaCancelada?: boolean }
+      if (!data.ok) { setCancelErro(data.mensagem ?? 'Não foi possível cancelar. Veja o histórico da nota.'); return }
+      // sucesso (ou já cancelada + sincronizada): fecha, recarrega lista e o histórico.
+      const notaId = cancelModal.id
+      setCancelModal(null); setCancelJust('')
+      await carregar()
+      if (expandida === notaId) await carregarTentativas(notaId)
+    } catch (e) {
+      setCancelErro(e instanceof Error ? e.message : 'Falha de rede ao cancelar.')
+    } finally {
+      setCancelando(false)
+    }
+  }
 
   // #82.3 — lista de obras do Hub pro seletor (só quando o picker está aberto).
   useEffect(() => {
@@ -467,6 +524,42 @@ export default function NFSeListClient() {
           />
         )}
 
+        {/* Modal de cancelamento de NFS-e — justificativa obrigatória (≥15), aviso de prazo, confirma. */}
+        {cancelModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#3D2314]/35 p-4" onClick={() => !cancelando && setCancelModal(null)}>
+            <div className="bg-white rounded-2xl w-full max-w-[460px] p-5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-[16px] font-bold text-[#3D2314]">Cancelar NFS-e{cancelModal.numero ? ` nº ${cancelModal.numero}` : ''}</h2>
+                <button type="button" onClick={() => !cancelando && setCancelModal(null)} className="text-[#3D2314]/50 hover:text-[#3D2314]"><X size={18} /></button>
+              </div>
+              <div className="mt-2 flex items-start gap-2 rounded-lg bg-[#FFF6E5] border border-[#BA7517]/40 px-3 py-2 text-[12px] text-[#8A4B08]">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>O cancelamento depende do prazo da prefeitura. Se o prazo já venceu, ela pode recusar — o motivo aparece aqui e no histórico da nota.</span>
+              </div>
+              <label className="block mt-3 text-[11.5px] text-[#6B5D4F]">Justificativa (mínimo 15 caracteres)
+                <textarea
+                  value={cancelJust}
+                  onChange={(e) => { setCancelJust(e.target.value); if (cancelErro) setCancelErro(null) }}
+                  rows={3}
+                  data-testid="nfse-cancelar-justificativa"
+                  placeholder="Ex.: nota emitida em duplicidade para o mesmo serviço"
+                  className="w-full mt-1 rounded-lg border border-[#E0D8CC] px-3 py-2 text-[13.5px] text-[#3D2314] focus:outline-none focus:border-[#C8941A]"
+                />
+              </label>
+              <div className={`text-[11px] mt-1 ${cancelJust.trim().length < 15 ? 'text-[#B42318]' : 'text-[#166534]'}`}>{cancelJust.trim().length}/15</div>
+              {cancelErro && <div className="mt-2 rounded-lg bg-[#FDECEC] border border-[#B42318]/30 px-3 py-2 text-[12px] text-[#B42318]">{cancelErro}</div>}
+              <div className="flex gap-2 justify-end mt-4">
+                <button type="button" onClick={() => setCancelModal(null)} disabled={cancelando} className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#E0D8CC] text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50">Voltar</button>
+                <button type="button" onClick={() => void cancelarNFSe()} disabled={cancelando || cancelJust.trim().length < 15}
+                  data-testid="nfse-cancelar-confirmar"
+                  className="px-4 py-2 text-[13px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50">
+                  {cancelando ? <><Loader2 size={13} className="animate-spin" /> Cancelando…</> : <><Ban size={13} /> Confirmar cancelamento</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* #82 · reenvio FOCUS de nota rejeitada (obra do Hub + E0370 embutidos no modal). */}
         {companyId && reenviarFocus && (
           <NFSePreviewModal
@@ -701,7 +794,41 @@ export default function NFSeListClient() {
                                   PDF
                                 </button>
                                 )}
+                                {/* Cancelar NFS-e — o botão que faltava (cliente R.R não conseguia cancelar). */}
+                                {row.status === 'autorizada' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setCancelJust(''); setCancelErro(null); setCancelModal({ id: row.id, numero: row.numero }) }}
+                                    data-testid="nfse-cancelar"
+                                    className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/25 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5"
+                                  >
+                                    <Ban size={12} /> Cancelar NFS-e
+                                  </button>
+                                )}
                               </div>
+
+                              {/* Histórico de tentativas fiscais — nada de falha silenciosa (bug R.R 56) */}
+                              {tentativas && tentativas.length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-[#3D2314]/8">
+                                  <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.5px] mb-1.5 flex items-center gap-1.5">
+                                    <History size={12} /> Histórico de tentativas
+                                  </div>
+                                  <div className="grid gap-1.5">
+                                    {tentativas.map((t, i) => {
+                                      const rot = RESULTADO_ROTULO[t.resultado] ?? { t: t.resultado, cor: '#6B5D4F', bg: '#F0ECE3' }
+                                      return (
+                                        <div key={i} className="text-[11.5px] text-[#3D2314] flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                          <span className="text-[#3D2314]/55 font-mono text-[10.5px]">{new Date(t.criado_em).toLocaleString('pt-BR')}</span>
+                                          <span>{t.operacao}</span>
+                                          <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ color: rot.cor, background: rot.bg }}>{rot.t}</span>
+                                          {t.http_status != null && <span className="text-[#3D2314]/45 font-mono text-[10.5px]">HTTP {t.http_status}</span>}
+                                          {t.provider_mensagem && <span className="text-[#3D2314]/70 w-full sm:w-auto">— {t.provider_mensagem}</span>}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
 
                               {/* #82.3 — vínculo gerencial de obra (sem reemitir; grava só obra_id) */}
                               {row.status !== 'rejeitada' && (
