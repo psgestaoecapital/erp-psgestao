@@ -21,7 +21,23 @@ type Row = {
   id: string; marca: string | null; modelo: string | null; chassi: string; cor: string | null
   combustivel: string | null; potencia_cv: number | null; cilindradas: number | null
   ano_fabricacao: number | null; ano_modelo: number | null; valor_aquisicao: number | null
+  // R7b-2: identificação/documento editáveis em lista + indicador de CRLV
+  tipo: string | null; placa: string | null; renavam: string | null; portas: number | null; crlv_storage_path: string | null
   fiscais_faltantes: string[]; sugestao_ano_chassi: number | null
+}
+const TIPOS: Array<{ v: string; lbl: string }> = [
+  { v: 'carro', lbl: 'Carro' }, { v: 'moto', lbl: 'Moto' }, { v: 'caminhao', lbl: 'Caminhão' }, { v: 'maquina', lbl: 'Máquina' },
+]
+// campos de identificação/documento que o R7b-2 ajuda a completar (além dos fiscais do pátio)
+function faltamDadosVeiculo(r: Pick<Row, 'tipo' | 'placa' | 'renavam' | 'cor' | 'portas' | 'crlv_storage_path'>): string[] {
+  const f: string[] = []
+  if (!r.tipo) f.push('tipo')
+  if (!r.placa) f.push('placa')
+  if (!r.renavam) f.push('Renavam')
+  if (!r.cor) f.push('cor')
+  if (r.portas == null) f.push('portas')
+  if (!r.crlv_storage_path) f.push('CRLV')
+  return f
 }
 
 export default function CompletarPage() {
@@ -40,7 +56,7 @@ function Inner() {
     if (!companyId) { setRows([]); setModelos([]); return }
     // dados editáveis de veic_veiculo + completude (fiscais_faltantes/sugestão) da mesma regra do pátio
     const [vv, pat, ml] = await Promise.all([
-      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao').eq('company_id', companyId).is('deleted_at', null),
+      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path').eq('company_id', companyId).is('deleted_at', null),
       supabase.from('v_veic_patio').select('id,fiscais_faltantes,sugestao_ano_chassi').eq('company_id', companyId),
       supabase.rpc('fn_veic_modelo_listar', { p_company_id: companyId }),
     ])
@@ -49,7 +65,7 @@ function Inner() {
     ;((pat.data as { id: string; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }[]) ?? []).forEach((p) => patMap.set(p.id, { fiscais_faltantes: p.fiscais_faltantes ?? [], sugestao_ano_chassi: p.sugestao_ano_chassi }))
     const lista: Row[] = ((vv.data as Omit<Row, 'fiscais_faltantes' | 'sugestao_ano_chassi'>[]) ?? []).map((v) => ({
       ...v, fiscais_faltantes: patMap.get(v.id)?.fiscais_faltantes ?? [], sugestao_ano_chassi: patMap.get(v.id)?.sugestao_ano_chassi ?? null,
-    })).filter((v) => v.fiscais_faltantes.length > 0)
+    })).filter((v) => v.fiscais_faltantes.length > 0 || faltamDadosVeiculo(v).length > 0)
       .sort((a, b) => (a.marca || '').localeCompare(b.marca || '') || (a.modelo || '').localeCompare(b.modelo || ''))
     setRows(lista)
     const mr = ml.data as { ok?: boolean; modelos?: Modelo[] } | null
@@ -140,39 +156,87 @@ function NovoModelo({ companyId, onSaved, onErro }: { companyId: string; onSaved
   )
 }
 
+// R7b-2: um campo rotulado compacto (label em cima, input embaixo) — usado na linha de identificação/doc.
+function Campo({ label, children, w }: { label: string; children: React.ReactNode; w?: number }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 2, width: w }}>
+      <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espL }}>{label}</span>
+      {children}
+    </label>
+  )
+}
+
 function LinhaLote({ r, onSaved, onErro }: { r: Row; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
-  const [f, setF] = useState({ combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: num(r.valor_aquisicao) })
+  const [f, setF] = useState({
+    // R7b-2 · identificação/documento
+    tipo: r.tipo ?? '', placa: r.placa ?? '', renavam: r.renavam ?? '', chassi: r.chassi ?? '', cor: r.cor ?? '', portas: num(r.portas),
+    // técnicos (já existiam)
+    combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: num(r.valor_aquisicao),
+  })
   const [busy, setBusy] = useState(false)
+  const temCrlv = !!r.crlv_storage_path
+  const faltam = [...r.fiscais_faltantes, ...faltamDadosVeiculo(r)]
   async function salvar() {
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: r.id, p_dados: f, p_user: user?.id ?? null })
     setBusy(false)
     const rr = data as { ok?: boolean; erro?: string } | null
-    if (error || !rr?.ok) { onErro(error?.message || rr?.erro || 'Falha'); return }
+    if (error || !rr?.ok) {
+      const e = rr?.erro
+      onErro(e === 'tipo_invalido' ? 'Tipo inválido.' : e === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (error?.message || e || 'Falha'))
+      return
+    }
     onSaved()
   }
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '190px 110px 90px 90px 80px 80px 120px 90px', gap: 6, alignItems: 'center', borderTop: `1px solid ${C.cream}`, padding: '6px 0' }}>
-      <div style={{ fontSize: 12 }}>
-        <b>{r.marca || '—'} {r.modelo || ''}</b>
-        <div style={{ fontSize: 10, color: C.espL, fontFamily: 'monospace' }}>{r.chassi.slice(-6)}</div>
+    <div style={{ borderTop: `1px solid ${C.cream}`, padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* cabeçalho da linha: veículo + o que falta + CRLV */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 12.5 }}>{r.marca || '—'} {r.modelo || ''}</b>
+        <span style={{ fontSize: 10, color: C.espL, fontFamily: 'monospace' }}>chassi …{(r.chassi || '').slice(-6)}</span>
+        <span title={temCrlv ? 'CRLV anexado' : 'CRLV não anexado — anexe na ficha'}
+          style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: `1px solid ${temCrlv ? C.green : C.amber}`, color: temCrlv ? C.green : C.amber, background: temCrlv ? C.greenBg : C.amberBg }}>
+          {temCrlv ? '📄 CRLV ok' : '📄 CRLV faltando'}
+        </span>
+        {!temCrlv && <a href={`/dashboard/revenda/veiculo/${r.id}`} style={{ fontSize: 11, color: C.gold, textDecoration: 'none' }}>anexar CRLV na ficha →</a>}
+        {faltam.length > 0 && <span style={{ fontSize: 10.5, color: C.espM }}>falta: {faltam.join(', ')}</span>}
       </div>
-      <select value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
-        <option value="">—</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
-      </select>
-      <input value={f.potencia_cv} onChange={(e) => setF({ ...f, potencia_cv: e.target.value })} placeholder="cv" style={inp} />
-      <input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} />
-      <input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={inp} />
-      <input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={inp} />
-      <input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="R$" style={inp} />
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-        {r.sugestao_ano_chassi != null && (!f.ano_modelo || !f.ano_fabricacao) && (
-          <button title={`sugestão pelo chassi: ${r.sugestao_ano_chassi}`} onClick={() => setF({ ...f, ano_modelo: f.ano_modelo || String(r.sugestao_ano_chassi), ano_fabricacao: f.ano_fabricacao || String(r.sugestao_ano_chassi) })}
-            style={{ border: `1px solid ${C.amber}`, background: C.white, color: C.amber, borderRadius: 6, padding: '5px 6px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>💡{r.sugestao_ano_chassi}</button>
-        )}
-        <button disabled={busy} onClick={() => void salvar()} style={{ border: 'none', borderRadius: 7, background: busy ? C.espL : C.gold, color: C.white, padding: '6px 10px', cursor: busy ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>{busy ? '…' : 'salvar'}</button>
+
+      {/* linha 1 · identificação e documento (R7b-2) */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Campo label="tipo" w={110}>
+          <select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp}>
+            <option value="">—</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.lbl}</option>)}
+          </select>
+        </Campo>
+        <Campo label="placa" w={100}><input value={f.placa} onChange={(e) => setF({ ...f, placa: e.target.value.toUpperCase() })} placeholder="ABC1D23" style={inp} /></Campo>
+        <Campo label="Renavam" w={120}><input value={f.renavam} onChange={(e) => setF({ ...f, renavam: e.target.value.replace(/\D/g, '') })} placeholder="00000000000" style={inp} /></Campo>
+        <Campo label="chassi" w={180}><input value={f.chassi} onChange={(e) => setF({ ...f, chassi: e.target.value.toUpperCase() })} placeholder="chassi" style={inp} /></Campo>
+        <Campo label="cor" w={100}><input value={f.cor} onChange={(e) => setF({ ...f, cor: e.target.value })} placeholder="cor" style={inp} /></Campo>
+        <Campo label="portas" w={70}><input value={f.portas} onChange={(e) => setF({ ...f, portas: e.target.value.replace(/\D/g, '') })} placeholder="4" style={inp} /></Campo>
+      </div>
+
+      {/* linha 2 · técnicos (existiam) */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Campo label="combustível" w={120}>
+          <select value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+            <option value="">—</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Campo>
+        <Campo label="potência" w={80}><input value={f.potencia_cv} onChange={(e) => setF({ ...f, potencia_cv: e.target.value })} placeholder="cv" style={inp} /></Campo>
+        <Campo label="cilindr." w={80}><input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} /></Campo>
+        <Campo label="ano fab" w={80}><input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={inp} /></Campo>
+        <Campo label="ano mod" w={80}><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={inp} /></Campo>
+        <Campo label="aquisição" w={110}><input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="R$" style={inp} /></Campo>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {r.sugestao_ano_chassi != null && (!f.ano_modelo || !f.ano_fabricacao) && (
+            <button title={`sugestão pelo chassi: ${r.sugestao_ano_chassi}`} onClick={() => setF({ ...f, ano_modelo: f.ano_modelo || String(r.sugestao_ano_chassi), ano_fabricacao: f.ano_fabricacao || String(r.sugestao_ano_chassi) })}
+              style={{ border: `1px solid ${C.amber}`, background: C.white, color: C.amber, borderRadius: 6, padding: '7px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>💡{r.sugestao_ano_chassi}</button>
+          )}
+          <button disabled={busy} onClick={() => void salvar()} style={{ border: 'none', borderRadius: 7, background: busy ? C.espL : C.gold, color: C.white, padding: '8px 14px', cursor: busy ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>{busy ? '…' : 'salvar'}</button>
+        </div>
       </div>
     </div>
   )
