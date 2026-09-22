@@ -40,6 +40,7 @@ function Inner() {
   const [sinistros, setSinistros] = useState<Sinistro[]>([])
   const [semGarantia, setSemGarantia] = useState<Venda[]>([])
   const [nova, setNova] = useState({ venda_id: '', prazo: '', km: '', termo: '' })
+  const [provisao, setProvisao] = useState<{ tem_perfil_aprovado: boolean; ativa: boolean; pct: number | null; conta_id: string | null } | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -53,8 +54,8 @@ function Inner() {
       supabase.rpc('fn_veic_garantia_sinistro_por_modelo', { p_company_id: companyId, p_de: de, p_ate: ate }),
       supabase.from('veic_venda').select('id,cliente_nome,data_venda,valor_venda,veic_veiculo(marca,modelo)').eq('company_id', companyId).is('deleted_at', null).is('devolvido_em', null).order('data_venda', { ascending: false }).limit(200),
     ])
-    const rl = lst.data as { ok?: boolean; itens?: Gar[] } | null
-    if (rl?.ok) setGars(rl.itens ?? [])
+    const rl = lst.data as { ok?: boolean; itens?: Gar[]; provisao_estado?: { tem_perfil_aprovado: boolean; ativa: boolean; pct: number | null; conta_id: string | null } } | null
+    if (rl?.ok) { setGars(rl.itens ?? []); setProvisao(rl.provisao_estado ?? null) }
     const rs = sin.data as { ok?: boolean; por_modelo?: Sinistro[] } | null
     setSinistros(rs?.ok ? (rs.por_modelo ?? []) : [])
     const comGar = new Set((rl?.itens ?? []).map((g) => g.venda_id))
@@ -99,6 +100,18 @@ function Inner() {
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 10 }} onClick={() => setMsg(null)}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 10 }} onClick={() => setErro(null)}>{erro}</div>}
+
+      {/* B1 · estado da provisão (vem do perfil fiscal vigente) — visível aqui, com link para configurar */}
+      {provisao && (
+        <div style={{ background: provisao.ativa ? C.greenBg : C.cream, border: `1px solid ${provisao.ativa ? C.green : C.border}`, borderRadius: 10, padding: '9px 13px', marginBottom: 12, fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: C.esp }}>
+            <b>Provisão de garantia:</b> {provisao.ativa
+              ? <span style={{ color: C.green }}>ligada · {provisao.pct != null ? `${provisao.pct}%` : 'sem %'}{provisao.conta_id ? ' · conta configurada' : ' · conta não definida'}</span>
+              : <span style={{ color: C.espM }}>{provisao.tem_perfil_aprovado ? 'desligada' : 'desligada (sem perfil fiscal aprovado)'} — não provisiona</span>}
+          </span>
+          <a href="/dashboard/revenda/fiscal" style={{ color: C.gold, textDecoration: 'none', fontWeight: 700 }}>configurar no perfil fiscal →</a>
+        </div>
+      )}
 
       {/* Registrar nova garantia */}
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
