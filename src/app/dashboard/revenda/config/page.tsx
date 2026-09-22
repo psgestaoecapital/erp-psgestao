@@ -34,6 +34,7 @@ type Cfg = {
   margem_alvo_pct?: number | null; impostos_venda_pct?: number | null; comissao_venda_pct?: number | null
   provisao_garantia_pct?: number | null; semaforo_verde_ate_dias?: number | null
   semaforo_amarelo_ate_dias?: number | null; vistoria_modo_padrao?: string | null
+  logo_storage_path?: string | null; marca_dagua_ativa?: boolean | null
 }
 type Obter = { ok?: boolean; existe?: boolean; falta?: string[]; config?: Cfg; carrego?: Carrego; erro?: string }
 type Previa = {
@@ -110,6 +111,11 @@ export default function ConfigGaragemPage() {
   // item 2c-b · regras de comissão do vendedor (a marcada precifica o estoque).
   const [regras, setRegras] = useState<RegraComissao[]>([])
   const [regrasSalvando, setRegrasSalvando] = useState(false)
+  // R8a · marca d'água da loja (logo + toggle). Save próprio (só as chaves da marca d'água — não mexe no preço).
+  const [logoPath, setLogoPath] = useState<string | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [marcaAtiva, setMarcaAtiva] = useState(true)
+  const [logoBusy, setLogoBusy] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setObter(null); setCarregando(false); return }
@@ -118,6 +124,10 @@ export default function ConfigGaragemPage() {
     const r = data as Obter | null
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar a configuração.'); setCarregando(false); return }
     setErro(null); setObter(r); setF(formDe(r.config)); setCarregando(false)
+    // R8a · marca d'água (logo da loja) — assina para prévia; ausência = "sem logo" (RD-51, não finge nada).
+    const lp = r.config?.logo_storage_path ?? null
+    setLogoPath(lp); setMarcaAtiva(r.config?.marca_dagua_ativa !== false)
+    if (lp) { const { data: ls } = await supabase.storage.from('revenda-veiculos').createSignedUrl(lp, 3600); setLogoUrl(ls?.signedUrl ?? null) } else setLogoUrl(null)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -175,6 +185,33 @@ export default function ConfigGaragemPage() {
   }
   // marcar uma regra p/ precificar desmarca as outras (só uma pode).
   const marcarPrecifica = (i: number) => setRegras((xs) => xs.map((x, j) => ({ ...x, usar_na_precificacao: j === i })))
+
+  // R8a · logo/marca d'água. Bucket PRIVADO revenda-veiculos, subpasta _config (RLS por company_id/'/').
+  async function subirLogo(file: File | null) {
+    if (!file || !companyId) return
+    setLogoBusy(true); setErro(null)
+    try {
+      const ext = ((file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'png'
+      const path = `${companyId}/_config/logo-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/png', upsert: false })
+      if (upErr) { setErro('Falha no upload do logo: ' + upErr.message); return }
+      setLogoPath(path)
+      const { data: ls } = await supabase.storage.from('revenda-veiculos').createSignedUrl(path, 3600)
+      setLogoUrl(ls?.signedUrl ?? null)
+      setMsg('Logo carregado — clique em “Salvar marca d’água” para aplicar.')
+    } finally { setLogoBusy(false) }
+  }
+  // salva SÓ as chaves da marca d'água (não toca em preço/impostos — save parcial é seguro no fn_veic_config_salvar).
+  async function salvarMarcaDagua() {
+    if (!companyId) return
+    setLogoBusy(true); setErro(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const { data } = await supabase.rpc('fn_veic_config_salvar', { p_company_id: companyId, p_dados: { logo_storage_path: logoPath ?? '', marca_dagua_ativa: marcaAtiva }, p_user: session?.user?.id ?? null })
+    setLogoBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar a marca d’água.')); return }
+    setMsg('Marca d’água salva.'); void carregar()
+  }
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((prev) => ({ ...prev, [k]: v }))
 
@@ -412,6 +449,29 @@ export default function ConfigGaragemPage() {
             style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, fontSize: 13.5, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white, resize: 'vertical' }} />
         </label>
         <button disabled={entSalvando} onClick={() => void salvarEntrega()} style={{ marginTop: 10, background: entSalvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontSize: 14, fontWeight: 700, cursor: entSalvando ? 'wait' : 'pointer' }}>{entSalvando ? 'Salvando…' : 'Salvar checklist e termo'}</button>
+      </Bloco>
+
+      {/* MARCA D'ÁGUA DA LOJA (R8a) — logo da empresa aplicado como marca d'água nas fotos do anúncio. Save próprio. */}
+      <Bloco titulo="Marca d’água da loja" hint="O logo da loja aparece sobre as fotos do veículo (prévia na ficha; entra no anúncio). Sem logo = nada é sobreposto.">
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ width: 120, height: 70, border: `1px solid ${C.border}`, borderRadius: 8, background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            {logoUrl
+              /* eslint-disable-next-line @next/next/no-img-element */
+              ? <img src={logoUrl} alt="logo da loja" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              : <span style={{ fontSize: 11, color: C.espL, fontStyle: 'italic' }}>sem logo</span>}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 13px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: logoBusy ? 'wait' : 'pointer', fontSize: 13 }}>
+              {logoBusy ? 'Enviando…' : (logoPath ? '🖼 Trocar logo' : '🖼 Enviar logo')}
+              <input type="file" accept="image/png,image/jpeg,image/webp" disabled={logoBusy} onChange={(e) => { void subirLogo(e.target.files?.[0] ?? null); e.currentTarget.value = '' }} style={{ display: 'none' }} />
+            </label>
+            <label style={{ fontSize: 12.5, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={marcaAtiva} onChange={(e) => setMarcaAtiva(e.target.checked)} style={{ width: 15, height: 15, accentColor: C.gold }} />
+              Aplicar marca d’água nas fotos
+            </label>
+          </div>
+        </div>
+        <button disabled={logoBusy} onClick={() => void salvarMarcaDagua()} style={{ marginTop: 12, background: logoBusy ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontSize: 14, fontWeight: 700, cursor: logoBusy ? 'wait' : 'pointer' }}>{logoBusy ? 'Salvando…' : 'Salvar marca d’água'}</button>
       </Bloco>
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
