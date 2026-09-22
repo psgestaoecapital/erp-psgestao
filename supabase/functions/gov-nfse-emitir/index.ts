@@ -300,9 +300,14 @@ Deno.serve(async (req: Request) => {
       codigo_tributacao_nacional_iss: p.servico.codigo_tributacao_nacional_iss,
       descricao_servico: p.servico.descricao,
       valor_servico: p.servico.valor,
-      valor_iss: valorIss,
+      valor_iss: valorIss,   // Simples => 0 (vISS total; o ISS é apurado no DAS). NAO e pAliq.
       tributacao_iss: 1,
-      tipo_retencao_iss: 1,
+      tipo_retencao_iss: 1,  // nao retido
+      // E0625 (validacao NFS-e Nacional): com opSimpNac=3 + regApTribSN=1 + ISS NAO retido (tpRetISSQN=1)
+      // + sem beneficio municipal, a DPS NAO pode informar pAliq (percentual_aliquota_relativa_municipio) —
+      // a aliquota efetiva do Simples vai no DAS, nao na nota. Este payload gov ja NAO envia pAliq (so o
+      // vISS total = 0 acima); se um dia for preciso enviar pAliq aqui, faze-lo SOMENTE quando houver
+      // retencao do ISS (tpRetISSQN=2/3), beneficio municipal, ou regApTribSN!=1 — nunca zero explicito.
     }
     if (p.servico.codigo_nbs) focusPayload.codigo_nbs = p.servico.codigo_nbs
 

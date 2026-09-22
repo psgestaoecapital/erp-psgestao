@@ -95,11 +95,16 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
   } else {
     p.indicador_total_tributacao = '0'
   }
-  // #90 paridade OMIE · pAliq: no regime SN com regApTribSN=1, o emitente informa a alíquota efetiva do
-  // MÊS (percentual_aliquota_relativa_municipio). Sem ela a prefeitura aplica a alíquota cheia municipal
-  // (foi o que aconteceu na nota 56). A rota BLOQUEIA a emissão quando não há alíquota da competência
-  // (nunca chuta) — aqui só monta quando veio. regApTribSN=2 (ISS por fora) segue a alíquota municipal.
-  if ((req.regimeApuracaoSN ?? 1) === 1 && req.aliquotaISSSN != null) {
+  // pAliq (percentual_aliquota_relativa_municipio) — E0625 (tabela de validações da NFS-e Nacional):
+  // "não é permitido informar alíquota quando não há indicação de retenção do ISSQN (tpRetISSQN=1), para
+  // o prestador ME/EPP (opSimpNac=3), com apuração do ISSQN pelo Simples Nacional (regApTribSN=1), sem
+  // benefício municipal". Ou seja, no regime 1 (ISS apurado pelo SN) a alíquota efetiva vai no DAS, NÃO na
+  // DPS — só se informa pAliq quando o ISS é RETIDO pelo tomador/intermediário (tpRetISSQN=2/3), pois aí a
+  // retenção precisa da alíquota. O #1551 mandava pAliq sempre no regime 1 e derrubava a nota (E0625) das
+  // empresas do Simples sem retenção. regApTribSN≠1 (ISS por fora) segue como antes (não envia pAliq aqui).
+  const _tpRetPAliq = Number(p.tipo_retencao_iss) || 1   // 1 não retido · 2 retido tomador · 3 retido interm.
+  const _issRetido = _tpRetPAliq === 2 || _tpRetPAliq === 3
+  if ((req.regimeApuracaoSN ?? 1) === 1 && req.aliquotaISSSN != null && _issRetido) {
     p.percentual_aliquota_relativa_municipio = req.aliquotaISSSN
   }
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs

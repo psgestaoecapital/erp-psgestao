@@ -396,6 +396,14 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
           nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
           if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
+          // DUAS FONTES DISTINTAS (não confundir): percentual_total_tributos_sn = TOTAL de tributos da
+          // Lei 12.741 (pTotTribSN, ex.: 4,02 na nota 57 autorizada da R.R) ≠ alíquota de ISS do Simples
+          // (pAliq, ex.: 4,19), que vem de erp_fiscal_aliquota_sn por competência. Para ME/EPP (opção 3) o
+          // grupo trib exige o totTrib (E0712 proíbe indicador_total_tributacao); sem o total configurado,
+          // não chutar — avisar para o contador preencher (evita cair numa rejeição obscura no provedor).
+          if ((nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3) && nfseReq.percentualTribSN == null) {
+            return NextResponse.json({ ok: false, mensagem: 'Informe o percentual TOTAL de tributos do Simples (Lei 12.741) na Configuração Fiscal — é diferente da alíquota de ISS do Simples. Sem ele a nota não pode ser emitida.' }, { status: 400 })
+          }
           // #90 / Focus #242149 · campos da Reforma (IBS/CBS) por empresa — OPCIONAIS e desligados por
           // padrão. Só entram no JSON quando a empresa preencheu na config (o builder ignora null/vazio).
           const rf = {
@@ -408,10 +416,14 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           if (rf.finalidadeEmissao != null || rf.consumidorFinal != null || rf.indicadorDestinatario != null || rf.ibsCbsCst || rf.ibsCbsClassifTrib) {
             nfseReq.reforma = rf
           }
-          // #90 paridade OMIE · pAliq: no regime SN com regApTribSN=1, a alíquota efetiva do MÊS é
-          // informada pelo emitente (config por competência). Sem alíquota da competência → BLOQUEIA
-          // (nunca chutar — mesmo princípio do #32). Regime 2 (ISS por fora) segue a municipal, sem pAliq.
+          // pAliq no regime SN com regApTribSN=1: a alíquota efetiva do MÊS (config por competência) só
+          // vai na DPS quando o ISS é RETIDO pelo tomador/intermediário (tpRetISSQN=2/3). Sem retenção
+          // (tpRetISSQN=1) a DPS NÃO leva pAliq — a alíquota do SN vai no DAS (E0625) — então NÃO bloqueia
+          // a emissão por falta da alíquota da competência. Se estiver cadastrada, ainda carregamos o valor
+          // (usado em cálculo interno/registro); o builder decide o envio pela retenção.
           if ((nfseReq.regimeApuracaoSN ?? 1) === 1) {
+            const tpRet = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
+            const issRetido = tpRet === 2 || tpRet === 3
             const bsb = new Date(Date.now() - 3 * 60 * 60 * 1000)  // competência = mês de Brasília (igual ao data_competencia da nota)
             const compIso = `${bsb.getUTCFullYear()}-${String(bsb.getUTCMonth() + 1).padStart(2, '0')}-01`
             const { data: aliq } = await supabaseAdmin
@@ -421,10 +433,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               .eq('competencia', compIso)
               .maybeSingle()
             if (aliq?.aliquota == null) {
-              const mm = `${String(bsb.getUTCMonth() + 1).padStart(2, '0')}/${bsb.getUTCFullYear()}`
-              return NextResponse.json({ ok: false, mensagem: `Informe a alíquota de ISS do Simples de ${mm} na Configuração Fiscal antes de emitir.` }, { status: 400 })
+              if (issRetido) {
+                // ISS retido: a alíquota é obrigatória na nota (o tomador retém sobre ela) → bloqueia sem chutar.
+                const mm = `${String(bsb.getUTCMonth() + 1).padStart(2, '0')}/${bsb.getUTCFullYear()}`
+                return NextResponse.json({ ok: false, mensagem: `Informe a alíquota de ISS do Simples de ${mm} na Configuração Fiscal antes de emitir (ISS retido pelo tomador).` }, { status: 400 })
+              }
+              // ISS não retido: segue sem pAliq (E0625) — nota autorizada normalmente.
+            } else {
+              nfseReq.aliquotaISSSN = Number(aliq.aliquota)
             }
-            nfseReq.aliquotaISSSN = Number(aliq.aliquota)
           }
           // codigo_nbs do serviço (opcional — só enviado se preenchido)
           if (body.servicoId) {
