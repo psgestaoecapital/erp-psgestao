@@ -111,6 +111,14 @@ export default function ConfigGaragemPage() {
   // item 2c-b · regras de comissão do vendedor (a marcada precifica o estoque).
   const [regras, setRegras] = useState<RegraComissao[]>([])
   const [regrasSalvando, setRegrasSalvando] = useState(false)
+  // T6 (juiz) · checklist da vistoria CONFIGURÁVEL por empresa e tipo (itens da rápida/completa).
+  type ChkItem = { item_id: string; nome: string; categoria_custo: string | null }
+  type ChkRegiao = { regiao_id: string; nome: string; ordem: number; foto_obrigatoria: boolean; itens: ChkItem[] }
+  const [chkModo, setChkModo] = useState<'rapida' | 'completa'>('completa')
+  const [chkTipo, setChkTipo] = useState('carro')
+  const [chkRegioes, setChkRegioes] = useState<ChkRegiao[]>([])
+  const [chkBusy, setChkBusy] = useState(false)
+  const [chkNovo, setChkNovo] = useState<Record<string, string>>({})
   // R8a · marca d'água da loja (logo + toggle). Save próprio (só as chaves da marca d'água — não mexe no preço).
   const [logoPath, setLogoPath] = useState<string | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
@@ -142,6 +150,42 @@ export default function ConfigGaragemPage() {
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
+
+  // T6 · carrega o checklist configurável (modo + tipo); semeia o padrão na 1ª vez (RPC).
+  const carregarChecklist = useCallback(async () => {
+    if (!companyId) { setChkRegioes([]); return }
+    const { data } = await supabase.rpc('fn_insp_checklist_obter', { p_company_id: companyId, p_modo: chkModo, p_tipo: chkTipo })
+    const r = data as { ok?: boolean; regioes?: ChkRegiao[] } | null
+    setChkRegioes(r?.ok ? (r.regioes ?? []) : [])
+  }, [companyId, chkModo, chkTipo])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarChecklist() }, [carregarChecklist])
+
+  async function chkAddItem(regiao_id: string) {
+    const nome = (chkNovo[regiao_id] || '').trim()
+    if (!companyId || !nome) return
+    setChkBusy(true)
+    const { data } = await supabase.rpc('fn_insp_item_upsert', { p_company_id: companyId, p_regiao_id: regiao_id, p_nome: nome, p_categoria_custo: null, p_item_id: null })
+    setChkBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro || 'Falha ao adicionar item.'); return }
+    setChkNovo((s) => ({ ...s, [regiao_id]: '' })); setMsg('Item adicionado ao checklist.'); void carregarChecklist()
+  }
+  async function chkRenomear(item_id: string, regiao_id: string, nome: string) {
+    if (!companyId || !nome.trim()) return
+    const { data } = await supabase.rpc('fn_insp_item_upsert', { p_company_id: companyId, p_regiao_id: regiao_id, p_nome: nome.trim(), p_categoria_custo: null, p_item_id: item_id })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro || 'Falha ao renomear item.'); void carregarChecklist() }
+  }
+  async function chkRemover(item_id: string) {
+    if (!companyId) return
+    setChkBusy(true)
+    const { data } = await supabase.rpc('fn_insp_item_remover', { p_company_id: companyId, p_item_id: item_id })
+    setChkBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro || 'Falha ao remover item.'); return }
+    setMsg('Item removido do checklist.'); void carregarChecklist()
+  }
 
   const carregarEntrega = useCallback(async () => {
     if (!companyId) { setEntItens([]); setEntTermo(''); return }
@@ -570,6 +614,51 @@ export default function ConfigGaragemPage() {
             </div>
           )}
         </div>
+      </Bloco>
+
+      {/* T6 · Checklist da vistoria configurável por empresa e tipo — salva na hora (fora da prévia de preço). */}
+      <Bloco titulo="Checklist da vistoria" hint="Os itens que a vistoria pergunta, por modo e por tipo de veículo. A completa é o modelo padrão; ajuste os itens conforme a sua loja. Cada alteração salva na hora.">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <label style={{ fontSize: 11.5, color: C.espM }}>Modo<br />
+            <select value={chkModo} onChange={(e) => setChkModo(e.target.value as 'rapida' | 'completa')} style={sel_()}>
+              <option value="completa">completa (padrão)</option><option value="rapida">rápida</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 11.5, color: C.espM }}>Tipo<br />
+            <select value={chkTipo} onChange={(e) => setChkTipo(e.target.value)} style={sel_()}>
+              {['carro', 'moto', 'caminhao', 'maquina'].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+        </div>
+        {chkRegioes.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Preparando o checklist…</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {chkRegioes.map((rg) => (
+              <div key={rg.regiao_id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{rg.nome}{rg.foto_obrigatoria && <span style={{ fontSize: 10, color: C.gold, fontWeight: 400 }}> · foto obrigatória</span>}</div>
+                <div style={{ display: 'grid', gap: 4 }}>
+                  {rg.itens.map((it) => (
+                    <div key={it.item_id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input defaultValue={it.nome} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== it.nome) void chkRenomear(it.item_id, rg.regiao_id, v) }}
+                        style={{ flex: 1, boxSizing: 'border-box', padding: '7px 9px', fontSize: 12.5, border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, color: C.esp }} />
+                      <button onClick={() => void chkRemover(it.item_id)} disabled={chkBusy} title="remover item"
+                        style={{ border: `1px solid ${C.border}`, background: C.white, color: '#B42318', borderRadius: 6, padding: '4px 9px', cursor: chkBusy ? 'wait' : 'pointer', fontSize: 12 }}>✕</button>
+                    </div>
+                  ))}
+                  {rg.itens.length === 0 && <div style={{ fontSize: 11.5, color: C.espL, fontStyle: 'italic' }}>sem itens nesta região</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <input value={chkNovo[rg.regiao_id] || ''} onChange={(e) => setChkNovo((s) => ({ ...s, [rg.regiao_id]: e.target.value }))} placeholder="+ novo item"
+                    onKeyDown={(e) => { if (e.key === 'Enter') void chkAddItem(rg.regiao_id) }}
+                    style={{ flex: 1, boxSizing: 'border-box', padding: '7px 9px', fontSize: 12.5, border: `1px dashed ${C.gold}`, borderRadius: 7, background: C.white, color: C.esp }} />
+                  <button onClick={() => void chkAddItem(rg.regiao_id)} disabled={chkBusy || !(chkNovo[rg.regiao_id] || '').trim()}
+                    style={{ border: 'none', background: (chkBusy || !(chkNovo[rg.regiao_id] || '').trim()) ? C.espL : C.gold, color: '#fff', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>add</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Bloco>
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
