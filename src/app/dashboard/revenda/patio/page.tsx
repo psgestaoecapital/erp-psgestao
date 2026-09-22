@@ -200,6 +200,9 @@ function Inner() {
           <a href="/dashboard/revenda/preparacao" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
             🔧 Preparação{nEmPreparacao ? ` (${nEmPreparacao})` : ''}
           </a>
+          <a href="/dashboard/revenda/relatorios" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
+            📊 Relatórios
+          </a>
           <a href="/dashboard/revenda/garantia" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
             🛡️ Garantia
           </a>
