@@ -20,6 +20,12 @@ type MarcaGrupo = { nome: string; n: number; capital: number; dias_medio: number
 type SugestaoGrafia = { grafias: string[]; veiculos: number; placas: string[] }
 type VendaModelo = { modelo: string; qtd: number; afirma_media: boolean; dias_medio: number | null; margem_media: number | null }
 type Resumo = { ok: boolean; total_veiculos: number; capital: number; marcas: MarcaGrupo[]; sugestoes_grafia: SugestaoGrafia[]; vendas_total: number; vendas_por_modelo: VendaModelo[] }
+// T15 · lead do CRM (erp_crm_oportunidade — o MESMO CRM da GE) com o veículo de interesse.
+type Lead = { id: string; titulo: string | null; etapa: string; cliente: string | null; veic: string | null; placa: string | null; veiculo_id: string | null }
+const ETAPAS: { k: string; l: string }[] = [
+  { k: 'prospeccao', l: 'Prospecção' }, { k: 'orcando', l: 'Orçando' }, { k: 'visita_feita', l: 'Visita feita' },
+  { k: 'proposta_enviada', l: 'Proposta' }, { k: 'negociacao', l: 'Negociação' }, { k: 'ganho', l: 'Ganho' }, { k: 'perdido', l: 'Perdido' },
+]
 
 export default function DemandaPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -30,6 +36,7 @@ function Inner() {
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const [itens, setItens] = useState<Item[]>([])
   const [resumo, setResumo] = useState<Resumo | null>(null)
+  const [leads, setLeads] = useState<Lead[]>([])
   const [dias, setDias] = useState(90)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -47,6 +54,29 @@ function Inner() {
     setItens(dr?.ok ? (dr.itens ?? []) : [])
     const rr = r.data as Resumo | null
     setResumo(rr?.ok ? rr : null)
+    // T15 · leads do CRM (reusa erp_crm_oportunidade da GE) com veículo de interesse
+    const { data: ops } = await supabase.from('erp_crm_oportunidade')
+      .select('id,titulo,etapa,cliente_id,veic_interesse_id')
+      .eq('company_id', companyId).is('deleted_at', null).not('veic_interesse_id', 'is', null)
+      .order('created_at', { ascending: false }).limit(150)
+    const opsList = (ops as { id: string; titulo: string | null; etapa: string; cliente_id: string | null; veic_interesse_id: string | null }[]) ?? []
+    const veicIds = [...new Set(opsList.map((o) => o.veic_interesse_id).filter(Boolean))] as string[]
+    const cliIds = [...new Set(opsList.map((o) => o.cliente_id).filter(Boolean))] as string[]
+    const veicMap = new Map<string, { marca: string | null; modelo: string | null; placa: string | null }>()
+    if (veicIds.length) {
+      const { data: vs } = await supabase.from('veic_veiculo').select('id,marca,modelo,placa').in('id', veicIds)
+      ;((vs as { id: string; marca: string | null; modelo: string | null; placa: string | null }[]) ?? []).forEach((v) => veicMap.set(v.id, v))
+    }
+    const cliMap = new Map<string, string>()
+    if (cliIds.length) {
+      const { data: cs } = await supabase.from('erp_clientes').select('id,nome_fantasia,razao_social').in('id', cliIds)
+      ;((cs as { id: string; nome_fantasia: string | null; razao_social: string | null }[]) ?? []).forEach((c) => cliMap.set(c.id, c.nome_fantasia || c.razao_social || ''))
+    }
+    setLeads(opsList.map((o) => {
+      const ve = o.veic_interesse_id ? veicMap.get(o.veic_interesse_id) : undefined
+      return { id: o.id, titulo: o.titulo, etapa: o.etapa, cliente: (o.cliente_id ? cliMap.get(o.cliente_id) : '') || null,
+        veic: ve ? [ve.marca, ve.modelo].filter(Boolean).join(' ') || null : null, placa: ve?.placa ?? null, veiculo_id: o.veic_interesse_id }
+    }))
     setLoading(false)
   }, [companyId, dias])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -83,6 +113,7 @@ function Inner() {
         <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
           {/* ordem: procuras primeiro quando houver; senão pátio + histórico primeiro (a tela nunca abre vazia) */}
           {itens.length > 0 && <ProcurasBloco itens={itens} faixaAno={faixaAno} />}
+          <LeadsKanban leads={leads} />
           {resumo && <PatioBloco r={resumo} />}
           {resumo && <VendasBloco r={resumo} />}
           {itens.length === 0 && (
@@ -187,6 +218,52 @@ function VendasBloco({ r }: { r: Resumo }) {
           ))}
         </div>
       )}
+    </Bloco>
+  )
+}
+
+// T15 · Kanban de LEADS — reusa o CRM da GE (erp_crm_oportunidade), mostrando o veículo de interesse
+// de cada lead, por etapa. Read-only aqui (a movimentação fica no CRM completo); clicar abre a ficha do carro.
+function LeadsKanban({ leads }: { leads: Lead[] }) {
+  const porEtapa: Record<string, Lead[]> = {}
+  for (const e of ETAPAS) porEtapa[e.k] = []
+  leads.forEach((l) => { (porEtapa[l.etapa] ?? (porEtapa.prospeccao ||= [])).push(l) })
+  const cor = (k: string) => k === 'ganho' ? C.green : k === 'perdido' ? C.red : k === 'negociacao' ? C.gold : C.espM
+  return (
+    <Bloco titulo="Leads (CRM)" sub="Oportunidades com veículo de interesse">
+      {leads.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>
+          Nenhum lead com veículo de interesse ainda. Abra uma oportunidade a partir da ficha do veículo (&quot;interessado&quot;) — ela aparece aqui e no CRM da Gestão.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6 }}>
+          {ETAPAS.map((e) => {
+            const lista = porEtapa[e.k] ?? []
+            return (
+              <div key={e.k} style={{ flex: '1 0 200px', minWidth: 200, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '7px 10px', background: C.cream, color: cor(e.k), fontWeight: 700, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{e.l}</span><span>{lista.length}</span>
+                </div>
+                <div style={{ padding: 8, display: 'grid', gap: 8 }}>
+                  {lista.length === 0 && <div style={{ fontSize: 11, color: C.espL, fontStyle: 'italic', padding: '4px 2px' }}>—</div>}
+                  {lista.map((l) => {
+                    const card = (
+                      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', cursor: l.veiculo_id ? 'pointer' : 'default' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.esp }}>{l.cliente || 'Cliente'}</div>
+                        <div style={{ fontSize: 11.5, color: C.espM, marginTop: 2 }}>🚗 {l.veic || l.titulo || 'veículo de interesse'}{l.placa ? ` · ${l.placa}` : ''}</div>
+                      </div>
+                    )
+                    return l.veiculo_id
+                      ? <a key={l.id} href={`/dashboard/revenda/veiculo/${l.veiculo_id}`} style={{ textDecoration: 'none' }}>{card}</a>
+                      : <div key={l.id}>{card}</div>
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <div style={{ fontSize: 10.5, color: C.espL, marginTop: 8 }}>Mesmo funil do CRM da Gestão Empresarial — aqui filtrado nos leads com carro de interesse. Clique num lead para abrir a ficha do veículo.</div>
     </Bloco>
   )
 }
