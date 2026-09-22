@@ -200,6 +200,9 @@ function Inner() {
           <a href="/dashboard/revenda/preparacao" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
             🔧 Preparação{nEmPreparacao ? ` (${nEmPreparacao})` : ''}
           </a>
+          <a href="/dashboard/revenda/garantia" style={{ padding: '9px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
+            🛡️ Garantia
+          </a>
           <button onClick={() => setNovo(true)} style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer' }}>+ Novo veículo</button>
         </div>
       </div>
