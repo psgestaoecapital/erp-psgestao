@@ -3,7 +3,7 @@
 // Revenda · R9c (Garantia) — tela prevista no blueprint. Garantia por venda (prazo/KM + termo), acionamento
 // que REUSA a OS de preparação da Oficina (o custo volta ao veículo e ao lucro real por veic_custo), e o
 // sinistro por modelo. Provisão é OPCIONAL por empresa (liga no perfil fiscal); desligada → não provisiona
-// (a Alliance não provisiona). Fonte única no banco (RD-65). Sem dado → "sem registros" (RD-51). Paleta PS.
+// (há revenda que não provisiona). Fonte única no banco (RD-65). Sem dado → "sem registros" (RD-51). Paleta PS.
 
 import { useCallback, useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
