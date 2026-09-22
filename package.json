@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "tsx scripts/check-modelo-estoque.ts && next build",
+    "build": "tsx scripts/check-modelo-estoque.ts && tsx scripts/check-modelo-cadastros.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "check:modelo-estoque": "tsx scripts/check-modelo-estoque.ts",
+    "check:modelo-cadastros": "tsx scripts/check-modelo-cadastros.ts",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
     "check:menu": "tsx scripts/check-menu-rotas.ts",
     "check:fn-guards": "tsx scripts/check-fn-guards.ts",
