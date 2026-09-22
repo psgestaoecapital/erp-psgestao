@@ -53,6 +53,9 @@ function Inner() {
   const [modoPadrao, setModoPadrao] = useState<'rapida' | 'completa'>('rapida')
   const [iniciando, setIniciando] = useState(false)
   const [concluidaPor, setConcluidaPor] = useState<string | null>(null) // T6: quem fez a vistoria concluída
+  // T6 diferenciais (juiz): sugestão de custo pelo histórico da empresa por item + realizado da preparação.
+  const [sugItens, setSugItens] = useState<Record<string, { ocorrencias: number; min: number; max: number }>>({})
+  const [realizadoPrep, setRealizadoPrep] = useState<number | null>(null)
   const bootRef = useRef(false)
 
   // T6 · "Nova vistoria" a partir do resumo concluído: volta pra tela de escolha (não cria nada até clicar).
@@ -164,6 +167,28 @@ function Inner() {
   const regioes = useMemo(() => data?.regioes ?? [], [data])
   const regiao = regioes[regIdx] ?? null
   const concluida = data?.vistoria?.situacao === 'concluida'
+
+  // T6 diferenciais · quando a vistoria está CONCLUÍDA, carrega (a) a sugestão de custo pelo histórico da
+  // empresa para cada item de reparo/troca (fn_insp_sugestao_gasto) e (b) o REALIZADO da preparação = soma
+  // dos custos lançados nas OS ligadas ao veículo (veic_custo.os_id). Previsto × realizado no nível da vistoria.
+  useEffect(() => {
+    if (!concluida || !companyId || !data) return
+    let vivo = true
+    void (async () => {
+      const itens = (data.regioes ?? []).flatMap((rg) => rg.itens).filter((i) => i.estado === 'reparo' || i.estado === 'troca')
+      const ids = [...new Set(itens.map((i) => i.item_id))]
+      const sug: Record<string, { ocorrencias: number; min: number; max: number }> = {}
+      await Promise.all(ids.map(async (id) => {
+        const { data: s } = await supabase.rpc('fn_insp_sugestao_gasto', { p_company_id: companyId, p_item_id: id })
+        const r = s as { tem_historico?: boolean; ocorrencias?: number; min?: number; max?: number } | null
+        if (r?.tem_historico && r.min != null && r.max != null) sug[id] = { ocorrencias: r.ocorrencias ?? 0, min: r.min, max: r.max }
+      }))
+      const { data: custos } = await supabase.from('veic_custo').select('valor').eq('veiculo_id', veiculoId).not('os_id', 'is', null).is('deleted_at', null)
+      const real = ((custos as { valor: number | null }[]) ?? []).reduce((s, c) => s + (Number(c.valor) || 0), 0)
+      if (vivo) { setSugItens(sug); setRealizadoPrep(real) }
+    })()
+    return () => { vivo = false }
+  }, [concluida, companyId, data, veiculoId])
 
   // primeiro item não respondido da região (retomada visual)
   useEffect(() => {
@@ -305,7 +330,8 @@ function Inner() {
 
       {concluida ? (
         <ResumoConcluida regioes={regioes} totais={totais} vistoria={data?.vistoria ?? null}
-          modo={modoAtivo} quem={concluidaPor} urls={urls} veiculoId={veiculoId} onNova={novaVistoria} />
+          modo={modoAtivo} quem={concluidaPor} urls={urls} veiculoId={veiculoId} onNova={novaVistoria}
+          sugItens={sugItens} realizadoPrep={realizadoPrep} />
       ) : modo === 'resumo' ? (
         <Resumo totais={totais} onVoltar={() => setModo('fluxo')} vistoriaId={vistoriaId} userId={userId}
           onConcluida={() => { if (vistoriaId) void carregarVistoria(vistoriaId) }} onErro={setErro}
@@ -534,14 +560,15 @@ function Resumo({ totais, onVoltar, vistoriaId, userId, onConcluida, onErro, reg
 // "Iniciar vistoria" e o resultado sumia. Aqui mostra data/quem/modo/KM, previsão × realizado, cada item
 // com seu estado (OK/desgaste/reparo/troca) + descrição + previsto×realizado, as fotos por região, o link
 // para a precificação que ela alimenta, e "Nova vistoria".
-function ResumoConcluida({ regioes, totais, vistoria, modo, quem, urls, veiculoId, onNova }: {
+function ResumoConcluida({ regioes, totais, vistoria, modo, quem, urls, veiculoId, onNova, sugItens, realizadoPrep }: {
   regioes: Regiao[]
   totais: { total: number; avaliados: number; reparo: number; troca: number; previsao: number; fotosOk: number; fotosObrig: number }
   vistoria: Vistoria | null; modo: 'rapida' | 'completa' | null; quem: string | null
   urls: Record<string, string>; veiculoId: string; onNova: () => void
+  sugItens: Record<string, { ocorrencias: number; min: number; max: number }>; realizadoPrep: number | null
 }) {
   const brDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('pt-BR') : '—'
-  const realizadoTotal = regioes.reduce((s, r) => s + r.itens.reduce((a, i) => a + (i.gasto_realizado ?? 0), 0), 0)
+  const realizado = realizadoPrep ?? 0
   const avaliadas = regioes.filter((r) => r.itens.some((i) => i.estado != null))
   const naoAvaliados = totais.total - totais.avaliados
   return (
@@ -565,10 +592,14 @@ function ResumoConcluida({ regioes, totais, vistoria, modo, quem, urls, veiculoI
           <span style={{ fontSize: 13, fontWeight: 700 }}>PREVISÃO DE GASTOS</span>
           <span style={{ fontSize: 22, fontWeight: 700, color: C.gold }}>{brl(totais.previsao)}</span>
         </div>
-        {realizadoTotal > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
-            <span style={{ fontSize: 12.5, color: C.espM }}>realizado até agora</span>
-            <span style={{ fontSize: 15, fontWeight: 700, color: realizadoTotal > totais.previsao ? C.red : C.green }}>{brl(realizadoTotal)}</span>
+        {/* T6 · previsto × realizado (nível vistoria): realizado = custos lançados nas OS de preparação do veículo */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+          <span style={{ fontSize: 12.5, color: C.espM }}>realizado (custos de preparação lançados)</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: realizadoPrep == null ? C.espL : realizado > totais.previsao ? C.red : C.green }}>{realizadoPrep == null ? '—' : brl(realizado)}</span>
+        </div>
+        {realizadoPrep != null && (
+          <div style={{ fontSize: 11, color: C.espM, marginTop: 2, textAlign: 'right' }}>
+            {realizado > totais.previsao ? `estourou a previsão em ${brl(realizado - totais.previsao)}` : realizado > 0 ? `${brl(totais.previsao - realizado)} abaixo da previsão` : 'nenhum custo de preparação lançado ainda'}
           </div>
         )}
       </div>
@@ -593,6 +624,13 @@ function ResumoConcluida({ regioes, totais, vistoria, modo, quem, urls, veiculoI
                   <div key={i.item_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderTop: `1px solid ${C.cream}`, paddingTop: 4 }}>
                     {cor && <span style={{ padding: '1px 7px', borderRadius: 999, background: cor.bg, color: cor.fg, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{i.estado}</span>}
                     <span style={{ flex: 1, minWidth: 0, color: C.esp }}>{i.nome}{i.descricao ? <span style={{ color: C.espM }}> — {i.descricao}</span> : ''}</span>
+                    {/* T6 · sugestão de custo pelo histórico da empresa para este item (fn_insp_sugestao_gasto) */}
+                    {sugItens[i.item_id] && (
+                      <span title={`Nas últimas ${sugItens[i.item_id].ocorrencias} vezes, a empresa pagou entre ${brl(sugItens[i.item_id].min)} e ${brl(sugItens[i.item_id].max)} neste item`}
+                        style={{ whiteSpace: 'nowrap', fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.amberBg, color: '#8A4B08', fontWeight: 700 }}>
+                        💡 {brl(sugItens[i.item_id].min)}–{brl(sugItens[i.item_id].max)}
+                      </span>
+                    )}
                     {(i.gasto_previsto != null || i.gasto_realizado != null) && (
                       <span style={{ whiteSpace: 'nowrap', color: C.espM, fontSize: 11.5 }}>
                         {i.gasto_previsto != null ? `prev. ${brl(i.gasto_previsto)}` : ''}
