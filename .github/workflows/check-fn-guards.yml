@@ -1,0 +1,23 @@
+name: Guarda de funções do banco (REVOKE anon + autoria auth.uid)
+
+# Trava no PR: migration nova (>= CUTOFF em scripts/check-fn-guards.ts) que crie/recrie função
+# SECURITY DEFINER sem REVOKE ... FROM anon, ou que grave autoria a partir de parâmetro do cliente
+# (p_user/p_usuario/...), reprova o PR. Só varre arquivos — não precisa de segredos nem do banco.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check_fn_guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Guarda de funções (REVOKE anon + autoria por auth.uid)
+        run: npm run check:fn-guards
