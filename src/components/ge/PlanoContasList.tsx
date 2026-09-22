@@ -96,6 +96,13 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
           )}
           <button
             type="button"
+            onClick={() => router.push('/dashboard/cadastros/plano-contas/relatorio')}
+            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Relatório gerencial × contábil
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setEditing(null)
               setShowForm(true)
