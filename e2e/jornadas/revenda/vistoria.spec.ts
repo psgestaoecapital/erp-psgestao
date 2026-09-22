@@ -24,7 +24,7 @@ async function limparVistorias(veh: string): Promise<void> {
   }
 }
 
-test.describe('Vistoria — rápida, foto obrigatória bloqueia, previsão à precificação', () => {
+test.describe.serial('Vistoria — rápida, foto obrigatória bloqueia, previsão à precificação', () => {
   let veh = ''
 
   // R1 item 1c: registra verde/vermelho (jornada verde prova o requisito e prevalece sobre a foto).
@@ -99,6 +99,23 @@ test.describe('Vistoria — rápida, foto obrigatória bloqueia, previsão à pr
     await page.goto(`/dashboard/revenda/veiculo/${veh}/precificacao`)
     await aguardarConteudo(page)
     await expect(page.getByText(/Custo total|Preço mínimo|Piso sem margem/i).first()).toBeVisible()
+  })
+
+  // T6 (juiz): carro JÁ vistoriado abre o RESULTADO (resumo somente-leitura), não "Iniciar vistoria".
+  // Cobre o requisito antes "não avaliável": data/quem, previsão × realizado, itens com estado, "Nova vistoria".
+  test('vistoria concluída abre o RESUMO (resultado), não "Iniciar vistoria"', async ({ page }) => {
+    await expect.poll(async () => (await vistoriasDo(veh)).some((v) => v.situacao === 'concluida'),
+      { timeout: 20000 }).toBe(true)
+    await page.goto(`/dashboard/revenda/veiculo/${veh}/vistoria`)
+    await aguardarConteudo(page)
+    await exigirEmpresaDemo(page)
+    // NÃO pode cair em "Iniciar vistoria" (era a falha do T6)
+    await expect(page.getByRole('heading', { name: 'Iniciar vistoria' })).toHaveCount(0)
+    // mostra o resultado: cabeçalho, previsão de gastos, realizado (previsto × realizado) e "Nova vistoria"
+    await expect(page.getByText('Vistoria concluída').first()).toBeVisible({ timeout: 20000 })
+    await expect(page.getByText(/PREVISÃO DE GASTOS/i)).toBeVisible()
+    await expect(page.getByText(/realizado \(custos de preparação/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: /Nova vistoria/i })).toBeVisible()
   })
 })
 
