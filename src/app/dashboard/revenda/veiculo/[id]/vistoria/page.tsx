@@ -52,7 +52,13 @@ function Inner() {
   const [precisaIniciar, setPrecisaIniciar] = useState(false)
   const [modoPadrao, setModoPadrao] = useState<'rapida' | 'completa'>('rapida')
   const [iniciando, setIniciando] = useState(false)
+  const [concluidaPor, setConcluidaPor] = useState<string | null>(null) // T6: quem fez a vistoria concluída
   const bootRef = useRef(false)
+
+  // T6 · "Nova vistoria" a partir do resumo concluído: volta pra tela de escolha (não cria nada até clicar).
+  function novaVistoria() {
+    setVistoriaId(null); setData(null); setModoAtivo(null); setConcluidaPor(null); setModo('fluxo'); setRegIdx(0); setPrecisaIniciar(true)
+  }
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
@@ -116,7 +122,7 @@ function Inner() {
         // modo padrão da empresa (Config da garagem); fallback 'completa'
         const { data: cfg } = await supabase.from('veic_config').select('vistoria_modo_padrao').eq('company_id', comp).maybeSingle()
         setModoPadrao(((cfg as { vistoria_modo_padrao?: string } | null)?.vistoria_modo_padrao === 'rapida') ? 'rapida' : 'completa')
-        // vistoria EM ANDAMENTO já existente? retoma (mantém o modelo em que começou); senão, oferece iniciar.
+        // vistoria EM ANDAMENTO já existente? retoma (mantém o modelo em que começou).
         const { data: vx } = await supabase.from('insp_vistoria')
           .select('id, modelo_id').eq('company_id', comp).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
           .eq('situacao', 'em_andamento').order('iniciada_em', { ascending: false }).limit(1).maybeSingle()
@@ -128,6 +134,25 @@ function Inner() {
           }
           setVistoriaId(existente.id)
           await carregarVistoria(existente.id)
+          return
+        }
+        // T6 (juiz): sem vistoria em andamento, mas há uma CONCLUÍDA? mostra o RESULTADO (resumo somente-leitura),
+        // não a tela de "Iniciar". Antes o carro já vistoriado caía em "Iniciar vistoria" e o resultado sumia.
+        const { data: vc } = await supabase.from('insp_vistoria')
+          .select('id, modelo_id, criado_por').eq('company_id', comp).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
+          .eq('situacao', 'concluida').order('concluida_em', { ascending: false }).limit(1).maybeSingle()
+        const concl = vc as { id?: string; modelo_id?: string; criado_por?: string } | null
+        if (concl?.id) {
+          if (concl.modelo_id) {
+            const { data: m } = await supabase.from('insp_modelo').select('modo').eq('id', concl.modelo_id).maybeSingle()
+            setModoAtivo(((m as { modo?: string } | null)?.modo === 'rapida') ? 'rapida' : 'completa')
+          }
+          if (concl.criado_por) {
+            const { data: u } = await supabase.from('users').select('email').eq('id', concl.criado_por).maybeSingle()
+            setConcluidaPor((u as { email?: string } | null)?.email ?? null)
+          }
+          setVistoriaId(concl.id)
+          await carregarVistoria(concl.id)
         } else {
           setPrecisaIniciar(true)
         }
@@ -279,12 +304,8 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 14px', fontSize: 13 }} onClick={() => setErro(null)}>{erro}</div>}
 
       {concluida ? (
-        <div style={{ padding: 24, textAlign: 'center' }}>
-          <div style={{ fontSize: 40 }}>✅</div>
-          <div style={{ fontSize: 18, fontWeight: 700, margin: '8px 0' }}>Vistoria concluída</div>
-          <div style={{ fontSize: 13, color: C.espM }}>Previsão de gastos <b style={{ color: C.gold }}>{brl(totais.previsao)}</b> · {totais.avaliados} de {totais.total} itens avaliados.</div>
-          <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ display: 'inline-block', marginTop: 16, background: C.gold, color: '#fff', padding: '10px 18px', borderRadius: 10, textDecoration: 'none', fontWeight: 700 }}>Ver na ficha</a>
-        </div>
+        <ResumoConcluida regioes={regioes} totais={totais} vistoria={data?.vistoria ?? null}
+          modo={modoAtivo} quem={concluidaPor} urls={urls} veiculoId={veiculoId} onNova={novaVistoria} />
       ) : modo === 'resumo' ? (
         <Resumo totais={totais} onVoltar={() => setModo('fluxo')} vistoriaId={vistoriaId} userId={userId}
           onConcluida={() => { if (vistoriaId) void carregarVistoria(vistoriaId) }} onErro={setErro}
@@ -504,6 +525,92 @@ function Resumo({ totais, onVoltar, vistoriaId, userId, onConcluida, onErro, reg
           style={{ background: busy ? C.espL : C.green, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>
           {busy ? 'Concluindo…' : 'CONCLUIR VISTORIA'}
         </button>
+      </div>
+    </div>
+  )
+}
+
+// T6 (juiz) · RESUMO somente-leitura de uma vistoria CONCLUÍDA. Antes o carro já vistoriado abria em
+// "Iniciar vistoria" e o resultado sumia. Aqui mostra data/quem/modo/KM, previsão × realizado, cada item
+// com seu estado (OK/desgaste/reparo/troca) + descrição + previsto×realizado, as fotos por região, o link
+// para a precificação que ela alimenta, e "Nova vistoria".
+function ResumoConcluida({ regioes, totais, vistoria, modo, quem, urls, veiculoId, onNova }: {
+  regioes: Regiao[]
+  totais: { total: number; avaliados: number; reparo: number; troca: number; previsao: number; fotosOk: number; fotosObrig: number }
+  vistoria: Vistoria | null; modo: 'rapida' | 'completa' | null; quem: string | null
+  urls: Record<string, string>; veiculoId: string; onNova: () => void
+}) {
+  const brDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('pt-BR') : '—'
+  const realizadoTotal = regioes.reduce((s, r) => s + r.itens.reduce((a, i) => a + (i.gasto_realizado ?? 0), 0), 0)
+  const avaliadas = regioes.filter((r) => r.itens.some((i) => i.estado != null))
+  const naoAvaliados = totais.total - totais.avaliados
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span style={{ fontSize: 28 }}>✅</span>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Vistoria concluída</div>
+          <div style={{ fontSize: 12, color: C.espM }}>
+            {brDate(vistoria?.concluida_em)}{quem ? ` · ${quem}` : ''}{modo ? ` · ${modo === 'rapida' ? 'rápida' : 'completa'}` : ''}{vistoria?.km != null ? ` · ${vistoria.km.toLocaleString('pt-BR')} km` : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* cabeçalho de números: previsto × realizado */}
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
+        <Linha label="Avaliados" valor={`${totais.avaliados} de ${totais.total} itens`} alerta={naoAvaliados > 0 ? `${naoAvaliados} não avaliados` : undefined} />
+        <Linha label="Precisa reparo" valor={`${totais.reparo} ${totais.reparo === 1 ? 'item' : 'itens'}`} />
+        <Linha label="Precisa troca" valor={`${totais.troca} ${totais.troca === 1 ? 'item' : 'itens'}`} />
+        <div style={{ borderTop: `1px solid ${C.cream}`, margin: '10px 0 0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>PREVISÃO DE GASTOS</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: C.gold }}>{brl(totais.previsao)}</span>
+        </div>
+        {realizadoTotal > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+            <span style={{ fontSize: 12.5, color: C.espM }}>realizado até agora</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: realizadoTotal > totais.previsao ? C.red : C.green }}>{brl(realizadoTotal)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* itens por região, com estado + descrição + previsto×realizado; fotos da região */}
+      <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+        {avaliadas.map((r) => (
+          <div key={r.regiao_id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.esp, marginBottom: 6 }}>{r.nome}</div>
+            {r.fotos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                {r.fotos.map((f) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  urls[f.storage_path] ? <img key={f.foto_id} src={urls[f.storage_path]} alt="foto" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: `1px solid ${C.border}` }} /> : null
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'grid', gap: 4 }}>
+              {r.itens.filter((i) => i.estado != null).map((i) => {
+                const cor = i.estado ? ESTADO_COR[i.estado] : null
+                return (
+                  <div key={i.item_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderTop: `1px solid ${C.cream}`, paddingTop: 4 }}>
+                    {cor && <span style={{ padding: '1px 7px', borderRadius: 999, background: cor.bg, color: cor.fg, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{i.estado}</span>}
+                    <span style={{ flex: 1, minWidth: 0, color: C.esp }}>{i.nome}{i.descricao ? <span style={{ color: C.espM }}> — {i.descricao}</span> : ''}</span>
+                    {(i.gasto_previsto != null || i.gasto_realizado != null) && (
+                      <span style={{ whiteSpace: 'nowrap', color: C.espM, fontSize: 11.5 }}>
+                        {i.gasto_previsto != null ? `prev. ${brl(i.gasto_previsto)}` : ''}
+                        {i.gasto_realizado != null ? <b style={{ color: i.gasto_realizado > (i.gasto_previsto ?? 0) ? C.red : C.green }}> · real. {brl(i.gasto_realizado)}</b> : ''}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* link para a precificação que a vistoria alimenta + nova vistoria */}
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ background: C.gold, color: '#fff', padding: '11px 18px', borderRadius: 10, textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>Ver precificação na ficha →</a>
+        <button onClick={onNova} style={{ ...btnGhost, padding: '11px 16px', fontSize: 14 }}>Nova vistoria</button>
       </div>
     </div>
   )
