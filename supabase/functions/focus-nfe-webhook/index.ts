@@ -1,12 +1,17 @@
 // GE-F6 · Focus NFe webhook receiver
 // Endpoint: POST /functions/v1/focus-nfe-webhook
-// Auth: verify_jwt=false (publico · validacao via HMAC X-Focus-Signature)
+// Auth: verify_jwt=false (publico · validacao via TOKEN no header X-PS-Webhook-Token)
+//
+// A Focus NFe NÃO assina o corpo (não há HMAC): ao cadastrar o gatilho (/v2/hooks) passamos
+// authorization=<segredo> + authorization_header=X-PS-Webhook-Token, e a Focus devolve esse valor
+// nesse header em cada chamada. Validamos comparando (tempo constante) o header com o webhook_secret
+// da empresa (resolvida pela provider_reference). Sem header/diferente → 401 e log.
 //
 // Fluxo:
 //   1. Recebe POST + body raw
 //   2. Detecta tipo (nfse | nfe | mde) via campos do payload
 //   3. Resolve company_id via provider_reference -> webhook_secret da config
-//   4. Valida assinatura HMAC SHA256 (constant-time)
+//   4. Valida o token do header X-PS-Webhook-Token (constant-time) == webhook_secret
 //   5. Registra log SEMPRE (auditoria · idempotente via constraint)
 //   6. Se valido: chama fn_webhook_atualizar_{nfse|nfe} via RPC
 //   7. Sempre 200 em erro interno (evita Focus reenviar 1000x · log mantem rastro)
@@ -19,7 +24,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
-import { createHmac, timingSafeEqual } from "node:crypto"
+import { timingSafeEqual } from "node:crypto"
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -61,12 +66,6 @@ function detectarTipo(p: FocusPayload): Tipo {
   return "unknown"
 }
 
-function hmacHex(body: string, secret: string): string {
-  const h = createHmac("sha256", secret)
-  h.update(body)
-  return h.digest("hex")
-}
-
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false
   try {
@@ -90,7 +89,8 @@ Deno.serve(async (req: Request) => {
   const ipOrigem =
     req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown"
   const userAgent = req.headers.get("user-agent") || "unknown"
-  const signature = req.headers.get("x-focus-signature") || ""
+  // Token compartilhado que a Focus devolve (authorization_header cadastrado no /v2/hooks).
+  const tokenRecebido = req.headers.get("x-ps-webhook-token") || ""
 
   const rawBody = await req.text()
   let payload: FocusPayload
@@ -125,6 +125,16 @@ Deno.serve(async (req: Request) => {
     companyId = data?.company_id ?? null
   }
 
+  // Fallback por CNPJ do prestador (resolvida pela provider_reference OU cnpj) — cobre a corrida em que o
+  // aviso chega antes da nota estar indexada pela provider_reference. companies.cnpj é 14 dígitos.
+  if (!companyId) {
+    const cnpj = String(payload.cnpj_prestador ?? payload.cnpj ?? "").replace(/\D/g, "")
+    if (cnpj.length === 14) {
+      const { data } = await sb.from("companies").select("id").eq("cnpj", cnpj).maybeSingle()
+      companyId = data?.id ?? null
+    }
+  }
+
   let webhookSecret: string | null = null
   if (companyId) {
     const { data: config } = await sb
@@ -139,8 +149,8 @@ Deno.serve(async (req: Request) => {
 
   const signatureValid =
     !!webhookSecret &&
-    !!signature &&
-    constantTimeEqual(signature, hmacHex(rawBody, webhookSecret))
+    !!tokenRecebido &&
+    constantTimeEqual(tokenRecebido, webhookSecret)
 
   // Registra log SEMPRE (auditoria)
   const { data: logId } = await sb.rpc("fn_webhook_registrar_log", {
@@ -157,10 +167,10 @@ Deno.serve(async (req: Request) => {
   if (!signatureValid) {
     await sb.rpc("fn_webhook_marcar_processado", {
       p_log_id: logId,
-      p_resultado: { ok: false, motivo: "signature_invalid" },
-      p_erro: webhookSecret ? "Assinatura HMAC invalida" : "Webhook secret nao encontrado",
+      p_resultado: { ok: false, motivo: "token_invalid" },
+      p_erro: webhookSecret ? "Token do webhook invalido (X-PS-Webhook-Token)" : "Webhook secret nao configurado",
     })
-    return new Response(JSON.stringify({ erro: "Invalid signature" }), {
+    return new Response(JSON.stringify({ erro: "Invalid token" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     })
