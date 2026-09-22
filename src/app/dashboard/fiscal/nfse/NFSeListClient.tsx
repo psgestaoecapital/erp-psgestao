@@ -267,6 +267,23 @@ export default function NFSeListClient() {
         setCancelErro(msg)
         return
       }
+      // NFS-e primeiro → financeiro pelo líquido: se esta nota gerou financeiro, avisar e OFERECER
+      // estorno do título (nunca apagar em silêncio). Só pergunta quando há financeiro_gerado.
+      try {
+        const { data: nrow } = await supabase.from('erp_nfse_emitidas')
+          .select('financeiro_gerado').eq('id', notaId).maybeSingle()
+        if ((nrow as { financeiro_gerado?: boolean } | null)?.financeiro_gerado) {
+          if (window.confirm('Esta nota gerou um título a receber (financeiro). Deseja ESTORNAR o título agora? Ele será cancelado — nada é apagado em silêncio.')) {
+            const er = await authFetch('/api/fiscal/nfse/estornar-financeiro', {
+              method: 'POST', body: JSON.stringify({ companyId, nfseId: notaId }),
+            })
+            const ej = (await er.json().catch(() => null)) as { ok?: boolean; mensagem?: string } | null
+            if (!er.ok || ej?.ok === false) {
+              window.alert(ej?.mensagem ?? 'Não foi possível estornar o título — trate manualmente em Contas a receber.')
+            }
+          }
+        }
+      } catch { /* estorno é best-effort; o cancelamento da nota já ocorreu */ }
       setCancelModal(null); setCancelJust('')
       await carregar()
       if (chaveAberta) await carregarTimeline(chaveAberta)
