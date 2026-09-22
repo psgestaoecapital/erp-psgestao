@@ -34,7 +34,8 @@ type Obter = {
   ok?: boolean; erro?: string
   vigente?: { status: string; vigente_desde?: string; aprovado_em?: string; regime?: string }
   editavel?: Editavel | null
-  historico?: { versao: number; status: string; vigente_desde?: string; aprovado_em?: string }[]
+  historico?: { versao: number; status: string; vigente_desde?: string; aprovado_em?: string; aprovado_por_nome?: string | null; preenchido_por?: string | null; observacao?: string | null }[]
+  convite?: { email: string | null; status: string; criado_em: string; expira_em: string | null; usado_em: string | null; expirado: boolean } | null
 }
 
 export default function FiscalPage() {
@@ -126,6 +127,17 @@ export default function FiscalPage() {
     if (!contadorLink) return
     try { await navigator.clipboard.writeText(contadorLink); setContadorInfo('Link copiado.') } catch { /* fallback: seleção manual */ }
   }
+  // R9a · cancelar o convite pendente ao contador
+  async function cancelarConvite() {
+    if (!companyId || busy) return
+    if (!window.confirm('Cancelar o convite pendente ao contador? O link deixa de valer.')) return
+    setBusy(true)
+    const { data } = await supabase.rpc('fn_veic_perfil_convite_cancelar', { p_company_id: companyId, p_user: await userId() })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao cancelar o convite.'); return }
+    setMsg('Convite cancelado.'); void carregar()
+  }
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
   if (carregando) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando perfil fiscal…</div>
@@ -142,20 +154,38 @@ export default function FiscalPage() {
       <a href="/dashboard/revenda" style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar ao painel</a>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700, marginTop: 8 }}>🚗 Comércio · Revenda</div>
       <h1 style={{ fontSize: 23, fontWeight: 700, margin: '2px 0 6px' }}>Perfil fiscal</h1>
-      <p style={{ fontSize: 12.5, color: C.espM, margin: '0 0 12px', lineHeight: 1.5 }}>Como a sua revenda tributa a venda de usado — definido <b>com o seu contador</b>, por empresa, com base legal. Nada aqui é regra fixa do sistema. A emissão de nota de veículo só é liberada com um perfil <b>aprovado</b>.</p>
+      <p style={{ fontSize: 12.5, color: C.espM, margin: '0 0 8px', lineHeight: 1.5 }}>Como a sua revenda tributa a venda de usado — definido <b>com o seu contador</b>, por empresa, com base legal. Nada aqui é regra fixa do sistema. A emissão de nota de veículo só é liberada com um perfil <b>aprovado</b>.</p>
+      <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: '7px 11px', marginBottom: 12, fontSize: 12, color: '#8A4B08' }}>💡 Os valores pré-carregados são <b>sugestão — preencha e confira com o seu contador</b>. A responsabilidade fiscal é da empresa e do seu contador.</div>
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10, cursor: 'pointer' }} onClick={() => setMsg(null)}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10, cursor: 'pointer' }} onClick={() => setErro(null)}>{erro}</div>}
 
       {/* ESTADO */}
       <div style={{ background: C.esp, color: '#fff', borderRadius: 14, padding: '15px 17px', marginBottom: 14 }}>
-        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: '#E9C77A', fontWeight: 700 }}>Estado do perfil</div>
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: C.gold, fontWeight: 700 }}>Estado do perfil</div>
         <div style={{ fontSize: 20, fontWeight: 800, margin: '4px 0 2px', color: vig?.status === 'aprovado' ? '#8FE3B0' : '#fff' }}>{estado}</div>
-        <div style={{ fontSize: 11.5, color: '#C9B79F' }}>{vig?.status === 'aprovado' ? `Regime: ${vig.regime ?? '—'}` : 'Preencha e aprove para liberar a emissão de nota do veículo.'}</div>
+        <div style={{ fontSize: 11.5, color: '#E8DCC8' }}>{vig?.status === 'aprovado' ? `Regime: ${vig.regime ?? '—'}` : 'Preencha e aprove para liberar a emissão de nota do veículo.'}</div>
+        {/* R9a · quem pode aprovar */}
+        <div style={{ fontSize: 11.5, color: '#E8DCC8', marginTop: 4 }}>Quem pode aprovar: o <b>dono</b> ou <b>gerente</b> da empresa (ou o suporte <b>PS</b>). A aprovação fica registrada no histórico.</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           <button onClick={enviarContador} style={btnGoldOutline}>Enviar ao meu contador</button>
         </div>
       </div>
+
+      {/* R9a · estado do convite ao contador */}
+      {obter?.convite && (
+        <div style={{ background: obter.convite.status === 'pendente' && !obter.convite.expirado ? C.amberBg : C.cream, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 13px', marginBottom: 14, fontSize: 12.5 }}>
+          {obter.convite.status === 'pendente' && !obter.convite.expirado ? (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ color: C.esp }}>Convite ao contador <b>enviado{obter.convite.email ? ` a ${obter.convite.email}` : ''}</b> em {brDate(obter.convite.criado_em)}{obter.convite.expira_em ? ` · vence em ${brDate(obter.convite.expira_em)}` : ''}.</span>
+              <button onClick={enviarContador} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 7, padding: '5px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>reenviar</button>
+              <button disabled={busy} onClick={() => void cancelarConvite()} style={{ border: `1px solid ${C.border}`, background: C.white, color: C.red, borderRadius: 7, padding: '5px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>cancelar</button>
+            </div>
+          ) : (
+            <span style={{ color: C.espM }}>Convite ao contador: {obter.convite.status === 'usado' ? `usado em ${brDate(obter.convite.usado_em)}` : obter.convite.expirado ? 'expirado' : obter.convite.status}{obter.convite.email ? ` · ${obter.convite.email}` : ''}.</span>
+          )}
+        </div>
+      )}
 
       {/* AVISO REFORMA */}
       <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 10, padding: '9px 12px', marginBottom: 14, fontSize: 12, color: '#8A4B08' }}>
@@ -227,11 +257,15 @@ export default function FiscalPage() {
 
       {/* HISTÓRICO */}
       {(obter?.historico?.length ?? 0) > 0 && (
-        <Bloco titulo="Histórico de versões">
+        <Bloco titulo="Histórico de aprovações">
           {obter!.historico!.map((h, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderTop: i ? `1px solid ${C.cream}` : 'none' }}>
-              <span>v{h.versao} · {h.status}</span>
-              <span style={{ color: C.espM }}>{h.aprovado_em ? `aprovado ${brDate(h.aprovado_em)}` : h.vigente_desde ? `desde ${brDate(h.vigente_desde)}` : ''}</span>
+            <div key={i} style={{ fontSize: 12.5, padding: '7px 0', borderTop: i ? `1px solid ${C.cream}` : 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                <span><b>v{h.versao}</b> · {h.status}{h.preenchido_por ? ` · preenchido por ${h.preenchido_por}` : ''}</span>
+                <span style={{ color: C.espM }}>{h.aprovado_em ? `aprovado ${brDate(h.aprovado_em)}` : h.vigente_desde ? `desde ${brDate(h.vigente_desde)}` : ''}</span>
+              </div>
+              {h.aprovado_por_nome && <div style={{ fontSize: 11.5, color: C.green, marginTop: 2 }}>✓ aprovado por {h.aprovado_por_nome}</div>}
+              {h.observacao && <div style={{ fontSize: 11, color: C.espL, marginTop: 2, fontStyle: 'italic' }}>{h.observacao}</div>}
             </div>
           ))}
         </Bloco>
@@ -307,4 +341,4 @@ function Toggle({ l, v, onC }: { l: string; v: boolean; onC: (v: boolean) => voi
 }
 const btnGold: React.CSSProperties = { padding: '10px 16px', border: 'none', borderRadius: 10, background: C.gold, color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 14 }
 const btnGhost: React.CSSProperties = { padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 10, background: C.white, color: C.gold, cursor: 'pointer', fontSize: 13.5, fontWeight: 700 }
-const btnGoldOutline: React.CSSProperties = { padding: '8px 14px', border: '1px solid #E9C77A', borderRadius: 8, background: 'transparent', color: '#E9C77A', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }
+const btnGoldOutline: React.CSSProperties = { padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }
