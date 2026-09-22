@@ -109,3 +109,10 @@ BEGIN
     todos.pai_codigo, todos.is_totalizador, todos.origem
   FROM todos ORDER BY todos.codigo, todos.prio;
 END $function$;
+
+-- 4) Guardas de acesso (SECURITY DEFINER): nunca anon; só usuário autenticado (guarda interna por
+-- get_user_company_ids) e service_role. Preserva os grants que já existiam nestas funções.
+REVOKE ALL ON FUNCTION public.fn_plano_contas_buscar(uuid, text, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_plano_contas_arvore(uuid, text)       FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_contas_buscar(uuid, text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_plano_contas_arvore(uuid, text)       TO authenticated, service_role;
