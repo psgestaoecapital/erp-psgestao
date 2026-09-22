@@ -1510,8 +1510,9 @@ function AnuncioVeiculo({ v, onErro, onMsg, onSaved }: { v: Veic; onErro: (m: st
   return (
     <div>
       {prepAberta && (
-        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, marginBottom: 10, fontWeight: 600 }}>
-          🔧 Preparação em andamento — conclua a OS de preparação antes de anunciar este veículo.
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}`, color: '#8A4B08', borderRadius: 8, padding: '8px 12px', fontSize: 12.5, marginBottom: 10, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>🔒 OS de preparação <b>aberta</b> trava o anúncio — conclua a preparação para poder salvar/publicar.</span>
+          <a href="/dashboard/revenda/preparacao" style={{ color: C.gold, textDecoration: 'none', fontWeight: 700 }}>ver preparação →</a>
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>

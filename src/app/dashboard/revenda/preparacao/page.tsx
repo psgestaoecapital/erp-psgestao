@@ -86,7 +86,10 @@ function Inner() {
       <div style={{ marginTop: 8 }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🔧 Comércio · Revenda</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Preparação</h1>
-        <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 14px' }}>Ordens de serviço de preparação (reusa a OS da Oficina). Concluir uma OS é na ficha do veículo — vira custo no chassi.</p>
+        <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 6px' }}>Ordens de serviço de preparação (reusa a OS da Oficina). Concluir uma OS é na ficha do veículo — vira custo no chassi.</p>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '5px 10px', fontSize: 11.5, color: '#8A4B08', marginBottom: 14 }}>
+          🔒 Enquanto a OS de preparação está <b>aberta</b>, o veículo <b>não vai ao anúncio</b> — conclua a OS para liberar.
+        </div>
       </div>
 
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
@@ -133,6 +136,7 @@ function Inner() {
                             {o.tecnico_nome && <span style={{ fontSize: 10.5, color: C.espL }}>· {o.tecnico_nome}</span>}
                             {o.data_prevista && <span style={{ fontSize: 10.5, color: atrasada ? C.amber : C.espL, fontWeight: atrasada ? 700 : 400 }}>· prazo {brDate(o.data_prevista)}{atrasada ? ' (vencido)' : ''}</span>}
                             {o.custo_id && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>custo lançado</span>}
+                            {!o.concluida && <span title="Enquanto esta OS estiver aberta, o veículo não vai ao anúncio" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.amberBg, color: '#8A4B08', fontWeight: 700 }}>🔒 trava o anúncio</span>}
                           </div>
                         </div>
                       )
