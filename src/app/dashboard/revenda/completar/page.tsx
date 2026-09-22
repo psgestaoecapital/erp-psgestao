@@ -220,6 +220,9 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
   // R7b-2 parte b · leitura ASSISTIDA do CRLV — a IA sugere, a pessoa confere e aplica; nada grava sozinho.
   const [lendo, setLendo] = useState(false)
   const [sug, setSug] = useState<SugestaoCrlv | null>(null)
+  // T5 (juiz) · "confira e salve": os campos preenchidos pela IA ficam DESTACADOS até salvar.
+  const [iaFields, setIaFields] = useState<Set<string>>(new Set())
+  const hi = (k: string): React.CSSProperties => iaFields.has(k) ? { borderColor: C.gold, boxShadow: `0 0 0 2px ${C.gold}22` } : {}
   // B2 · mini-visualizador do CRLV — URL assinada do bucket privado, aberta sob demanda.
   const [crlvUrl, setCrlvUrl] = useState<string | null>(null)
   const [vendoCrlv, setVendoCrlv] = useState(false)
@@ -255,6 +258,11 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
 
   // aplica a sugestão da IA aos campos do formulário (só os que têm input aqui) — a pessoa ainda clica "salvar".
   function aplicarSugestao(s: SugestaoCrlv) {
+    const preenchidos = new Set<string>()
+    const marca = (k: string, v: unknown) => { if (v != null && v !== '') preenchidos.add(k) }
+    marca('placa', s.placa); marca('renavam', s.renavam); marca('chassi', s.chassi); marca('cor', s.cor)
+    marca('ano_fabricacao', s.ano_fabricacao); marca('ano_modelo', s.ano_modelo)
+    if (s.combustivel && COMBS.includes(s.combustivel)) preenchidos.add('combustivel')
     setF((prev) => ({
       ...prev,
       placa: s.placa ?? prev.placa,
@@ -265,6 +273,7 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
       ano_fabricacao: s.ano_fabricacao != null ? String(s.ano_fabricacao) : prev.ano_fabricacao,
       ano_modelo: s.ano_modelo != null ? String(s.ano_modelo) : prev.ano_modelo,
     }))
+    setIaFields(preenchidos) // destaca até salvar (etapa "confira e salve")
   }
   async function salvar() {
     setBusy(true)
@@ -277,8 +286,12 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
       onErro(e === 'tipo_invalido' ? 'Tipo inválido.' : e === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (error?.message || e || 'Falha'))
       return
     }
+    setIaFields(new Set()) // salvou → o destaque "confira e salve" sai
     onSaved()
   }
+  // T5 (juiz) · quando a fn não sugere NCM, dizer O QUE falta (em vez de campo vazio). A fn exige
+  // tipo (moto exige cilindradas; lugares assume 5). Lista os campos vazios que ajudam a sugerir.
+  const ncmFaltam = [!f.tipo && 'tipo', !f.combustivel && 'combustível', !f.cilindradas && 'cilindradas'].filter(Boolean) as string[]
   return (
     <div style={{ borderTop: `1px solid ${C.cream}`, padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {/* cabeçalho da linha: veículo + o que falta + CRLV */}
@@ -337,6 +350,13 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
         </div>
       )}
 
+      {/* T5 · etapa "confira e salve" visível: enquanto houver campos preenchidos pela IA, avisa e destaca */}
+      {iaFields.size > 0 && (
+        <div style={{ background: '#FDF7E8', border: `1px solid ${C.gold}`, borderRadius: 8, padding: '7px 11px', fontSize: 11.5, color: '#8A4B08', fontWeight: 600 }}>
+          ✏️ Confira os campos <b>destacados em dourado</b> (preenchidos pela IA) e clique em <b>salvar</b>.
+        </div>
+      )}
+
       {/* linha 1 · identificação e documento (R7b-2) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <Campo label="tipo" w={110}>
@@ -344,18 +364,24 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
             <option value="">—</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.lbl}</option>)}
           </select>
         </Campo>
-        <Campo label="placa" w={100}><input value={f.placa} onChange={(e) => setF({ ...f, placa: e.target.value.toUpperCase() })} placeholder="ABC1D23" style={inp} /></Campo>
-        <Campo label="Renavam" w={120}><input value={f.renavam} onChange={(e) => setF({ ...f, renavam: e.target.value.replace(/\D/g, '') })} placeholder="00000000000" style={inp} /></Campo>
-        <Campo label="chassi" w={180}><input value={f.chassi} onChange={(e) => setF({ ...f, chassi: e.target.value.toUpperCase() })} placeholder="chassi" style={inp} /></Campo>
-        <Campo label="cor" w={100}><input value={f.cor} onChange={(e) => setF({ ...f, cor: e.target.value })} placeholder="cor" style={inp} /></Campo>
+        <Campo label="placa" w={100}><input value={f.placa} onChange={(e) => setF({ ...f, placa: e.target.value.toUpperCase() })} placeholder="ABC1D23" style={{ ...inp, ...hi('placa') }} /></Campo>
+        <Campo label="Renavam" w={120}><input value={f.renavam} onChange={(e) => setF({ ...f, renavam: e.target.value.replace(/\D/g, '') })} placeholder="00000000000" style={{ ...inp, ...hi('renavam') }} /></Campo>
+        <Campo label="chassi" w={180}><input value={f.chassi} onChange={(e) => setF({ ...f, chassi: e.target.value.toUpperCase() })} placeholder="chassi" style={{ ...inp, ...hi('chassi') }} /></Campo>
+        <Campo label="cor" w={100}><input value={f.cor} onChange={(e) => setF({ ...f, cor: e.target.value })} placeholder="cor" style={{ ...inp, ...hi('cor') }} /></Campo>
         <Campo label="portas" w={70}><input value={f.portas} onChange={(e) => setF({ ...f, portas: e.target.value.replace(/\D/g, '') })} placeholder="4" style={inp} /></Campo>
         {/* B2 · NCM (classificação fiscal) — a fn_veic_ncm_sugerido sugere pelo tipo/combustível/cilindradas; a pessoa aplica */}
-        <Campo label="NCM" w={130}>
+        <Campo label="NCM" w={ncmSugerido ? 130 : 190}>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <input value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value.replace(/\D/g, '') })} placeholder={ncmSugerido ?? 'NCM'} style={{ ...inp, width: 88 }} />
             {ncmSugerido && f.ncm !== ncmSugerido && (
               <button title={`sugerido pela classificação fiscal: ${ncmSugerido}`} onClick={() => setF({ ...f, ncm: ncmSugerido })}
                 style={{ border: `1px solid ${C.amber}`, background: C.white, color: C.amber, borderRadius: 6, padding: '7px 6px', cursor: 'pointer', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>💡{ncmSugerido}</button>
+            )}
+            {/* T5 · sem sugestão: dizer O QUE informar, em vez de campo vazio */}
+            {!ncmSugerido && !f.ncm && (
+              <span style={{ fontSize: 9.5, color: C.espM, lineHeight: 1.2 }}>
+                {ncmFaltam.length > 0 ? `para sugerir, informe: ${ncmFaltam.join(', ')}` : 'sem faixa de NCM para esta combinação'}
+              </span>
             )}
           </div>
         </Campo>
@@ -364,14 +390,14 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
       {/* linha 2 · técnicos (existiam) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <Campo label="combustível" w={120}>
-          <select value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+          <select value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={{ ...inp, ...hi('combustivel') }}>
             <option value="">—</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </Campo>
         <Campo label="potência" w={80}><input value={f.potencia_cv} onChange={(e) => setF({ ...f, potencia_cv: e.target.value })} placeholder="cv" style={inp} /></Campo>
         <Campo label="cilindr." w={80}><input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} /></Campo>
-        <Campo label="ano fab" w={80}><input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={inp} /></Campo>
-        <Campo label="ano mod" w={80}><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={inp} /></Campo>
+        <Campo label="ano fab" w={80}><input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_fabricacao') }} /></Campo>
+        <Campo label="ano mod" w={80}><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_modelo') }} /></Campo>
         <Campo label="aquisição" w={110}><input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="R$" style={inp} /></Campo>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           {r.sugestao_ano_chassi != null && (!f.ano_modelo || !f.ano_fabricacao) && (
