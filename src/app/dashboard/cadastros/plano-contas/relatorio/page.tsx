@@ -4,7 +4,7 @@
 // Lê fn_plano_contas_relatorio(company). Exporta Excel (2 abas) e PDF (window.print, sem dep nova —
 // package.json não tem jspdf/pdfmake; pdf-lib é baixo nível). Paleta PS (psgc-tokens).
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as XLSX from 'xlsx'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -46,25 +46,87 @@ export default function Page() {
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [empresaNome, setEmpresaNome] = useState('')
   const [empresaCnpj, setEmpresaCnpj] = useState('')
+  // Vincular (adendo B): opções gerenciais + mapa código-contábil→id + estado por linha órfã.
+  const [gerenciais, setGerenciais] = useState<{ id: string; codigo: string; descricao: string }[]>([])
+  const [contabilId, setContabilId] = useState<Record<string, string>>({})
+  const [vincSel, setVincSel] = useState<Record<string, string>>({})
+  const [vincBusy, setVincBusy] = useState<string | null>(null)
+  const [vincMsg, setVincMsg] = useState<string | null>(null)
+  // Importar validação do contador (adendo C).
+  const [impBusy, setImpBusy] = useState(false)
+  const [impMsg, setImpMsg] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
+  const carregar = useCallback(async () => {
     if (!empresaUnica) { setLoading(false); return }
-    let vivo = true
     setLoading(true); setErro(null)
-    ;(async () => {
-      const [{ data, error }, emp] = await Promise.all([
-        supabase.rpc('fn_plano_contas_relatorio', { p_company_id: empresaUnica }),
-        supabase.from('companies').select('razao_social, cnpj').eq('id', empresaUnica).maybeSingle(),
-      ])
-      if (!vivo) return
-      if (error) { setErro(error.message); setLinhas([]) }
-      else setLinhas((data ?? []) as LinhaRelatorio[])
-      setEmpresaNome((emp.data?.razao_social as string) ?? '')
-      setEmpresaCnpj((emp.data?.cnpj as string) ?? '')
-      setLoading(false)
-    })()
-    return () => { vivo = false }
+    const [{ data, error }, emp, ger, cont] = await Promise.all([
+      supabase.rpc('fn_plano_contas_relatorio', { p_company_id: empresaUnica }),
+      supabase.from('companies').select('razao_social, cnpj').eq('id', empresaUnica).maybeSingle(),
+      supabase.from('erp_plano_contas').select('id, codigo, descricao, is_totalizador').eq('company_id', empresaUnica).eq('ativo', true).order('codigo'),
+      supabase.from('erp_conta_contabil').select('id, codigo').eq('company_id', empresaUnica).eq('ativo', true),
+    ])
+    if (error) { setErro(error.message); setLinhas([]) }
+    else setLinhas((data ?? []) as LinhaRelatorio[])
+    setEmpresaNome((emp.data?.razao_social as string) ?? '')
+    setEmpresaCnpj((emp.data?.cnpj as string) ?? '')
+    setGerenciais(((ger.data ?? []) as { id: string; codigo: string; descricao: string; is_totalizador: boolean }[])
+      .filter((g) => !g.is_totalizador).map((g) => ({ id: g.id, codigo: g.codigo, descricao: g.descricao })))
+    const map: Record<string, string> = {}
+    for (const c of (cont.data ?? []) as { id: string; codigo: string }[]) map[c.codigo] = c.id
+    setContabilId(map)
+    setLoading(false)
   }, [empresaUnica])
+
+  useEffect(() => { let vivo = true; if (vivo) void carregar(); return () => { vivo = false } }, [carregar])
+
+  async function vincular(contCodigo: string | null) {
+    if (!empresaUnica || !contCodigo) return
+    const planoId = vincSel[contCodigo]
+    const contId = contabilId[contCodigo]
+    if (!planoId) { setVincMsg('Escolha a conta gerencial para vincular.'); return }
+    if (!contId) { setVincMsg('Conta contábil não encontrada para vincular.'); return }
+    if (!window.confirm('Depois de gravado este vínculo não pode ser alterado. Confirma?')) return
+    setVincBusy(contCodigo); setVincMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_conta_contabil_vincular', {
+        p_company_id: empresaUnica, p_plano_conta_id: planoId, p_conta_contabil_id: contId, p_observacao: null,
+      })
+      if (error) { setVincMsg(error.message); return }
+      const r = (data ?? {}) as { ok?: boolean; erro?: string; mensagem?: string }
+      if (r.ok) { setVincMsg(null); await carregar() }
+      else if (r.erro === 'vinculo_imutavel') { setVincMsg(r.mensagem ?? 'Vínculo imutável — crie uma nova conta gerencial.') }
+      else if (r.erro === 'contabil_sintetica_nao_vinculavel') { setVincMsg('Esta conta é sintética — vincule as contas filhas (analíticas).') }
+      else if (r.erro === 'sem_acesso') { setVincMsg('Sem acesso a esta empresa.') }
+      else { setVincMsg(r.mensagem ?? 'Não foi possível vincular.') }
+    } finally { setVincBusy(null) }
+  }
+
+  async function importarValidacao(file: File) {
+    if (!empresaUnica) return
+    setImpBusy(true); setImpMsg(null)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+      const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+      const payload = rows.map((row) => {
+        const entradas = Object.entries(row)
+        const get = (alvo: string) => { const e = entradas.find(([k]) => norm(k) === alvo); return e ? String(e[1] ?? '').trim() : '' }
+        return { codigo_externo: get('conta contabil'), codigo_estruturado: get('validacao') }
+      }).filter((r) => r.codigo_externo)
+      if (payload.length === 0) { setImpMsg('Planilha sem a coluna "Conta contabil" preenchida.'); return }
+      const { data, error } = await supabase.rpc('fn_contabil_depara_importar', {
+        p_company_id: empresaUnica, p_escritorio_id: null, p_rows: payload,
+      })
+      if (error) { setImpMsg(error.message); return }
+      const r = (data ?? {}) as { ok?: boolean; erro?: string; importadas?: number; casadas_exato?: number; pendentes?: number }
+      if (r.ok === false) { setImpMsg(r.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r.erro ?? 'Falha ao importar.')); return }
+      setImpMsg(`Importadas ${r.importadas ?? 0} · casadas ${r.casadas_exato ?? 0} · pendentes ${r.pendentes ?? 0}.`)
+    } catch (e) { setImpMsg(e instanceof Error ? e.message : 'Falha ao ler a planilha.') }
+    finally { setImpBusy(false); if (fileRef.current) fileRef.current.value = '' }
+  }
 
   const kpis = useMemo(() => {
     const gerenciais = linhas.filter((l) => l.origem === 'gerencial').length
@@ -126,12 +188,17 @@ export default function Page() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={impBusy || loading || !!erro}
+              style={{ background: 'transparent', color: C.espresso, border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{impBusy ? 'Importando…' : '⬆ Importar validação do contador'}</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarValidacao(f) }} />
             <button type="button" onClick={baixarExcel} disabled={loading || !!erro}
               style={{ background: 'transparent', color: C.dourado, border: `0.5px solid ${C.dourado}`, padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇ Excel</button>
             <button type="button" onClick={() => window.print()} disabled={loading || !!erro}
               style={{ background: C.espresso, color: '#fff', border: 'none', padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇ PDF</button>
           </div>
         </div>
+        {impMsg && <div className="no-print" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: PSGC_RADIUS.md, background: C.verdeSoft, color: '#234D08', fontSize: 12.5 }}>{impMsg}</div>}
+        {vincMsg && <div className="no-print" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: PSGC_RADIUS.md, background: C.amareloSoft, color: '#5C3B0B', fontSize: 12.5 }}>{vincMsg}</div>}
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'rgba(61,35,20,0.6)' }}>Carregando…</div>
@@ -155,6 +222,29 @@ export default function Page() {
               ))}
             </div>
 
+            {filtro === 'sem_vinculo' ? (
+              <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+                {linhasFiltradas.length === 0 ? (
+                  <div style={{ padding: 24, textAlign: 'center', color: 'rgba(61,35,20,0.55)' }}>Nenhuma conta contábil pendente de vínculo. 🎉</div>
+                ) : linhasFiltradas.map((l, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none' }}>
+                    <div style={{ minWidth: 220, flex: '1 1 260px' }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{l.cont_codigo}</div>
+                      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.7)' }}>{l.cont_descricao}{l.cont_codigo_antigo ? ` · antigo ${l.cont_codigo_antigo}` : ''}</div>
+                    </div>
+                    <select value={vincSel[l.cont_codigo ?? ''] ?? ''} onChange={(e) => setVincSel((p) => ({ ...p, [l.cont_codigo ?? '']: e.target.value }))}
+                      style={{ flex: '1 1 240px', background: '#fff', border: '1px solid rgba(61,35,20,0.2)', borderRadius: PSGC_RADIUS.sm, padding: '8px 10px', fontSize: 12.5, color: C.espresso }}>
+                      <option value="">— escolher conta gerencial —</option>
+                      {gerenciais.map((g) => <option key={g.id} value={g.id}>{g.codigo} · {g.descricao}</option>)}
+                    </select>
+                    <button type="button" onClick={() => void vincular(l.cont_codigo)} disabled={vincBusy === l.cont_codigo || !vincSel[l.cont_codigo ?? '']}
+                      style={{ background: C.dourado, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: PSGC_RADIUS.sm, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', opacity: (vincBusy === l.cont_codigo || !vincSel[l.cont_codigo ?? '']) ? 0.5 : 1 }}>
+                      {vincBusy === l.cont_codigo ? 'Vinculando…' : 'Vincular'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div style={{ overflowX: 'auto', border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
@@ -189,6 +279,7 @@ export default function Page() {
                 </tbody>
               </table>
             </div>
+            )}
           </>
         )}
       </div>
