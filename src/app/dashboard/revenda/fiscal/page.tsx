@@ -200,6 +200,17 @@ export default function FiscalPage() {
         <Toggle l="Usa tributação pela diferença — IRPJ/CSLL" v={!!f.usa_trib_diferenca_irpj_csll} onC={(x) => set('usa_trib_diferenca_irpj_csll', x)} />
       </Bloco>
 
+      {/* R9b · alíquotas por categoria — base da tributação sobre a diferença (definir com o contador). */}
+      <Bloco titulo="Alíquotas (tributação sobre a diferença)" hint="As alíquotas que o sistema usa para calcular os encargos REAIS por veículo (preço − custo, quando marcado 'pela diferença'). Em branco = não usa aquele tributo. Com o perfil aprovado, isto substitui o % fixo da configuração na conta do carro.">
+        <Campo l="PIS (%)" v={f.pis_pct as string} onC={(x) => set('pis_pct', x)} />
+        <Campo l="COFINS (%)" v={f.cofins_pct as string} onC={(x) => set('cofins_pct', x)} />
+        <Campo l="IRPJ (%)" v={f.irpj_pct as string} onC={(x) => set('irpj_pct', x)} />
+        <Campo l="IRPJ — presunção (%)" v={f.irpj_presuncao_pct as string} onC={(x) => set('irpj_presuncao_pct', x)} />
+        <Campo l="CSLL (%)" v={f.csll_pct as string} onC={(x) => set('csll_pct', x)} />
+        <Campo l="CSLL — presunção (%)" v={f.csll_presuncao_pct as string} onC={(x) => set('csll_presuncao_pct', x)} />
+        <Campo l="ICMS — redução de base (%)" v={f.icms_reducao_base_pct as string} onC={(x) => set('icms_reducao_base_pct', x)} />
+      </Bloco>
+
       <Bloco titulo="ICMS na saída do usado">
         <Sel l="Regra" v={f.icms_saida_regra as string} onC={(x) => set('icms_saida_regra', x)} opts={[['','—'],['normal','Normal'],['base_reduzida','Base reduzida'],['isento','Isento'],['outra','Outra']]} />
         <Campo l="Percentual (%)" v={f.icms_saida_pct as string} onC={(x) => set('icms_saida_pct', x)} />
