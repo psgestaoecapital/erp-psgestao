@@ -1,8 +1,8 @@
 -- R9c · Garantia da venda (Revenda / Onda 9). Garantia por venda (prazo/KM + termo), acionamento que
 -- REUSA a OS de preparação (Oficina) — o custo da OS já volta ao veículo por veic_custo(os_id) e entra no
 -- lucro real (fn_veic_conta_do_carro). Sinistro por modelo. Provisão OPCIONAL por empresa: se o perfil
--- vigente marca garantia_provisao, grava o valor de provisão (% da config × venda); senão 0 (a Alliance
--- não provisiona) — sem provisão, nenhum valor é lançado. Autoria por auth.uid(); SECURITY DEFINER sem anon.
+-- vigente marca garantia_provisao, grava o valor de provisão (% da config × venda); senão 0 (há revenda
+-- que não provisiona) — sem provisão, nenhum valor é lançado. Autoria por auth.uid(); SECURITY DEFINER sem anon.
 
 -- ── tabelas ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.veic_garantia (
