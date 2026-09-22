@@ -122,7 +122,7 @@ function Inner() {
               <div style={{ display: 'grid', gridTemplateColumns: '190px 110px 90px 90px 80px 80px 120px 90px', gap: 6, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM, padding: '4px 0' }}>
                 <span>veículo</span><span>combustível</span><span>potência</span><span>cilindr.</span><span>ano fab</span><span>ano mod</span><span>aquisição</span><span></span>
               </div>
-              {rows.map((r) => <LinhaLote key={r.id} r={r} onSaved={() => { setMsg('Veículo atualizado.'); void carregar() }} onErro={setErro} />)}
+              {rows.map((r) => <LinhaLote key={r.id} r={r} companyId={companyId} onSaved={() => { setMsg('Veículo atualizado.'); void carregar() }} onErro={setErro} />)}
             </div>
           </div>
         )}
@@ -166,7 +166,15 @@ function Campo({ label, children, w }: { label: string; children: React.ReactNod
   )
 }
 
-function LinhaLote({ r, onSaved, onErro }: { r: Row; onSaved: () => void; onErro: (m: string) => void }) {
+// R7b-2 parte b · sugestão da IA lida do CRLV (o que a rota /api/revenda/crlv-ler devolve).
+type SugestaoCrlv = {
+  placa: string | null; renavam: string | null; chassi: string | null
+  marca: string | null; modelo: string | null; cor: string | null
+  ano_fabricacao: number | null; ano_modelo: number | null; combustivel: string | null
+  confianca: string; observacao: string
+}
+
+function LinhaLote({ r, companyId, onSaved, onErro }: { r: Row; companyId: string; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
   const [f, setF] = useState({
     // R7b-2 · identificação/documento
@@ -175,8 +183,44 @@ function LinhaLote({ r, onSaved, onErro }: { r: Row; onSaved: () => void; onErro
     combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: num(r.valor_aquisicao),
   })
   const [busy, setBusy] = useState(false)
+  // R7b-2 parte b · leitura ASSISTIDA do CRLV — a IA sugere, a pessoa confere e aplica; nada grava sozinho.
+  const [lendo, setLendo] = useState(false)
+  const [sug, setSug] = useState<SugestaoCrlv | null>(null)
   const temCrlv = !!r.crlv_storage_path
   const faltam = [...r.fiscais_faltantes, ...faltamDadosVeiculo(r)]
+
+  async function lerCrlv() {
+    setLendo(true); setSug(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) { onErro('Sessão expirada — entre novamente.'); return }
+      const res = await fetch('/api/revenda/crlv-ler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ companyId, veiculoId: r.id }),
+      })
+      const j = await res.json().catch(() => null) as { ok?: boolean; sugestao?: SugestaoCrlv; ia_desativada?: boolean; budget_pausado?: boolean; aviso?: string; erro?: string } | null
+      if (j?.ia_desativada || j?.budget_pausado) { onErro(j.aviso || 'Leitura por IA indisponível agora.'); return }
+      if (!res.ok || !j?.ok || !j.sugestao) { onErro(j?.erro || 'Não foi possível ler o CRLV.'); return }
+      setSug(j.sugestao)
+    } catch { onErro('Falha ao ler o CRLV.') }
+    finally { setLendo(false) }
+  }
+
+  // aplica a sugestão da IA aos campos do formulário (só os que têm input aqui) — a pessoa ainda clica "salvar".
+  function aplicarSugestao(s: SugestaoCrlv) {
+    setF((prev) => ({
+      ...prev,
+      placa: s.placa ?? prev.placa,
+      renavam: s.renavam ?? prev.renavam,
+      chassi: s.chassi ?? prev.chassi,
+      cor: s.cor ?? prev.cor,
+      combustivel: s.combustivel && COMBS.includes(s.combustivel) ? s.combustivel : prev.combustivel,
+      ano_fabricacao: s.ano_fabricacao != null ? String(s.ano_fabricacao) : prev.ano_fabricacao,
+      ano_modelo: s.ano_modelo != null ? String(s.ano_modelo) : prev.ano_modelo,
+    }))
+  }
   async function salvar() {
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
@@ -201,8 +245,35 @@ function LinhaLote({ r, onSaved, onErro }: { r: Row; onSaved: () => void; onErro
           {temCrlv ? '📄 CRLV ok' : '📄 CRLV faltando'}
         </span>
         {!temCrlv && <a href={`/dashboard/revenda/veiculo/${r.id}`} style={{ fontSize: 11, color: C.gold, textDecoration: 'none' }}>anexar CRLV na ficha →</a>}
+        {temCrlv && (
+          <button disabled={lendo} onClick={() => void lerCrlv()} title="A IA lê o CRLV e sugere os campos — você confere e aplica"
+            style={{ border: `1px solid ${C.gold}`, background: lendo ? C.cream : C.white, color: C.gold, borderRadius: 999, padding: '3px 11px', cursor: lendo ? 'wait' : 'pointer', fontSize: 11, fontWeight: 700 }}>
+            {lendo ? '🤖 lendo…' : '🤖 Ler CRLV (IA)'}
+          </button>
+        )}
         {faltam.length > 0 && <span style={{ fontSize: 10.5, color: C.espM }}>falta: {faltam.join(', ')}</span>}
       </div>
+
+      {/* R7b-2 parte b · painel de sugestão da IA — a pessoa confere e aplica; a IA não grava nada */}
+      {sug && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '9px 11px', fontSize: 11.5, color: C.esp }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            <b style={{ fontSize: 12 }}>Sugestão da IA (confira antes de salvar)</b>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, border: `1px solid ${sug.confianca === 'alta' ? C.green : sug.confianca === 'media' ? C.amber : C.red}`, color: sug.confianca === 'alta' ? C.green : sug.confianca === 'media' ? C.amber : C.red }}>
+              confiança {sug.confianca}
+            </span>
+            <button onClick={() => aplicarSugestao(sug)} style={{ border: 'none', borderRadius: 7, background: C.gold, color: C.white, padding: '4px 12px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>aplicar aos campos</button>
+            <button onClick={() => setSug(null)} style={{ border: `1px solid ${C.border}`, background: C.white, color: C.espM, borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontSize: 11 }}>descartar</button>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', color: C.espM }}>
+            {([['placa', sug.placa], ['Renavam', sug.renavam], ['chassi', sug.chassi], ['marca', sug.marca], ['modelo', sug.modelo], ['cor', sug.cor], ['ano fab', sug.ano_fabricacao], ['ano mod', sug.ano_modelo], ['combustível', sug.combustivel]] as Array<[string, string | number | null]>).map(([lbl, val]) => (
+              <span key={lbl}>{lbl}: <b style={{ color: val == null || val === '' ? C.espL : C.esp }}>{val == null || val === '' ? '—' : String(val)}</b></span>
+            ))}
+          </div>
+          {sug.observacao && <div style={{ marginTop: 5, fontSize: 10.5, color: C.espM, fontStyle: 'italic' }}>obs.: {sug.observacao}</div>}
+          <div style={{ marginTop: 5, fontSize: 10, color: C.espL }}>marca/modelo vêm do catálogo de modelos — a IA só ajuda a conferir; ajuste os campos e clique em salvar.</div>
+        </div>
+      )}
 
       {/* linha 1 · identificação e documento (R7b-2) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
