@@ -5,6 +5,9 @@
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 
@@ -1299,6 +1302,13 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
   const [fotos, setFotos] = useState<Foto[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  // R8a · marca d'água da loja (logo + toggle na Configuração da garagem) — overlay na prévia das fotos.
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [marcaAtiva, setMarcaAtiva] = useState(false)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('veic_veiculo_foto').select('id, storage_path, principal, ordem').eq('veiculo_id', veiculoId).order('ordem')
@@ -1310,7 +1320,16 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
       ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
       setUrls(m)
     } else setUrls({})
-  }, [veiculoId])
+    // marca d'água da empresa (config da garagem) — sem logo ou desligada → não sobrepõe nada (RD-51)
+    const { data: cfg } = await supabase.rpc('fn_veic_config_obter', { p_company_id: companyId })
+    const c = (cfg as { config?: { logo_storage_path?: string | null; marca_dagua_ativa?: boolean | null } } | null)?.config
+    const ativa = !!c?.marca_dagua_ativa && !!c?.logo_storage_path
+    setMarcaAtiva(ativa)
+    if (ativa && c?.logo_storage_path) {
+      const { data: ls } = await supabase.storage.from('revenda-veiculos').createSignedUrl(c.logo_storage_path, 3600)
+      setLogoUrl(ls?.signedUrl ?? null)
+    } else setLogoUrl(null)
+  }, [veiculoId, companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
@@ -1355,12 +1374,15 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
     await load()
   }
 
-  async function mover(idx: number, dir: -1 | 1) {
-    const j = idx + dir
-    if (j < 0 || j >= fotos.length) return
-    const arr = [...fotos]
-    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
-    setFotos(arr.map((f, k) => ({ ...f, ordem: k })))
+  // R8a · arrastar para ordenar (dnd-kit). Persiste a nova ordem via fn_veic_foto_reordenar; reverte no erro.
+  async function aoArrastar(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const de = fotos.findIndex((f) => f.id === active.id)
+    const para = fotos.findIndex((f) => f.id === over.id)
+    if (de < 0 || para < 0) return
+    const arr = arrayMove(fotos, de, para).map((f, k) => ({ ...f, ordem: k }))
+    setFotos(arr)
     const ordens = arr.map((f, k) => ({ id: f.id, ordem: k }))
     const { error } = await supabase.rpc('fn_veic_foto_reordenar', { p_veiculo_id: veiculoId, p_ordens: ordens, p_user: await uid() })
     if (error) { onErro('Falha ao reordenar'); await load() }
@@ -1380,28 +1402,49 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
         {busy ? 'Enviando…' : '📷 Adicionar fotos'}
         <input type="file" accept="image/*" capture="environment" multiple disabled={busy} onChange={(e) => { void subir(e.target.files); e.currentTarget.value = '' }} style={{ display: 'none' }} />
       </label>
-      <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Tire pelo celular no pátio. A principal (⭐) aparece no cartão do Pátio. A ordem é argumento de venda.</div>
+      <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Tire pelo celular no pátio. Arraste (⠿) para ordenar — a 1ª some no anúncio; a ⭐ principal aparece no cartão do Pátio.{marcaAtiva ? ' A marca d’água da loja aparece na prévia.' : ''}</div>
       {fotos.length === 0 ? (
         <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem fotos ainda. Frente, lateral, interior, motor.</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginTop: 12 }}>
-          {fotos.map((f, i) => (
-            <div key={f.id} style={{ border: `1px solid ${f.principal ? C.gold : C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, position: 'relative' }}>
-              <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {urls[f.storage_path] ? <img src={urls[f.storage_path]} alt="foto do veículo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 11, color: C.espL }}>carregando…</span>}
-              </div>
-              {f.principal && <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: C.gold, color: C.white }}>⭐ principal</span>}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, background: C.white }}>
-                {!f.principal && <button onClick={() => void tornarPrincipal(f.id)} title="tornar principal" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}>☆</button>}
-                <button onClick={() => void mover(i, -1)} disabled={i === 0} title="mover" style={{ border: 'none', background: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? C.espL : C.esp }}>◀</button>
-                <button onClick={() => void mover(i, 1)} disabled={i === fotos.length - 1} title="mover" style={{ border: 'none', background: 'none', cursor: i === fotos.length - 1 ? 'default' : 'pointer', color: i === fotos.length - 1 ? C.espL : C.esp }}>▶</button>
-                <button onClick={() => void remover(f.id)} title="remover" style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: C.red, fontSize: 13 }}>🗑</button>
-              </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={aoArrastar}>
+          <SortableContext items={fotos.map((f) => f.id)} strategy={rectSortingStrategy}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginTop: 12 }}>
+              {fotos.map((f) => (
+                <FotoCard key={f.id} f={f} url={urls[f.storage_path]} logoUrl={marcaAtiva ? logoUrl : null}
+                  onPrincipal={() => void tornarPrincipal(f.id)} onRemover={() => void remover(f.id)} />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
       )}
+    </div>
+  )
+}
+
+// R8a · cartão de foto arrastável. A alça (⠿) inicia o arraste; os botões seguem clicáveis.
+function FotoCard({ f, url, logoUrl, onPrincipal, onRemover }: { f: Foto; url: string | undefined; logoUrl: string | null; onPrincipal: () => void; onRemover: () => void }) {
+  const sortable = useSortable({ id: f.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition,
+    border: `1px solid ${f.principal ? C.gold : C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream,
+    position: 'relative', opacity: sortable.isDragging ? 0.6 : 1,
+  }
+  return (
+    <div ref={sortable.setNodeRef} style={style}>
+      <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {url ? <img src={url} alt="foto do veículo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 11, color: C.espL }}>carregando…</span>}
+        {url && logoUrl && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={logoUrl} alt="marca d'água" style={{ position: 'absolute', right: 6, bottom: 6, maxWidth: '42%', maxHeight: 34, opacity: 0.72, pointerEvents: 'none', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))' }} />
+        )}
+      </div>
+      {f.principal && <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: C.gold, color: C.white }}>⭐ principal</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, background: C.white }}>
+        <span {...sortable.attributes} {...sortable.listeners} title="arrastar para ordenar" style={{ cursor: 'grab', color: C.espL, fontSize: 15, touchAction: 'none', userSelect: 'none' }}>⠿</span>
+        {!f.principal && <button onClick={onPrincipal} title="tornar principal" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}>☆</button>}
+        <button onClick={onRemover} title="remover" style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: C.red, fontSize: 13 }}>🗑</button>
+      </div>
     </div>
   )
 }
