@@ -23,7 +23,7 @@ const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 
 const TIPOS: { v: string; l: string }[] = [{ v: 'carro', l: 'carro' }, { v: 'moto', l: 'moto' }, { v: 'caminhao', l: 'caminhão' }, { v: 'maquina', l: 'máquina' }]
 const CATS = ['aquisicao', 'documentacao', 'despachante', 'preparacao', 'peca', 'mao_de_obra', 'debito_assumido', 'frete', 'comissao', 'outro']
 
-type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null; tipo: string | null; crlv_storage_path: string | null }
+type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; km_atual: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null; tipo: string | null; crlv_storage_path: string | null; preco_venda: number | null; observacao: string | null; anuncio_texto: string | null }
 type Compl = { fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
 type Custo = { id: string; categoria: string; descricao: string | null; valor: number; fornecedor_nome: string | null; data_custo: string; entra_base_fiscal: boolean | null; pagar_id: string | null }
 type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
@@ -206,6 +206,11 @@ function Inner() {
 
       <Bloco titulo="Fotos do veículo">
         <FotosVeiculo veiculoId={id} companyId={v.company_id} onErro={setErro} onMsg={setMsg} />
+      </Bloco>
+
+      {/* R8b · Anúncio do veículo — texto gerado da ficha (editável) + preço + feed p/ portais. */}
+      <Bloco titulo="Anúncio">
+        <AnuncioVeiculo v={v} onErro={setErro} onMsg={setMsg} onSaved={() => void carregar()} />
       </Bloco>
 
       {/* R7b (Tela 5) · CRLV do veículo — documento (PDF ou foto) no bucket privado; caminho, nunca URL pública. */}
@@ -1445,6 +1450,84 @@ function FotoCard({ f, url, logoUrl, onPrincipal, onRemover }: { f: Foto; url: s
         {!f.principal && <button onClick={onPrincipal} title="tornar principal" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}>☆</button>}
         <button onClick={onRemover} title="remover" style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: C.red, fontSize: 13 }}>🗑</button>
       </div>
+    </div>
+  )
+}
+
+// R8b · Anúncio do veículo — texto gerado da ficha (editável) + preço anunciado + feed p/ portais.
+// Trava: OS de preparação aberta bloqueia salvar/publicar ("preparação em andamento"). Feed só inclui
+// veículos DISPONÍVEIS (a rota já filtra), então carro em preparo não vaza pro anúncio.
+function AnuncioVeiculo({ v, onErro, onMsg, onSaved }: { v: Veic; onErro: (m: string) => void; onMsg: (m: string) => void; onSaved: () => void }) {
+  const [texto, setTexto] = useState(v.anuncio_texto ?? '')
+  const [busy, setBusy] = useState(false)
+  const [prepAberta, setPrepAberta] = useState(false)
+
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_veic_preparacao_listar', { p_company_id: v.company_id, p_veiculo_id: v.id })
+      const pl = data as { ok?: boolean; os?: { veiculo_id: string; concluida: boolean }[] } | null
+      if (vivo) setPrepAberta(!!(pl?.ok && (pl.os ?? []).some((o) => !o.concluida)))
+    })()
+    return () => { vivo = false }
+  }, [v.company_id, v.id])
+
+  function gerar() {
+    const titulo = [v.marca, v.modelo, v.versao].filter(Boolean).join(' ').trim()
+    const ano = v.ano_fabricacao && v.ano_modelo ? `${v.ano_fabricacao}/${v.ano_modelo}` : String(v.ano_modelo ?? v.ano_fabricacao ?? '')
+    const km = v.km_atual ?? v.km_entrada
+    const det = [ano ? `Ano ${ano}` : '', km != null ? `${Number(km).toLocaleString('pt-BR')} km` : '', v.cor ? `Cor ${v.cor}` : '',
+      v.combustivel, v.cambio ? `Câmbio ${v.cambio}` : '', v.portas ? `${v.portas} portas` : ''].filter(Boolean).join(' · ')
+    const linhas = [titulo, det]
+    if (v.observacao) linhas.push(String(v.observacao).trim())
+    if (v.preco_venda != null) linhas.push(`Valor: ${brl(Number(v.preco_venda))}`)
+    linhas.push('Aceita troca e financiamento. Agende sua visita.')
+    setTexto(linhas.filter(Boolean).join('\n'))
+  }
+
+  async function salvar() {
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_veic_anuncio_salvar', { p_veiculo_id: v.id, p_texto: texto })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (error?.message || 'Falha ao salvar o anúncio.')); return }
+    onMsg('Anúncio salvo.'); onSaved()
+  }
+
+  async function baixarFeed() {
+    setBusy(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/revenda/anuncios-feed?companyId=${encodeURIComponent(v.company_id)}`, { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } })
+      if (!res.ok) { onErro('Falha ao gerar o feed de anúncios.'); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `anuncios-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+      URL.revokeObjectURL(url)
+    } catch { onErro('Falha ao baixar o feed.') } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      {prepAberta && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, marginBottom: 10, fontWeight: 600 }}>
+          🔧 Preparação em andamento — conclua a OS de preparação antes de anunciar este veículo.
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <button onClick={gerar} disabled={busy} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 13px', fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 12.5 }}>✨ Gerar texto da ficha</button>
+        <span style={{ fontSize: 12.5, color: C.espM }}>Preço anunciado: <b style={{ color: C.esp }}>{v.preco_venda != null ? brl(Number(v.preco_venda)) : 'não precificado'}</b></span>
+      </div>
+      <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={7} placeholder="Gere a partir da ficha e edite o texto do anúncio…"
+        style={{ width: '100%', boxSizing: 'border-box', padding: 10, fontSize: 13.5, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white, resize: 'vertical' }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => void salvar()} disabled={busy || prepAberta} title={prepAberta ? 'Conclua a preparação antes de publicar' : undefined}
+          style={{ border: 'none', borderRadius: 10, background: (busy || prepAberta) ? C.espL : C.gold, color: C.white, padding: '9px 18px', fontWeight: 700, cursor: (busy || prepAberta) ? 'not-allowed' : 'pointer', fontSize: 14 }}>
+          {busy ? '…' : 'Salvar anúncio'}
+        </button>
+        <button onClick={() => void baixarFeed()} disabled={busy} style={{ border: `1px solid ${C.border}`, background: C.white, color: C.esp, borderRadius: 10, padding: '9px 16px', fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>⬇ Baixar feed (CSV) dos disponíveis</button>
+      </div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>O feed traz os veículos <b>disponíveis</b> da loja (modelo, ano, km, preço, texto e fotos) para subir no portal. Integração direta com portal específico só com sua decisão.</div>
     </div>
   )
 }

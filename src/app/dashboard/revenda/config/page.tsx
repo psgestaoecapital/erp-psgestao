@@ -116,6 +116,17 @@ export default function ConfigGaragemPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [marcaAtiva, setMarcaAtiva] = useState(true)
   const [logoBusy, setLogoBusy] = useState(false)
+  // R8b · custo de mídia por portal (mensal) + custo por venda por origem no período.
+  type CustoMidia = { id: string; portal: string; competencia: string; custo_total: number; leads: number | null; custo_por_lead: number | null; observacao: string | null }
+  type PorOrigem = { origem: string; custo_midia: number; leads: number; vendas: number; custo_por_venda: number | null }
+  const [custos, setCustos] = useState<CustoMidia[]>([])
+  const [cf, setCf] = useState({ portal: '', competencia: new Date().toISOString().slice(0, 7), custo: '', leads: '' })
+  const [custoBusy, setCustoBusy] = useState(false)
+  const [origemRows, setOrigemRows] = useState<PorOrigem[]>([])
+  const [origemGeral, setOrigemGeral] = useState<{ vendas_total: number; custo_midia_total: number; custo_por_venda_geral: number | null } | null>(null)
+  const anoIni = `${new Date().getFullYear()}-01-01`
+  const hoje = new Date().toISOString().slice(0, 10)
+  const [per, setPer] = useState({ de: anoIni, ate: hoje })
 
   const carregar = useCallback(async () => {
     if (!companyId) { setObter(null); setCarregando(false); return }
@@ -185,6 +196,41 @@ export default function ConfigGaragemPage() {
   }
   // marcar uma regra p/ precificar desmarca as outras (só uma pode).
   const marcarPrecifica = (i: number) => setRegras((xs) => xs.map((x, j) => ({ ...x, usar_na_precificacao: j === i })))
+
+  // R8b · custo de mídia por portal + custo por venda por origem
+  const carregarCustos = useCallback(async () => {
+    if (!companyId) { setCustos([]); return }
+    const { data } = await supabase.rpc('fn_veic_anuncio_custo_listar', { p_company_id: companyId, p_de: null, p_ate: null })
+    const r = data as { ok?: boolean; itens?: CustoMidia[] } | null
+    setCustos(r?.ok ? (r.itens ?? []) : [])
+  }, [companyId])
+  const carregarOrigem = useCallback(async () => {
+    if (!companyId) { setOrigemRows([]); setOrigemGeral(null); return }
+    const { data } = await supabase.rpc('fn_veic_custo_por_venda_origem', { p_company_id: companyId, p_de: per.de, p_ate: per.ate })
+    const r = data as { ok?: boolean; por_origem?: PorOrigem[]; vendas_total?: number; custo_midia_total?: number; custo_por_venda_geral?: number | null } | null
+    if (!r?.ok) { setOrigemRows([]); setOrigemGeral(null); return }
+    setOrigemRows(r.por_origem ?? [])
+    setOrigemGeral({ vendas_total: r.vendas_total ?? 0, custo_midia_total: r.custo_midia_total ?? 0, custo_por_venda_geral: r.custo_por_venda_geral ?? null })
+  }, [companyId, per.de, per.ate])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarCustos() }, [carregarCustos])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarOrigem() }, [carregarOrigem])
+
+  async function salvarCustoMidia() {
+    if (!companyId || !cf.portal.trim() || !cf.competencia) { setErro('Informe o portal e o mês.'); return }
+    setCustoBusy(true); setErro(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const { data } = await supabase.rpc('fn_veic_anuncio_custo_salvar', {
+      p_company_id: companyId, p_portal: cf.portal.trim(), p_competencia: `${cf.competencia}-01`,
+      p_custo: numOrNull(cf.custo) ?? 0, p_leads: cf.leads.trim() ? Math.max(0, Math.trunc(Number(cf.leads))) : null,
+      p_observacao: null, p_user: session?.user?.id ?? null,
+    })
+    setCustoBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar o custo de mídia.')); return }
+    setMsg('Custo de mídia salvo.'); setCf({ ...cf, custo: '', leads: '' }); void carregarCustos(); void carregarOrigem()
+  }
 
   // R8a · logo/marca d'água. Bucket PRIVADO revenda-veiculos, subpasta _config (RLS por company_id/'/').
   async function subirLogo(file: File | null) {
@@ -472,6 +518,58 @@ export default function ConfigGaragemPage() {
           </div>
         </div>
         <button disabled={logoBusy} onClick={() => void salvarMarcaDagua()} style={{ marginTop: 12, background: logoBusy ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontSize: 14, fontWeight: 700, cursor: logoBusy ? 'wait' : 'pointer' }}>{logoBusy ? 'Salvando…' : 'Salvar marca d’água'}</button>
+      </Bloco>
+
+      {/* MÍDIA E ANÚNCIOS (R8b) — custo por portal/mês (lançado à mão) → custo por venda por origem. */}
+      <Bloco titulo="Mídia e anúncios (custo por portal)" hint="Lance o custo mensal de cada portal (OLX, iCarros, etc.). Cruzado com a origem do lead das negociações, vira o custo por venda por origem. Em branco = não informado (não finge zero).">
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: C.espM }}>Portal<br /><input value={cf.portal} onChange={(e) => setCf({ ...cf, portal: e.target.value })} placeholder="OLX" style={{ ...sel_(), width: 130 }} /></label>
+          <label style={{ fontSize: 11, color: C.espM }}>Mês<br /><input type="month" value={cf.competencia} onChange={(e) => setCf({ ...cf, competencia: e.target.value })} style={{ ...sel_(), width: 140 }} /></label>
+          <label style={{ fontSize: 11, color: C.espM }}>Custo (R$)<br /><input value={cf.custo} onChange={(e) => setCf({ ...cf, custo: e.target.value })} placeholder="0,00" style={{ ...sel_(), width: 110 }} /></label>
+          <label style={{ fontSize: 11, color: C.espM }}>Leads (opc.)<br /><input value={cf.leads} onChange={(e) => setCf({ ...cf, leads: e.target.value.replace(/\D/g, '') })} placeholder="nº" style={{ ...sel_(), width: 90 }} /></label>
+          <button disabled={custoBusy} onClick={() => void salvarCustoMidia()} style={{ background: custoBusy ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, cursor: custoBusy ? 'wait' : 'pointer', fontSize: 12.5 }}>+ lançar</button>
+        </div>
+        {custos.length > 0 && (
+          <div style={{ display: 'grid', gap: 4, marginBottom: 12, fontSize: 12 }}>
+            {custos.map((c) => (
+              <div key={c.id} style={{ display: 'flex', gap: 10, borderTop: `1px solid ${C.cream}`, padding: '5px 0', flexWrap: 'wrap' }}>
+                <b style={{ minWidth: 90 }}>{c.portal}</b>
+                <span style={{ color: C.espM }}>{String(c.competencia).slice(0, 7).split('-').reverse().join('/')}</span>
+                <span>{brl(c.custo_total)}</span>
+                <span style={{ color: C.espM }}>{c.leads != null ? `${c.leads} leads` : 'leads —'}</span>
+                <span style={{ color: C.espL }}>{c.custo_por_lead != null ? `${brl(c.custo_por_lead)}/lead` : 'custo/lead —'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* custo por venda por origem no período */}
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Custo por venda por origem</div>
+            <label style={{ fontSize: 11, color: C.espM }}>De<br /><input type="date" value={per.de} onChange={(e) => setPer({ ...per, de: e.target.value })} style={{ ...sel_(), width: 140 }} /></label>
+            <label style={{ fontSize: 11, color: C.espM }}>Até<br /><input type="date" value={per.ate} onChange={(e) => setPer({ ...per, ate: e.target.value })} style={{ ...sel_(), width: 140 }} /></label>
+          </div>
+          {origemRows.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>Sem vendas nem custo de mídia no período.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 70px 110px', gap: 8, fontSize: 10, textTransform: 'uppercase', color: C.espM }}>
+                <span>origem</span><span>custo mídia</span><span>vendas</span><span>custo/venda</span>
+              </div>
+              {origemRows.map((o) => (
+                <div key={o.origem} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 70px 110px', gap: 8, borderTop: `1px solid ${C.cream}`, padding: '4px 0' }}>
+                  <span>{o.origem}</span><span>{o.custo_midia > 0 ? brl(o.custo_midia) : '—'}</span><span>{o.vendas}</span>
+                  <span style={{ fontWeight: 700 }}>{o.custo_por_venda != null ? brl(o.custo_por_venda) : '—'}</span>
+                </div>
+              ))}
+              {origemGeral && (
+                <div style={{ marginTop: 6, fontSize: 12, color: C.espM }}>
+                  Geral: {origemGeral.vendas_total} venda(s) · mídia {brl(origemGeral.custo_midia_total)} · custo/venda {origemGeral.custo_por_venda_geral != null ? <b style={{ color: C.esp }}>{brl(origemGeral.custo_por_venda_geral)}</b> : '—'}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </Bloco>
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>

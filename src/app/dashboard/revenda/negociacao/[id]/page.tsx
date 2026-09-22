@@ -64,7 +64,7 @@ export default function NegociacaoPage() {
       const n: Neg = { ...(data as unknown as Neg), marca: v.marca ?? null, modelo: v.modelo ?? null, chassi: v.chassi ?? null }
       setNeg(n)
       setF({
-        cliente_nome: n.cliente_nome ?? '', cliente_doc: n.cliente_doc ?? '', vendedor_nome: n.vendedor_nome ?? '', validade: n.validade ?? '',
+        cliente_nome: n.cliente_nome ?? '', cliente_doc: n.cliente_doc ?? '', vendedor_nome: n.vendedor_nome ?? '', validade: n.validade ?? '', origem_lead: (n as { origem_lead?: string | null }).origem_lead ?? '',
         preco_pedido: n.preco_pedido?.toString() ?? '', desconto: n.desconto?.toString() ?? '',
         entrada: n.entrada?.toString() ?? '', financiado: n.financiado?.toString() ?? '', banco_nome: n.banco_nome ?? '', parcelas: n.parcelas?.toString() ?? '', retorno_banco: n.retorno_banco?.toString() ?? '',
         troca_avaliacao: n.troca_avaliacao?.toString() ?? '', troca_valor_dado: n.troca_valor_dado?.toString() ?? '', troca_marca: n.troca_marca ?? '', troca_modelo: n.troca_modelo ?? '', troca_ano: n.troca_ano?.toString() ?? '', troca_km: n.troca_km?.toString() ?? '', troca_chassi: n.troca_chassi ?? '',
@@ -82,6 +82,7 @@ export default function NegociacaoPage() {
     setSalvando(true); setMsg(null)
     const patch = {
       cliente_nome: f.cliente_nome || null, cliente_doc: f.cliente_doc || null, vendedor_nome: f.vendedor_nome || null, validade: f.validade || null,
+      origem_lead: f.origem_lead?.trim() || null,
       preco_pedido: numOrNull(f.preco_pedido), desconto: numOrNull(f.desconto) ?? 0,
       entrada: numOrNull(f.entrada) ?? 0, financiado: numOrNull(f.financiado) ?? 0, banco_nome: f.banco_nome || null, parcelas: numOrNull(f.parcelas), retorno_banco: numOrNull(f.retorno_banco) ?? 0,
       troca_avaliacao: numOrNull(f.troca_avaliacao), troca_valor_dado: numOrNull(f.troca_valor_dado), troca_marca: f.troca_marca || null, troca_modelo: f.troca_modelo || null, troca_ano: numOrNull(f.troca_ano), troca_km: numOrNull(f.troca_km), troca_chassi: f.troca_chassi || null,
@@ -161,6 +162,7 @@ export default function NegociacaoPage() {
               {Campo('CPF/CNPJ', 'cliente_doc')}
               {Campo('Vendedor', 'vendedor_nome')}
               {Campo('Vale até', 'validade', '', 'date')}
+              {Campo('Origem do lead', 'origem_lead', 'ex.: OLX, WhatsApp, indicação')}
               {Campo('Preço pedido', 'preco_pedido', 'R$')}
               {Campo('Desconto', 'desconto', 'R$')}
               {Campo('Entrada', 'entrada', 'R$')}
