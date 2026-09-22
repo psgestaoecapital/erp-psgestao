@@ -68,6 +68,10 @@ function Inner() {
   useEffect(() => { if (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches) setDensa(true) }, [])
   // R7a-2 · faixa de dias escolhida no mapa de calor (clique). null = sem filtro de faixa.
   const [faixaDias, setFaixaDias] = useState<{ min: number; max: number | null; label: string } | null>(null)
+  // R7a-2 · ações em massa: seleção de carros + modal de reprecificação em lote (com prévia da R2).
+  const [selVeic, setSelVeic] = useState<Set<string>>(new Set())
+  const [loteAberto, setLoteAberto] = useState(false)
+  const toggleSel = (id: string) => setSelVeic((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); return }
@@ -312,7 +316,8 @@ function Inner() {
             const abaixo = d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
             return (
               <div key={v.id} onClick={() => router.push(`/dashboard/revenda/veiculo/${v.id}`)}
-                style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                style={{ background: selVeic.has(v.id) ? '#FDF7E8' : C.white, border: `1px solid ${selVeic.has(v.id) ? C.gold : C.border}`, borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <input type="checkbox" checked={selVeic.has(v.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(v.id)} title="selecionar para ações em massa" style={{ width: 16, height: 16, accentColor: C.gold, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700, whiteSpace: 'nowrap' }}>● {v.dias_patio}d</span>
                 <div style={{ minWidth: 0, flex: '1 1 160px' }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.modelo || '—'}{v.ano_modelo ? ` · ${v.ano_modelo}` : ''}</div>
@@ -334,7 +339,11 @@ function Inner() {
             const sc = semColor(v.semaforo)
             return (
               <div key={v.id} onClick={() => router.push(`/dashboard/revenda/veiculo/${v.id}`)}
-                style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', cursor: 'pointer' }}>
+                style={{ background: C.white, border: `1px solid ${selVeic.has(v.id) ? C.gold : C.border}`, boxShadow: selVeic.has(v.id) ? `0 0 0 2px ${C.gold}33` : 'none', borderRadius: 12, overflow: 'hidden', cursor: 'pointer', position: 'relative' }}>
+                <label onClick={(e) => e.stopPropagation()} title="selecionar para ações em massa"
+                  style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, background: 'rgba(255,255,255,0.92)', borderRadius: 6, padding: '2px 4px', display: 'inline-flex', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={selVeic.has(v.id)} onChange={() => toggleSel(v.id)} style={{ width: 16, height: 16, accentColor: C.gold, cursor: 'pointer' }} />
+                </label>
                 <div style={{ height: 110, background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.espL, fontSize: 12 }}>
                   {(() => {
                     const src = v.foto_url ? (v.foto_url.startsWith('http') ? v.foto_url : fotoUrls[v.foto_url]) : null
@@ -398,7 +407,106 @@ function Inner() {
         </div>
       )}
 
+      {/* R7a-2 · barra de ações em massa — aparece quando há carros selecionados */}
+      {selVeic.size > 0 && (
+        <div style={{ position: 'fixed', left: '50%', bottom: 18, transform: 'translateX(-50%)', zIndex: 60, background: C.esp, color: C.white, borderRadius: 999, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', flexWrap: 'wrap', maxWidth: 'calc(100vw - 24px)' }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>{selVeic.size} selecionado{selVeic.size > 1 ? 's' : ''}</span>
+          <button onClick={() => setLoteAberto(true)} style={{ border: 'none', borderRadius: 999, background: C.gold, color: C.white, fontWeight: 700, padding: '7px 14px', cursor: 'pointer', fontSize: 12.5 }}>Reprecificar em lote</button>
+          <button onClick={() => setSelVeic(new Set())} style={{ border: 'none', background: 'none', color: '#E9DFD2', cursor: 'pointer', fontSize: 12.5, textDecoration: 'underline' }}>limpar</button>
+        </div>
+      )}
+
+      {loteAberto && companyId && (
+        <LoteModal companyId={companyId} ids={Array.from(selVeic)} onClose={() => setLoteAberto(false)}
+          onAplicado={() => { setLoteAberto(false); setSelVeic(new Set()); void carregar() }} onErro={setErro} />
+      )}
+
       {novo && <NovoVeiculo companyId={companyId} onClose={() => setNovo(false)} onSaved={(id) => { setNovo(false); if (id) router.push(`/dashboard/revenda/veiculo/${id}`); else void carregar() }} onErro={setErro} />}
+    </div>
+  )
+}
+
+// R7a-2 · reprecificação em LOTE com prévia da R2 (fn_veic_precificacao_lote). Modo preço fixo ou ajuste %;
+// pré-visualiza por carro (piso, preço novo, abaixo-do-piso) antes de confirmar. Histórico por carro sai
+// de graça (o aplicar grava veic_precificacao_hist). Paleta PS.
+type LoteResultado = {
+  veiculo_id: string; modelo: string | null; preco_atual: number | null; preco_novo: number | null
+  piso: number | null; abaixo_do_piso: boolean; comissao_nao_configurada: boolean; erro: string | null
+}
+function LoteModal({ companyId, ids, onClose, onAplicado, onErro }: { companyId: string; ids: string[]; onClose: () => void; onAplicado: () => void; onErro: (m: string) => void }) {
+  const [modo, setModo] = useState<'ajuste_pct' | 'preco'>('ajuste_pct')
+  const [valor, setValor] = useState('')
+  const [prev, setPrev] = useState<LoteResultado[] | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const valorNum = Number(String(valor).replace(',', '.'))
+  const valorOk = valor.trim() !== '' && Number.isFinite(valorNum) && (modo === 'preco' ? valorNum > 0 : valorNum !== 0)
+
+  async function chamar(aplicar: boolean): Promise<LoteResultado[] | null> {
+    const { data, error } = await supabase.rpc('fn_veic_precificacao_lote', {
+      p_company_id: companyId, p_veiculo_ids: ids, p_modo: modo, p_valor: valorNum, p_aplicar: aplicar, p_user: null,
+    })
+    const r = data as { ok?: boolean; erro?: string; resultados?: LoteResultado[] } | null
+    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha na reprecificação em lote'); return null }
+    return r.resultados ?? []
+  }
+  async function previsualizar() { if (!valorOk) return; setBusy(true); const r = await chamar(false); setBusy(false); if (r) setPrev(r) }
+  async function aplicar() { if (!valorOk) return; setBusy(true); const r = await chamar(true); setBusy(false); if (r) onAplicado() }
+
+  const nAbaixo = (prev ?? []).filter((r) => r.abaixo_do_piso).length
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(680px,100%)', maxHeight: '92vh', overflowY: 'auto' }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>Reprecificar {ids.length} veículo{ids.length > 1 ? 's' : ''}</div>
+        <p style={{ fontSize: 12, color: C.espM, margin: '0 0 12px' }}>Veja a prévia (piso, preço novo e quem fica abaixo do piso) antes de aplicar. O histórico de cada carro é registrado.</p>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <select value={modo} onChange={(e) => { setModo(e.target.value as typeof modo); setPrev(null) }} style={inp}>
+            <option value="ajuste_pct">reajuste % sobre o anunciado</option>
+            <option value="preco">novo preço fixo (R$)</option>
+          </select>
+          <input value={valor} onChange={(e) => { setValor(e.target.value); setPrev(null) }} inputMode="decimal"
+            placeholder={modo === 'preco' ? 'novo preço (R$)' : 'ex.: -10 (baixar 10%)'} style={{ ...inp, width: 170 }} />
+          <button disabled={!valorOk || busy} onClick={() => void previsualizar()}
+            style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: valorOk && !busy ? 'pointer' : 'not-allowed' }}>
+            {busy && prev === null ? 'Calculando…' : 'Pré-visualizar'}
+          </button>
+        </div>
+
+        {prev && (
+          <>
+            {nAbaixo > 0 && (
+              <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '8px 11px', fontSize: 12.5, marginBottom: 8 }}>
+                ⚠️ {nAbaixo} carro{nAbaixo > 1 ? 's ficam' : ' fica'} <b>abaixo do piso</b> com esse valor.
+              </div>
+            )}
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 92px 92px 92px', gap: 0, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.3, color: C.espM, background: C.cream, padding: '6px 10px' }}>
+                <span>veículo</span><span style={{ textAlign: 'right' }}>atual</span><span style={{ textAlign: 'right' }}>novo</span><span style={{ textAlign: 'right' }}>piso</span>
+              </div>
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {prev.map((r) => (
+                  <div key={r.veiculo_id} style={{ display: 'grid', gridTemplateColumns: '1fr 92px 92px 92px', gap: 0, fontSize: 12, padding: '6px 10px', borderTop: `1px solid ${C.cream}`, alignItems: 'center', background: r.abaixo_do_piso ? C.redBg : C.white }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.modelo || '—'}{r.erro ? <span style={{ color: C.red }}> · {r.erro === 'sem_preco_atual' ? 'sem preço atual' : r.erro}</span> : ''}</span>
+                    <span style={{ textAlign: 'right', color: C.espM }}>{r.preco_atual != null ? brl(r.preco_atual) : '—'}</span>
+                    <span style={{ textAlign: 'right', fontWeight: 700, color: r.abaixo_do_piso ? C.red : C.esp }}>{r.preco_novo != null ? brl(r.preco_novo) : '—'}</span>
+                    <span style={{ textAlign: 'right', color: C.espM }}>{r.piso != null ? brl(r.piso) : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+          <button disabled={!prev || busy} onClick={() => void aplicar()}
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: (!prev || busy) ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: (!prev || busy) ? 'not-allowed' : 'pointer' }}>
+            {busy && prev ? 'Aplicando…' : `Aplicar a ${ids.length}`}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
