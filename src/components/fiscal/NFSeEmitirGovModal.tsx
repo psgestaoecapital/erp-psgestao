@@ -192,6 +192,14 @@ export default function NFSeEmitirGovModal({
   const [exigeObra, setExigeObra] = useState(false)
   // aviso (não bloqueia): produção + tomador é um usuário da própria empresa → "nota REAL pra você mesmo"
   const [avisoAutoTomador, setAvisoAutoTomador] = useState(false)
+  // NFS-e PRIMEIRO → financeiro pelo LÍQUIDO. Após a nota AUTORIZADA, o passo "Gerar financeiro desta
+  // nota" cria o contas a receber pelo líquido (bruto − deduções − desconto − retenções). Entrega 1:
+  // retenções INFORMADAS PELO USUÁRIO. nfseIdGerado = id da nota registrada (erp_nfse_emitidas.id).
+  const [nfseIdGerado, setNfseIdGerado] = useState<string | null>(null)
+  const [finRet, setFinRet] = useState({ iss: '', irrf: '', pis: '', cofins: '', csll: '', inss: '', deducoes: '', desconto: '' })
+  const [finVenc, setFinVenc] = useState('')
+  const [finFase, setFinFase] = useState<'idle' | 'enviando' | 'ok' | 'erro'>('idle')
+  const [finMsg, setFinMsg] = useState<string | null>(null)
   const obraIdEff = obraId ?? (obraFiscal.modo === 'apontar' ? (obraFiscal.obraSel?.id ?? undefined) : undefined)
   const mostrarObra = !obraId && (permitirObra || exigeObra)
 
@@ -223,6 +231,8 @@ export default function NFSeEmitirGovModal({
     setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
     setObraFiscal(obraFiscalStateInicial)
     setExigeObra(false); setAvisoAutoTomador(false); setProviderAtivo(undefined)
+    setNfseIdGerado(null); setFinRet({ iss: '', irrf: '', pis: '', cofins: '', csll: '', inss: '', deducoes: '', desconto: '' })
+    setFinVenc(''); setFinFase('idle'); setFinMsg(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
@@ -493,11 +503,14 @@ export default function NFSeEmitirGovModal({
 
     // Focus → rota REST /api/fiscal/nfse/emitir, que emite POR parcela a receber (erp_receber). Resolve
     // a parcela do pedido AGORA (antes de "enviando"), pra falha de resolução aparecer no formulário.
+    // NFS-e PRIMEIRO: se o pedido ainda NÃO tem parcela a receber, emite pelo caminho 'manual' (tomador +
+    // serviço + valor) — o financeiro nasce DEPOIS, da nota, pelo LÍQUIDO. Se já houver título (fluxo atual),
+    // emite por erp_receber e vincula sem duplicar. Sem tomador não emite (CEO: nem sem tomador nem sem serviço).
     let erpReceberIdFocus: string | undefined
     if (providerAtivo === 'focusnfe') {
       erpReceberIdFocus = await resolverReceberDoPedido()
-      if (!erpReceberIdFocus) {
-        setErroLocal('Este pedido ainda não tem uma parcela a receber para faturar a NFS-e. Fature o pedido (gere o financeiro) e tente de novo.')
+      if (!erpReceberIdFocus && !soDigitos(tomDoc)) {
+        setErroLocal('Informe o tomador (CNPJ/CPF) para emitir a NFS-e antes de faturar.')
         return
       }
     }
@@ -509,21 +522,35 @@ export default function NFSeEmitirGovModal({
         // A rota já roteia internamente (Focus municipal/nacional), aplica travas (obra E0370, duplicidade,
         // Simples) e devolve a mensagem da prefeitura JÁ em português (humanizarErroFiscal) — nunca o
         // "Edge Function returned a non-2xx status code".
+        const bodyFocus: Record<string, unknown> = {
+          companyId,
+          servicoId: servicoIdEff,
+          codigoServicoTributacao: codigoTrib.trim() || undefined,
+          obraId: obraIdFinal || undefined,
+          tipoRetencaoIss: 1,
+        }
+        if (erpReceberIdFocus) {
+          bodyFocus.erpReceberId = erpReceberIdFocus
+          bodyFocus.overrides = { descricaoServico: descricao.trim(), aliquotaIss: aliquotaNum, retemIss: false }
+        } else {
+          // NFS-e PRIMEIRO (pedido não faturado): emite sem título; o financeiro nasce da nota depois.
+          const docDig = soDigitos(tomDoc)
+          bodyFocus.manual = {
+            descricaoServico: descricao.trim(),
+            valorServicos: valorNum,
+            aliquotaIss: aliquotaNum,
+            retemIss: false,
+            codigoServico: codigoTrib.trim() || undefined,
+            tomador: {
+              razaoSocial: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
+              cnpj: tomTipo === 'CNPJ' && docDig ? docDig : undefined,
+              cpf: tomTipo === 'CPF' && docDig ? docDig : undefined,
+            },
+          }
+        }
         const resp = await authFetch('/api/fiscal/nfse/emitir', {
           method: 'POST',
-          body: JSON.stringify({
-            companyId,
-            erpReceberId: erpReceberIdFocus,
-            servicoId: servicoIdEff,
-            codigoServicoTributacao: codigoTrib.trim() || undefined,
-            obraId: obraIdFinal || undefined,
-            overrides: {
-              descricaoServico: descricao.trim(),
-              aliquotaIss: aliquotaNum,
-              retemIss: false,
-            },
-            tipoRetencaoIss: 1,
-          }),
+          body: JSON.stringify(bodyFocus),
         })
         const json = (await resp.json().catch(() => null)) as RespFocus | null
         if (!json) {
@@ -543,6 +570,7 @@ export default function NFSeEmitirGovModal({
               chave_acesso: json.codigoVerificacao ?? null,
               mensagem: json.motivoRejeicao ?? json.mensagem ?? null,
             })
+            setNfseIdGerado(json.nfseId ?? null)
             if (ref) onEmitida(ref)
           }
         }
@@ -589,6 +617,47 @@ export default function NFSeEmitirGovModal({
       setResultado({ erro: e instanceof Error ? e.message : 'Erro inesperado' })
     } finally {
       setFase('concluido')
+    }
+  }
+
+  // NFS-e PRIMEIRO → financeiro pelo LÍQUIDO. numBR parseia "1.234,56" → 1234.56. Prévia da tela:
+  // a receber = bruto − deduções − desconto incondicionado − Σretenções (informadas pelo usuário).
+  const numBR = (s: string) => {
+    const t = String(s || '').trim()
+    if (!t) return 0
+    const n = Number(t.replace(/\./g, '').replace(',', '.'))
+    return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0
+  }
+  const finBruto = numBR(valor)
+  const finRetTotal = numBR(finRet.iss) + numBR(finRet.irrf) + numBR(finRet.pis) + numBR(finRet.cofins) + numBR(finRet.csll) + numBR(finRet.inss)
+  const finLiquido = Math.max(0, finBruto - numBR(finRet.deducoes) - numBR(finRet.desconto) - finRetTotal)
+  const fmtBRL = (n: number) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  async function gerarFinanceiro() {
+    if (!nfseIdGerado) return
+    setFinFase('enviando'); setFinMsg(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfse/gerar-financeiro', {
+        method: 'POST',
+        body: JSON.stringify({
+          companyId, nfseId: nfseIdGerado,
+          deducoes: numBR(finRet.deducoes), descontoIncondicionado: numBR(finRet.desconto),
+          retencoes: { iss: numBR(finRet.iss), irrf: numBR(finRet.irrf), pis: numBR(finRet.pis), cofins: numBR(finRet.cofins), csll: numBR(finRet.csll), inss: numBR(finRet.inss) },
+          primeiroVencimento: finVenc || null,
+        }),
+      })
+      const j = (await resp.json().catch(() => null)) as { ok?: boolean; mensagem?: string; modo?: string; valor_liquido?: number } | null
+      if (resp.ok && j?.ok !== false) {
+        setFinFase('ok')
+        setFinMsg(j?.modo === 'vinculado'
+          ? 'Financeiro vinculado ao título já existente do pedido (sem duplicar).'
+          : `Título gerado pelo líquido${j?.valor_liquido != null ? ` (${fmtBRL(Number(j.valor_liquido))})` : ''}.`)
+      } else {
+        setFinFase('erro')
+        setFinMsg(j?.mensagem ?? 'Não foi possível gerar o financeiro.')
+      }
+    } catch (e) {
+      setFinFase('erro'); setFinMsg(e instanceof Error ? e.message : 'Erro inesperado')
     }
   }
 
@@ -921,6 +990,44 @@ export default function NFSeEmitirGovModal({
                     {resultado.numero && <div className="mt-1">Número: <strong>{resultado.numero}</strong></div>}
                     {resultado.chave_acesso && <div className="text-[11px] mt-0.5 break-all">Chave: {resultado.chave_acesso}</div>}
                   </div>
+                </div>
+              )}
+
+              {/* NFS-e PRIMEIRO → financeiro pelo LÍQUIDO. Após autorizada, gera o contas a receber pela
+                  nota (retenções informadas pelo usuário nesta entrega). Prévia bruto · retenções · a receber. */}
+              {sucessoFinal && nfseIdGerado && (
+                <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/60 px-4 py-3 space-y-3" data-testid="nfse-gerar-financeiro">
+                  <div className="text-[12.5px] font-medium text-[#5C3B0B]">Gerar financeiro desta nota</div>
+                  {finFase !== 'ok' ? (
+                    <>
+                      <p className="text-[11px] text-[#5C3B0B]/80">Informe as retenções (quando houver). O título a receber nasce pelo <b>valor líquido</b>.</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['iss', 'irrf', 'pis', 'cofins', 'csll', 'inss'] as const).map((k) => (
+                          <label key={k} className="block">
+                            <span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">{k === 'iss' ? 'ISS retido' : k.toUpperCase()}</span>
+                            <input type="text" inputMode="decimal" value={finRet[k]} onChange={(e) => setFinRet((p) => ({ ...p, [k]: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" />
+                          </label>
+                        ))}
+                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Deduções</span><input type="text" inputMode="decimal" value={finRet.deducoes} onChange={(e) => setFinRet((p) => ({ ...p, deducoes: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
+                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Desconto</span><input type="text" inputMode="decimal" value={finRet.desconto} onChange={(e) => setFinRet((p) => ({ ...p, desconto: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
+                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">1º vencimento</span><input type="date" value={finVenc} onChange={(e) => setFinVenc(e.target.value)} className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
+                      </div>
+                      <div className="text-[12px] text-[#234D08] bg-[#EAF3DE] border border-[#3B6D11]/25 rounded-md px-3 py-2">
+                        Valor da nota <b>{fmtBRL(finBruto)}</b> · retenções <b>{fmtBRL(finRetTotal)}</b> · a receber <b>{fmtBRL(finLiquido)}</b>
+                        {(numBR(finRet.deducoes) + numBR(finRet.desconto)) > 0 && (
+                          <span className="text-[#234D08]/70"> (inclui deduções/desconto {fmtBRL(numBR(finRet.deducoes) + numBR(finRet.desconto))})</span>
+                        )}
+                      </div>
+                      {finFase === 'erro' && finMsg && (
+                        <div className="flex items-start gap-2 text-[11.5px] text-[#791F1F]"><AlertCircle size={13} className="mt-0.5 flex-shrink-0" /><span>{finMsg}</span></div>
+                      )}
+                      <button type="button" onClick={() => void gerarFinanceiro()} disabled={finFase === 'enviando'} data-testid="nfse-gerar-financeiro-submit" className="w-full px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2">
+                        {finFase === 'enviando' ? (<><Loader2 size={14} className="animate-spin" /> Gerando…</>) : 'Gerar financeiro desta nota'}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex items-start gap-2 text-[12.5px] text-[#234D08]"><CheckCircle2 size={15} className="mt-0.5 flex-shrink-0 text-[#3B6D11]" /><span>{finMsg}</span></div>
+                  )}
                 </div>
               )}
 
