@@ -1120,8 +1120,11 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} />
           </Card>
 
-          {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço · 4 estados */}
-          {statusLocal === 'faturado' && nfseDados && nfseDados.tem_servico && (() => {
+          {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço · 4 estados
+              NFS-e PRIMEIRO (CEO 23/09): "Emitir NFS-e" passa a valer em pedido NÃO faturado (com serviço
+              e tomador). O financeiro nasce da nota, pelo líquido (no próprio modal). Some a exigência de
+              faturar antes — só bloqueia pedido cancelado. Quem já fatura primeiro continua vinculando o título. */}
+          {statusLocal !== 'cancelado' && nfseDados && nfseDados.tem_servico && (() => {
             const ultStatus = nfseUltima?.status
             const eAutorizada = ultStatus === 'autorizada'
             const eProcessando = ultStatus === 'processando'
