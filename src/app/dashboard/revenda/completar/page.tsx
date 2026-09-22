@@ -23,6 +23,7 @@ type Row = {
   ano_fabricacao: number | null; ano_modelo: number | null; valor_aquisicao: number | null
   // R7b-2: identificação/documento editáveis em lista + indicador de CRLV
   tipo: string | null; placa: string | null; renavam: string | null; portas: number | null; crlv_storage_path: string | null
+  ncm: string | null; lugares: number | null
   fiscais_faltantes: string[]; sugestao_ano_chassi: number | null
 }
 const TIPOS: Array<{ v: string; lbl: string }> = [
@@ -51,12 +52,15 @@ function Inner() {
   const [modelos, setModelos] = useState<Modelo[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // B2 · NCM sugerido por veículo (fonte única fn_veic_ncm_sugerido) + aplicar em lote.
+  const [ncmSug, setNcmSug] = useState<Record<string, string>>({})
+  const [loteBusy, setLoteBusy] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); setModelos([]); return }
     // dados editáveis de veic_veiculo + completude (fiscais_faltantes/sugestão) da mesma regra do pátio
     const [vv, pat, ml] = await Promise.all([
-      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path').eq('company_id', companyId).is('deleted_at', null),
+      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path,ncm,lugares').eq('company_id', companyId).is('deleted_at', null),
       supabase.from('v_veic_patio').select('id,fiscais_faltantes,sugestao_ano_chassi').eq('company_id', companyId),
       supabase.rpc('fn_veic_modelo_listar', { p_company_id: companyId }),
     ])
@@ -70,7 +74,27 @@ function Inner() {
     setRows(lista)
     const mr = ml.data as { ok?: boolean; modelos?: Modelo[] } | null
     setModelos(mr?.modelos ?? [])
+    // B2 · NCM sugerido (do tipo/combustível/cilindradas/lugares) por veículo
+    const sug: Record<string, string> = {}
+    await Promise.all(lista.map(async (v) => {
+      const { data: n } = await supabase.rpc('fn_veic_ncm_sugerido', { p_tipo: v.tipo, p_combustivel: v.combustivel, p_cilindradas: v.cilindradas, p_lugares: v.lugares })
+      if (typeof n === 'string' && n) sug[v.id] = n
+    }))
+    setNcmSug(sug)
   }, [companyId])
+
+  async function aplicarNcmLote() {
+    const alvos = rows.filter((r) => !r.ncm && ncmSug[r.id])
+    if (!alvos.length) { setMsg('Nenhum veículo sem NCM com sugestão disponível.'); return }
+    setLoteBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    let ok = 0
+    for (const r of alvos) {
+      const { data } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: r.id, p_dados: { ncm: ncmSug[r.id] }, p_user: user?.id ?? null })
+      if ((data as { ok?: boolean } | null)?.ok) ok++
+    }
+    setLoteBusy(false); setMsg(`NCM sugerido aplicado em ${ok} de ${alvos.length} veículo(s).`); void carregar()
+  }
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
@@ -113,7 +137,15 @@ function Inner() {
 
       {/* B · Completar em lista */}
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>Completar em lista <span style={{ color: C.espM, fontWeight: 400 }}>· {rows.length} veículo(s) com dados faltando</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 2 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Completar em lista <span style={{ color: C.espM, fontWeight: 400 }}>· {rows.length} veículo(s) com dados faltando</span></div>
+          {rows.some((r) => !r.ncm && ncmSug[r.id]) && (
+            <button disabled={loteBusy} onClick={() => void aplicarNcmLote()} title="Preenche o NCM sugerido (do tipo/combustível/cilindradas) em todos os veículos sem NCM"
+              style={{ marginLeft: 'auto', border: `1px solid ${C.gold}`, background: loteBusy ? C.cream : C.white, color: C.gold, borderRadius: 8, padding: '5px 12px', cursor: loteBusy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+              {loteBusy ? 'aplicando…' : `aplicar NCM sugerido em lote (${rows.filter((r) => !r.ncm && ncmSug[r.id]).length})`}
+            </button>
+          )}
+        </div>
         {rows.length === 0 ? (
           <div style={{ fontSize: 13, color: C.green, padding: '12px 0' }}>✓ Todos os veículos do pátio têm os dados do veículo preenchidos.</div>
         ) : (
@@ -122,7 +154,7 @@ function Inner() {
               <div style={{ display: 'grid', gridTemplateColumns: '190px 110px 90px 90px 80px 80px 120px 90px', gap: 6, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM, padding: '4px 0' }}>
                 <span>veículo</span><span>combustível</span><span>potência</span><span>cilindr.</span><span>ano fab</span><span>ano mod</span><span>aquisição</span><span></span>
               </div>
-              {rows.map((r) => <LinhaLote key={r.id} r={r} companyId={companyId} onSaved={() => { setMsg('Veículo atualizado.'); void carregar() }} onErro={setErro} />)}
+              {rows.map((r) => <LinhaLote key={r.id} r={r} companyId={companyId} ncmSugerido={ncmSug[r.id] ?? null} onSaved={() => { setMsg('Veículo atualizado.'); void carregar() }} onErro={setErro} />)}
             </div>
           </div>
         )}
@@ -174,20 +206,33 @@ type SugestaoCrlv = {
   confianca: string; observacao: string
 }
 
-function LinhaLote({ r, companyId, onSaved, onErro }: { r: Row; companyId: string; onSaved: () => void; onErro: (m: string) => void }) {
+function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; companyId: string; ncmSugerido: string | null; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
   const [f, setF] = useState({
     // R7b-2 · identificação/documento
     tipo: r.tipo ?? '', placa: r.placa ?? '', renavam: r.renavam ?? '', chassi: r.chassi ?? '', cor: r.cor ?? '', portas: num(r.portas),
     // técnicos (já existiam)
     combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: num(r.valor_aquisicao),
+    // B2 · NCM (classificação fiscal) — sugerido pela fn_veic_ncm_sugerido, editável
+    ncm: r.ncm ?? '',
   })
   const [busy, setBusy] = useState(false)
   // R7b-2 parte b · leitura ASSISTIDA do CRLV — a IA sugere, a pessoa confere e aplica; nada grava sozinho.
   const [lendo, setLendo] = useState(false)
   const [sug, setSug] = useState<SugestaoCrlv | null>(null)
+  // B2 · mini-visualizador do CRLV — URL assinada do bucket privado, aberta sob demanda.
+  const [crlvUrl, setCrlvUrl] = useState<string | null>(null)
+  const [vendoCrlv, setVendoCrlv] = useState(false)
   const temCrlv = !!r.crlv_storage_path
   const faltam = [...r.fiscais_faltantes, ...faltamDadosVeiculo(r)]
+
+  async function verCrlv() {
+    if (crlvUrl) { setVendoCrlv((v) => !v); return }
+    if (!r.crlv_storage_path) return
+    const { data } = await supabase.storage.from('revenda-veiculos').createSignedUrl(r.crlv_storage_path, 3600)
+    if (data?.signedUrl) { setCrlvUrl(data.signedUrl); setVendoCrlv(true) }
+    else onErro('Não foi possível abrir o CRLV.')
+  }
 
   async function lerCrlv() {
     setLendo(true); setSug(null)
@@ -246,6 +291,12 @@ function LinhaLote({ r, companyId, onSaved, onErro }: { r: Row; companyId: strin
         </span>
         {!temCrlv && <a href={`/dashboard/revenda/veiculo/${r.id}`} style={{ fontSize: 11, color: C.gold, textDecoration: 'none' }}>anexar CRLV na ficha →</a>}
         {temCrlv && (
+          <button onClick={() => void verCrlv()} title="Abrir o CRLV anexado sem sair da lista"
+            style={{ border: `1px solid ${C.espL}`, background: vendoCrlv ? C.cream : C.white, color: C.espM, borderRadius: 999, padding: '3px 11px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+            {vendoCrlv ? 'ocultar CRLV' : '👁 ver CRLV'}
+          </button>
+        )}
+        {temCrlv && (
           <button disabled={lendo} onClick={() => void lerCrlv()} title="A IA lê o CRLV e sugere os campos — você confere e aplica"
             style={{ border: `1px solid ${C.gold}`, background: lendo ? C.cream : C.white, color: C.gold, borderRadius: 999, padding: '3px 11px', cursor: lendo ? 'wait' : 'pointer', fontSize: 11, fontWeight: 700 }}>
             {lendo ? '🤖 lendo…' : '🤖 Ler CRLV (IA)'}
@@ -253,6 +304,17 @@ function LinhaLote({ r, companyId, onSaved, onErro }: { r: Row; companyId: strin
         )}
         {faltam.length > 0 && <span style={{ fontSize: 10.5, color: C.espM }}>falta: {faltam.join(', ')}</span>}
       </div>
+
+      {/* B2 · mini-visualizador do CRLV — URL assinada do bucket privado, embutida na própria lista */}
+      {vendoCrlv && crlvUrl && (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', background: C.cream }}>
+          <iframe src={crlvUrl} title={`CRLV ${r.marca ?? ''} ${r.modelo ?? ''}`} style={{ width: '100%', height: 360, border: 'none', background: C.white }} />
+          <div style={{ padding: '5px 10px', fontSize: 10.5, color: C.espM, display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span>CRLV anexado · link temporário</span>
+            <a href={crlvUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.gold, textDecoration: 'none' }}>abrir em nova aba →</a>
+          </div>
+        </div>
+      )}
 
       {/* R7b-2 parte b · painel de sugestão da IA — a pessoa confere e aplica; a IA não grava nada */}
       {sug && (
@@ -287,6 +349,16 @@ function LinhaLote({ r, companyId, onSaved, onErro }: { r: Row; companyId: strin
         <Campo label="chassi" w={180}><input value={f.chassi} onChange={(e) => setF({ ...f, chassi: e.target.value.toUpperCase() })} placeholder="chassi" style={inp} /></Campo>
         <Campo label="cor" w={100}><input value={f.cor} onChange={(e) => setF({ ...f, cor: e.target.value })} placeholder="cor" style={inp} /></Campo>
         <Campo label="portas" w={70}><input value={f.portas} onChange={(e) => setF({ ...f, portas: e.target.value.replace(/\D/g, '') })} placeholder="4" style={inp} /></Campo>
+        {/* B2 · NCM (classificação fiscal) — a fn_veic_ncm_sugerido sugere pelo tipo/combustível/cilindradas; a pessoa aplica */}
+        <Campo label="NCM" w={130}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value.replace(/\D/g, '') })} placeholder={ncmSugerido ?? 'NCM'} style={{ ...inp, width: 88 }} />
+            {ncmSugerido && f.ncm !== ncmSugerido && (
+              <button title={`sugerido pela classificação fiscal: ${ncmSugerido}`} onClick={() => setF({ ...f, ncm: ncmSugerido })}
+                style={{ border: `1px solid ${C.amber}`, background: C.white, color: C.amber, borderRadius: 6, padding: '7px 6px', cursor: 'pointer', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>💡{ncmSugerido}</button>
+            )}
+          </div>
+        </Campo>
       </div>
 
       {/* linha 2 · técnicos (existiam) */}
