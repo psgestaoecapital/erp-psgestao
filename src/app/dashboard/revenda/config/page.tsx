@@ -12,7 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
   border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5',
-  red: '#B42318', redBg: '#FDECEC',
+  red: '#A32D2D', redBg: '#FDECEC',
 }
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
@@ -643,7 +643,7 @@ export default function ConfigGaragemPage() {
                       <input defaultValue={it.nome} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== it.nome) void chkRenomear(it.item_id, rg.regiao_id, v) }}
                         style={{ flex: 1, boxSizing: 'border-box', padding: '7px 9px', fontSize: 12.5, border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, color: C.esp }} />
                       <button onClick={() => void chkRemover(it.item_id)} disabled={chkBusy} title="remover item"
-                        style={{ border: `1px solid ${C.border}`, background: C.white, color: '#B42318', borderRadius: 6, padding: '4px 9px', cursor: chkBusy ? 'wait' : 'pointer', fontSize: 12 }}>✕</button>
+                        style={{ border: `1px solid ${C.border}`, background: C.white, color: C.red, borderRadius: 6, padding: '4px 9px', cursor: chkBusy ? 'wait' : 'pointer', fontSize: 12 }}>✕</button>
                     </div>
                   ))}
                   {rg.itens.length === 0 && <div style={{ fontSize: 11.5, color: C.espL, fontStyle: 'italic' }}>sem itens nesta região</div>}
