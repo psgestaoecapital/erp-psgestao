@@ -19,7 +19,15 @@ export default function Page() {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '12px 16px 0' }}>
+        <a href="/modelos/MODELO_importacao_cadastros_PS_clientes.xlsx" download
+          style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          ⬇ Baixar planilha modelo
+        </a>
+        <a href="/dashboard/cadastros/clientes/importar"
+          style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          ⬆ Importar planilha
+        </a>
         <button type="button" onClick={() => setSolicitar(true)}
           style={{ background: '#C8941A', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
           🧾 Solicitar elaboração de contrato
