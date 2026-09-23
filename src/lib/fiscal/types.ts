@@ -1,4 +1,29 @@
 export type FiscalAmbiente = 'homologacao' | 'producao'
+
+// Resolve a opção do Simples Nacional (1=Não optante · 2=MEI · 3=ME/EPP) SEM adivinhar:
+// - opção cadastrada (1/2/3) → usa-a;
+// - opção NULA → deriva do regime tributário da empresa (Simples → optante; regimes normais → não optante);
+// - regime desconhecido/ausente → null: o chamador BLOQUEIA a emissão (adivinhar regime é pior que parar).
+export function resolverOpcaoSimplesNacional(
+  opcao: number | null | undefined,
+  regimeTributario: string | null | undefined,
+): number | null {
+  if (opcao === 1 || opcao === 2 || opcao === 3) return opcao
+  switch ((regimeTributario ?? '').toLowerCase().trim()) {
+    case 'mei':
+      return 2
+    case 'simples':
+    case 'simples_nacional':
+    case 'simples_nacional_excesso':
+      return 3
+    case 'regime_normal':
+    case 'lucro_presumido':
+    case 'lucro_real':
+      return 1
+    default:
+      return null
+  }
+}
 export type RegimeTributario =
   | 'simples_nacional'
   | 'simples_nacional_excesso'
@@ -46,7 +71,8 @@ export interface NFSeRequest {
   // (codigo_tributacao_nacional_iss, codigo_municipio_emissora, data_competencia, opção/regime SN).
   padraoNacional?: boolean
   codigoNbs?: string              // código NBS do serviço (obrigatório no layout nacional)
-  opcaoSimplesNacional?: number   // 1=Não optante · 2=MEI · 3=ME/EPP
+  opcaoSimplesNacional?: number   // 1=Não optante · 2=MEI · 3=ME/EPP (já RESOLVIDO — ver resolverOpcaoSimplesNacional)
+  regimeTributario?: string | null // regime tributário da empresa (fonte para derivar a opção quando nula)
   regimeApuracaoSN?: number       // regime_tributario_simples_nacional (1/2/3)
   percentualTribSN?: number       // percentual_total_tributos_simples_nacional (totTrib p/ ME/EPP)
   // #90 paridade OMIE · alíquota efetiva do Simples do MÊS (pAliq / percentual_aliquota_relativa_municipio).

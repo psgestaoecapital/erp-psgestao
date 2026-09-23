@@ -1,4 +1,5 @@
 import { FiscalError } from '../errors'
+import { resolverOpcaoSimplesNacional } from '../types'
 import type {
   FiscalProvider,
   NFSeRequest,
@@ -65,7 +66,11 @@ function isoBrasilia(d: Date = new Date()): string {
 }
 export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
-  const opc = req.opcaoSimplesNacional ?? 1  // sem opção conhecida → 1 = NÃO optante (nunca assumir Simples)
+  // Opção do Simples resolvida sem adivinhar (o route já resolve/bloqueia; aqui é defesa: regime desconhecido → erro, nunca chute).
+  const opc = resolverOpcaoSimplesNacional(req.opcaoSimplesNacional, req.regimeTributario)
+  if (opc == null) {
+    throw new FiscalError('PAYLOAD_INVALIDO', 'Configuração fiscal incompleta: defina a opção do Simples Nacional (ou o regime tributário) da empresa antes de emitir.')
+  }
   const emissao = isoBrasilia()
   const p: Record<string, unknown> = {
     // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
