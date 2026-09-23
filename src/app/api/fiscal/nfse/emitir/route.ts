@@ -301,7 +301,14 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       .eq('ativo', true)
       .maybeSingle()
 
-    if (providerCfg?.provider === 'gov_nfse_nacional') {
+    // DECISÃO DO CEO (23/09): emissão fiscal é EXCLUSIVAMENTE via Focus. ETAPA 1 (reversível, sem
+    // remoção): o caminho gov.br (edge gov-nfse-emitir) deixa de ser chamado — sem exceção nem
+    // bifurcação por município. O bloco abaixo fica INTACTO (nada apagado); só se torna inalcançável
+    // por este flag. Reverter = flag true. ETAPA 2 (aprovação separada) remove código/rota/colunas gov.
+    // Prova (RD-38): 0 NFS-e já saíram pelo gov (todas as 117 via focusnfe); a config de TODAS as
+    // empresas já é focusnfe (inclusive FC Pisos/Iporã) — este branch já era código morto em runtime.
+    const GOV_NFSE_HABILITADO = false
+    if (GOV_NFSE_HABILITADO && providerCfg?.provider === 'gov_nfse_nacional') {
       const authHeader = req.headers.get('authorization') ?? ''
       const municipioPrestador = String(providerCfg.gov_nfse_municipio_codigo ?? '').replace(/\D/g, '')
       if (municipioPrestador.length !== 7) {
