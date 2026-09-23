@@ -104,9 +104,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
-    // marca o registro como NFC-e (modelo 65) — distingue da NF-e(55)
+    // marca o registro como NFC-e (modelo 65) — distingue da NF-e(55); persiste também o payload
+    // ENVIADO (sem cert/token, que vão no header) para depurar rejeição sem reconstruir no escuro.
     if (registroId) {
-      await supabaseAdmin.from('erp_nfe_emitidas').update({ modelo: '65' }).eq('id', registroId)
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({ modelo: '65', ...(resposta.payloadEnviado != null ? { payload_enviado: resposta.payloadEnviado } : {}) })
+        .eq('id', registroId)
     }
 
     return NextResponse.json({

@@ -126,6 +126,17 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
+    // Persiste o payload EXATO enviado à Focus (sem cert/token — vão no header) para depurar
+    // rejeições sem reconstruir no escuro (espelho do que a NFS-e já faz). fn_registrar_nfe_emitida
+    // não tem param p_payload_enviado → grava via UPDATE separado. Vale também para nota REJEITADA
+    // (a rota registra a nota mesmo rejeitada), que é justamente o caso a depurar (ex.: 938 do ST).
+    if (registroId && resposta.payloadEnviado != null) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({ payload_enviado: resposta.payloadEnviado })
+        .eq('id', registroId)
+    }
+
     // FIX-NFE-ICMS-ORIGEM-v1 · vinculo pedido_id (anti-duplicata)
     // fn_registrar_nfe_emitida nao tem param p_pedido_id · grava via UPDATE
     // separado pra que o NFeCard consiga achar a nota (.eq('pedido_id', ...))
