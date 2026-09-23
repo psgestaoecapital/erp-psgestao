@@ -35,7 +35,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // Busca a NFe de venda original
     const { data: nfeVenda, error: errVenda } = await supabaseAdmin
       .from('erp_nfe_emitidas')
-      .select('id, company_id, chave, status, finalidade, itens, destinatario_razao_social, destinatario_cnpj, destinatario_cpf, destinatario_email, destinatario_endereco')
+      .select('id, company_id, chave, numero, serie, status, finalidade, itens, destinatario_razao_social, destinatario_cnpj, destinatario_cpf, destinatario_email, destinatario_endereco')
       .eq('id', body.nfeVendaId)
       .single()
 
@@ -134,6 +134,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         }
       : undefined
 
+    // #94: a NF de origem tem que aparecer nas OBSERVAÇÕES da DANFE (dados adicionais), não só no
+    // grupo NFref estrutural. Devolução sem referência legível é problema fiscal (carta de correção
+    // e fiscalização não acham a nota de origem).
+    const obsDevolucao = `Devolução referente à NF-e nº ${nfeVenda.numero ?? '—'}, série ${nfeVenda.serie ?? '—'}, chave de acesso ${chaveVenda}.`
+
     const nfeReq = await buildNFeRequest({
       companyId: nfeVenda.company_id,
       manual: {
@@ -148,6 +153,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         naturezaOperacao: body.naturezaOperacao ?? 'Devolução de venda',
         finalidade: 'devolucao',
         chaveReferenciada: chaveVenda,
+        observacoes: obsDevolucao,
       },
     })
 
