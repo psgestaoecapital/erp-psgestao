@@ -116,18 +116,24 @@ export default function ProdutosPage() {
     return () => { alive = false }
   }, [companyId])
 
+  // Abre a ficha buscando a linha COMPLETA (select('*')). CRÍTICO: a lista usa SELECT_COLS (parcial,
+  // sem cst_icms/cest/aliquotas/ST) — abrir o ProdutoForm com a linha parcial faria o form assumir
+  // defaults (cst '00', cfop '5102', aliq 18, ST vazio) e o save APAGARIA os dados fiscais reais.
+  // Buscar '*' garante que o form recebe todos os campos. Vale para a edição da lista E o deep-link.
+  const abrirEdicao = useCallback(async (id: string) => {
+    if (!companyId) return
+    const { data } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
+    if (data) setEditando(data as unknown as Produto)
+  }, [companyId])
+
   // #118 (Jordana): deep-link ?edit=<id> abre a ficha do produto direto — é como o Estoque manda o
-  // usuário editar aqui. Busca a linha COMPLETA (SELECT_COLS) para o ProdutoForm não perder campo
-  // fiscal (NCM/CST/ST) ao salvar.
+  // usuário editar aqui.
   useEffect(() => {
     if (!companyId) return
     const editId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('edit') : null
     if (!editId) return
-    let alive = true
-    supabase.from('erp_produtos').select(SELECT_COLS).eq('company_id', companyId).eq('id', editId).maybeSingle()
-      .then(({ data }) => { if (alive && data) setEditando(data as unknown as Produto) })
-    return () => { alive = false }
-  }, [companyId])
+    void abrirEdicao(editId)
+  }, [companyId, abrirEdicao])
 
   // Carrega grupos distintos (uma vez por empresa)
   useEffect(() => {
@@ -612,7 +618,7 @@ export default function ProdutosPage() {
                         <td className="px-4 py-2.5 text-right">
                           <button
                             type="button"
-                            onClick={() => setEditando(p)}
+                            onClick={() => void abrirEdicao(p.id)}
                             data-testid="produto-editar"
                             className="text-[#C8941A] hover:text-[#A87810] mr-3"
                             title="Editar"
@@ -654,7 +660,7 @@ export default function ProdutosPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setEditando(p)}
+                        onClick={() => void abrirEdicao(p.id)}
                         className="text-[#C8941A] hover:text-[#A87810]"
                         title="Editar"
                       >
