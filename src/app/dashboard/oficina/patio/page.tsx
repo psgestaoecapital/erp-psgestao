@@ -128,6 +128,9 @@ export default function PatioKanbanPage() {
   const companyId = companyIds.length === 1 ? companyIds[0] : null
   // A1 · "Programados para hoje" — agendamentos do dia que ainda não viraram OS (só exibição).
   const [programados, setProgramados] = useState<{ id: string; data: string | null; hora_inicio: string | null; cliente_id: string | null; cliente_nome: string | null; responsavel_nome: string | null; dados: { placa?: string; veiculo?: string; modelo?: string } | null }[]>([])
+  // #104 · pátio mostra só a SEMANA; atrasados (a chegar de datas passadas) ficam num botão "consultar".
+  const [atrasados, setAtrasados] = useState<typeof programados>([])
+  const [verAtrasados, setVerAtrasados] = useState(false)
   const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · card/labels coerentes por ramo
   // RD-41 · Auxiliar (OPERATOR) → abre a Visão de Execução (sem R$/gerencial).
   const { isOperator } = useAcesso(companyId)
@@ -189,8 +192,9 @@ export default function PatioKanbanPage() {
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { if (!toastMsg) return; const t = setTimeout(() => setToastMsg(null), 3500); return () => clearTimeout(t) }, [toastMsg])
   useEffect(() => {
-    if (!companyIds.length) { setProgramados([]); return }
-    void supabase.rpc('fn_agenda_patio_hoje', { p_company_ids: companyIds }).then(({ data }) => setProgramados((data as typeof programados) ?? []))
+    if (!companyIds.length) { setProgramados([]); setAtrasados([]); return }
+    void supabase.rpc('fn_agenda_patio_hoje', { p_company_ids: companyIds, p_modo: 'semana' }).then(({ data }) => setProgramados((data as typeof programados) ?? []))
+    void supabase.rpc('fn_agenda_patio_hoje', { p_company_ids: companyIds, p_modo: 'atrasados' }).then(({ data }) => setAtrasados((data as typeof programados) ?? []))
   }, [companyIds])
 
   // FIX 2 · remover do pátio. force=false: soft-delete se sem vínculo, ou volta bloqueada c/ mensagem.
@@ -331,11 +335,24 @@ export default function PatioKanbanPage() {
 
       {/* Bloco C · Agendados a chegar (hoje + atrasados que ainda não viraram OS). Separado do pátio:
           aqui é AGENDA (quem ainda não chegou); o pátio abaixo é quem tem recepção e não saiu. */}
-      {programados.length > 0 && (
-        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${C.gold}`, borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: C.gold, fontWeight: 700, marginBottom: 6 }}>🗓️ Agendados a chegar · {programados.length}</div>
+      {(programados.length > 0 || atrasados.length > 0) && (
+        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderLeft: `4px solid ${verAtrasados ? '#791F1F' : C.gold}`, borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: verAtrasados ? '#791F1F' : C.gold, fontWeight: 700 }}>
+              {verAtrasados ? `🕒 Atrasados · ${atrasados.length}` : `🗓️ Agendados a chegar (semana) · ${programados.length}`}
+            </div>
+            {atrasados.length > 0 && (
+              <button onClick={() => setVerAtrasados((v) => !v)}
+                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${verAtrasados ? C.border : '#791F1F'}`, background: verAtrasados ? '#FFF' : '#FCEBEB', color: verAtrasados ? C.espresso : '#791F1F' }}>
+                {verAtrasados ? '← Voltar à semana' : `🕒 Consultar atrasados (${atrasados.length})`}
+              </button>
+            )}
+          </div>
+          {verAtrasados && atrasados.length > 0 && (
+            <div style={{ fontSize: 11, color: C.espressoM, marginBottom: 6 }}>Agendamentos de datas passadas que não viraram OS nem foram concluídos/cancelados. Aponte a chegada, ou exclua/cancele na Agenda.</div>
+          )}
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            {programados.map((p) => {
+            {(verAtrasados ? atrasados : programados).map((p) => {
               const veic = [p.dados?.placa, p.dados?.veiculo].filter(Boolean).join(' · ')
               return (
                 <div key={p.id} style={{ minWidth: 190, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 10px' }}>
