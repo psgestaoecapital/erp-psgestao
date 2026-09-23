@@ -438,6 +438,30 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     return filtrado
   }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax])
 
+  // GE-CARDS-FILTRO (bug André): os KPIs do topo vinham do fn_ge_listagem_v2 (período inteiro, SEM os
+  // filtros client-side de categoria/conta/busca/coluna) — enquanto a LISTA já era filtrada, então os
+  // cards mostravam o total geral ("TOTAL · FILTRADO" com o número errado). Recalcula os cards a partir
+  // das MESMAS linhas filtradas, com semântica idêntica à RPC: buckets por `situacao`
+  // (vencido/hoje/a_vencer; pagos = pago+conciliado, valor = Σ COALESCE(NULLIF(valor_pago,0), valor));
+  // total = Σ valor de todas as linhas filtradas. Filtro que zera → cards zeram (não o total geral).
+  const kpisFiltrados = useMemo(() => {
+    const rows = resultadosFiltrados
+    const somaDoc = (rs: typeof rows) => rs.reduce((s, r) => s + (r.valor_documento ?? 0), 0)
+    const vend = rows.filter((r) => r.situacao === 'vencido')
+    const hj = rows.filter((r) => r.situacao === 'hoje')
+    const av = rows.filter((r) => r.situacao === 'a_vencer')
+    const pg = rows.filter((r) => r.situacao === 'pago' || r.situacao === 'conciliado')
+    const pagoValor = pg.reduce((s, r) => s + ((r.valor_pago != null && Number(r.valor_pago) !== 0) ? Number(r.valor_pago) : (r.valor_documento ?? 0)), 0)
+    return {
+      vencidos: { valor: somaDoc(vend), qtd: vend.length },
+      hoje: { valor: somaDoc(hj), qtd: hj.length },
+      avencer: { valor: somaDoc(av), qtd: av.length },
+      pagos: { valor: pagoValor, qtd: pg.length },
+      total: somaDoc(rows),
+      totalQtd: rows.length,
+    }
+  }, [resultadosFiltrados])
+
   const idsSelecionaveis = useMemo(
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
     [resultadosFiltrados],
@@ -459,12 +483,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }, [dataInicio, dataFim, statusSel, categoria, busca, fPessoa, fForma, fValorMin, fValorMax, contasSel, labels, tipo])
 
   const kpisExport = useMemo(() => data ? [
-    { label: labels.vencidosLabel, valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
-    { label: labels.hojeLabel, valor: data.kpis.hoje.valor, qtd: data.kpis.hoje.qtd },
-    { label: 'A vencer', valor: data.kpis.avencer.valor, qtd: data.kpis.avencer.qtd },
-    { label: labels.pagosLabel, valor: data.kpis.pagos.valor, qtd: data.kpis.pagos.qtd },
-    { label: 'Total', valor: data.kpis.total, qtd: (data.resultados ?? []).length },
-  ] : [], [data, labels])
+    { label: labels.vencidosLabel, valor: kpisFiltrados.vencidos.valor, qtd: kpisFiltrados.vencidos.qtd },
+    { label: labels.hojeLabel, valor: kpisFiltrados.hoje.valor, qtd: kpisFiltrados.hoje.qtd },
+    { label: 'A vencer', valor: kpisFiltrados.avencer.valor, qtd: kpisFiltrados.avencer.qtd },
+    { label: labels.pagosLabel, valor: kpisFiltrados.pagos.valor, qtd: kpisFiltrados.pagos.qtd },
+    { label: 'Total', valor: kpisFiltrados.total, qtd: kpisFiltrados.totalQtd },
+  ] : [], [data, labels, kpisFiltrados])
   // Dois somatórios (Jordana/CEO): Total = Σ valor cheio ("quanto tem nas contas");
   // Pendente = Σ (valor − valor_pago) ("quanto ainda falta"), nunca negativo (clamp em 0).
   const { valorTotalSelecionados, valorPendenteSelecionados } = useMemo(() => {
@@ -824,41 +848,41 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         >
           <KpiCard
             titulo={labels.vencidosLabel}
-            valor={data?.kpis.vencidos.valor ?? 0}
-            qtd={data?.kpis.vencidos.qtd ?? 0}
+            valor={kpisFiltrados.vencidos.valor}
+            qtd={kpisFiltrados.vencidos.qtd}
             cor="#DC2626"
-            destaque={(data?.kpis.vencidos.qtd ?? 0) > 0}
+            destaque={kpisFiltrados.vencidos.qtd > 0}
             ativo={statusSel.includes('vencidos')}
             onClick={() => toggleStatus('vencidos')}
           />
           <KpiCard
             titulo={labels.hojeLabel}
-            valor={data?.kpis.hoje.valor ?? 0}
-            qtd={data?.kpis.hoje.qtd ?? 0}
+            valor={kpisFiltrados.hoje.valor}
+            qtd={kpisFiltrados.hoje.qtd}
             cor="#C8941A"
             ativo={statusSel.includes('hoje')}
             onClick={() => toggleStatus('hoje')}
           />
           <KpiCard
             titulo="A vencer"
-            valor={data?.kpis.avencer.valor ?? 0}
-            qtd={data?.kpis.avencer.qtd ?? 0}
+            valor={kpisFiltrados.avencer.valor}
+            qtd={kpisFiltrados.avencer.qtd}
             cor="#3D2314"
             ativo={statusSel.includes('avencer')}
             onClick={() => toggleStatus('avencer')}
           />
           <KpiCard
             titulo={labels.pagosLabel}
-            valor={data?.kpis.pagos.valor ?? 0}
-            qtd={data?.kpis.pagos.qtd ?? 0}
+            valor={kpisFiltrados.pagos.valor}
+            qtd={kpisFiltrados.pagos.qtd}
             cor="#16A34A"
             ativo={statusSel.includes('pagos')}
             onClick={() => toggleStatus('pagos')}
           />
           <KpiCard
             titulo="Total"
-            valor={data?.kpis.total ?? 0}
-            qtd={(data?.resultados ?? []).length}
+            valor={kpisFiltrados.total}
+            qtd={kpisFiltrados.totalQtd}
             cor="#3D2314"
             ativo={statusSel.length === 0}
             onClick={() => setStatusSel([])}
@@ -1120,16 +1144,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             )}
 
             {statusSel.length > 0 && data && (() => {
-              // agendado/incluido_remessa não têm KPI de período na RPC — derivo do resultado filtrado.
+              // Todos os chips derivam das linhas JÁ filtradas (bug André): antes vencidos/hoje/avencer/pagos
+              // liam data.kpis (período inteiro, sem filtro de categoria/conta/busca), divergindo da lista.
               const derivar = (sit: Situacao) => {
-                const rows = (data.resultados ?? []).filter((r) => r.situacao === sit)
+                const rows = resultadosFiltrados.filter((r) => r.situacao === sit)
                 return { qtd: rows.length, valor: rows.reduce((a, r) => a + (r.valor_documento || 0), 0) }
               }
               const info: Record<StatusOpt, { label: string; cor: string; valor: number; qtd: number }> = {
-                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: data.kpis.vencidos.valor, qtd: data.kpis.vencidos.qtd },
-                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: data.kpis.hoje.valor, qtd: data.kpis.hoje.qtd },
-                avencer: { label: 'A vencer', cor: '#3D2314', valor: data.kpis.avencer.valor, qtd: data.kpis.avencer.qtd },
-                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: data.kpis.pagos.valor, qtd: data.kpis.pagos.qtd },
+                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: kpisFiltrados.vencidos.valor, qtd: kpisFiltrados.vencidos.qtd },
+                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: kpisFiltrados.hoje.valor, qtd: kpisFiltrados.hoje.qtd },
+                avencer: { label: 'A vencer', cor: '#3D2314', valor: kpisFiltrados.avencer.valor, qtd: kpisFiltrados.avencer.qtd },
+                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: kpisFiltrados.pagos.valor, qtd: kpisFiltrados.pagos.qtd },
                 conciliado: { label: 'Conciliado', cor: '#0D9488', ...derivar('conciliado') },
                 agendado: { label: 'Agendado', cor: '#2F5AA8', ...derivar('agendado') },
                 incluido_remessa: { label: 'Incluído na remessa', cor: '#4F46E5', ...derivar('incluido_remessa') },
