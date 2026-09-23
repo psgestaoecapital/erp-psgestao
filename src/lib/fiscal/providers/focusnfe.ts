@@ -536,12 +536,14 @@ export class FocusNFeProvider implements FiscalProvider {
         icms_situacao_tributaria: item.icms?.cst,
         icms_aliquota: item.icms?.aliquota,
         // CST 60 / 500 · ICMS cobrado anteriormente por ST (NT 2018.005). Campos Focus:
-        // icms_base_calculo_st_retido=vBCSTRet · icms_aliquota_suportada_consumidor_final=pST ·
-        // icms_valor_substituto=vICMSSubstituto · icms_valor_st_retido=vICMSSTRet. Sem eles → rejeição 938.
-        ...(item.icms?.stRet?.vBcstRet != null ? { icms_base_calculo_st_retido: item.icms.stRet.vBcstRet } : {}),
-        ...(item.icms?.stRet?.pst != null ? { icms_aliquota_suportada_consumidor_final: item.icms.stRet.pst } : {}),
+        // Nomes EXATOS da doc oficial Focus (campos.focusnfe.com.br/nfe/NotaFiscalXML.html; NT 2018/005):
+        // vBCSTRet=icms_base_calculo_retido_st · pST=icms_aliquota_final ·
+        // vICMSSubstituto=icms_valor_substituto · vICMSSTRet=icms_valor_retido_st. Aceitam ZERO — o
+        // guard != null preserva 0 (não omite). Nomes de segunda mão (…_st_retido) eram ignorados em silêncio.
+        ...(item.icms?.stRet?.vBcstRet != null ? { icms_base_calculo_retido_st: item.icms.stRet.vBcstRet } : {}),
+        ...(item.icms?.stRet?.pst != null ? { icms_aliquota_final: item.icms.stRet.pst } : {}),
         ...(item.icms?.stRet?.vIcmsSubstituto != null ? { icms_valor_substituto: item.icms.stRet.vIcmsSubstituto } : {}),
-        ...(item.icms?.stRet?.vIcmsStRet != null ? { icms_valor_st_retido: item.icms.stRet.vIcmsStRet } : {}),
+        ...(item.icms?.stRet?.vIcmsStRet != null ? { icms_valor_retido_st: item.icms.stRet.vIcmsStRet } : {}),
         // devolucao-icms-espelho: base/valor/modalidade so saem quando informados (CSOSN 900 na
         // devolucao do Simples devolve o credito da entrada). Sem isto o ICMS zerava (CSOSN 102).
         ...(item.icms?.base != null ? { icms_base_calculo: item.icms.base } : {}),
