@@ -108,6 +108,10 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
     const { error } = await supabase.from('business_lines').insert({
       company_id: companyId,
       name: novoNome.trim(),
+      // type é obrigatório para a linha contar como OPERACIONAL no rateio/DRE Divisional.
+      // Antes ficava NULL aqui (esta tela era a porta que gerava as 12 linhas sem type).
+      // Default 'servico', igual ao caminho oficial fn_psgc_cadastrar_ln (tipo || 'servico').
+      type: 'servico',
       cor: novaCor,
       is_active: true,
       ln_number: prox,
