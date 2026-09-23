@@ -24,6 +24,9 @@ type Categoria = {
   pai_codigo: string | null
   is_totalizador: boolean
   origem: 'empresa' | 'global'
+  // fn_plano_contas_buscar informa se a empresa tem plano próprio (todas as contas são dela):
+  // nesse caso a lista agrupa por totalizador e o rótulo "custom" some (não informa nada).
+  plano_proprio?: boolean
 }
 
 type Aplicacao = 'pagar' | 'receber'
@@ -67,6 +70,12 @@ function agruparPorTipo(itens: Categoria[]): { tipo: string; label: string; iten
   const outros = itens.filter((c) => !conhecidos.has(c.tipo))
   if (outros.length) secoes.push({ tipo: '_outros', label: 'Outros', itens: outros })
   return secoes
+}
+
+// Ordena pela HIERARQUIA do plano, tratando cada segmento como número (2 < 2.01 < 10, não '10' < '2').
+// A RPC já devolve nessa ordem; reordenamos na tela por robustez (dedupe/agrupamento não a preserva).
+function ordenarPorCodigo(itens: Categoria[]): Categoria[] {
+  return [...itens].sort((a, b) => a.codigo.localeCompare(b.codigo, undefined, { numeric: true }))
 }
 
 export default function CategoriaCombobox({
@@ -155,6 +164,56 @@ export default function CategoriaCombobox({
     setTermo('')
     setAberto(false)
   }, [onChange])
+
+  // Empresa com plano próprio: todas as contas são dela → lista na ordem do plano com os
+  // totalizadores como cabeçalho, e o rótulo "custom" some (não informa nada). Empresa com
+  // template global mantém o agrupamento por tipo. A RPC devolve plano_proprio igual em todas as linhas.
+  const planoProprio = resultados.length > 0 && (resultados[0]?.plano_proprio ?? false)
+
+  // Cabeçalho de seção NÃO clicável (nome do grupo/tipo ou de um totalizador). Lançar em totalizador
+  // quebra o DRE (valor no pai sem filho), então totalizador nunca é opção — só rótulo.
+  const cabecalho = (key: string, texto: string, codigo?: string) => (
+    <li key={key}>
+      <div style={{
+        padding: '6px 12px', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3,
+        textTransform: 'uppercase', color: C.espressoM, background: C.cream,
+        borderBottom: `0.5px solid ${C.border}`,
+      }}>
+        {codigo && <span style={{ fontFamily: 'monospace', marginRight: 6, color: C.espressoL }}>{codigo}</span>}
+        {texto}
+      </div>
+    </li>
+  )
+
+  // Conta analítica: opção clicável. Badge "custom" só quando NÃO é plano próprio (aí distingue
+  // a conta da empresa da conta do template global).
+  const itemConta = (c: Categoria) => (
+    <li key={c.codigo}>
+      <button
+        type="button"
+        onClick={() => selecionar(c)}
+        style={{
+          width: '100%', textAlign: 'left',
+          padding: '8px 12px', border: 'none', background: 'transparent',
+          cursor: 'pointer', fontSize: 12, color: C.espresso,
+          display: 'flex', alignItems: 'center', gap: 8,
+          borderBottom: `0.5px solid ${C.border}`,
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = C.goldBg)}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+      >
+        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: C.gold, minWidth: 60 }}>{c.codigo}</span>
+        <span style={{ flex: 1 }}>{c.descricao}</span>
+        {!planoProprio && c.origem === 'empresa' && (
+          <span style={{
+            fontSize: 9, padding: '1px 5px', borderRadius: 3,
+            background: C.greenBg, color: C.green, fontWeight: 700,
+            textTransform: 'uppercase', letterSpacing: 0.3,
+          }}>custom</span>
+        )}
+      </button>
+    </li>
+  )
 
   // podeCriar: "➕ Criar nova categoria" fica SEMPRE visível no rodapé do dropdown
   // (08/07 · André relatou "sumiu" — antes só aparecia com 2+ chars digitados, o que
@@ -245,57 +304,24 @@ export default function CategoriaCombobox({
 
           {!buscando && !erroRpc && resultados.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {/* RD-41 · agrupa por tipo (Despesas/Custos/Investimentos/Financeiro/Receitas)
-                  pra a Jordana ver "Investimentos" separado da despesa operacional. */}
-              {agruparPorTipo(resultados).map((sec) => (
-                <li key={sec.tipo}>
-                  <div style={{
-                    padding: '6px 12px', fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
-                    textTransform: 'uppercase', color: C.espressoM, background: C.cream,
-                    borderBottom: `0.5px solid ${C.border}`, position: 'sticky', top: 0,
-                  }}>{sec.label}</div>
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                    {sec.itens.map((c) => (
-                      <li key={c.codigo}>
-                        <button
-                          type="button"
-                          onClick={() => selecionar(c)}
-                          style={{
-                            width: '100%', textAlign: 'left',
-                            padding: '8px 12px', border: 'none', background: 'transparent',
-                            cursor: 'pointer', fontSize: 12, color: C.espresso,
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            borderBottom: `0.5px solid ${C.border}`,
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = C.goldBg)}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <span style={{
-                            fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
-                            color: c.is_totalizador ? C.espressoL : C.gold,
-                            minWidth: 60,
-                          }}>{c.codigo}</span>
-                          <span style={{ flex: 1 }}>
-                            {c.descricao}
-                            {c.is_totalizador && (
-                              <span style={{ marginLeft: 6, fontSize: 9, color: C.espressoL, fontStyle: 'italic' }}>
-                                (grupo)
-                              </span>
-                            )}
-                          </span>
-                          {c.origem === 'empresa' && (
-                            <span style={{
-                              fontSize: 9, padding: '1px 5px', borderRadius: 3,
-                              background: C.greenBg, color: C.green, fontWeight: 700,
-                              textTransform: 'uppercase', letterSpacing: 0.3,
-                            }}>custom</span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
+              {planoProprio
+                // PLANO PRÓPRIO (ex: Estância Umuarama): na ordem do plano, totalizador vira
+                // cabeçalho não clicável, as contas analíticas caem sob ele (código crescente).
+                ? ordenarPorCodigo(resultados).map((c) =>
+                    c.is_totalizador ? cabecalho(c.codigo, c.descricao, c.codigo) : itemConta(c),
+                  )
+                // TEMPLATE GLOBAL (flag false): mantém o agrupamento por tipo (RD-41). Dentro de
+                // cada tipo, ordem hierárquica; totalizador (raro) também vira cabeçalho não clicável.
+                : agruparPorTipo(resultados).map((sec) => (
+                    <li key={sec.tipo}>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {cabecalho(`sec-${sec.tipo}`, sec.label)}
+                        {ordenarPorCodigo(sec.itens).map((c) =>
+                          c.is_totalizador ? cabecalho(c.codigo, c.descricao, c.codigo) : itemConta(c),
+                        )}
+                      </ul>
+                    </li>
+                  ))}
             </ul>
           )}
 
