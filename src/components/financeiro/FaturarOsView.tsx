@@ -13,7 +13,7 @@ import VincularClienteModal from './VincularClienteModal'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', WHITE = '#FFFFFF', OK = '#166534', WARN = '#B45309', RED = '#A32D2D'
 const brl = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
 
-type Linha = { os_id: string; numero: string | null; cliente_nome: string | null; cliente_id: string | null; placa: string | null; entregue_em: string | null; total: number; dias: number; situacao: 'pronta' | 'sem_cliente' | 'sem_valor' }
+type Linha = { os_id: string; numero: string | null; cliente_nome: string | null; cliente_id: string | null; placa: string | null; entregue_em: string | null; total: number; desconto?: number | null; dias: number; situacao: 'pronta' | 'sem_cliente' | 'sem_valor' }
 type Totais = { qtd: number; soma_total: number; mais_antiga_dias: number; prontas: number; soma_prontas: number; sem_cliente: number; sem_valor: number }
 type Pulada = { os_id: string; numero?: string | null; motivo: string }
 
@@ -238,7 +238,15 @@ function LinhaOS({ l, acao }: { l: Linha; acao: React.ReactNode }) {
           {(l.cliente_nome || 'sem cliente')}{l.dias != null ? ` · entregue há ${l.dias}d` : ''}
         </div>
       </div>
-      <div style={{ fontSize: 15, fontWeight: 800, color: ESP, fontVariantNumeric: 'tabular-nums' }}>{brl(l.total)}</div>
+      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        {/* #108 · desconto vem da OS (somente leitura aqui): bruto · desconto · a faturar */}
+        {Number(l.desconto) > 0 && (
+          <div style={{ fontSize: 11, color: ESP60 }}>
+            bruto {brl(l.total + Number(l.desconto))} · desc −{brl(Number(l.desconto))}
+          </div>
+        )}
+        <div style={{ fontSize: 15, fontWeight: 800, color: ESP }}>{brl(l.total)}</div>
+      </div>
       {acao}
     </div>
   )

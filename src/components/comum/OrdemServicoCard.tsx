@@ -37,6 +37,10 @@ interface OS {
   horas_previstas: number | null
   horas_executadas: number | null
   valor_hora: number | null
+  // #108 · desconto na OS (antes de faturar): grava em valor; % é derivado; autoria/data de quem concedeu.
+  desconto_valor: number | null
+  desconto_percentual: number | null
+  desconto_concedido_em: string | null
   // O4.3 · assinatura
   assinatura_cliente: string | null
   assinatura_data: string | null
@@ -153,6 +157,11 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [substindo, setSubstindo] = useState(false)
   // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
   const [receitaAberta, setReceitaAberta] = useState(false)   // #20 §2.4 · form de receita a partir da OS
+  // #108 · desconto na OS (ponto único, antes de faturar): entrada em R$ OU %, grava sempre em valor.
+  const [descInput, setDescInput] = useState('')
+  const [descModo, setDescModo] = useState<'valor' | 'pct'>('valor')
+  const [aplicandoDesc, setAplicandoDesc] = useState(false)
+  const [descPrecisaAprovacao, setDescPrecisaAprovacao] = useState(false)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -185,6 +194,37 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Financeiro criado, mas falhou ao vincular à OS. Confira em Contas a Receber.'); return }
     flash('Financeiro lançado ✓ vinculado à OS. Veja em Financeiro → Contas a Receber.')
+    void carregar()
+  }
+
+  // #108 · aplica desconto na OS (ponto único). Converte % → valor pelo BRUTO; acima do teto pede aprovação
+  // (Master/BPO aplicam com a própria alçada). Bloqueado se já faturada (o servidor também recusa).
+  async function aplicarDesconto(aprovar = false, override?: number) {
+    if (!os) return
+    const bruto = (Number(os.total) || 0) + (Number(os.desconto_valor) || 0)
+    const raw = Number((descInput || '0').replace(',', '.')) || 0
+    const valor = override != null ? Math.round(override * 100) / 100
+      : descModo === 'pct' ? Math.round(bruto * raw) / 100 : Math.round(raw * 100) / 100
+    if (valor < 0) { setErro('Desconto não pode ser negativo.'); return }
+    if (valor > bruto) { setErro(`Desconto não pode ultrapassar o total da OS (${fmtBRL(bruto)}).`); return }
+    setAplicandoDesc(true); setErro(null)
+    let aprovadoPor: string | null = null
+    if (aprovar) { const { data: u } = await supabase.auth.getUser(); aprovadoPor = u?.user?.id ?? null }
+    const { data, error } = await supabase.rpc('fn_os_aplicar_desconto', { p_os_id: os.id, p_desconto_valor: valor, p_aprovado_por: aprovadoPor })
+    setAplicandoDesc(false)
+    const r = data as { ok?: boolean; erro?: string; precisa_aprovacao?: boolean; teto_valor?: number; total?: number } | null
+    if (error || r?.ok === false) {
+      if (r?.precisa_aprovacao) {
+        setDescPrecisaAprovacao(true)
+        setErro((isMaster || isBpo)
+          ? `Desconto acima do teto (máx ${fmtBRL(r.teto_valor ?? 0)}). Você tem alçada — confirme em "Aplicar com aprovação".`
+          : `Desconto acima do teto (máx ${fmtBRL(r.teto_valor ?? 0)}). Precisa de aprovação de quem tem alçada.`)
+        return
+      }
+      setErro(error?.message || r?.erro || 'Falha ao aplicar desconto'); return
+    }
+    setDescInput(''); setDescPrecisaAprovacao(false)
+    flash(valor > 0 ? `Desconto aplicado ✓ ${fmtBRL(valor)}` : 'Desconto removido ✓')
     void carregar()
   }
 
@@ -239,7 +279,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -340,7 +380,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (resp?.os_id) {
       const { data: row } = await supabase
         .from('erp_os')
-        .select('id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .select('id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
         .eq('id', resp.os_id)
         .maybeSingle()
       if (row) {
@@ -775,6 +815,45 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           })()}
         </div>
       )}
+
+      {/* #108 · Desconto na OS (ponto único, antes de faturar) + consulta valor real × cobrado */}
+      {os.total != null && (() => {
+        const desc = Number(os.desconto_valor) || 0
+        const aCobrar = Number(os.total) || 0
+        const bruto = aCobrar + desc
+        return (
+          <div data-testid="os-desconto" style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, background: C.white, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 1 }}>Desconto</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: C.espresso }}><span>Valor bruto</span><strong>{fmtBRL(bruto)}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: desc > 0 ? C.red : C.espressoL }}>
+              <span>Desconto{desc > 0 && os.desconto_percentual != null ? ` (${Number(os.desconto_percentual).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)` : ''}</span>
+              <strong>− {fmtBRL(desc)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: C.espresso, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+              <span>A cobrar</span><strong style={{ color: C.gold }} data-testid="os-desconto-acobrar">{fmtBRL(aCobrar)}</strong>
+            </div>
+            {faturada ? (
+              desc > 0 ? <span style={{ fontSize: 10.5, color: C.espressoL, fontStyle: 'italic' }}>🔒 OS faturada — desconto travado (alterar exige estorno){os.desconto_concedido_em ? ` · concedido em ${fmtQuando(os.desconto_concedido_em)}` : ''}.</span> : null
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'inline-flex', border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+                    <button type="button" onClick={() => setDescModo('valor')} style={{ padding: '8px 10px', border: 'none', fontSize: 12, cursor: 'pointer', fontWeight: 700, background: descModo === 'valor' ? C.gold : C.white, color: descModo === 'valor' ? C.white : C.espressoM }}>R$</button>
+                    <button type="button" onClick={() => setDescModo('pct')} style={{ padding: '8px 10px', border: 'none', fontSize: 12, cursor: 'pointer', fontWeight: 700, background: descModo === 'pct' ? C.gold : C.white, color: descModo === 'pct' ? C.white : C.espressoM }}>%</button>
+                  </div>
+                  <input value={descInput} onChange={(e) => { setDescInput(e.target.value); setDescPrecisaAprovacao(false) }} inputMode="decimal" placeholder={descModo === 'pct' ? 'ex: 5' : 'ex: 50,00'} data-testid="os-desconto-input" style={{ ...inp, flex: 1, minWidth: 120 }} />
+                  <button type="button" onClick={() => void aplicarDesconto(false)} disabled={aplicandoDesc} data-testid="os-desconto-aplicar" style={{ ...btnSec, minHeight: 44, borderColor: C.gold, color: C.goldD }}>{aplicandoDesc ? 'Aplicando…' : 'Aplicar desconto'}</button>
+                  {desc > 0 && <button type="button" onClick={() => void aplicarDesconto(false, 0)} disabled={aplicandoDesc} style={{ ...btnSec, minHeight: 44, color: C.red }}>Remover</button>}
+                </div>
+                {descPrecisaAprovacao && (isMaster || isBpo) && (
+                  <button type="button" onClick={() => void aplicarDesconto(true)} disabled={aplicandoDesc} data-testid="os-desconto-aprovar" style={{ ...btnSec, minHeight: 40, borderColor: C.amber, color: C.goldD, background: C.amberBg }}>✓ Aplicar com aprovação (você tem alçada)</button>
+                )}
+                <span style={{ fontSize: 10.5, color: C.espressoL, fontStyle: 'italic' }}>Entrada em R$ ou %; grava sempre em valor. Até o teto da empresa quem fatura concede; acima, exige aprovação de quem tem alçada.</span>
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
         {podeExcluir && (
