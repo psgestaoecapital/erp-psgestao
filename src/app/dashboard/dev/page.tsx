@@ -196,14 +196,26 @@ function Barra({label,pct,semDado,cor}:{label:string;pct:number|null;semDado:boo
 }
 function LeituraDiagnostico(){
   const [rows,setRows]=useState<BarraRow[]|null>(null);
+  // A lista de verticais vem de dev_vertical (MESMA fonte da aba Desenvolvimento) — não mais fixa no código.
+  // As três barras (fn_dev_central_barras) são casadas por slug; vertical sem barra aparece como "sem dado".
+  const [verts,setVerts]=useState<{slug:string;nome:string}[]|null>(null);
   const [erro,setErro]=useState<string|null>(null);
   useEffect(()=>{(async()=>{
-    const{data,error}=await supabase.rpc('fn_dev_central_barras');
-    if(error){setErro(error.message);return;}
-    setRows((data||[]) as BarraRow[]);
+    const [rb,rv]=await Promise.all([
+      supabase.rpc('fn_dev_central_barras'),
+      supabase.from('dev_vertical').select('slug,nome,ativo,ordem').eq('ativo',true).order('ordem').order('nome'),
+    ]);
+    if(rb.error){setErro(rb.error.message);return;}
+    if(rv.error){setErro(rv.error.message);return;}
+    setRows((rb.data||[]) as BarraRow[]);
+    setVerts(((rv.data||[]) as {slug:string;nome:string}[]).map(v=>({slug:v.slug,nome:v.nome})));
   })();},[]);
   if(erro) return <div style={{color:R,fontSize:12}}>Erro ao carregar: {erro}</div>;
-  if(!rows) return <div style={{color:TXM,fontSize:12}}>Carregando as três barras…</div>;
+  if(!rows||!verts) return <div style={{color:TXM,fontSize:12}}>Carregando as três barras…</div>;
+  const byslug=new Map(rows.map(r=>[r.area_slug,r] as const));
+  const devSlugs=new Set(verts.map(v=>v.slug));
+  // dev_vertical dá a lista; qualquer barra cujo slug não esteja em dev_vertical entra ao fim (nenhuma métrica some).
+  const lista=[...verts, ...rows.filter(r=>!devSlugs.has(r.area_slug)).map(r=>({slug:r.area_slug,nome:NOME_VERTICAL[r.area_slug]||r.area_slug}))];
   return(
     <div>
       <div style={{fontSize:13,color:GOL,marginBottom:4,fontWeight:600}}>As três barras por vertical</div>
@@ -211,25 +223,27 @@ function LeituraDiagnostico(){
         <b>Construído</b> = estimado por tela · <b>Auditado</b> = telas que o robô exercita (gold buttons) · <b>Em uso</b> = empresas reais que escreveram em tabela da vertical (30d). "sem dado" ≠ 0%.
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
-        {rows.map(r=>(
-          <div key={r.area_slug} style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
+        {lista.map(item=>{
+          const r=byslug.get(item.slug);
+          return (
+          <div key={item.slug} style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
-              <span style={{fontSize:13,fontWeight:700,color:TX}}>{NOME_VERTICAL[r.area_slug]||r.area_slug}</span>
-              <span style={{fontSize:9,color:TXD,textTransform:'uppercase'}}>{r.status_comercial}{r.telas>0?` · ${r.telas} telas`:''}</span>
+              <span style={{fontSize:13,fontWeight:700,color:TX}}>{item.nome}</span>
+              <span style={{fontSize:9,color:TXD,textTransform:'uppercase'}}>{r?`${r.status_comercial}${r.telas>0?` · ${r.telas} telas`:''}`:'sem dado'}</span>
             </div>
-            <Barra label="Construído" pct={r.construido_pct} semDado={r.construido_sem_dado} cor={G}/>
-            <Barra label={`Auditado${r.auditado_sem_dado?'':` (${r.telas_auditadas}/${r.telas})`}`} pct={r.auditado_pct} semDado={r.auditado_sem_dado} cor={B}/>
+            <Barra label="Construído" pct={r?r.construido_pct:null} semDado={r?r.construido_sem_dado:true} cor={G}/>
+            <Barra label={r&&!r.auditado_sem_dado?`Auditado (${r.telas_auditadas}/${r.telas})`:'Auditado'} pct={r?r.auditado_pct:null} semDado={r?r.auditado_sem_dado:true} cor={B}/>
             {/* Em uso — contagem, não %: chip com nomes. Automação é SEMPRE linha separada, nunca somada. */}
             <div style={{marginTop:6,fontSize:10,color:TXM}}>
               <div style={{marginBottom:3}}>Em uso</div>
-              {r.em_uso_sem_dado ? (
+              {(!r||r.em_uso_sem_dado) ? (
                 <span style={{color:TXD}}>sem dado · núcleo compartilhado</span>
               ) : (r.em_uso_empresas??0)===0 ? (
                 <span style={{color:Y}}>0 empresas · última escrita {fmtDia(r.em_uso_ultima_escrita)}</span>
               ) : (
                 <span style={{color:G}}>{r.em_uso_empresas} {r.em_uso_empresas===1?'empresa':'empresas'} · <span style={{color:TX}}>{(r.em_uso_nomes||[]).join(', ')}</span></span>
               )}
-              {r.automacao_empresas!=null && (
+              {r&&r.automacao_empresas!=null && (
                 <div style={{marginTop:5,paddingTop:5,borderTop:`1px dashed ${BD}`,color:P}}>
                   automação · {r.automacao_rotulo}, {r.automacao_empresas} {r.automacao_empresas===1?'empresa':'empresas'}
                   <span style={{color:TXD}}> (não conta como uso)</span>
@@ -237,7 +251,8 @@ function LeituraDiagnostico(){
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
