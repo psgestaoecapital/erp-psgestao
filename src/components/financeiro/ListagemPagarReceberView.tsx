@@ -191,6 +191,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // Camada1/Fatia2 estabilizacao contas a pagar (08/07):
   const [pagSort, setPagSort] = useState<'off' | 'asc' | 'desc'>('off')   // item 1: coluna Pagamento ordenavel
   const [contaMap, setContaMap] = useState<Record<string, string>>({})     // item 3: id -> conta bancaria (texto)
+  // PR3b (Jordana #106/#38): por título de receber, o split das baixas — conciliado x aguardando conciliação.
+  const [baixaMap, setBaixaMap] = useState<Record<string, { conc: number; agu: number }>>({})
   const [contasSel, setContasSel] = useState<Set<string>>(new Set())
 
   // GE-CARDS-404 · filtro inicial via query param (?status=vencido|hoje|avencer), disparado pelos
@@ -527,6 +529,33 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         if (x.conta_bancaria && x.conta_bancaria.trim()) map[x.id] = x.conta_bancaria.trim()
       })
       setContaMap(map)
+    })()
+    return () => { alive = false }
+  }, [data, tipo])
+
+  // PR3b (Jordana #106/#38): busca as baixas dos títulos de receber visíveis e agrega por título em
+  // { conc: soma das baixas conciliadas (com movimento_banco_id), agu: soma aguardando conciliação (sem) }.
+  // Lê erp_receber_baixa sob RLS (mesmo padrão aditivo do contaMap). Só receber.
+  useEffect(() => {
+    if (tipo !== 'receber') { setBaixaMap({}); return }
+    const ids = (data?.resultados ?? []).map((r) => r.id)
+    if (ids.length === 0) { setBaixaMap({}); return }
+    let alive = true
+    ;(async () => {
+      const { data: rows, error } = await supabase
+        .from('erp_receber_baixa')
+        .select('receber_id, valor, movimento_banco_id')
+        .in('receber_id', ids)
+        .is('deleted_at', null)
+      if (!alive || error || !rows) { if (alive && error) setBaixaMap({}); return }
+      const map: Record<string, { conc: number; agu: number }> = {}
+      ;(rows as { receber_id: string; valor: number | null; movimento_banco_id: string | null }[]).forEach((x) => {
+        const m = map[x.receber_id] ?? { conc: 0, agu: 0 }
+        if (x.movimento_banco_id) m.conc += Number(x.valor) || 0
+        else m.agu += Number(x.valor) || 0
+        map[x.receber_id] = m
+      })
+      setBaixaMap(map)
     })()
     return () => { alive = false }
   }, [data, tipo])
@@ -1216,9 +1245,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* principal = valor do DOCUMENTO (fonte da verdade). valor_pago vira detalhe. */}
                           <strong>{fmtBRL(r.valor_documento)}</strong>
                           {r.status === 'parcial' && (r.valor_pago ?? 0) > 0 && (
-                            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
-                              {tipo === 'pagar' ? 'pago' : 'recebido'} {fmtBRL(r.valor_pago ?? 0)} · saldo {fmtBRL(Math.max(0, r.valor_documento - (r.valor_pago ?? 0)))}
-                            </div>
+                            tipo === 'pagar' ? (
+                              <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
+                                pago {fmtBRL(r.valor_pago ?? 0)} · saldo {fmtBRL(Math.max(0, r.valor_documento - (r.valor_pago ?? 0)))}
+                              </div>
+                            ) : (
+                              /* PR3b (Jordana #106): saldo aberto e o pago em DUAS linhas — o recebido aguardando
+                                 conciliação é dinheiro que entrou mas ainda não casou no extrato (não é saldo a cobrar). */
+                              <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', marginTop: 2, lineHeight: 1.5 }}>
+                                <div>aberto {fmtBRL(Math.max(0, r.valor_documento - (r.valor_pago ?? 0)))}</div>
+                                {(baixaMap[r.id]?.agu ?? 0) > 0 && (
+                                  <div style={{ color: '#0D9488' }}>pago aguardando conciliação {fmtBRL(baixaMap[r.id]!.agu)}</div>
+                                )}
+                                {(baixaMap[r.id]?.conc ?? 0) > 0 && (
+                                  <div style={{ color: '#16A34A' }}>recebido conciliado {fmtBRL(baixaMap[r.id]!.conc)}</div>
+                                )}
+                                {(baixaMap[r.id]?.agu ?? 0) === 0 && (baixaMap[r.id]?.conc ?? 0) === 0 && (
+                                  <div>recebido {fmtBRL(r.valor_pago ?? 0)}</div>
+                                )}
+                              </div>
+                            )
                           )}
                           {/* AVISO de divergência: pago ≠ documento (sem juros/multa que justifique) → flag p/ conferir. */}
                           {r.status === 'pago' && r.valor_pago != null && Math.abs((r.valor_pago ?? 0) - r.valor_documento) > 0.01 && (
